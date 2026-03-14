@@ -12,7 +12,7 @@ defmodule RefMD.Documents.Document do
     belongs_to :active_snapshot, RefMD.Documents.DocumentSnapshot
 
     field :position, :integer, default: 0
-    field :title, :string, default: "Untitled"
+    field :title, :string
     field :encrypted_title, :binary
     field :encrypted_title_nonce, :binary
     field :encrypted_title_key_version, :integer

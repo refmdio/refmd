@@ -520,6 +520,21 @@
         "title": "CreateDeviceRegistrationRequest",
         "type": "object"
       },
+      "DocumentKeysResponse": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentKeyResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "title": "DocumentKeysResponse",
+        "type": "object"
+      },
       "UpdateRoleRequest": {
         "properties": {
           "is_default": {
@@ -823,6 +838,97 @@
         "title": "CreateInvitationRequest",
         "type": "object"
       },
+      "DocumentResponse": {
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "doc_type": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "encrypted_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_encrypted": {
+            "type": "boolean"
+          },
+          "min_dek_version": {
+            "type": "integer"
+          },
+          "needs_dek_rotation": {
+            "type": "boolean"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "path": {
+            "nullable": true,
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "position",
+          "title",
+          "slug",
+          "doc_type",
+          "is_encrypted",
+          "needs_dek_rotation",
+          "min_dek_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DocumentResponse",
+        "type": "object"
+      },
       "WorkspaceMemberKeysResponse": {
         "properties": {
           "members": {
@@ -849,6 +955,29 @@
           "members"
         ],
         "title": "WorkspaceMemberKeysResponse",
+        "type": "object"
+      },
+      "UpdateDocumentRequest": {
+        "properties": {
+          "encrypted_title": {
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "title": "UpdateDocumentRequest",
         "type": "object"
       },
       "WorkspacesListResponse": {
@@ -907,6 +1036,48 @@
           "kdf_params"
         ],
         "title": "SaltResponse",
+        "type": "object"
+      },
+      "CreateDocumentRequest": {
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "encrypted_title": {
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "doc_type"
+        ],
+        "title": "CreateDocumentRequest",
         "type": "object"
       },
       "RecoveryChallengeResponse": {
@@ -988,6 +1159,21 @@
           "nonce"
         ],
         "title": "DistributeUmkRequest",
+        "type": "object"
+      },
+      "DocumentsListResponse": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "title": "DocumentsListResponse",
         "type": "object"
       },
       "SaveMemberEnvelopesRequest": {
@@ -1700,6 +1886,35 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "ReorderDocumentRequest": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "position": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "document_id",
+          "parent_id",
+          "position"
+        ],
+        "title": "ReorderDocumentRequest",
+        "type": "object"
+      },
       "WorkspaceResponse": {
         "properties": {
           "created_at": {
@@ -1806,6 +2021,32 @@
         "title": "TrustTransferNonceResponse",
         "type": "object"
       },
+      "CreateDocumentKeyRequest": {
+        "properties": {
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "kek_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "key_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "encrypted_dek",
+          "nonce",
+          "key_version",
+          "kek_version"
+        ],
+        "title": "CreateDocumentKeyRequest",
+        "type": "object"
+      },
       "ApproveDeviceRequest": {
         "properties": {
           "identity_signature": {
@@ -1816,6 +2057,40 @@
           "identity_signature"
         ],
         "title": "ApproveDeviceRequest",
+        "type": "object"
+      },
+      "DocumentKeyResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "key_version",
+          "encrypted_dek",
+          "nonce",
+          "is_active",
+          "created_at"
+        ],
+        "title": "DocumentKeyResponse",
         "type": "object"
       },
       "MemberEnvelopeResponse": {
@@ -2438,6 +2713,186 @@
         "tags": []
       }
     },
+    "/api/documents/{document_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot delete"
+          }
+        },
+        "summary": "Delete a document permanently",
+        "tags": []
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Document details"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get document details",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDocumentRequest"
+              }
+            }
+          },
+          "description": "Update params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Updated document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update a document",
+        "tags": []
+      }
+    },
     "/api/auth/password-reset/request": {
       "post": {
         "callbacks": {},
@@ -2736,6 +3191,289 @@
           }
         },
         "summary": "Request a PoP challenge nonce",
+        "tags": []
+      }
+    },
+    "/api/documents": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "query",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentsListResponse"
+                }
+              }
+            },
+            "description": "Document list"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List documents in a workspace",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentRequest"
+              }
+            }
+          },
+          "description": "Document params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Created document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a document or folder",
+        "tags": []
+      }
+    },
+    "/api/encryption/documents/{document_id}/keys": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.get_document_keys",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentKeysResponse"
+                }
+              }
+            },
+            "description": "Document keys"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get all DEK versions for a document",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.create_document_key",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentKeyRequest"
+              }
+            }
+          },
+          "description": "DEK params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Key created"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Version already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Register a DEK for a document",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/archive": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.archive",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Archived document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Already archived"
+          }
+        },
+        "summary": "Archive a document recursively",
         "tags": []
       }
     },
@@ -3206,6 +3944,58 @@
         "tags": []
       }
     },
+    "/api/documents/reorder": {
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.reorder",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderDocumentRequest"
+              }
+            }
+          },
+          "description": "Reorder params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Reordered document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Reorder a document (move and/or change position)",
+        "tags": []
+      }
+    },
     "/api/encryption/setup-complete": {
       "post": {
         "callbacks": {},
@@ -3224,6 +4014,67 @@
           }
         },
         "summary": "Mark encryption setup as complete",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/unarchive": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentController.unarchive",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Unarchived document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not archived or ancestor archived"
+          }
+        },
+        "summary": "Unarchive a document recursively",
         "tags": []
       }
     },

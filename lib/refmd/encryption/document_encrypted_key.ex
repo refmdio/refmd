@@ -16,10 +16,19 @@ defmodule RefMD.Encryption.DocumentEncryptedKey do
 
   @type t :: %__MODULE__{}
 
+  alias RefMD.Crypto.Validate
+
+  @dek_bytes 32
+
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
     key
     |> cast(attrs, [:document_id, :key_version, :encrypted_dek, :nonce, :is_active])
     |> validate_required([:document_id, :key_version, :encrypted_dek, :nonce, :is_active])
+    |> Validate.validate_nonce()
+    |> Validate.validate_wrapped_key(:encrypted_dek, @dek_bytes)
+    |> unique_constraint([:document_id, :key_version],
+      name: :document_encrypted_keys_pkey
+    )
   end
 end

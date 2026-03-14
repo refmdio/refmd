@@ -105,6 +105,16 @@ defmodule RefMDWeb.Router do
     # Trust transfer (PoP required: state sending)
     post "/trust-transfer/state", TrustTransferController, :send_state
 
+    # Documents
+    get "/documents", DocumentController, :index
+    post "/documents", DocumentController, :create
+    patch "/documents/reorder", DocumentController, :reorder
+    get "/documents/:document_id", DocumentController, :show
+    patch "/documents/:document_id", DocumentController, :update
+    delete "/documents/:document_id", DocumentController, :delete
+    post "/documents/:document_id/archive", DocumentController, :archive
+    post "/documents/:document_id/unarchive", DocumentController, :unarchive
+
     # Workspaces
     get "/workspaces/ids", EncryptionController, :workspace_ids
     get "/workspaces", WorkspaceController, :index
@@ -140,7 +150,11 @@ defmodule RefMDWeb.Router do
     post "/devices/:device_id/keys/umk", EncryptionController, :distribute_umk
     get "/devices/:device_id/keys/umk", EncryptionController, :get_umk
 
-    # Encryption (KEK/DEK operations)
+    # Encryption (DEK operations)
+    get "/encryption/documents/:document_id/keys", EncryptionController, :get_document_keys
+    post "/encryption/documents/:document_id/keys", EncryptionController, :create_document_key
+
+    # Encryption (KEK operations)
     post "/encryption/workspaces/:workspace_id/keys", EncryptionController, :create_workspace_key
     get "/encryption/workspaces/:workspace_id/keys", EncryptionController, :get_workspace_keys
 

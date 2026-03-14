@@ -13,5 +13,15 @@ defmodule RefMD.Repo.Migrations.CreateEncryptionDocument do
       add :is_active, :boolean, null: false
       add :created_at, :utc_datetime_usec, null: false
     end
+
+    execute(
+      "ALTER TABLE document_encrypted_keys ADD CONSTRAINT dek_nonce_size CHECK (octet_length(nonce) = 24)",
+      "ALTER TABLE document_encrypted_keys DROP CONSTRAINT dek_nonce_size"
+    )
+
+    execute(
+      "ALTER TABLE document_encrypted_keys ADD CONSTRAINT dek_ciphertext_size CHECK (octet_length(encrypted_dek) = 48)",
+      "ALTER TABLE document_encrypted_keys DROP CONSTRAINT dek_ciphertext_size"
+    )
   end
 end

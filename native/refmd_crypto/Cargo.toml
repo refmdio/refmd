@@ -1,0 +1,13 @@
+[package]
+name = "refmd_crypto"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "refmd_crypto"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.37"
+blake3 = "1.5"

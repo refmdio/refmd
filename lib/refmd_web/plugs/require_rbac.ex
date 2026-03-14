@@ -86,11 +86,13 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
     %{permission: permission, not_member_status: not_member_status}
   end
 
-  @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+  @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
 
   @spec call(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def call(conn, %{permission: permission, not_member_status: not_member_status}) do
-    workspace_id = conn.path_params["workspace_id"]
+    workspace_id =
+      conn.path_params["workspace_id"] || conn.assigns[:workspace_id] ||
+        conn.params["workspace_id"]
 
     if Regex.match?(@uuid_regex, workspace_id || "") do
       do_call(conn, workspace_id, permission, not_member_status)

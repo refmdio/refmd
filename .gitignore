@@ -6,7 +6,9 @@
 
 # Build
 /priv/static/assets
+/priv/native/
 /target
+/native/*/target/
 
 # Local
 /local

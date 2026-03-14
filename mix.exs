@@ -65,6 +65,7 @@ defmodule RefMD.MixProject do
       {:oban, "~> 2.19"},
       {:swoosh, "~> 1.17"},
       {:libcluster, "~> 3.4"},
+      {:rustler, "~> 0.37"},
 
       # Dev/test tools
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

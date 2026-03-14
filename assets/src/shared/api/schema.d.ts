@@ -108,6 +108,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get document details */
+        get: operations["RefMDWeb.DocumentController.show"];
+        put?: never;
+        post?: never;
+        /** Delete a document permanently */
+        delete: operations["RefMDWeb.DocumentController.delete"];
+        options?: never;
+        head?: never;
+        /** Update a document */
+        patch: operations["RefMDWeb.DocumentController.update"];
+        trace?: never;
+    };
     "/api/auth/password-reset/request": {
         parameters: {
             query?: never;
@@ -221,6 +240,59 @@ export interface paths {
         put?: never;
         /** Request a PoP challenge nonce */
         post: operations["RefMDWeb.AuthController.pop_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List documents in a workspace */
+        get: operations["RefMDWeb.DocumentController.index"];
+        put?: never;
+        /** Create a document or folder */
+        post: operations["RefMDWeb.DocumentController.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/documents/{document_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get all DEK versions for a document */
+        get: operations["RefMDWeb.EncryptionController.get_document_keys"];
+        put?: never;
+        /** Register a DEK for a document */
+        post: operations["RefMDWeb.EncryptionController.create_document_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive a document recursively */
+        post: operations["RefMDWeb.DocumentController.archive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -349,6 +421,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Reorder a document (move and/or change position) */
+        patch: operations["RefMDWeb.DocumentController.reorder"];
+        trace?: never;
+    };
     "/api/encryption/setup-complete": {
         parameters: {
             query?: never;
@@ -360,6 +449,23 @@ export interface paths {
         put?: never;
         /** Mark encryption setup as complete */
         post: operations["RefMDWeb.EncryptionController.setup_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unarchive a document recursively */
+        post: operations["RefMDWeb.DocumentController.unarchive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -944,6 +1050,10 @@ export interface components {
             identity_signing_public_key: string;
             name?: string;
         };
+        /** DocumentKeysResponse */
+        DocumentKeysResponse: {
+            keys: components["schemas"]["DocumentKeyResponse"][];
+        };
         /** UpdateRoleRequest */
         UpdateRoleRequest: {
             is_default?: boolean;
@@ -1042,6 +1152,35 @@ export interface components {
             token_hash: string;
             token_prefix: string;
         };
+        /** DocumentResponse */
+        DocumentResponse: {
+            /** Format: date-time */
+            archived_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            encrypted_title?: string | null;
+            encrypted_title_key_version?: number | null;
+            encrypted_title_nonce?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_encrypted: boolean;
+            min_dek_version: number;
+            needs_dek_rotation: boolean;
+            /** Format: uuid */
+            parent_id?: string | null;
+            path?: string | null;
+            position: number;
+            slug: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** WorkspaceMemberKeysResponse */
         WorkspaceMemberKeysResponse: {
             members: {
@@ -1049,6 +1188,15 @@ export interface components {
                 /** Format: uuid */
                 user_id: string;
             }[];
+        };
+        /** UpdateDocumentRequest */
+        UpdateDocumentRequest: {
+            encrypted_title?: string;
+            encrypted_title_key_version?: number;
+            encrypted_title_nonce?: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            title?: string;
         };
         /** WorkspacesListResponse */
         WorkspacesListResponse: {
@@ -1066,6 +1214,21 @@ export interface components {
         SaltResponse: {
             kdf_params: components["schemas"]["KdfParams"];
             salt: string;
+        };
+        /** CreateDocumentRequest */
+        CreateDocumentRequest: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            encrypted_title?: string;
+            encrypted_title_key_version?: number;
+            encrypted_title_nonce?: string;
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            title?: string;
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** RecoveryChallengeResponse */
         RecoveryChallengeResponse: {
@@ -1093,6 +1256,10 @@ export interface components {
             nonce: string;
             /** Format: uuid */
             sender_device_id: string;
+        };
+        /** DocumentsListResponse */
+        DocumentsListResponse: {
+            documents: components["schemas"]["DocumentResponse"][];
         };
         /** SaveMemberEnvelopesRequest */
         SaveMemberEnvelopesRequest: {
@@ -1325,6 +1492,16 @@ export interface components {
             };
             error: string;
         };
+        /** ReorderDocumentRequest */
+        ReorderDocumentRequest: {
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            parent_id: string | null;
+            position: number;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** WorkspaceResponse */
         WorkspaceResponse: {
             /** Format: date-time */
@@ -1359,9 +1536,27 @@ export interface components {
             expires_at: string;
             nonce: string;
         };
+        /** CreateDocumentKeyRequest */
+        CreateDocumentKeyRequest: {
+            encrypted_dek: string;
+            kek_version: number;
+            key_version: number;
+            nonce: string;
+        };
         /** ApproveDeviceRequest */
         ApproveDeviceRequest: {
             identity_signature: string;
+        };
+        /** DocumentKeyResponse */
+        DocumentKeyResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            is_active: boolean;
+            key_version: number;
+            nonce: string;
         };
         /** MemberEnvelopeResponse */
         MemberEnvelopeResponse: {
@@ -1756,6 +1951,149 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DocumentController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot delete */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Update params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.password_reset_request": {
         parameters: {
             query?: never;
@@ -1999,6 +2337,232 @@ export interface operations {
             };
             /** @description Invalid device */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentController.index": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentsListResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Document params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created document */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.get_document_keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentKeysResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.create_document_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description DEK params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Version already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentController.archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Already archived */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2372,6 +2936,49 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DocumentController.reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Reorder params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReorderDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Reordered document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.EncryptionController.setup_complete": {
         parameters: {
             query?: never;
@@ -2388,6 +2995,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentController.unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unarchived document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not archived or ancestor archived */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

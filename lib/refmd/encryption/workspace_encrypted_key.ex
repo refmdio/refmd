@@ -19,8 +19,9 @@ defmodule RefMD.Encryption.WorkspaceEncryptedKey do
 
   @type t :: %__MODULE__{}
 
-  @xchacha20_nonce_bytes 24
-  @encrypted_kek_bytes 48
+  alias RefMD.Crypto.Validate
+
+  @kek_bytes 32
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
@@ -45,19 +46,11 @@ defmodule RefMD.Encryption.WorkspaceEncryptedKey do
       :nonce,
       :is_active
     ])
-    |> validate_binary_size(:nonce, @xchacha20_nonce_bytes)
-    |> validate_binary_size(:encrypted_kek, @encrypted_kek_bytes)
+    |> Validate.validate_nonce()
+    |> Validate.validate_wrapped_key(:encrypted_kek, @kek_bytes)
     |> unique_constraint([:workspace_id, :user_id, :device_id, :key_version],
       name: :workspace_encrypted_keys_pkey,
       message: "key version already exists for this device"
     )
-  end
-
-  defp validate_binary_size(changeset, field, expected) do
-    validate_change(changeset, field, fn _, value ->
-      if byte_size(value) == expected,
-        do: [],
-        else: [{field, "must be exactly #{expected} bytes"}]
-    end)
   end
 end
