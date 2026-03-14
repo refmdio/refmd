@@ -5,16 +5,27 @@ defmodule RefMD.Auth do
 
   import Ecto.Query
 
-  alias RefMD.Auth.{
-    PasswordResetToken,
-    PopChallenge,
-    RecoveryChallenge,
-    Session,
-    TrustTransferNonce,
-    TrustTransferState
-  }
-
+  alias RefMD.Auth.{PopChallenge, RecoveryChallenge, Session}
   alias RefMD.Repo
+
+  alias RefMD.Auth.PasswordResets, as: WPasswordResets
+  alias RefMD.Auth.TrustTransfer, as: WTrustTransfer
+
+  # ── Trust Transfer (delegated to RefMD.Auth.TrustTransfer) ──
+
+  defdelegate create_trust_transfer_nonce(user_id, device_id), to: WTrustTransfer
+  defdelegate consume_trust_transfer_nonce(user_id, device_id, transfer_nonce), to: WTrustTransfer
+  defdelegate trust_transfer_max_payload_bytes(), to: WTrustTransfer
+  defdelegate save_trust_transfer_state(attrs), to: WTrustTransfer
+  defdelegate consume_trust_transfer_state(user_id, device_id), to: WTrustTransfer
+  defdelegate delete_expired_trust_transfer_nonces(), to: WTrustTransfer
+
+  # ── Password Reset (delegated to RefMD.Auth.PasswordResets) ──
+
+  defdelegate create_password_reset_token(user_id), to: WPasswordResets
+  defdelegate can_send_password_reset?(user_id), to: WPasswordResets
+  defdelegate verify_password_reset_token(raw_token), to: WPasswordResets
+  defdelegate delete_expired_password_reset_tokens(), to: WPasswordResets
 
   # ── Sessions ───────────────────────────────────
 
@@ -169,94 +180,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  # ── Trust Transfer ────────────────────────────
-
-  @trust_transfer_nonce_ttl 5 * 60
-  @trust_transfer_max_payload_bytes 1_048_576
-
-  @spec create_trust_transfer_nonce(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, binary(), DateTime.t()} | {:error, Ecto.Changeset.t()}
-  def create_trust_transfer_nonce(user_id, device_id) do
-    nonce = :crypto.strong_rand_bytes(32)
-    now = DateTime.utc_now()
-
-    %TrustTransferNonce{created_at: now}
-    |> TrustTransferNonce.changeset(%{
-      user_id: user_id,
-      device_id: device_id,
-      nonce: nonce,
-      expires_at: DateTime.add(now, @trust_transfer_nonce_ttl, :second)
-    })
-    |> Repo.insert(
-      on_conflict: {:replace, [:nonce, :expires_at, :created_at]},
-      conflict_target: [:user_id, :device_id]
-    )
-    |> case do
-      {:ok, record} -> {:ok, record.nonce, record.expires_at}
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
-  @spec consume_trust_transfer_nonce(Ecto.UUID.t(), Ecto.UUID.t(), binary()) ::
-          :ok | {:error, :invalid_nonce}
-  def consume_trust_transfer_nonce(user_id, device_id, transfer_nonce) do
-    now = DateTime.utc_now()
-
-    query =
-      from(n in TrustTransferNonce,
-        where:
-          n.user_id == ^user_id and
-            n.device_id == ^device_id and
-            n.nonce == ^transfer_nonce and
-            n.expires_at > ^now
-      )
-
-    case Repo.delete_all(query) do
-      {1, _} -> :ok
-      {0, _} -> {:error, :invalid_nonce}
-    end
-  end
-
-  @spec trust_transfer_max_payload_bytes() :: pos_integer()
-  def trust_transfer_max_payload_bytes, do: @trust_transfer_max_payload_bytes
-
-  @spec save_trust_transfer_state(map()) ::
-          {:ok, TrustTransferState.t()} | {:error, Ecto.Changeset.t()}
-  def save_trust_transfer_state(attrs) do
-    %TrustTransferState{created_at: DateTime.utc_now()}
-    |> TrustTransferState.changeset(attrs)
-    |> Repo.insert(
-      on_conflict: {:replace, [:sender_device_id, :ciphertext, :nonce, :signature, :created_at]},
-      conflict_target: :device_id
-    )
-  end
-
-  @spec consume_trust_transfer_state(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, TrustTransferState.t()} | {:error, :not_found}
-  def consume_trust_transfer_state(user_id, device_id) do
-    Repo.transaction(fn ->
-      query =
-        from(s in TrustTransferState,
-          where: s.user_id == ^user_id and s.device_id == ^device_id,
-          lock: "FOR UPDATE"
-        )
-
-      case Repo.one(query) do
-        nil ->
-          Repo.rollback(:not_found)
-
-        state ->
-          Repo.delete_all(
-            from(s in TrustTransferState,
-              where: s.user_id == ^user_id and s.device_id == ^device_id
-            )
-          )
-
-          state
-      end
-    end)
-  end
-
   # ── Recovery ──────────────────────────────────
 
   @recovery_challenge_ttl 5 * 60
@@ -317,20 +240,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  defp verify_recovery_timestamp(timestamp_ms) do
-    now_ms = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
-    diff_ms = now_ms - timestamp_ms
-
-    diff_ms >= -@recovery_timestamp_future_tolerance_ms and
-      diff_ms <= @recovery_timestamp_past_tolerance_ms
-  end
-
-  defp build_recovery_signature_message(challenge, email, timestamp_ms) do
-    email_bytes = String.downcase(email)
-    timestamp_bytes = <<timestamp_ms::little-unsigned-64>>
-    "recovery-session:" <> challenge <> email_bytes <> timestamp_bytes
-  end
-
   # ── Cleanup ───────────────────────────────────
 
   @spec delete_expired_pop_challenges() :: {non_neg_integer(), nil}
@@ -372,80 +281,6 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
-  @spec delete_expired_trust_transfer_nonces() :: {non_neg_integer(), nil}
-  def delete_expired_trust_transfer_nonces do
-    now = DateTime.utc_now()
-
-    from(n in TrustTransferNonce, where: n.expires_at < ^now)
-    |> Repo.delete_all()
-  end
-
-  # ── Password Reset ────────────────────────────
-
-  @password_reset_ttl 60 * 60
-  @password_reset_rate_limit 5 * 60
-
-  @spec create_password_reset_token(Ecto.UUID.t()) ::
-          {:ok, binary()} | {:error, Ecto.Changeset.t()}
-  def create_password_reset_token(user_id) do
-    token = :crypto.strong_rand_bytes(32)
-    token_hash = Base.url_encode64(:crypto.hash(:sha256, token), padding: false)
-    now = DateTime.utc_now()
-
-    case %PasswordResetToken{created_at: now}
-         |> PasswordResetToken.changeset(%{
-           user_id: user_id,
-           token_hash: token_hash,
-           expires_at: DateTime.add(now, @password_reset_ttl, :second)
-         })
-         |> Repo.insert() do
-      {:ok, _} -> {:ok, token}
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
-  @spec can_send_password_reset?(Ecto.UUID.t()) :: boolean()
-  def can_send_password_reset?(user_id) do
-    cutoff = DateTime.add(DateTime.utc_now(), -@password_reset_rate_limit, :second)
-
-    not Repo.exists?(
-      from(t in PasswordResetToken,
-        where: t.user_id == ^user_id and t.created_at > ^cutoff
-      )
-    )
-  end
-
-  @spec verify_password_reset_token(binary()) :: {:ok, Ecto.UUID.t()} | {:error, :invalid_token}
-  def verify_password_reset_token(raw_token) do
-    token_hash = Base.url_encode64(:crypto.hash(:sha256, raw_token), padding: false)
-    now = DateTime.utc_now()
-
-    Repo.transaction(fn ->
-      query =
-        from(t in PasswordResetToken,
-          where: t.token_hash == ^token_hash and t.expires_at > ^now,
-          lock: "FOR UPDATE"
-        )
-
-      case Repo.one(query) do
-        nil ->
-          Repo.rollback(:invalid_token)
-
-        token ->
-          Repo.delete!(token)
-          token.user_id
-      end
-    end)
-  end
-
-  @spec delete_expired_password_reset_tokens() :: {non_neg_integer(), nil}
-  def delete_expired_password_reset_tokens do
-    now = DateTime.utc_now()
-
-    from(t in PasswordResetToken, where: t.expires_at < ^now)
-    |> Repo.delete_all()
-  end
-
   # ── Authentication Helpers ─────────────────────
 
   @spec get_salt_for_email(String.t()) ::
@@ -469,6 +304,35 @@ defmodule RefMD.Auth do
     end
   end
 
+  @spec verify_auth_key(String.t(), String.t()) ::
+          {:ok, RefMD.Users.User.t()} | {:error, :invalid_credentials}
+  def verify_auth_key(email, auth_key) do
+    with %RefMD.Users.User{} = user <- RefMD.Users.get_user_by_email(email),
+         auth_key_hash when auth_key_hash != nil <- get_auth_key_hash(user.id) do
+      verify_auth_key_hash(user, auth_key, auth_key_hash)
+    else
+      _ ->
+        Bcrypt.no_user_verify()
+        {:error, :invalid_credentials}
+    end
+  end
+
+  # ── Private Helpers ────────────────────────────
+
+  defp verify_recovery_timestamp(timestamp_ms) do
+    now_ms = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+    diff_ms = now_ms - timestamp_ms
+
+    diff_ms >= -@recovery_timestamp_future_tolerance_ms and
+      diff_ms <= @recovery_timestamp_past_tolerance_ms
+  end
+
+  defp build_recovery_signature_message(challenge, email, timestamp_ms) do
+    email_bytes = String.downcase(email)
+    timestamp_bytes = <<timestamp_ms::little-unsigned-64>>
+    "recovery-session:" <> challenge <> email_bytes <> timestamp_bytes
+  end
+
   defp generate_dummy_salt(email) do
     secret = dummy_salt_secret()
 
@@ -483,19 +347,6 @@ defmodule RefMD.Auth do
 
       secret when is_binary(secret) ->
         secret
-    end
-  end
-
-  @spec verify_auth_key(String.t(), String.t()) ::
-          {:ok, RefMD.Users.User.t()} | {:error, :invalid_credentials}
-  def verify_auth_key(email, auth_key) do
-    with %RefMD.Users.User{} = user <- RefMD.Users.get_user_by_email(email),
-         auth_key_hash when auth_key_hash != nil <- get_auth_key_hash(user.id) do
-      verify_auth_key_hash(user, auth_key, auth_key_hash)
-    else
-      _ ->
-        Bcrypt.no_user_verify()
-        {:error, :invalid_credentials}
     end
   end
 
@@ -514,8 +365,6 @@ defmodule RefMD.Auth do
       master_key -> master_key.auth_key_hash
     end
   end
-
-  # ── Shared Helpers ──────────────────────────────
 
   defp get_identity_signing_public_key(user_id) do
     case RefMD.Encryption.get_user_identity_public_key(user_id) do
