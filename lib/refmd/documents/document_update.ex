@@ -8,6 +8,7 @@ defmodule RefMD.Documents.DocumentUpdate do
   schema "document_updates" do
     belongs_to :document, RefMD.Documents.Document
     belongs_to :snapshot, RefMD.Documents.DocumentSnapshot
+    belongs_to :device, RefMD.Devices.Device
 
     field :clock, :integer
     field :version, :integer
@@ -31,6 +32,7 @@ defmodule RefMD.Documents.DocumentUpdate do
     |> cast(attrs, [
       :document_id,
       :snapshot_id,
+      :device_id,
       :clock,
       :version,
       :device_signing_pub_key,
@@ -54,7 +56,12 @@ defmodule RefMD.Documents.DocumentUpdate do
       :timestamp
     ])
     |> validate_signature_mac_exclusivity()
-    |> unique_constraint(:update_hash)
+    |> unique_constraint([:document_id, :version],
+      name: :document_updates_document_id_version_index
+    )
+    |> unique_constraint([:document_id, :update_hash],
+      name: :document_updates_document_id_update_hash_index
+    )
   end
 
   defp validate_signature_mac_exclusivity(changeset) do
@@ -67,14 +74,39 @@ defmodule RefMD.Documents.DocumentUpdate do
 
       {_, nil} when not is_nil(sig) ->
         changeset
-        |> validate_required([:clock, :device_signing_pub_key])
+        |> validate_required([:clock, :device_signing_pub_key, :device_id])
+        |> reject_share_fields()
 
       {nil, _} when not is_nil(mac) ->
         changeset
         |> validate_required([:share_id])
+        |> reject_member_fields()
 
       {_, _} ->
         add_error(changeset, :signature, "signature and mac are mutually exclusive")
+    end
+  end
+
+  defp reject_share_fields(changeset) do
+    if get_field(changeset, :share_id) do
+      add_error(changeset, :share_id, "must not be set for member updates")
+    else
+      changeset
+    end
+  end
+
+  defp reject_member_fields(changeset) do
+    changeset
+    |> reject_field(:clock, "must not be set for share updates")
+    |> reject_field(:device_signing_pub_key, "must not be set for share updates")
+    |> reject_field(:device_id, "must not be set for share updates")
+  end
+
+  defp reject_field(changeset, field, msg) do
+    if get_field(changeset, field) do
+      add_error(changeset, field, msg)
+    else
+      changeset
     end
   end
 end

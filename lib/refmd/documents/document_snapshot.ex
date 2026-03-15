@@ -8,6 +8,7 @@ defmodule RefMD.Documents.DocumentSnapshot do
   schema "document_snapshots" do
     belongs_to :document, RefMD.Documents.Document
     belongs_to :parent_snapshot, RefMD.Documents.DocumentSnapshot
+    belongs_to :device, RefMD.Devices.Device
 
     field :latest_version, :integer
     field :data, :binary
@@ -28,8 +29,10 @@ defmodule RefMD.Documents.DocumentSnapshot do
   def changeset(snapshot, attrs) do
     snapshot
     |> cast(attrs, [
+      :id,
       :document_id,
       :parent_snapshot_id,
+      :device_id,
       :latest_version,
       :data,
       :nonce,
@@ -43,6 +46,7 @@ defmodule RefMD.Documents.DocumentSnapshot do
     ])
     |> validate_required([
       :document_id,
+      :device_id,
       :latest_version,
       :data,
       :nonce,

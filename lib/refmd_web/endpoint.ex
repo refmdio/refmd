@@ -11,9 +11,17 @@ defmodule RefMDWeb.Endpoint do
     same_site: "Lax"
   ]
 
-  # socket "/live", Phoenix.LiveView.Socket,
-  #   websocket: [connect_info: [session: @session_options]],
-  #   longpoll: [connect_info: [session: @session_options]]
+  socket "/api/socket", RefMDWeb.UserSocket,
+    websocket: [
+      connect_info: [
+        :peer_data,
+        :uri,
+        session_token: {RefMDWeb.SocketAuth, :extract_session_token, []},
+        origin: {RefMDWeb.SocketAuth, :extract_origin, []}
+      ],
+      check_origin: {RefMDWeb.SocketAuth, :check_origin, []}
+    ],
+    longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
   #

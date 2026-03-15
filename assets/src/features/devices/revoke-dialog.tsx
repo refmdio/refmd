@@ -97,7 +97,13 @@ export function RevokeDeviceDialog(props: Props) {
 
       props.onRevoked();
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Revocation failed");
+      if (err instanceof Error && err.message.includes("retire_blocked_by_unbound_sessions")) {
+        props.onError(
+          "Cannot use safe removal while a device registration or recovery is in progress. Please complete or cancel it first, or use the 'Lost or compromised' option.",
+        );
+      } else {
+        props.onError(err instanceof Error ? err.message : "Revocation failed");
+      }
     } finally {
       setLoading(false);
     }

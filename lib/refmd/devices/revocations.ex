@@ -25,9 +25,11 @@ defmodule RefMD.Devices.Revocations do
       ) do
     now = DateTime.utc_now()
 
-    Repo.transaction(fn ->
+    with_serializable_retry(fn ->
+      check_retire_preconditions!(user_id, revocation_mode)
       mark_device_revoked(user_id, device_id, now)
-      invalidate_revoked_device_sessions(user_id, device_id, revocation_mode)
+      cleanup_sessions(user_id, device_id, revocation_mode)
+      invalidate_transient_state(device_id)
 
       insert_revocation_event(
         user_id,
@@ -43,6 +45,14 @@ defmodule RefMD.Devices.Revocations do
 
       %{workspaces_needing_kek_rotation: workspaces_for_rotation}
     end)
+    |> case do
+      {:ok, result} ->
+        disconnect_ws(user_id, device_id, revocation_mode)
+        {:ok, result}
+
+      error ->
+        error
+    end
   end
 
   @spec verify_revocation_signature(
@@ -78,6 +88,30 @@ defmodule RefMD.Devices.Revocations do
 
   # ── Private Helpers ─────────────────────────────
 
+  @serializable_max_retries 3
+
+  defp with_serializable_retry(fun, attempt \\ 1) do
+    Repo.transaction(fn ->
+      Repo.query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+      fun.()
+    end)
+  rescue
+    e in Postgrex.Error ->
+      serializable_error? =
+        e.postgres != nil and e.postgres.code in ["40001", "40P01"]
+
+      if serializable_error? and attempt < @serializable_max_retries do
+        Process.sleep(Enum.random(5..25))
+        with_serializable_retry(fun, attempt + 1)
+      else
+        if serializable_error? do
+          {:error, :serialization_conflict}
+        else
+          reraise e, __STACKTRACE__
+        end
+      end
+  end
+
   defp mark_device_revoked(user_id, device_id, now) do
     case from(d in Device,
            where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
@@ -88,12 +122,37 @@ defmodule RefMD.Devices.Revocations do
     end
   end
 
-  defp invalidate_revoked_device_sessions(user_id, device_id, "security") do
+  defp check_retire_preconditions!(user_id, "retire") do
+    if RefMD.Auth.has_unbound_sessions?(user_id) do
+      Repo.rollback(:retire_blocked_by_unbound_sessions)
+    end
+  end
+
+  defp check_retire_preconditions!(_user_id, _mode), do: :ok
+
+  defp cleanup_sessions(user_id, device_id, "security") do
     RefMD.Auth.delete_device_and_unbound_sessions(user_id, device_id)
   end
 
-  defp invalidate_revoked_device_sessions(_user_id, device_id, _revocation_mode) do
+  defp cleanup_sessions(_user_id, device_id, _mode) do
     RefMD.Auth.delete_device_sessions(device_id)
+  end
+
+  defp invalidate_transient_state(device_id) do
+    RefMD.Auth.delete_device_pop_challenges(device_id)
+    RefMD.Auth.delete_device_trust_transfer_data(device_id)
+  end
+
+  defp disconnect_ws(user_id, _device_id, "security") do
+    RefMDWeb.Endpoint.broadcast("user_socket:#{user_id}", "disconnect", %{})
+  end
+
+  defp disconnect_ws(user_id, device_id, _mode) do
+    Phoenix.PubSub.broadcast(
+      RefMD.PubSub,
+      "device_revocation:#{user_id}",
+      {:device_revoked, device_id}
+    )
   end
 
   defp insert_revocation_event(

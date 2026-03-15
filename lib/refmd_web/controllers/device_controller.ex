@@ -344,7 +344,8 @@ defmodule RefMDWeb.DeviceController do
       ok: {"Revocation result", "application/json", Schemas.RevokeDeviceResponse},
       bad_request: {"Bad request", "application/json", Schemas.ErrorResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Retire blocked", "application/json", Schemas.ErrorResponse}
     ]
   )
 
@@ -400,6 +401,9 @@ defmodule RefMDWeb.DeviceController do
         else
           false ->
             conn |> put_status(:forbidden) |> json(%{error: "invalid_signature"})
+
+          {:error, :retire_blocked_by_unbound_sessions} ->
+            conn |> put_status(:conflict) |> json(%{error: "retire_blocked_by_unbound_sessions"})
 
           {:error, _} ->
             conn |> put_status(:unprocessable_entity) |> json(%{error: "revocation_failed"})

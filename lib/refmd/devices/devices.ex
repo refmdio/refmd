@@ -66,6 +66,16 @@ defmodule RefMD.Devices do
   @spec get_device(Ecto.UUID.t()) :: Device.t() | nil
   def get_device(id), do: Repo.get(Device, id)
 
+  @spec get_device_id_by_signing_key(binary()) :: Ecto.UUID.t() | nil
+  def get_device_id_by_signing_key(signing_public_key) do
+    from(d in Device,
+      where: d.signing_public_key == ^signing_public_key,
+      select: d.id,
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
   @spec get_user_devices(Ecto.UUID.t()) :: [Device.t()]
   def get_user_devices(user_id) do
     from(d in Device,

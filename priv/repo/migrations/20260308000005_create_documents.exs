@@ -41,17 +41,18 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
         null: false
 
       add :parent_snapshot_id, references(:document_snapshots, type: :binary_id)
-      add :latest_version, :bigint, null: false
+      add :latest_version, :bigint, null: false, default: 0
       add :data, :binary, null: false
       add :nonce, :binary, null: false
       add :key_version, :integer, null: false
       add :signature, :binary, null: false
       add :ciphertext_hash, :text, null: false
-      add :clocks, :map, null: false
-      add :parent_snapshot_update_clocks, :map, null: false
-      add :parent_snapshot_proof, :text, null: false
+      add :clocks, :map, null: false, default: %{}
+      add :parent_snapshot_update_clocks, :map, null: false, default: %{}
+      add :parent_snapshot_proof, :text, null: false, default: ""
+      add :device_id, references(:devices, type: :binary_id), null: false
       add :created_by_device, :text, null: false
-      add :created_at, :utc_datetime_usec, null: false
+      add :created_at, :utc_datetime_usec, null: false, default: fragment("NOW()")
     end
 
     create index(:document_snapshots, [:document_id])
@@ -70,6 +71,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
       add :snapshot_id, references(:document_snapshots, type: :binary_id), null: false
       add :clock, :integer
       add :version, :bigint, null: false
+      add :device_id, references(:devices, type: :binary_id)
       add :device_signing_pub_key, :text
       add :update_data, :binary, null: false
       add :nonce, :binary, null: false
@@ -79,20 +81,21 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
       add :mac, :binary
       add :share_id, :binary_id
       add :timestamp, :bigint, null: false
-      add :created_at, :utc_datetime_usec, null: false
+      add :created_at, :utc_datetime_usec, null: false, default: fragment("NOW()")
     end
 
-    create index(:document_updates, [:document_id, :snapshot_id])
-    create unique_index(:document_updates, [:update_hash])
+    create index(:document_updates, [:snapshot_id])
+    create unique_index(:document_updates, [:document_id, :version])
+    create unique_index(:document_updates, [:document_id, :update_hash])
 
-    # CHECK: exactly one of signature/mac must be non-null
+    # CHECK: member update (signature + clock + device) XOR share update (mac + share_id)
     execute(
       """
       ALTER TABLE document_updates
       ADD CONSTRAINT document_updates_auth_check
       CHECK (
-        (signature IS NOT NULL AND mac IS NULL) OR
-        (signature IS NULL AND mac IS NOT NULL)
+        (signature IS NOT NULL AND mac IS NULL AND clock IS NOT NULL AND device_signing_pub_key IS NOT NULL AND device_id IS NOT NULL AND share_id IS NULL) OR
+        (signature IS NULL AND mac IS NOT NULL AND clock IS NULL AND device_signing_pub_key IS NULL AND device_id IS NULL AND share_id IS NOT NULL)
       )
       """,
       """

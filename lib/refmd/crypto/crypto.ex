@@ -3,6 +3,8 @@ defmodule RefMD.Crypto do
   Cryptographic utilities: key validation, JCS signature protocol, Ed25519 verification.
   """
 
+  alias RefMD.Crypto.Blake3
+
   # ── Key Validation ─────────────────────────────
 
   # X25519 low-order points (8 points, 32 bytes each, little-endian)
@@ -86,9 +88,82 @@ defmodule RefMD.Crypto do
     |> then(fn pairs -> "{" <> Enum.join(pairs, ",") <> "}" end)
   end
 
-  @spec encode_jcs_value(String.t() | integer()) :: String.t()
+  @spec encode_jcs_value(term()) :: String.t()
+  def encode_jcs_value(nil), do: "null"
+  def encode_jcs_value(v) when is_boolean(v), do: Atom.to_string(v)
   def encode_jcs_value(v) when is_binary(v), do: Jason.encode!(v)
   def encode_jcs_value(v) when is_integer(v), do: Integer.to_string(v)
+  def encode_jcs_value(v) when is_map(v), do: jcs_canonicalize(v)
+
+  def encode_jcs_value(v) when is_list(v),
+    do: "[" <> Enum.map_join(v, ",", &encode_jcs_value/1) <> "]"
+
+  def encode_jcs_value(v) when is_float(v),
+    do: raise(ArgumentError, "floats are not allowed in JCS")
+
+  # ── JCS Canonicalization (RFC 8785) ────────────
+
+  @spec jcs_canonicalize(map()) :: String.t()
+  def jcs_canonicalize(map) when is_map(map) do
+    map
+    |> Enum.sort_by(fn {k, _} -> k end)
+    |> Enum.map(fn {k, v} -> Jason.encode!(k) <> ":" <> encode_jcs_value(v) end)
+    |> then(fn pairs -> "{" <> Enum.join(pairs, ",") <> "}" end)
+  end
+
+  # ── Update Hash ──────────────────────────────
+
+  @spec compute_update_hash(map()) :: String.t()
+  def compute_update_hash(params) do
+    params
+    |> jcs_canonicalize()
+    |> Blake3.hash_base64url()
+  end
+
+  @spec verify_update_hash(String.t(), map()) :: boolean()
+  def verify_update_hash(claimed_hash, params) when is_binary(claimed_hash) do
+    computed = compute_update_hash(params)
+    Plug.Crypto.secure_compare(claimed_hash, computed)
+  end
+
+  def verify_update_hash(_, _), do: false
+
+  # ── WS Envelope Signature ─────────────────────
+
+  @spec build_ws_signature_message(String.t(), String.t(), String.t(), map()) :: binary()
+  def build_ws_signature_message(prefix, ciphertext_b64, nonce_b64, public_data) do
+    public_data_jcs = jcs_canonicalize(public_data)
+    public_data_b64 = Base.url_encode64(public_data_jcs, padding: false)
+
+    envelope = %{
+      "ciphertext" => ciphertext_b64,
+      "nonce" => nonce_b64,
+      "publicData" => public_data_b64
+    }
+
+    prefix <> jcs_canonicalize(envelope)
+  end
+
+  @spec verify_ws_envelope_signature(
+          String.t(),
+          String.t(),
+          String.t(),
+          map(),
+          binary(),
+          binary()
+        ) ::
+          boolean()
+  def verify_ws_envelope_signature(
+        prefix,
+        ciphertext_b64,
+        nonce_b64,
+        public_data,
+        signature_raw,
+        public_key_raw
+      ) do
+    message = build_ws_signature_message(prefix, ciphertext_b64, nonce_b64, public_data)
+    verify_ed25519_signature(message, signature_raw, public_key_raw)
+  end
 
   # ── Ed25519 Signature Verification ─────────────
 

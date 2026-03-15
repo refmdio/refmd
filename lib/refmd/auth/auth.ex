@@ -265,6 +265,33 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
+  @spec has_unbound_sessions?(Ecto.UUID.t()) :: boolean()
+  def has_unbound_sessions?(user_id) do
+    now = DateTime.utc_now()
+
+    from(s in Session,
+      where: s.user_id == ^user_id and is_nil(s.device_id) and s.expires_at > ^now
+    )
+    |> Repo.exists?()
+  end
+
+  @spec delete_device_pop_challenges(Ecto.UUID.t()) :: {non_neg_integer(), nil}
+  def delete_device_pop_challenges(device_id) do
+    from(c in PopChallenge, where: c.device_id == ^device_id)
+    |> Repo.delete_all()
+  end
+
+  @spec delete_device_trust_transfer_data(Ecto.UUID.t()) :: :ok
+  def delete_device_trust_transfer_data(device_id) do
+    from(n in RefMD.Auth.TrustTransferNonce, where: n.device_id == ^device_id)
+    |> Repo.delete_all()
+
+    from(s in RefMD.Auth.TrustTransferState, where: s.device_id == ^device_id)
+    |> Repo.delete_all()
+
+    :ok
+  end
+
   @spec delete_expired_sessions() :: {non_neg_integer(), nil}
   def delete_expired_sessions do
     now = DateTime.utc_now()
