@@ -995,6 +995,45 @@
         "title": "WorkspacesListResponse",
         "type": "object"
       },
+      "UpdateSettingsRequest": {
+        "properties": {
+          "editor_default_mode": {
+            "enum": [
+              "markdown",
+              "wysiwyg",
+              "split"
+            ],
+            "type": "string"
+          },
+          "editor_font_size": {
+            "type": "integer"
+          },
+          "editor_layout_mode": {
+            "enum": [
+              "tiling",
+              "horizontal",
+              "vertical"
+            ],
+            "type": "string"
+          },
+          "editor_vim_mode": {
+            "type": "boolean"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "theme": {
+            "enum": [
+              "light",
+              "dark",
+              "system"
+            ],
+            "type": "string"
+          }
+        },
+        "title": "UpdateSettingsRequest",
+        "type": "object"
+      },
       "DevicesResponse": {
         "properties": {
           "devices": {
@@ -1772,6 +1811,53 @@
           "hash_length"
         ],
         "title": "KdfParams",
+        "type": "object"
+      },
+      "SettingsResponse": {
+        "properties": {
+          "editor_default_mode": {
+            "enum": [
+              "markdown",
+              "wysiwyg",
+              "split"
+            ],
+            "type": "string"
+          },
+          "editor_font_size": {
+            "type": "integer"
+          },
+          "editor_layout_mode": {
+            "enum": [
+              "tiling",
+              "horizontal",
+              "vertical"
+            ],
+            "type": "string"
+          },
+          "editor_vim_mode": {
+            "type": "boolean"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "theme": {
+            "enum": [
+              "light",
+              "dark",
+              "system"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "theme",
+          "locale",
+          "editor_vim_mode",
+          "editor_font_size",
+          "editor_default_mode",
+          "editor_layout_mode"
+        ],
+        "title": "SettingsResponse",
         "type": "object"
       },
       "RegisterResponse": {
@@ -2890,6 +2976,87 @@
           }
         },
         "summary": "Update a document",
+        "tags": []
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.SettingsController.show",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "User settings"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Settings not found"
+          }
+        },
+        "summary": "Get current user settings",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.SettingsController.update",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettingsRequest"
+              }
+            }
+          },
+          "description": "Settings params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Updated settings"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Settings not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update current user settings",
         "tags": []
       }
     },

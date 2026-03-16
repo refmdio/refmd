@@ -1,16 +1,21 @@
 import { createSignal } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
 import type { MosaicNode } from "solid-mosaic-component";
+import { getLeaves, createBalancedTreeFromLeaves } from "solid-mosaic-component";
 import {
   encodePanelId,
   decodePanelId,
   findFirstDocumentId,
   findFirstPanelId,
+  findScrollGroupPeerId,
   hasDocumentPanels,
   removeFromMosaic,
   replacePanelInMosaic,
   replacePanelIdInMosaic,
   type PanelType,
 } from "../lib/panel-utils";
+import type { SettingsResponse } from "@/shared/api";
+import { authState } from "@/shared/lib/auth-state";
 
 export interface OpenDocument {
   id: string;
@@ -23,32 +28,9 @@ const [focusedPanelIdSignal, setFocusedPanelIdSignal] = createSignal<string | nu
 
 type EditorMode = "markdown" | "wysiwyg" | "split";
 
-function getDefaultEditorMode(): EditorMode {
-  try {
-    const stored = localStorage.getItem("editor-mode");
-    if (stored === "markdown" || stored === "wysiwyg" || stored === "split") return stored;
-  } catch {
-    // localStorage unavailable
-  }
-  return "split";
-}
-
 let scrollGroupCounter = 0;
 function generateScrollGroupId(): string {
   return `sg-${Date.now()}-${++scrollGroupCounter}`;
-}
-
-function createSplitNode(documentId: string): MosaicNode<string> {
-  const mode = getDefaultEditorMode();
-  const scrollGroupId = generateScrollGroupId();
-  if (mode === "markdown") return encodePanelId(documentId, "markdown", undefined, scrollGroupId);
-  if (mode === "wysiwyg") return encodePanelId(documentId, "wysiwyg", undefined, scrollGroupId);
-  return {
-    direction: "row",
-    first: encodePanelId(documentId, "markdown", undefined, scrollGroupId),
-    second: encodePanelId(documentId, "wysiwyg", undefined, scrollGroupId),
-    splitPercentage: 50,
-  };
 }
 
 function resetWorkspace() {
@@ -58,6 +40,58 @@ function resetWorkspace() {
 }
 
 export function usePanelWorkspace() {
+  const queryClient = useQueryClient();
+
+  function getDefaultEditorMode(): EditorMode {
+    const userId = authState()?.user?.id;
+    const settings = queryClient.getQueryData<SettingsResponse>(["settings", userId ?? "anon"]);
+    let mode = settings?.editor_default_mode;
+    if (!mode && userId) {
+      try {
+        const cached = localStorage.getItem(`refmd_settings:${userId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached) as SettingsResponse;
+          mode = parsed.editor_default_mode;
+        }
+      } catch {
+        // localStorage unavailable
+      }
+    }
+    if (mode === "markdown" || mode === "wysiwyg" || mode === "split") return mode;
+    return "split";
+  }
+
+  function getLayoutMode(): "tiling" | "horizontal" | "vertical" {
+    const userId = authState()?.user?.id;
+    const settings = queryClient.getQueryData<SettingsResponse>(["settings", userId ?? "anon"]);
+    let mode = settings?.editor_layout_mode;
+    if (!mode && userId) {
+      try {
+        const cached = localStorage.getItem(`refmd_settings:${userId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached) as SettingsResponse;
+          mode = parsed.editor_layout_mode;
+        }
+      } catch {
+        // localStorage unavailable
+      }
+    }
+    if (mode === "horizontal" || mode === "vertical") return mode;
+    return "tiling";
+  }
+
+  function createSplitNode(documentId: string): MosaicNode<string> {
+    const mode = getDefaultEditorMode();
+    const scrollGroupId = generateScrollGroupId();
+    if (mode === "markdown") return encodePanelId(documentId, "markdown", undefined, scrollGroupId);
+    if (mode === "wysiwyg") return encodePanelId(documentId, "wysiwyg", undefined, scrollGroupId);
+    return {
+      direction: "row" as const,
+      first: encodePanelId(documentId, "markdown", undefined, scrollGroupId),
+      second: encodePanelId(documentId, "wysiwyg", undefined, scrollGroupId),
+      splitPercentage: 50,
+    };
+  }
   const focusedDocumentId = () => {
     const pid = focusedPanelIdSignal();
     if (!pid) return null;
@@ -99,13 +133,23 @@ export function usePanelWorkspace() {
     if (!state) {
       setMosaicState(splitNode);
     } else {
-      const docCount = openDocuments().size;
-      setMosaicState({
-        direction: "column",
-        first: state,
-        second: splitNode,
-        splitPercentage: ((docCount - 1) / docCount) * 100,
-      });
+      const layout = getLayoutMode();
+      if (layout === "horizontal" || layout === "vertical") {
+        const docCount = openDocuments().size;
+        setMosaicState({
+          direction: layout === "horizontal" ? "row" : "column",
+          first: state,
+          second: splitNode,
+          splitPercentage: ((docCount - 1) / docCount) * 100,
+        });
+      } else {
+        const existingLeaves = getLeaves(state);
+        const allLeaves: MosaicNode<string>[] = [
+          ...existingLeaves,
+          ...(typeof splitNode === "string" ? [splitNode] : getLeaves(splitNode)),
+        ];
+        setMosaicState(createBalancedTreeFromLeaves(allLeaves));
+      }
     }
     const mdPanelId = typeof splitNode === "string" ? splitNode : (splitNode.first as string);
     setFocusedPanelIdSignal(mdPanelId);
@@ -164,17 +208,62 @@ export function usePanelWorkspace() {
     }
   }
 
+  function switchToSplit(panelId: string) {
+    const panel = decodePanelId(panelId);
+    if (!panel) return;
+    const pairGroupId = generateScrollGroupId();
+    const mdPanelId = encodePanelId(panel.documentId, "markdown", undefined, pairGroupId);
+    const pmPanelId = encodePanelId(panel.documentId, "wysiwyg", undefined, pairGroupId);
+    const state = mosaicState();
+    if (!state) return;
+    setMosaicState(
+      replacePanelInMosaic(state, panelId, {
+        direction: "row" as const,
+        first: mdPanelId,
+        second: pmPanelId,
+        splitPercentage: 50,
+      }),
+    );
+    if (focusedPanelIdSignal() === panelId) {
+      setFocusedPanelIdSignal(mdPanelId);
+    }
+  }
+
   function switchPanelType(panelId: string) {
     const panel = decodePanelId(panelId);
     if (!panel) return;
     const newType: PanelType = panel.type === "markdown" ? "wysiwyg" : "markdown";
-    const newPanelId = encodePanelId(panel.documentId, newType, panel.instanceId);
+    const newPanelId = encodePanelId(
+      panel.documentId,
+      newType,
+      panel.instanceId,
+      panel.scrollGroupId,
+    );
     const state = mosaicState();
     if (!state) return;
     setMosaicState(replacePanelIdInMosaic(state, panelId, newPanelId));
 
     if (focusedPanelIdSignal() === panelId) {
       setFocusedPanelIdSignal(newPanelId);
+    }
+  }
+
+  function collapseSplitTo(panelId: string, targetType: PanelType) {
+    const panel = decodePanelId(panelId);
+    if (!panel) return;
+    const state = mosaicState();
+    if (!state) return;
+
+    const peerId = findScrollGroupPeerId(state, panel.scrollGroupId, panelId);
+    if (!peerId) return;
+
+    const keepId = panel.type === targetType ? panelId : peerId;
+    const removeId = panel.type === targetType ? peerId : panelId;
+
+    const newState = removeFromMosaic(state, removeId);
+    setMosaicState(newState);
+    if (focusedPanelIdSignal() === removeId && newState) {
+      setFocusedPanelIdSignal(keepId);
     }
   }
 
@@ -196,7 +285,10 @@ export function usePanelWorkspace() {
     addToTile,
     closePanel,
     splitPanel,
+    switchToSplit,
     switchPanelType,
+    collapseSplitTo,
+    getLayoutMode,
     focusPanel,
     handleMosaicChange,
     resetWorkspace,

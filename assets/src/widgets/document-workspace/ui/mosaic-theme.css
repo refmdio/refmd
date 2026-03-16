@@ -30,6 +30,7 @@
   background: var(--background) !important;
   border: none !important;
   border-radius: 0 !important;
+  box-shadow: none !important;
   justify-content: center !important;
   position: relative !important;
   padding: 8px 24px !important;
@@ -41,8 +42,13 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--muted-foreground) !important;
-  flex: none !important;
+  flex: 1 !important;
   text-align: center;
+  cursor: grab;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-title:active {
+  cursor: grabbing;
 }
 
 .mosaic.mosaic-blueprint-theme .mosaic-window-controls {
@@ -57,6 +63,7 @@
 
 .mosaic.mosaic-blueprint-theme .mosaic-window-body {
   background: var(--background) !important;
+  box-shadow: none !important;
   padding: 0 1rem !important;
 }
 

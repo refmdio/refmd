@@ -64,7 +64,7 @@ export function DocumentTree(props: DocumentTreeProps) {
             </div>
           }
         >
-          <ScrollArea class="flex-1">
+          <ScrollArea class="flex-1 [&_[data-slot=scroll-area-viewport]]:!overflow-x-hidden [&_[data-slot=scroll-area-viewport]:[&::-webkit-scrollbar]]:!w-1.5">
             <div class="py-1">
               <For each={props.tree}>
                 {(node) => (

@@ -65,6 +65,38 @@ export function hasDocumentPanels(node: MosaicNode<string>, documentId: string):
   return hasDocumentPanels(node.first, documentId) || hasDocumentPanels(node.second, documentId);
 }
 
+export function hasScrollGroupPeer(
+  node: MosaicNode<string>,
+  scrollGroupId: string,
+  excludePanelId: string,
+): boolean {
+  if (typeof node === "string") {
+    if (node === excludePanelId) return false;
+    const panel = decodePanelId(node);
+    return panel?.scrollGroupId === scrollGroupId;
+  }
+  return (
+    hasScrollGroupPeer(node.first, scrollGroupId, excludePanelId) ||
+    hasScrollGroupPeer(node.second, scrollGroupId, excludePanelId)
+  );
+}
+
+export function findScrollGroupPeerId(
+  node: MosaicNode<string>,
+  scrollGroupId: string,
+  excludePanelId: string,
+): string | null {
+  if (typeof node === "string") {
+    if (node === excludePanelId) return null;
+    const panel = decodePanelId(node);
+    return panel?.scrollGroupId === scrollGroupId ? node : null;
+  }
+  return (
+    findScrollGroupPeerId(node.first, scrollGroupId, excludePanelId) ??
+    findScrollGroupPeerId(node.second, scrollGroupId, excludePanelId)
+  );
+}
+
 export function hasDocumentPanelOfType(
   node: MosaicNode<string>,
   documentId: string,

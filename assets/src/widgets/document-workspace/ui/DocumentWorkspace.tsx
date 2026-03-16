@@ -18,7 +18,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { useDocuments, useDocumentTitles } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
-import { decodePanelId, usePanelWorkspace } from "@/features/panel";
+import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
 import { CodeMirrorEditor, ProseMirrorEditor } from "@/features/editor";
 import { DocumentPanelShell } from "./DocumentPanelShell";
 
@@ -50,6 +50,10 @@ export function DocumentWorkspace() {
     const isMarkdown = panel.type === "markdown";
     const isArchived = !!doc?.archived_at;
     const panelLabel = isMarkdown ? "Markdown" : "WYSIWYG";
+    const isAlreadySplit = () => {
+      const state = workspace.mosaicState();
+      return state ? hasScrollGroupPeer(state, panel.scrollGroupId, panelId) : false;
+    };
 
     return (
       <MosaicWindow<string>
@@ -75,10 +79,30 @@ export function DocumentWorkspace() {
                 Split Vertical
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => workspace.switchPanelType(panelId)}>
-                <RefreshCwIcon class="size-4 mr-2" />
-                Switch to {isMarkdown ? "WYSIWYG" : "Markdown"}
-              </DropdownMenuItem>
+              <Show
+                when={isAlreadySplit()}
+                fallback={
+                  <>
+                    <DropdownMenuItem onClick={() => workspace.switchPanelType(panelId)}>
+                      <RefreshCwIcon class="size-4 mr-2" />
+                      Switch to {isMarkdown ? "WYSIWYG" : "Markdown"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => workspace.switchToSplit(panelId)}>
+                      <Columns2Icon class="size-4 mr-2" />
+                      Switch to Split
+                    </DropdownMenuItem>
+                  </>
+                }
+              >
+                <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "markdown")}>
+                  <RefreshCwIcon class="size-4 mr-2" />
+                  Markdown only
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "wysiwyg")}>
+                  <RefreshCwIcon class="size-4 mr-2" />
+                  WYSIWYG only
+                </DropdownMenuItem>
+              </Show>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => workspace.closePanel(panelId)}>
                 <XIcon class="size-4 mr-2" />

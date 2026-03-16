@@ -6,5 +6,7 @@ export {
   findFirstDocumentId,
   findFirstPanelId,
   hasDocumentPanels,
+  hasDocumentPanelOfType,
+  hasScrollGroupPeer,
 } from "./lib/panel-utils";
 export type { PanelType, PanelId } from "./lib/panel-utils";

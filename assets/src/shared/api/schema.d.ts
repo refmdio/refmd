@@ -127,6 +127,24 @@ export interface paths {
         patch: operations["RefMDWeb.DocumentController.update"];
         trace?: never;
     };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current user settings */
+        get: operations["RefMDWeb.SettingsController.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update current user settings */
+        patch: operations["RefMDWeb.SettingsController.update"];
+        trace?: never;
+    };
     "/api/auth/password-reset/request": {
         parameters: {
             query?: never;
@@ -1202,6 +1220,18 @@ export interface components {
         WorkspacesListResponse: {
             workspaces: components["schemas"]["WorkspaceResponse"][];
         };
+        /** UpdateSettingsRequest */
+        UpdateSettingsRequest: {
+            /** @enum {string} */
+            editor_default_mode?: "markdown" | "wysiwyg" | "split";
+            editor_font_size?: number;
+            /** @enum {string} */
+            editor_layout_mode?: "tiling" | "horizontal" | "vertical";
+            editor_vim_mode?: boolean;
+            locale?: string;
+            /** @enum {string} */
+            theme?: "light" | "dark" | "system";
+        };
         /** DevicesResponse */
         DevicesResponse: {
             devices: components["schemas"]["DeviceFullInfo"][];
@@ -1450,6 +1480,18 @@ export interface components {
             iterations: number;
             memory: number;
             parallelism: number;
+        };
+        /** SettingsResponse */
+        SettingsResponse: {
+            /** @enum {string} */
+            editor_default_mode: "markdown" | "wysiwyg" | "split";
+            editor_font_size: number;
+            /** @enum {string} */
+            editor_layout_mode: "tiling" | "horizontal" | "vertical";
+            editor_vim_mode: boolean;
+            locale: string;
+            /** @enum {string} */
+            theme: "light" | "dark" | "system";
         };
         /** RegisterResponse */
         RegisterResponse: {
@@ -2075,6 +2117,78 @@ export interface operations {
                 };
             };
             /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.SettingsController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Settings not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.SettingsController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Settings params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Settings not found */
             404: {
                 headers: {
                     [name: string]: unknown;

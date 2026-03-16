@@ -42,6 +42,9 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   // Workspace creation (session-only, no PoP)
   if (path === "/api/workspaces" && method === "POST") return true;
 
+  // Settings read (session-only, no PoP needed for startup)
+  if (path === "/api/settings" && method === "GET") return true;
+
   return false;
 }
 

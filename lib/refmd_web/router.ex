@@ -85,6 +85,9 @@ defmodule RefMDWeb.Router do
 
     # Workspace creation (session only, no PoP)
     post "/workspaces", WorkspaceController, :create
+
+    # Settings (read: session only, no PoP needed for startup)
+    get "/settings", SettingsController, :show
   end
 
   # Recovery-or-PoP endpoints
@@ -104,6 +107,9 @@ defmodule RefMDWeb.Router do
 
     # Trust transfer (PoP required: state sending)
     post "/trust-transfer/state", TrustTransferController, :send_state
+
+    # Settings (write: PoP required)
+    patch "/settings", SettingsController, :update
 
     # Documents
     get "/documents", DocumentController, :index

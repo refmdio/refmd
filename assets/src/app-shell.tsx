@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { Sidebar } from "@/widgets/sidebar";
 import { SettingsDialog } from "@/widgets/settings";
 import { currentWorkspaceId, setCurrentWorkspaceId, useWorkspaces } from "@/entities/workspace";
+import { useSettings } from "@/entities/settings";
 import { workspacesApi, encryptionApi } from "@/shared/api";
 import { authState, deviceState } from "@/shared/lib/auth-state";
 import {
@@ -28,6 +29,7 @@ export function AppShell(props: ParentProps) {
 
   const { workspaces, allWorkspaces, workspacesNeedingRotation } = useWorkspaces();
   const documentWorkspace = usePanelWorkspace();
+  useSettings();
 
   createEffect(() => {
     const wsList = allWorkspaces();

@@ -57,7 +57,7 @@ export function DocumentTreeItem(props: DocumentTreeItemProps) {
         </Show>
         <button
           ref={(el) => (rowRef = el)}
-          class={`group w-full flex items-center gap-1.5 mx-1 px-3 py-1.5 text-xs text-left rounded-md transition-colors ${
+          class={`group w-full min-w-0 flex items-center gap-1.5 mx-1 px-3 py-1.5 text-xs text-left rounded-md overflow-hidden transition-colors ${
             isSelected()
               ? "bg-sidebar-accent text-sidebar-foreground"
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent"

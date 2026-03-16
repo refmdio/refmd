@@ -1,16 +1,17 @@
 import { createSignal, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { cn } from "@/shared/lib/utils";
-import { InfoIcon, ShieldIcon, UsersIcon, UserIcon } from "lucide-solid";
+import { InfoIcon, ShieldIcon, UsersIcon, UserIcon, PencilIcon } from "lucide-solid";
 import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog";
 import {
   AboutSection,
   SecuritySection,
   WorkspaceSection,
   AccountSection,
+  EditorSection,
 } from "@/widgets/settings";
 
-type SettingsTab = "about" | "security" | "workspace" | "account";
+type SettingsTab = "about" | "security" | "workspace" | "editor" | "account";
 
 const tabs: { id: SettingsTab; label: string; icon: () => JSX.Element }[] = [
   {
@@ -27,6 +28,11 @@ const tabs: { id: SettingsTab; label: string; icon: () => JSX.Element }[] = [
     id: "workspace",
     label: "Workspace",
     icon: () => <UsersIcon class="size-4" />,
+  },
+  {
+    id: "editor",
+    label: "Editor",
+    icon: () => <PencilIcon class="size-4" />,
   },
   {
     id: "account",
@@ -81,6 +87,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
             </Show>
             <Show when={activeTab() === "workspace"}>
               <WorkspaceSection />
+            </Show>
+            <Show when={activeTab() === "editor"}>
+              <EditorSection />
             </Show>
             <Show when={activeTab() === "account"}>
               <AccountSection />

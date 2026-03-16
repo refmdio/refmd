@@ -37,6 +37,26 @@ defmodule RefMD.Users do
     |> Repo.insert()
   end
 
+  @spec get_user_settings(Ecto.UUID.t()) :: UserSettings.t() | nil
+  def get_user_settings(user_id) do
+    Repo.get(UserSettings, user_id)
+  end
+
+  @spec update_user_settings(Ecto.UUID.t(), map()) ::
+          {:ok, UserSettings.t()} | {:error, Ecto.Changeset.t() | :not_found}
+  def update_user_settings(user_id, attrs) do
+    case get_user_settings(user_id) do
+      nil ->
+        {:error, :not_found}
+
+      settings ->
+        settings
+        |> UserSettings.changeset(attrs)
+        |> Ecto.Changeset.force_change(:updated_at, DateTime.utc_now())
+        |> Repo.update()
+    end
+  end
+
   @spec update_encryption_setup(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def update_encryption_setup(user_id) do
     from(u in User, where: u.id == ^user_id)

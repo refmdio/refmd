@@ -261,5 +261,8 @@ export async function clearAllPersistedKeys(): Promise<void> {
   clearSessionUmk();
   inMemoryPdk = null;
   localStorage.removeItem(DEVICE_ID_KEY);
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("refmd_settings")) localStorage.removeItem(key);
+  }
   await clearAllTofuEntries().catch(() => {});
 }
