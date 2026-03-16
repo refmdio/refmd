@@ -46,7 +46,7 @@ export function Sidebar(props: SidebarProps) {
   const queryClient = useQueryClient();
   const workspaceId = () => currentWorkspaceId();
   const { documentTree, flatDocuments, query } = useDocuments(workspaceId);
-  const { getTitle } = useDocumentTitles(flatDocuments, workspaceId);
+  const { getTitle, isTitleReady } = useDocumentTitles(flatDocuments, workspaceId);
   const { isExpanded, toggle, expand } = useExpandedFolders(workspaceId);
   const workspace = usePanelWorkspace();
 
@@ -226,11 +226,12 @@ export function Sidebar(props: SidebarProps) {
             onSelect={(id) => {
               setSelectedDocumentId(id);
               const doc = flatDocuments().find((d) => d.id === id);
-              if (doc && doc.doc_type === "document") {
+              if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
                 workspace.openDocument({ id: doc.id, title: getTitle(doc) });
               }
             }}
             getTitle={getTitle}
+            isTitleReady={isTitleReady}
             onContextMenu={handleContextMenu}
             draggedId={drag.draggedId()}
             dropTarget={drag.dropTarget()}
@@ -256,7 +257,11 @@ export function Sidebar(props: SidebarProps) {
         folders={flatDocuments().filter((d) => d.doc_type === "folder")}
         onRename={handleRename}
         onMove={handleMove}
-        onAddToTile={(doc) => workspace.addToTile({ id: doc.id, title: getTitle(doc) })}
+        onAddToTile={(doc) => {
+          if (isTitleReady(doc)) {
+            workspace.addToTile({ id: doc.id, title: getTitle(doc) });
+          }
+        }}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
         onDelete={handleDelete}

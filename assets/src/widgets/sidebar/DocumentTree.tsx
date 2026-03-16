@@ -15,6 +15,7 @@ interface DocumentTreeProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   getTitle: (doc: DocumentResponse) => string;
+  isTitleReady: (doc: DocumentResponse) => boolean;
   onContextMenu: (e: MouseEvent, doc: DocumentResponse) => void;
   draggedId: string | null;
   dropTarget: DropTarget | null;
@@ -75,6 +76,7 @@ export function DocumentTree(props: DocumentTreeProps) {
                     selectedId={props.selectedId}
                     onSelect={props.onSelect}
                     getTitle={props.getTitle}
+                    isTitleReady={props.isTitleReady}
                     onContextMenu={props.onContextMenu}
                     draggedId={props.draggedId}
                     dropTarget={props.dropTarget}

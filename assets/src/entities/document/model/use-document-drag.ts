@@ -1,6 +1,37 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { DocumentResponse } from "./types";
 
+let activeSidebarDragDocId: string | null = null;
+let onTileDrop: ((docId: string) => void) | null = null;
+
+export function setTileDropHandler(handler: ((docId: string) => void) | null) {
+  onTileDrop = handler;
+}
+
+function installDocumentDndListeners() {
+  const handleDragOver = (e: DragEvent) => {
+    if (activeSidebarDragDocId) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    }
+  };
+  const handleDrop = (e: DragEvent) => {
+    if (activeSidebarDragDocId && onTileDrop) {
+      e.preventDefault();
+      e.stopPropagation();
+      onTileDrop(activeSidebarDragDocId);
+    }
+  };
+  document.addEventListener("dragover", handleDragOver, { capture: true });
+  document.addEventListener("drop", handleDrop, { capture: true });
+  return () => {
+    document.removeEventListener("dragover", handleDragOver, { capture: true });
+    document.removeEventListener("drop", handleDrop, { capture: true });
+  };
+}
+
+let cleanupDndListeners: (() => void) | null = null;
+
 export type DropPosition = "before" | "inside" | "after";
 
 export interface DropTarget {
@@ -55,6 +86,9 @@ export function useDocumentDrag(
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", docId);
     setDraggedId(docId);
+    activeSidebarDragDocId = docId;
+    cleanupDndListeners?.();
+    cleanupDndListeners = installDocumentDndListeners();
   }
 
   function handleDragOver(e: DragEvent, targetDoc: DocumentResponse, element: HTMLElement) {
@@ -139,6 +173,9 @@ export function useDocumentDrag(
   }
 
   function handleDragEnd() {
+    cleanupDndListeners?.();
+    cleanupDndListeners = null;
+    activeSidebarDragDocId = null;
     reset();
   }
 

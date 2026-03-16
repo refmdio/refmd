@@ -1,4 +1,4 @@
-import { Show, createEffect } from "solid-js";
+import { Show, createEffect, onCleanup } from "solid-js";
 import { Mosaic, MosaicWindow } from "solid-mosaic-component";
 import type { MosaicBranch } from "solid-mosaic-component";
 import {
@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { useDocuments, useDocumentTitles } from "@/entities/document";
+import { useDocuments, useDocumentTitles, setTileDropHandler } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
 import { CodeMirrorEditor, ProseMirrorEditor } from "@/features/editor";
@@ -29,7 +29,7 @@ export function DocumentWorkspace() {
   const workspace = usePanelWorkspace();
   const workspaceId = () => currentWorkspaceId();
   const { flatDocuments } = useDocuments(workspaceId);
-  const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
+  const { getTitle: getTitleFromDoc, isTitleReady } = useDocumentTitles(flatDocuments, workspaceId);
 
   createEffect(() => {
     const pid = workspace.focusedPanelId();
@@ -40,6 +40,14 @@ export function DocumentWorkspace() {
       focusable?.focus();
     }
   });
+
+  setTileDropHandler((docId: string) => {
+    const doc = flatDocuments().find((d) => d.id === docId);
+    if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
+      workspace.addToTile({ id: doc.id, title: getTitleFromDoc(doc) });
+    }
+  });
+  onCleanup(() => setTileDropHandler(null));
 
   const renderTile = (panelId: string, path: MosaicBranch[]) => {
     const panel = decodePanelId(panelId);
@@ -139,24 +147,26 @@ export function DocumentWorkspace() {
   };
 
   return (
-    <Show
-      when={workspace.mosaicState()}
-      fallback={
-        <div class="flex items-center justify-center h-full text-muted-foreground">
-          <div class="text-center">
-            <FileTextIcon class="size-12 mx-auto mb-4 opacity-50" />
-            <p>No documents open</p>
-            <p class="text-sm">Select a document from the sidebar</p>
+    <div class="h-full">
+      <Show
+        when={workspace.mosaicState()}
+        fallback={
+          <div class="flex items-center justify-center h-full text-muted-foreground">
+            <div class="text-center">
+              <FileTextIcon class="size-12 mx-auto mb-4 opacity-50" />
+              <p>No documents open</p>
+              <p class="text-sm">Select a document from the sidebar or drag one here</p>
+            </div>
           </div>
-        </div>
-      }
-    >
-      <Mosaic<string>
-        renderTile={renderTile}
-        value={workspace.mosaicState()}
-        onChange={workspace.handleMosaicChange}
-        className="mosaic-blueprint-theme"
-      />
-    </Show>
+        }
+      >
+        <Mosaic<string>
+          renderTile={renderTile}
+          value={workspace.mosaicState()}
+          onChange={workspace.handleMosaicChange}
+          className="mosaic-blueprint-theme"
+        />
+      </Show>
+    </div>
   );
 }

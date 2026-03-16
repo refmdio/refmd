@@ -9,6 +9,7 @@ interface DocumentTreeItemProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   getTitle: (doc: DocumentResponse) => string;
+  isTitleReady: (doc: DocumentResponse) => boolean;
   onContextMenu: (e: MouseEvent, doc: DocumentResponse) => void;
   draggedId: string | null;
   dropTarget: DropTarget | null;
@@ -27,6 +28,7 @@ export function DocumentTreeItem(props: DocumentTreeItemProps) {
   const isArchived = () => doc().archived_at != null;
   const isSelected = () => props.selectedId === doc().id;
   const isDragged = () => props.draggedId === doc().id;
+  const isReady = () => props.isTitleReady(doc());
   const depth = () => Math.min(props.node.depth, MAX_VISUAL_DEPTH);
 
   const dropIndicator = () => {
@@ -36,6 +38,7 @@ export function DocumentTreeItem(props: DocumentTreeItemProps) {
   };
 
   const handleClick = () => {
+    if (!isFolder() && !isReady()) return;
     props.onSelect(doc().id);
   };
 
@@ -61,11 +64,11 @@ export function DocumentTreeItem(props: DocumentTreeItemProps) {
             isSelected()
               ? "bg-sidebar-accent text-sidebar-foreground"
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent"
-          } ${isArchived() ? "opacity-50 italic" : ""} ${isDragged() ? "opacity-30" : ""} ${
+          } ${isArchived() ? "opacity-50 italic" : ""} ${!isReady() ? "opacity-40 cursor-default" : ""} ${isDragged() ? "opacity-30" : ""} ${
             dropIndicator() === "inside" ? "bg-primary/20" : ""
           }`}
           style={{ "padding-left": `${depth() * 16 + 12}px` }}
-          draggable={!isArchived()}
+          draggable={!isArchived() && isReady()}
           onClick={handleClick}
           onDragStart={(e) => props.onDragStart(e, doc().id)}
           onDragOver={(e) => props.onDragOver(e, doc(), rowRef!)}
@@ -120,6 +123,7 @@ export function DocumentTreeItem(props: DocumentTreeItemProps) {
               selectedId={props.selectedId}
               onSelect={props.onSelect}
               getTitle={props.getTitle}
+              isTitleReady={props.isTitleReady}
               onContextMenu={props.onContextMenu}
               draggedId={props.draggedId}
               dropTarget={props.dropTarget}

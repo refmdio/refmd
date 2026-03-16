@@ -75,7 +75,12 @@ export function useDocumentTitles(
     return decryptedTitles()[doc.id] ?? doc.title;
   }
 
-  return { getTitle, decryptedTitles };
+  function isTitleReady(doc: DocumentResponse): boolean {
+    if (!doc.is_encrypted) return true;
+    return doc.id in decryptedTitles();
+  }
+
+  return { getTitle, isTitleReady, decryptedTitles };
 }
 
 async function decryptBatch(
