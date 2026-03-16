@@ -82,4 +82,22 @@ export const encryptionApi = {
     ),
 
   setupComplete: async () => throwIfError(await client.POST("/api/encryption/setup-complete")),
+
+  getDocumentKeys: async (documentId: string) =>
+    throwIfError(
+      await client.GET("/api/encryption/documents/{document_id}/keys", {
+        params: { path: { document_id: documentId } },
+      }),
+    ),
+
+  createDocumentKey: async (
+    documentId: string,
+    body: components["schemas"]["CreateDocumentKeyRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/encryption/documents/{document_id}/keys", {
+        params: { path: { document_id: documentId } },
+        body,
+      }),
+    ),
 };

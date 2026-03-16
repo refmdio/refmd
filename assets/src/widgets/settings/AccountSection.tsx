@@ -15,6 +15,8 @@ import { LogOutIcon } from "lucide-solid";
 import { authState, clearSession } from "@/shared/lib/auth-state";
 import { authApi } from "@/shared/api";
 import { clearSessionData, clearAllPersistedKeys } from "@/features/auth";
+import { clearKekCache } from "@/shared/lib/crypto/kek-resolver";
+import { clearDocumentKeyCache } from "@/entities/document";
 
 export function AccountSection() {
   const navigate = useNavigate();
@@ -33,6 +35,8 @@ export function AccountSection() {
       // Ignore errors
     } finally {
       clearSessionData();
+      clearKekCache();
+      clearDocumentKeyCache();
       clearSession();
       setShowLogoutDialog(false);
       navigate("/auth/login");

@@ -16,6 +16,7 @@ export const AAD_PURPOSE = {
   DSK_DEVICE_ECDH_PRIVATE: "dsk_device_ecdh_private",
   DSK_DEVICE_SIGNING_PRIVATE: "dsk_device_signing_private",
   INVITATION_KEK_WRAP: "invitation_kek_wrap",
+  DOCUMENT_TITLE: "document_title",
   PDK_UMK_WRAP: "pdk_umk_wrap",
   PDK_DEVICE_ECDH_PRIVATE: "pdk_device_ecdh_private",
   PDK_DEVICE_SIGNING_PRIVATE: "pdk_device_signing_private",
@@ -159,5 +160,29 @@ export function buildMemberEnvelopeKekAad(
     target_user_id: targetUserId,
     key_version: keyVersion,
     sender_device_id: senderDeviceId,
+  });
+}
+
+export function buildDekWrapAad(documentId: string, workspaceId: string): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.DEK_WRAP,
+    document_id: documentId,
+    workspace_id: workspaceId,
+  });
+}
+
+export function buildDocumentContentAad(documentId: string, keyVersion: number): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.DOCUMENT_CONTENT,
+    document_id: documentId,
+    key_version: keyVersion,
+  });
+}
+
+export function buildDocumentTitleAad(documentId: string, keyVersion: number): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.DOCUMENT_TITLE,
+    document_id: documentId,
+    key_version: keyVersion,
   });
 }

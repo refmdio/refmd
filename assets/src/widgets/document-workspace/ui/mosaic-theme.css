@@ -1,0 +1,94 @@
+/* Override solid-mosaic default styles */
+
+.mosaic.mosaic-blueprint-theme {
+  background: var(--background) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-root {
+  background: var(--background) !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-tile {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window {
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--background) !important;
+  margin: 0 !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-toolbar {
+  background: var(--background) !important;
+  border: none !important;
+  border-radius: 0 !important;
+  justify-content: center !important;
+  position: relative !important;
+  padding: 8px 24px !important;
+  min-height: auto !important;
+  height: auto !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-foreground) !important;
+  flex: none !important;
+  text-align: center;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-controls {
+  position: absolute !important;
+  right: 8px !important;
+  color: var(--muted-foreground) !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-controls button {
+  color: var(--muted-foreground) !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-body {
+  background: var(--background) !important;
+  padding: 0 1rem !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-split {
+  background: var(--border) !important;
+  z-index: 10 !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-split.-row {
+  width: 1px !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-split.-column {
+  height: 1px !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-split:hover {
+  background: var(--primary) !important;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-preview {
+  background: var(--muted) !important;
+  border: 2px dashed var(--border);
+  border-radius: 0;
+}
+
+.mosaic.mosaic-blueprint-theme .drop-target-container .drop-target {
+  background: var(--primary) !important;
+  opacity: 0.3;
+  border-radius: 0;
+}
+
+.dark .mosaic.mosaic-blueprint-theme .mosaic-window {
+  box-shadow: none;
+}

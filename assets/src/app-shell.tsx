@@ -1,4 +1,5 @@
 import { Show, createEffect, createSignal, type ParentProps } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { Sidebar } from "@/widgets/sidebar";
 import { SettingsDialog } from "@/widgets/settings";
@@ -13,20 +14,38 @@ import {
 } from "@/shared/lib/crypto";
 import { x25519 } from "@noble/curves/ed25519.js";
 import { usePendingDevices, performKekRotation } from "@/features/devices";
+import { clearKekCache, getCachedKek } from "@/shared/lib/crypto/kek-resolver";
+import { usePanelWorkspace } from "@/features/panel";
 import { Button } from "@/shared/ui/button";
 import { BellIcon } from "lucide-solid";
 
 const rotationAttempted = new Set<string>();
 
 export function AppShell(props: ParentProps) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
-  const { workspaces, workspacesNeedingRotation } = useWorkspaces();
+  const { workspaces, allWorkspaces, workspacesNeedingRotation } = useWorkspaces();
+  const documentWorkspace = usePanelWorkspace();
+
+  createEffect(() => {
+    const wsList = allWorkspaces();
+    for (const ws of wsList) {
+      const cached = getCachedKek(ws.id);
+      if (cached && cached.kekVersion !== ws.current_kek_version) {
+        clearKekCache(ws.id);
+      }
+    }
+  });
 
   createEffect(() => {
     const pending = workspacesNeedingRotation();
     if (pending.length === 0) return;
+
+    for (const ws of pending) {
+      clearKekCache(ws.workspace_id);
+    }
 
     const auth = authState();
     const device = deviceState();
@@ -68,8 +87,18 @@ export function AppShell(props: ParentProps) {
       });
   });
 
+  let prevWorkspaceId: string | null = null;
+  createEffect(() => {
+    const wsId = currentWorkspaceId();
+    if (prevWorkspaceId !== null && wsId !== prevWorkspaceId) {
+      documentWorkspace.resetWorkspace();
+    }
+    prevWorkspaceId = wsId;
+  });
+
   const handleSelectWorkspace = (id: string) => {
     setCurrentWorkspaceId(id);
+    navigate("/dashboard");
   };
 
   const handleCreateWorkspace = async (data: {
@@ -118,6 +147,7 @@ export function AppShell(props: ParentProps) {
 
     queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     setCurrentWorkspaceId(result.id);
+    navigate("/dashboard");
   };
 
   const { pendingCount } = usePendingDevices();

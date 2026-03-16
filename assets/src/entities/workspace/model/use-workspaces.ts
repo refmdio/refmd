@@ -36,5 +36,7 @@ export function useWorkspaces() {
         kek_rotation_initiator_user_id: ws.kek_rotation_initiator_user_id ?? null,
       }));
 
-  return { workspaces: workspaceList, workspacesNeedingRotation, query };
+  const allWorkspaces = () => query.data?.workspaces ?? [];
+
+  return { workspaces: workspaceList, allWorkspaces, workspacesNeedingRotation, query };
 }

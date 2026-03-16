@@ -1,0 +1,10 @@
+/* Hide remote cursors when panel is not focused */
+.hide-remote-cursors .cm-ySelectionCaret {
+  display: none !important;
+}
+.hide-remote-cursors .cm-ySelectionInfo {
+  display: none !important;
+}
+.hide-remote-cursors .cm-ySelection {
+  background-color: transparent !important;
+}

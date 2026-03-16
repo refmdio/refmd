@@ -1,5 +1,13 @@
 export { base64UrlEncode, base64UrlDecode, randomBytes, constantTimeEqual } from "./encoding";
-export { canonicalizeBytes, AAD_PURPOSE, buildDeviceUmkDistributionAad } from "./aad";
+export {
+  canonicalizeBytes,
+  AAD_PURPOSE,
+  buildDeviceUmkDistributionAad,
+  buildDekWrapAad,
+  buildDocumentContentAad,
+  buildDocumentTitleAad,
+} from "./aad";
+export { generateDek, wrapDek, unwrapDek, encryptTitle, decryptTitle } from "./dek";
 export { SIGNATURE_PROTOCOL, SIGNATURE_ACTION, buildSignatureMessage } from "./signature";
 export { deriveAuthKeys } from "./kdf";
 export type { KdfParams, DerivedKeys } from "./kdf";

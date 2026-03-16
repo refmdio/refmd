@@ -1,0 +1,232 @@
+@import "prosemirror-view/style/prosemirror.css";
+
+.ProseMirror {
+  outline: none;
+  padding: 1rem 3.25rem;
+  min-height: 100%;
+  line-height: 1.5;
+  font-size: 16px;
+  color: hsl(var(--foreground));
+  caret-color: hsl(var(--foreground));
+}
+
+/* Headings */
+.ProseMirror h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin: 0.125rem 0;
+  line-height: 1.2;
+}
+
+.ProseMirror h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0.125rem 0;
+  line-height: 1.3;
+}
+
+.ProseMirror h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0.125rem 0;
+  line-height: 1.4;
+}
+
+/* Paragraph */
+.ProseMirror p {
+  margin: 0.125rem 0;
+}
+
+/* Blockquote */
+.ProseMirror blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Code block */
+.ProseMirror pre {
+  background: hsl(var(--muted));
+  border-radius: 0.375rem;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+  overflow-x: auto;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Inline code */
+.ProseMirror code {
+  background: hsl(var(--muted));
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.875em;
+}
+
+/* Lists */
+.ProseMirror ul,
+.ProseMirror ol {
+  margin: 0.25rem 0;
+  padding-left: 1.5rem;
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror li {
+  margin: 0.125rem 0;
+}
+
+.ProseMirror li p {
+  margin: 0;
+}
+
+/* Horizontal rule */
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1rem 0;
+}
+
+/* Links */
+.ProseMirror a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ProseMirror a:hover {
+  opacity: 0.8;
+}
+
+/* Images */
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  margin: 0.5rem 0;
+}
+
+/* Selection */
+.ProseMirror ::selection {
+  background: hsl(var(--primary) / 0.2);
+}
+
+/* Strikethrough */
+.ProseMirror del {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+/* Gap cursor */
+.ProseMirror .ProseMirror-gapcursor::after {
+  border-top: 1px solid hsl(var(--foreground));
+}
+
+/* ---- Placeholder ---- */
+.ProseMirror .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  opacity: 0.5;
+  pointer-events: none;
+  height: 0;
+}
+
+/* ---- Block Handle ---- */
+.pm-block-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  left: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.pm-block-handle.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pm-block-handle button {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 0;
+}
+
+.pm-block-handle button:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.pm-block-handle-drag {
+  cursor: grab;
+}
+
+.pm-block-handle-drag:active {
+  cursor: grabbing;
+}
+
+/* ---- Remote Cursor (y-prosemirror) ---- */
+.ProseMirror-yjs-cursor {
+  position: relative;
+  border-left: 2px solid;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  word-break: normal;
+}
+
+.ProseMirror > .ProseMirror-yjs-cursor:first-child {
+  margin-top: 16px;
+}
+
+.ProseMirror-yjs-cursor > div {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+  color: #fff;
+  pointer-events: none;
+  background-color: inherit;
+}
+
+/* Hide remote cursors when panel is not focused */
+.hide-remote-cursors .ProseMirror-yjs-cursor {
+  display: none !important;
+}
+.hide-remote-cursors .ProseMirror-yjs-selection {
+  background-color: transparent !important;
+}
