@@ -18,6 +18,7 @@ interface DocumentContextMenuProps {
   folders: DocumentResponse[];
   onRename: (doc: DocumentResponse, newTitle: string) => Promise<void>;
   onMove: (doc: DocumentResponse, parentId: string | null) => Promise<void>;
+  isTitleReady: (doc: DocumentResponse) => boolean;
   onAddToTile: (doc: DocumentResponse) => void;
   onArchive: (doc: DocumentResponse) => Promise<void>;
   onUnarchive: (doc: DocumentResponse) => Promise<void>;
@@ -70,7 +71,7 @@ export function DocumentContextMenu(props: DocumentContextMenuProps) {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <Show when={doc()?.doc_type === "document"}>
+            <Show when={doc()?.doc_type === "document" && props.isTitleReady(doc()!)}>
               <button
                 class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-muted-foreground/80 outline-hidden transition-[background,color] hover:bg-foreground hover:text-background"
                 onClick={() => {

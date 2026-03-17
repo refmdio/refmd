@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { MosaicNode } from "solid-mosaic-component";
-import { getLeaves, createBalancedTreeFromLeaves } from "solid-mosaic-component";
+import { createBalancedTreeFromLeaves } from "solid-mosaic-component";
 import {
   encodePanelId,
   decodePanelId,
@@ -12,6 +12,7 @@ import {
   removeFromMosaic,
   replacePanelInMosaic,
   replacePanelIdInMosaic,
+  extractDocumentSubtrees,
   type PanelType,
 } from "../lib/panel-utils";
 import type { SettingsResponse } from "@/shared/api";
@@ -135,20 +136,18 @@ export function usePanelWorkspace() {
     } else {
       const layout = getLayoutMode();
       if (layout === "horizontal" || layout === "vertical") {
-        const docCount = openDocuments().size;
+        const existingCount = extractDocumentSubtrees(state).length;
+        const totalCount = existingCount + 1;
         setMosaicState({
           direction: layout === "horizontal" ? "row" : "column",
           first: state,
           second: splitNode,
-          splitPercentage: ((docCount - 1) / docCount) * 100,
+          splitPercentage: (existingCount / totalCount) * 100,
         });
       } else {
-        const existingLeaves = getLeaves(state);
-        const allLeaves: MosaicNode<string>[] = [
-          ...existingLeaves,
-          ...(typeof splitNode === "string" ? [splitNode] : getLeaves(splitNode)),
-        ];
-        setMosaicState(createBalancedTreeFromLeaves(allLeaves));
+        const existingUnits = extractDocumentSubtrees(state);
+        const allUnits: MosaicNode<string>[] = [...existingUnits, splitNode];
+        setMosaicState(createBalancedTreeFromLeaves(allUnits));
       }
     }
     const mdPanelId = typeof splitNode === "string" ? splitNode : (splitNode.first as string);

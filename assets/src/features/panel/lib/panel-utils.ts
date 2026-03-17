@@ -138,6 +138,22 @@ export function replacePanelInMosaic(
   };
 }
 
+export function extractDocumentSubtrees(node: MosaicNode<string>): MosaicNode<string>[] {
+  if (typeof node === "string") return [node];
+  const leftGroupIds = new Set(getLeafScrollGroupIds(node.first));
+  const rightGroupIds = new Set(getLeafScrollGroupIds(node.second));
+  if ([...leftGroupIds].some((id) => rightGroupIds.has(id))) return [node];
+  return [...extractDocumentSubtrees(node.first), ...extractDocumentSubtrees(node.second)];
+}
+
+function getLeafScrollGroupIds(node: MosaicNode<string>): string[] {
+  if (typeof node === "string") {
+    const panel = decodePanelId(node);
+    return panel ? [panel.scrollGroupId] : [];
+  }
+  return [...getLeafScrollGroupIds(node.first), ...getLeafScrollGroupIds(node.second)];
+}
+
 export function replacePanelIdInMosaic(
   node: MosaicNode<string>,
   oldId: string,

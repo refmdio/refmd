@@ -17,6 +17,8 @@ function installDocumentDndListeners() {
   };
   const handleDrop = (e: DragEvent) => {
     if (activeSidebarDragDocId && onTileDrop) {
+      const target = e.target as HTMLElement;
+      if (target.closest("aside")) return;
       e.preventDefault();
       e.stopPropagation();
       onTileDrop(activeSidebarDragDocId);
@@ -67,7 +69,7 @@ export function useDocumentDrag(
 
   function canDrop(dragId: string, targetDoc: DocumentResponse, pos: DropPosition): boolean {
     if (dragId === targetDoc.id) return false;
-    if (targetDoc.archived_at && pos === "inside") return false;
+    if (targetDoc.archived_at) return false;
     if (pos === "inside" && targetDoc.doc_type !== "folder") return false;
     if (pos === "inside" && isDescendant(dragId, targetDoc.id)) return false;
 

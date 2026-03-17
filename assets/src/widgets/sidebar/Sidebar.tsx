@@ -1,11 +1,19 @@
-import { createSignal, createEffect, onCleanup, Show } from "solid-js";
+import { createSignal, createEffect, onCleanup, Show, For } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import { FilePlusIcon, FolderPlusIcon } from "lucide-solid";
+import {
+  FilePlusIcon,
+  FolderPlusIcon,
+  ArchiveIcon,
+  ChevronRightIcon,
+  ChevronDownIcon,
+} from "lucide-solid";
 import { Button } from "@/shared/ui/button";
 import { UserMenu } from "./UserMenu";
 import { DocumentTree } from "./DocumentTree";
+import { DocumentTreeItem } from "./DocumentTreeItem";
 import { DocumentContextMenu } from "./DocumentContextMenu";
 import {
+  buildDocumentTree,
   useDocuments,
   useDocumentTitles,
   useExpandedFolders,
@@ -45,10 +53,22 @@ interface SidebarProps {
 export function Sidebar(props: SidebarProps) {
   const queryClient = useQueryClient();
   const workspaceId = () => currentWorkspaceId();
-  const { documentTree, flatDocuments, query } = useDocuments(workspaceId);
+  const { flatDocuments, query } = useDocuments(workspaceId);
   const { getTitle, isTitleReady } = useDocumentTitles(flatDocuments, workspaceId);
   const { isExpanded, toggle, expand } = useExpandedFolders(workspaceId);
   const workspace = usePanelWorkspace();
+
+  const activeTree = () => buildDocumentTree(flatDocuments().filter((d) => !d.archived_at));
+  const archiveTree = () => {
+    const archived = flatDocuments().filter((d) => !!d.archived_at);
+    if (archived.length === 0) return [];
+    const archivedIds = new Set(archived.map((d) => d.id));
+    const rerooted = archived.map((d) =>
+      d.parent_id && !archivedIds.has(d.parent_id) ? { ...d, parent_id: null } : d,
+    );
+    return buildDocumentTree(rerooted as DocumentResponse[]);
+  };
+  const [archiveExpanded, setArchiveExpanded] = createSignal(false);
 
   const handleDragDrop = async (draggedId: string, parentId: string | null, position: number) => {
     const wsId = workspaceId();
@@ -216,7 +236,7 @@ export function Sidebar(props: SidebarProps) {
           }
         >
           <DocumentTree
-            tree={documentTree()}
+            tree={activeTree()}
             isLoading={query.isLoading}
             isError={query.isError}
             refetch={() => query.refetch()}
@@ -243,6 +263,53 @@ export function Sidebar(props: SidebarProps) {
             onRootDragOver={drag.handleRootDragOver}
             onRootDrop={drag.handleRootDrop}
           />
+          <Show when={archiveTree().length > 0}>
+            <div class="mx-1 mt-1">
+              <button
+                class="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground/70 hover:bg-sidebar-accent mx-1 mt-1"
+                onClick={() => setArchiveExpanded((v) => !v)}
+              >
+                <span class="shrink-0 size-4 flex items-center justify-center">
+                  <Show when={archiveExpanded()} fallback={<ChevronRightIcon class="size-3" />}>
+                    <ChevronDownIcon class="size-3" />
+                  </Show>
+                </span>
+                <ArchiveIcon class="size-4" />
+                <span>Archive</span>
+              </button>
+              <Show when={archiveExpanded()}>
+                <div class="py-1">
+                  <For each={archiveTree()}>
+                    {(node) => (
+                      <DocumentTreeItem
+                        node={node}
+                        isExpanded={isExpanded}
+                        onToggle={toggle}
+                        selectedId={selectedDocumentId()}
+                        onSelect={(id) => {
+                          setSelectedDocumentId(id);
+                          const doc = flatDocuments().find((d) => d.id === id);
+                          if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
+                            workspace.openDocument({ id: doc.id, title: getTitle(doc) });
+                          }
+                        }}
+                        getTitle={getTitle}
+                        isTitleReady={isTitleReady}
+                        onContextMenu={handleContextMenu}
+                        draggedId={drag.draggedId()}
+                        dropTarget={drag.dropTarget()}
+                        onDragStart={drag.handleDragStart}
+                        onDragOver={drag.handleDragOver}
+                        onDragLeave={drag.handleDragLeave}
+                        onDrop={drag.handleDrop}
+                        onDragEnd={drag.handleDragEnd}
+                      />
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </Show>
         </Show>
       </div>
 
@@ -254,14 +321,11 @@ export function Sidebar(props: SidebarProps) {
           setContextPos(null);
         }}
         getTitle={getTitle}
+        isTitleReady={isTitleReady}
         folders={flatDocuments().filter((d) => d.doc_type === "folder")}
         onRename={handleRename}
         onMove={handleMove}
-        onAddToTile={(doc) => {
-          if (isTitleReady(doc)) {
-            workspace.addToTile({ id: doc.id, title: getTitle(doc) });
-          }
-        }}
+        onAddToTile={(doc) => workspace.addToTile({ id: doc.id, title: getTitle(doc) })}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
         onDelete={handleDelete}

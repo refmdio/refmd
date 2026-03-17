@@ -25,15 +25,22 @@ export function acquireYDoc(documentId: string): { yDoc: Y.Doc; awareness: Aware
   return { yDoc, awareness };
 }
 
+const EVICTION_DELAY_MS = 200;
+
 export function releaseYDoc(documentId: string): void {
   const entry = cache.get(documentId);
   if (!entry) return;
 
   entry.refCount--;
   if (entry.refCount <= 0) {
-    entry.awareness.destroy();
-    entry.yDoc.destroy();
-    cache.delete(documentId);
+    setTimeout(() => {
+      const current = cache.get(documentId);
+      if (current && current.refCount <= 0) {
+        current.awareness.destroy();
+        current.yDoc.destroy();
+        cache.delete(documentId);
+      }
+    }, EVICTION_DELAY_MS);
   }
 }
 
