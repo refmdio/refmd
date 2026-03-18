@@ -1,40 +1,6 @@
-import { createSignal, createEffect, onCleanup, Show, For } from "solid-js";
-import { useQueryClient } from "@tanstack/solid-query";
-import {
-  FilePlusIcon,
-  FolderPlusIcon,
-  ArchiveIcon,
-  ChevronRightIcon,
-  ChevronDownIcon,
-} from "lucide-solid";
-import { Button } from "@/shared/ui/button";
+import { createEffect, onCleanup } from "solid-js";
 import { UserMenu } from "./UserMenu";
-import { DocumentTree } from "./DocumentTree";
-import { DocumentTreeItem } from "./DocumentTreeItem";
-import { DocumentContextMenu } from "./DocumentContextMenu";
-import {
-  buildDocumentTree,
-  useDocuments,
-  useDocumentTitles,
-  useExpandedFolders,
-  useDocumentDrag,
-  selectedDocumentId,
-  setSelectedDocumentId,
-} from "@/entities/document";
-import type { DocumentResponse } from "@/entities/document";
-import { usePanelWorkspace, hasDocumentPanels, findFirstPanelId } from "@/features/panel";
-import { currentWorkspaceId } from "@/entities/workspace";
-import {
-  createDocument,
-  createFolder,
-  renameDocument,
-  moveDocument,
-  archiveDocument,
-  unarchiveDocument,
-  deleteDocument,
-  CreateDocumentDialog,
-  CreateFolderDialog,
-} from "@/features/document";
+import { workspaceManager } from "@/features/panel";
 
 interface Workspace {
   id: string;
@@ -51,296 +17,58 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-  const queryClient = useQueryClient();
-  const workspaceId = () => currentWorkspaceId();
-  const { flatDocuments, query } = useDocuments(workspaceId);
-  const { getTitle, isTitleReady } = useDocumentTitles(flatDocuments, workspaceId);
-  const { isExpanded, toggle, expand } = useExpandedFolders(workspaceId);
-  const workspace = usePanelWorkspace();
+  const panels = workspaceManager.getSidebarPanels();
+  const activePanelId = workspaceManager.getActiveSidebarPanelId();
+  let containerRef: HTMLDivElement | undefined;
+  let mountedEl: HTMLElement | null = null;
 
-  const activeTree = () => buildDocumentTree(flatDocuments().filter((d) => !d.archived_at));
-  const archiveTree = () => {
-    const archived = flatDocuments().filter((d) => !!d.archived_at);
-    if (archived.length === 0) return [];
-    const archivedIds = new Set(archived.map((d) => d.id));
-    const rerooted = archived.map((d) =>
-      d.parent_id && !archivedIds.has(d.parent_id) ? { ...d, parent_id: null } : d,
-    );
-    return buildDocumentTree(rerooted as DocumentResponse[]);
-  };
-  const [archiveExpanded, setArchiveExpanded] = createSignal(false);
-
-  const handleDragDrop = async (draggedId: string, parentId: string | null, position: number) => {
-    const wsId = workspaceId();
-    if (!wsId) return;
-    try {
-      await moveDocument(draggedId, wsId, parentId, position);
-      invalidateDocuments();
-      if (parentId) expand(parentId);
-    } catch (e) {
-      console.error("Failed to reorder document:", e);
+  function clearMounted() {
+    if (mountedEl && containerRef?.contains(mountedEl)) {
+      containerRef.removeChild(mountedEl);
     }
-  };
+    mountedEl = null;
+  }
 
-  const drag = useDocumentDrag(flatDocuments, handleDragDrop, expand);
+  function mountPanel() {
+    if (!containerRef) return;
+    clearMounted();
 
-  const [isOnline, setIsOnline] = createSignal(navigator.onLine);
-  createEffect(() => {
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    onCleanup(() => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    });
-  });
+    const panelId = activePanelId();
+    const wsId = props.currentWorkspaceId;
+    const activePanel = panels().find((p) => p.id === panelId) ?? null;
+    if (!activePanel || !wsId) return;
 
-  const [createDocOpen, setCreateDocOpen] = createSignal(false);
-  const [createFolderOpen, setCreateFolderOpen] = createSignal(false);
-  const [contextTarget, setContextTarget] = createSignal<DocumentResponse | null>(null);
-  const [contextPos, setContextPos] = createSignal<{ x: number; y: number } | null>(null);
-
-  const invalidateDocuments = () => {
-    queryClient.invalidateQueries({ queryKey: ["documents", workspaceId()] });
-  };
-
-  const isArchivedFolder = (docId: string | null): boolean => {
-    if (!docId) return false;
-    const doc = flatDocuments().find((d) => d.id === docId);
-    return !!doc && doc.doc_type === "folder" && doc.archived_at != null;
-  };
-
-  const isSelectedInArchivedFolder = (): boolean => {
-    const selId = selectedDocumentId();
-    if (!selId) return false;
-    const docs = flatDocuments();
-    const sel = docs.find((d) => d.id === selId);
-    if (!sel) return false;
-    if (sel.doc_type !== "folder") return false;
-    return isArchivedFolder(sel.id);
-  };
-
-  const selectedParentId = (): string | null => {
-    const selId = selectedDocumentId();
-    if (!selId) return null;
-    const docs = flatDocuments();
-    const sel = docs.find((d) => d.id === selId);
-    if (!sel || sel.doc_type !== "folder") return null;
-    if (isArchivedFolder(sel.id)) return null;
-    return sel.id;
-  };
-
-  const handleCreateDocument = async (title: string) => {
-    const wsId = workspaceId();
-    if (!wsId) return;
-    const docId = await createDocument(wsId, title, selectedParentId());
-    invalidateDocuments();
-    setSelectedDocumentId(docId);
-  };
-
-  const handleCreateFolder = async (name: string) => {
-    const wsId = workspaceId();
-    if (!wsId || !navigator.onLine) return;
-    const folderId = await createFolder(wsId, name, selectedParentId());
-    invalidateDocuments();
-    setSelectedDocumentId(folderId);
-    expand(folderId);
-  };
-
-  const handleRename = async (doc: DocumentResponse, newTitle: string) => {
-    const wsId = workspaceId();
-    if (!wsId) return;
-    await renameDocument(doc, newTitle, wsId);
-    invalidateDocuments();
-  };
-
-  const handleMove = async (doc: DocumentResponse, parentId: string | null) => {
-    const wsId = workspaceId();
-    if (!wsId) return;
-    const siblings = flatDocuments().filter(
-      (d) => (d.parent_id ?? null) === parentId && d.id !== doc.id,
-    );
-    const position = siblings.length;
-    await moveDocument(doc.id, wsId, parentId, position);
-    invalidateDocuments();
-    if (parentId) expand(parentId);
-  };
-
-  const handleArchive = async (doc: DocumentResponse) => {
-    await archiveDocument(doc.id);
-    invalidateDocuments();
-  };
-
-  const handleUnarchive = async (doc: DocumentResponse) => {
-    await unarchiveDocument(doc.id);
-    invalidateDocuments();
-  };
-
-  const handleDelete = async (doc: DocumentResponse) => {
-    await deleteDocument(doc.id);
-    if (selectedDocumentId() === doc.id) {
-      setSelectedDocumentId(null);
-    }
-    const state = workspace.mosaicState();
-    if (state && hasDocumentPanels(state, doc.id)) {
-      let panelId = findFirstPanelId(state, doc.id);
-      while (panelId) {
-        workspace.closePanel(panelId);
-        const next = workspace.mosaicState();
-        panelId = next ? findFirstPanelId(next, doc.id) : null;
+    if (activePanel.render) {
+      activePanel.render(containerRef);
+    } else if (activePanel.viewType) {
+      const leaf = workspaceManager.getSidebarLeaf(activePanel.viewType);
+      if (leaf?.view?.containerEl) {
+        containerRef.appendChild(leaf.view.containerEl);
+        mountedEl = leaf.view.containerEl;
       }
     }
-    invalidateDocuments();
-  };
+  }
 
-  const handleContextMenu = (e: MouseEvent, doc: DocumentResponse) => {
-    setContextTarget(doc);
-    setContextPos({ x: e.clientX, y: e.clientY });
-  };
+  createEffect(mountPanel);
+
+  onCleanup(clearMounted);
 
   return (
     <aside class="w-64 border-r border-border h-full flex flex-col bg-sidebar">
-      <Show when={props.currentWorkspaceId}>
-        <div class="px-2 py-1 border-b border-border flex items-center justify-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-7"
-            onClick={() => setCreateDocOpen(true)}
-            disabled={isSelectedInArchivedFolder()}
-            title="New Document"
-          >
-            <FilePlusIcon class="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-7"
-            onClick={() => setCreateFolderOpen(true)}
-            disabled={isSelectedInArchivedFolder() || !isOnline()}
-            title="New Folder"
-          >
-            <FolderPlusIcon class="size-4" />
-          </Button>
-        </div>
-      </Show>
-
-      <div class="flex-1 overflow-hidden flex flex-col">
-        <Show
-          when={props.currentWorkspaceId}
-          fallback={
-            <div class="flex-1 flex items-center justify-center">
-              <p class="text-xs text-muted-foreground">No workspace selected</p>
-            </div>
-          }
-        >
-          <DocumentTree
-            tree={activeTree()}
-            isLoading={query.isLoading}
-            isError={query.isError}
-            refetch={() => query.refetch()}
-            isExpanded={isExpanded}
-            onToggle={toggle}
-            selectedId={selectedDocumentId()}
-            onSelect={(id) => {
-              setSelectedDocumentId(id);
-              const doc = flatDocuments().find((d) => d.id === id);
-              if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
-                workspace.openDocument({ id: doc.id, title: getTitle(doc) });
-              }
-            }}
-            getTitle={getTitle}
-            isTitleReady={isTitleReady}
-            onContextMenu={handleContextMenu}
-            draggedId={drag.draggedId()}
-            dropTarget={drag.dropTarget()}
-            onDragStart={drag.handleDragStart}
-            onDragOver={drag.handleDragOver}
-            onDragLeave={drag.handleDragLeave}
-            onDrop={drag.handleDrop}
-            onDragEnd={drag.handleDragEnd}
-            onRootDragOver={drag.handleRootDragOver}
-            onRootDrop={drag.handleRootDrop}
-          />
-          <Show when={archiveTree().length > 0}>
-            <div class="mx-1 mt-1">
-              <button
-                class="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground/70 hover:bg-sidebar-accent mx-1 mt-1"
-                onClick={() => setArchiveExpanded((v) => !v)}
-              >
-                <span class="shrink-0 size-4 flex items-center justify-center">
-                  <Show when={archiveExpanded()} fallback={<ChevronRightIcon class="size-3" />}>
-                    <ChevronDownIcon class="size-3" />
-                  </Show>
-                </span>
-                <ArchiveIcon class="size-4" />
-                <span>Archive</span>
-              </button>
-              <Show when={archiveExpanded()}>
-                <div class="py-1">
-                  <For each={archiveTree()}>
-                    {(node) => (
-                      <DocumentTreeItem
-                        node={node}
-                        isExpanded={isExpanded}
-                        onToggle={toggle}
-                        selectedId={selectedDocumentId()}
-                        onSelect={(id) => {
-                          setSelectedDocumentId(id);
-                          const doc = flatDocuments().find((d) => d.id === id);
-                          if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
-                            workspace.openDocument({ id: doc.id, title: getTitle(doc) });
-                          }
-                        }}
-                        getTitle={getTitle}
-                        isTitleReady={isTitleReady}
-                        onContextMenu={handleContextMenu}
-                        draggedId={drag.draggedId()}
-                        dropTarget={drag.dropTarget()}
-                        onDragStart={drag.handleDragStart}
-                        onDragOver={drag.handleDragOver}
-                        onDragLeave={drag.handleDragLeave}
-                        onDrop={drag.handleDrop}
-                        onDragEnd={drag.handleDragEnd}
-                      />
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </div>
-          </Show>
-        </Show>
-      </div>
-
-      <DocumentContextMenu
-        targetDoc={contextTarget()}
-        position={contextPos()}
-        onClose={() => {
-          setContextTarget(null);
-          setContextPos(null);
+      <div
+        ref={(el) => {
+          containerRef = el;
+          mountPanel();
         }}
-        getTitle={getTitle}
-        isTitleReady={isTitleReady}
-        folders={flatDocuments().filter((d) => d.doc_type === "folder")}
-        onRename={handleRename}
-        onMove={handleMove}
-        onAddToTile={(doc) => workspace.addToTile({ id: doc.id, title: getTitle(doc) })}
-        onArchive={handleArchive}
-        onUnarchive={handleUnarchive}
-        onDelete={handleDelete}
-      />
-
-      <CreateDocumentDialog
-        open={createDocOpen()}
-        onOpenChange={setCreateDocOpen}
-        onSubmit={handleCreateDocument}
-      />
-
-      <CreateFolderDialog
-        open={createFolderOpen()}
-        onOpenChange={setCreateFolderOpen}
-        onSubmit={handleCreateFolder}
+        onFocusIn={() => {
+          const panelId = activePanelId();
+          if (!panelId) return;
+          const panel = panels().find((p) => p.id === panelId);
+          if (!panel?.viewType) return;
+          const leaf = workspaceManager.getSidebarLeaf(panel.viewType);
+          if (leaf) workspaceManager.setActiveLeaf(leaf);
+        }}
+        class="flex-1 overflow-hidden flex flex-col"
       />
 
       <UserMenu

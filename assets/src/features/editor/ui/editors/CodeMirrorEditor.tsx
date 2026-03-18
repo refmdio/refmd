@@ -9,6 +9,7 @@ import { basicSetup } from "codemirror";
 import { yCollab, ySyncFacet } from "y-codemirror.next";
 import * as Y from "yjs";
 import { acquireYDoc, releaseYDoc, onScrollSync, emitScrollSync } from "../../lib/ydoc-cache";
+import { EditorApi, registerEditor, unregisterEditor } from "../../lib/editor-api";
 import "./codemirror-cursors.css";
 
 const themeCompartment = new Compartment();
@@ -137,8 +138,12 @@ function localEditNotifier(onLocalEdit: () => void) {
 
 export interface CodeMirrorEditorProps {
   documentId: string;
+  panelId: string;
   scrollGroupId?: string;
   onLocalEdit?: () => void;
+  onDocChange?: () => void;
+  onEditorPaste?: (evt: ClipboardEvent) => void;
+  onEditorDrop?: (evt: DragEvent) => void;
   readOnly?: boolean;
 }
 
@@ -156,6 +161,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     unsubScroll = undefined;
     themeObserver?.disconnect();
     themeObserver = undefined;
+    unregisterEditor(props.panelId);
     view?.destroy();
     view = undefined;
     if (activeDocumentId) {
@@ -186,6 +192,13 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           undoManager: new Y.UndoManager(yText),
         }),
         localEditNotifier(() => props.onLocalEdit?.()),
+        ViewPlugin.fromClass(
+          class {
+            update(update: ViewUpdate) {
+              if (update.docChanged) props.onDocChange?.();
+            }
+          },
+        ),
         keymapCompartment.of(
           keymap.of([
             {
@@ -207,6 +220,11 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         }, origin);
       },
     });
+
+    registerEditor(props.panelId, new EditorApi(view));
+
+    view.contentDOM.addEventListener("paste", (e) => props.onEditorPaste?.(e));
+    view.contentDOM.addEventListener("drop", (e) => props.onEditorDrop?.(e));
 
     const scroller = view.scrollDOM;
     const groupId = props.scrollGroupId;

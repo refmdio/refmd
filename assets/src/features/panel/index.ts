@@ -10,3 +10,5 @@ export {
   hasScrollGroupPeer,
 } from "./lib/panel-utils";
 export type { PanelType, PanelId } from "./lib/panel-utils";
+export { workspaceManager, WorkspaceManagerImpl } from "./lib/workspace-manager";
+export type { Command, Hotkey, SidebarPanelConfig } from "@/shared/lib/app-context";

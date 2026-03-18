@@ -1,1 +1,1 @@
-export { DocumentWorkspace } from "./ui/DocumentWorkspace";
+export { DocumentWorkspace, getStatusBarEl } from "./ui/DocumentWorkspace";

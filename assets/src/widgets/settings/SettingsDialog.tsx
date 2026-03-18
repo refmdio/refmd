@@ -1,7 +1,7 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, createEffect, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { cn } from "@/shared/lib/utils";
-import { InfoIcon, ShieldIcon, UsersIcon, UserIcon, PencilIcon } from "lucide-solid";
+import { InfoIcon, ShieldIcon, UsersIcon, UserIcon, PencilIcon, PuzzleIcon } from "lucide-solid";
 import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog";
 import {
   AboutSection,
@@ -10,35 +10,16 @@ import {
   AccountSection,
   EditorSection,
 } from "@/widgets/settings";
+import { CorePluginsSection } from "./CorePluginsSection";
+import { workspaceManager } from "@/features/panel";
 
-type SettingsTab = "about" | "security" | "workspace" | "editor" | "account";
-
-const tabs: { id: SettingsTab; label: string; icon: () => JSX.Element }[] = [
-  {
-    id: "about",
-    label: "About",
-    icon: () => <InfoIcon class="size-4" />,
-  },
-  {
-    id: "security",
-    label: "Security",
-    icon: () => <ShieldIcon class="size-4" />,
-  },
-  {
-    id: "workspace",
-    label: "Workspace",
-    icon: () => <UsersIcon class="size-4" />,
-  },
-  {
-    id: "editor",
-    label: "Editor",
-    icon: () => <PencilIcon class="size-4" />,
-  },
-  {
-    id: "account",
-    label: "Account",
-    icon: () => <UserIcon class="size-4" />,
-  },
+const builtinTabs: { id: string; label: string; icon: () => JSX.Element }[] = [
+  { id: "about", label: "About", icon: () => <InfoIcon class="size-4" /> },
+  { id: "security", label: "Security", icon: () => <ShieldIcon class="size-4" /> },
+  { id: "workspace", label: "Workspace", icon: () => <UsersIcon class="size-4" /> },
+  { id: "editor", label: "Editor", icon: () => <PencilIcon class="size-4" /> },
+  { id: "account", label: "Account", icon: () => <UserIcon class="size-4" /> },
+  { id: "core-plugins", label: "Core Plugins", icon: () => <PuzzleIcon class="size-4" /> },
 ];
 
 interface SettingsDialogProps {
@@ -47,7 +28,37 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = createSignal<SettingsTab>("about");
+  const [activeTab, setActiveTab] = createSignal("about");
+  const pluginTabs = workspaceManager.getSettingTabs();
+
+  let prevPluginTabId: string | null = null;
+  createEffect(() => {
+    const current = activeTab();
+    const tabs = pluginTabs();
+    if (prevPluginTabId && prevPluginTabId !== current) {
+      const prevTab = tabs.find((t) => `plugin:${t.id}` === prevPluginTabId);
+      prevTab?.hide();
+    }
+    prevPluginTabId = current.startsWith("plugin:") ? current : null;
+  });
+
+  createEffect(() => {
+    if (!props.open && prevPluginTabId) {
+      const tabs = pluginTabs();
+      const tab = tabs.find((t) => `plugin:${t.id}` === prevPluginTabId);
+      tab?.hide();
+      prevPluginTabId = null;
+    }
+  });
+
+  const allTabs = () => [
+    ...builtinTabs,
+    ...pluginTabs().map((t) => ({
+      id: `plugin:${t.id}`,
+      label: t.name,
+      icon: () => <PuzzleIcon class="size-4" />,
+    })),
+  ];
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -59,22 +70,24 @@ export function SettingsDialog(props: SettingsDialogProps) {
               Settings
             </h2>
             <nav role="tablist" aria-label="Settings" class="space-y-1 px-2">
-              {tabs.map((tab) => (
-                <button
-                  role="tab"
-                  aria-selected={activeTab() === tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  class={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors",
-                    activeTab() === tab.id
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
-                >
-                  {tab.icon()}
-                  {tab.label}
-                </button>
-              ))}
+              <For each={allTabs()}>
+                {(tab) => (
+                  <button
+                    role="tab"
+                    aria-selected={activeTab() === tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    class={cn(
+                      "w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors",
+                      activeTab() === tab.id
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    {tab.icon()}
+                    {tab.label}
+                  </button>
+                )}
+              </For>
             </nav>
           </div>
 
@@ -94,6 +107,22 @@ export function SettingsDialog(props: SettingsDialogProps) {
             <Show when={activeTab() === "account"}>
               <AccountSection />
             </Show>
+            <Show when={activeTab() === "core-plugins"}>
+              <CorePluginsSection />
+            </Show>
+            <For each={pluginTabs()}>
+              {(tab) => (
+                <Show when={activeTab() === `plugin:${tab.id}`}>
+                  <div
+                    ref={(el) => {
+                      el.appendChild(tab.containerEl);
+                      tab.display();
+                    }}
+                    class="p-6"
+                  />
+                </Show>
+              )}
+            </For>
           </div>
         </div>
       </DialogContent>

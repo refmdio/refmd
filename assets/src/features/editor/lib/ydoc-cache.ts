@@ -57,6 +57,12 @@ export function onScrollSync(scrollGroupId: string, listener: ScrollListener): (
   };
 }
 
+export function getDocText(documentId: string): string | null {
+  const entry = cache.get(documentId);
+  if (!entry) return null;
+  return entry.yDoc.getText("content").toString();
+}
+
 export function emitScrollSync(scrollGroupId: string, ratio: number, sourceId: string): void {
   const set = scrollListeners.get(scrollGroupId);
   if (!set) return;

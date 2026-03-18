@@ -1,6 +1,6 @@
 import { Router, Route } from "@solidjs/router";
 import { createSignal, onMount, Show, For } from "solid-js";
-import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
+import { QueryClientProvider } from "@tanstack/solid-query";
 import "./app.css";
 import { Navigate } from "@solidjs/router";
 import DashboardPage from "@/routes/dashboard";
@@ -23,7 +23,7 @@ import { TofuHardFailError } from "@/shared/lib/crypto";
 import { Spinner } from "@/shared/ui/spinner";
 import { AppShell } from "./app-shell";
 
-const queryClient = new QueryClient();
+import { queryClient } from "@/shared/lib/query-client";
 
 export default function App() {
   const [ready, setReady] = createSignal(false);

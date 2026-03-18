@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, type ParentProps } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, type ParentProps } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { Sidebar } from "@/widgets/sidebar";
@@ -19,6 +19,27 @@ import { clearKekCache, getCachedKek } from "@/shared/lib/crypto/kek-resolver";
 import { usePanelWorkspace } from "@/features/panel";
 import { Button } from "@/shared/ui/button";
 import { BellIcon } from "lucide-solid";
+import {
+  setFocusedPanelIdAccessor,
+  setOnEditorRegistered,
+  getActiveEditor,
+  getEditorForDocument,
+  getDocText,
+} from "@/features/editor";
+import { documentManager } from "@/shared/lib/document-manager";
+import { workspaceManager } from "@/features/panel";
+import { initApp } from "@/shared/lib/app-context";
+import {
+  registerCorePlugins,
+  loadCorePlugins,
+  unloadCorePlugins,
+} from "@/shared/lib/core-plugin-registry";
+import { loadDocumentTree, unloadDocumentTree } from "@/core-plugins/document-tree";
+import { loadCommandPalette, unloadCommandPalette } from "@/core-plugins/command-palette";
+import { loadWordCount, unloadWordCount } from "@/core-plugins/word-count";
+import { getStatusBarEl } from "@/widgets/document-workspace";
+import { createWorkspaceBridge } from "@/shared/lib/workspace-bridge";
+import { Toaster } from "@/shared/ui/sonner";
 
 const rotationAttempted = new Set<string>();
 
@@ -30,6 +51,160 @@ export function AppShell(props: ParentProps) {
   const { workspaces, allWorkspaces, workspacesNeedingRotation } = useWorkspaces();
   const documentWorkspace = usePanelWorkspace();
   useSettings();
+
+  // --- Plugin infrastructure initialization ---
+
+  setFocusedPanelIdAccessor(() => documentWorkspace.focusedPanelId());
+  setOnEditorRegistered(() => documentManager.flushPendingOpens());
+
+  documentManager.init(
+    {
+      openDocument: (doc) => documentWorkspace.openDocument(doc),
+      addToTile: (doc) => documentWorkspace.addToTile(doc),
+      closePanel: (panelId) => documentWorkspace.closePanel(panelId),
+      focusedDocumentId: () => documentWorkspace.focusedDocumentId(),
+    },
+    queryClient,
+    () => currentWorkspaceId(),
+    () => getActiveEditor(),
+    (docId) => getEditorForDocument(docId),
+  );
+  documentManager.setDocTextResolver((id) => getDocText(id));
+  documentManager.setCreateDocumentFn(async (wsId, title, parentId) => {
+    const { createDocument } = await import("@/features/document");
+    return createDocument(wsId, title, parentId);
+  });
+
+  workspaceManager.setEditorContextResolver(() => {
+    const editor = getActiveEditor();
+    const doc = documentManager.getActiveDocument();
+    if (!editor || !doc) return null;
+    return { editor, doc };
+  });
+  workspaceManager.setActiveDocumentResolver(() => documentManager.getActiveDocument());
+
+  const app = initApp(workspaceManager, documentManager);
+  workspaceManager.setAppRef(app);
+  workspaceManager.setMosaicOps({
+    focusPanel: (panelId) => documentWorkspace.focusPanel(panelId),
+    setMosaicState: (state) => documentWorkspace.setMosaicState(state),
+    mosaicState: () => documentWorkspace.mosaicState(),
+  });
+
+  registerCorePlugins([
+    {
+      id: "document-tree",
+      name: "Document Tree",
+      description: "Browse documents and folders in the sidebar.",
+      defaultEnabled: true,
+      load: loadDocumentTree,
+      unload: unloadDocumentTree,
+    },
+    {
+      id: "command-palette",
+      name: "Command Palette",
+      description: "Quickly access commands from your keyboard.",
+      defaultEnabled: true,
+      load: loadCommandPalette,
+      unload: unloadCommandPalette,
+    },
+    {
+      id: "word-count",
+      name: "Word Count",
+      description: "Display the number of words and characters in the status bar.",
+      defaultEnabled: true,
+      load: loadWordCount,
+      unload: unloadWordCount,
+    },
+  ]);
+
+  // Centralized reactive bridges: SolidJS signals → WorkspaceManager/DocumentManager events
+  createWorkspaceBridge(workspaceManager, documentManager, {
+    focusedPanelId: () => documentWorkspace.focusedPanelId(),
+    openDocuments: () => documentWorkspace.openDocuments(),
+    mosaicState: () => documentWorkspace.mosaicState(),
+    statusBarEl: () => getStatusBarEl(),
+  });
+
+  // Core plugin lifecycle: initial load (synchronous, before Sidebar mount)
+  const initialWsId = currentWorkspaceId();
+  let corePluginsLoaded = false;
+  if (initialWsId) {
+    loadCorePlugins(app, initialWsId);
+    corePluginsLoaded = true;
+  }
+
+  function registerBuiltinCommands() {
+    workspaceManager.addCommand({
+      id: "editor:switch-mode",
+      name: "Switch editor mode",
+      editorCallback: () => {
+        const pid = documentWorkspace.focusedPanelId();
+        if (pid) documentWorkspace.switchPanelType(pid);
+      },
+    });
+    workspaceManager.addCommand({
+      id: "editor:split-horizontal",
+      name: "Split editor horizontally",
+      editorCallback: () => {
+        const pid = documentWorkspace.focusedPanelId();
+        if (pid) documentWorkspace.splitPanel(pid, "row");
+      },
+    });
+    workspaceManager.addCommand({
+      id: "editor:split-vertical",
+      name: "Split editor vertically",
+      editorCallback: () => {
+        const pid = documentWorkspace.focusedPanelId();
+        if (pid) documentWorkspace.splitPanel(pid, "column");
+      },
+    });
+    workspaceManager.addCommand({
+      id: "editor:close-panel",
+      name: "Close current panel",
+      callback: () => {
+        const pid = documentWorkspace.focusedPanelId();
+        if (pid) documentWorkspace.closePanel(pid);
+      },
+    });
+    workspaceManager.addCommand({
+      id: "editor:switch-to-split",
+      name: "Switch to split view",
+      editorCallback: () => {
+        const pid = documentWorkspace.focusedPanelId();
+        if (pid) documentWorkspace.switchToSplit(pid);
+      },
+    });
+  }
+
+  registerBuiltinCommands();
+
+  // Workspace change: reload plugins
+  let loadedForWsId: string | null = initialWsId;
+  createEffect(() => {
+    const wsId = currentWorkspaceId();
+    if (wsId === loadedForWsId && corePluginsLoaded) return;
+    if (corePluginsLoaded) {
+      unloadCorePlugins();
+      workspaceManager.reset();
+      registerBuiltinCommands();
+      corePluginsLoaded = false;
+    }
+    if (wsId) {
+      loadCorePlugins(app, wsId);
+      corePluginsLoaded = true;
+      loadedForWsId = wsId;
+    }
+  });
+
+  onCleanup(() => {
+    if (corePluginsLoaded) {
+      unloadCorePlugins();
+      corePluginsLoaded = false;
+    }
+  });
+
+  // --- Existing workspace logic ---
 
   createEffect(() => {
     const wsList = allWorkspaces();
@@ -183,6 +358,7 @@ export function AppShell(props: ParentProps) {
       />
       <div class="flex-1 overflow-hidden">{props.children}</div>
       <SettingsDialog open={settingsOpen()} onOpenChange={setSettingsOpen} />
+      <Toaster position="bottom-right" />
     </div>
   );
 }

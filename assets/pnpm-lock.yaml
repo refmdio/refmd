@@ -132,6 +132,9 @@ importers:
       solid-mosaic-component:
         specifier: 0.1.2
         version: 0.1.2(solid-js@1.9.11)
+      solid-sonner:
+        specifier: ^0.3.1
+        version: 0.3.1(solid-js@1.9.11)
       tailwind-merge:
         specifier: ^3.5.0
         version: 3.5.0
@@ -2300,6 +2303,11 @@ packages:
     resolution: {integrity: sha512-F3aPsX6hVw9ttm5LYlth8Q15x6MlI/J3Dn+o3EQyRTtTxidepSTwAYdozt01/YA+7ObcciagGEyXIopGZzQtbA==}
     peerDependencies:
       solid-js: ^1.3
+
+  solid-sonner@0.3.1:
+    resolution: {integrity: sha512-F/+zi9yKJTHh5hX1UGJfkDvyC+F34Vi3jgy44NJwOKCgic1QtAon0b1iT9OsDO77RTgR+PCil+3Y5B8T2Owy1Q==}
+    peerDependencies:
+      solid-js: ^1.6.0
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -4644,6 +4652,10 @@ snapshots:
       solid-js: 1.9.11
     transitivePeerDependencies:
       - supports-color
+
+  solid-sonner@0.3.1(solid-js@1.9.11):
+    dependencies:
+      solid-js: 1.9.11
 
   source-map-js@1.2.1: {}
 

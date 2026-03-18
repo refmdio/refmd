@@ -1,7 +1,9 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { EditorView } from "prosemirror-view";
 import { EditorState, type Plugin } from "prosemirror-state";
+import * as Y from "yjs";
 import { acquireYDoc, releaseYDoc, onScrollSync, emitScrollSync } from "../../lib/ydoc-cache";
+import { ProseMirrorEditorApi, registerEditor, unregisterEditor } from "../../lib/editor-api";
 import { markdownSchema } from "../../lib/prosemirror/schema";
 import { setupCollabPlugins } from "../../lib/prosemirror/collab-plugins";
 import { buildCollabPlugins } from "../../lib/prosemirror/plugins";
@@ -16,8 +18,12 @@ import "./prosemirror-editor.css";
 
 export interface ProseMirrorEditorProps {
   documentId: string;
+  panelId: string;
   scrollGroupId?: string;
   onLocalEdit?: () => void;
+  onDocChange?: () => void;
+  onEditorPaste?: (evt: ClipboardEvent) => void;
+  onEditorDrop?: (evt: DragEvent) => void;
   readOnly?: boolean;
 }
 
@@ -41,6 +47,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     unsubScroll = undefined;
     destroyCollab?.();
     destroyCollab = undefined;
+    unregisterEditor(props.panelId);
     view?.destroy();
     view = undefined;
     setCurrentView(null);
@@ -89,6 +96,13 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
         const newState = editorView.state.apply(tr);
         editorView.updateState(newState);
 
+        if (tr.docChanged) {
+          props.onDocChange?.();
+          if (!tr.getMeta("y-sync$")) {
+            props.onLocalEdit?.();
+          }
+        }
+
         const ss = sp.getState(newState) as SlashMenuState | undefined;
         setSlashState(ss ?? INACTIVE);
 
@@ -101,6 +115,12 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
     view = editorView;
     setCurrentView(editorView);
+    const yText = yDoc.getText("content");
+    const undoMgr = new Y.UndoManager(yText);
+    registerEditor(props.panelId, new ProseMirrorEditorApi(editorView, yText, undoMgr));
+
+    editorView.dom.addEventListener("paste", (e) => props.onEditorPaste?.(e));
+    editorView.dom.addEventListener("drop", (e) => props.onEditorDrop?.(e));
 
     const groupId = props.scrollGroupId;
     const handleScroll = () => {
