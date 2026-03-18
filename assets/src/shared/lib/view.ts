@@ -18,6 +18,8 @@ export abstract class View {
     this.leaf = leaf;
     this.containerEl = document.createElement("div");
     this.containerEl.classList.add("view-content");
+    this.containerEl.style.height = "100%";
+    this.containerEl.style.minHeight = "0";
   }
 
   abstract getViewType(): string;

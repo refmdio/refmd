@@ -31,29 +31,40 @@
   border: none !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-  justify-content: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
   position: relative !important;
-  padding: 8px 24px !important;
+  padding: 8px !important;
   min-height: auto !important;
   height: auto !important;
 }
 
-.mosaic.mosaic-blueprint-theme .mosaic-window-title {
+.mosaic.mosaic-blueprint-theme .mosaic-window .mosaic-window-title,
+.mosaic.mosaic-blueprint-theme .mosaic-preview .mosaic-window-title {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  display: block !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  flex: none !important;
+  height: auto !important;
   font-size: 13px;
   font-weight: 500;
   color: var(--muted-foreground) !important;
-  flex: 1 !important;
-  text-align: center;
-  cursor: grab;
+  text-align: center !important;
+  pointer-events: none;
 }
 
-.mosaic.mosaic-blueprint-theme .mosaic-window-title:active {
+.mosaic.mosaic-blueprint-theme .mosaic-window .mosaic-window-title:active {
   cursor: grabbing;
 }
 
 .mosaic.mosaic-blueprint-theme .mosaic-window-controls {
-  position: absolute !important;
-  right: 8px !important;
+  position: relative !important;
+  z-index: 1 !important;
+  pointer-events: auto !important;
   color: var(--muted-foreground) !important;
 }
 

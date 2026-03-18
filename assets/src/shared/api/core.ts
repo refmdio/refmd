@@ -62,35 +62,103 @@ export async function withPopDevice<T>(
   }
 }
 
+const MAX_RATE_LIMIT_RETRIES = 3;
+
+async function applyPopHeaders(request: Request): Promise<void> {
+  const override = popDeviceOverride;
+  const state = deviceState();
+  const deviceId = override?.deviceId ?? state?.deviceId;
+  const signingPrivate = override?.deviceSigningPrivate ?? state?.deviceSigningPrivate;
+
+  if (!deviceId || !signingPrivate) return;
+  if (isSessionOnlyEndpoint(request.url, request.method)) return;
+
+  const headers = await getPopHeaders(override ?? undefined);
+  request.headers.set("X-PoP-Device-Id", headers["X-PoP-Device-Id"]);
+  request.headers.set("X-PoP-Challenge", headers["X-PoP-Challenge"]);
+  request.headers.set("X-PoP-Signature", headers["X-PoP-Signature"]);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Global rate limit state: all requests wait until this timestamp passes
+let rateLimitedUntil = 0;
+
+function setGlobalRateLimit(retryAfterMs: number): void {
+  const until = Date.now() + retryAfterMs;
+  if (until > rateLimitedUntil) {
+    rateLimitedUntil = until;
+  }
+}
+
+export async function waitForGlobalRateLimit(): Promise<void> {
+  while (true) {
+    const remaining = rateLimitedUntil - Date.now();
+    if (remaining <= 0) break;
+    await sleep(remaining + Math.random() * 200);
+  }
+}
+
+function parseRetryAfter(response: Response, attempt: number): number {
+  const header = response.headers.get("retry-after");
+  if (header) {
+    const seconds = parseInt(header, 10);
+    if (!isNaN(seconds) && seconds > 0) return seconds * 1000;
+  }
+  return Math.min(1000 * 2 ** attempt, 4000);
+}
+
+export function handleRateLimitResponse(response: Response, attempt: number): void {
+  const retryMs = parseRetryAfter(response, attempt);
+  setGlobalRateLimit(retryMs);
+}
+
 export const client = createClient<paths>({
   baseUrl: "/",
   credentials: "include",
-});
+  fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    let lastResponse: Response | null = null;
 
-client.use({
-  async onRequest({ request }) {
-    const override = popDeviceOverride;
-    const state = deviceState();
-    const deviceId = override?.deviceId ?? state?.deviceId;
-    const signingPrivate = override?.deviceSigningPrivate ?? state?.deviceSigningPrivate;
+    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+      await waitForGlobalRateLimit();
 
-    if (!deviceId || !signingPrivate) {
-      return undefined;
+      const request = new Request(input, init);
+
+      try {
+        await applyPopHeaders(request);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("rate limited")) {
+          const retryAfter = (e as any).retryAfter ?? "60";
+          return new Response(
+            JSON.stringify({ error: "rate_limit_exceeded", retry_after: parseInt(retryAfter, 10) }),
+            {
+              status: 429,
+              headers: { "Content-Type": "application/json", "Retry-After": retryAfter },
+            },
+          );
+        }
+        // Other errors (device not available, crypto): continue without PoP
+      }
+
+      const response = await fetch(request);
+
+      if (response.status !== 429) {
+        return response;
+      }
+
+      const retryMs = parseRetryAfter(response, attempt);
+      setGlobalRateLimit(retryMs);
+
+      if (retryMs > 10_000) {
+        return response;
+      }
+
+      lastResponse = response;
     }
 
-    if (isSessionOnlyEndpoint(request.url, request.method)) {
-      return undefined;
-    }
-
-    try {
-      const headers = await getPopHeaders(override ?? undefined);
-      request.headers.set("X-PoP-Device-Id", headers["X-PoP-Device-Id"]);
-      request.headers.set("X-PoP-Challenge", headers["X-PoP-Challenge"]);
-      request.headers.set("X-PoP-Signature", headers["X-PoP-Signature"]);
-    } catch {
-      // Continue without PoP — server will reject if required
-    }
-    return undefined;
+    return lastResponse!;
   },
 });
 

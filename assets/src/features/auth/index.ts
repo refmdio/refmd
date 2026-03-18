@@ -4,7 +4,7 @@ export type { RegisterResult } from "./lib/register";
 export { login } from "./lib/login";
 export type { LoginResult } from "./lib/login";
 export { restoreSession } from "./lib/session";
-export type { SessionRestoreResult } from "./lib/session";
+export type { SessionRestoreResult, SessionRestoreError } from "./lib/session";
 export {
   persistKeys,
   persistDeviceKeysOnly,

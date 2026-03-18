@@ -29,7 +29,9 @@ export interface SessionRestoreResult {
   tofuWarnings: string[];
 }
 
-export async function restoreSession(): Promise<SessionRestoreResult | null> {
+export type SessionRestoreError = "rate_limited" | "transient_error";
+
+export async function restoreSession(): Promise<SessionRestoreResult | SessionRestoreError | null> {
   try {
     const me = await authApi.me();
 
@@ -122,9 +124,11 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
       tofuWarnings,
     };
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      return null;
+    if (err instanceof TofuHardFailError) throw err;
+    if (err instanceof ApiError) {
+      if (err.status === 401 || err.status === 403) return null;
+      if (err.status === 429) return "rate_limited";
     }
-    throw err;
+    return "transient_error";
   }
 }

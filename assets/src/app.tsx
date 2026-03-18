@@ -25,13 +25,30 @@ import { AppShell } from "./app-shell";
 
 import { queryClient } from "@/shared/lib/query-client";
 
+function isPublicPath(): boolean {
+  const path = window.location.pathname;
+  return path.startsWith("/auth/") || path === "/devices/register" || path.startsWith("/invite");
+}
+
 export default function App() {
   const [ready, setReady] = createSignal(false);
   const [showPasswordReentry, setShowPasswordReentry] = createSignal(false);
+  const [transientError, setTransientError] = createSignal<string | null>(null);
 
-  onMount(async () => {
+  const attemptRestore = async () => {
+    setTransientError(null);
     try {
       const result = await restoreSession();
+      if (result === "rate_limited") {
+        setTransientError("Too many requests. Please wait a moment and try again.");
+        return;
+      }
+      if (result === "transient_error") {
+        setTransientError(
+          "Could not connect to the server. Please check your connection and try again.",
+        );
+        return;
+      }
       if (result) {
         const auth = {
           user: { id: result.userId, email: result.email, name: result.name },
@@ -80,11 +97,15 @@ export default function App() {
     } catch (e) {
       if (e instanceof TofuHardFailError) {
         setTofuErrors([e.message]);
+      } else {
+        setTransientError("An unexpected error occurred. Please try again.");
       }
     } finally {
       setReady(true);
     }
-  });
+  };
+
+  onMount(attemptRestore);
 
   return (
     <Show
@@ -95,7 +116,24 @@ export default function App() {
         </main>
       }
     >
-      <Show when={tofuErrors().length > 0}>
+      <Show when={transientError() && !isPublicPath()}>
+        <main class="min-h-screen flex items-center justify-center p-6">
+          <div class="max-w-md w-full space-y-4 text-center">
+            <h1 class="text-xl font-semibold">Temporarily Unavailable</h1>
+            <p class="text-muted-foreground">{transientError()}</p>
+            <button
+              class="px-4 py-2 bg-foreground text-background text-sm hover:bg-foreground/90 transition-colors"
+              onClick={() => {
+                setReady(false);
+                attemptRestore();
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        </main>
+      </Show>
+      <Show when={!transientError() && tofuErrors().length > 0}>
         <main class="min-h-screen flex items-center justify-center p-6">
           <div class="max-w-md w-full space-y-4 text-center">
             <h1 class="text-xl font-bold text-destructive">Key Verification Failed</h1>
@@ -108,7 +146,7 @@ export default function App() {
           </div>
         </main>
       </Show>
-      <Show when={tofuErrors().length === 0}>
+      <Show when={tofuErrors().length === 0 && (!transientError() || isPublicPath())}>
         <QueryClientProvider client={queryClient}>
           <PendingDeviceMonitor>
             <Router>

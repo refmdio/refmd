@@ -45,6 +45,22 @@ if config_env() == :prod do
 
   config :refmd, cookie_secure: true
 
+  trusted_proxies =
+    case System.get_env("TRUSTED_PROXIES") do
+      nil ->
+        IO.warn(
+          "TRUSTED_PROXIES not set. Behind a reverse proxy, all users share one rate limit bucket. " <>
+            "Set TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12 to fix."
+        )
+
+        nil
+
+      value ->
+        String.split(value, ",", trim: true) |> Enum.map(&String.trim/1)
+    end
+
+  config :refmd, trusted_proxies: trusted_proxies
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

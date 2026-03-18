@@ -239,7 +239,9 @@ export function DocumentTreePanel() {
         </Show>
       </div>
 
-      <ArchiveSection />
+      <div class="mt-auto shrink-0">
+        <ArchiveSection />
+      </div>
 
       <DocumentContextMenu
         targetDoc={contextTarget()}

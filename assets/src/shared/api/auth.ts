@@ -76,15 +76,30 @@ export const authApi = {
     ),
 
   popChallenge: async (deviceId: string): Promise<{ challenge: string }> => {
-    const res = await fetch("/api/auth/pop-challenge", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-PoP-Device-Id": deviceId,
-      },
-    });
-    if (!res.ok) throw new Error(`pop-challenge failed: ${res.status}`);
-    return res.json();
+    const { waitForGlobalRateLimit, handleRateLimitResponse } = await import("./core");
+    let lastRetryAfter = "60";
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      await waitForGlobalRateLimit();
+      const res = await fetch("/api/auth/pop-challenge", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-PoP-Device-Id": deviceId,
+        },
+      });
+      if (res.status === 429) {
+        lastRetryAfter = res.headers.get("retry-after") ?? lastRetryAfter;
+        handleRateLimitResponse(res, attempt);
+        const retrySeconds = parseInt(lastRetryAfter, 10);
+        if (!isNaN(retrySeconds) && retrySeconds > 10) break;
+        continue;
+      }
+      if (!res.ok) throw new Error(`pop-challenge failed: ${res.status}`);
+      return res.json();
+    }
+    const err = new Error("pop-challenge failed: rate limited");
+    (err as any).retryAfter = lastRetryAfter;
+    throw err;
   },
 };

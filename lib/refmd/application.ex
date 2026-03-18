@@ -12,7 +12,7 @@ defmodule RefMD.Application do
     children = [
       RefMDWeb.Telemetry,
       RefMD.Repo,
-      {PlugAttack.Storage.Ets, name: RefMDWeb.Plugs.RateLimit.Storage, clean_period: 60_000},
+      RefMDWeb.Plugs.RateLimit.Storage,
       {Cluster.Supervisor, [topologies, [name: RefMD.ClusterSupervisor]]},
       {Phoenix.PubSub, name: RefMD.PubSub},
       {Oban, Application.fetch_env!(:refmd, Oban)},
