@@ -22,12 +22,8 @@ import {
   deviceState,
   setTofuErrors as setGlobalTofuErrors,
 } from "@/shared/lib/auth-state";
-import {
-  base64UrlDecode,
-  verifyTofu,
-  handleTofuResult,
-  verifyDeviceIdentitySignature,
-} from "@/shared/lib/crypto";
+import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { RevokeDeviceDialog, usePendingDevices } from "@/features/devices";
 
 function DeviceIcon(props: { type: string }) {
@@ -65,14 +61,20 @@ export function SecuritySection() {
 
     (async () => {
       const warnings: string[] = [];
-      const identitySigningPublic = auth.identityKeys?.signingPublic;
+      const identitySigningPublic = auth.identitySigningPublic;
+      const worker = getCryptoWorker();
 
       for (const d of deviceList) {
         if (!d.signing_public_key || !d.ecdh_public_key) continue;
         try {
           const signingPk = base64UrlDecode(d.signing_public_key);
           const ecdhPk = base64UrlDecode(d.ecdh_public_key);
-          const result = await verifyTofu(auth.user.id, d.id, signingPk, ecdhPk);
+          const result = await worker.tofuVerify({
+            userId: auth.user.id,
+            deviceId: d.id,
+            signingPublicKey: signingPk,
+            ecdhPublicKey: ecdhPk,
+          });
 
           if (result.status === "identity_key_changed" || result.status === "ecdh_key_mismatch") {
             const msg =
@@ -93,19 +95,32 @@ export function SecuritySection() {
               continue;
             }
             const sig = base64UrlDecode(d.identity_signature);
-            const nonce = base64UrlDecode(d.client_nonce);
-            const sigValid = verifyDeviceIdentitySignature(
-              signingPk,
-              ecdhPk,
-              nonce,
-              sig,
+            const nonce = base64UrlDecode(d.client_nonce!);
+            const sigValid = await worker.verifyDeviceIdentitySignature({
+              deviceId: d.id,
+              deviceSigningPublic: signingPk,
+              deviceEcdhPublic: ecdhPk,
+              clientNonce: nonce,
+              identitySignature: sig,
               identitySigningPublic,
-            );
+            });
             if (!sigValid) {
               warnings.push(`${d.name}: Invalid identity signature — device approval not verified`);
               continue;
             }
-            await handleTofuResult(result);
+            if (result.status === "first_seen") {
+              await worker.tofuTrustDevice({
+                userId: auth.user.id,
+                deviceId: d.id,
+                signingPublicKey: signingPk,
+                ecdhPublicKey: ecdhPk,
+              });
+            } else if (result.status === "known_trusted") {
+              await worker.tofuUpdateLastSeen({
+                userId: auth.user.id,
+                deviceId: d.id,
+              });
+            }
           }
         } catch {
           warnings.push(`${d.name}: Key verification unavailable`);

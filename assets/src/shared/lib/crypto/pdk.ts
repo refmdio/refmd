@@ -2,10 +2,6 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { randomBytes } from "./encoding";
 import { buildPdkUmkWrapAad, buildPdkDeviceEcdhAad, buildPdkDeviceSigningAad } from "./aad";
 
-const PDK_UMK_KEY = "refmd-pdk-umk";
-const PDK_DEVICE_ECDH_KEY = "refmd-pdk-device-ecdh";
-const PDK_DEVICE_SIGNING_KEY = "refmd-pdk-device-signing";
-
 interface PdkWrapped {
   ciphertext: string;
   nonce: string;
@@ -37,62 +33,43 @@ function pdkUnwrap(pdk: Uint8Array, wrapped: PdkWrapped, aad: Uint8Array): Uint8
   return cipher.decrypt(ciphertext);
 }
 
-export function storePdkWrappedUmk(pdk: Uint8Array, umk: Uint8Array, userId: string): void {
-  const aad = buildPdkUmkWrapAad(userId);
-  const wrapped = pdkWrap(pdk, umk, aad);
-  localStorage.setItem(PDK_UMK_KEY, JSON.stringify(wrapped));
+// Pure crypto operations (no localStorage, safe for Worker)
+export function pdkWrapUmk(
+  pdk: Uint8Array,
+  umk: Uint8Array,
+  userId: string,
+): { ciphertext: string; nonce: string } {
+  return pdkWrap(pdk, umk, buildPdkUmkWrapAad(userId));
 }
 
-export function loadPdkWrappedUmk(pdk: Uint8Array, userId: string): Uint8Array | null {
-  try {
-    const raw = localStorage.getItem(PDK_UMK_KEY);
-    if (!raw) return null;
-    const wrapped: PdkWrapped = JSON.parse(raw);
-    const aad = buildPdkUmkWrapAad(userId);
-    return pdkUnwrap(pdk, wrapped, aad);
-  } catch {
-    return null;
-  }
+export function pdkUnwrapUmk(
+  pdk: Uint8Array,
+  wrapped: { ciphertext: string; nonce: string },
+  userId: string,
+): Uint8Array {
+  return pdkUnwrap(pdk, wrapped, buildPdkUmkWrapAad(userId));
 }
 
-export function storePdkWrappedDeviceKeys(
+export function pdkWrapDeviceKeys(
   pdk: Uint8Array,
   ecdhPrivate: Uint8Array,
   signingPrivate: Uint8Array,
   userId: string,
-): void {
-  const ecdhAad = buildPdkDeviceEcdhAad(userId);
-  const signingAad = buildPdkDeviceSigningAad(userId);
-  const wrappedEcdh = pdkWrap(pdk, ecdhPrivate, ecdhAad);
-  const wrappedSigning = pdkWrap(pdk, signingPrivate, signingAad);
-  localStorage.setItem(PDK_DEVICE_ECDH_KEY, JSON.stringify(wrappedEcdh));
-  localStorage.setItem(PDK_DEVICE_SIGNING_KEY, JSON.stringify(wrappedSigning));
+): { ecdh: { ciphertext: string; nonce: string }; signing: { ciphertext: string; nonce: string } } {
+  return {
+    ecdh: pdkWrap(pdk, ecdhPrivate, buildPdkDeviceEcdhAad(userId)),
+    signing: pdkWrap(pdk, signingPrivate, buildPdkDeviceSigningAad(userId)),
+  };
 }
 
-export function loadPdkWrappedDeviceKeys(
+export function pdkUnwrapDeviceKeys(
   pdk: Uint8Array,
+  wrappedEcdh: { ciphertext: string; nonce: string },
+  wrappedSigning: { ciphertext: string; nonce: string },
   userId: string,
-): { ecdhPrivate: Uint8Array; signingPrivate: Uint8Array } | null {
-  try {
-    const ecdhRaw = localStorage.getItem(PDK_DEVICE_ECDH_KEY);
-    const signingRaw = localStorage.getItem(PDK_DEVICE_SIGNING_KEY);
-    if (!ecdhRaw || !signingRaw) return null;
-    const ecdhAad = buildPdkDeviceEcdhAad(userId);
-    const signingAad = buildPdkDeviceSigningAad(userId);
-    const ecdhPrivate = pdkUnwrap(pdk, JSON.parse(ecdhRaw), ecdhAad);
-    const signingPrivate = pdkUnwrap(pdk, JSON.parse(signingRaw), signingAad);
-    return { ecdhPrivate, signingPrivate };
-  } catch {
-    return null;
-  }
-}
-
-export function clearPdkWrappedUmk(): void {
-  localStorage.removeItem(PDK_UMK_KEY);
-}
-
-export function clearPdkWrappedKeys(): void {
-  localStorage.removeItem(PDK_UMK_KEY);
-  localStorage.removeItem(PDK_DEVICE_ECDH_KEY);
-  localStorage.removeItem(PDK_DEVICE_SIGNING_KEY);
+): { ecdhPrivate: Uint8Array; signingPrivate: Uint8Array } {
+  return {
+    ecdhPrivate: pdkUnwrap(pdk, wrappedEcdh, buildPdkDeviceEcdhAad(userId)),
+    signingPrivate: pdkUnwrap(pdk, wrappedSigning, buildPdkDeviceSigningAad(userId)),
+  };
 }

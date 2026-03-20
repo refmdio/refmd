@@ -1,66 +1,22 @@
-import { x25519 } from "@noble/curves/ed25519.js";
 import { encryptionApi, ApiError } from "@/shared/api";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  decryptKekFromDeviceEnvelope,
-  decryptKekFromMemberEnvelope,
-  unwrapKekFromBackup,
-  encryptKekForDevice,
-  wrapKekWithUmk,
-  verifyTofu,
-  handleTofuResult,
-} from "@/shared/lib/crypto";
-import type { IdentityKeyPair } from "@/shared/lib/crypto";
+import { base64UrlEncode, base64UrlDecode } from "./encoding";
+import { getCryptoWorker } from "./worker/client";
+import { authState, deviceState } from "@/shared/lib/auth-state";
 
-interface ResolvedKek {
-  kek: Uint8Array;
-  kekVersion: number;
-}
+export async function resolveActiveKek(workspaceId: string): Promise<{ kekVersion: number }> {
+  const worker = getCryptoWorker();
+  const auth = authState();
+  const device = deviceState();
+  if (!auth || !device?.deviceId) throw new Error("Not authenticated");
 
-interface AuthParams {
-  user: { id: string };
-  umk: Uint8Array;
-  identityKeys: IdentityKeyPair;
-}
-
-interface DeviceParams {
-  deviceId: string;
-  deviceEcdhPrivate: Uint8Array;
-}
-
-const KEK_CACHE_TTL_MS = 5 * 60 * 1000;
-const kekCache = new Map<string, { kek: Uint8Array; kekVersion: number; resolvedAt: number }>();
-
-export function getCachedKek(workspaceId: string): ResolvedKek | null {
-  const cached = kekCache.get(workspaceId);
-  if (!cached) return null;
-  return { kek: cached.kek, kekVersion: cached.kekVersion };
-}
-
-export function clearKekCache(workspaceId?: string): void {
-  if (workspaceId) {
-    kekCache.delete(workspaceId);
-  } else {
-    kekCache.clear();
-  }
-}
-
-export async function resolveActiveKek(
-  workspaceId: string,
-  auth: AuthParams,
-  device: DeviceParams,
-): Promise<ResolvedKek> {
-  const cached = kekCache.get(workspaceId);
-  if (cached && Date.now() - cached.resolvedAt < KEK_CACHE_TTL_MS) {
-    return { kek: cached.kek, kekVersion: cached.kekVersion };
-  }
+  const userId = auth.user.id;
+  const deviceId = device.deviceId;
 
   let keys: Awaited<ReturnType<typeof encryptionApi.getWorkspaceKeysWithPop>>["keys"] = [];
   let currentKekVersion = 0;
 
   try {
-    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, device.deviceId);
+    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
     keys = keysResponse.keys;
     currentKekVersion = keysResponse.current_kek_version;
   } catch (e) {
@@ -79,50 +35,55 @@ export async function resolveActiveKek(
   }
 
   const activeKey = keys.find((k) => k.key_version === currentKekVersion);
-  let kek: Uint8Array;
 
   if (activeKey && activeKey.sender_ecdh_public_key && activeKey.sender_signing_public_key) {
-    const senderSigningPk = base64UrlDecode(activeKey.sender_signing_public_key);
     const senderEcdhPk = base64UrlDecode(activeKey.sender_ecdh_public_key);
+    const senderSigningPk = base64UrlDecode(activeKey.sender_signing_public_key);
 
-    const tofuResult = await verifyTofu(
-      auth.user.id,
-      activeKey.sender_device_id,
-      senderSigningPk,
-      senderEcdhPk,
-    );
+    const tofuResult = await worker.tofuVerify({
+      userId,
+      deviceId: activeKey.sender_device_id,
+      signingPublicKey: senderSigningPk,
+      ecdhPublicKey: senderEcdhPk,
+    });
     if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
       throw new Error("Key verification failed for KEK sender device.");
     }
-    await handleTofuResult(tofuResult);
+    if (tofuResult.status === "first_seen") {
+      await worker.tofuTrustDevice({
+        userId,
+        deviceId: activeKey.sender_device_id,
+        signingPublicKey: senderSigningPk,
+        ecdhPublicKey: senderEcdhPk,
+      });
+    } else if (tofuResult.status === "known_trusted") {
+      await worker.tofuUpdateLastSeen({ userId, deviceId: activeKey.sender_device_id });
+    }
 
-    kek = decryptKekFromDeviceEnvelope(
-      base64UrlDecode(activeKey.encrypted_kek),
-      base64UrlDecode(activeKey.nonce),
-      device.deviceEcdhPrivate,
-      senderEcdhPk,
+    await worker.decryptKekFromDeviceEnvelope({
       workspaceId,
-      auth.user.id,
-      activeKey.sender_device_id,
-      device.deviceId,
-      currentKekVersion,
-    );
+      userId,
+      senderDeviceId: activeKey.sender_device_id,
+      targetDeviceId: deviceId,
+      senderEcdhPublic: senderEcdhPk,
+      encryptedKek: base64UrlDecode(activeKey.encrypted_kek),
+      nonce: base64UrlDecode(activeKey.nonce),
+      keyVersion: currentKekVersion,
+    });
 
     (async () => {
       try {
         await encryptionApi.getKekBackupWithPop(workspaceId);
       } catch {
         try {
-          const backup = wrapKekWithUmk(
-            kek,
-            auth.umk,
+          const backup = await worker.wrapKekWithUmk({
             workspaceId,
-            auth.user.id,
-            currentKekVersion,
-          );
+            userId,
+            keyVersion: currentKekVersion,
+          });
           await encryptionApi.createKekBackupWithPop(workspaceId, {
             key_version: currentKekVersion,
-            encrypted_kek: base64UrlEncode(backup.encryptedKek),
+            encrypted_kek: base64UrlEncode(backup.encrypted),
             nonce: base64UrlEncode(backup.nonce),
           });
         } catch {
@@ -136,59 +97,74 @@ export async function resolveActiveKek(
       const meSenderEcdhPk = base64UrlDecode(envelope.sender_ecdh_public_key);
       const meSenderSigningPk = base64UrlDecode(envelope.sender_signing_public_key);
 
-      const meTofuResult = await verifyTofu(
-        envelope.sender_user_id,
-        envelope.sender_device_id,
-        meSenderSigningPk,
-        meSenderEcdhPk,
-      );
+      const meTofuResult = await worker.tofuVerify({
+        userId: envelope.sender_user_id,
+        deviceId: envelope.sender_device_id,
+        signingPublicKey: meSenderSigningPk,
+        ecdhPublicKey: meSenderEcdhPk,
+      });
       if (
         meTofuResult.status === "identity_key_changed" ||
         meTofuResult.status === "ecdh_key_mismatch"
       ) {
         throw new Error("Key verification failed for member envelope sender.");
       }
-      await handleTofuResult(meTofuResult);
-
-      kek = decryptKekFromMemberEnvelope(
-        base64UrlDecode(envelope.encrypted_kek),
-        base64UrlDecode(envelope.nonce),
-        auth.identityKeys.ecdhPrivate,
-        meSenderEcdhPk,
-        workspaceId,
-        auth.user.id,
-        envelope.key_version,
-        envelope.sender_device_id,
-      );
-
-      const deviceEcdhPublic = x25519.getPublicKey(device.deviceEcdhPrivate);
-      const deviceEnvelope = encryptKekForDevice(
-        kek,
-        device.deviceEcdhPrivate,
-        deviceEcdhPublic,
-        workspaceId,
-        auth.user.id,
-        device.deviceId,
-        device.deviceId,
-        currentKekVersion,
-      );
-      try {
-        await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-          device_id: device.deviceId,
-          sender_device_id: device.deviceId,
-          key_version: currentKekVersion,
-          encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
-          nonce: base64UrlEncode(deviceEnvelope.nonce),
+      if (meTofuResult.status === "first_seen") {
+        await worker.tofuTrustDevice({
+          userId: envelope.sender_user_id,
+          deviceId: envelope.sender_device_id,
+          signingPublicKey: meSenderSigningPk,
+          ecdhPublicKey: meSenderEcdhPk,
         });
-      } catch (e) {
-        if (!(e instanceof ApiError && e.status === 409)) throw e;
+      } else if (meTofuResult.status === "known_trusted") {
+        await worker.tofuUpdateLastSeen({
+          userId: envelope.sender_user_id,
+          deviceId: envelope.sender_device_id,
+        });
       }
 
-      const umkBackup = wrapKekWithUmk(kek, auth.umk, workspaceId, auth.user.id, currentKekVersion);
+      await worker.decryptKekFromMemberEnvelope({
+        workspaceId,
+        targetUserId: userId,
+        senderDeviceId: envelope.sender_device_id,
+        senderIdentityEcdhPublic: meSenderEcdhPk,
+        encryptedKek: base64UrlDecode(envelope.encrypted_kek),
+        nonce: base64UrlDecode(envelope.nonce),
+        keyVersion: envelope.key_version,
+      });
+
+      const deviceEcdhPublic = device.deviceEcdhPublic;
+      if (deviceEcdhPublic) {
+        const deviceEnvelope = await worker.encryptKekForDevice({
+          workspaceId,
+          userId,
+          senderDeviceId: deviceId,
+          targetDeviceId: deviceId,
+          targetDeviceEcdhPublic: deviceEcdhPublic,
+          keyVersion: currentKekVersion,
+        });
+        try {
+          await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
+            device_id: deviceId,
+            sender_device_id: deviceId,
+            key_version: currentKekVersion,
+            encrypted_kek: base64UrlEncode(deviceEnvelope.encrypted),
+            nonce: base64UrlEncode(deviceEnvelope.nonce),
+          });
+        } catch (e) {
+          if (!(e instanceof ApiError && e.status === 409)) throw e;
+        }
+      }
+
+      const umkBackup = await worker.wrapKekWithUmk({
+        workspaceId,
+        userId,
+        keyVersion: currentKekVersion,
+      });
       try {
         await encryptionApi.createKekBackupWithPop(workspaceId, {
           key_version: currentKekVersion,
-          encrypted_kek: base64UrlEncode(umkBackup.encryptedKek),
+          encrypted_kek: base64UrlEncode(umkBackup.encrypted),
           nonce: base64UrlEncode(umkBackup.nonce),
         });
       } catch (e) {
@@ -204,40 +180,38 @@ export async function resolveActiveKek(
         );
       }
 
-      kek = unwrapKekFromBackup(
-        base64UrlDecode(backupData.encrypted_kek),
-        base64UrlDecode(backupData.nonce),
-        auth.umk,
+      await worker.unwrapKekFromBackup({
         workspaceId,
-        auth.user.id,
-        backupData.key_version,
-      );
+        userId,
+        encryptedKek: base64UrlDecode(backupData.encrypted_kek),
+        nonce: base64UrlDecode(backupData.nonce),
+        keyVersion: backupData.key_version,
+      });
 
-      const deviceEcdhPublic = x25519.getPublicKey(device.deviceEcdhPrivate);
-      const deviceEnvelope = encryptKekForDevice(
-        kek,
-        device.deviceEcdhPrivate,
-        deviceEcdhPublic,
-        workspaceId,
-        auth.user.id,
-        device.deviceId,
-        device.deviceId,
-        currentKekVersion,
-      );
-      try {
-        await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-          device_id: device.deviceId,
-          sender_device_id: device.deviceId,
-          key_version: currentKekVersion,
-          encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
-          nonce: base64UrlEncode(deviceEnvelope.nonce),
+      const deviceEcdhPublic = device.deviceEcdhPublic;
+      if (deviceEcdhPublic) {
+        const deviceEnvelope = await worker.encryptKekForDevice({
+          workspaceId,
+          userId,
+          senderDeviceId: deviceId,
+          targetDeviceId: deviceId,
+          targetDeviceEcdhPublic: deviceEcdhPublic,
+          keyVersion: currentKekVersion,
         });
-      } catch (e) {
-        if (!(e instanceof ApiError && e.status === 409)) throw e;
+        try {
+          await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
+            device_id: deviceId,
+            sender_device_id: deviceId,
+            key_version: currentKekVersion,
+            encrypted_kek: base64UrlEncode(deviceEnvelope.encrypted),
+            nonce: base64UrlEncode(deviceEnvelope.nonce),
+          });
+        } catch (e) {
+          if (!(e instanceof ApiError && e.status === 409)) throw e;
+        }
       }
     }
   }
 
-  kekCache.set(workspaceId, { kek, kekVersion: currentKekVersion, resolvedAt: Date.now() });
-  return { kek, kekVersion: currentKekVersion };
+  return { kekVersion: currentKekVersion };
 }

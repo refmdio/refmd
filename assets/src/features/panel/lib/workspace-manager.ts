@@ -107,7 +107,7 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     setActiveSidebarPanelId(null);
     setSettingTabs([]);
     if (this.statusBarContainer) {
-      this.statusBarContainer.innerHTML = "";
+      this.statusBarContainer.replaceChildren();
     }
   }
 

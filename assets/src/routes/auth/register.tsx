@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
 import { register } from "@/features/auth";
-import { setFullSession } from "@/shared/lib/auth-state";
+import { setFullSession, setCryptoWorkerReady } from "@/shared/lib/auth-state";
 import { AlertTriangleIcon } from "lucide-solid";
 import { formatRecoveryKeyFile } from "@/shared/lib/recovery-key-format";
 
@@ -44,16 +44,20 @@ export default function RegisterPage() {
         {
           user: { id: result.userId, email: result.email, name: result.name },
           sessionId: result.sessionId,
-          umk: result.umk,
-          identityKeys: result.identityKeys,
+          identitySigningPublic: result.identitySigningPublic,
+          identityEcdhPublic: result.identityEcdhPublic,
           expiresAt: null,
         },
         {
           deviceId: result.deviceId,
-          deviceEcdhPrivate: result.deviceKeys.ecdhPrivate,
-          deviceSigningPrivate: result.deviceKeys.signingPrivate,
+          deviceSigningPublic: result.deviceSigningPublic,
+          deviceEcdhPublic: result.deviceEcdhPublic,
         },
       );
+
+      if (result.workerReady) {
+        setCryptoWorkerReady(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {

@@ -1,4 +1,4 @@
-import { client, throwIfError } from "./core";
+import { client, throwIfError, POP_DEVICE_OVERRIDE_HEADER } from "./core";
 import type { components } from "./schema";
 
 export type CreateDeviceRegistrationRequest =
@@ -45,7 +45,12 @@ export const devicesApi = {
       }),
     ),
 
-  list: async () => throwIfError(await client.GET("/api/devices")),
+  list: async (opts?: { popDeviceId?: string }) => {
+    const fetchOpts = opts?.popDeviceId
+      ? { headers: { [POP_DEVICE_OVERRIDE_HEADER]: opts.popDeviceId } }
+      : undefined;
+    return throwIfError(await client.GET("/api/devices", fetchOpts));
+  },
 
   listRegistrations: async () => throwIfError(await client.GET("/api/devices/registrations")),
 
@@ -108,10 +113,15 @@ export const devicesApi = {
     );
   },
 
-  getUmk: async (deviceId: string) =>
-    throwIfError(
+  getUmk: async (deviceId: string, opts?: { popDeviceId?: string }) => {
+    const headers = opts?.popDeviceId
+      ? { [POP_DEVICE_OVERRIDE_HEADER]: opts.popDeviceId }
+      : undefined;
+    return throwIfError(
       await client.GET("/api/devices/{device_id}/keys/umk", {
         params: { path: { device_id: deviceId } },
+        ...(headers ? { headers } : {}),
       }),
-    ),
+    );
+  },
 };

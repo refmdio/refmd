@@ -6,16 +6,10 @@ import { SettingsDialog } from "@/widgets/settings";
 import { currentWorkspaceId, setCurrentWorkspaceId, useWorkspaces } from "@/entities/workspace";
 import { useSettings } from "@/entities/settings";
 import { workspacesApi, encryptionApi } from "@/shared/api";
-import { authState, deviceState } from "@/shared/lib/auth-state";
-import {
-  generateKek,
-  encryptKekForDevice,
-  wrapKekWithUmk,
-  base64UrlEncode,
-} from "@/shared/lib/crypto";
-import { x25519 } from "@noble/curves/ed25519.js";
+import { authState, deviceState, cryptoWorkerReady } from "@/shared/lib/auth-state";
+import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { usePendingDevices, performKekRotation } from "@/features/devices";
-import { clearKekCache, getCachedKek } from "@/shared/lib/crypto/kek-resolver";
 import { usePanelWorkspace } from "@/features/panel";
 import { Button } from "@/shared/ui/button";
 import { BellIcon } from "lucide-solid";
@@ -48,7 +42,7 @@ export function AppShell(props: ParentProps) {
   const queryClient = useQueryClient();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
-  const { workspaces, allWorkspaces, workspacesNeedingRotation } = useWorkspaces();
+  const { workspaces, workspacesNeedingRotation } = useWorkspaces();
   const documentWorkspace = usePanelWorkspace();
   useSettings();
 
@@ -207,26 +201,12 @@ export function AppShell(props: ParentProps) {
   // --- Existing workspace logic ---
 
   createEffect(() => {
-    const wsList = allWorkspaces();
-    for (const ws of wsList) {
-      const cached = getCachedKek(ws.id);
-      if (cached && cached.kekVersion !== ws.current_kek_version) {
-        clearKekCache(ws.id);
-      }
-    }
-  });
-
-  createEffect(() => {
     const pending = workspacesNeedingRotation();
     if (pending.length === 0) return;
 
-    for (const ws of pending) {
-      clearKekCache(ws.workspace_id);
-    }
-
     const auth = authState();
     const device = deviceState();
-    if (!auth?.umk || !auth.identityKeys || !device?.deviceEcdhPrivate) return;
+    if (!cryptoWorkerReady() || !auth || !device?.deviceId) return;
 
     const initiatorWorkspaces = pending.filter(
       (ws) =>
@@ -239,18 +219,7 @@ export function AppShell(props: ParentProps) {
       rotationAttempted.add(ws.workspace_id);
     }
 
-    performKekRotation(
-      initiatorWorkspaces,
-      {
-        user: auth.user,
-        umk: auth.umk,
-        identityKeys: auth.identityKeys,
-      },
-      {
-        deviceId: device.deviceId,
-        deviceEcdhPrivate: device.deviceEcdhPrivate,
-      },
-    )
+    performKekRotation(initiatorWorkspaces, auth.user.id, device.deviceId)
       .then(() => {
         for (const ws of initiatorWorkspaces) {
           rotationAttempted.delete(ws.workspace_id);
@@ -283,41 +252,47 @@ export function AppShell(props: ParentProps) {
     description?: string;
     icon?: string;
   }) => {
-    const result = await workspacesApi.create(data);
-    if (!result.id) return;
-
     const auth = authState();
     const device = deviceState();
 
-    if (auth?.umk && auth.user && device?.deviceId && device.deviceEcdhPrivate) {
-      const deviceEcdhPublic = x25519.getPublicKey(device.deviceEcdhPrivate);
-      const kek = generateKek();
+    if (!auth?.user || !device?.deviceId || !cryptoWorkerReady()) return;
 
-      const kekWrapped = encryptKekForDevice(
-        kek,
-        device.deviceEcdhPrivate,
-        deviceEcdhPublic,
-        result.id,
-        auth.user.id,
-        device.deviceId,
-        device.deviceId,
-        1,
-      );
+    const result = await workspacesApi.create(data);
+    if (!result.id) return;
+
+    {
+      const worker = getCryptoWorker();
+
+      const { keyVersion } = await worker.generateKek(result.id);
+
+      const deviceEcdhPublic = device.deviceEcdhPublic!;
+      const kekWrapped = await worker.encryptKekForDevice({
+        workspaceId: result.id,
+        userId: auth.user.id,
+        senderDeviceId: device.deviceId,
+        targetDeviceId: device.deviceId,
+        targetDeviceEcdhPublic: deviceEcdhPublic,
+        keyVersion,
+      });
 
       await encryptionApi.createWorkspaceKeyWithPop(result.id, {
         device_id: device.deviceId,
-        key_version: 1,
+        key_version: keyVersion,
         sender_device_id: device.deviceId,
-        encrypted_kek: base64UrlEncode(kekWrapped.ciphertext),
+        encrypted_kek: base64UrlEncode(kekWrapped.encrypted),
         nonce: base64UrlEncode(kekWrapped.nonce),
         is_active: true,
       });
 
-      const kekBackup = wrapKekWithUmk(kek, auth.umk, result.id, auth.user.id, 1);
+      const kekBackup = await worker.wrapKekWithUmk({
+        workspaceId: result.id,
+        userId: auth.user.id,
+        keyVersion,
+      });
 
       await encryptionApi.createKekBackupWithPop(result.id, {
-        key_version: 1,
-        encrypted_kek: base64UrlEncode(kekBackup.encryptedKek),
+        key_version: keyVersion,
+        encrypted_kek: base64UrlEncode(kekBackup.encrypted),
         nonce: base64UrlEncode(kekBackup.nonce),
       });
     }

@@ -13,22 +13,9 @@ import { Spinner } from "@/shared/ui/spinner";
 import { SafetyNumber } from "./safety-number";
 import { devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
 import type { DeviceRegistrationInfo } from "@/shared/api/devices";
-import { authState, deviceState } from "@/shared/lib/auth-state";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  signDeviceApproval,
-  ecdhEncrypt,
-  encryptKekForDevice,
-  decryptKekFromDeviceEnvelope,
-  verifyTofu,
-  trustDevice,
-  handleTofuResult,
-  encryptTrustState,
-  verifyDeviceIdentitySignature,
-} from "@/shared/lib/crypto";
-import { getAllTofuEntries } from "@/shared/lib/trust-store";
-import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
+import { authState, deviceState, cryptoWorkerReady } from "@/shared/lib/auth-state";
+import { base64UrlEncode, base64UrlDecode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 interface Props {
   device: DeviceRegistrationInfo;
@@ -46,7 +33,7 @@ export function ApproveDeviceDialog(props: Props) {
 
   const identitySigningPublic = () => {
     const auth = authState();
-    return auth?.identityKeys?.signingPublic ?? null;
+    return auth?.identitySigningPublic ?? null;
   };
 
   // TOFU check: verify pending device keys before SAS display
@@ -57,10 +44,16 @@ export function ApproveDeviceDialog(props: Props) {
       return;
     }
 
+    const worker = getCryptoWorker();
     const signingPk = base64UrlDecode(props.device.signing_public_key);
     const ecdhPk = base64UrlDecode(props.device.ecdh_public_key);
 
-    const result = await verifyTofu(auth.user.id, props.device.id, signingPk, ecdhPk);
+    const result = await worker.tofuVerify({
+      userId: auth.user.id,
+      deviceId: props.device.id,
+      signingPublicKey: signingPk,
+      ecdhPublicKey: ecdhPk,
+    });
 
     if (result.status === "identity_key_changed") {
       setTofuBlocked("Identity key changed for this device. This may indicate tampering.");
@@ -81,28 +74,24 @@ export function ApproveDeviceDialog(props: Props) {
     try {
       const auth = authState();
       const device = deviceState();
-      if (
-        !auth?.identityKeys ||
-        !auth.umk ||
-        !device?.deviceId ||
-        !device.deviceEcdhPrivate ||
-        !device.deviceSigningPrivate
-      ) {
+      if (!cryptoWorkerReady() || !auth || !device?.deviceId) {
         props.onError("Identity keys or device not available");
         return;
       }
+
+      const worker = getCryptoWorker();
 
       // Step 1: Approve with identity signature
       const targetSigningPublic = base64UrlDecode(props.device.signing_public_key);
       const targetEcdhPublic = base64UrlDecode(props.device.ecdh_public_key);
       const targetClientNonce = base64UrlDecode(props.device.client_nonce);
 
-      const signature = signDeviceApproval(
-        targetSigningPublic,
-        targetEcdhPublic,
-        targetClientNonce,
-        auth.identityKeys.signingPrivate,
-      );
+      const { signature } = await worker.signDeviceApproval({
+        deviceId: props.device.id,
+        deviceSigningPublic: targetSigningPublic,
+        deviceEcdhPublic: targetEcdhPublic,
+        clientNonce: targetClientNonce,
+      });
 
       const approveRes = await devicesApi.approve(props.device.id, {
         identity_signature: base64UrlEncode(signature),
@@ -136,14 +125,15 @@ export function ApproveDeviceDialog(props: Props) {
         return;
       }
       const freshSig = base64UrlDecode(freshTarget.identity_signature);
-      const freshNonce = base64UrlDecode(freshTarget.client_nonce);
-      const sigValid = verifyDeviceIdentitySignature(
-        verifiedSigningPublic,
-        verifiedEcdhPublic,
-        freshNonce,
-        freshSig,
-        auth.identityKeys.signingPublic,
-      );
+      const freshNonce = base64UrlDecode(freshTarget.client_nonce!);
+      const sigValid = await worker.verifyDeviceIdentitySignature({
+        deviceId: newDeviceId,
+        deviceSigningPublic: verifiedSigningPublic,
+        deviceEcdhPublic: verifiedEcdhPublic,
+        clientNonce: freshNonce,
+        identitySignature: freshSig,
+        identitySigningPublic: auth.identitySigningPublic!,
+      });
       if (!sigValid) {
         props.onError(
           "Identity signature verification failed. Possible server-side tampering. Aborting.",
@@ -152,12 +142,12 @@ export function ApproveDeviceDialog(props: Props) {
       }
 
       // TOFU: persist trust for SAS-verified + server-confirmed keys
-      const tofuResult = await verifyTofu(
-        auth.user.id,
-        newDeviceId,
-        verifiedSigningPublic,
-        verifiedEcdhPublic,
-      );
+      const tofuResult = await worker.tofuVerify({
+        userId: auth.user.id,
+        deviceId: newDeviceId,
+        signingPublicKey: verifiedSigningPublic,
+        ecdhPublicKey: verifiedEcdhPublic,
+      });
       if (
         tofuResult.status === "ecdh_key_mismatch" ||
         tofuResult.status === "identity_key_changed"
@@ -166,48 +156,38 @@ export function ApproveDeviceDialog(props: Props) {
         return;
       }
       if (tofuResult.status === "first_seen") {
-        await trustDevice(tofuResult.newEntry);
+        await worker.tofuTrustDevice({
+          userId: auth.user.id,
+          deviceId: newDeviceId,
+          signingPublicKey: verifiedSigningPublic,
+          ecdhPublicKey: verifiedEcdhPublic,
+        });
+      } else if (tofuResult.status === "known_trusted") {
+        await worker.tofuUpdateLastSeen({ userId: auth.user.id, deviceId: newDeviceId });
       }
 
       setStep("distributing");
 
       // Step 2: Trust state transfer (before KEK/UMK, best-effort)
       try {
-        await transferTrustState(
-          auth.user.id,
-          device.deviceId,
-          device.deviceEcdhPrivate,
-          device.deviceSigningPrivate,
-          newDeviceId,
-          verifiedEcdhPublic,
-          props.transferNonce,
-        );
+        await transferTrustState(newDeviceId, verifiedEcdhPublic, props.transferNonce);
       } catch {
         // Trust state transfer is best-effort
       }
 
       // Step 3: Distribute KEK for each workspace (before UMK)
       try {
-        await distributeKeks(
-          device.deviceId,
-          device.deviceEcdhPrivate,
-          newDeviceId,
-          verifiedEcdhPublic,
-          auth.user.id,
-        );
+        await distributeKeks(device.deviceId, newDeviceId, verifiedEcdhPublic, auth.user.id);
       } catch {
         // KEK distribution is best-effort
       }
 
       // Step 4: Distribute UMK (triggers pending_approved SSE)
-      const aad = buildDeviceUmkDistributionAad(auth.user.id, device.deviceId, newDeviceId);
-      const encrypted = ecdhEncrypt(
-        auth.umk,
-        device.deviceEcdhPrivate,
-        verifiedEcdhPublic,
-        "device_umk_wrap",
-        aad,
-      );
+      const encrypted = await worker.ecdhEncryptUmkForDevice({
+        theirPublic: verifiedEcdhPublic,
+        senderDeviceId: device.deviceId,
+        targetDeviceId: newDeviceId,
+      });
 
       await devicesApi.distributeUmk(
         newDeviceId,
@@ -305,11 +285,11 @@ export function ApproveDeviceDialog(props: Props) {
 
 async function distributeKeks(
   senderDeviceId: string,
-  senderEcdhPrivate: Uint8Array,
   targetDeviceId: string,
   targetEcdhPublic: Uint8Array,
   userId: string,
 ): Promise<void> {
+  const worker = getCryptoWorker();
   const { workspace_ids } = await encryptionApi.getWorkspaceIds();
 
   for (const workspaceId of workspace_ids) {
@@ -326,47 +306,56 @@ async function distributeKeks(
       const senderSigningPk = base64UrlDecode(activeKey.sender_signing_public_key);
       const senderEcdhPk = base64UrlDecode(activeKey.sender_ecdh_public_key);
 
-      const tofuResult = await verifyTofu(
+      const tofuResult = await worker.tofuVerify({
         userId,
-        activeKey.sender_device_id,
-        senderSigningPk,
-        senderEcdhPk,
-      );
+        deviceId: activeKey.sender_device_id,
+        signingPublicKey: senderSigningPk,
+        ecdhPublicKey: senderEcdhPk,
+      });
       if (
         tofuResult.status === "identity_key_changed" ||
         tofuResult.status === "ecdh_key_mismatch"
       ) {
         throw new Error("Key verification failed for KEK sender device. Aborting distribution.");
       }
-      await handleTofuResult(tofuResult);
+      if (tofuResult.status === "first_seen") {
+        await worker.tofuTrustDevice({
+          userId,
+          deviceId: activeKey.sender_device_id,
+          signingPublicKey: senderSigningPk,
+          ecdhPublicKey: senderEcdhPk,
+        });
+      } else if (tofuResult.status === "known_trusted") {
+        await worker.tofuUpdateLastSeen({
+          userId,
+          deviceId: activeKey.sender_device_id,
+        });
+      }
 
-      const kek = decryptKekFromDeviceEnvelope(
-        base64UrlDecode(activeKey.encrypted_kek),
-        base64UrlDecode(activeKey.nonce),
-        senderEcdhPrivate,
-        senderEcdhPk,
+      await worker.decryptKekFromDeviceEnvelope({
+        encryptedKek: base64UrlDecode(activeKey.encrypted_kek),
+        nonce: base64UrlDecode(activeKey.nonce),
+        senderEcdhPublic: senderEcdhPk,
         workspaceId,
         userId,
-        activeKey.sender_device_id,
-        senderDeviceId,
-        activeKey.key_version,
-      );
+        senderDeviceId: activeKey.sender_device_id,
+        targetDeviceId: senderDeviceId,
+        keyVersion: activeKey.key_version,
+      });
 
-      const encrypted = encryptKekForDevice(
-        kek,
-        senderEcdhPrivate,
-        targetEcdhPublic,
+      const encrypted = await worker.encryptKekForDevice({
         workspaceId,
         userId,
         senderDeviceId,
         targetDeviceId,
-        activeKey.key_version,
-      );
+        targetDeviceEcdhPublic: targetEcdhPublic,
+        keyVersion: activeKey.key_version,
+      });
 
       await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
         device_id: targetDeviceId,
         sender_device_id: senderDeviceId,
-        encrypted_kek: base64UrlEncode(encrypted.ciphertext),
+        encrypted_kek: base64UrlEncode(encrypted.encrypted),
         nonce: base64UrlEncode(encrypted.nonce),
         key_version: activeKey.key_version,
         is_active: true,
@@ -378,10 +367,6 @@ async function distributeKeks(
 }
 
 async function transferTrustState(
-  userId: string,
-  senderDeviceId: string,
-  senderEcdhPrivate: Uint8Array,
-  senderSigningPrivate: Uint8Array,
   targetDeviceId: string,
   targetEcdhPublic: Uint8Array,
   preReceivedNonce: string | null,
@@ -390,28 +375,21 @@ async function transferTrustState(
   const nonceBase64 = preReceivedNonce ?? (await waitForTrustTransferNonce(targetDeviceId));
   if (!nonceBase64) return;
 
-  const tofuEntries = await getAllTofuEntries();
-  if (tofuEntries.length === 0) return;
-
+  const worker = getCryptoWorker();
   const transferNonce = base64UrlDecode(nonceBase64);
-  const snapshot = { tofuEntries, transferNonce };
 
-  const encrypted = encryptTrustState(
-    snapshot,
-    senderEcdhPrivate,
-    targetEcdhPublic,
-    senderSigningPrivate,
-    {
-      userId,
-      senderDeviceId,
-      targetDeviceId,
-    },
-  );
+  const encrypted = await worker.encryptTrustState({
+    targetDeviceId,
+    targetDeviceEcdhPublic: targetEcdhPublic,
+    transferNonce,
+  });
+
+  if ("empty" in encrypted) return;
 
   await trustTransferApi.submitState({
     target_device_id: targetDeviceId,
     transfer_nonce: nonceBase64,
-    ciphertext: base64UrlEncode(encrypted.encryptedState),
+    ciphertext: base64UrlEncode(encrypted.ciphertext),
     nonce: base64UrlEncode(encrypted.nonce),
     signature: base64UrlEncode(encrypted.signature),
   });

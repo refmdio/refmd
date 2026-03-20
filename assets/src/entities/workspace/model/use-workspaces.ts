@@ -1,14 +1,14 @@
 import { createEffect } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { workspacesApi } from "@/shared/api";
-import { authState, deviceState } from "@/shared/lib/auth-state";
+import { authState, cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "./workspace-selection";
 
 export function useWorkspaces() {
   const query = createQuery(() => ({
     queryKey: ["workspaces"],
     queryFn: () => workspacesApi.list(),
-    enabled: !!authState() && !!deviceState()?.deviceSigningPrivate,
+    enabled: !!authState() && cryptoWorkerReady(),
   }));
 
   createEffect(() => {

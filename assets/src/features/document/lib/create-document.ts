@@ -1,7 +1,8 @@
 import { documentsApi, encryptionApi, ApiError } from "@/shared/api";
-import { generateDek, wrapDek, encryptTitle, base64UrlEncode } from "@/shared/lib/crypto";
+import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
-import { authState, deviceState } from "@/shared/lib/auth-state";
 import { injectDecryptedTitle } from "@/entities/document";
 
 export async function createDocument(
@@ -9,28 +10,26 @@ export async function createDocument(
   title: string,
   parentId: string | null,
 ): Promise<string> {
-  const auth = authState();
-  const device = deviceState();
-  if (!auth?.umk || !auth.identityKeys || !device?.deviceEcdhPrivate) {
-    throw new Error("Not authenticated or missing keys");
+  if (!cryptoWorkerReady()) {
+    throw new Error("Crypto worker not ready");
   }
 
+  await resolveActiveKek(workspaceId);
+
+  const worker = getCryptoWorker();
   const documentId = crypto.randomUUID();
 
-  const { kek, kekVersion } = await resolveActiveKek(
-    workspaceId,
-    { user: auth.user, umk: auth.umk, identityKeys: auth.identityKeys },
-    { deviceId: device.deviceId, deviceEcdhPrivate: device.deviceEcdhPrivate },
-  );
+  const {
+    encryptedDek,
+    nonce: dekNonce,
+    keyVersion: kekVersion,
+  } = await worker.generateDek(documentId, workspaceId);
 
-  const dek = generateDek();
-  const { encryptedDek, nonce: dekNonce } = wrapDek(dek, kek, documentId, workspaceId);
-  const { encrypted: encryptedTitleBytes, nonce: titleNonce } = encryptTitle(
+  const { encrypted: encryptedTitleBytes, nonce: titleNonce } = await worker.encryptTitle({
     title,
-    dek,
     documentId,
-    1,
-  );
+    keyVersion: 1,
+  });
 
   await documentsApi.create({
     id: documentId,

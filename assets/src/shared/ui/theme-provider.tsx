@@ -7,6 +7,7 @@ import {
   onCleanup,
   useContext,
 } from "solid-js";
+import { getCspNonce } from "@/shared/lib/csp-nonce";
 
 type Theme = "light" | "dark";
 
@@ -54,6 +55,8 @@ function disableTransitionsTemporarily() {
   if (!doc) return () => {};
 
   const style = doc.createElement("style");
+  const nonce = getCspNonce();
+  if (nonce) style.setAttribute("nonce", nonce);
   style.setAttribute("data-omni-theme-transition", "false");
   style.appendChild(
     doc.createTextNode("*{transition-duration:0s !important; animation-duration:0s !important;}"),

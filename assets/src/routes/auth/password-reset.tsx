@@ -7,7 +7,8 @@ import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
 import { KeyRoundIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
-import { setAuthState } from "@/shared/lib/auth-state";
+import { setAuthState, setDeviceState, setCryptoWorkerReady } from "@/shared/lib/auth-state";
+import { getCryptoWorker, terminateCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { authApi } from "@/shared/api";
 
 type Phase = "request" | "sent" | "verifying" | "error";
@@ -34,13 +35,22 @@ export default function PasswordResetPage() {
     try {
       const data = await authApi.passwordResetVerify(token);
 
+      try {
+        await getCryptoWorker().lock();
+      } catch {
+        // Worker may not be initialized
+      }
+      terminateCryptoWorker();
+
       setAuthState({
         user: data.user,
         sessionId: data.session_id,
-        umk: null,
-        identityKeys: null,
+        identitySigningPublic: null,
+        identityEcdhPublic: null,
         expiresAt: null,
       });
+      setDeviceState(null);
+      setCryptoWorkerReady(false);
 
       navigate("/auth/recovery?password_reset=true");
     } catch {

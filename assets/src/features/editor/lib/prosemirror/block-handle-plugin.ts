@@ -5,6 +5,23 @@ const PLUS_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" st
 
 const GRIP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>`;
 
+const ALLOWED_HTML = new Set([PLUS_SVG, GRIP_SVG]);
+const ttPolicy =
+  (globalThis as any).trustedTypes?.createPolicy("refmd-block-handle", {
+    createHTML(input: string) {
+      if (ALLOWED_HTML.has(input)) return input;
+      throw new TypeError("Unexpected HTML in block-handle-plugin");
+    },
+  }) ?? null;
+
+function setStaticHtml(el: HTMLElement, html: string): void {
+  if (ttPolicy) {
+    el.innerHTML = ttPolicy.createHTML(html) as unknown as string;
+  } else {
+    el.innerHTML = html;
+  }
+}
+
 export function blockHandlePlugin(): Plugin {
   let handleEl: HTMLDivElement | null = null;
   let hoveredBlockPos = -1;
@@ -18,14 +35,14 @@ export function blockHandlePlugin(): Plugin {
       const addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.className = "pm-block-handle-add";
-      addBtn.innerHTML = PLUS_SVG;
+      setStaticHtml(addBtn, PLUS_SVG);
       addBtn.title = "Add block below";
 
       const dragBtn = document.createElement("button");
       dragBtn.type = "button";
       dragBtn.className = "pm-block-handle-drag";
       dragBtn.draggable = true;
-      dragBtn.innerHTML = GRIP_SVG;
+      setStaticHtml(dragBtn, GRIP_SVG);
       dragBtn.title = "Drag to move";
 
       handleEl.appendChild(addBtn);

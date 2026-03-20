@@ -1,8 +1,8 @@
 import createClient from "openapi-fetch";
 import type { paths } from "./schema";
-import type { ExplicitDeviceKeys } from "@/shared/lib/pop";
 import { getPopHeaders } from "@/shared/lib/pop";
-import { deviceState } from "@/shared/lib/auth-state";
+import { getCryptoWorker, CryptoWorkerError } from "@/shared/lib/crypto/worker/client";
+import { cryptoWorkerReady, deviceState } from "@/shared/lib/auth-state";
 
 function isSessionOnlyEndpoint(url: string, method: string): boolean {
   const path = new URL(url, "http://localhost").pathname;
@@ -15,7 +15,10 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
     path === "/api/auth/pop-challenge" ||
     path === "/api/auth/kdf-migration" ||
     path === "/api/auth/recovery" ||
-    path === "/api/auth/password-set"
+    path === "/api/auth/password-set" ||
+    path === "/api/auth/salt" ||
+    path === "/api/auth/login" ||
+    path === "/api/auth/register"
   ) {
     return true;
   }
@@ -48,32 +51,34 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   return false;
 }
 
-let popDeviceOverride: ExplicitDeviceKeys | null = null;
-
-export async function withPopDevice<T>(
-  device: ExplicitDeviceKeys,
-  fn: () => Promise<T>,
-): Promise<T> {
-  popDeviceOverride = device;
-  try {
-    return await fn();
-  } finally {
-    popDeviceOverride = null;
-  }
-}
+export const POP_DEVICE_OVERRIDE_HEADER = "X-Pop-Override-Device-Id";
 
 const MAX_RATE_LIMIT_RETRIES = 3;
 
 async function applyPopHeaders(request: Request): Promise<void> {
-  const override = popDeviceOverride;
-  const state = deviceState();
-  const deviceId = override?.deviceId ?? state?.deviceId;
-  const signingPrivate = override?.deviceSigningPrivate ?? state?.deviceSigningPrivate;
-
-  if (!deviceId || !signingPrivate) return;
   if (isSessionOnlyEndpoint(request.url, request.method)) return;
 
-  const headers = await getPopHeaders(override ?? undefined);
+  const deviceIdOverride = request.headers.get(POP_DEVICE_OVERRIDE_HEADER) ?? undefined;
+  if (deviceIdOverride) {
+    request.headers.delete(POP_DEVICE_OVERRIDE_HEADER);
+  }
+
+  const device = deviceState();
+  const hasDevice = deviceIdOverride ?? device?.deviceId;
+  if (!hasDevice) return;
+
+  if (!deviceIdOverride) {
+    if (!cryptoWorkerReady()) {
+      try {
+        const workerReady = await getCryptoWorker().isReady();
+        if (!workerReady) return;
+      } catch {
+        return;
+      }
+    }
+  }
+
+  const headers = await getPopHeaders(deviceIdOverride);
   request.headers.set("X-PoP-Device-Id", headers["X-PoP-Device-Id"]);
   request.headers.set("X-PoP-Challenge", headers["X-PoP-Challenge"]);
   request.headers.set("X-PoP-Signature", headers["X-PoP-Signature"]);
@@ -129,17 +134,13 @@ export const client = createClient<paths>({
       try {
         await applyPopHeaders(request);
       } catch (e) {
-        if (e instanceof Error && e.message.includes("rate limited")) {
-          const retryAfter = (e as any).retryAfter ?? "60";
-          return new Response(
-            JSON.stringify({ error: "rate_limit_exceeded", retry_after: parseInt(retryAfter, 10) }),
-            {
-              status: 429,
-              headers: { "Content-Type": "application/json", "Retry-After": retryAfter },
-            },
-          );
+        if (e instanceof CryptoWorkerError && e.code === "rate_limited") {
+          return new Response(JSON.stringify({ error: "rate_limit_exceeded", retry_after: 60 }), {
+            status: 429,
+            headers: { "Content-Type": "application/json", "Retry-After": "60" },
+          });
         }
-        // Other errors (device not available, crypto): continue without PoP
+        console.error("[PoP] Failed to apply PoP headers:", e);
       }
 
       const response = await fetch(request);

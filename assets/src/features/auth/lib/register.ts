@@ -1,29 +1,9 @@
-import {
-  base64UrlEncode,
-  randomBytes,
-  deriveAuthKeys,
-  generateUmk,
-  wrapUmk,
-  generateRecoveryKey,
-  wrapUmkWithRuk,
-  generateIdentityKeyPair,
-  encryptIdentityKeys,
-  generateDeviceKeyPair,
-  generateClientNonce,
-  signDeviceRegistration,
-  generateKek,
-  encryptKekForDevice,
-  wrapKekWithUmk,
-} from "@/shared/lib/crypto";
-import type { KdfParams, IdentityKeyPair, DeviceKeyPair } from "@/shared/lib/crypto";
+import { base64UrlEncode, randomBytes } from "@/shared/lib/crypto/encoding";
+import type { KdfParams } from "@/shared/lib/crypto/kdf";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { authApi, devicesApi, encryptionApi } from "@/shared/api";
-import {
-  persistKeys,
-  persistDeviceId,
-  persistDeviceKeysOnly,
-  persistSessionPdk,
-} from "./key-persistence";
-import { setDeviceState } from "@/shared/lib/auth-state";
+import { persistDeviceId } from "./key-persistence";
+import { setDeviceState, setCryptoWorkerReady } from "@/shared/lib/auth-state";
 
 const TARGET_KDF_PARAMS: KdfParams = {
   algorithm: "argon2id",
@@ -39,11 +19,13 @@ export interface RegisterResult {
   name: string;
   workspaceId: string;
   sessionId: string;
-  umk: Uint8Array;
-  identityKeys: IdentityKeyPair;
   deviceId: string;
-  deviceKeys: DeviceKeyPair;
   recoveryMnemonic: string;
+  deviceSigningPublic: Uint8Array;
+  deviceEcdhPublic: Uint8Array;
+  identitySigningPublic: Uint8Array;
+  identityEcdhPublic: Uint8Array;
+  workerReady: boolean;
 }
 
 export async function register(
@@ -51,135 +33,193 @@ export async function register(
   name: string,
   password: string,
 ): Promise<RegisterResult> {
-  // Step 1: Generate salt and derive keys
-  const salt = randomBytes(16);
-  const saltBase64 = base64UrlEncode(salt);
-  const derived = await deriveAuthKeys(password, saltBase64, TARGET_KDF_PARAMS);
+  const worker = getCryptoWorker();
 
-  // Step 2: Pre-generate user_id for AAD binding (server accepts client-generated UUID)
-  const userId = crypto.randomUUID();
+  // Step 1: Generate salt and derive keys (PUK stored transiently in Worker)
+  try {
+    const salt = randomBytes(16);
+    const saltBase64 = base64UrlEncode(salt);
+    const { authKey } = await worker.deriveAuthKeys({
+      password,
+      salt,
+      kdfParams: TARGET_KDF_PARAMS,
+    });
+    const authKeyBase64 = base64UrlEncode(authKey);
 
-  // Step 3: Generate UMK and wrap with PUK
-  const umk = generateUmk();
-  const umkWrapped = wrapUmk(umk, derived.puk, userId);
+    // Step 2: Pre-generate user_id and set Worker context
+    const userId = crypto.randomUUID();
+    await worker.setUserContext(userId);
 
-  // Step 4: Generate recovery key
-  const recovery = await generateRecoveryKey();
-  const recoveryWrapped = wrapUmkWithRuk(umk, recovery.ruk, userId);
+    // Step 2b: Load or generate DSK in Worker (for key persistence later)
+    const { loadDsk } = await import("@/shared/lib/crypto/dsk");
+    let hadDsk = false;
+    let dsk = await loadDsk();
+    if (dsk) {
+      await worker.setDsk(dsk);
+      dsk = null;
+      hadDsk = true;
+    } else {
+      try {
+        await worker.generateDsk();
+        hadDsk = true;
+      } catch {
+        // DSK unavailable
+      }
+    }
 
-  // Step 5: Generate identity keys and encrypt with UMK
-  const identityKeys = generateIdentityKeyPair();
-  const encryptedIdentity = encryptIdentityKeys(identityKeys, umk, userId);
+    // Step 3: Generate UMK (stays in Worker) and wrap with PUK
+    await worker.generateUmk();
+    const umkWrapped = await worker.wrapUmkForServer(userId);
 
-  // Step 6: Generate device keys and persist with DSK early (before server registration)
-  const deviceKeys = generateDeviceKeyPair();
-  persistSessionPdk(derived.pdk);
-  await persistDeviceKeysOnly(deviceKeys.ecdhPrivate, deviceKeys.signingPrivate, userId);
-  const clientNonce = generateClientNonce();
+    // Step 4: Generate recovery key (RUK stays in Worker, UMK wrapped internally)
+    const recovery = await worker.generateRecoveryKey();
 
-  // Step 7: Register with server
-  const registerRes = await authApi.register({
-    user_id: userId,
-    email,
-    name,
-    auth_key: derived.authKeyBase64,
-    salt: saltBase64,
-    encrypted_umk: base64UrlEncode(umkWrapped.encryptedUmk),
-    umk_nonce: base64UrlEncode(umkWrapped.nonce),
-    kdf_params: TARGET_KDF_PARAMS,
-    recovery_encrypted_umk: base64UrlEncode(recoveryWrapped.encryptedUmk),
-    recovery_nonce: base64UrlEncode(recoveryWrapped.nonce),
-    ecdh_public_key: base64UrlEncode(identityKeys.ecdhPublic),
-    signing_public_key: base64UrlEncode(identityKeys.signingPublic),
-    encrypted_ecdh_private: base64UrlEncode(encryptedIdentity.encryptedEcdhPrivate),
-    encrypted_ecdh_private_nonce: base64UrlEncode(encryptedIdentity.ecdhPrivateNonce),
-    encrypted_signing_private: base64UrlEncode(encryptedIdentity.encryptedSigningPrivate),
-    encrypted_signing_private_nonce: base64UrlEncode(encryptedIdentity.signingPrivateNonce),
-  });
-  const identitySignature = signDeviceRegistration(
-    deviceKeys.signingPublic,
-    deviceKeys.ecdhPublic,
-    clientNonce,
-    identityKeys.signingPrivate,
-  );
+    // Step 5: Generate identity keys and encrypt with UMK (all in Worker)
+    const identityPublic = await worker.generateIdentityKeys();
+    const encryptedIdentity = await worker.wrapIdentityKeysForServer(userId);
 
-  // Step 7: Bootstrap first device (dedicated endpoint)
-  const bootstrapRes = await devicesApi.bootstrap({
-    name: getDeviceName(),
-    device_type: getDeviceType(),
-    identity_signing_public_key: base64UrlEncode(identityKeys.signingPublic),
-    device_signing_public_key: base64UrlEncode(deviceKeys.signingPublic),
-    device_ecdh_public_key: base64UrlEncode(deviceKeys.ecdhPublic),
-    client_nonce: base64UrlEncode(clientNonce),
-    identity_signature: base64UrlEncode(identitySignature),
-  });
+    // Step 6: Generate device keys (stays in Worker)
+    const devicePublic = await worker.generateDeviceKeys();
 
-  const deviceId = bootstrapRes.device_id;
-  persistDeviceId(deviceId);
+    // Step 6b: Persist keys BEFORE server registration (crash safety)
+    if (hadDsk) {
+      const { storeWrappedDeviceKeysRaw } = await import("@/shared/lib/crypto/dsk");
+      const wrappedUmk = await worker.wrapUmkWithDsk(userId);
+      sessionStorage.setItem(
+        "refmd-session-umk-wrapped",
+        JSON.stringify({
+          ciphertext: Array.from(new Uint8Array(wrappedUmk.ciphertext)),
+          iv: Array.from(new Uint8Array(wrappedUmk.iv)),
+        }),
+      );
+      const wrappedDeviceKeys = await worker.wrapDeviceKeysWithDsk(userId);
+      await storeWrappedDeviceKeysRaw(
+        wrappedDeviceKeys.wrappedEcdh,
+        wrappedDeviceKeys.wrappedSigning,
+      );
+    } else {
+      const pdkWrapped = await worker.wrapWithPdk({
+        passwordParams: { password, salt, kdfParams: TARGET_KDF_PARAMS },
+      });
+      if (pdkWrapped.wrappedUmk) {
+        localStorage.setItem("refmd-pdk-umk", JSON.stringify(pdkWrapped.wrappedUmk));
+      }
+      if (pdkWrapped.wrappedDeviceKeys) {
+        localStorage.setItem(
+          "refmd-pdk-device-ecdh",
+          JSON.stringify(pdkWrapped.wrappedDeviceKeys.ecdh),
+        );
+        localStorage.setItem(
+          "refmd-pdk-device-signing",
+          JSON.stringify(pdkWrapped.wrappedDeviceKeys.signing),
+        );
+      }
+    }
 
-  // Step 8: Establish PoP capability by setting device state in memory
-  setDeviceState({
-    deviceId,
-    deviceEcdhPrivate: deviceKeys.ecdhPrivate,
-    deviceSigningPrivate: deviceKeys.signingPrivate,
-  });
+    const clientNonce = await worker.generateClientNonce();
 
-  // Step 9: Generate KEK and save device envelope (PoP required)
-  const kek = generateKek();
-  const kekWrapped = encryptKekForDevice(
-    kek,
-    deviceKeys.ecdhPrivate,
-    deviceKeys.ecdhPublic,
-    registerRes.workspace_id,
-    userId,
-    deviceId,
-    deviceId,
-    1,
-  );
+    // Step 7: Register with server
+    const registerRes = await authApi.register({
+      user_id: userId,
+      email,
+      name,
+      auth_key: authKeyBase64,
+      salt: saltBase64,
+      encrypted_umk: base64UrlEncode(umkWrapped.encrypted),
+      umk_nonce: base64UrlEncode(umkWrapped.nonce),
+      kdf_params: TARGET_KDF_PARAMS,
+      recovery_encrypted_umk: base64UrlEncode(recovery.encryptedUmk),
+      recovery_nonce: base64UrlEncode(recovery.nonce),
+      ecdh_public_key: base64UrlEncode(identityPublic.ecdhPublic),
+      signing_public_key: base64UrlEncode(identityPublic.signingPublic),
+      encrypted_ecdh_private: base64UrlEncode(encryptedIdentity.encryptedEcdhPrivate),
+      encrypted_ecdh_private_nonce: base64UrlEncode(encryptedIdentity.ecdhPrivateNonce),
+      encrypted_signing_private: base64UrlEncode(encryptedIdentity.encryptedSigningPrivate),
+      encrypted_signing_private_nonce: base64UrlEncode(encryptedIdentity.signingPrivateNonce),
+    });
 
-  await encryptionApi.createWorkspaceKeyWithPop(registerRes.workspace_id, {
-    device_id: deviceId,
-    key_version: 1,
-    sender_device_id: deviceId,
-    encrypted_kek: base64UrlEncode(kekWrapped.ciphertext),
-    nonce: base64UrlEncode(kekWrapped.nonce),
-    is_active: true,
-  });
+    const { signature: identitySignature } = await worker.signDeviceRegistration({
+      deviceSigningPublic: devicePublic.signingPublic,
+      deviceEcdhPublic: devicePublic.ecdhPublic,
+      clientNonce,
+    });
 
-  // Step 10: Save KEK UMK backup (PoP required)
-  const kekBackup = wrapKekWithUmk(kek, umk, registerRes.workspace_id, userId, 1);
+    // Step 7b: Bootstrap first device (dedicated endpoint)
+    const bootstrapRes = await devicesApi.bootstrap({
+      name: getDeviceName(),
+      device_type: getDeviceType(),
+      identity_signing_public_key: base64UrlEncode(identityPublic.signingPublic),
+      device_signing_public_key: base64UrlEncode(devicePublic.signingPublic),
+      device_ecdh_public_key: base64UrlEncode(devicePublic.ecdhPublic),
+      client_nonce: base64UrlEncode(clientNonce),
+      identity_signature: base64UrlEncode(identitySignature),
+    });
 
-  await encryptionApi.createKekBackupWithPop(registerRes.workspace_id, {
-    key_version: 1,
-    encrypted_kek: base64UrlEncode(kekBackup.encryptedKek),
-    nonce: base64UrlEncode(kekBackup.nonce),
-  });
+    const deviceId = bootstrapRes.device_id;
+    persistDeviceId(deviceId);
+    await worker.setUserContext(userId, deviceId);
+    await worker.setInitialized();
 
-  // Step 11: Mark encryption setup complete
-  await encryptionApi.setupComplete();
+    // Step 8: Establish PoP capability
+    setDeviceState({
+      deviceId,
+      deviceSigningPublic: devicePublic.signingPublic,
+      deviceEcdhPublic: devicePublic.ecdhPublic,
+    });
+    // Step 9: Generate KEK and save device envelope (PoP required)
+    await worker.generateKek(registerRes.workspace_id);
+    const kekWrapped = await worker.encryptKekForDevice({
+      workspaceId: registerRes.workspace_id,
+      userId,
+      senderDeviceId: deviceId,
+      targetDeviceId: deviceId,
+      targetDeviceEcdhPublic: devicePublic.ecdhPublic,
+      keyVersion: 1,
+    });
 
-  // Step 12: Persist keys locally
-  await persistKeys({
-    umk,
-    deviceEcdhPrivate: deviceKeys.ecdhPrivate,
-    deviceSigningPrivate: deviceKeys.signingPrivate,
-    pdk: derived.pdk,
-    kmsi: false,
-    userId,
-  });
+    await encryptionApi.createWorkspaceKeyWithPop(registerRes.workspace_id, {
+      device_id: deviceId,
+      key_version: 1,
+      sender_device_id: deviceId,
+      encrypted_kek: base64UrlEncode(kekWrapped.encrypted),
+      nonce: base64UrlEncode(kekWrapped.nonce),
+      is_active: true,
+    });
 
-  return {
-    userId,
-    email: registerRes.user.email,
-    name: registerRes.user.name,
-    workspaceId: registerRes.workspace_id,
-    sessionId: registerRes.session_id,
-    umk,
-    identityKeys,
-    deviceId,
-    deviceKeys,
-    recoveryMnemonic: recovery.mnemonic,
-  };
+    // Step 10: Save KEK UMK backup (PoP required)
+    const kekBackup = await worker.wrapKekWithUmk({
+      workspaceId: registerRes.workspace_id,
+      userId,
+      keyVersion: 1,
+    });
+
+    await encryptionApi.createKekBackupWithPop(registerRes.workspace_id, {
+      key_version: 1,
+      encrypted_kek: base64UrlEncode(kekBackup.encrypted),
+      nonce: base64UrlEncode(kekBackup.nonce),
+    });
+
+    // Step 11: Mark encryption setup complete
+    await encryptionApi.setupComplete();
+    setCryptoWorkerReady(true);
+
+    return {
+      userId,
+      email: registerRes.user.email,
+      name: registerRes.user.name,
+      workspaceId: registerRes.workspace_id,
+      sessionId: registerRes.session_id,
+      deviceId,
+      recoveryMnemonic: recovery.mnemonic,
+      deviceSigningPublic: devicePublic.signingPublic,
+      deviceEcdhPublic: devicePublic.ecdhPublic,
+      identitySigningPublic: identityPublic.signingPublic,
+      identityEcdhPublic: identityPublic.ecdhPublic,
+      workerReady: true,
+    };
+  } finally {
+    await worker.clearTransientKeys().catch(() => {});
+  }
 }
 
 function getDeviceName(): string {

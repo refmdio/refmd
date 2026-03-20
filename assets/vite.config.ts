@@ -1,6 +1,7 @@
 import { defineConfig } from "vite-plus";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+import { sri } from "vite-plugin-sri3";
 import path from "node:path";
 
 const __dirname = import.meta.dirname;
@@ -102,7 +103,7 @@ export default defineConfig({
     singleQuote: false,
     ignorePatterns: ["src/shared/api/schema.d.ts", "openapi.json"],
   },
-  plugins: [solid(), tailwindcss()],
+  plugins: [solid(), tailwindcss(), sri()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -113,8 +114,20 @@ export default defineConfig({
       "/api": "http://localhost:4000",
     },
   },
+  worker: {
+    format: "es",
+  },
   build: {
     outDir: path.resolve(__dirname, "../priv/static"),
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("shared/lib/crypto/worker/client")) {
+            return "crypto-client";
+          }
+        },
+      },
+    },
   },
 });

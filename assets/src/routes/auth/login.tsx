@@ -10,7 +10,13 @@ import { Checkbox } from "@/shared/ui/checkbox";
 import { Spinner } from "@/shared/ui/spinner";
 import { AlertTriangleIcon } from "lucide-solid";
 import { login } from "@/features/auth";
-import { setFullSession, setAuthState, setTofuErrors } from "@/shared/lib/auth-state";
+import {
+  setFullSession,
+  setAuthState,
+  setDeviceState,
+  setTofuErrors,
+  setCryptoWorkerReady,
+} from "@/shared/lib/auth-state";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -32,10 +38,12 @@ export default function LoginPage() {
         setAuthState({
           user: { id: result.userId, email: result.email, name: result.name },
           sessionId: result.sessionId,
-          umk: null,
-          identityKeys: null,
+          identitySigningPublic: null,
+          identityEcdhPublic: null,
           expiresAt: null,
         });
+        setDeviceState(null);
+        setCryptoWorkerReady(false);
         navigate("/devices/register");
         return;
       }
@@ -44,16 +52,20 @@ export default function LoginPage() {
         {
           user: { id: result.userId, email: result.email, name: result.name },
           sessionId: result.sessionId,
-          umk: result.umk,
-          identityKeys: result.identityKeys,
+          identitySigningPublic: result.identitySigningPublic,
+          identityEcdhPublic: result.identityEcdhPublic,
           expiresAt: null,
         },
         {
           deviceId: result.deviceId,
-          deviceEcdhPrivate: result.deviceEcdhPrivate,
-          deviceSigningPrivate: result.deviceSigningPrivate,
+          deviceSigningPublic: result.deviceSigningPublic,
+          deviceEcdhPublic: result.deviceEcdhPublic,
         },
       );
+
+      if (result.workerReady) {
+        setCryptoWorkerReady(true);
+      }
 
       if (result.tofuWarnings.length > 0) {
         setTofuErrors(result.tofuWarnings);

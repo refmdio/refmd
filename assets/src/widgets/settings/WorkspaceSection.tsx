@@ -30,7 +30,7 @@ import {
 import { workspacesApi, ApiError } from "@/shared/api";
 import type { WorkspaceRotationInfo } from "@/shared/api/devices";
 import { performKekRotation } from "@/features/devices";
-import { authState, deviceState } from "@/shared/lib/auth-state";
+import { authState, deviceState, cryptoWorkerReady } from "@/shared/lib/auth-state";
 import {
   currentWorkspaceId,
   setCurrentWorkspaceId,
@@ -43,8 +43,8 @@ import {
   checkEffectivePermission,
 } from "@/entities/workspace";
 import type { BaseRole, Permission } from "@/entities/workspace";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { randomBytes, base64UrlEncode, encryptKekForInvitation } from "@/shared/lib/crypto";
+import { base64UrlEncode, base64UrlDecode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
 
 interface PermissionOverride {
@@ -264,19 +264,8 @@ export function WorkspaceSection() {
     if (rotationList.length === 0) return;
     const auth = authState();
     const device = deviceState();
-    if (!auth || !auth.umk || !auth.identityKeys || !device?.deviceEcdhPrivate) return;
-    await performKekRotation(
-      rotationList,
-      {
-        user: auth.user,
-        umk: auth.umk,
-        identityKeys: auth.identityKeys,
-      },
-      {
-        deviceId: device.deviceId,
-        deviceEcdhPrivate: device.deviceEcdhPrivate,
-      },
-    );
+    if (!cryptoWorkerReady() || !auth || !device?.deviceId) return;
+    await performKekRotation(rotationList, auth.user.id, device.deviceId);
   };
 
   const handleRemoveMember = async () => {
@@ -359,33 +348,22 @@ export function WorkspaceSection() {
     setError(null);
     setInviteLink(null);
     try {
-      const auth = authState();
-      const device = deviceState();
-      if (!auth || !device) throw new Error("Not authenticated");
-      if (!auth.umk || !auth.identityKeys) throw new Error("Identity keys or UMK not available");
-      if (!device.deviceEcdhPrivate) throw new Error("Device ECDH private key not available");
+      if (!cryptoWorkerReady()) throw new Error("Crypto worker not ready");
 
-      const { kek, kekVersion: current_kek_version } = await resolveActiveKek(
-        id,
-        { user: auth.user, umk: auth.umk, identityKeys: auth.identityKeys },
-        { deviceId: device.deviceId, deviceEcdhPrivate: device.deviceEcdhPrivate },
-      );
+      const worker = getCryptoWorker();
 
-      const tokenBytes = randomBytes(32);
-      const tokenBase64 = base64UrlEncode(tokenBytes);
-      const tokenHashBytes = sha256(tokenBytes);
-      const tokenHash = base64UrlEncode(tokenHashBytes);
-      const tokenPrefix = tokenBase64.slice(0, 4);
+      const { kekVersion: current_kek_version } = await resolveActiveKek(id);
+
+      const { token: tokenBase64, tokenHash, tokenPrefix } = await worker.generateInvitationToken();
 
       const invitationId = crypto.randomUUID();
 
-      const { encryptedKek, nonce } = encryptKekForInvitation(
-        kek,
-        tokenBytes,
-        id,
+      const encrypted = await worker.encryptKekForInvitation({
+        workspaceId: id,
         invitationId,
-        current_kek_version,
-      );
+        token: base64UrlDecode(tokenBase64),
+        keyVersion: current_kek_version,
+      });
 
       const expiresAt = new Date(
         Date.now() + inviteExpiryDays() * 24 * 60 * 60 * 1000,
@@ -395,8 +373,8 @@ export function WorkspaceSection() {
         invitation_id: invitationId,
         token_hash: tokenHash,
         token_prefix: tokenPrefix,
-        encrypted_kek: base64UrlEncode(encryptedKek),
-        kek_nonce: base64UrlEncode(nonce),
+        encrypted_kek: base64UrlEncode(encrypted.encrypted),
+        kek_nonce: base64UrlEncode(encrypted.nonce),
         kek_version: current_kek_version,
         role_id: inviteRoleId() || null,
         invited_email: email,

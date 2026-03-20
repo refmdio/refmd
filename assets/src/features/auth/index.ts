@@ -6,21 +6,13 @@ export type { LoginResult } from "./lib/login";
 export { restoreSession } from "./lib/session";
 export type { SessionRestoreResult, SessionRestoreError } from "./lib/session";
 export {
-  persistKeys,
-  persistDeviceKeysOnly,
-  persistUmkForLogin,
+  persistWrappedDeviceKeys,
+  persistWrappedUmk,
   persistDeviceId,
   getPersistedDeviceId,
-  restoreKeysFromDsk,
-  restoreKeysFromPdk,
-  restoreDeviceKeysFromDsk,
-  restoreDeviceKeysFromPdk,
-  restoreUmkFromSession,
   hasPdkData,
-  clearSessionUmk,
   persistSessionPdk,
   restoreSessionPdk,
   clearSessionData,
   clearAllPersistedKeys,
 } from "./lib/key-persistence";
-export type { PersistKeysParams, RestoredKeys } from "./lib/key-persistence";

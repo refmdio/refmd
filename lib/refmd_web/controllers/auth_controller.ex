@@ -100,6 +100,10 @@ defmodule RefMDWeb.AuthController do
   end
 
   defp register_with_validated_keys(conn, params, user_id, ecdh_public_key, signing_public_key) do
+    do_register(conn, params, user_id, ecdh_public_key, signing_public_key)
+  end
+
+  defp do_register(conn, params, user_id, ecdh_public_key, signing_public_key) do
     RefMD.Repo.transaction(fn ->
       user_attrs = %{email: String.downcase(params["email"]), name: params["name"]}
       user_struct = %RefMD.Users.User{id: user_id}

@@ -16,8 +16,8 @@ import { LogOutIcon } from "lucide-solid";
 import { authState, clearSession } from "@/shared/lib/auth-state";
 import { authApi } from "@/shared/api";
 import { clearSessionData, clearAllPersistedKeys } from "@/features/auth";
-import { clearKekCache } from "@/shared/lib/crypto/kek-resolver";
 import { clearDocumentKeyCache } from "@/entities/document";
+import { getCryptoWorker, terminateCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 export function AccountSection() {
   const navigate = useNavigate();
@@ -28,20 +28,36 @@ export function AccountSection() {
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
+
+    // Step 1: Clear key material from Worker (highest priority)
     try {
-      await authApi.logout();
-      if (!keepCredentials()) {
-        await clearAllPersistedKeys();
-      }
+      await getCryptoWorker().lock();
     } catch {
-      // Ignore errors
-    } finally {
-      clearSessionData();
-      clearKekCache();
-      clearDocumentKeyCache();
-      queryClient.clear();
-      clearSession();
-      setShowLogoutDialog(false);
+      // Worker may not be initialized
+    }
+    terminateCryptoWorker();
+
+    // Step 2: Server logout + storage cleanup in parallel
+    const serverLogout = authApi.logout().catch(() => {});
+    let logoutIncomplete = false;
+    if (!keepCredentials()) {
+      try {
+        await clearAllPersistedKeys();
+      } catch {
+        logoutIncomplete = true;
+      }
+    }
+    await serverLogout;
+
+    clearSessionData();
+    clearDocumentKeyCache();
+    queryClient.clear();
+    clearSession();
+    setShowLogoutDialog(false);
+
+    if (logoutIncomplete) {
+      navigate("/auth/login?logout_incomplete=true");
+    } else {
       navigate("/auth/login");
     }
   };

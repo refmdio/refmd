@@ -1,22 +1,13 @@
 import { onMount, onCleanup, createEffect, createSignal, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { x25519 } from "@noble/curves/ed25519.js";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
 import { workspacesApi, encryptionApi, ApiError } from "@/shared/api";
-import { authState, deviceState } from "@/shared/lib/auth-state";
+import { authState, deviceState, cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { setCurrentWorkspaceId } from "@/entities/workspace";
-import {
-  base64UrlDecode,
-  base64UrlEncode,
-  decryptKekFromInvitation,
-  decryptKekFromMemberEnvelope,
-  encryptKekForDevice,
-  wrapKekWithUmk,
-  verifyTofu,
-  handleTofuResult,
-} from "@/shared/lib/crypto";
+import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 const TOKEN_SESSION_KEY = "refmd_invite_token";
 const KEK_SAVE_MAX_RETRIES = 3;
@@ -33,7 +24,7 @@ async function retryAsync<T>(fn: () => Promise<T>, retries: number): Promise<T> 
   throw lastError;
 }
 
-function decryptKek(
+async function decryptKek(
   acceptResult: {
     encrypted_kek: string;
     kek_nonce: string;
@@ -42,73 +33,80 @@ function decryptKek(
     kek_version: number;
   },
   tokenBytes: Uint8Array,
-): Uint8Array {
-  return decryptKekFromInvitation(
-    base64UrlDecode(acceptResult.encrypted_kek),
-    base64UrlDecode(acceptResult.kek_nonce),
-    tokenBytes,
-    acceptResult.workspace_id,
-    acceptResult.invitation_id,
-    acceptResult.kek_version,
-  );
+): Promise<void> {
+  const worker = getCryptoWorker();
+  await worker.decryptKekFromInvitation({
+    encryptedKek: base64UrlDecode(acceptResult.encrypted_kek),
+    nonce: base64UrlDecode(acceptResult.kek_nonce),
+    token: tokenBytes,
+    workspaceId: acceptResult.workspace_id,
+    invitationId: acceptResult.invitation_id,
+    keyVersion: acceptResult.kek_version,
+  });
 }
 
 async function saveDeviceEnvelope(
-  kek: Uint8Array,
   acceptResult: { workspace_id: string; kek_version: number },
   auth: { user: { id: string } },
-  device: { deviceId: string; deviceEcdhPrivate: Uint8Array },
+  device: { deviceId: string; deviceEcdhPublic: Uint8Array | null },
 ): Promise<void> {
-  const deviceEcdhPublic = x25519.getPublicKey(device.deviceEcdhPrivate);
-  const { ciphertext, nonce } = encryptKekForDevice(
-    kek,
-    device.deviceEcdhPrivate,
-    deviceEcdhPublic,
-    acceptResult.workspace_id,
-    auth.user.id,
-    device.deviceId,
-    device.deviceId,
-    acceptResult.kek_version,
-  );
+  const worker = getCryptoWorker();
+  if (!device.deviceEcdhPublic) throw new Error("Device ECDH public key not available");
 
-  await encryptionApi.createWorkspaceKeyWithPop(acceptResult.workspace_id, {
-    device_id: device.deviceId,
-    sender_device_id: device.deviceId,
-    encrypted_kek: base64UrlEncode(ciphertext),
-    nonce: base64UrlEncode(nonce),
-    key_version: acceptResult.kek_version,
+  const encrypted = await worker.encryptKekForDevice({
+    workspaceId: acceptResult.workspace_id,
+    userId: auth.user.id,
+    senderDeviceId: device.deviceId,
+    targetDeviceId: device.deviceId,
+    targetDeviceEcdhPublic: device.deviceEcdhPublic,
+    keyVersion: acceptResult.kek_version,
   });
+
+  try {
+    await encryptionApi.createWorkspaceKeyWithPop(acceptResult.workspace_id, {
+      device_id: device.deviceId,
+      sender_device_id: device.deviceId,
+      encrypted_kek: base64UrlEncode(encrypted.encrypted),
+      nonce: base64UrlEncode(encrypted.nonce),
+      key_version: acceptResult.kek_version,
+    });
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 409)) throw e;
+  }
 }
 
 async function saveUmkBackup(
-  kek: Uint8Array,
   acceptResult: { workspace_id: string; kek_version: number },
-  auth: { user: { id: string }; umk: Uint8Array },
+  auth: { user: { id: string } },
 ): Promise<void> {
-  const { encryptedKek, nonce } = wrapKekWithUmk(
-    kek,
-    auth.umk,
-    acceptResult.workspace_id,
-    auth.user.id,
-    acceptResult.kek_version,
-  );
-
-  await encryptionApi.createKekBackupWithPop(acceptResult.workspace_id, {
-    encrypted_kek: base64UrlEncode(encryptedKek),
-    nonce: base64UrlEncode(nonce),
-    key_version: acceptResult.kek_version,
+  const worker = getCryptoWorker();
+  const backup = await worker.wrapKekWithUmk({
+    workspaceId: acceptResult.workspace_id,
+    userId: auth.user.id,
+    keyVersion: acceptResult.kek_version,
   });
+
+  try {
+    await encryptionApi.createKekBackupWithPop(acceptResult.workspace_id, {
+      encrypted_kek: base64UrlEncode(backup.encrypted),
+      nonce: base64UrlEncode(backup.nonce),
+      key_version: acceptResult.kek_version,
+    });
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 409)) throw e;
+  }
 }
 
 async function recoverFromMemberEnvelope(
   workspaceId: string,
   auth: NonNullable<ReturnType<typeof authState>>,
-  device: { deviceId: string; deviceEcdhPrivate: Uint8Array },
+  device: { deviceId: string; deviceEcdhPublic: Uint8Array | null },
 ): Promise<void> {
-  if (!auth.identityKeys) {
+  if (!auth.identityEcdhPublic) {
     throw new Error("Identity keys not available for KEK recovery.");
   }
 
+  const worker = getCryptoWorker();
   const envelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
   if (!envelope || !envelope.sender_ecdh_public_key || !envelope.sender_signing_public_key) {
     throw new Error(
@@ -119,55 +117,75 @@ async function recoverFromMemberEnvelope(
   const senderEcdhPk = base64UrlDecode(envelope.sender_ecdh_public_key);
   const senderSigningPk = base64UrlDecode(envelope.sender_signing_public_key);
 
-  const tofuResult = await verifyTofu(
-    envelope.sender_user_id,
-    envelope.sender_device_id,
-    senderSigningPk,
-    senderEcdhPk,
-  );
+  const tofuResult = await worker.tofuVerify({
+    userId: envelope.sender_user_id,
+    deviceId: envelope.sender_device_id,
+    signingPublicKey: senderSigningPk,
+    ecdhPublicKey: senderEcdhPk,
+  });
   if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
     throw new Error("Key verification failed for member envelope sender.");
   }
-  await handleTofuResult(tofuResult);
+  if (tofuResult.status === "first_seen") {
+    await worker.tofuTrustDevice({
+      userId: envelope.sender_user_id,
+      deviceId: envelope.sender_device_id,
+      signingPublicKey: senderSigningPk,
+      ecdhPublicKey: senderEcdhPk,
+    });
+  } else if (tofuResult.status === "known_trusted") {
+    await worker.tofuUpdateLastSeen({
+      userId: envelope.sender_user_id,
+      deviceId: envelope.sender_device_id,
+    });
+  }
 
-  const kek = decryptKekFromMemberEnvelope(
-    base64UrlDecode(envelope.encrypted_kek),
-    base64UrlDecode(envelope.nonce),
-    auth.identityKeys.ecdhPrivate,
-    senderEcdhPk,
+  // Decrypt KEK from member envelope (worker uses identity ECDH private internally)
+  await worker.decryptKekFromMemberEnvelope({
+    encryptedKek: base64UrlDecode(envelope.encrypted_kek),
+    nonce: base64UrlDecode(envelope.nonce),
+    senderIdentityEcdhPublic: senderEcdhPk,
     workspaceId,
-    auth.user.id,
-    envelope.key_version,
-    envelope.sender_device_id,
-  );
-
-  const deviceEcdhPublic = x25519.getPublicKey(device.deviceEcdhPrivate);
-  const deviceEnvelope = encryptKekForDevice(
-    kek,
-    device.deviceEcdhPrivate,
-    deviceEcdhPublic,
-    workspaceId,
-    auth.user.id,
-    device.deviceId,
-    device.deviceId,
-    envelope.key_version,
-  );
-
-  await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-    key_version: envelope.key_version,
-    device_id: device.deviceId,
-    sender_device_id: device.deviceId,
-    encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
-    nonce: base64UrlEncode(deviceEnvelope.nonce),
+    targetUserId: auth.user.id,
+    keyVersion: envelope.key_version,
+    senderDeviceId: envelope.sender_device_id,
   });
 
-  if (auth.umk) {
-    const backup = wrapKekWithUmk(kek, auth.umk, workspaceId, auth.user.id, envelope.key_version);
+  if (!device.deviceEcdhPublic) throw new Error("Device ECDH public key not available");
+  const deviceEnvelope = await worker.encryptKekForDevice({
+    workspaceId,
+    userId: auth.user.id,
+    senderDeviceId: device.deviceId,
+    targetDeviceId: device.deviceId,
+    targetDeviceEcdhPublic: device.deviceEcdhPublic,
+    keyVersion: envelope.key_version,
+  });
+
+  try {
+    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
+      key_version: envelope.key_version,
+      device_id: device.deviceId,
+      sender_device_id: device.deviceId,
+      encrypted_kek: base64UrlEncode(deviceEnvelope.encrypted),
+      nonce: base64UrlEncode(deviceEnvelope.nonce),
+    });
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 409)) throw e;
+  }
+
+  const backup = await worker.wrapKekWithUmk({
+    workspaceId,
+    userId: auth.user.id,
+    keyVersion: envelope.key_version,
+  });
+  try {
     await encryptionApi.createKekBackupWithPop(workspaceId, {
       key_version: envelope.key_version,
-      encrypted_kek: base64UrlEncode(backup.encryptedKek),
+      encrypted_kek: base64UrlEncode(backup.encrypted),
       nonce: base64UrlEncode(backup.nonce),
     });
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 409)) throw e;
   }
 }
 
@@ -197,7 +215,6 @@ export default function InvitePage() {
   });
 
   const trySaves = async (
-    kek: Uint8Array,
     acceptResult: { workspace_id: string; kek_version: number },
     auth: NonNullable<ReturnType<typeof authState>>,
     device: NonNullable<ReturnType<typeof deviceState>>,
@@ -208,9 +225,9 @@ export default function InvitePage() {
       try {
         await retryAsync(
           () =>
-            saveDeviceEnvelope(kek, acceptResult, auth, {
+            saveDeviceEnvelope(acceptResult, auth, {
               deviceId: device.deviceId,
-              deviceEcdhPrivate: device.deviceEcdhPrivate!,
+              deviceEcdhPublic: device.deviceEcdhPublic,
             }),
           KEK_SAVE_MAX_RETRIES,
         );
@@ -220,14 +237,10 @@ export default function InvitePage() {
       }
     }
 
-    if (!umkSaved && auth.umk) {
+    if (!umkSaved) {
       try {
         await retryAsync(
-          () =>
-            saveUmkBackup(kek, acceptResult, {
-              user: auth.user,
-              umk: auth.umk!,
-            }),
+          () => saveUmkBackup(acceptResult, { user: auth.user }),
           KEK_SAVE_MAX_RETRIES,
         );
         umkSaved = true;
@@ -247,8 +260,8 @@ export default function InvitePage() {
     const tokenBytes = base64UrlDecode(token);
     const maxAcceptAttempts = 2;
     let savedWorkspaceId: string | null = null;
-    let lastKek: Uint8Array | undefined;
     let lastAcceptResult: { workspace_id: string; kek_version: number } | undefined;
+    let kekDecrypted = false;
     let deviceSaved = false;
     let umkSaved = false;
 
@@ -268,7 +281,7 @@ export default function InvitePage() {
             try {
               await recoverFromMemberEnvelope(recoveryWorkspaceId, auth, {
                 deviceId: device.deviceId,
-                deviceEcdhPrivate: device.deviceEcdhPrivate!,
+                deviceEcdhPublic: device.deviceEcdhPublic,
               });
               sessionStorage.removeItem(TOKEN_SESSION_KEY);
               setStatus("success");
@@ -313,14 +326,15 @@ export default function InvitePage() {
       }
 
       try {
-        lastKek = decryptKek(acceptResult, tokenBytes);
+        await decryptKek(acceptResult, tokenBytes);
+        kekDecrypted = true;
       } catch {
         throw new Error("KEK decryption failed. Please request a new invitation link.");
       }
       lastAcceptResult = acceptResult;
 
       setStatus("saving_keys");
-      const saves = await trySaves(lastKek, acceptResult, auth, device, deviceSaved, umkSaved);
+      const saves = await trySaves(acceptResult, auth, device, deviceSaved, umkSaved);
       deviceSaved = saves.deviceSaved;
       umkSaved = saves.umkSaved;
 
@@ -338,9 +352,9 @@ export default function InvitePage() {
       // Both saves failed; re-accept to re-obtain encrypted_kek (idempotent)
     }
 
-    // Retry failed saves with KEK still in memory (design: keep KEK until both complete)
-    if (lastKek && lastAcceptResult && !(deviceSaved && umkSaved)) {
-      const saves = await trySaves(lastKek, lastAcceptResult, auth, device, deviceSaved, umkSaved);
+    // Retry failed saves with KEK still in worker (design: keep KEK until both complete)
+    if (kekDecrypted && lastAcceptResult && !(deviceSaved && umkSaved)) {
+      const saves = await trySaves(lastAcceptResult, auth, device, deviceSaved, umkSaved);
       deviceSaved = saves.deviceSaved;
       umkSaved = saves.umkSaved;
 
@@ -388,7 +402,7 @@ export default function InvitePage() {
       return;
     }
 
-    if (!device.deviceSigningPrivate) {
+    if (!cryptoWorkerReady()) {
       if (auth.needsPasswordReentry) return;
       navigate("/devices/register");
       return;
@@ -401,7 +415,7 @@ export default function InvitePage() {
     const token = sessionStorage.getItem(TOKEN_SESSION_KEY);
     const auth = authState();
     const device = deviceState();
-    if (!token || !auth || !device?.deviceSigningPrivate) return;
+    if (!token || !auth || !device || !cryptoWorkerReady()) return;
 
     setStatus("accepting");
     acceptAndPersistKek(token, auth, device).catch((err) => {
@@ -417,7 +431,7 @@ export default function InvitePage() {
     if (s !== "loading" && s !== "need_auth") return;
     const auth = authState();
     const device = deviceState();
-    if (!auth || !device?.deviceSigningPrivate) return;
+    if (!auth || !device || !cryptoWorkerReady()) return;
 
     setStatus("confirm");
   });
@@ -540,7 +554,7 @@ export default function InvitePage() {
                   setKekWarning(null);
                   const auth = authState();
                   const device = deviceState();
-                  if (auth && device && device.deviceSigningPrivate) {
+                  if (auth && device && cryptoWorkerReady()) {
                     acceptAndPersistKek(token, auth, device).catch((err) => {
                       setError(err instanceof Error ? err.message : "Retry failed");
                       setStatus("error");
@@ -573,7 +587,7 @@ export default function InvitePage() {
                     setStatus("accepting");
                     const auth = authState();
                     const device = deviceState();
-                    if (auth && device && device.deviceSigningPrivate) {
+                    if (auth && device && cryptoWorkerReady()) {
                       acceptAndPersistKek(token, auth, device).catch((err) => {
                         setError(err instanceof Error ? err.message : "Retry failed");
                         setStatus("error");

@@ -12,6 +12,7 @@ import { Toaster as Sonner } from "solid-sonner";
 import { CheckCheck, Info, TriangleAlert } from "lucide-solid";
 
 import { cn } from "@/shared/lib/utils";
+import { getCspNonce } from "@/shared/lib/csp-nonce";
 import { toneVarDefaults, toneVarOverrides } from "@/shared/lib/tone";
 
 type ToasterProps = ComponentProps<typeof Sonner>;
@@ -131,7 +132,7 @@ const Toaster: Component<ToasterProps> = (props) => {
 
   return (
     <>
-      <style>{toastToneCSS}</style>
+      <style nonce={getCspNonce()}>{toastToneCSS}</style>
       <Sonner
         theme={local.theme ?? resolvedTheme()}
         class={cn("toaster group", local.class)}

@@ -18,8 +18,8 @@ import {
   setDeviceState,
   tofuErrors,
   setTofuErrors,
+  setCryptoWorkerReady,
 } from "@/shared/lib/auth-state";
-import { TofuHardFailError } from "@/shared/lib/crypto";
 import { Spinner } from "@/shared/ui/spinner";
 import { AppShell } from "./app-shell";
 
@@ -53,27 +53,31 @@ export default function App() {
         const auth = {
           user: { id: result.userId, email: result.email, name: result.name },
           sessionId: result.sessionId,
-          umk: result.umk,
-          identityKeys: result.identityKeys,
+          identitySigningPublic: result.identitySigningPublic,
+          identityEcdhPublic: result.identityEcdhPublic,
           expiresAt: result.expiresAt,
           needsPasswordReentry: result.needsPasswordReentry,
         };
 
-        if (result.deviceId && result.deviceSigningPrivate) {
+        if (result.deviceId && result.deviceSigningPublic) {
           setFullSession(auth, {
             deviceId: result.deviceId,
-            deviceEcdhPrivate: result.deviceEcdhPrivate,
-            deviceSigningPrivate: result.deviceSigningPrivate,
+            deviceSigningPublic: result.deviceSigningPublic,
+            deviceEcdhPublic: result.deviceEcdhPublic,
           });
         } else {
           setAuthState(auth);
           if (result.deviceId) {
             setDeviceState({
               deviceId: result.deviceId,
-              deviceEcdhPrivate: null,
-              deviceSigningPrivate: null,
+              deviceSigningPublic: null,
+              deviceEcdhPublic: null,
             });
           }
+        }
+
+        if (result.workerReady) {
+          setCryptoWorkerReady(true);
         }
 
         if (result.tofuWarnings.length > 0) {
@@ -86,16 +90,19 @@ export default function App() {
 
         if (!result.deviceVerified && !result.needsPasswordReentry) {
           const path = window.location.pathname;
-          const isPublicPath =
+          const isPublicPath2 =
             path.startsWith("/auth/") || path === "/devices/register" || path.startsWith("/invite");
-          if (!isPublicPath) {
+          if (!isPublicPath2) {
             window.location.replace("/devices/register");
             return;
           }
         }
       }
     } catch (e) {
-      if (e instanceof TofuHardFailError) {
+      if (
+        e instanceof Error &&
+        (("code" in e && (e as any).code === "tofu_hard_fail") || e.message.includes("TOFU"))
+      ) {
         setTofuErrors([e.message]);
       } else {
         setTransientError("An unexpected error occurred. Please try again.");

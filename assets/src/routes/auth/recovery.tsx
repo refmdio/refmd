@@ -7,23 +7,17 @@ import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
 import { KeyRoundIcon, AlertTriangleIcon, UploadIcon } from "lucide-solid";
-import { authState, setAuthState } from "@/shared/lib/auth-state";
-import { authApi } from "@/shared/api";
-import { persistSessionPdk } from "@/features/auth";
-import { parseRecoveryKeyFile } from "@/shared/lib/recovery-key-format";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  randomBytes,
-  deriveAuthKeys,
-  deriveRukFromMnemonic,
-  unwrapUmkWithRuk,
-  decryptIdentityPrivateKeys,
-  sign,
-  wrapUmk,
-  isValidMnemonic,
-} from "@/shared/lib/crypto";
-import type { KdfParams } from "@/shared/lib/crypto";
+  authState,
+  setAuthState,
+  setDeviceState,
+  setCryptoWorkerReady,
+} from "@/shared/lib/auth-state";
+import { authApi } from "@/shared/api";
+import { parseRecoveryKeyFile } from "@/shared/lib/recovery-key-format";
+import { base64UrlEncode, base64UrlDecode, randomBytes } from "@/shared/lib/crypto/encoding";
+import type { KdfParams } from "@/shared/lib/crypto/kdf";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 type Phase = "input" | "recovering" | "password_set" | "error";
 
@@ -51,10 +45,11 @@ export default function RecoveryPage() {
   const [newPassword, setNewPassword] = createSignal("");
   const [confirmPassword, setConfirmPassword] = createSignal("");
 
-  const [recoveredUmk, setRecoveredUmk] = createSignal<Uint8Array | null>(null);
-  const [recoveredIdentityKeys, setRecoveredIdentityKeys] = createSignal<ReturnType<
-    typeof decryptIdentityPrivateKeys
-  > | null>(null);
+  // Track whether recovery has loaded keys into Worker (for password_set phase)
+  const [recoveryKeysLoaded, setRecoveryKeysLoaded] = createSignal(false);
+  // Store identity public keys from Worker for setAuthState
+  const [identitySigningPublic, setIdentitySigningPublic] = createSignal<Uint8Array | null>(null);
+  const [identityEcdhPublic, setIdentityEcdhPublic] = createSignal<Uint8Array | null>(null);
 
   const inputRefs: (HTMLInputElement | undefined)[] = [];
   let fileInputRef: HTMLInputElement | undefined;
@@ -115,7 +110,7 @@ export default function RecoveryPage() {
         setWords(EMPTY_WORDS());
       } else {
         const mnemonic = result.words.join(" ");
-        if (!isValidMnemonic(mnemonic)) {
+        if (!(await getCryptoWorker().validateMnemonic(mnemonic))) {
           setError("Invalid recovery key file: contains invalid BIP39 words.");
           setWords(EMPTY_WORDS());
         } else {
@@ -147,7 +142,7 @@ export default function RecoveryPage() {
 
     const mnemonic = words().join(" ");
 
-    if (!isValidMnemonic(mnemonic)) {
+    if (!(await getCryptoWorker().validateMnemonic(mnemonic))) {
       setError("Invalid recovery phrase. Please check all 24 words.");
       return;
     }
@@ -156,37 +151,33 @@ export default function RecoveryPage() {
     setError(null);
 
     try {
+      const worker = getCryptoWorker();
+
       setPhase("recovering");
       setStatusMessage("Fetching recovery data\u2026");
       const recovery = await authApi.getRecovery();
 
       setStatusMessage("Deriving recovery key\u2026");
-      const ruk = await deriveRukFromMnemonic(mnemonic);
+      await worker.deriveRuk(mnemonic);
 
       setStatusMessage("Decrypting master key\u2026");
-      let umk: Uint8Array;
       try {
-        umk = unwrapUmkWithRuk(
-          base64UrlDecode(recovery.recovery_encrypted_umk!),
-          base64UrlDecode(recovery.recovery_nonce!),
-          ruk,
-          auth.user.id,
-        );
+        await worker.unwrapUmkWithRuk({
+          encrypted: base64UrlDecode(recovery.recovery_encrypted_umk!),
+          nonce: base64UrlDecode(recovery.recovery_nonce!),
+          userId: auth.user.id,
+        });
       } catch {
         throw new Error("Invalid recovery phrase. The mnemonic does not match this account.");
       }
 
       setStatusMessage("Decrypting identity keys\u2026");
-      const identityKeys = decryptIdentityPrivateKeys(
-        {
-          encryptedEcdhPrivate: base64UrlDecode(recovery.encrypted_ecdh_private!),
-          ecdhPrivateNonce: base64UrlDecode(recovery.encrypted_ecdh_private_nonce!),
-          encryptedSigningPrivate: base64UrlDecode(recovery.encrypted_signing_private!),
-          signingPrivateNonce: base64UrlDecode(recovery.encrypted_signing_private_nonce!),
-        },
-        umk,
-        auth.user.id,
-      );
+      const identityPublic = await worker.importIdentityKeys({
+        encryptedEcdhPrivate: base64UrlDecode(recovery.encrypted_ecdh_private!),
+        ecdhPrivateNonce: base64UrlDecode(recovery.encrypted_ecdh_private_nonce!),
+        encryptedSigningPrivate: base64UrlDecode(recovery.encrypted_signing_private!),
+        signingPrivateNonce: base64UrlDecode(recovery.encrypted_signing_private_nonce!),
+      });
 
       setStatusMessage("Getting recovery challenge\u2026");
       const challengeRes = await authApi.recoveryChallenge(auth.user.email);
@@ -208,7 +199,7 @@ export default function RecoveryPage() {
       message.set(emailBytes, prefix.length + challenge.length);
       message.set(timestampBytes, prefix.length + challenge.length + emailBytes.length);
 
-      const signature = sign(message, identityKeys.signingPrivate);
+      const { signature } = await worker.signRecoveryChallenge(message);
 
       setStatusMessage("Creating session\u2026");
       const sessionRes = await authApi.recoverySession({
@@ -219,21 +210,24 @@ export default function RecoveryPage() {
       });
 
       if (isPasswordReset()) {
-        setRecoveredUmk(umk);
-        setRecoveredIdentityKeys(identityKeys);
+        setRecoveryKeysLoaded(true);
+        setIdentitySigningPublic(identityPublic.identitySigningPublic);
+        setIdentityEcdhPublic(identityPublic.identityEcdhPublic);
         setPhase("password_set");
         setLoading(false);
         return;
       }
 
-      // Recovery session established — redirect to device registration (self-approve)
+      // Recovery session established -- redirect to device registration (self-approve)
       setAuthState({
         user: auth.user,
         sessionId: sessionRes.session_id,
-        umk,
-        identityKeys,
+        identitySigningPublic: identityPublic.identitySigningPublic,
+        identityEcdhPublic: identityPublic.identityEcdhPublic,
         expiresAt: auth.expiresAt,
       });
+      setDeviceState(null);
+      setCryptoWorkerReady(false);
       navigate("/devices/register", { state: { recovery: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Recovery failed");
@@ -246,7 +240,7 @@ export default function RecoveryPage() {
   const handlePasswordSet = async (e: Event) => {
     e.preventDefault();
     const auth = authState();
-    if (!auth || !recoveredUmk() || !recoveredIdentityKeys()) {
+    if (!auth || !recoveryKeysLoaded()) {
       navigate("/auth/login");
       return;
     }
@@ -265,32 +259,35 @@ export default function RecoveryPage() {
     setError(null);
 
     try {
-      const umk = recoveredUmk()!;
-      const identityKeys = recoveredIdentityKeys()!;
+      const worker = getCryptoWorker();
 
       const salt = randomBytes(16);
       const saltBase64 = base64UrlEncode(salt);
-      const derived = await deriveAuthKeys(newPassword(), saltBase64, TARGET_KDF_PARAMS);
+      const { authKey } = await worker.deriveAuthKeys({
+        password: newPassword(),
+        salt,
+        kdfParams: TARGET_KDF_PARAMS,
+      });
 
-      const umkWrapped = wrapUmk(umk, derived.puk, auth.user.id);
+      const umkWrapped = await worker.wrapUmkForServer(auth.user.id);
 
       const res = await authApi.passwordSet({
-        new_auth_key: derived.authKeyBase64,
+        new_auth_key: base64UrlEncode(authKey),
         new_salt: saltBase64,
-        new_encrypted_umk: base64UrlEncode(umkWrapped.encryptedUmk),
+        new_encrypted_umk: base64UrlEncode(umkWrapped.encrypted),
         new_umk_nonce: base64UrlEncode(umkWrapped.nonce),
       });
 
-      persistSessionPdk(derived.pdk);
-
-      // Password set — redirect to device registration (self-approve)
+      // Password set -- redirect to device registration (self-approve)
       setAuthState({
         user: auth.user,
         sessionId: res.session_id,
-        umk,
-        identityKeys,
+        identitySigningPublic: identitySigningPublic(),
+        identityEcdhPublic: identityEcdhPublic(),
         expiresAt: auth.expiresAt,
       });
+      setDeviceState(null);
+      setCryptoWorkerReady(false);
       navigate("/devices/register", { state: { recovery: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Password set failed");
@@ -326,7 +323,7 @@ export default function RecoveryPage() {
             <Match
               when={
                 phase() === "password_set" ||
-                (phase() === "error" && isPasswordReset() && recoveredUmk() != null)
+                (phase() === "error" && isPasswordReset() && recoveryKeysLoaded())
               }
             >
               <form onSubmit={handlePasswordSet} class="space-y-4">
@@ -377,7 +374,7 @@ export default function RecoveryPage() {
             <Match
               when={
                 phase() === "input" ||
-                (phase() === "error" && !(isPasswordReset() && recoveredUmk()))
+                (phase() === "error" && !(isPasswordReset() && recoveryKeysLoaded()))
               }
             >
               <form onSubmit={handleRecover} class="space-y-6">

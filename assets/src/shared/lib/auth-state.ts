@@ -1,5 +1,4 @@
 import { createSignal } from "solid-js";
-import type { IdentityKeyPair } from "@/shared/lib/crypto";
 
 export interface AuthUser {
   id: string;
@@ -10,28 +9,34 @@ export interface AuthUser {
 export interface AuthState {
   user: AuthUser;
   sessionId: string;
-  umk: Uint8Array | null;
-  identityKeys: IdentityKeyPair | null;
   expiresAt: string | null;
   needsPasswordReentry?: boolean;
+  identitySigningPublic: Uint8Array | null;
+  identityEcdhPublic: Uint8Array | null;
 }
 
 export interface DeviceState {
   deviceId: string;
-  deviceEcdhPrivate: Uint8Array | null;
-  deviceSigningPrivate: Uint8Array | null;
+  deviceSigningPublic: Uint8Array | null;
+  deviceEcdhPublic: Uint8Array | null;
 }
 
 const [authState, setAuthStateRaw] = createSignal<AuthState | null>(null);
 const [deviceState, setDeviceStateRaw] = createSignal<DeviceState | null>(null);
 const [tofuErrors, setTofuErrors] = createSignal<string[]>([]);
+const [cryptoWorkerReady, setCryptoWorkerReadyRaw] = createSignal(false);
 
-export { authState, deviceState, tofuErrors, setTofuErrors };
+export { authState, deviceState, tofuErrors, setTofuErrors, cryptoWorkerReady };
+
+export function setCryptoWorkerReady(ready: boolean): void {
+  setCryptoWorkerReadyRaw(ready);
+}
 
 export function setAuthState(state: AuthState | null): void {
   setAuthStateRaw(state);
   if (!state) {
     setDeviceStateRaw(null);
+    setCryptoWorkerReadyRaw(false);
   }
 }
 
@@ -47,9 +52,9 @@ export function setFullSession(auth: AuthState, device: DeviceState): void {
 export function clearSession(): void {
   setAuthStateRaw(null);
   setDeviceStateRaw(null);
+  setCryptoWorkerReadyRaw(false);
 }
 
 export function isAuthenticated(): boolean {
-  const auth = authState();
-  return auth !== null && auth.umk !== null && auth.identityKeys !== null;
+  return authState() !== null && cryptoWorkerReady();
 }

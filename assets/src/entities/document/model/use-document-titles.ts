@@ -1,11 +1,12 @@
 import { createSignal, createEffect, type Accessor } from "solid-js";
+import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { encryptionApi } from "@/shared/api";
-import { base64UrlDecode, unwrapDek, decryptTitle } from "@/shared/lib/crypto";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
-import { authState, deviceState } from "@/shared/lib/auth-state";
+import type { TitleDecryptItem } from "@/shared/lib/crypto/worker/types";
 import type { DocumentResponse } from "./types";
 
-const dekCache = new Map<string, { dek: Uint8Array; keyVersion: number }>();
 const titleCache = new Map<string, { title: string; nonce: string | null }>();
 
 export function injectDecryptedTitle(documentId: string, title: string, nonce?: string): void {
@@ -13,7 +14,6 @@ export function injectDecryptedTitle(documentId: string, title: string, nonce?: 
 }
 
 export function clearDocumentKeyCache(): void {
-  dekCache.clear();
   titleCache.clear();
 }
 
@@ -28,9 +28,7 @@ export function useDocumentTitles(
     const wsId = workspaceId();
     if (!wsId || docs.length === 0) return;
 
-    const auth = authState();
-    const device = deviceState();
-    if (!auth?.umk || !auth.identityKeys || !device?.deviceEcdhPrivate) return;
+    if (!cryptoWorkerReady()) return;
 
     const needsDecryption = docs.filter((doc) => {
       if (
@@ -64,7 +62,7 @@ export function useDocumentTitles(
       setDecryptedTitles(titles);
     };
 
-    decryptBatch(needsDecryption, wsId, auth, device, (docId, title, nonce) => {
+    decryptBatch(needsDecryption, wsId, (docId, title, nonce) => {
       titleCache.set(docId, { title, nonce });
       updateSignal();
     });
@@ -86,64 +84,58 @@ export function useDocumentTitles(
 async function decryptBatch(
   docs: DocumentResponse[],
   workspaceId: string,
-  auth: NonNullable<ReturnType<typeof authState>>,
-  device: NonNullable<ReturnType<typeof deviceState>>,
   onDecrypted: (docId: string, title: string, nonce: string | null) => void,
 ): Promise<void> {
-  const concurrency = 5;
+  const worker = getCryptoWorker();
 
-  for (let i = 0; i < docs.length; i += concurrency) {
-    const batch = docs.slice(i, i + concurrency);
-    const promises = batch.map(async (doc) => {
+  // Ensure KEK is resolved (needed for DEK unwrapping)
+  try {
+    await resolveActiveKek(workspaceId);
+  } catch (e) {
+    console.error("Failed to resolve KEK for title decryption:", e);
+    return;
+  }
+
+  // Ensure DEKs are cached in Worker for all documents that need decryption
+  for (const doc of docs) {
+    const hasDek = await worker.hasDek(doc.id, doc.encrypted_title_key_version ?? undefined);
+    if (!hasDek) {
       try {
-        const title = await decryptDocumentTitle(doc, workspaceId, auth, device);
-        onDecrypted(doc.id, title, doc.encrypted_title_nonce ?? null);
-      } catch (e) {
-        console.error(`Failed to decrypt title for document ${doc.id}:`, e);
+        const dekResponse = await encryptionApi.getDocumentKeys(doc.id);
+        const matchingKey = dekResponse.keys.find(
+          (k: any) => k.key_version === doc.encrypted_title_key_version,
+        );
+        if (matchingKey) {
+          await worker.unwrapDek({
+            encryptedDek: base64UrlDecode(matchingKey.encrypted_dek),
+            nonce: base64UrlDecode(matchingKey.nonce),
+            documentId: doc.id,
+            workspaceId,
+            keyVersion: matchingKey.key_version,
+          });
+        }
+      } catch {
+        // Skip documents where DEK fetch fails
       }
-    });
-    await Promise.all(promises);
-  }
-}
-
-async function decryptDocumentTitle(
-  doc: DocumentResponse,
-  workspaceId: string,
-  auth: NonNullable<ReturnType<typeof authState>>,
-  device: NonNullable<ReturnType<typeof deviceState>>,
-): Promise<string> {
-  const keyVersion = doc.encrypted_title_key_version!;
-
-  let dek: Uint8Array;
-  const cached = dekCache.get(doc.id);
-  if (cached && cached.keyVersion === keyVersion) {
-    dek = cached.dek;
-  } else {
-    const { kek } = await resolveActiveKek(
-      workspaceId,
-      { user: auth.user, umk: auth.umk!, identityKeys: auth.identityKeys! },
-      { deviceId: device.deviceId, deviceEcdhPrivate: device.deviceEcdhPrivate! },
-    );
-
-    const keysResponse = await encryptionApi.getDocumentKeys(doc.id);
-    const keyEntry = keysResponse.keys.find((k) => k.key_version === keyVersion);
-    if (!keyEntry) throw new Error(`DEK key_version ${keyVersion} not found`);
-
-    dek = unwrapDek(
-      base64UrlDecode(keyEntry.encrypted_dek),
-      base64UrlDecode(keyEntry.nonce),
-      kek,
-      doc.id,
-      workspaceId,
-    );
-    dekCache.set(doc.id, { dek, keyVersion });
+    }
   }
 
-  return decryptTitle(
-    base64UrlDecode(doc.encrypted_title!),
-    base64UrlDecode(doc.encrypted_title_nonce!),
-    dek,
-    doc.id,
-    keyVersion,
-  );
+  const items: TitleDecryptItem[] = docs.map((doc) => ({
+    documentId: doc.id,
+    keyVersion: doc.encrypted_title_key_version!,
+    encrypted: base64UrlDecode(doc.encrypted_title!),
+    nonce: base64UrlDecode(doc.encrypted_title_nonce!),
+  }));
+
+  try {
+    const results = await worker.decryptTitleBatch(items);
+    for (const result of results) {
+      if (result.title !== null) {
+        const doc = docs.find((d) => d.id === result.documentId);
+        onDecrypted(result.documentId, result.title, doc?.encrypted_title_nonce ?? null);
+      }
+    }
+  } catch (e) {
+    console.error("Failed to decrypt title batch:", e);
+  }
 }

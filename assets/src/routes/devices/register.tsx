@@ -8,37 +8,22 @@ import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { ShieldCheckIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
 import { SafetyNumber } from "@/features/devices";
-import { authState, setFullSession, setDeviceState } from "@/shared/lib/auth-state";
+import {
+  authState,
+  setFullSession,
+  setDeviceState,
+  setCryptoWorkerReady,
+} from "@/shared/lib/auth-state";
 import { authApi, devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
 import { ApiError } from "@/shared/api/core";
 import {
   persistDeviceId,
-  persistDeviceKeysOnly,
-  persistUmkForLogin,
-  restoreSessionPdk,
+  persistWrappedDeviceKeys,
+  persistWrappedUmk,
   persistSessionPdk,
 } from "@/features/auth";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  generateDeviceKeyPair,
-  generateClientNonce,
-  signDeviceRegistration,
-  ecdhDecrypt,
-  verifyTofu,
-  handleTofuResult,
-  decryptTrustState,
-  decryptIdentityPrivateKeys,
-  deriveAuthKeys,
-  decryptKekFromMemberEnvelope,
-  unwrapKekFromBackup,
-  encryptKekForDevice,
-  wrapKekWithUmk,
-  generateKek,
-} from "@/shared/lib/crypto";
-import type { IdentityKeyPair } from "@/shared/lib/crypto";
-import { importTofuEntries } from "@/shared/lib/trust-store";
-import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
+import { base64UrlEncode, base64UrlDecode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 type Phase =
   | "generating"
@@ -56,22 +41,15 @@ export default function DeviceRegisterPage() {
   const isRecoveryFromState = () => (location.state as Record<string, unknown>)?.recovery === true;
   const [phase, setPhase] = createSignal<Phase>("generating");
   const [error, setError] = createSignal<string | null>(null);
-  const [deviceKeys, setDeviceKeys] = createSignal<{
-    ecdhPrivate: Uint8Array;
+  const [devicePublicKeys, setDevicePublicKeys] = createSignal<{
     ecdhPublic: Uint8Array;
-    signingPrivate: Uint8Array;
     signingPublic: Uint8Array;
   } | null>(null);
   const [clientNonce, setClientNonce] = createSignal<Uint8Array | null>(null);
   const [identitySigningPublic, setIdentitySigningPublic] = createSignal<Uint8Array | null>(null);
-  const [, setPendingDeviceId] = createSignal<string | null>(null);
-  const [, setTransferNonce] = createSignal<string | null>(null);
-  const [pendingKeys, setPendingKeys] = createSignal<{
-    ecdhPrivate: Uint8Array;
-    ecdhPublic: Uint8Array;
-    signingPrivate: Uint8Array;
-    signingPublic: Uint8Array;
-  } | null>(null);
+  const [pendingKeysGenerated, setPendingKeysGenerated] = createSignal(false);
+  const [postApprovalPersistence, setPostApprovalPersistence] = createSignal(false);
+  const [dskUnavailableOAuth, setDskUnavailableOAuth] = createSignal(false);
   const [pdkPassword, setPdkPassword] = createSignal("");
   const [pdkLoading, setPdkLoading] = createSignal(false);
   const [pdkError, setPdkError] = createSignal<string | null>(null);
@@ -80,10 +58,8 @@ export default function DeviceRegisterPage() {
   const [reauthPassword, setReauthPassword] = createSignal("");
   const [reauthLoading, setReauthLoading] = createSignal(false);
   const [reauthError, setReauthError] = createSignal<string | null>(null);
-  const [reauthPendingKeys, setReauthPendingKeys] = createSignal<{
-    ecdhPrivate: Uint8Array;
+  const [reauthPendingPublicKeys, setReauthPendingPublicKeys] = createSignal<{
     ecdhPublic: Uint8Array;
-    signingPrivate: Uint8Array;
     signingPublic: Uint8Array;
   } | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
@@ -135,27 +111,61 @@ export default function DeviceRegisterPage() {
     }
     setIdentitySigningPublic(base64UrlDecode(me.identity_signing_public_key));
 
-    const keys = generateDeviceKeyPair();
-    setDeviceKeys(keys);
-    try {
-      await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id);
-    } catch {
-      setPendingKeys(keys);
-      setPhase("needs_password");
-      return;
+    const worker = getCryptoWorker();
+    await worker.setUserContext(auth.user.id);
+
+    // Ensure DSK exists and is loaded into Worker
+    const { loadDsk } = await import("@/shared/lib/crypto/dsk");
+    let hadDsk = false;
+    let dsk = await loadDsk();
+    if (dsk) {
+      await worker.setDsk(dsk);
+      dsk = null;
+      hadDsk = true;
+    } else {
+      try {
+        await worker.generateDsk();
+        hadDsk = true;
+      } catch {
+        // DSK unavailable
+      }
     }
 
-    await createRegistrationAndWait(keys);
+    const publicKeys = await worker.generateDeviceKeys();
+    setDevicePublicKeys(publicKeys);
+
+    // Persist device keys (wrapped via DSK in worker)
+    if (hadDsk) {
+      try {
+        const wrapped = await worker.wrapDeviceKeysWithDsk(auth.user.id);
+        await persistWrappedDeviceKeys(wrapped);
+      } catch {
+        setPendingKeysGenerated(true);
+        setPhase("needs_password");
+        return;
+      }
+    } else {
+      const me = await authApi.me();
+      if (me.auth_type === "password") {
+        setPendingKeysGenerated(true);
+        setPhase("needs_password");
+        return;
+      }
+      // OAuth + no DSK: keys live in Worker memory only for this session.
+      // Show limitation warning but allow continuation.
+      setDskUnavailableOAuth(true);
+    }
+
+    await createRegistrationAndWait(publicKeys);
   };
 
   // Create pending device and set up SSE/polling for approval
-  const createRegistrationAndWait = async (keys: {
-    ecdhPrivate: Uint8Array;
+  const createRegistrationAndWait = async (publicKeys: {
     ecdhPublic: Uint8Array;
-    signingPrivate: Uint8Array;
     signingPublic: Uint8Array;
   }) => {
-    const nonce = generateClientNonce();
+    const worker = getCryptoWorker();
+    const nonce = await worker.generateClientNonce();
     setClientNonce(nonce);
 
     let res;
@@ -163,21 +173,20 @@ export default function DeviceRegisterPage() {
       res = await devicesApi.createRegistration({
         name: getDeviceName(),
         device_type: getDeviceType(),
-        device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
-        device_signing_public_key: base64UrlEncode(keys.signingPublic),
+        device_ecdh_public_key: base64UrlEncode(publicKeys.ecdhPublic),
+        device_signing_public_key: base64UrlEncode(publicKeys.signingPublic),
         client_nonce: base64UrlEncode(nonce),
         identity_signing_public_key: base64UrlEncode(identitySigningPublic()!),
       });
     } catch (err) {
       if (err instanceof ApiError && err.status === 403 && err.body?.error === "reauth_required") {
-        setReauthPendingKeys(keys);
+        setReauthPendingPublicKeys(publicKeys);
         setPhase("reauth");
         return;
       }
       throw err;
     }
 
-    setPendingDeviceId(res.device_id);
     setPhase("waiting");
 
     // Request trust transfer nonce (best-effort, non-blocking)
@@ -199,7 +208,7 @@ export default function DeviceRegisterPage() {
           const status = await devicesApi.getRegistrationSas(res.device_id);
           if (status.status === "approved") {
             if (pollTimer) clearInterval(pollTimer);
-            await handleApproved(res.device_id, keys);
+            await handleApproved(res.device_id, publicKeys);
           } else if (status.status === "expired") {
             if (pollTimer) clearInterval(pollTimer);
             setPhase("expired");
@@ -219,7 +228,7 @@ export default function DeviceRegisterPage() {
             clearInterval(pollTimer);
             pollTimer = undefined;
           }
-          await handleApproved(res.device_id, keys);
+          await handleApproved(res.device_id, publicKeys);
         });
         eventSource.addEventListener("expired", () => {
           if (eventSource) eventSource.close();
@@ -264,33 +273,65 @@ export default function DeviceRegisterPage() {
 
   // Recovery flow: self-approve with identity signature
   const startRecoveryRegistration = async (auth: NonNullable<ReturnType<typeof authState>>) => {
-    const umk = auth.umk!;
-    const identityKeys = auth.identityKeys!;
-    const pdk = restoreSessionPdk() ?? undefined;
+    const worker = getCryptoWorker();
+
+    // After page refresh, Worker has no keys. Redirect to recovery page.
+    const pubKeys = await worker.getPublicKeys();
+    if (!pubKeys.identitySigningPublic) {
+      navigate("/auth/recovery");
+      return;
+    }
 
     setPhase("generating");
     setStatusMessage("Generating device keys\u2026");
-    const keys = generateDeviceKeyPair();
-    await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id, pdk);
+    await worker.setUserContext(auth.user.id);
+
+    // Ensure DSK exists and is loaded into Worker
+    const { loadDsk: loadDskRec } = await import("@/shared/lib/crypto/dsk");
+    let hadDskRec = false;
+    let dskRec = await loadDskRec();
+    if (dskRec) {
+      await worker.setDsk(dskRec);
+      dskRec = null;
+      hadDskRec = true;
+    } else {
+      try {
+        await worker.generateDsk();
+        hadDskRec = true;
+      } catch {
+        // DSK unavailable
+      }
+    }
+
+    const publicKeys = await worker.generateDeviceKeys();
+
+    // Persist device keys (best-effort — recovery must not block on persistence)
+    if (hadDskRec) {
+      const wrapped = await worker.wrapDeviceKeysWithDsk(auth.user.id);
+      await persistWrappedDeviceKeys(wrapped);
+    }
+    // No DSK: device keys live in Worker memory. PDK persistence deferred to password-set flow.
 
     setPhase("restoring");
     setStatusMessage("Registering device\u2026");
 
-    const clientNonce = generateClientNonce();
-    const deviceSignature = signDeviceRegistration(
-      keys.signingPublic,
-      keys.ecdhPublic,
-      clientNonce,
-      identityKeys.signingPrivate,
-    );
+    const nonce = await worker.generateClientNonce();
+    const { signature: deviceSignature } = await worker.signDeviceRegistration({
+      deviceSigningPublic: publicKeys.signingPublic,
+      deviceEcdhPublic: publicKeys.ecdhPublic,
+      clientNonce: nonce,
+    });
+
+    const identitySigningPub = auth.identitySigningPublic;
+    if (!identitySigningPub) throw new Error("Identity signing public key not available");
 
     const pendingRes = await devicesApi.createRegistration({
       name: getDeviceName(),
       device_type: getDeviceType(),
-      device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
-      device_signing_public_key: base64UrlEncode(keys.signingPublic),
-      client_nonce: base64UrlEncode(clientNonce),
-      identity_signing_public_key: base64UrlEncode(identityKeys.signingPublic),
+      device_ecdh_public_key: base64UrlEncode(publicKeys.ecdhPublic),
+      device_signing_public_key: base64UrlEncode(publicKeys.signingPublic),
+      client_nonce: base64UrlEncode(nonce),
+      identity_signing_public_key: base64UrlEncode(identitySigningPub),
     });
 
     const approveRes = await devicesApi.approve(pendingRes.device_id, {
@@ -300,37 +341,41 @@ export default function DeviceRegisterPage() {
     const deviceId = approveRes.device.id;
 
     persistDeviceId(deviceId);
-    await persistUmkForLogin({
-      umk,
-      pdk,
-      kmsi: false,
-      userId: auth.user.id,
-    });
+
+    // Set Worker context and mark initialized for PoP and subsequent operations
+    await worker.setUserContext(auth.user.id, deviceId);
+    await worker.setInitialized();
+    setCryptoWorkerReady(true);
+
+    // Persist UMK + device keys
+    if (hadDskRec) {
+      const wrappedUmk = await worker.wrapUmkWithDsk(auth.user.id);
+      await persistWrappedUmk({
+        wrappedUmk,
+        kmsi: false,
+        userId: auth.user.id,
+      });
+    }
+    // DSK-unavailable: persistence deferred to password-set flow (/auth/recovery → password set)
+    // Recovery proceeds without blocking — keys live in Worker memory until persisted
 
     setFullSession(
       {
         user: auth.user,
         sessionId: auth.sessionId,
-        umk,
-        identityKeys,
+        identitySigningPublic: auth.identitySigningPublic,
+        identityEcdhPublic: auth.identityEcdhPublic,
         expiresAt: auth.expiresAt,
       },
       {
         deviceId,
-        deviceEcdhPrivate: keys.ecdhPrivate,
-        deviceSigningPrivate: keys.signingPrivate,
+        deviceSigningPublic: publicKeys.signingPublic,
+        deviceEcdhPublic: publicKeys.ecdhPublic,
       },
     );
 
     setStatusMessage("Restoring workspace keys\u2026");
-    const kekResults = await restoreWorkspaceKeks(
-      auth.user.id,
-      deviceId,
-      umk,
-      identityKeys,
-      keys.ecdhPrivate,
-      keys.ecdhPublic,
-    );
+    const kekResults = await restoreWorkspaceKeks(auth.user.id, deviceId);
 
     if (kekResults.backupDecryptFailed) {
       setPhase("error");
@@ -340,6 +385,21 @@ export default function DeviceRegisterPage() {
       return;
     }
 
+    // PDK persistence for DSK-unavailable environments (password users only)
+    if (!hadDskRec) {
+      try {
+        const meForPdk = await authApi.me();
+        if (meForPdk.auth_type === "password") {
+          setPostApprovalPersistence(true);
+          setPhase("needs_password");
+          return;
+        }
+      } catch {
+        // Best effort
+      }
+    }
+
+    await worker.clearTransientKeys();
     setPhase("done");
     if (kekResults.needsDistribution.length > 0) {
       setStatusMessage(
@@ -362,18 +422,68 @@ export default function DeviceRegisterPage() {
       if (!auth) throw new Error("No session");
 
       const saltRes = await authApi.getSalt(auth.user.email);
-      const derived = await deriveAuthKeys(pdkPassword(), saltRes.salt, saltRes.kdf_params);
-      await authApi.verifyKey(derived.authKeyBase64);
-      persistSessionPdk(derived.pdk);
+      const worker = getCryptoWorker();
+      const { authKey } = await worker.deriveAuthKeys({
+        password: pdkPassword(),
+        salt: base64UrlDecode(saltRes.salt),
+        kdfParams: saltRes.kdf_params,
+      });
+      await authApi.verifyKey(base64UrlEncode(authKey));
+      persistSessionPdk(new Uint8Array(1));
 
-      const keys = pendingKeys();
-      if (!keys) throw new Error("No pending keys");
-      await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id);
-      setPendingKeys(null);
-      setDeviceKeys(keys);
-      await createRegistrationAndWait(keys);
+      if (!pendingKeysGenerated()) throw new Error("No pending keys");
+
+      // Try DSK first, fall back to PDK
+      const { loadDsk: loadDskPdk } = await import("@/shared/lib/crypto/dsk");
+      let dskPdk = await loadDskPdk();
+      if (dskPdk) {
+        await worker.setDsk(dskPdk);
+        dskPdk = null;
+        const wrapped = await worker.wrapDeviceKeysWithDsk(auth.user.id);
+        await persistWrappedDeviceKeys(wrapped);
+      } else {
+        const pdkWrapped = await worker.wrapWithPdk({
+          passwordParams: {
+            password: pdkPassword(),
+            salt: base64UrlDecode(saltRes.salt),
+            kdfParams: saltRes.kdf_params,
+          },
+        });
+        if (pdkWrapped.wrappedDeviceKeys) {
+          localStorage.setItem(
+            "refmd-pdk-device-ecdh",
+            JSON.stringify(pdkWrapped.wrappedDeviceKeys.ecdh),
+          );
+          localStorage.setItem(
+            "refmd-pdk-device-signing",
+            JSON.stringify(pdkWrapped.wrappedDeviceKeys.signing),
+          );
+        }
+        if (pdkWrapped.wrappedUmk) {
+          localStorage.setItem("refmd-pdk-umk", JSON.stringify(pdkWrapped.wrappedUmk));
+        }
+      }
+
+      await worker.clearTransientKeys();
+
+      if (postApprovalPersistence()) {
+        // Device already approved — persistence done, navigate to dashboard
+        setPostApprovalPersistence(false);
+        setPhase("done");
+        const pendingInvite = sessionStorage.getItem("refmd_invite_token");
+        navigate(pendingInvite ? "/invite" : "/dashboard");
+        return;
+      }
+
+      const pubKeys = devicePublicKeys();
+      if (!pubKeys) throw new Error("No device public keys");
+      setPendingKeysGenerated(false);
+      await createRegistrationAndWait(pubKeys);
     } catch (err) {
       setPdkError(err instanceof Error ? err.message : "Password verification failed");
+      await getCryptoWorker()
+        .clearTransientKeys()
+        .catch(() => {});
     } finally {
       setPdkLoading(false);
     }
@@ -389,15 +499,24 @@ export default function DeviceRegisterPage() {
       if (!auth) throw new Error("No session");
 
       const saltRes = await authApi.getSalt(auth.user.email);
-      const derived = await deriveAuthKeys(reauthPassword(), saltRes.salt, saltRes.kdf_params);
-      await authApi.verifyKey(derived.authKeyBase64);
+      const reauthWorker = getCryptoWorker();
+      const { authKey: reauthKey } = await reauthWorker.deriveAuthKeys({
+        password: reauthPassword(),
+        salt: base64UrlDecode(saltRes.salt),
+        kdfParams: saltRes.kdf_params,
+      });
+      await authApi.verifyKey(base64UrlEncode(reauthKey));
+      await reauthWorker.clearTransientKeys();
 
-      const keys = reauthPendingKeys();
-      if (!keys) throw new Error("No pending keys");
-      setReauthPendingKeys(null);
-      await createRegistrationAndWait(keys);
+      const pubKeys = reauthPendingPublicKeys();
+      if (!pubKeys) throw new Error("No pending keys");
+      setReauthPendingPublicKeys(null);
+      await createRegistrationAndWait(pubKeys);
     } catch (err) {
       setReauthError(err instanceof Error ? err.message : "Password verification failed");
+      await getCryptoWorker()
+        .clearTransientKeys()
+        .catch(() => {});
     } finally {
       setReauthLoading(false);
     }
@@ -406,7 +525,6 @@ export default function DeviceRegisterPage() {
   const requestTrustTransferNonce = async (deviceId: string) => {
     try {
       const res = await trustTransferApi.requestNonce(deviceId);
-      setTransferNonce(res.nonce);
       sessionStorage.setItem(`refmd-transfer-nonce-${deviceId}`, res.nonce);
     } catch {
       // Best-effort: if nonce request fails, trust state transfer won't happen
@@ -415,10 +533,8 @@ export default function DeviceRegisterPage() {
 
   const handleApproved = async (
     deviceId: string,
-    keys: {
-      ecdhPrivate: Uint8Array;
+    publicKeys: {
       ecdhPublic: Uint8Array;
-      signingPrivate: Uint8Array;
       signingPublic: Uint8Array;
     },
   ) => {
@@ -427,13 +543,15 @@ export default function DeviceRegisterPage() {
     if (!auth) return;
 
     try {
+      const worker = getCryptoWorker();
       persistDeviceId(deviceId);
+      await worker.setUserContext(auth.user.id, deviceId);
 
       // Trust state transfer retrieval (best-effort, BEFORE PoP binding)
       // Must happen before any PoP call because PoP auto-binds the session,
       // and trust-transfer endpoints reject bound sessions.
       try {
-        await retrieveAndImportTrustState(auth.user.id, deviceId, keys.ecdhPrivate);
+        await retrieveAndImportTrustState(auth.user.id, deviceId);
       } catch (err) {
         // identity_key_changed / ecdh_key_mismatch are hard failures
         if (err instanceof Error && err.message.includes("key verification failed")) {
@@ -442,15 +560,14 @@ export default function DeviceRegisterPage() {
         // Other failures (404, network, decryption) are best-effort
       }
 
-      // Establish PoP credential before accessing PoP-required endpoints
       setDeviceState({
         deviceId,
-        deviceEcdhPrivate: keys.ecdhPrivate,
-        deviceSigningPrivate: keys.signingPrivate,
+        deviceSigningPublic: publicKeys.signingPublic,
+        deviceEcdhPublic: publicKeys.ecdhPublic,
       });
 
       // Get UMK from server (distributed by existing device, PoP required)
-      const umkData = await retryGetUmk(deviceId, 10, 2000);
+      const umkData = await retryGetUmk(deviceId, 10, 2000, deviceId);
 
       // TOFU verification on UMK sender
       if (!umkData.sender_signing_public_key || !umkData.sender_ecdh_public_key) {
@@ -458,12 +575,12 @@ export default function DeviceRegisterPage() {
       }
       const senderSigningPk = base64UrlDecode(umkData.sender_signing_public_key);
       const senderEcdhPk = base64UrlDecode(umkData.sender_ecdh_public_key);
-      const senderTofuResult = await verifyTofu(
-        auth.user.id,
-        umkData.sender_device_id,
-        senderSigningPk,
-        senderEcdhPk,
-      );
+      const senderTofuResult = await worker.tofuVerify({
+        userId: auth.user.id,
+        deviceId: umkData.sender_device_id,
+        signingPublicKey: senderSigningPk,
+        ecdhPublicKey: senderEcdhPk,
+      });
 
       if (senderTofuResult.status === "identity_key_changed") {
         throw new Error("UMK sender identity key changed. This may indicate tampering.");
@@ -473,78 +590,105 @@ export default function DeviceRegisterPage() {
       }
 
       // Auto-trust sender for first_seen / update last_seen for known_trusted
-      await handleTofuResult(senderTofuResult);
-
-      // Decrypt UMK using ECDH
-      const senderEcdhPublic = base64UrlDecode(umkData.sender_ecdh_public_key!);
-      const aad = buildDeviceUmkDistributionAad(auth.user.id, umkData.sender_device_id, deviceId);
-      const umk = ecdhDecrypt(
-        base64UrlDecode(umkData.encrypted_umk),
-        base64UrlDecode(umkData.nonce),
-        keys.ecdhPrivate,
-        senderEcdhPublic,
-        "device_umk_wrap",
-        aad,
-      );
-
-      // Decrypt identity keys with UMK
-      const me = await authApi.me();
-
-      let identityKeys = null;
-      if (me.keys) {
-        identityKeys = decryptIdentityPrivateKeys(
-          {
-            encryptedEcdhPrivate: base64UrlDecode(me.keys.encrypted_ecdh_private),
-            ecdhPrivateNonce: base64UrlDecode(me.keys.encrypted_ecdh_private_nonce),
-            encryptedSigningPrivate: base64UrlDecode(me.keys.encrypted_signing_private),
-            signingPrivateNonce: base64UrlDecode(me.keys.encrypted_signing_private_nonce),
-          },
-          umk,
-          auth.user.id,
-        );
+      if (senderTofuResult.status === "first_seen") {
+        await worker.tofuTrustDevice({
+          userId: auth.user.id,
+          deviceId: umkData.sender_device_id,
+          signingPublicKey: senderSigningPk,
+          ecdhPublicKey: senderEcdhPk,
+        });
+      } else if (senderTofuResult.status === "known_trusted") {
+        await worker.tofuUpdateLastSeen({
+          userId: auth.user.id,
+          deviceId: umkData.sender_device_id,
+        });
       }
 
-      // Persist UMK (KMSI-aware; device keys already persisted during registration)
-      const pdk = restoreSessionPdk();
-      await persistUmkForLogin({
-        umk,
-        pdk: pdk ?? undefined,
-        kmsi: !!me.remember_me,
-        userId: auth.user.id,
+      // Decrypt UMK via ECDH and store directly in Worker (UMK never leaves Worker)
+      const senderEcdhPublic = base64UrlDecode(umkData.sender_ecdh_public_key!);
+      await worker.ecdhDecryptUmkFromDevice({
+        theirPublic: senderEcdhPublic,
+        ciphertext: base64UrlDecode(umkData.encrypted_umk),
+        nonce: base64UrlDecode(umkData.nonce),
+        senderDeviceId: umkData.sender_device_id,
+        targetDeviceId: deviceId,
       });
 
-      // Set full session
+      // Import identity keys into worker (UMK-encrypted, Worker already has UMK)
+      const me = await authApi.me();
+      let identityPublicKeys: { signingPublic: Uint8Array; ecdhPublic: Uint8Array } | null = null;
+      if (me.keys) {
+        const pubKeys = await worker.importIdentityKeys({
+          encryptedEcdhPrivate: base64UrlDecode(me.keys.encrypted_ecdh_private),
+          ecdhPrivateNonce: base64UrlDecode(me.keys.encrypted_ecdh_private_nonce),
+          encryptedSigningPrivate: base64UrlDecode(me.keys.encrypted_signing_private),
+          signingPrivateNonce: base64UrlDecode(me.keys.encrypted_signing_private_nonce),
+        });
+        identityPublicKeys = {
+          signingPublic: pubKeys.identitySigningPublic!,
+          ecdhPublic: pubKeys.identityEcdhPublic!,
+        };
+      }
+
+      // Device is now fully initialized with UMK + identity keys
+      await worker.setInitialized();
+      setCryptoWorkerReady(true);
+
+      // Persist UMK
+      const { loadDsk: loadDskForUmk } = await import("@/shared/lib/crypto/dsk");
+      const umkDsk = await loadDskForUmk();
+      if (umkDsk) {
+        const wrappedUmk = await worker.wrapUmkWithDsk(auth.user.id);
+        await persistWrappedUmk({
+          wrappedUmk,
+          kmsi: !!me.remember_me,
+          userId: auth.user.id,
+        });
+      }
+      // No DSK: keys live in Worker memory for this session.
+      // PDK persistence is best-effort — do not block session finalization.
+
       setFullSession(
         {
           user: auth.user,
           sessionId: auth.sessionId,
-          umk,
-          identityKeys,
+          identitySigningPublic: identityPublicKeys?.signingPublic ?? null,
+          identityEcdhPublic: identityPublicKeys?.ecdhPublic ?? null,
           expiresAt: auth.expiresAt,
         },
         {
           deviceId,
-          deviceEcdhPrivate: keys.ecdhPrivate,
-          deviceSigningPrivate: keys.signingPrivate,
+          deviceSigningPublic: publicKeys.signingPublic,
+          deviceEcdhPublic: publicKeys.ecdhPublic,
         },
       );
 
       // Restore any workspace KEKs not distributed by the existing device (best-effort fallback)
-      if (identityKeys) {
+      if (identityPublicKeys) {
         try {
-          await restoreWorkspaceKeks(
-            auth.user.id,
-            deviceId,
-            umk,
-            identityKeys,
-            keys.ecdhPrivate,
-            keys.ecdhPublic,
-          );
+          await restoreWorkspaceKeks(auth.user.id, deviceId);
         } catch {
           // KEK restoration is best-effort
         }
       }
 
+      // PDK persistence for DSK-unavailable environments
+      if (!umkDsk) {
+        try {
+          const meForPdk = await authApi.me();
+          if (meForPdk.auth_type === "password") {
+            setPostApprovalPersistence(true);
+            setPhase("needs_password");
+            return;
+          }
+          // OAuth + no DSK: keys only in Worker memory for this session
+          setDskUnavailableOAuth(true);
+        } catch {
+          // Best effort
+        }
+      }
+
+      await worker.clearTransientKeys();
       setPhase("done");
       const pendingInvite = sessionStorage.getItem("refmd_invite_token");
       navigate(pendingInvite ? "/invite" : "/dashboard");
@@ -577,6 +721,16 @@ export default function DeviceRegisterPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <Show when={dskUnavailableOAuth()}>
+            <Alert class="mb-4">
+              <AlertTriangleIcon />
+              <AlertDescription>
+                Your browser does not support persistent key storage. Device keys will only be
+                available for this session. After closing the browser, you will need to re-approve
+                this device. Consider using password authentication for persistent access.
+              </AlertDescription>
+            </Alert>
+          </Show>
           <Switch>
             <Match when={phase() === "generating"}>
               <div class="flex flex-col items-center gap-4 py-8">
@@ -595,11 +749,11 @@ export default function DeviceRegisterPage() {
                   </p>
                 </div>
 
-                <Show when={identitySigningPublic() && deviceKeys() && clientNonce()}>
+                <Show when={identitySigningPublic() && devicePublicKeys() && clientNonce()}>
                   <SafetyNumber
                     identitySigningPublic={identitySigningPublic()!}
-                    deviceSigningPublic={deviceKeys()!.signingPublic}
-                    deviceEcdhPublic={deviceKeys()!.ecdhPublic}
+                    deviceSigningPublic={devicePublicKeys()!.signingPublic}
+                    deviceEcdhPublic={devicePublicKeys()!.ecdhPublic}
                     clientNonce={clientNonce()!}
                     class="py-4"
                   />
@@ -745,10 +899,11 @@ async function retryGetUmk(
   deviceId: string,
   maxAttempts: number,
   delayMs: number,
+  popDeviceId?: string,
 ): Promise<Awaited<ReturnType<typeof devicesApi.getUmk>>> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      return await devicesApi.getUmk(deviceId);
+      return await devicesApi.getUmk(deviceId, popDeviceId ? { popDeviceId } : undefined);
     } catch (err) {
       if (i === maxAttempts - 1) throw err;
       await new Promise((r) => setTimeout(r, delayMs));
@@ -757,11 +912,7 @@ async function retryGetUmk(
   throw new Error("UMK retrieval failed after retries");
 }
 
-async function retrieveAndImportTrustState(
-  userId: string,
-  deviceId: string,
-  deviceEcdhPrivate: Uint8Array,
-): Promise<void> {
+async function retrieveAndImportTrustState(userId: string, deviceId: string): Promise<void> {
   let state;
   try {
     state = await trustTransferApi.retrieveState(deviceId);
@@ -775,14 +926,16 @@ async function retrieveAndImportTrustState(
   const senderEcdhPublic = base64UrlDecode(state.sender_ecdh_public_key);
   const senderSigningPk = base64UrlDecode(state.sender_signing_public_key);
 
+  const worker = getCryptoWorker();
+
   // TOFU check: reject if sender keys have changed (indicates tampering).
   // first_seen is accepted because trust transfer is protected by AEAD + signature verification.
-  const senderTofuResult = await verifyTofu(
+  const senderTofuResult = await worker.tofuVerify({
     userId,
-    state.sender_device_id,
-    senderSigningPk,
-    senderEcdhPublic,
-  );
+    deviceId: state.sender_device_id,
+    signingPublicKey: senderSigningPk,
+    ecdhPublicKey: senderEcdhPublic,
+  });
 
   if (
     senderTofuResult.status === "identity_key_changed" ||
@@ -797,28 +950,30 @@ async function retrieveAndImportTrustState(
 
   const expectedNonce = base64UrlDecode(storedNonce);
 
-  // Decrypt and verify trust state (signature + AEAD + nonce verification)
-  // TOFU persistence is deferred until after cryptographic verification succeeds
-  const snapshot = decryptTrustState(
-    {
-      encryptedState: base64UrlDecode(state.ciphertext),
-      nonce: base64UrlDecode(state.nonce),
-      signature: base64UrlDecode(state.signature),
-    },
-    deviceEcdhPrivate,
-    senderEcdhPublic,
-    senderSigningPk,
-    expectedNonce,
-    {
-      userId,
-      senderDeviceId: state.sender_device_id,
-      targetDeviceId: deviceId,
-    },
-  );
+  // Decrypt, verify, and import trust state (Worker-internal: signature + AEAD + nonce + TOFU import)
+  // decryptTrustState MUST complete before TOFU persistence to prevent store poisoning
+  await worker.decryptTrustState({
+    senderDeviceEcdhPublic: senderEcdhPublic,
+    senderIdentitySigningPublic: senderSigningPk,
+    senderDeviceId: state.sender_device_id,
+    transferNonce: expectedNonce,
+    ciphertext: base64UrlDecode(state.ciphertext),
+    nonce: base64UrlDecode(state.nonce),
+    signature: base64UrlDecode(state.signature),
+  });
 
-  // Persist TOFU only after cryptographic verification succeeded
-  await handleTofuResult(senderTofuResult);
-  await importTofuEntries(snapshot.tofuEntries);
+  // Persist sender TOFU only after cryptographic verification succeeded
+  if (senderTofuResult.status === "first_seen") {
+    await worker.tofuTrustDevice({
+      userId,
+      deviceId: state.sender_device_id,
+      signingPublicKey: senderSigningPk,
+      ecdhPublicKey: senderEcdhPublic,
+    });
+  } else if (senderTofuResult.status === "known_trusted") {
+    await worker.tofuUpdateLastSeen({ userId, deviceId: state.sender_device_id });
+  }
+
   sessionStorage.removeItem(`refmd-transfer-nonce-${deviceId}`);
 }
 
@@ -834,28 +989,13 @@ class BackupDecryptError extends Error {
   }
 }
 
-async function restoreWorkspaceKeks(
-  userId: string,
-  deviceId: string,
-  umk: Uint8Array,
-  identityKeys: IdentityKeyPair,
-  deviceEcdhPrivate: Uint8Array,
-  deviceEcdhPublic: Uint8Array,
-): Promise<KekRestoreResults> {
+async function restoreWorkspaceKeks(userId: string, deviceId: string): Promise<KekRestoreResults> {
   const result: KekRestoreResults = { needsDistribution: [], backupDecryptFailed: false };
   const { workspace_ids } = await encryptionApi.getWorkspaceIds();
 
   for (const workspaceId of workspace_ids) {
     try {
-      const status = await restoreKekForWorkspace(
-        workspaceId,
-        userId,
-        deviceId,
-        umk,
-        identityKeys,
-        deviceEcdhPrivate,
-        deviceEcdhPublic,
-      );
+      const status = await restoreKekForWorkspace(workspaceId, userId, deviceId);
       if (status === "needs_distribution") {
         result.needsDistribution.push(workspaceId);
       }
@@ -874,11 +1014,9 @@ async function restoreKekForWorkspace(
   workspaceId: string,
   userId: string,
   deviceId: string,
-  umk: Uint8Array,
-  identityKeys: IdentityKeyPair,
-  deviceEcdhPrivate: Uint8Array,
-  deviceEcdhPublic: Uint8Array,
 ): Promise<"restored" | "needs_distribution"> {
+  const worker = getCryptoWorker();
+
   let currentKekVersion = 0;
   try {
     const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
@@ -902,51 +1040,68 @@ async function restoreKekForWorkspace(
     const senderEcdhPk = base64UrlDecode(memberEnvelope.sender_ecdh_public_key);
     const senderSigningPk = base64UrlDecode(memberEnvelope.sender_signing_public_key);
 
-    const tofuResult = await verifyTofu(
-      memberEnvelope.sender_user_id,
-      memberEnvelope.sender_device_id,
-      senderSigningPk,
-      senderEcdhPk,
-    );
+    const tofuResult = await worker.tofuVerify({
+      userId: memberEnvelope.sender_user_id,
+      deviceId: memberEnvelope.sender_device_id,
+      signingPublicKey: senderSigningPk,
+      ecdhPublicKey: senderEcdhPk,
+    });
     if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
       throw new Error("Key verification failed for member envelope sender. Aborting KEK recovery.");
     }
-    await handleTofuResult(tofuResult);
+    if (tofuResult.status === "first_seen") {
+      await worker.tofuTrustDevice({
+        userId: memberEnvelope.sender_user_id,
+        deviceId: memberEnvelope.sender_device_id,
+        signingPublicKey: senderSigningPk,
+        ecdhPublicKey: senderEcdhPk,
+      });
+    } else if (tofuResult.status === "known_trusted") {
+      await worker.tofuUpdateLastSeen({
+        userId: memberEnvelope.sender_user_id,
+        deviceId: memberEnvelope.sender_device_id,
+      });
+    }
 
-    const kek = decryptKekFromMemberEnvelope(
-      base64UrlDecode(memberEnvelope.encrypted_kek),
-      base64UrlDecode(memberEnvelope.nonce),
-      identityKeys.ecdhPrivate,
-      senderEcdhPk,
+    // Decrypt KEK from member envelope (worker uses identity ECDH private internally)
+    await worker.decryptKekFromMemberEnvelope({
+      encryptedKek: base64UrlDecode(memberEnvelope.encrypted_kek),
+      nonce: base64UrlDecode(memberEnvelope.nonce),
+      senderIdentityEcdhPublic: senderEcdhPk,
+      workspaceId,
+      targetUserId: userId,
+      keyVersion: memberEnvelope.key_version,
+      senderDeviceId: memberEnvelope.sender_device_id,
+    });
+
+    // Re-encrypt KEK for device envelope (worker uses device ECDH private internally)
+    const pubKeys = await worker.getPublicKeys();
+    const deviceEnvelope = await worker.encryptKekForDevice({
       workspaceId,
       userId,
-      memberEnvelope.key_version,
-      memberEnvelope.sender_device_id,
-    );
-
-    const deviceEnvelope = encryptKekForDevice(
-      kek,
-      deviceEcdhPrivate,
-      deviceEcdhPublic,
-      workspaceId,
-      userId,
-      deviceId,
-      deviceId,
-      memberEnvelope.key_version,
-    );
+      senderDeviceId: deviceId,
+      targetDeviceId: deviceId,
+      targetDeviceEcdhPublic: pubKeys.deviceEcdhPublic,
+      keyVersion: memberEnvelope.key_version,
+    });
 
     await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
       key_version: memberEnvelope.key_version,
       device_id: deviceId,
       sender_device_id: deviceId,
-      encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
+      encrypted_kek: base64UrlEncode(deviceEnvelope.encrypted),
       nonce: base64UrlEncode(deviceEnvelope.nonce),
     });
 
-    const backup = wrapKekWithUmk(kek, umk, workspaceId, userId, memberEnvelope.key_version);
+    // UMK backup
+    const backup = await worker.wrapKekWithUmk({
+      workspaceId,
+      userId,
+      keyVersion: memberEnvelope.key_version,
+    });
     await encryptionApi.createKekBackupWithPop(workspaceId, {
       key_version: memberEnvelope.key_version,
-      encrypted_kek: base64UrlEncode(backup.encryptedKek),
+      encrypted_kek: base64UrlEncode(backup.encrypted),
       nonce: base64UrlEncode(backup.nonce),
     });
 
@@ -962,36 +1117,33 @@ async function restoreKekForWorkspace(
 
   if (backupData) {
     // If backup exists but UMK decrypt fails, surface the error
-    let kek: Uint8Array;
     try {
-      kek = unwrapKekFromBackup(
-        base64UrlDecode(backupData.encrypted_kek),
-        base64UrlDecode(backupData.nonce),
-        umk,
+      await worker.unwrapKekFromBackup({
+        encryptedKek: base64UrlDecode(backupData.encrypted_kek),
+        nonce: base64UrlDecode(backupData.nonce),
         workspaceId,
         userId,
-        backupData.key_version,
-      );
+        keyVersion: backupData.key_version,
+      });
     } catch {
       throw new BackupDecryptError(workspaceId);
     }
 
-    const deviceEnvelope = encryptKekForDevice(
-      kek,
-      deviceEcdhPrivate,
-      deviceEcdhPublic,
+    const pubKeys = await worker.getPublicKeys();
+    const deviceEnvelope = await worker.encryptKekForDevice({
       workspaceId,
       userId,
-      deviceId,
-      deviceId,
-      backupData.key_version,
-    );
+      senderDeviceId: deviceId,
+      targetDeviceId: deviceId,
+      targetDeviceEcdhPublic: pubKeys.deviceEcdhPublic,
+      keyVersion: backupData.key_version,
+    });
 
     await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
       key_version: backupData.key_version,
       device_id: deviceId,
       sender_device_id: deviceId,
-      encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
+      encrypted_kek: base64UrlEncode(deviceEnvelope.encrypted),
       nonce: base64UrlEncode(deviceEnvelope.nonce),
     });
 
@@ -1002,33 +1154,37 @@ async function restoreKekForWorkspace(
   if (currentKekVersion > 0) return "needs_distribution";
 
   // Fresh workspace: generate new KEK (only succeeds for key_version 1, first creator)
-  const freshKek = generateKek();
-  const freshEnvelope = encryptKekForDevice(
-    freshKek,
-    deviceEcdhPrivate,
-    deviceEcdhPublic,
+  await worker.generateKek(workspaceId);
+
+  const pubKeys = await worker.getPublicKeys();
+  const freshEnvelope = await worker.encryptKekForDevice({
     workspaceId,
     userId,
-    deviceId,
-    deviceId,
-    1,
-  );
+    senderDeviceId: deviceId,
+    targetDeviceId: deviceId,
+    targetDeviceEcdhPublic: pubKeys.deviceEcdhPublic,
+    keyVersion: 1,
+  });
 
-  const freshBackup = wrapKekWithUmk(freshKek, umk, workspaceId, userId, 1);
+  const freshBackup = await worker.wrapKekWithUmk({
+    workspaceId,
+    userId,
+    keyVersion: 1,
+  });
 
   try {
     await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
       key_version: 1,
       device_id: deviceId,
       sender_device_id: deviceId,
-      encrypted_kek: base64UrlEncode(freshEnvelope.ciphertext),
+      encrypted_kek: base64UrlEncode(freshEnvelope.encrypted),
       nonce: base64UrlEncode(freshEnvelope.nonce),
       is_active: true,
     });
 
     await encryptionApi.createKekBackupWithPop(workspaceId, {
       key_version: 1,
-      encrypted_kek: base64UrlEncode(freshBackup.encryptedKek),
+      encrypted_kek: base64UrlEncode(freshBackup.encrypted),
       nonce: base64UrlEncode(freshBackup.nonce),
     });
 

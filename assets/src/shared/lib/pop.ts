@@ -1,11 +1,6 @@
-import { authApi } from "@/shared/api";
-import {
-  base64UrlEncode,
-  sign,
-  buildSignatureMessage,
-  SIGNATURE_ACTION,
-} from "@/shared/lib/crypto";
-import { deviceState } from "@/shared/lib/auth-state";
+import { authApi } from "@/shared/api/auth";
+import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 export interface PopHeaders {
   "X-PoP-Device-Id": string;
@@ -13,28 +8,14 @@ export interface PopHeaders {
   "X-PoP-Signature": string;
 }
 
-export interface ExplicitDeviceKeys {
-  deviceId: string;
-  deviceSigningPrivate: Uint8Array;
-}
+export async function getPopHeaders(deviceIdOverride?: string): Promise<PopHeaders> {
+  const worker = getCryptoWorker();
 
-export async function getPopHeaders(explicitDevice?: ExplicitDeviceKeys): Promise<PopHeaders> {
-  const deviceId = explicitDevice?.deviceId ?? deviceState()?.deviceId;
-  const signingPrivate =
-    explicitDevice?.deviceSigningPrivate ?? deviceState()?.deviceSigningPrivate;
-
-  if (!deviceId || !signingPrivate) {
-    throw new Error("Device not available for PoP");
-  }
+  const deviceId = deviceIdOverride ?? (await worker.getDeviceId());
 
   const { challenge } = await authApi.popChallenge(deviceId);
 
-  const message = buildSignatureMessage(SIGNATURE_ACTION.POP_CHALLENGE, {
-    challenge: challenge,
-    device_id: deviceId,
-  });
-
-  const signature = sign(message, signingPrivate);
+  const { signature } = await worker.signPop({ challenge, deviceId });
 
   return {
     "X-PoP-Device-Id": deviceId,
