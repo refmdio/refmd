@@ -117,14 +117,22 @@ defmodule RefMD.Encryption do
   end
 
   @spec get_workspace_member_identity_keys(Ecto.UUID.t()) :: [
-          %{user_id: Ecto.UUID.t(), ecdh_public_key: binary()}
+          %{
+            user_id: Ecto.UUID.t(),
+            ecdh_public_key: binary(),
+            signing_public_key: binary()
+          }
         ]
   def get_workspace_member_identity_keys(workspace_id) do
     from(wm in RefMD.Workspaces.WorkspaceMember,
       join: ipk in UserIdentityPublicKey,
       on: ipk.user_id == wm.user_id,
       where: wm.workspace_id == ^workspace_id,
-      select: %{user_id: wm.user_id, ecdh_public_key: ipk.ecdh_public_key}
+      select: %{
+        user_id: wm.user_id,
+        ecdh_public_key: ipk.ecdh_public_key,
+        signing_public_key: ipk.signing_public_key
+      }
     )
     |> Repo.all()
   end

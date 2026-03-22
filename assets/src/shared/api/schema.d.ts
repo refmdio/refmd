@@ -359,7 +359,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List a member's active devices */
+        /** List a member's devices */
         get: operations["RefMDWeb.MemberController.devices"];
         put?: never;
         post?: never;
@@ -1203,6 +1203,7 @@ export interface components {
         WorkspaceMemberKeysResponse: {
             members: {
                 ecdh_public_key: string;
+                signing_public_key: string;
                 /** Format: uuid */
                 user_id: string;
             }[];
@@ -1340,12 +1341,15 @@ export interface components {
         };
         /** MemberDeviceInfo */
         MemberDeviceInfo: {
+            client_nonce: string;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
             device_id: string;
             ecdh_public_key: string;
             identity_signature: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
             signing_public_key: string;
         };
         /** KekBackupResponse */
@@ -2809,7 +2813,9 @@ export interface operations {
     };
     "RefMDWeb.MemberController.devices": {
         parameters: {
-            query?: never;
+            query?: {
+                include_revoked?: boolean;
+            };
             header?: never;
             path: {
                 workspace_id: string;

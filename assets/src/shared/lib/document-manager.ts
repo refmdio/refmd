@@ -14,6 +14,7 @@ export interface DocumentContent {
   id: string;
   title: string;
   text: string;
+  release: () => void;
 }
 
 export interface DocumentInfo {
@@ -113,9 +114,47 @@ export class DocumentManagerImpl extends Events {
     if (!doc) return null;
 
     const title = this.getTitleFn?.({ id }) ?? doc.title;
+
+    const { acquireDocumentState, getDocumentState, releaseDocumentState } =
+      await import("@/features/editor/lib/document-state-cache");
+
+    // Cache hit: acquire ref-count and return with release handle
     const text = this.getDocTextFn?.(id);
-    if (text == null) return null;
-    return { id, title, text };
+    if (text != null) {
+      const cached = getDocumentState(id);
+      if (cached) cached.refCount++;
+      return { id, title, text, release: () => releaseDocumentState(id) };
+    }
+
+    // Cache miss: open via document-state-cache
+    const { initializeDocumentSync } = await import("@/features/editor/lib/document-sync");
+
+    try {
+      await acquireDocumentState(id, wsId);
+    } catch {
+      return null;
+    }
+    const state = getDocumentState(id);
+    if (!state) return null;
+
+    try {
+      if (!state.initialized && !state.initPromise) {
+        state.initPromise = initializeDocumentSync(id, wsId, state);
+      }
+      if (state.initPromise) {
+        await state.initPromise;
+      }
+    } catch {
+      releaseDocumentState(id);
+      return null;
+    }
+
+    if (!state.initialized) {
+      releaseDocumentState(id);
+      return null;
+    }
+    const loadedText = state.yDoc.getText("content").toString();
+    return { id, title, text: loadedText, release: () => releaseDocumentState(id) };
   }
 
   getDocumentList(): DocumentInfo[] {

@@ -44,6 +44,8 @@ defmodule RefMDWeb.Schemas.MemberDeviceInfo do
       signing_public_key: %Schema{type: :string},
       ecdh_public_key: %Schema{type: :string},
       identity_signature: %Schema{type: :string},
+      client_nonce: %Schema{type: :string},
+      revoked_at: %Schema{type: :string, format: :"date-time", nullable: true},
       created_at: %Schema{type: :string, format: :"date-time"}
     },
     required: [
@@ -51,6 +53,7 @@ defmodule RefMDWeb.Schemas.MemberDeviceInfo do
       :signing_public_key,
       :ecdh_public_key,
       :identity_signature,
+      :client_nonce,
       :created_at
     ]
   })

@@ -52,10 +52,11 @@ defmodule RefMDWeb.MemberController do
   # ── GET /api/workspaces/:workspace_id/members/:user_id/devices
 
   operation(:devices,
-    summary: "List a member's active devices",
+    summary: "List a member's devices",
     parameters: [
       workspace_id: [in: :path, type: :string, required: true],
-      user_id: [in: :path, type: :string, required: true]
+      user_id: [in: :path, type: :string, required: true],
+      include_revoked: [in: :query, type: :boolean, required: false]
     ],
     responses: [
       ok: {"Member devices", "application/json", Schemas.MemberDevicesResponse},
@@ -64,11 +65,13 @@ defmodule RefMDWeb.MemberController do
   )
 
   @spec devices(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def devices(conn, %{"user_id" => target_user_id}) do
+  def devices(conn, params) do
+    target_user_id = params["user_id"]
     workspace_id = conn.assigns.workspace_id
+    include_revoked = params["include_revoked"] == "true"
 
     if Workspaces.get_workspace_member(workspace_id, target_user_id) do
-      devices = Devices.get_user_devices(target_user_id)
+      devices = Devices.get_user_devices(target_user_id, include_revoked: include_revoked)
 
       json(conn, %{
         devices:
@@ -78,6 +81,8 @@ defmodule RefMDWeb.MemberController do
               signing_public_key: Base.url_encode64(d.signing_public_key, padding: false),
               ecdh_public_key: Base.url_encode64(d.ecdh_public_key, padding: false),
               identity_signature: Base.url_encode64(d.identity_signature, padding: false),
+              client_nonce: Base.url_encode64(d.client_nonce, padding: false),
+              revoked_at: d.revoked_at,
               created_at: d.created_at
             }
           end)
@@ -182,7 +187,8 @@ defmodule RefMDWeb.MemberController do
         Enum.map(members, fn m ->
           %{
             user_id: m.user_id,
-            ecdh_public_key: Base.url_encode64(m.ecdh_public_key, padding: false)
+            ecdh_public_key: Base.url_encode64(m.ecdh_public_key, padding: false),
+            signing_public_key: Base.url_encode64(m.signing_public_key, padding: false)
           }
         end)
     })

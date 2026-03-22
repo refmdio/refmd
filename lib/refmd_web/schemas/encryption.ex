@@ -126,9 +126,10 @@ defmodule RefMDWeb.Schemas.WorkspaceMemberKeysResponse do
           type: :object,
           properties: %{
             user_id: %Schema{type: :string, format: :uuid},
-            ecdh_public_key: %Schema{type: :string}
+            ecdh_public_key: %Schema{type: :string},
+            signing_public_key: %Schema{type: :string}
           },
-          required: [:user_id, :ecdh_public_key]
+          required: [:user_id, :ecdh_public_key, :signing_public_key]
         }
       }
     },

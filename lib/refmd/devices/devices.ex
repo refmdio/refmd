@@ -76,12 +76,17 @@ defmodule RefMD.Devices do
     |> Repo.one()
   end
 
-  @spec get_user_devices(Ecto.UUID.t()) :: [Device.t()]
-  def get_user_devices(user_id) do
-    from(d in Device,
-      where: d.user_id == ^user_id and is_nil(d.revoked_at),
-      order_by: [desc: :created_at]
-    )
+  @spec get_user_devices(Ecto.UUID.t(), keyword()) :: [Device.t()]
+  def get_user_devices(user_id, opts \\ []) do
+    include_revoked = Keyword.get(opts, :include_revoked, false)
+
+    base = from(d in Device, where: d.user_id == ^user_id, order_by: [desc: :created_at])
+
+    if include_revoked do
+      base
+    else
+      from(d in base, where: is_nil(d.revoked_at))
+    end
     |> Repo.all()
   end
 

@@ -12,6 +12,13 @@ export {
   setOnEditorRegistered,
 } from "./lib/editor-api";
 export { getDocText } from "./lib/ydoc-cache";
+export {
+  acquireDocumentState,
+  releaseDocumentState,
+  getDocumentState,
+  getDocumentError,
+} from "./lib/document-state-cache";
+export { initializeDocumentSync } from "./lib/document-sync";
 export type {
   EditorLike,
   EditorPosition,

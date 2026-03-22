@@ -142,6 +142,16 @@ export const workspacesApi = {
       }),
     ),
 
+  listMemberDevices: async (workspaceId: string, userId: string, includeRevoked = false) =>
+    throwIfError(
+      await client.GET("/api/workspaces/{workspace_id}/members/{user_id}/devices", {
+        params: {
+          path: { workspace_id: workspaceId, user_id: userId },
+          query: includeRevoked ? { include_revoked: true } : {},
+        },
+      }),
+    ),
+
   acceptInvitation: async (token: string) =>
     throwIfError(
       await client.POST("/api/workspaces/invitations/accept", {

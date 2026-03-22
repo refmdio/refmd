@@ -937,6 +937,9 @@
                 "ecdh_public_key": {
                   "type": "string"
                 },
+                "signing_public_key": {
+                  "type": "string"
+                },
                 "user_id": {
                   "format": "uuid",
                   "type": "string"
@@ -944,7 +947,8 @@
               },
               "required": [
                 "user_id",
-                "ecdh_public_key"
+                "ecdh_public_key",
+                "signing_public_key"
               ],
               "type": "object"
             },
@@ -1373,6 +1377,9 @@
       },
       "MemberDeviceInfo": {
         "properties": {
+          "client_nonce": {
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1387,6 +1394,11 @@
           "identity_signature": {
             "type": "string"
           },
+          "revoked_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "signing_public_key": {
             "type": "string"
           }
@@ -1396,6 +1408,7 @@
           "signing_public_key",
           "ecdh_public_key",
           "identity_signature",
+          "client_nonce",
           "created_at"
         ],
         "title": "MemberDeviceInfo",
@@ -3828,6 +3841,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "include_revoked",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -3852,7 +3874,7 @@
             "description": "Not found"
           }
         },
-        "summary": "List a member's active devices",
+        "summary": "List a member's devices",
         "tags": []
       }
     },
