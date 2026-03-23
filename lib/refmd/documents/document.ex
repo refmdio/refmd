@@ -105,10 +105,19 @@ defmodule RefMD.Documents.Document do
   end
 
   defp validate_change_present(changeset, field) do
-    if get_change(changeset, field) do
-      changeset
-    else
-      add_error(changeset, field, "must be provided when encrypted_title is updated")
+    case fetch_change(changeset, field) do
+      {:ok, _value} ->
+        changeset
+
+      :error ->
+        # Field was not in the changeset params at all.
+        # If the field already has the correct value in the data, accept it
+        # (e.g. re-encrypting title with same key_version).
+        if get_field(changeset, field) do
+          changeset
+        else
+          add_error(changeset, field, "must be provided when encrypted_title is updated")
+        end
     end
   end
 
