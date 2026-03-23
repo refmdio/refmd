@@ -175,8 +175,8 @@ defmodule RefMD.Encryption do
       where:
         k.workspace_id == ^workspace_id and
           k.user_id == ^user_id and
-          k.device_id == ^device_id and
-          k.is_active == true
+          k.device_id == ^device_id,
+      order_by: [asc: k.key_version]
     )
     |> Repo.all()
   end
@@ -228,6 +228,18 @@ defmodule RefMD.Encryption do
         b.workspace_id == ^workspace_id and
           b.user_id == ^user_id and
           b.is_active == true
+    )
+    |> Repo.one()
+  end
+
+  @spec get_kek_backup_by_version(Ecto.UUID.t(), Ecto.UUID.t(), integer()) ::
+          WorkspaceKekBackup.t() | nil
+  def get_kek_backup_by_version(workspace_id, user_id, key_version) do
+    from(b in WorkspaceKekBackup,
+      where:
+        b.workspace_id == ^workspace_id and
+          b.user_id == ^user_id and
+          b.key_version == ^key_version
     )
     |> Repo.one()
   end
@@ -400,8 +412,27 @@ defmodule RefMD.Encryption do
     Repo.transaction(fn ->
       document = lock_and_validate_document!(document_id, key_version)
       validate_kek_version!(document.workspace_id, kek_version)
+      validate_consecutive_key_version!(document_id, key_version)
       insert_dek_with_rotation!(document, attrs, key_version)
     end)
+  end
+
+  defp validate_consecutive_key_version!(document_id, key_version) do
+    max_version =
+      from(k in DocumentEncryptedKey,
+        where: k.document_id == ^document_id,
+        select: max(k.key_version)
+      )
+      |> Repo.one()
+
+    expected = (max_version || 0) + 1
+
+    cond do
+      key_version == expected -> :ok
+      # Version already exists: let unique constraint produce 409 Conflict
+      key_version <= (max_version || 0) -> :ok
+      true -> Repo.rollback(:key_version_not_consecutive)
+    end
   end
 
   defp lock_and_validate_document!(document_id, key_version) do
@@ -436,8 +467,6 @@ defmodule RefMD.Encryption do
     insert_attrs =
       attrs
       |> Map.put(:is_active, true)
-      |> Map.delete(:kek_version)
-      |> Map.delete("kek_version")
 
     from(k in DocumentEncryptedKey,
       where: k.document_id == ^document.id and k.is_active == true
@@ -455,7 +484,11 @@ defmodule RefMD.Encryption do
   end
 
   defp update_document_after_dek_save(document, key_version) do
+    is_rotation = key_version > 1
     updates = [min_dek_version: key_version]
+
+    updates =
+      if is_rotation, do: Keyword.put(updates, :needs_rotation_snapshot, true), else: updates
 
     updates =
       if document.needs_dek_rotation do

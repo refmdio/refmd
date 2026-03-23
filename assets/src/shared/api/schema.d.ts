@@ -74,6 +74,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/ws-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a short-lived WebSocket authentication token */
+        post: operations["RefMDWeb.AuthController.ws_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/registrations/{id}/approve": {
         parameters: {
             query?: never;
@@ -410,7 +427,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get active KEK backup */
+        /** Get KEK backup (active or by version) */
         get: operations["RefMDWeb.EncryptionController.get_kek_backup"];
         put?: never;
         /** Create a KEK backup */
@@ -985,6 +1002,7 @@ export interface components {
         /** WorkspaceKeyItem */
         WorkspaceKeyItem: {
             encrypted_kek: string;
+            is_active: boolean;
             key_version: number;
             nonce: string;
             /** Format: uuid */
@@ -1120,6 +1138,10 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /** WsTokenResponse */
+        WsTokenResponse: {
+            token: string;
+        };
         /** MemberInfo */
         MemberInfo: {
             /** @enum {string} */
@@ -1188,6 +1210,7 @@ export interface components {
             is_encrypted: boolean;
             min_dek_version: number;
             needs_dek_rotation: boolean;
+            needs_rotation_snapshot?: boolean;
             /** Format: uuid */
             parent_id?: string | null;
             path?: string | null;
@@ -1601,6 +1624,7 @@ export interface components {
             document_id: string;
             encrypted_dek: string;
             is_active: boolean;
+            kek_version: number;
             key_version: number;
             nonce: string;
         };
@@ -1898,6 +1922,35 @@ export interface operations {
             };
             /** @description Update failed */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.ws_token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WS token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WsTokenResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2910,7 +2963,9 @@ export interface operations {
     };
     "RefMDWeb.EncryptionController.get_kek_backup": {
         parameters: {
-            query?: never;
+            query?: {
+                key_version?: number;
+            };
             header?: never;
             path: {
                 workspace_id: string;

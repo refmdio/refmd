@@ -324,6 +324,22 @@ defmodule RefMDWeb.AuthController do
   )
 
   @spec pop_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:ws_token,
+    summary: "Generate a short-lived WebSocket authentication token",
+    responses: [
+      ok: {"WS token", "application/json", Schemas.WsTokenResponse},
+      unauthorized: {"Unauthorized", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec ws_token(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def ws_token(conn, _params) do
+    session = conn.assigns.current_session
+    token = Auth.generate_ws_token(session.id)
+    json(conn, %{token: token})
+  end
+
+  @spec pop_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def pop_challenge(conn, _params) do
     user_id = conn.assigns.current_user_id
     device_id = get_req_header(conn, "x-pop-device-id") |> List.first()

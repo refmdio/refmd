@@ -241,6 +241,9 @@
           "encrypted_kek": {
             "type": "string"
           },
+          "is_active": {
+            "type": "boolean"
+          },
           "key_version": {
             "type": "integer"
           },
@@ -264,6 +267,7 @@
           "key_version",
           "encrypted_kek",
           "nonce",
+          "is_active",
           "sender_device_id"
         ],
         "title": "WorkspaceKeyItem",
@@ -678,6 +682,18 @@
         "title": "MeResponse",
         "type": "object"
       },
+      "WsTokenResponse": {
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "WsTokenResponse",
+        "type": "object"
+      },
       "MemberInfo": {
         "properties": {
           "base_role": {
@@ -884,6 +900,9 @@
             "type": "integer"
           },
           "needs_dek_rotation": {
+            "type": "boolean"
+          },
+          "needs_rotation_snapshot": {
             "type": "boolean"
           },
           "parent_id": {
@@ -2174,6 +2193,9 @@
           "is_active": {
             "type": "boolean"
           },
+          "kek_version": {
+            "type": "integer"
+          },
           "key_version": {
             "type": "integer"
           },
@@ -2186,6 +2208,7 @@
           "key_version",
           "encrypted_dek",
           "nonce",
+          "kek_version",
           "is_active",
           "created_at"
         ],
@@ -2685,6 +2708,37 @@
           }
         },
         "summary": "Regenerate recovery key (PoP required)",
+        "tags": []
+      }
+    },
+    "/api/auth/ws-token": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.ws_token",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WsTokenResponse"
+                }
+              }
+            },
+            "description": "WS token"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Generate a short-lived WebSocket authentication token",
         "tags": []
       }
     },
@@ -3964,6 +4018,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "key_version",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -3998,7 +4061,7 @@
             "description": "Not found"
           }
         },
-        "summary": "Get active KEK backup",
+        "summary": "Get KEK backup (active or by version)",
         "tags": []
       },
       "post": {

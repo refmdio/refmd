@@ -2,7 +2,7 @@ import { documentsApi, encryptionApi } from "@/shared/api";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { cryptoWorkerReady } from "@/shared/lib/auth-state";
-import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
+import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import { injectDecryptedTitle } from "@/entities/document";
 import type { DocumentResponse } from "@/entities/document";
 
@@ -28,12 +28,17 @@ export async function renameDocument(
   if (!activeKey) throw new Error("No active DEK found");
   const keyVersion = activeKey.key_version;
 
+  if (activeKey.kek_version) {
+    await resolveKekByVersion(workspaceId, activeKey.kek_version);
+  }
   await worker.unwrapDek({
     encryptedDek: base64UrlDecode(activeKey.encrypted_dek),
     nonce: base64UrlDecode(activeKey.nonce),
     documentId: doc.id,
     workspaceId,
     keyVersion,
+    isActive: true,
+    kekVersion: activeKey.kek_version,
   });
 
   const { encrypted, nonce } = await worker.encryptTitle({

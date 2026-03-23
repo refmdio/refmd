@@ -65,6 +65,7 @@ defmodule RefMDWeb.Router do
     post "/auth/logout", AuthController, :logout
     post "/auth/verify-key", AuthController, :verify_key
     post "/auth/pop-challenge", AuthController, :pop_challenge
+    post "/auth/ws-token", AuthController, :ws_token
     post "/auth/kdf-migration", AuthController, :kdf_migration
     get "/auth/recovery", AuthController, :get_recovery
     post "/auth/password-set", AuthController, :password_set

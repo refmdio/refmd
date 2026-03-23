@@ -55,7 +55,6 @@ defmodule RefMD.Documents.DocumentSnapshot do
       :ciphertext_hash,
       :clocks,
       :parent_snapshot_update_clocks,
-      :parent_snapshot_proof,
       :created_by_device
     ])
   end

@@ -102,4 +102,7 @@ export const authApi = {
     (err as any).retryAfter = lastRetryAfter;
     throw err;
   },
+
+  wsToken: async (): Promise<{ token: string }> =>
+    throwIfError(await client.POST("/api/auth/ws-token")),
 };

@@ -7,10 +7,12 @@ import type { DocumentState } from "./document-state-cache";
 
 const THROTTLE_MS = 25;
 const SNAPSHOT_UPDATE_THRESHOLD = 100;
+const SNAPSHOT_RETRY_DELAY_MS = 5_000;
 
 export interface AutoSyncHandle {
   dispose: () => void;
   notifyLocalEdit: () => void;
+  flush: () => void;
 }
 
 export function startAutoSync(documentId: string, state: DocumentState): AutoSyncHandle {
@@ -41,6 +43,12 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
   };
   state.yDoc.on("update", observer);
 
+  // If DEK rotation was completed during init, trigger immediate snapshot
+  if (state.pendingRotationSnapshot) {
+    dirty = true;
+    scheduleSend();
+  }
+
   return {
     dispose() {
       disposed = true;
@@ -52,6 +60,9 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
     },
     notifyLocalEdit() {
       dirty = true;
+      scheduleSend();
+    },
+    flush() {
       scheduleSend();
     },
   };
@@ -84,7 +95,8 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
     }
 
     // Check if we should create a snapshot first
-    if (state.snapshotUpdatesCount >= SNAPSHOT_UPDATE_THRESHOLD) {
+    // Triggers: update count threshold OR pending DEK rotation
+    if (state.snapshotUpdatesCount >= SNAPSHOT_UPDATE_THRESHOLD || state.pendingRotationSnapshot) {
       await createAndSendSnapshot(documentId, state);
       return;
     }
@@ -167,11 +179,15 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
         signature: base64UrlEncode(signature),
         publicData,
       },
-      () => {
-        state.sending = false;
-        state.pendingUpdateBytes = null;
-        state.localClock = state.preSendLocalClock;
-        if (state.autoSync) state.autoSync.notifyLocalEdit();
+      (resp: unknown) => {
+        // Only reset on actual server error (not timeout — timeout fires
+        // even on success because server uses {:noreply} + separate event)
+        if (resp !== "timeout" && state.pendingUpdateBytes) {
+          state.sending = false;
+          state.pendingUpdateBytes = null;
+          state.localClock = state.preSendLocalClock;
+          if (state.autoSync) state.autoSync.notifyLocalEdit();
+        }
       },
     );
 
@@ -247,7 +263,9 @@ async function createAndSendGenesisSnapshot(
     knownClocksAtSend: { ...state.knownClocks },
   };
 
-  // Send
+  // Send (reject callback only fires on server error, not timeout;
+  // timeout always fires with {:noreply} but snapshot-saved/snapshot-save-failed
+  // events are the authoritative confirmation)
   pushSnapshot(
     documentId,
     {
@@ -256,10 +274,15 @@ async function createAndSendGenesisSnapshot(
       signature: base64UrlEncode(signature),
       publicData,
     },
-    () => {
+    (resp: unknown) => {
+      if (resp === "timeout") return;
       state.pendingSnapshot = null;
       state.sending = false;
-      if (state.autoSync) state.autoSync.notifyLocalEdit();
+      if (isPermanentPushFailure(resp)) {
+        state.pendingRotationSnapshot = false;
+      } else {
+        scheduleSnapshotRetryIfNeeded(state);
+      }
     },
   );
 }
@@ -330,7 +353,7 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
     knownClocksAtSend: { ...state.knownClocks },
   };
 
-  // Send
+  // Send (same pattern: ignore timeout, only handle server error)
   pushSnapshot(
     documentId,
     {
@@ -339,10 +362,34 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
       signature: base64UrlEncode(signature),
       publicData,
     },
-    () => {
+    (resp: unknown) => {
+      if (resp === "timeout") return;
       state.pendingSnapshot = null;
       state.sending = false;
-      if (state.autoSync) state.autoSync.notifyLocalEdit();
+      if (isPermanentPushFailure(resp)) {
+        state.pendingRotationSnapshot = false;
+      } else {
+        scheduleSnapshotRetryIfNeeded(state);
+      }
     },
   );
+}
+
+// ── Snapshot push failure handling ───────────────────────────
+
+const PERMANENT_PUSH_ERRORS = new Set(["permission_denied", "device_revoked", "document_archived"]);
+
+function isPermanentPushFailure(resp: unknown): boolean {
+  if (typeof resp === "object" && resp !== null && "reason" in resp) {
+    return PERMANENT_PUSH_ERRORS.has((resp as { reason: string }).reason);
+  }
+  return false;
+}
+
+function scheduleSnapshotRetryIfNeeded(state: DocumentState): void {
+  setTimeout(() => {
+    if (state.autoSync && !state.sending) {
+      state.autoSync.notifyLocalEdit();
+    }
+  }, SNAPSHOT_RETRY_DELAY_MS);
 }

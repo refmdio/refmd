@@ -21,6 +21,7 @@ defmodule RefMD.Documents.Document do
     field :doc_type, :string, default: "document"
     field :is_encrypted, :boolean, default: true
     field :needs_dek_rotation, :boolean, default: false
+    field :needs_rotation_snapshot, :boolean, default: false
     field :min_dek_version, :integer, default: 1
     field :archived_at, :utc_datetime_usec
 

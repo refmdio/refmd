@@ -49,7 +49,9 @@ export type CryptoRequestType =
   | "decrypt-snapshot"
   | "has-dek"
   | "cache-dek"
+  | "evict-dek"
   // KEK operations
+  | "set-active-kek-version"
   | "resolve-kek"
   | "encrypt-kek-for-device"
   | "decrypt-kek-from-device-envelope"

@@ -1,6 +1,9 @@
 import * as Y from "yjs";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
+import { encryptionApi } from "@/shared/api/encryption";
+import { documentsApi } from "@/shared/api/documents";
 import { deviceState } from "@/shared/lib/auth-state";
 import { resolveSigningKey } from "./document-verification";
 import type { DocumentState } from "./document-state-cache";
@@ -155,6 +158,7 @@ export async function handleDocumentMessage(
     }
 
     // Step 3d: AEAD decryption
+    await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion);
     decryptedSnapshot = await worker.decryptSnapshot({
       ciphertext: base64UrlDecode(snap.ciphertext),
       nonce: base64UrlDecode(snap.nonce),
@@ -234,6 +238,17 @@ export async function handleDocumentMessage(
 
   state.snapshotUpdatesCount = payload.updates.length;
   state.latestVersion = effectiveVersion;
+
+  // Advance keyVersion to the highest version seen in initial data
+  if (payload.snapshot && payload.snapshot.publicData.keyVersion > state.keyVersion) {
+    state.keyVersion = payload.snapshot.publicData.keyVersion;
+  }
+  for (const update of payload.updates) {
+    if (update.publicData.keyVersion > state.keyVersion) {
+      state.keyVersion = update.publicData.keyVersion;
+    }
+  }
+
   state.initialized = true;
 }
 
@@ -348,6 +363,7 @@ export async function handleRemoteSnapshot(
     throw new Error("Remote snapshot signature verification failed");
   }
 
+  await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion);
   const decrypted = await worker.decryptSnapshot({
     ciphertext: base64UrlDecode(snap.ciphertext),
     nonce: base64UrlDecode(snap.nonce),
@@ -356,6 +372,12 @@ export async function handleRemoteSnapshot(
   });
 
   Y.applyUpdateV2(state.yDoc, decrypted, "remote");
+
+  // Advance local keyVersion if remote uses a newer DEK
+  if (snap.publicData.keyVersion > state.keyVersion) {
+    state.keyVersion = snap.publicData.keyVersion;
+    checkRotationSnapshot(documentId, state);
+  }
 
   state.activeSnapshotId = snap.publicData.snapshotId;
   state.snapshotProofHash = snap.publicData.parentSnapshotProof;
@@ -402,7 +424,7 @@ export function handleUpdateSaved(payload: UpdateSavedPayload, state: DocumentSt
     state.latestVersion = payload.version;
   }
   state.snapshotUpdatesCount++;
-  if (state.autoSync) state.autoSync.notifyLocalEdit();
+  if (state.autoSync) state.autoSync.flush();
 }
 
 export function handleUpdateSaveFailed(
@@ -441,6 +463,7 @@ export function handleSnapshotSaved(payload: SnapshotSavedPayload, state: Docume
 
   state.pendingSnapshot = null;
   state.sending = false;
+  state.pendingRotationSnapshot = false;
   state.knownClocks = {};
   state.confirmedClocks = {};
   state.localClock = 0;
@@ -462,21 +485,30 @@ export async function handleSnapshotSaveFailed(
     for (const u of payload.updates) {
       if (u.version > recoveryVersion) recoveryVersion = u.version;
     }
-    await handleDocumentMessage(
-      {
-        snapshot: payload.snapshot,
-        updates: payload.updates,
-        snapshotProofChain: payload.snapshotProofChain,
-        latestVersion: recoveryVersion,
-      },
-      state,
-      documentId,
-    );
+    try {
+      await handleDocumentMessage(
+        {
+          snapshot: payload.snapshot,
+          updates: payload.updates,
+          snapshotProofChain: payload.snapshotProofChain,
+          latestVersion: recoveryVersion,
+        },
+        state,
+        documentId,
+      );
+      // Recovery succeeded: force snapshot creation on next auto-sync cycle
+      state.snapshotUpdatesCount = Infinity;
+      if (state.autoSync) state.autoSync.notifyLocalEdit();
+    } catch (err) {
+      console.error("[ws] snapshot recovery failed (non-fatal):", err);
+      // Reset counter to suppress further snapshot attempts until next threshold
+      state.snapshotUpdatesCount = 0;
+    }
+  } else {
+    // No recovery data: force snapshot creation on next auto-sync cycle
+    state.snapshotUpdatesCount = Infinity;
+    if (state.autoSync) state.autoSync.notifyLocalEdit();
   }
-
-  // Force snapshot creation on next auto-sync cycle
-  state.snapshotUpdatesCount = Infinity;
-  if (state.autoSync) state.autoSync.notifyLocalEdit();
 }
 
 // ── Internal helpers ─────────────────────────────────────────
@@ -598,12 +630,19 @@ async function verifyAndDecryptSingleUpdate(
   }
 
   // Step 4d: AEAD decryption (before clock commit — failed decrypt must not poison clocks)
+  await ensureDekCached(documentId, state.workspaceId, update.publicData.keyVersion);
   const decrypted = await worker.decryptContent({
     ciphertext: base64UrlDecode(update.ciphertext),
     nonce: base64UrlDecode(update.nonce),
     documentId,
     keyVersion: update.publicData.keyVersion,
   });
+
+  // Advance local keyVersion if remote uses a newer DEK (after rotation by another client)
+  if (update.publicData.keyVersion > state.keyVersion) {
+    state.keyVersion = update.publicData.keyVersion;
+    checkRotationSnapshot(documentId, state);
+  }
 
   // Commit clocks after successful decrypt
   state.knownClocks[deviceKey] = update.publicData.clock;
@@ -667,4 +706,60 @@ async function verifySnapshotProofChain(
       }
     }
   }
+}
+
+/**
+ * Ensure a DEK for the given keyVersion is cached.
+ * If not cached, fetch all DEK versions from server and unwrap the needed one.
+ */
+export async function ensureDekCached(
+  documentId: string,
+  workspaceId: string,
+  keyVersion: number,
+): Promise<void> {
+  const worker = getCryptoWorker();
+  const hasDek = await worker.hasDek(documentId, keyVersion);
+  if (hasDek) return;
+
+  const keysResponse = await encryptionApi.getDocumentKeys(documentId);
+  const key = keysResponse.keys.find((k) => k.key_version === keyVersion);
+  if (!key) throw new Error(`DEK version ${keyVersion} not found for document ${documentId}`);
+
+  await resolveKekByVersion(workspaceId, key.kek_version);
+  await worker.unwrapDek({
+    encryptedDek: base64UrlDecode(key.encrypted_dek),
+    nonce: base64UrlDecode(key.nonce),
+    documentId,
+    workspaceId,
+    keyVersion: key.key_version,
+    isActive: key.is_active,
+    kekVersion: key.kek_version,
+  });
+}
+
+/**
+ * Check if post-rotation snapshot is needed after remote keyVersion advancement.
+ * Fires async and sets pendingRotationSnapshot to trigger snapshot on next auto-sync cycle.
+ */
+function checkRotationSnapshot(documentId: string, state: DocumentState): void {
+  documentsApi
+    .get(documentId)
+    .then(async (doc) => {
+      // Retry deferred DEK rotation (KEK rotation may have completed since init)
+      if (doc.needs_dek_rotation && state._retryDekRotation) {
+        try {
+          await state._retryDekRotation();
+        } catch {
+          // Best-effort; will retry on next document open
+        }
+      }
+
+      if (doc.needs_rotation_snapshot && !state.pendingRotationSnapshot) {
+        state.pendingRotationSnapshot = true;
+        if (state.autoSync) state.autoSync.notifyLocalEdit();
+      } else if (!doc.needs_rotation_snapshot && state.pendingRotationSnapshot) {
+        state.pendingRotationSnapshot = false;
+      }
+    })
+    .catch(() => {});
 }

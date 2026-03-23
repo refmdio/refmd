@@ -1,40 +1,43 @@
 defmodule RefMDWeb.UserSocket do
   @moduledoc """
   Phoenix Socket for authenticated WebSocket connections.
-  Session token is extracted from the HttpOnly _refmd_session cookie.
+  Authentication via short-lived ws-token obtained from POST /api/auth/ws-token.
   """
 
   use Phoenix.Socket
 
   alias RefMD.Auth
+  alias RefMDWeb.SocketAuth
 
   channel "document:*", RefMDWeb.DocumentChannel
 
   @spec connect(map(), Phoenix.Socket.t(), map()) :: {:ok, Phoenix.Socket.t()} | :error
-  def connect(_params, socket, connect_info) do
-    with :ok <- RefMDWeb.SocketAuth.verify_origin_policy(connect_info[:origin]),
-         {:ok, user_id, session} <- authenticate(connect_info) do
-      socket =
-        socket
-        |> assign(:current_user_id, user_id)
-        |> assign(:current_session, session)
+  def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
+    if origin_required_but_missing?(), do: throw(:origin_required)
 
-      {:ok, socket}
-    else
-      _ -> :error
+    case Auth.verify_ws_token(token) do
+      {:ok, user_id, session} ->
+        socket =
+          socket
+          |> assign(:current_user_id, user_id)
+          |> assign(:current_session, session)
+
+        {:ok, socket}
+
+      _ ->
+        :error
     end
+  catch
+    :origin_required -> :error
   end
+
+  def connect(_params, _socket, _connect_info), do: :error
 
   @spec id(Phoenix.Socket.t()) :: String.t()
   def id(socket), do: "user_socket:#{socket.assigns.current_user_id}"
 
-  defp authenticate(connect_info) do
-    with token when is_binary(token) <- connect_info.session_token,
-         {:ok, session} <- Auth.get_valid_session_by_token_base64(token) do
-      Auth.touch_session(session.id)
-      {:ok, session.user_id, session}
-    else
-      _ -> :error
-    end
+  defp origin_required_but_missing? do
+    not SocketAuth.origin_present?() and
+      Application.get_env(:refmd, :samesite_mode, "lax") == "none"
   end
 end

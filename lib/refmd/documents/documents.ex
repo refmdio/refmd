@@ -170,12 +170,12 @@ defmodule RefMD.Documents do
           clock: u["clock"],
           version: u["version"],
           device_signing_pub_key: u["device_signing_pub_key"],
-          update_data: Base.decode64!(u["update_data"]),
-          nonce: Base.decode64!(u["nonce"]),
+          update_data: Base.decode64!(u["update_data"], ignore: :whitespace),
+          nonce: Base.decode64!(u["nonce"], ignore: :whitespace),
           key_version: u["key_version"],
           update_hash: u["update_hash"],
-          signature: if(u["signature"], do: Base.decode64!(u["signature"])),
-          mac: if(u["mac"], do: Base.decode64!(u["mac"])),
+          signature: if(u["signature"], do: Base.decode64!(u["signature"], ignore: :whitespace)),
+          mac: if(u["mac"], do: Base.decode64!(u["mac"], ignore: :whitespace)),
           share_id: u["share_id"],
           timestamp: u["timestamp"]
         }
@@ -325,6 +325,8 @@ defmodule RefMD.Documents do
       if cas_result == 0 do
         Repo.rollback({:parent_mismatch, build_recovery_data(document)})
       end
+
+      maybe_clear_rotation_snapshot(document, document_id, attrs.key_version)
 
       %{snapshot_id: snapshot_id}
     end)
@@ -477,6 +479,22 @@ defmodule RefMD.Documents do
     end
   end
 
+  defp maybe_clear_rotation_snapshot(document, document_id, key_version) do
+    if document.needs_rotation_snapshot and key_version >= document.min_dek_version do
+      dek_exists =
+        Repo.exists?(
+          from(k in RefMD.Encryption.DocumentEncryptedKey,
+            where: k.document_id == ^document_id and k.key_version == ^key_version
+          )
+        )
+
+      if dek_exists do
+        from(d in Document, where: d.id == ^document_id)
+        |> Repo.update_all(set: [needs_rotation_snapshot: false])
+      end
+    end
+  end
+
   defp insert_snapshot!(document_id, snapshot_id, latest_version, attrs) do
     changeset =
       DocumentSnapshot.changeset(%DocumentSnapshot{}, %{
@@ -506,18 +524,27 @@ defmodule RefMD.Documents do
 
   defp lock_document(document_id) do
     case Repo.query(
-           "SELECT id, workspace_id, active_snapshot_id, archived_at, min_dek_version FROM documents WHERE id = $1 FOR UPDATE",
+           "SELECT id, workspace_id, active_snapshot_id, archived_at, min_dek_version, needs_rotation_snapshot FROM documents WHERE id = $1 FOR UPDATE",
            [Ecto.UUID.dump!(document_id)]
          ) do
       {:ok, %{rows: [row]}} ->
-        [id, workspace_id, active_snapshot_id, archived_at, min_dek_version] = row
+        [
+          id,
+          workspace_id,
+          active_snapshot_id,
+          archived_at,
+          min_dek_version,
+          needs_rotation_snapshot
+        ] =
+          row
 
         %{
           id: Ecto.UUID.load!(id),
           workspace_id: Ecto.UUID.load!(workspace_id),
           active_snapshot_id: if(active_snapshot_id, do: Ecto.UUID.load!(active_snapshot_id)),
           archived_at: archived_at,
-          min_dek_version: min_dek_version
+          min_dek_version: min_dek_version,
+          needs_rotation_snapshot: needs_rotation_snapshot
         }
 
       _ ->
@@ -588,10 +615,10 @@ defmodule RefMD.Documents do
 
   defp update_snapshot_metadata(snapshot_id, device_signing_pub_key, clock, version) do
     Repo.query!(
-      "UPDATE document_snapshots SET clocks = jsonb_set(COALESCE(clocks, '{}'::jsonb), $1, $2::jsonb), latest_version = $3 WHERE id = $4",
+      "UPDATE document_snapshots SET clocks = jsonb_set(COALESCE(clocks, '{}'::jsonb), $1, to_jsonb($2::integer)), latest_version = $3 WHERE id = $4",
       [
         [device_signing_pub_key],
-        Jason.encode!(clock),
+        clock,
         version,
         Ecto.UUID.dump!(snapshot_id)
       ]
@@ -719,11 +746,14 @@ defmodule RefMD.Documents do
   end
 
   def update_document(%Document{} = document, attrs) do
-    document
-    |> Document.changeset(attrs)
-    |> validate_parent_constraints()
-    |> validate_parent_change(document.id)
-    |> Repo.update()
+    result =
+      document
+      |> Document.changeset(attrs)
+      |> validate_parent_constraints()
+      |> validate_parent_change(document.id)
+      |> Repo.update()
+
+    result
   end
 
   # ── Delete ───────────────────────────────────────

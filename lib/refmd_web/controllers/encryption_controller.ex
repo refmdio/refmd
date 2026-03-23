@@ -135,9 +135,10 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   operation(:get_kek_backup,
-    summary: "Get active KEK backup",
+    summary: "Get KEK backup (active or by version)",
     parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
+      workspace_id: [in: :path, type: :string, required: true],
+      key_version: [in: :query, type: :integer, required: false]
     ],
     responses: [
       ok: {"KEK backup", "application/json", Schemas.KekBackupResponse},
@@ -147,21 +148,23 @@ defmodule RefMDWeb.EncryptionController do
   )
 
   @spec get_kek_backup(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_kek_backup(conn, %{"workspace_id" => workspace_id}) do
+  def get_kek_backup(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
 
     if Workspaces.get_member_role(workspace_id, user_id) == nil do
       conn |> put_status(:forbidden) |> json(%{error: "not_a_member"})
     else
-      case Encryption.get_active_kek_backup(workspace_id, user_id) do
+      backup = resolve_kek_backup(workspace_id, user_id, params["key_version"])
+
+      case backup do
         nil ->
           conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
-        backup ->
+        b ->
           json(conn, %{
-            key_version: backup.key_version,
-            encrypted_kek: encode_binary(backup.encrypted_kek),
-            nonce: encode_binary(backup.nonce)
+            key_version: b.key_version,
+            encrypted_kek: encode_binary(b.encrypted_kek),
+            nonce: encode_binary(b.nonce)
           })
       end
     end
@@ -456,6 +459,11 @@ defmodule RefMDWeb.EncryptionController do
         |> put_status(:unprocessable_entity)
         |> json(%{error: "key_version_too_old"})
 
+      {:error, :key_version_not_consecutive} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "key_version_not_consecutive"})
+
       {:error, :folders_cannot_have_dek} ->
         conn
         |> put_status(:unprocessable_entity)
@@ -486,6 +494,7 @@ defmodule RefMDWeb.EncryptionController do
       key_version: key.key_version,
       encrypted_dek: encode_binary(key.encrypted_dek),
       nonce: encode_binary(key.nonce),
+      kek_version: key.kek_version,
       is_active: key.is_active,
       created_at: key.created_at
     }
@@ -804,6 +813,7 @@ defmodule RefMDWeb.EncryptionController do
       key_version: key.key_version,
       encrypted_kek: encode_binary(key.encrypted_kek),
       nonce: encode_binary(key.nonce),
+      is_active: key.is_active,
       sender_device_id: key.sender_device_id,
       sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
       sender_signing_public_key: sender && encode_binary(sender.signing_public_key)
@@ -892,5 +902,20 @@ defmodule RefMDWeb.EncryptionController do
     Enum.any?(changeset.errors, fn {_field, {_msg, opts}} ->
       Keyword.get(opts, :constraint) == :unique
     end)
+  end
+
+  defp resolve_kek_backup(workspace_id, user_id, nil) do
+    Encryption.get_active_kek_backup(workspace_id, user_id)
+  end
+
+  defp resolve_kek_backup(workspace_id, user_id, ver) when is_binary(ver) do
+    case Integer.parse(ver) do
+      {int_ver, ""} -> Encryption.get_kek_backup_by_version(workspace_id, user_id, int_ver)
+      _ -> nil
+    end
+  end
+
+  defp resolve_kek_backup(workspace_id, user_id, ver) when is_integer(ver) do
+    Encryption.get_kek_backup_by_version(workspace_id, user_id, ver)
   end
 end

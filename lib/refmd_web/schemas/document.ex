@@ -19,6 +19,7 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       doc_type: %Schema{type: :string, enum: ["document", "folder"]},
       is_encrypted: %Schema{type: :boolean},
       needs_dek_rotation: %Schema{type: :boolean},
+      needs_rotation_snapshot: %Schema{type: :boolean},
       min_dek_version: %Schema{type: :integer},
       created_by: %Schema{type: :string, format: :uuid, nullable: true},
       archived_at: %Schema{type: :string, format: :"date-time", nullable: true},

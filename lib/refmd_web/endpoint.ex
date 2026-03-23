@@ -13,12 +13,7 @@ defmodule RefMDWeb.Endpoint do
 
   socket "/api/socket", RefMDWeb.UserSocket,
     websocket: [
-      connect_info: [
-        :peer_data,
-        :uri,
-        session_token: {RefMDWeb.SocketAuth, :extract_session_token, []},
-        origin: {RefMDWeb.SocketAuth, :extract_origin, []}
-      ],
+      connect_info: [:peer_data, :uri],
       check_origin: {RefMDWeb.SocketAuth, :check_origin, []}
     ],
     longpoll: false

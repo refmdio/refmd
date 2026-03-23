@@ -35,7 +35,7 @@ const RATE_LIMITS: { exact: Record<string, RateLimitRule>; prefix: [string, Rate
     "derive-auth-keys": { tokensPerSec: 0.1, burst: 2 },
   },
   prefix: [
-    ["decrypt-", { tokensPerSec: 100, burst: 200 }],
+    ["decrypt-", { tokensPerSec: 100, burst: 500 }],
     ["sign-", { tokensPerSec: 50, burst: 100 }],
   ],
 };

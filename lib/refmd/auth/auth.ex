@@ -399,4 +399,39 @@ defmodule RefMD.Auth do
       key -> {:ok, key.signing_public_key}
     end
   end
+
+  # ── WebSocket Token ─────────────────────────────
+
+  @ws_token_salt "ws_auth_token"
+  @ws_token_max_age 300
+
+  @spec generate_ws_token(Ecto.UUID.t()) :: String.t()
+  def generate_ws_token(session_id) do
+    Phoenix.Token.sign(RefMDWeb.Endpoint, @ws_token_salt, session_id)
+  end
+
+  @spec verify_ws_token(String.t()) :: {:ok, Ecto.UUID.t(), Session.t()} | {:error, atom()}
+  def verify_ws_token(token) do
+    with {:ok, session_id} <-
+           Phoenix.Token.verify(RefMDWeb.Endpoint, @ws_token_salt, token,
+             max_age: @ws_token_max_age
+           ),
+         {:ok, session} <- get_valid_session(session_id) do
+      {:ok, session.user_id, session}
+    end
+  end
+
+  defp get_valid_session(session_id) do
+    case Repo.get(Session, session_id) do
+      nil ->
+        {:error, :session_not_found}
+
+      %{expires_at: exp} = session ->
+        if DateTime.compare(exp, DateTime.utc_now()) == :gt do
+          {:ok, session}
+        else
+          {:error, :session_expired}
+        end
+    end
+  end
 end

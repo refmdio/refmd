@@ -10,6 +10,7 @@ defmodule RefMD.Encryption.DocumentEncryptedKey do
     field :key_version, :integer, primary_key: true
     field :encrypted_dek, :binary
     field :nonce, :binary
+    field :kek_version, :integer
     field :is_active, :boolean
     field :created_at, :utc_datetime_usec
   end
@@ -23,8 +24,17 @@ defmodule RefMD.Encryption.DocumentEncryptedKey do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
     key
-    |> cast(attrs, [:document_id, :key_version, :encrypted_dek, :nonce, :is_active])
-    |> validate_required([:document_id, :key_version, :encrypted_dek, :nonce, :is_active])
+    |> cast(attrs, [:document_id, :key_version, :encrypted_dek, :nonce, :kek_version, :is_active])
+    |> validate_required([
+      :document_id,
+      :key_version,
+      :encrypted_dek,
+      :nonce,
+      :kek_version,
+      :is_active
+    ])
+    |> validate_number(:key_version, greater_than: 0)
+    |> validate_number(:kek_version, greater_than: 0)
     |> Validate.validate_nonce()
     |> Validate.validate_wrapped_key(:encrypted_dek, @dek_bytes)
     |> unique_constraint([:document_id, :key_version],

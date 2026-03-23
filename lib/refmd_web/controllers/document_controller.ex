@@ -324,6 +324,7 @@ defmodule RefMDWeb.DocumentController do
       doc_type: document.doc_type,
       is_encrypted: document.is_encrypted,
       needs_dek_rotation: document.needs_dek_rotation,
+      needs_rotation_snapshot: document.needs_rotation_snapshot,
       min_dek_version: document.min_dek_version,
       created_by: document.created_by,
       archived_at: document.archived_at,

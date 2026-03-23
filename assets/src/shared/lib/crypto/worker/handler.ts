@@ -4,7 +4,16 @@ import { x25519, ed25519 } from "@noble/curves/ed25519.js";
 
 import type { CryptoRequest, TitleDecryptItem, TitleDecryptResult } from "./types";
 import type { WorkerKeyState } from "./state";
-import { getCachedKek, setCachedKek, getCachedDek, setCachedDek, clearState } from "./state";
+import {
+  getCachedKek,
+  setCachedKek,
+  setActiveKekVersion,
+  getCachedDek,
+  setCachedDek,
+  setActiveDekVersion,
+  evictCachedDek,
+  clearState,
+} from "./state";
 
 import { base64UrlEncode, base64UrlDecode, randomBytes } from "../encoding";
 import {
@@ -121,18 +130,26 @@ function requireDeviceId(state: WorkerKeyState): string {
 function requireKekForWorkspace(
   state: WorkerKeyState,
   workspaceId: string,
+  keyVersion?: number,
 ): { kek: Uint8Array; keyVersion: number } {
-  const cached = getCachedKek(state, workspaceId);
-  if (!cached) throw new Error(`KEK not cached for workspace ${workspaceId}`);
+  const cached = getCachedKek(state, workspaceId, keyVersion);
+  if (!cached)
+    throw new Error(
+      `KEK not cached for workspace ${workspaceId}${keyVersion !== undefined ? ` version ${keyVersion}` : ""}`,
+    );
   return cached;
 }
 
 function requireDekForDocument(
   state: WorkerKeyState,
   documentId: string,
+  keyVersion?: number,
 ): { dek: Uint8Array; keyVersion: number } {
-  const cached = getCachedDek(state, documentId);
-  if (!cached) throw new Error(`DEK not cached for document ${documentId}`);
+  const cached = getCachedDek(state, documentId, keyVersion);
+  if (!cached)
+    throw new Error(
+      `DEK not cached for document ${documentId}${keyVersion !== undefined ? ` version ${keyVersion}` : ""}`,
+    );
   return cached;
 }
 
@@ -304,8 +321,12 @@ export async function handleRequest(
       return handleHasDek(state, p);
     case "cache-dek":
       return handleCacheDek(state, p);
+    case "evict-dek":
+      return handleEvictDek(state, p);
 
     // KEK operations
+    case "set-active-kek-version":
+      return handleSetActiveKekVersion(state, p);
     case "resolve-kek":
       return handleResolveKek(state, p);
     case "encrypt-kek-for-device":
@@ -880,17 +901,22 @@ function handleGenerateKek(state: WorkerKeyState, p: Record<string, unknown>): u
   const keyVersion = (p.keyVersion as number) ?? 1;
   const kek = generateKek();
   setCachedKek(state, workspaceId, kek, keyVersion);
+  setActiveKekVersion(state, workspaceId, keyVersion);
   return { keyVersion };
 }
 
 function handleGenerateDek(state: WorkerKeyState, p: Record<string, unknown>): unknown {
   const documentId = p.documentId as string;
   const workspaceId = p.workspaceId as string;
+  const setActive = (p.setActive as boolean) !== false;
   const { kek, keyVersion: kekVersion } = requireKekForWorkspace(state, workspaceId);
 
   const dek = generateDek();
   const dekKeyVersion = (p.dekKeyVersion as number) ?? 1;
   setCachedDek(state, documentId, dek, dekKeyVersion);
+  if (setActive) {
+    setActiveDekVersion(state, documentId, dekKeyVersion);
+  }
 
   const { encryptedDek, nonce } = wrapDek(dek, kek, documentId, workspaceId);
   return { encryptedDek, nonce, keyVersion: kekVersion };
@@ -1035,7 +1061,8 @@ function handleWrapIdentityKeysForServer(
 function handleWrapDek(state: WorkerKeyState, p: Record<string, unknown>): unknown {
   const documentId = p.documentId as string;
   const workspaceId = p.workspaceId as string;
-  const { dek } = requireDekForDocument(state, documentId);
+  const keyVersion = p.keyVersion as number | undefined;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
   const { kek } = requireKekForWorkspace(state, workspaceId);
 
   const { encryptedDek, nonce } = wrapDek(dek, kek, documentId, workspaceId);
@@ -1048,10 +1075,15 @@ function handleUnwrapDek(state: WorkerKeyState, p: Record<string, unknown>): unk
   const documentId = p.documentId as string;
   const workspaceId = p.workspaceId as string;
   const keyVersion = p.keyVersion as number;
-  const { kek } = requireKekForWorkspace(state, workspaceId);
+  const isActive = p.isActive as boolean | undefined;
+  const kekVersion = p.kekVersion as number | undefined;
+  const { kek } = requireKekForWorkspace(state, workspaceId, kekVersion);
 
   const dek = unwrapDek(encryptedDek, nonce, kek, documentId, workspaceId);
   setCachedDek(state, documentId, dek, keyVersion);
+  if (isActive) {
+    setActiveDekVersion(state, documentId, keyVersion);
+  }
   return { status: "ok" };
 }
 
@@ -1059,7 +1091,7 @@ function handleEncryptTitle(state: WorkerKeyState, p: Record<string, unknown>): 
   const title = p.title as string;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId);
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
 
   const result = encryptTitle(title, dek, documentId, keyVersion);
   return { encrypted: result.encrypted, nonce: result.nonce };
@@ -1070,7 +1102,7 @@ function handleDecryptTitle(state: WorkerKeyState, p: Record<string, unknown>): 
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId);
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
 
   const title = decryptTitle(encrypted, nonce, dek, documentId, keyVersion);
   return { title };
@@ -1082,7 +1114,7 @@ function handleDecryptTitleBatch(state: WorkerKeyState, p: Record<string, unknow
 
   for (const item of items) {
     try {
-      const cached = getCachedDek(state, item.documentId);
+      const cached = getCachedDek(state, item.documentId, item.keyVersion);
       if (!cached) {
         results.push({ documentId: item.documentId, title: null });
         continue;
@@ -1107,7 +1139,7 @@ function handleEncryptContent(state: WorkerKeyState, p: Record<string, unknown>)
   const plaintext = p.plaintext as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId);
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
 
   const nonce = randomBytes(24);
   const aad = buildDocumentContentAad(documentId, keyVersion);
@@ -1122,7 +1154,7 @@ function handleDecryptContent(state: WorkerKeyState, p: Record<string, unknown>)
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId);
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
 
   const aad = buildDocumentContentAad(documentId, keyVersion);
   const cipher = xchacha20poly1305(dek, nonce, aad);
@@ -1134,11 +1166,8 @@ function handleDecryptContent(state: WorkerKeyState, p: Record<string, unknown>)
 function handleHasDek(state: WorkerKeyState, p: Record<string, unknown>): unknown {
   const documentId = p.documentId as string;
   const requiredVersion = p.keyVersion as number | undefined;
-  const cached = getCachedDek(state, documentId);
-  if (!cached) return { hasDek: false };
-  if (requiredVersion !== undefined && cached.keyVersion !== requiredVersion)
-    return { hasDek: false };
-  return { hasDek: true };
+  const cached = getCachedDek(state, documentId, requiredVersion);
+  return { hasDek: !!cached };
 }
 
 function handleCacheDek(state: WorkerKeyState, p: Record<string, unknown>): unknown {
@@ -1149,15 +1178,30 @@ function handleCacheDek(state: WorkerKeyState, p: Record<string, unknown>): unkn
   return { status: "ok" };
 }
 
+function handleEvictDek(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  evictCachedDek(state, documentId, keyVersion);
+  return { status: "ok" };
+}
+
 // ── KEK operations ───────────────────────────────────────────
 
 function handleResolveKek(state: WorkerKeyState, p: Record<string, unknown>): unknown {
   const workspaceId = p.workspaceId as string;
-  const cached = getCachedKek(state, workspaceId);
+  const keyVersion = p.keyVersion as number | undefined;
+  const cached = getCachedKek(state, workspaceId, keyVersion);
   if (!cached) {
     return { found: false };
   }
   return { found: true, keyVersion: cached.keyVersion };
+}
+
+function handleSetActiveKekVersion(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const workspaceId = p.workspaceId as string;
+  const keyVersion = p.keyVersion as number;
+  setActiveKekVersion(state, workspaceId, keyVersion);
+  return { status: "ok" };
 }
 
 function handleEncryptKekForDevice(state: WorkerKeyState, p: Record<string, unknown>): unknown {

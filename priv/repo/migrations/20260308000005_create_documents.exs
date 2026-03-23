@@ -19,6 +19,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
       add :doc_type, :text, null: false, default: "document"
       add :is_encrypted, :boolean, null: false, default: true
       add :needs_dek_rotation, :boolean, null: false, default: false
+      add :needs_rotation_snapshot, :boolean, null: false, default: false
       add :min_dek_version, :integer, null: false, default: 1
       add :created_by, references(:users, type: :binary_id, on_delete: :nilify_all)
       add :archived_at, :utc_datetime_usec

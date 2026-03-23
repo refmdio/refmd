@@ -187,11 +187,12 @@ defmodule RefMDWeb.Schemas.WorkspaceKeyItem do
       key_version: %Schema{type: :integer},
       encrypted_kek: %Schema{type: :string},
       nonce: %Schema{type: :string},
+      is_active: %Schema{type: :boolean},
       sender_device_id: %Schema{type: :string, format: :uuid},
       sender_ecdh_public_key: %Schema{type: :string, nullable: true},
       sender_signing_public_key: %Schema{type: :string, nullable: true}
     },
-    required: [:key_version, :encrypted_kek, :nonce, :sender_device_id]
+    required: [:key_version, :encrypted_kek, :nonce, :is_active, :sender_device_id]
   })
 end
 
@@ -271,10 +272,19 @@ defmodule RefMDWeb.Schemas.DocumentKeyResponse do
       key_version: %Schema{type: :integer},
       encrypted_dek: %Schema{type: :string},
       nonce: %Schema{type: :string},
+      kek_version: %Schema{type: :integer},
       is_active: %Schema{type: :boolean},
       created_at: %Schema{type: :string, format: :"date-time"}
     },
-    required: [:document_id, :key_version, :encrypted_dek, :nonce, :is_active, :created_at]
+    required: [
+      :document_id,
+      :key_version,
+      :encrypted_dek,
+      :nonce,
+      :kek_version,
+      :is_active,
+      :created_at
+    ]
   })
 end
 

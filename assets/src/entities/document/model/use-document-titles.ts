@@ -3,7 +3,7 @@ import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { encryptionApi } from "@/shared/api";
-import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
+import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import type { TitleDecryptItem } from "@/shared/lib/crypto/worker/types";
 import type { DocumentResponse } from "./types";
 
@@ -88,36 +88,17 @@ async function decryptBatch(
 ): Promise<void> {
   const worker = getCryptoWorker();
 
-  // Ensure KEK is resolved (needed for DEK unwrapping)
+  // Best-effort active KEK resolution (not blocking — per-document
+  // ensureDekForTitleDecryption resolves version-specific KEK as needed)
   try {
     await resolveActiveKek(workspaceId);
-  } catch (e) {
-    console.error("Failed to resolve KEK for title decryption:", e);
-    return;
+  } catch {
+    // Active KEK resolution failed; per-document resolution will handle individual versions
   }
 
-  // Ensure DEKs are cached in Worker for all documents that need decryption
+  // Ensure DEKs are cached for each document (resolves version-specific KEK if needed)
   for (const doc of docs) {
-    const hasDek = await worker.hasDek(doc.id, doc.encrypted_title_key_version ?? undefined);
-    if (!hasDek) {
-      try {
-        const dekResponse = await encryptionApi.getDocumentKeys(doc.id);
-        const matchingKey = dekResponse.keys.find(
-          (k: any) => k.key_version === doc.encrypted_title_key_version,
-        );
-        if (matchingKey) {
-          await worker.unwrapDek({
-            encryptedDek: base64UrlDecode(matchingKey.encrypted_dek),
-            nonce: base64UrlDecode(matchingKey.nonce),
-            documentId: doc.id,
-            workspaceId,
-            keyVersion: matchingKey.key_version,
-          });
-        }
-      } catch {
-        // Skip documents where DEK fetch fails
-      }
-    }
+    await ensureDekForTitleDecryption(worker, doc, workspaceId);
   }
 
   const items: TitleDecryptItem[] = docs.map((doc) => ({
@@ -137,5 +118,40 @@ async function decryptBatch(
     }
   } catch (e) {
     console.error("Failed to decrypt title batch:", e);
+  }
+}
+
+async function ensureDekForTitleDecryption(
+  worker: ReturnType<typeof getCryptoWorker>,
+  doc: DocumentResponse,
+  workspaceId: string,
+): Promise<void> {
+  const titleKeyVersion = doc.encrypted_title_key_version;
+  if (titleKeyVersion == null) return;
+
+  const hasDek = await worker.hasDek(doc.id, titleKeyVersion);
+  if (hasDek) return;
+
+  try {
+    const dekResponse = await encryptionApi.getDocumentKeys(doc.id);
+    const matchingKey = dekResponse.keys.find((k: any) => k.key_version === titleKeyVersion);
+    if (!matchingKey) return;
+
+    // Resolve version-specific KEK before unwrapping DEK
+    if (matchingKey.kek_version) {
+      await resolveKekByVersion(workspaceId, matchingKey.kek_version);
+    }
+
+    await worker.unwrapDek({
+      encryptedDek: base64UrlDecode(matchingKey.encrypted_dek),
+      nonce: base64UrlDecode(matchingKey.nonce),
+      documentId: doc.id,
+      workspaceId,
+      keyVersion: matchingKey.key_version,
+      isActive: matchingKey.is_active,
+      kekVersion: matchingKey.kek_version,
+    });
+  } catch {
+    // Skip documents where DEK resolution fails
   }
 }

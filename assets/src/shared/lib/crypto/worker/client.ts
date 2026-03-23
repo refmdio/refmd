@@ -192,8 +192,15 @@ export class CryptoWorkerClient {
   async generateDek(
     documentId: string,
     workspaceId: string,
+    dekKeyVersion?: number,
+    setActive?: boolean,
   ): Promise<{ encryptedDek: Uint8Array; nonce: Uint8Array; keyVersion: number }> {
-    return (await this.send("generate-dek", { documentId, workspaceId })) as {
+    return (await this.send("generate-dek", {
+      documentId,
+      workspaceId,
+      dekKeyVersion,
+      setActive,
+    })) as {
       encryptedDek: Uint8Array;
       nonce: Uint8Array;
       keyVersion: number;
@@ -296,6 +303,8 @@ export class CryptoWorkerClient {
     documentId: string;
     workspaceId: string;
     keyVersion: number;
+    isActive?: boolean;
+    kekVersion?: number;
   }): Promise<void> {
     await this.send("unwrap-dek", params as unknown as Record<string, unknown>);
   }
@@ -393,6 +402,10 @@ export class CryptoWorkerClient {
     await this.send("cache-dek", params as unknown as Record<string, unknown>);
   }
 
+  async evictDek(documentId: string, keyVersion: number): Promise<void> {
+    await this.send("evict-dek", { documentId, keyVersion });
+  }
+
   // ── KEK operations ────────────────────────────────────
 
   async encryptKekForDevice(
@@ -453,8 +466,15 @@ export class CryptoWorkerClient {
     await this.send("decrypt-kek-from-invitation", params as unknown as Record<string, unknown>);
   }
 
-  async resolveKek(workspaceId: string): Promise<{ found: boolean; keyVersion?: number }> {
-    return (await this.send("resolve-kek", { workspaceId })) as {
+  async setActiveKekVersion(workspaceId: string, keyVersion: number): Promise<void> {
+    await this.send("set-active-kek-version", { workspaceId, keyVersion });
+  }
+
+  async resolveKek(
+    workspaceId: string,
+    keyVersion?: number,
+  ): Promise<{ found: boolean; keyVersion?: number }> {
+    return (await this.send("resolve-kek", { workspaceId, keyVersion })) as {
       found: boolean;
       keyVersion?: number;
     };

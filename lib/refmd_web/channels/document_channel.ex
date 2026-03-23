@@ -107,60 +107,7 @@ defmodule RefMDWeb.DocumentChannel do
           }
         )
 
-      case result do
-        {:ok, saved} ->
-          maybe_broadcast_update(saved, payload, socket)
-
-          push(socket, "update-saved", %{
-            snapshotId: saved.snapshot_id,
-            clock: saved.clock,
-            version: saved.version
-          })
-
-          {:noreply, socket}
-
-        {:error, :snapshot_mismatch} ->
-          push(socket, "update-save-failed", %{
-            snapshotId: parsed.public_data["refSnapshotId"],
-            clock: parsed.public_data["clock"],
-            requiresNewSnapshot: true
-          })
-
-          {:noreply, socket}
-
-        {:error, :key_version_too_old} ->
-          push(socket, "update-save-failed", %{
-            snapshotId: parsed.public_data["refSnapshotId"],
-            clock: parsed.public_data["clock"],
-            requiresNewSnapshot: false
-          })
-
-          {:noreply, socket}
-
-        {:error, :clock_mismatch} ->
-          push(socket, "update-save-failed", %{
-            snapshotId: parsed.public_data["refSnapshotId"],
-            clock: parsed.public_data["clock"],
-            requiresNewSnapshot: false
-          })
-
-          {:noreply, socket}
-
-        {:error, :serialization_conflict} ->
-          push(socket, "update-save-failed", %{
-            snapshotId: parsed.public_data["refSnapshotId"],
-            clock: parsed.public_data["clock"],
-            requiresNewSnapshot: false
-          })
-
-          {:noreply, socket}
-
-        {:error, :document_archived} ->
-          {:reply, {:error, %{reason: "document_archived"}}, socket}
-
-        {:error, _reason} ->
-          {:reply, {:error, %{reason: "error"}}, socket}
-      end
+      handle_update_result(result, parsed, payload, socket)
     else
       {:error, reason} ->
         {:reply, {:error, %{reason: reason}}, socket}
@@ -231,6 +178,12 @@ defmodule RefMDWeb.DocumentChannel do
 
         {:error, :document_archived, _} ->
           {:reply, {:error, %{reason: "document_archived"}}, socket}
+
+        {:error, :permission_denied, _} ->
+          {:reply, {:error, %{reason: "permission_denied"}}, socket}
+
+        {:error, :device_revoked, _} ->
+          {:reply, {:error, %{reason: "device_revoked"}}, socket}
 
         {:error, _reason, _} ->
           {:reply, {:error, %{reason: "error"}}, socket}
@@ -765,6 +718,48 @@ defmodule RefMDWeb.DocumentChannel do
       _ ->
         {:error, "device_revoked"}
     end
+  end
+
+  defp handle_update_result({:ok, saved}, _parsed, payload, socket) do
+    maybe_broadcast_update(saved, payload, socket)
+
+    push(socket, "update-saved", %{
+      snapshotId: saved.snapshot_id,
+      clock: saved.clock,
+      version: saved.version
+    })
+
+    {:noreply, socket}
+  end
+
+  defp handle_update_result({:error, :snapshot_mismatch}, parsed, _payload, socket) do
+    push(socket, "update-save-failed", %{
+      snapshotId: parsed.public_data["refSnapshotId"],
+      clock: parsed.public_data["clock"],
+      requiresNewSnapshot: true
+    })
+
+    {:noreply, socket}
+  end
+
+  defp handle_update_result({:error, reason}, parsed, _payload, socket)
+       when reason in [:key_version_too_old, :clock_mismatch, :serialization_conflict] do
+    push(socket, "update-save-failed", %{
+      snapshotId: parsed.public_data["refSnapshotId"],
+      clock: parsed.public_data["clock"],
+      requiresNewSnapshot: false
+    })
+
+    {:noreply, socket}
+  end
+
+  defp handle_update_result({:error, reason}, _parsed, _payload, socket)
+       when reason in [:document_archived, :permission_denied, :device_revoked] do
+    {:reply, {:error, %{reason: to_string(reason)}}, socket}
+  end
+
+  defp handle_update_result({:error, _reason}, _parsed, _payload, socket) do
+    {:reply, {:error, %{reason: "error"}}, socket}
   end
 
   defp maybe_broadcast_update(%{duplicate: true}, _payload, _socket), do: :ok

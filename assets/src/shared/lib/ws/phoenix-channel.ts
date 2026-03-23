@@ -1,8 +1,15 @@
 import { Socket, Channel } from "phoenix";
+import { authApi } from "@/shared/api/auth";
 
-// Singleton Socket instance (authenticates via HttpOnly cookie, all channels multiplex)
+// Singleton Socket instance (authenticates via ws-token, all channels multiplex)
 let socket: Socket | null = null;
+let cachedWsToken: string | null = null;
 const channels = new Map<string, Channel>();
+
+async function refreshWsToken(): Promise<void> {
+  const result = await authApi.wsToken();
+  cachedWsToken = result.token;
+}
 
 function getOrCreateSocket(): Socket {
   if (socket) return socket;
@@ -11,7 +18,16 @@ function getOrCreateSocket(): Socket {
   const url = `${protocol}//${location.host}/api/socket`;
 
   socket = new Socket(url, {
+    params: () => ({ token: cachedWsToken }),
     reconnectAfterMs: (tries: number) => Math.min(100 * Math.pow(1.8, tries), 30_000),
+  });
+
+  // Refresh token on disconnect/error so reconnect uses a fresh token
+  socket.onError(() => {
+    refreshWsToken().catch(() => {});
+  });
+  socket.onClose(() => {
+    refreshWsToken().catch(() => {});
   });
 
   socket.connect();
@@ -32,11 +48,14 @@ export interface DocumentChannelCallbacks {
   onClose: () => void;
 }
 
-export function joinDocument(
+export async function joinDocument(
   documentId: string,
   params: Record<string, unknown>,
   callbacks: DocumentChannelCallbacks,
 ): Promise<Channel> {
+  if (!socket) {
+    await refreshWsToken();
+  }
   const sock = getOrCreateSocket();
   const topic = `document:${documentId}`;
 

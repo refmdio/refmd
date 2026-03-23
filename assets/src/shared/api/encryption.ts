@@ -14,10 +14,13 @@ export const encryptionApi = {
       }),
     ),
 
-  getKekBackupWithPop: async (workspaceId: string) =>
+  getKekBackupWithPop: async (workspaceId: string, keyVersion?: number) =>
     throwIfError(
       await client.GET("/api/encryption/workspaces/{workspace_id}/kek-backup", {
-        params: { path: { workspace_id: workspaceId } },
+        params: {
+          path: { workspace_id: workspaceId },
+          ...(keyVersion !== undefined ? { query: { key_version: keyVersion } } : {}),
+        },
       }),
     ),
 

@@ -212,3 +212,17 @@ defmodule RefMDWeb.Schemas.PopChallengeResponse do
     required: [:challenge]
   })
 end
+
+defmodule RefMDWeb.Schemas.WsTokenResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WsTokenResponse",
+    type: :object,
+    properties: %{
+      token: %Schema{type: :string}
+    },
+    required: [:token]
+  })
+end

@@ -30,6 +30,7 @@ export interface DocumentState {
   dekResolved: boolean;
   keyVersion: number;
   workspaceId: string;
+  pendingRotationSnapshot: boolean;
 
   // Channel
   channel: Channel | null;
@@ -68,6 +69,9 @@ export interface DocumentState {
 
   // Temporary callback for initial document event (used during init)
   _onDocumentMessage: ((payload: unknown) => void) | null;
+
+  // Deferred DEK rotation retry (set by init, invoked by checkRotationSnapshot)
+  _retryDekRotation: (() => Promise<void>) | null;
 }
 
 // ── Cache ────────────────────────────────────────────────────
@@ -98,6 +102,7 @@ export function createDocumentState(documentId: string, workspaceId: string): Do
     dekResolved: false,
     keyVersion: 0,
     workspaceId,
+    pendingRotationSnapshot: false,
 
     channel: null,
 
@@ -122,6 +127,7 @@ export function createDocumentState(documentId: string, workspaceId: string): Do
     preSendLocalClock: 0,
     pendingUpdateBytes: null,
     _onDocumentMessage: null,
+    _retryDekRotation: null,
   };
 
   cache.set(documentId, state);

@@ -1020,7 +1020,7 @@ async function restoreKekForWorkspace(
   let currentKekVersion = 0;
   try {
     const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
-    if (existing.keys.length > 0) return "restored";
+    if (existing.keys.some((k) => k.is_active)) return "restored";
     currentKekVersion = existing.current_kek_version;
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {

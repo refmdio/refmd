@@ -13,6 +13,7 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
     path === "/api/auth/logout" ||
     path === "/api/auth/verify-key" ||
     path === "/api/auth/pop-challenge" ||
+    path === "/api/auth/ws-token" ||
     path === "/api/auth/kdf-migration" ||
     path === "/api/auth/recovery" ||
     path === "/api/auth/password-set" ||
