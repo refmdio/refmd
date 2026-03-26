@@ -21,8 +21,13 @@ import { currentWorkspaceId } from "@/entities/workspace";
 import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
 import { documentManager } from "@/shared/lib/document-manager";
 import { workspaceManager } from "@/features/panel";
-import { getEditor } from "@/features/editor";
-import { CodeMirrorEditor, ProseMirrorEditor } from "@/features/editor";
+import {
+  getEditor,
+  CodeMirrorEditor,
+  ProseMirrorEditor,
+  PresenceAvatars,
+  getDocumentAwareness,
+} from "@/features/editor";
 import { DocumentPanelShell } from "./DocumentPanelShell";
 
 import "solid-mosaic-component/solid-mosaic-component.css";
@@ -111,59 +116,76 @@ export function DocumentWorkspace() {
         path={path}
         onDragStart={() => workspace.focusPanel(panelId)}
         toolbarControls={
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              as="button"
-              class="p-1 hover:bg-muted rounded"
-              onClick={(e: MouseEvent) => e.stopPropagation()}
-            >
-              <MoreVerticalIcon class="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => workspace.splitPanel(panelId, "row")}>
-                <Columns2Icon class="size-4 mr-2" />
-                Split Horizontal
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => workspace.splitPanel(panelId, "column")}>
-                <SplitIcon class="size-4 mr-2" />
-                Split Vertical
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <Show
-                when={isAlreadySplit()}
-                fallback={
-                  <>
-                    <DropdownMenuItem onClick={() => workspace.switchPanelType(panelId)}>
-                      <RefreshCwIcon class="size-4 mr-2" />
-                      Switch to {isMarkdown ? "WYSIWYG" : "Markdown"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => workspace.switchToSplit(panelId)}>
-                      <Columns2Icon class="size-4 mr-2" />
-                      Switch to Split
-                    </DropdownMenuItem>
-                  </>
-                }
+          <div class="flex items-center">
+            <Show when={workspace.focusedPanelId() === panelId}>
+              <PresenceAvatars awareness={getDocumentAwareness(panel.documentId)} />
+            </Show>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                as="button"
+                class="p-1 hover:bg-muted rounded"
+                onClick={(e: MouseEvent) => e.stopPropagation()}
               >
-                <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "markdown")}>
-                  <RefreshCwIcon class="size-4 mr-2" />
-                  Markdown only
+                <MoreVerticalIcon class="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => workspace.splitPanel(panelId, "row")}>
+                  <Columns2Icon class="size-4 mr-2" />
+                  Split Horizontal
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "wysiwyg")}>
-                  <RefreshCwIcon class="size-4 mr-2" />
-                  WYSIWYG only
+                <DropdownMenuItem onClick={() => workspace.splitPanel(panelId, "column")}>
+                  <SplitIcon class="size-4 mr-2" />
+                  Split Vertical
                 </DropdownMenuItem>
-              </Show>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => workspace.closePanel(panelId)}>
-                <XIcon class="size-4 mr-2" />
-                Close
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuSeparator />
+                <Show
+                  when={isAlreadySplit()}
+                  fallback={
+                    <>
+                      <DropdownMenuItem onClick={() => workspace.switchPanelType(panelId)}>
+                        <RefreshCwIcon class="size-4 mr-2" />
+                        Switch to {isMarkdown ? "WYSIWYG" : "Markdown"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => workspace.switchToSplit(panelId)}>
+                        <Columns2Icon class="size-4 mr-2" />
+                        Switch to Split
+                      </DropdownMenuItem>
+                    </>
+                  }
+                >
+                  <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "markdown")}>
+                    <RefreshCwIcon class="size-4 mr-2" />
+                    Markdown only
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "wysiwyg")}>
+                    <RefreshCwIcon class="size-4 mr-2" />
+                    WYSIWYG only
+                  </DropdownMenuItem>
+                </Show>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => workspace.closePanel(panelId)}>
+                  <XIcon class="size-4 mr-2" />
+                  Close
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         }
       >
         <div
           class="h-full"
+          classList={{
+            "hide-remote-cursors": (() => {
+              const focusedId = workspace.focusedPanelId();
+              if (focusedId === panelId) return false;
+              if (!focusedId) return true;
+              const focusedPanel = decodePanelId(focusedId);
+              if (!focusedPanel) return true;
+              return (
+                focusedPanel.type !== panel.type || focusedPanel.documentId !== panel.documentId
+              );
+            })(),
+          }}
           data-panel-id={panelId}
           onFocusIn={() => workspace.focusPanel(panelId)}
           onMouseDown={() => workspace.focusPanel(panelId)}

@@ -11,34 +11,50 @@ defmodule RefMDWeb.DocumentChannel do
   alias RefMD.Documents
   alias RefMD.Documents.Server, as: DocumentServer
   alias RefMD.Workspaces
-  alias RefMDWeb.{DocumentPresence, TokenBucket}
+  alias RefMDWeb.{DocumentConnectionManager, TokenBucket}
   alias RefMDWeb.Plugs.RequireRBAC
 
   @ephemeral_rate 10.0
   @ephemeral_burst 20.0
-  @max_connections_per_user 3
 
-  intercept ["update", "snapshot", "ephemeral-message"]
+  intercept ["update", "snapshot", "ephemeral-message", "peer-left"]
 
   @impl true
   @spec join(String.t(), map(), Phoenix.Socket.t()) ::
           {:ok, map(), Phoenix.Socket.t()} | {:error, map()}
   def join("document:" <> document_id, params, socket) do
     user_id = socket.assigns.current_user_id
+    silent = silent_join?(params)
 
     with :ok <- validate_uuid(document_id),
-         :ok <- reject_silent_join(params),
          {:ok, device} <- verify_pop(params, user_id, socket),
          :ok <- subscribe_device_revocation(user_id),
          {:ok, document} <- fetch_document(document_id),
          :ok <- check_rbac(document.workspace_id, user_id),
          :ok <- validate_join_params(params),
          {:ok, server_pid} <- DocumentServer.get_or_start(document.id),
-         :ok <- maybe_enforce_connection_cap(document.id, user_id, params),
-         :ok <- DocumentServer.register_connection(document.id, self()),
+         :ok <-
+           if(silent,
+             do: DocumentConnectionManager.check_and_increment_silent(user_id),
+             else: DocumentConnectionManager.evict_excess(document.id, user_id)
+           ),
+         {:ok, track_join_ref} <-
+           if(silent,
+             do: {:ok, nil},
+             else:
+               DocumentConnectionManager.track_and_subscribe(
+                 document.id,
+                 user_id,
+                 Base.url_encode64(device.signing_public_key, padding: false)
+               )
+           ),
          {:ok, initial_data} <-
            load_initial_data(document, params, document.workspace_id, user_id) do
       Process.monitor(server_pid)
+
+      if !silent do
+        DocumentServer.register_connection(document.id, self())
+      end
 
       socket =
         socket
@@ -51,9 +67,20 @@ defmodule RefMDWeb.DocumentChannel do
           Base.url_encode64(device.signing_public_key, padding: false)
         )
         |> assign(:ephemeral_bucket, TokenBucket.new(@ephemeral_burst))
+        |> assign(:silent, silent)
+        |> assign(:track_join_ref, track_join_ref)
+
+      connection_id = Base.url_encode64(:erlang.term_to_binary(self()), padding: false)
+
+      socket = assign(socket, :connection_id, connection_id)
 
       send(self(), {:after_join, initial_data})
-      {:ok, %{}, socket}
+      {:ok, %{connectionId: connection_id}, socket}
+    else
+      {:error, _reason} = err ->
+        if !silent, do: DocumentConnectionManager.cleanup_connection_on_join_failure(document_id)
+
+        err
     end
   end
 
@@ -65,11 +92,21 @@ defmodule RefMDWeb.DocumentChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:evict_connection, join_ref}, socket) do
+    if socket.assigns[:track_join_ref] == join_ref do
+      push(socket, "connection-cap-evict", %{})
+      {:stop, :normal, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
     {:stop, :normal, socket}
   end
 
   def handle_info(:connection_cap_evict, socket) do
+    push(socket, "connection-cap-evict", %{})
     {:stop, :normal, socket}
   end
 
@@ -84,6 +121,10 @@ defmodule RefMDWeb.DocumentChannel do
   @impl true
   @spec handle_in(String.t(), map(), Phoenix.Socket.t()) ::
           {:reply, {:ok | :error, map()}, Phoenix.Socket.t()} | {:noreply, Phoenix.Socket.t()}
+  def handle_in(_event, _payload, %{assigns: %{silent: true}} = socket) do
+    {:reply, {:error, %{reason: "silent_connection"}}, socket}
+  end
+
   def handle_in("update", payload, socket) do
     with {:ok, parsed} <- parse_update_envelope(payload, socket),
          :ok <- verify_envelope_signature("refmd_update", payload, parsed, socket),
@@ -216,8 +257,12 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   @impl true
+  def handle_out(_event, _payload, %{assigns: %{silent: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_out(event, payload, socket)
-      when event in ["update", "snapshot", "ephemeral-message"] do
+      when event in ["update", "snapshot", "ephemeral-message", "peer-left"] do
     case check_broadcast_rbac(socket) do
       :ok ->
         push(socket, event, payload)
@@ -234,14 +279,32 @@ defmodule RefMDWeb.DocumentChannel do
 
   @impl true
   def terminate(_reason, socket) do
-    if document_id = socket.assigns[:document_id] do
-      DocumentServer.unregister_connection(document_id, self())
-    end
-
+    cleanup_on_terminate(socket)
     :ok
   end
 
-  # ── Join Helpers ────────────────────────────────
+  defp cleanup_on_terminate(%{assigns: %{document_id: _document_id, silent: true}} = _socket) do
+    # Silent connection cleanup: Presence auto-untracks on process exit,
+    # so no explicit decrement is needed.
+    :ok
+  end
+
+  defp cleanup_on_terminate(%{assigns: %{document_id: document_id}} = socket) do
+    DocumentServer.unregister_connection(document_id, self())
+    DocumentConnectionManager.cleanup_connection(document_id)
+
+    DocumentConnectionManager.broadcast_peer_left(
+      document_id,
+      socket.assigns[:device_signing_pub_key],
+      socket.assigns[:current_user_id],
+      socket.assigns[:connection_id]
+    )
+  end
+
+  defp cleanup_on_terminate(_socket), do: :ok
+
+  defp silent_join?(%{"silent" => true}), do: true
+  defp silent_join?(_params), do: false
 
   defp check_ephemeral_rbac(socket) do
     case check_broadcast_rbac(socket) do
@@ -273,39 +336,6 @@ defmodule RefMDWeb.DocumentChannel do
       _ -> :skip
     end
   end
-
-  defp maybe_enforce_connection_cap(document_id, user_id, _params) do
-    enforce_connection_cap(document_id, user_id)
-  end
-
-  defp enforce_connection_cap(document_id, user_id) do
-    topic = "document:#{document_id}"
-    evict_excess_connections(topic, user_id, @max_connections_per_user)
-
-    {:ok, _} =
-      DocumentPresence.track(self(), topic, user_id, %{
-        pid: self(),
-        joined_at: System.monotonic_time(:millisecond)
-      })
-
-    :ok
-  end
-
-  defp evict_excess_connections(topic, user_id, max) do
-    presences = DocumentPresence.list(topic)
-    user_metas = get_in(presences, [user_id, :metas]) || []
-
-    if length(user_metas) >= max do
-      oldest = hd(user_metas)
-      oldest_pid = oldest[:pid]
-      if oldest_pid, do: send(oldest_pid, :connection_cap_evict)
-    end
-  end
-
-  defp reject_silent_join(%{"silent" => true}),
-    do: {:error, %{reason: "silent_join_not_supported"}}
-
-  defp reject_silent_join(_params), do: :ok
 
   defp subscribe_device_revocation(user_id) do
     Phoenix.PubSub.subscribe(RefMD.PubSub, "device_revocation:#{user_id}")

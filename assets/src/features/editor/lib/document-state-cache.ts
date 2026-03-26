@@ -1,9 +1,10 @@
 import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
+import { Awareness, removeAwarenessStates } from "y-protocols/awareness";
 import { createSignal } from "solid-js";
 import type { Channel } from "phoenix";
 import { leaveDocument } from "@/shared/lib/ws/phoenix-channel";
 import type { AutoSyncHandle } from "./auto-sync";
+import type { EphemeralSession } from "./ephemeral-session";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ export interface DocumentState {
   // DEK (raw DEK lives in Crypto Worker only; metadata here)
   dekResolved: boolean;
   keyVersion: number;
+  pendingRotationKeyVersion: number | null;
   workspaceId: string;
   pendingRotationSnapshot: boolean;
 
@@ -57,8 +59,13 @@ export interface DocumentState {
   // Signing key cache for verification
   signingKeys: Map<string, Uint8Array>;
   signingKeyOwners: Map<string, string>;
+  memberNames: Map<string, string>;
   revokedSigningKeys: Set<string>;
   rejectedSigningKeys: Set<string>;
+
+  // Awareness clientID ownership: maps clientID → signingPubKey of the sender
+  // who first established that clientID. Cross-owner updates are rejected.
+  awarenessClientOwners: Map<number, string>;
 
   // Sending lock (prevents concurrent sendPendingChanges)
   sending: boolean;
@@ -67,11 +74,25 @@ export interface DocumentState {
   preSendLocalClock: number;
   pendingUpdateBytes: Uint8Array | null;
 
+  // In-flight envelope for reconnect replay (update_hash UNIQUE idempotency)
+  pendingUpdateEnvelope: Record<string, unknown> | null;
+  pendingSnapshotEnvelope: Record<string, unknown> | null;
+
   // Temporary callback for initial document event (used during init)
   _onDocumentMessage: ((payload: unknown) => void) | null;
 
   // Deferred DEK rotation retry (set by init, invoked by checkRotationSnapshot)
   _retryDekRotation: (() => Promise<void>) | null;
+
+  // Ephemeral session for awareness relay
+  ephemeralSession: EphemeralSession | null;
+  awarenessRelayCleanup: (() => void) | null;
+
+  // Reconnection guard (prevents multiple concurrent reconnect loops)
+  _reconnecting: boolean;
+
+  // Queue for events received during reconnect initialization
+  _pendingRemoteEvents: Array<{ type: "update" | "snapshot"; payload: unknown }>;
 }
 
 // ── Cache ────────────────────────────────────────────────────
@@ -102,6 +123,7 @@ export function createDocumentState(documentId: string, workspaceId: string): Do
     dekResolved: false,
     keyVersion: 0,
     workspaceId,
+    pendingRotationKeyVersion: null,
     pendingRotationSnapshot: false,
 
     channel: null,
@@ -120,14 +142,22 @@ export function createDocumentState(documentId: string, workspaceId: string): Do
 
     signingKeys: new Map(),
     signingKeyOwners: new Map(),
+    memberNames: new Map(),
     revokedSigningKeys: new Set(),
     rejectedSigningKeys: new Set(),
+    awarenessClientOwners: new Map(),
     autoSync: null,
     sending: false,
     preSendLocalClock: 0,
     pendingUpdateBytes: null,
+    pendingUpdateEnvelope: null,
+    pendingSnapshotEnvelope: null,
     _onDocumentMessage: null,
     _retryDekRotation: null,
+    ephemeralSession: null,
+    awarenessRelayCleanup: null,
+    _reconnecting: false,
+    _pendingRemoteEvents: [],
   };
 
   cache.set(documentId, state);
@@ -156,6 +186,7 @@ export async function acquireDocumentState(
       existing.snapshotUpdatesCount = 0;
       existing.localClock = 0;
       existing.latestVersion = 0;
+      existing.awarenessClientOwners.clear();
       const signal = errorSignals.get(documentId);
       if (signal) signal[1](null);
     }
@@ -198,12 +229,17 @@ function teardownState(documentId: string, state: DocumentState): void {
     state.autoSync.dispose();
     state.autoSync = null;
   }
+  cache.delete(documentId);
+  errorSignals.delete(documentId);
+  awarenessSignals.delete(documentId);
+  removeAwarenessStates(state.awareness, [state.awareness.clientID], "local");
+  state.awarenessRelayCleanup?.();
+  state.awarenessRelayCleanup = null;
+  state.ephemeralSession = null;
   leaveDocument(documentId);
   state.channel = null;
   state.awareness.destroy();
   state.yDoc.destroy();
-  cache.delete(documentId);
-  errorSignals.delete(documentId);
 }
 
 // ── Sync acquireYDoc/releaseYDoc (backward compatibility for editors) ──
@@ -252,6 +288,32 @@ export function setDocumentError(documentId: string, error: string): void {
   setError(error);
   const state = cache.get(documentId);
   if (state) state.error = error;
+}
+
+// ── Reactive awareness signal (for PresenceAvatars) ──────────
+
+const awarenessSignals = new Map<string, ReturnType<typeof createSignal<Awareness | null>>>();
+
+function getAwarenessSignal(documentId: string) {
+  let signal = awarenessSignals.get(documentId);
+  if (!signal) {
+    signal = createSignal<Awareness | null>(null);
+    awarenessSignals.set(documentId, signal);
+  }
+  return signal;
+}
+
+export function getDocumentAwareness(documentId: string): Awareness | null {
+  const [getter] = getAwarenessSignal(documentId);
+  return getter();
+}
+
+export function notifyAwarenessReady(documentId: string): void {
+  const state = cache.get(documentId);
+  if (state?.awareness) {
+    const [, setter] = getAwarenessSignal(documentId);
+    setter(state.awareness);
+  }
 }
 
 export function getDocText(documentId: string): string | null {

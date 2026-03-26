@@ -69,7 +69,9 @@ export type CryptoRequestType =
   | "sign-device-approval"
   | "sign-device-registration"
   | "sign-recovery-challenge"
+  | "sign-session-proof"
   // Verification
+  | "verify-session-proof"
   | "verify-ws-signature"
   | "verify-ed25519"
   | "verify-device-identity-signature"

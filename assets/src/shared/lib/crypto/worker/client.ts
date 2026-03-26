@@ -548,7 +548,31 @@ export class CryptoWorkerClient {
     };
   }
 
+  async signSessionProof(params: {
+    prefix: string;
+    localSessionId: string;
+    remoteSessionId: string;
+  }): Promise<{ signature: Uint8Array }> {
+    return (await this.send("sign-session-proof", params)) as {
+      signature: Uint8Array;
+    };
+  }
+
   // ── Verification ──────────────────────────────────────
+
+  async verifySessionProof(params: {
+    prefix: string;
+    localSessionId: string;
+    remoteSessionId: string;
+    signature: Uint8Array;
+    signingPubKey: Uint8Array;
+  }): Promise<boolean> {
+    const result = (await this.send(
+      "verify-session-proof",
+      params as unknown as Record<string, unknown>,
+    )) as { valid: boolean };
+    return result.valid;
+  }
 
   async verifyWsSignature(params: {
     prefix: string;

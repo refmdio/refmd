@@ -9,6 +9,8 @@ defmodule RefMD.Application do
   def start(_type, _args) do
     topologies = Application.get_env(:libcluster, :topologies, [])
 
+    :ets.new(:refmd_presence_pids, [:set, :public, :named_table])
+
     children = [
       RefMDWeb.Telemetry,
       RefMD.Repo,

@@ -19,6 +19,7 @@ type DeviceKeyCacheResult =
       status: "ok";
       signingKeys: Map<string, Uint8Array>;
       signingKeyOwners: Map<string, string>;
+      memberNames: Map<string, string>;
       revokedSigningKeys: Set<string>;
       rejectedSigningKeys: Set<string>;
     }
@@ -77,6 +78,17 @@ export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceK
         lastSeenAt: Date.now(),
       },
     });
+  }
+
+  // Step 2b: Get member names for verified presence display
+  const memberNames = new Map<string, string>();
+  try {
+    const membersResp = await workspacesApi.listMembers(workspaceId);
+    for (const m of membersResp.members) {
+      memberNames.set(m.user_id, m.name);
+    }
+  } catch {
+    // Best-effort: names are used for display only
   }
 
   // Step 3: Get each member's devices (using user_ids from /member-keys, not /members)
@@ -165,7 +177,14 @@ export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceK
     }
   }
 
-  return { status: "ok", signingKeys, signingKeyOwners, revokedSigningKeys, rejectedSigningKeys };
+  return {
+    status: "ok",
+    signingKeys,
+    signingKeyOwners,
+    memberNames,
+    revokedSigningKeys,
+    rejectedSigningKeys,
+  };
 }
 
 // ── Resolve signing key ──────────────────────────────────────
@@ -211,6 +230,10 @@ export async function resolveSigningKey(
   state.signingKeyOwners.clear();
   for (const [key, value] of result.signingKeyOwners) {
     state.signingKeyOwners.set(key, value);
+  }
+  state.memberNames.clear();
+  for (const [key, value] of result.memberNames) {
+    state.memberNames.set(key, value);
   }
   state.revokedSigningKeys = new Set(result.revokedSigningKeys);
   state.rejectedSigningKeys = new Set(result.rejectedSigningKeys);

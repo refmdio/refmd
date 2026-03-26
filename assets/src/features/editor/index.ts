@@ -1,5 +1,6 @@
 export { CodeMirrorEditor } from "./ui/editors/CodeMirrorEditor";
 export { ProseMirrorEditor } from "./ui/editors/ProseMirrorEditor";
+export { PresenceAvatars } from "./ui/PresenceAvatars";
 export {
   EditorApi,
   ProseMirrorEditorApi,
@@ -17,6 +18,7 @@ export {
   releaseDocumentState,
   getDocumentState,
   getDocumentError,
+  getDocumentAwareness,
 } from "./lib/document-state-cache";
 export { initializeDocumentSync } from "./lib/document-sync";
 export type {

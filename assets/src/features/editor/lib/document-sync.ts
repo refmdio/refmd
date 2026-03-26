@@ -6,7 +6,7 @@ import { documentsApi } from "@/shared/api/documents";
 import { workspacesApi } from "@/shared/api/workspaces";
 import { getPopHeaders } from "@/shared/lib/pop";
 import { buildDeviceKeyCaches } from "./document-verification";
-import { getDocumentState, setDocumentError } from "./document-state-cache";
+import { getDocumentState, setDocumentError, notifyAwarenessReady } from "./document-state-cache";
 import {
   joinDocument,
   leaveDocument,
@@ -27,8 +27,19 @@ import {
   type SnapshotSaveFailedPayload,
 } from "./ws-handlers";
 import { startAutoSync } from "./auto-sync";
-import { deviceState } from "@/shared/lib/auth-state";
+import { authState, deviceState } from "@/shared/lib/auth-state";
+import { removeAwarenessStates } from "y-protocols/awareness";
 import type { DocumentState } from "./document-state-cache";
+import {
+  createEphemeralSession,
+  encodeEphemeralPayload,
+  MSG_INITIALIZE,
+} from "./ephemeral-session";
+import { sendEphemeralEnvelope } from "./ephemeral-send";
+import { assignUserColor } from "./user-colors";
+import { handleEphemeralMessage, handlePeerLeft } from "./ws-ephemeral-handler";
+import { triggerReconnect } from "./ws-reconnect";
+import { setupAwarenessRelay } from "./ws-awareness-relay";
 
 export async function initializeDocumentSync(
   documentId: string,
@@ -128,6 +139,7 @@ async function doInitializeDocumentSync(
   }
   state.signingKeys = cacheResult.signingKeys;
   state.signingKeyOwners = cacheResult.signingKeyOwners;
+  state.memberNames = cacheResult.memberNames;
   state.revokedSigningKeys = cacheResult.revokedSigningKeys;
   state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
 
@@ -176,9 +188,22 @@ async function doInitializeDocumentSync(
       state.autoSync.dispose();
       state.autoSync = null;
     }
+    // Clear all awareness states (local + remote) to prevent stale avatars
+    const allClientIds: number[] = [];
+    state.awareness.getStates().forEach((_, clientId) => allClientIds.push(clientId));
+    if (allClientIds.length > 0) {
+      removeAwarenessStates(state.awareness, allClientIds, "fail-closed");
+    }
+    state.awarenessClientOwners.clear();
+    state.awarenessRelayCleanup?.();
+    state.awarenessRelayCleanup = null;
+    state.ephemeralSession = null;
+    state.channel = null;
     state.sending = false;
     state.pendingSnapshot = null;
+    state.pendingSnapshotEnvelope = null;
     state.pendingUpdateBytes = null;
+    state.pendingUpdateEnvelope = null;
     leaveDocument(documentId);
   }
 
@@ -224,22 +249,38 @@ async function doInitializeDocumentSync(
         failClosed("verification_failed", err);
       });
     },
-    onEphemeralMessage: () => {
-      // Ephemeral handling is Phase 4-23
+    onEphemeralMessage: (payload) => {
+      handleEphemeralMessage(
+        payload as Record<string, unknown>,
+        state,
+        documentId,
+        localDeviceSigningPubKey,
+        failClosed,
+      );
+    },
+    onPeerLeft: (payload) => {
+      handlePeerLeft(payload, state);
     },
     onUnauthorized: () => {
       failClosed("unauthorized");
     },
     onError: (reason) => {
-      if (reason === "document_not_found" || reason === "document_error") {
+      if (
+        reason === "document_not_found" ||
+        reason === "document_error" ||
+        reason === "connection_cap_evict"
+      ) {
         failClosed(String(reason));
+      } else if (state.initialized) {
+        triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
       } else {
-        console.error("[ws] Channel error:", reason);
+        failClosed(String(reason) || "connection_error");
       }
     },
     onClose: () => {
-      // Only fail-closed if state is still alive (not a normal teardown eviction)
-      if (state.initialized && getDocumentState(documentId)) {
+      if (state.initialized) {
+        triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
+      } else {
         failClosed("disconnected");
       }
     },
@@ -274,6 +315,25 @@ async function doInitializeDocumentSync(
   } catch (err) {
     failClosed("initial_load_failed", err);
     throw err;
+  }
+
+  // Drain events queued during async document processing
+  const queued = state._pendingRemoteEvents.splice(0);
+  for (const event of queued) {
+    if (event.type === "update") {
+      await handleRemoteUpdate(
+        event.payload as Parameters<typeof handleRemoteUpdate>[0],
+        state,
+        documentId,
+        localDeviceSigningPubKey,
+      );
+    } else {
+      await handleRemoteSnapshot(
+        event.payload as Parameters<typeof handleRemoteSnapshot>[0],
+        state,
+        documentId,
+      );
+    }
   }
 
   // Guard: check again after async message processing
@@ -318,6 +378,26 @@ async function doInitializeDocumentSync(
 
   // 9. Start auto-sync
   state.autoSync = startAutoSync(documentId, state);
+
+  // 10. Initialize ephemeral session and awareness relay
+  const auth = authState();
+  const currentDevice = deviceState();
+  if (auth && currentDevice && localDeviceSigningPubKey) {
+    state.awareness.setLocalStateField("user", {
+      userId: auth.user.id,
+      name: auth.user.name,
+      color: assignUserColor(auth.user.id, state.awareness),
+      signingPubKey: localDeviceSigningPubKey,
+    });
+
+    const session = createEphemeralSession();
+    state.ephemeralSession = session;
+
+    sendInitialize(session, state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
+
+    setupAwarenessRelay(state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
+    notifyAwarenessReady(documentId);
+  }
 }
 
 export function teardownDocumentSync(documentId: string, state: DocumentState): void {
@@ -325,8 +405,14 @@ export function teardownDocumentSync(documentId: string, state: DocumentState): 
     state.autoSync.dispose();
     state.autoSync = null;
   }
-  leaveDocument(documentId);
+  removeAwarenessStates(state.awareness, [state.awareness.clientID], "local");
+  state.awarenessRelayCleanup?.();
+  state.awarenessRelayCleanup = null;
+  state.ephemeralSession = null;
+  state.pendingUpdateEnvelope = null;
+  state.pendingSnapshotEnvelope = null;
   state.channel = null;
+  leaveDocument(documentId);
 }
 
 /**
@@ -419,11 +505,14 @@ async function doCompleteDekRotation(
     kekVersion: kekVersion,
   });
 
-  state.keyVersion = nextKeyVersion;
+  // Don't advance state.keyVersion yet — peers still have the old DEK.
+  // The rotation snapshot is the cutover point; keyVersion advances in handleSnapshotSaved.
+  // Ephemeral messages continue using the old DEK until all peers have the new one.
+  state.pendingRotationKeyVersion = nextKeyVersion;
 
-  // Immediate title re-encryption (independent of snapshot)
+  // Immediate title re-encryption uses the new key directly via nextKeyVersion
   try {
-    await reEncryptTitleIfNeeded(documentId, workspaceId, state);
+    await reEncryptTitleIfNeeded(documentId, workspaceId, state, nextKeyVersion);
   } catch (err) {
     console.error("[sync] Title re-encryption failed (will retry on next open):", err);
   }
@@ -441,8 +530,10 @@ async function reEncryptTitleIfNeeded(
   documentId: string,
   _workspaceId: string,
   state: DocumentState,
+  targetKeyVersion?: number,
 ): Promise<void> {
   const worker = getCryptoWorker();
+  const newKeyVersion = targetKeyVersion ?? state.keyVersion;
 
   let doc: Awaited<ReturnType<typeof documentsApi.get>>;
   try {
@@ -456,7 +547,7 @@ async function reEncryptTitleIfNeeded(
   }
 
   // Only re-encrypt if title is on an older DEK version
-  if (doc.encrypted_title_key_version >= state.keyVersion) return;
+  if (doc.encrypted_title_key_version >= newKeyVersion) return;
 
   const oldKeyVersion = doc.encrypted_title_key_version;
   const title = await worker.decryptTitle({
@@ -466,7 +557,6 @@ async function reEncryptTitleIfNeeded(
     keyVersion: oldKeyVersion,
   });
 
-  const newKeyVersion = state.keyVersion;
   const { encrypted, nonce } = await worker.encryptTitle({
     title,
     documentId,
@@ -478,4 +568,32 @@ async function reEncryptTitleIfNeeded(
     encrypted_title_nonce: base64UrlEncode(nonce),
     encrypted_title_key_version: newKeyVersion,
   });
+}
+
+// ── Ephemeral initialize with handshake fallback ─────────────
+
+const INIT_RETRY_DELAY_MS = 5_000;
+const MAX_INIT_RETRIES = 3;
+
+export function sendInitialize(
+  session: ReturnType<typeof createEphemeralSession>,
+  state: DocumentState,
+  documentId: string,
+  deviceId: string,
+  signingPubKeyB64: string,
+  attempt = 0,
+): void {
+  const payload = encodeEphemeralPayload(session, MSG_INITIALIZE, new Uint8Array(0));
+  sendEphemeralEnvelope(payload, documentId, state.keyVersion, deviceId, signingPubKeyB64)
+    .then(() => {
+      session.initializeSent = true;
+    })
+    .catch(() => {});
+
+  if (attempt < MAX_INIT_RETRIES) {
+    setTimeout(() => {
+      if (state.ephemeralSession !== session || !state.channel) return;
+      sendInitialize(session, state, documentId, deviceId, signingPubKeyB64, attempt + 1);
+    }, INIT_RETRY_DELAY_MS);
+  }
 }

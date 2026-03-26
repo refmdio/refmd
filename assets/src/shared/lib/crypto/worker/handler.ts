@@ -361,8 +361,12 @@ export async function handleRequest(
       return handleSignDeviceRegistration(state, p);
     case "sign-recovery-challenge":
       return handleSignRecoveryChallenge(state, p);
+    case "sign-session-proof":
+      return handleSignSessionProof(state, p);
 
     // Verification
+    case "verify-session-proof":
+      return handleVerifySessionProof(p);
     case "verify-ws-signature":
       return handleVerifyWsSignature(p);
     case "verify-ed25519":
@@ -1471,7 +1475,46 @@ function handleSignRecoveryChallenge(state: WorkerKeyState, p: Record<string, un
   return { signature: sign(message, identitySigningPrivate) };
 }
 
+function buildSessionProofMessage(
+  prefix: string,
+  localSessionId: string,
+  remoteSessionId: string,
+): Uint8Array {
+  const prefixBytes = new TextEncoder().encode(prefix);
+  const body = canonicalizeBytes({ localSessionId, remoteSessionId });
+  const result = new Uint8Array(prefixBytes.length + body.length);
+  result.set(prefixBytes);
+  result.set(body, prefixBytes.length);
+  return result;
+}
+
+function handleSignSessionProof(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const prefix = p.prefix as string;
+  const localSessionId = p.localSessionId as string;
+  const remoteSessionId = p.remoteSessionId as string;
+  const signingPrivate = requireDeviceSigningPrivate(state);
+
+  const message = buildSessionProofMessage(prefix, localSessionId, remoteSessionId);
+  return { signature: sign(message, signingPrivate) };
+}
+
 // ── Verification ─────────────────────────────────────────────
+
+function handleVerifySessionProof(p: Record<string, unknown>): unknown {
+  const prefix = p.prefix as string;
+  const localSessionId = p.localSessionId as string;
+  const remoteSessionId = p.remoteSessionId as string;
+  const signature = p.signature as Uint8Array;
+  const signingPubKey = p.signingPubKey as Uint8Array;
+
+  const message = buildSessionProofMessage(prefix, localSessionId, remoteSessionId);
+
+  try {
+    return { valid: verify(message, signature, signingPubKey) };
+  } catch {
+    return { valid: false };
+  }
+}
 
 function handleVerifyWsSignature(p: Record<string, unknown>): unknown {
   const prefix = p.prefix as string;

@@ -202,7 +202,7 @@ export async function handleDocumentMessage(
   for (const update of payload.updates) {
     if (update.version > effectiveVersion) effectiveVersion = update.version;
   }
-  if (state.initialized && effectiveVersion < state.latestVersion) {
+  if (state.latestVersion > 0 && effectiveVersion < state.latestVersion) {
     state.activeSnapshotId = prevActiveSnapshotId;
     state.knownClocks = prevKnownClocks;
     state.confirmedClocks = prevConfirmedClocks;
@@ -225,18 +225,35 @@ export async function handleDocumentMessage(
     state.snapshotCiphertextHash = snapshotMeta.ciphertextHash;
   }
 
-  // Build lastSavedState from server data only (decoded snapshot + updates, not live Y.Doc)
-  const serverDoc = new Y.Doc();
-  if (decryptedSnapshot) {
-    Y.applyUpdateV2(serverDoc, decryptedSnapshot, "remote");
-  }
-  for (const { decrypted } of decryptedUpdates) {
-    Y.applyUpdate(serverDoc, decrypted, "remote");
-  }
-  state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
-  serverDoc.destroy();
+  // Build lastSavedState from server data only (decoded snapshot + updates, not live Y.Doc).
+  // For same-snapshot delta reconnect (snapshot: null, already initialized),
+  // preserve existing lastSavedState and update count — only apply delta to Y.Doc.
+  const isDeltaSameSnapshot = !payload.snapshot && state.activeSnapshotId !== null;
+  if (!isDeltaSameSnapshot) {
+    const serverDoc = new Y.Doc();
+    if (decryptedSnapshot) {
+      Y.applyUpdateV2(serverDoc, decryptedSnapshot, "remote");
+    }
+    for (const { decrypted } of decryptedUpdates) {
+      Y.applyUpdate(serverDoc, decrypted, "remote");
+    }
+    state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
+    serverDoc.destroy();
 
-  state.snapshotUpdatesCount = payload.updates.length;
+    state.snapshotUpdatesCount = payload.updates.length;
+  } else {
+    // Delta reconnect: update lastSavedState incrementally with delta updates
+    if (state.lastSavedState && decryptedUpdates.length > 0) {
+      const trackingDoc = new Y.Doc();
+      Y.applyUpdate(trackingDoc, state.lastSavedState, "remote");
+      for (const { decrypted } of decryptedUpdates) {
+        Y.applyUpdate(trackingDoc, decrypted, "remote");
+      }
+      state.lastSavedState = Y.encodeStateAsUpdate(trackingDoc);
+      trackingDoc.destroy();
+    }
+    state.snapshotUpdatesCount += payload.updates.length;
+  }
   state.latestVersion = effectiveVersion;
 
   // Advance keyVersion to the highest version seen in initial data
@@ -260,7 +277,10 @@ export async function handleRemoteUpdate(
   documentId: string,
   localDeviceSigningPubKey?: string,
 ): Promise<void> {
-  if (!state.initialized) return;
+  if (!state.initialized) {
+    state._pendingRemoteEvents.push({ type: "update", payload });
+    return;
+  }
 
   // Reject updates from revoked devices on live path
   if (state.revokedSigningKeys.has(payload.publicData.signingPubKey)) {
@@ -309,7 +329,10 @@ export async function handleRemoteSnapshot(
   state: DocumentState,
   documentId: string,
 ): Promise<void> {
-  if (!state.initialized) return;
+  if (!state.initialized) {
+    state._pendingRemoteEvents.push({ type: "snapshot", payload });
+    return;
+  }
 
   if (state.revokedSigningKeys.has(payload.snapshot.publicData.signingPubKey)) {
     throw new Error(
@@ -418,6 +441,7 @@ export function handleUpdateSaved(payload: UpdateSavedPayload, state: DocumentSt
     serverDoc.destroy();
   }
   state.pendingUpdateBytes = null;
+  state.pendingUpdateEnvelope = null;
   state.sending = false;
 
   if (payload.version > state.latestVersion) {
@@ -438,6 +462,7 @@ export function handleUpdateSaveFailed(
     state.localClock = sentClock;
   }
   state.pendingUpdateBytes = null;
+  state.pendingUpdateEnvelope = null;
   state.sending = false;
 
   if (payload.requiresNewSnapshot) {
@@ -462,7 +487,13 @@ export function handleSnapshotSaved(payload: SnapshotSavedPayload, state: Docume
   state.snapshotUpdatesCount = 0;
 
   state.pendingSnapshot = null;
+  state.pendingSnapshotEnvelope = null;
   state.sending = false;
+  // Advance keyVersion on rotation snapshot confirmation (cutover point)
+  if (state.pendingRotationKeyVersion !== null) {
+    state.keyVersion = state.pendingRotationKeyVersion;
+    state.pendingRotationKeyVersion = null;
+  }
   state.pendingRotationSnapshot = false;
   state.knownClocks = {};
   state.confirmedClocks = {};
@@ -477,6 +508,7 @@ export async function handleSnapshotSaveFailed(
   documentId: string,
 ): Promise<void> {
   state.pendingSnapshot = null;
+  state.pendingSnapshotEnvelope = null;
   state.sending = false;
 
   if (payload.snapshot || payload.updates.length > 0) {

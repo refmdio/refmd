@@ -43,6 +43,7 @@ export interface DocumentChannelCallbacks {
   onSnapshotSaved: (payload: Record<string, unknown>) => void;
   onSnapshotSaveFailed: (payload: Record<string, unknown>) => void;
   onEphemeralMessage: (payload: Record<string, unknown>) => void;
+  onPeerLeft: (payload: Record<string, unknown>) => void;
   onUnauthorized: () => void;
   onError: (reason: unknown) => void;
   onClose: () => void;
@@ -66,6 +67,34 @@ export async function joinDocument(
 
   const channel = sock.channel(topic, params);
 
+  // Disable Phoenix auto-rejoin BEFORE join(): PoP challenge is consumed on
+  // first join, so auto-rejoin with stale params always fails.
+  // 1. Remove socket.onOpen/onError refs that trigger channel.rejoin()
+  const sockAny = sock as any;
+  const chanAny = channel as any;
+  const stateChangeRefs = chanAny.stateChangeRefs as number[];
+  if (stateChangeRefs) {
+    for (const ref of stateChangeRefs) {
+      sockAny.off([ref]);
+    }
+    stateChangeRefs.length = 0;
+  }
+  // 2. Neuter the rejoinTimer so error/timeout handlers can't schedule retries
+  const rejoinTimer = chanAny.rejoinTimer;
+  if (rejoinTimer) {
+    rejoinTimer.reset();
+    rejoinTimer.scheduleTimeout = () => {};
+  }
+  // 3. Notify onClose when socket disconnects so document-sync can reconnect
+  stateChangeRefs.push(
+    sockAny.onClose(() => {
+      if (channel.state === "joined") {
+        chanAny.state = "closed";
+        callbacks.onClose();
+      }
+    }),
+  );
+
   channel.on("document", (payload) => callbacks.onDocument(payload));
   channel.on("update", (payload) => callbacks.onUpdate(payload));
   channel.on("snapshot", (payload) => callbacks.onSnapshot(payload));
@@ -74,6 +103,8 @@ export async function joinDocument(
   channel.on("snapshot-saved", (payload) => callbacks.onSnapshotSaved(payload));
   channel.on("snapshot-save-failed", (payload) => callbacks.onSnapshotSaveFailed(payload));
   channel.on("ephemeral-message", (payload) => callbacks.onEphemeralMessage(payload));
+  channel.on("peer-left", (payload) => callbacks.onPeerLeft(payload));
+  channel.on("connection-cap-evict", () => callbacks.onError("connection_cap_evict"));
   channel.on("unauthorized", () => callbacks.onUnauthorized());
   channel.on("document-not-found", () => callbacks.onError("document_not_found"));
   channel.on("document-error", () => callbacks.onError("document_error"));
@@ -86,10 +117,18 @@ export async function joinDocument(
   return new Promise<Channel>((resolve, reject) => {
     channel
       .join()
-      .receive("ok", () => resolve(channel))
+      .receive("ok", (resp: unknown) => {
+        const r = resp as Record<string, unknown> | undefined;
+        if (r?.connectionId) {
+          (channel as any).__connectionId = r.connectionId;
+        }
+        resolve(channel);
+      })
       .receive("error", (resp) => {
         channels.delete(documentId);
-        reject(new Error(`Channel join failed: ${JSON.stringify(resp)}`));
+        const err = new Error(`Channel join failed: ${JSON.stringify(resp)}`);
+        (err as any).joinErrorResp = resp;
+        reject(err);
       })
       .receive("timeout", () => {
         channels.delete(documentId);
@@ -104,7 +143,10 @@ export function pushUpdate(
   onReject?: (resp: unknown) => void,
 ): void {
   const channel = channels.get(documentId);
-  if (!channel || channel.state !== "joined") return;
+  if (!channel || channel.state !== "joined") {
+    console.warn(`[ws] pushUpdate dropped: channel=${channel?.state ?? "missing"}`);
+    return;
+  }
   const push = channel.push("update", payload);
   if (onReject) {
     push.receive("error", onReject).receive("timeout", () => onReject("timeout"));
@@ -124,15 +166,48 @@ export function pushSnapshot(
   }
 }
 
-export function pushEphemeral(documentId: string, payload: Record<string, unknown>): void {
+export function pushEphemeral(documentId: string, payload: Record<string, unknown>): boolean {
   const channel = channels.get(documentId);
-  if (!channel || channel.state !== "joined") return;
+  if (!channel || channel.state !== "joined") return false;
   channel.push("ephemeral", payload);
+  return true;
+}
+
+export async function rejoinDocument(
+  documentId: string,
+  params: Record<string, unknown>,
+  callbacks: DocumentChannelCallbacks,
+): Promise<Channel> {
+  const existing = channels.get(documentId);
+  if (existing) {
+    // Remove socket state change refs before leave to prevent onClose from firing
+    const refs = (existing as any).stateChangeRefs as number[];
+    if (refs) {
+      const sockAny = (existing as any).socket;
+      for (const ref of refs) {
+        sockAny?.off?.([ref]);
+      }
+      refs.length = 0;
+    }
+    existing.leave();
+    channels.delete(documentId);
+  }
+
+  return joinDocument(documentId, params, callbacks);
 }
 
 export function leaveDocument(documentId: string): void {
   const channel = channels.get(documentId);
   if (!channel) return;
+  // Release socket-level stateChangeRefs to prevent listener leak
+  const refs = (channel as any).stateChangeRefs as number[];
+  if (refs) {
+    const sockAny = (channel as any).socket;
+    for (const ref of refs) {
+      sockAny?.off?.([ref]);
+    }
+    refs.length = 0;
+  }
   channel.leave();
   channels.delete(documentId);
 }

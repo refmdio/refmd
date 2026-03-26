@@ -171,28 +171,27 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
     });
 
     // 5. Send
-    pushUpdate(
-      documentId,
-      {
-        ciphertext: ciphertextB64,
-        nonce: nonceB64,
-        signature: base64UrlEncode(signature),
-        publicData,
-      },
-      (resp: unknown) => {
-        // Only reset on actual server error (not timeout — timeout fires
-        // even on success because server uses {:noreply} + separate event)
-        if (resp !== "timeout" && state.pendingUpdateBytes) {
-          state.sending = false;
-          state.pendingUpdateBytes = null;
-          state.localClock = state.preSendLocalClock;
-          if (state.autoSync) state.autoSync.notifyLocalEdit();
-        }
-      },
-    );
+    const envelope = {
+      ciphertext: ciphertextB64,
+      nonce: nonceB64,
+      signature: base64UrlEncode(signature),
+      publicData,
+    };
+    pushUpdate(documentId, envelope, (resp: unknown) => {
+      // Only reset on actual server error (not timeout — timeout fires
+      // even on success because server uses {:noreply} + separate event)
+      if (resp !== "timeout" && state.pendingUpdateBytes) {
+        state.sending = false;
+        state.pendingUpdateBytes = null;
+        state.pendingUpdateEnvelope = null;
+        state.localClock = state.preSendLocalClock;
+        if (state.autoSync) state.autoSync.notifyLocalEdit();
+      }
+    });
 
-    // Save pending update bytes for lastSavedState update on update-saved
+    // Save pending state for update-saved handling and reconnect replay
     state.pendingUpdateBytes = updateBytes;
+    state.pendingUpdateEnvelope = envelope;
     state.preSendLocalClock = state.localClock;
     state.localClock++;
   } catch (err) {
@@ -266,25 +265,24 @@ async function createAndSendGenesisSnapshot(
   // Send (reject callback only fires on server error, not timeout;
   // timeout always fires with {:noreply} but snapshot-saved/snapshot-save-failed
   // events are the authoritative confirmation)
-  pushSnapshot(
-    documentId,
-    {
-      ciphertext: ciphertextB64,
-      nonce: nonceB64,
-      signature: base64UrlEncode(signature),
-      publicData,
-    },
-    (resp: unknown) => {
-      if (resp === "timeout") return;
-      state.pendingSnapshot = null;
-      state.sending = false;
-      if (isPermanentPushFailure(resp)) {
-        state.pendingRotationSnapshot = false;
-      } else {
-        scheduleSnapshotRetryIfNeeded(state);
-      }
-    },
-  );
+  const snapshotEnvelope = {
+    ciphertext: ciphertextB64,
+    nonce: nonceB64,
+    signature: base64UrlEncode(signature),
+    publicData,
+  };
+  state.pendingSnapshotEnvelope = snapshotEnvelope;
+  pushSnapshot(documentId, snapshotEnvelope, (resp: unknown) => {
+    if (resp === "timeout") return;
+    state.pendingSnapshot = null;
+    state.pendingSnapshotEnvelope = null;
+    state.sending = false;
+    if (isPermanentPushFailure(resp)) {
+      state.pendingRotationSnapshot = false;
+    } else {
+      scheduleSnapshotRetryIfNeeded(state);
+    }
+  });
 }
 
 // ── Threshold snapshot ───────────────────────────────────────
@@ -305,11 +303,14 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
   // Encode full Y.Doc state (V2 format)
   const yjsState = Y.encodeStateAsUpdateV2(state.yDoc);
 
+  // For rotation snapshots, use the pending new key version
+  const snapshotKeyVersion = state.pendingRotationKeyVersion ?? state.keyVersion;
+
   // Encrypt
   const { ciphertext, nonce } = await worker.encryptSnapshot({
     plaintext: yjsState,
     documentId,
-    keyVersion: state.keyVersion,
+    keyVersion: snapshotKeyVersion,
   });
   const ciphertextB64 = base64UrlEncode(ciphertext);
   const nonceB64 = base64UrlEncode(nonce);
@@ -330,7 +331,7 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
     snapshotId,
     deviceId,
     signingPubKey: deviceSigningPubKey,
-    keyVersion: state.keyVersion,
+    keyVersion: snapshotKeyVersion,
     parentSnapshotId: state.activeSnapshotId,
     parentSnapshotProof,
     parentSnapshotUpdateClocks: { ...state.knownClocks },
@@ -354,25 +355,24 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
   };
 
   // Send (same pattern: ignore timeout, only handle server error)
-  pushSnapshot(
-    documentId,
-    {
-      ciphertext: ciphertextB64,
-      nonce: nonceB64,
-      signature: base64UrlEncode(signature),
-      publicData,
-    },
-    (resp: unknown) => {
-      if (resp === "timeout") return;
-      state.pendingSnapshot = null;
-      state.sending = false;
-      if (isPermanentPushFailure(resp)) {
-        state.pendingRotationSnapshot = false;
-      } else {
-        scheduleSnapshotRetryIfNeeded(state);
-      }
-    },
-  );
+  const snapshotEnvelope = {
+    ciphertext: ciphertextB64,
+    nonce: nonceB64,
+    signature: base64UrlEncode(signature),
+    publicData,
+  };
+  state.pendingSnapshotEnvelope = snapshotEnvelope;
+  pushSnapshot(documentId, snapshotEnvelope, (resp: unknown) => {
+    if (resp === "timeout") return;
+    state.pendingSnapshot = null;
+    state.pendingSnapshotEnvelope = null;
+    state.sending = false;
+    if (isPermanentPushFailure(resp)) {
+      state.pendingRotationSnapshot = false;
+    } else {
+      scheduleSnapshotRetryIfNeeded(state);
+    }
+  });
 }
 
 // ── Snapshot push failure handling ───────────────────────────
