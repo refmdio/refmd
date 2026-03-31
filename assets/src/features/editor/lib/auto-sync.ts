@@ -4,6 +4,8 @@ import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { deviceState } from "@/shared/lib/auth-state";
 import { pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
 import type { DocumentState } from "./document-state-cache";
+import { offlineMode, onOfflineModeChange } from "@/shared/lib/offline/offline-state";
+import { cachePendingChanges } from "@/shared/lib/offline/cache-manager";
 
 const THROTTLE_MS = 25;
 const SNAPSHOT_UPDATE_THRESHOLD = 100;
@@ -26,6 +28,14 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
       timer = null;
       if (disposed) return;
       if (dirty) {
+        // Offline mode: skip server sends, flush pending changes to IndexedDB
+        if (offlineMode()) {
+          if (state.initialized && state.keyVersion > 0) {
+            dirty = false;
+            cachePendingChanges(documentId, state).catch(() => {});
+          }
+          return;
+        }
         if (!state.initialized || !state.channel || state.sending || state.error) return;
         dirty = false;
         await sendPendingChanges(documentId, state).catch((err) => {
@@ -49,9 +59,23 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
     scheduleSend();
   }
 
+  // When transitioning from offline to online, re-trigger send.
+  // Only send if channel is still joined (short outage within heartbeat).
+  // If the channel disconnected, triggerReconnect handles the delta rejoin flow.
+  const cleanupOfflineWatch = onOfflineModeChange((isOffline) => {
+    if (!isOffline && state.initialized && state.channel) {
+      const chanState = (state.channel as any).state;
+      if (chanState === "joined") {
+        dirty = true;
+        scheduleSend();
+      }
+    }
+  });
+
   return {
     dispose() {
       disposed = true;
+      cleanupOfflineWatch();
       state.yDoc.off("update", observer);
       if (timer) {
         clearTimeout(timer);

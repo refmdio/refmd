@@ -6,6 +6,8 @@ import { encryptionApi } from "@/shared/api";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import type { TitleDecryptItem } from "@/shared/lib/crypto/worker/types";
 import type { DocumentResponse } from "./types";
+import { getOfflineDek } from "@/shared/lib/offline/offline-store";
+import { recoverKekFromCache, cacheOfflineTitle } from "@/shared/lib/offline/cache-manager";
 
 const titleCache = new Map<string, { title: string; nonce: string | null }>();
 
@@ -65,6 +67,7 @@ export function useDocumentTitles(
     decryptBatch(needsDecryption, wsId, (docId, title, nonce) => {
       titleCache.set(docId, { title, nonce });
       updateSignal();
+      cacheOfflineTitle(docId, wsId, title).catch(() => {});
     });
   });
 
@@ -75,6 +78,13 @@ export function useDocumentTitles(
 
   function isTitleReady(doc: DocumentResponse): boolean {
     if (!doc.is_encrypted) return true;
+    if (
+      !doc.encrypted_title ||
+      !doc.encrypted_title_nonce ||
+      doc.encrypted_title_key_version == null
+    ) {
+      return true;
+    }
     return doc.id in decryptedTitles();
   }
 
@@ -93,7 +103,8 @@ async function decryptBatch(
   try {
     await resolveActiveKek(workspaceId);
   } catch {
-    // Active KEK resolution failed; per-document resolution will handle individual versions
+    // Active KEK resolution failed; try offline KEK cache
+    await recoverKekFromCache(workspaceId).catch(() => {});
   }
 
   // Ensure DEKs are cached for each document (resolves version-specific KEK if needed)
@@ -152,6 +163,20 @@ async function ensureDekForTitleDecryption(
       kekVersion: matchingKey.kek_version,
     });
   } catch {
-    // Skip documents where DEK resolution fails
+    // Fallback: try offline DEK cache (DSK-wrapped)
+    try {
+      const offlineDek = await getOfflineDek(doc.id);
+      if (offlineDek) {
+        await worker.unwrapDekFromOffline({
+          ciphertext: offlineDek.wrappedDek,
+          iv: offlineDek.wrappedDekNonce,
+          documentId: doc.id,
+          keyVersion: offlineDek.keyVersion,
+          isActive: true,
+        });
+      }
+    } catch {
+      // Skip documents where offline DEK resolution also fails
+    }
   }
 }

@@ -7,6 +7,13 @@ import { documentsApi } from "@/shared/api/documents";
 import { deviceState } from "@/shared/lib/auth-state";
 import { resolveSigningKey } from "./document-verification";
 import type { DocumentState } from "./document-state-cache";
+import { cacheDocumentState } from "@/shared/lib/offline/cache-manager";
+import { deletePendingChanges } from "@/shared/lib/offline/offline-store";
+import {
+  getDocumentStatePin,
+  putDocumentStatePin,
+  updatePinFromState,
+} from "@/shared/lib/anti-rollback/document-state-pins";
 
 // ── Types for incoming payloads ──────────────────────────────
 
@@ -88,6 +95,70 @@ export async function handleDocumentMessage(
 ): Promise<void> {
   const worker = getCryptoWorker();
 
+  // Validate against persisted anti-rollback pin (if exists).
+  // Version/clock rollback: set warning for user approval (design: 警告表示、承認で続行).
+  // Proof chain failure: fail-closed (design: 同期中止).
+  const pin = await getDocumentStatePin(documentId).catch(() => null);
+  if (pin) {
+    const rollbackWarnings: string[] = [];
+    let incomingVersion = payload.latestVersion ?? 0;
+    if (payload.updates) {
+      for (const u of payload.updates) {
+        if (u.version > incomingVersion) incomingVersion = u.version;
+      }
+    }
+    if (incomingVersion > 0 && incomingVersion < pin.latestGlobalVersion) {
+      rollbackWarnings.push(
+        `Version rollback: server=${incomingVersion} < pin=${pin.latestGlobalVersion}`,
+      );
+    }
+    const sameSnapshot = payload.snapshot
+      ? payload.snapshot.publicData.snapshotId === pin.latestSnapshotId
+      : true;
+    if (sameSnapshot && payload.updates) {
+      const clockObservations = collectClockObservations(payload.updates);
+      if (state._lastJoinMode === "complete") {
+        for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
+          const observed = clockObservations.get(deviceKey);
+          if (!observed) continue;
+          if (observed.max < pinnedClock) {
+            rollbackWarnings.push(
+              `Clock rollback: device=${deviceKey} clock=${observed.max} < pin=${pinnedClock}`,
+            );
+          } else if (observed.max > pinnedClock + 1 && !observed.seen.has(pinnedClock + 1)) {
+            rollbackWarnings.push(
+              `Clock gap: device=${deviceKey} expected=${pinnedClock + 1} got=${observed.max}`,
+            );
+          }
+        }
+      } else {
+        for (const update of payload.updates) {
+          const pinnedClock = pin.perDeviceMaxClocks[update.publicData.signingPubKey];
+          if (pinnedClock !== undefined) {
+            if (update.publicData.clock < pinnedClock) {
+              rollbackWarnings.push(
+                `Clock rollback: device=${update.publicData.signingPubKey} clock=${update.publicData.clock} < pin=${pinnedClock}`,
+              );
+            } else if (update.publicData.clock > pinnedClock + 1) {
+              rollbackWarnings.push(
+                `Clock gap: device=${update.publicData.signingPubKey} expected=${pinnedClock + 1} got=${update.publicData.clock}`,
+              );
+            }
+          }
+        }
+      }
+    }
+    if (rollbackWarnings.length > 0) {
+      if (state._headlessSync) {
+        throw new Error("rollback_approval_required");
+      }
+      const { requestRollbackApproval } = await import("./document-state-cache");
+      await requestRollbackApproval(documentId, rollbackWarnings.join("; "));
+      // User approved: reset in-memory version to avoid subsequent regression check failure
+      state.latestVersion = 0;
+    }
+  }
+
   // Phase 1: Decrypt snapshot (async, before transact)
   let decryptedSnapshot: Uint8Array | null = null;
   let snapshotMeta: {
@@ -129,8 +200,11 @@ export async function handleDocumentMessage(
     }
 
     // Step 3c: parentSnapshotProof verification via snapshotProofChain
-    if (state.activeSnapshotId) {
-      const snapshotChanged = snap.publicData.snapshotId !== state.activeSnapshotId;
+    // Use persisted pin as anchor when in-memory state is empty (cold join after restart)
+    const anchorSnapshotId = state.activeSnapshotId ?? pin?.latestSnapshotId ?? null;
+    const anchorProofHash = state.snapshotProofHash || pin?.latestSnapshotProofHash || "";
+    if (anchorSnapshotId) {
+      const snapshotChanged = snap.publicData.snapshotId !== anchorSnapshotId;
 
       if (snapshotChanged && payload.snapshotProofChain.length === 0) {
         // Fail-closed: pin exists, snapshot changed, but no proof chain
@@ -138,11 +212,9 @@ export async function handleDocumentMessage(
       }
 
       if (snapshotChanged && payload.snapshotProofChain.length > 0) {
-        const pinnedProof = await worker.computeSnapshotProof({
-          ciphertextHash: state.snapshotCiphertextHash,
-          parentProof: state.snapshotProofHash,
-          snapshotId: state.activeSnapshotId,
-        });
+        // anchorProofHash IS the computed proof for the anchor snapshot.
+        // Chain head's parentSnapshotProof should match this directly.
+        const pinnedProof = anchorProofHash;
         const incomingCiphertextHash = base64UrlEncode(
           await worker.blake3Hash(base64UrlDecode(snap.ciphertext)),
         );
@@ -181,6 +253,8 @@ export async function handleDocumentMessage(
 
   if (snapshotMeta) {
     state.activeSnapshotId = snapshotMeta.snapshotId;
+    // Clocks reset when snapshot changes (design: local-storage.md step 4d).
+    // per_device_max_clocks is rebuilt from updates within the new snapshot.
     state.knownClocks = {};
     state.confirmedClocks = {};
   }
@@ -219,9 +293,15 @@ export async function handleDocumentMessage(
     }
   }, "remote");
 
-  // Commit snapshot metadata after successful verification + application
+  // Commit snapshot metadata after successful verification + application.
+  // Compute the proof hash for the active snapshot (not its parent's proof).
   if (snapshotMeta) {
-    state.snapshotProofHash = snapshotMeta.parentSnapshotProof;
+    const worker = getCryptoWorker();
+    state.snapshotProofHash = await worker.computeSnapshotProof({
+      ciphertextHash: snapshotMeta.ciphertextHash,
+      parentProof: snapshotMeta.parentSnapshotProof,
+      snapshotId: snapshotMeta.snapshotId,
+    });
     state.snapshotCiphertextHash = snapshotMeta.ciphertextHash;
   }
 
@@ -264,6 +344,25 @@ export async function handleDocumentMessage(
     if (update.publicData.keyVersion > state.keyVersion) {
       state.keyVersion = update.publicData.keyVersion;
     }
+  }
+
+  // Persist anti-rollback pin
+  const docId =
+    payload.snapshot?.publicData?.docId ??
+    (payload.updates.length > 0 ? payload.updates[0].publicData.docId : null);
+  if (docId) {
+    getDocumentStatePin(docId).then((existing) => {
+      const pin = updatePinFromState(
+        existing,
+        docId,
+        state.activeSnapshotId,
+        state.snapshotProofHash,
+        state.snapshotCiphertextHash,
+        state.confirmedClocks,
+        state.latestVersion,
+      );
+      putDocumentStatePin(pin).catch(() => {});
+    });
   }
 
   state.initialized = true;
@@ -314,6 +413,20 @@ export async function handleRemoteUpdate(
   }
   state.snapshotUpdatesCount++;
 
+  // Persist anti-rollback pin (version update)
+  getDocumentStatePin(documentId).then((existing) => {
+    const pin = updatePinFromState(
+      existing,
+      documentId,
+      state.activeSnapshotId,
+      state.snapshotProofHash,
+      state.snapshotCiphertextHash,
+      state.confirmedClocks,
+      state.latestVersion,
+    );
+    putDocumentStatePin(pin).catch(() => {});
+  });
+
   // If this update is from our own device, advance localClock
   if (localDeviceSigningPubKey && payload.publicData.signingPubKey === localDeviceSigningPubKey) {
     if (payload.publicData.clock >= state.localClock) {
@@ -362,14 +475,11 @@ export async function handleRemoteSnapshot(
     );
   }
 
-  // Verify parentSnapshotProof via BLAKE3 re-computation
-  if (state.activeSnapshotId !== null) {
-    const expectedProof = await worker.computeSnapshotProof({
-      ciphertextHash: state.snapshotCiphertextHash,
-      parentProof: state.snapshotProofHash,
-      snapshotId: state.activeSnapshotId,
-    });
-    if (snap.publicData.parentSnapshotProof !== expectedProof) {
+  // Verify parentSnapshotProof matches the current active snapshot's proof hash.
+  // state.snapshotProofHash IS the computed proof for the current active snapshot.
+  // The new snapshot's parentSnapshotProof should match it directly.
+  if (state.activeSnapshotId !== null && state.snapshotProofHash) {
+    if (snap.publicData.parentSnapshotProof !== state.snapshotProofHash) {
       throw new Error("Remote snapshot: parentSnapshotProof verification failed");
     }
   }
@@ -403,10 +513,15 @@ export async function handleRemoteSnapshot(
   }
 
   state.activeSnapshotId = snap.publicData.snapshotId;
-  state.snapshotProofHash = snap.publicData.parentSnapshotProof;
-  state.snapshotCiphertextHash = base64UrlEncode(
+  const remoteCiphertextHash = base64UrlEncode(
     await worker.blake3Hash(base64UrlDecode(snap.ciphertext)),
   );
+  state.snapshotCiphertextHash = remoteCiphertextHash;
+  state.snapshotProofHash = await worker.computeSnapshotProof({
+    ciphertextHash: remoteCiphertextHash,
+    parentProof: snap.publicData.parentSnapshotProof,
+    snapshotId: snap.publicData.snapshotId,
+  });
 
   // New snapshot: clocks are snapshot-scoped, start empty
   state.knownClocks = {};
@@ -420,16 +535,38 @@ export async function handleRemoteSnapshot(
   Y.applyUpdateV2(serverDoc, decrypted, "remote");
   state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
   serverDoc.destroy();
+
+  // Persist anti-rollback pin
+  getDocumentStatePin(documentId).then((existing) => {
+    const pin = updatePinFromState(
+      existing,
+      documentId,
+      state.activeSnapshotId,
+      state.snapshotProofHash,
+      state.snapshotCiphertextHash,
+      state.confirmedClocks,
+      state.latestVersion,
+    );
+    putDocumentStatePin(pin).catch(() => {});
+  });
 }
 
 // ── Confirmations ────────────────────────────────────────────
 
-export function handleUpdateSaved(payload: UpdateSavedPayload, state: DocumentState): void {
+export function handleUpdateSaved(
+  payload: UpdateSavedPayload,
+  state: DocumentState,
+  documentId?: string,
+): void {
   const deviceKey = deviceState()?.deviceSigningPublic;
   if (deviceKey) {
     const key = base64UrlEncode(deviceKey);
     state.knownClocks[key] = payload.clock;
     state.confirmedClocks[key] = payload.clock;
+    // Advance localClock from confirmed clock (needed after reconnect queue replay)
+    if (payload.clock >= state.localClock) {
+      state.localClock = payload.clock + 1;
+    }
   }
 
   // Advance lastSavedState with confirmed update bytes
@@ -448,7 +585,31 @@ export function handleUpdateSaved(payload: UpdateSavedPayload, state: DocumentSt
     state.latestVersion = payload.version;
   }
   state.snapshotUpdatesCount++;
-  if (state.autoSync) state.autoSync.flush();
+
+  // Persist anti-rollback pin (sender observes own write via update-saved, not update)
+  if (documentId) {
+    getDocumentStatePin(documentId).then((existing) => {
+      const pin = updatePinFromState(
+        existing,
+        documentId,
+        state.activeSnapshotId,
+        state.snapshotProofHash,
+        state.snapshotCiphertextHash,
+        state.confirmedClocks,
+        state.latestVersion,
+      );
+      putDocumentStatePin(pin).catch(() => {});
+    });
+  }
+
+  // Update offline cache after confirmation
+  if (documentId && state.workspaceId && state.keyVersion > 0) {
+    cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+    deletePendingChanges(documentId).catch(() => {});
+  }
+
+  // Trigger send for any remaining local diff (design: queue replay → send remaining)
+  if (state.autoSync) state.autoSync.notifyLocalEdit();
 }
 
 export function handleUpdateSaveFailed(
@@ -473,12 +634,20 @@ export function handleUpdateSaveFailed(
   if (state.autoSync) state.autoSync.notifyLocalEdit();
 }
 
-export function handleSnapshotSaved(payload: SnapshotSavedPayload, state: DocumentState): void {
+export async function handleSnapshotSaved(
+  payload: SnapshotSavedPayload,
+  state: DocumentState,
+  documentId?: string,
+): Promise<void> {
   if (!state.pendingSnapshot) return;
 
   state.activeSnapshotId = payload.snapshotId;
-  state.snapshotProofHash = state.pendingSnapshot.parentSnapshotProof;
   state.snapshotCiphertextHash = state.pendingSnapshot.ciphertextHash;
+  state.snapshotProofHash = await getCryptoWorker().computeSnapshotProof({
+    ciphertextHash: state.pendingSnapshot.ciphertextHash,
+    parentProof: state.pendingSnapshot.parentSnapshotProof,
+    snapshotId: payload.snapshotId,
+  });
   // Build lastSavedState from snapshot content only (V2 -> V1 conversion)
   const serverDoc = new Y.Doc();
   Y.applyUpdateV2(serverDoc, state.pendingSnapshot.snapshotYjsState, "remote");
@@ -498,6 +667,28 @@ export function handleSnapshotSaved(payload: SnapshotSavedPayload, state: Docume
   state.knownClocks = {};
   state.confirmedClocks = {};
   state.localClock = 0;
+
+  // Update offline cache after snapshot confirmation
+  if (documentId && state.workspaceId && state.keyVersion > 0) {
+    cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+    deletePendingChanges(documentId).catch(() => {});
+  }
+
+  // Persist anti-rollback pin
+  if (documentId) {
+    getDocumentStatePin(documentId).then((existing) => {
+      const pin = updatePinFromState(
+        existing,
+        documentId,
+        state.activeSnapshotId,
+        state.snapshotProofHash,
+        state.snapshotCiphertextHash,
+        state.confirmedClocks,
+        state.latestVersion,
+      );
+      putDocumentStatePin(pin).catch(() => {});
+    });
+  }
 
   if (state.autoSync) state.autoSync.notifyLocalEdit();
 }
@@ -549,6 +740,26 @@ interface DecryptedUpdate {
   decrypted: Uint8Array;
   deviceKey: string;
   clock: number;
+}
+
+function collectClockObservations(
+  updates: UpdatePayload[],
+): Map<string, { max: number; seen: Set<number> }> {
+  const observations = new Map<string, { max: number; seen: Set<number> }>();
+
+  for (const update of updates) {
+    const deviceKey = update.publicData.signingPubKey;
+    const clock = update.publicData.clock;
+    const existing = observations.get(deviceKey);
+    if (existing) {
+      existing.max = Math.max(existing.max, clock);
+      existing.seen.add(clock);
+      continue;
+    }
+    observations.set(deviceKey, { max: clock, seen: new Set([clock]) });
+  }
+
+  return observations;
 }
 
 // Verify signatures and decrypt all updates. Returns decrypted bytes for reuse.
@@ -648,17 +859,16 @@ async function verifyAndDecryptSingleUpdate(
       return null; // stale or duplicate
     }
     if (update.publicData.clock !== lastClock + 1) {
-      throw new Error(
-        `Clock gap for device ${deviceKey}: expected=${lastClock + 1}, got=${update.publicData.clock}`,
+      // Clock gap: warn instead of fail-close (design: 欠落警告)
+      console.warn(
+        `[anti-rollback] Clock gap for device ${deviceKey}: expected=${lastClock + 1}, got=${update.publicData.clock}`,
       );
     }
-  } else {
-    // First update from this device in current snapshot scope must start at 0
-    if (update.publicData.clock !== 0) {
-      throw new Error(
-        `First clock for device ${deviceKey} must be 0, got=${update.publicData.clock}`,
-      );
-    }
+  } else if (update.publicData.clock !== 0) {
+    // First clock gap: warn (design: 欠落警告)
+    console.warn(
+      `[anti-rollback] First clock for device ${deviceKey} expected 0, got=${update.publicData.clock}`,
+    );
   }
 
   // Step 4d: AEAD decryption (before clock commit — failed decrypt must not poison clocks)
@@ -766,6 +976,12 @@ export async function ensureDekCached(
     keyVersion: key.key_version,
     isActive: key.is_active,
     kekVersion: key.kek_version,
+  });
+
+  // Persist new KEK and DEK to offline cache for offline recovery
+  import("@/shared/lib/offline/cache-manager").then(({ cacheKek, cacheDek }) => {
+    cacheKek(workspaceId, key.kek_version).catch(() => {});
+    cacheDek(documentId, key.key_version).catch(() => {});
   });
 }
 

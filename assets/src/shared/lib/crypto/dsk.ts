@@ -7,8 +7,11 @@ const WRAPPED_UMK_KEY = "wrapped-umk";
 const WRAPPED_DEVICE_ECDH_KEY = "wrapped-device-ecdh";
 const WRAPPED_DEVICE_SIGNING_KEY = "wrapped-device-signing";
 
-function openDB(): Promise<IDBDatabase> {
+function openDB(timeoutMs = 5000): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("IndexedDB open timed out (possibly blocked by stale connection)"));
+    }, timeoutMs);
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -16,8 +19,18 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME);
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      clearTimeout(timer);
+      reject(request.error);
+    };
+    request.onblocked = () => {
+      clearTimeout(timer);
+      reject(new Error("IndexedDB open blocked"));
+    };
   });
 }
 
@@ -131,6 +144,63 @@ export async function clearWrappedUmk(): Promise<void> {
   try {
     const db = await openDB();
     await idbDelete(db, WRAPPED_UMK_KEY);
+    db.close();
+  } catch {
+    // Best effort
+  }
+}
+
+// ── Auth bootstrap cache (DSK-encrypted user profile for offline) ──
+
+const AUTH_BOOTSTRAP_KEY = "auth-bootstrap";
+
+export interface AuthBootstrapData {
+  userId: string;
+  email: string;
+  name: string;
+  deviceId: string;
+  cachedAt: number;
+}
+
+export async function storeAuthBootstrap(dsk: CryptoKey, data: AuthBootstrapData): Promise<void> {
+  const { buildDskAuthBootstrapAad } = await import("./aad");
+  const aad = buildDskAuthBootstrapAad();
+  const plaintext = new TextEncoder().encode(JSON.stringify(data));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv.buffer as ArrayBuffer, additionalData: aad.buffer as ArrayBuffer },
+    dsk,
+    plaintext,
+  );
+  const db = await openDB();
+  await idbPut(db, AUTH_BOOTSTRAP_KEY, { ciphertext, iv: iv.buffer });
+  db.close();
+}
+
+export async function loadAuthBootstrap(dsk: CryptoKey): Promise<AuthBootstrapData | null> {
+  try {
+    const db = await openDB();
+    const wrapped = await idbGet<WrappedBlob>(db, AUTH_BOOTSTRAP_KEY);
+    db.close();
+    if (!wrapped) return null;
+
+    const { buildDskAuthBootstrapAad } = await import("./aad");
+    const aad = buildDskAuthBootstrapAad();
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: wrapped.iv, additionalData: aad.buffer as ArrayBuffer },
+      dsk,
+      wrapped.ciphertext,
+    );
+    return JSON.parse(new TextDecoder().decode(plaintext)) as AuthBootstrapData;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearAuthBootstrap(): Promise<void> {
+  try {
+    const db = await openDB();
+    await idbDelete(db, AUTH_BOOTSTRAP_KEY);
     db.close();
   } catch {
     // Best effort

@@ -19,8 +19,20 @@ export {
   getDocumentState,
   getDocumentError,
   getDocumentAwareness,
+  needsReauth,
+  completeReauth,
+  requestReauth,
+  getRollbackWarning,
+  approveRollback,
 } from "./lib/document-state-cache";
 export { initializeDocumentSync } from "./lib/document-sync";
+export {
+  initializeDocumentFromCache,
+  restoreDocumentStateFromCache,
+} from "./lib/document-offline-init";
+export { OfflineIndicator } from "./ui/OfflineIndicator";
+export { setupFlushHooks } from "./lib/flush-hooks";
+export { syncPendingDocuments } from "./lib/offline-pending-sync";
 export type {
   EditorLike,
   EditorPosition,

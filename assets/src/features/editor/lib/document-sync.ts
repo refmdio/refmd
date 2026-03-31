@@ -40,17 +40,32 @@ import { assignUserColor } from "./user-colors";
 import { handleEphemeralMessage, handlePeerLeft } from "./ws-ephemeral-handler";
 import { triggerReconnect } from "./ws-reconnect";
 import { setupAwarenessRelay } from "./ws-awareness-relay";
+import {
+  cacheDocumentState,
+  cacheDek,
+  cacheKek,
+  cachePendingChanges,
+  startPeriodicFlush,
+} from "@/shared/lib/offline/cache-manager";
+import { checkAndEvict } from "@/shared/lib/offline/lru-eviction";
+import {
+  notifyForegroundDocumentOpen,
+  notifyForegroundDocumentClose,
+} from "@/shared/lib/offline/background-cache";
 
 export async function initializeDocumentSync(
   documentId: string,
   workspaceId: string,
   state: DocumentState,
 ): Promise<void> {
+  notifyForegroundDocumentOpen();
   try {
     await doInitializeDocumentSync(documentId, workspaceId, state);
   } catch (err) {
     state.initPromise = null;
     throw err;
+  } finally {
+    notifyForegroundDocumentClose();
   }
 }
 
@@ -62,6 +77,18 @@ async function doInitializeDocumentSync(
   const worker = getCryptoWorker();
   const device = deviceState();
   if (!device) throw new Error("Device state not available");
+
+  // Fast-fail on network errors only (not HTTP errors like 401).
+  // Without this, sequential API calls (KEK, DEK, PoP, channel join) each
+  // fail independently, adding seconds of delay before the offline cache
+  // fallback path in DocumentPanelShell can kick in.
+  try {
+    await fetch("/api/auth/me", { method: "HEAD", credentials: "include" });
+  } catch (e) {
+    if (e instanceof TypeError) {
+      throw new Error("Server unreachable");
+    }
+  }
 
   const localDeviceSigningPubKey = device.deviceSigningPublic
     ? base64UrlEncode(device.deviceSigningPublic)
@@ -145,15 +172,35 @@ async function doInitializeDocumentSync(
 
   // 4. PoP for Channel join
   const popHeaders = await getPopHeaders();
+  // Use persisted pin for knownSnapshotId when in-memory state is empty (after restart)
+  const { getDocumentStatePin } = await import("@/shared/lib/anti-rollback/document-state-pins");
+  const existingPin = await getDocumentStatePin(documentId).catch(() => null);
+  // Use delta mode only if Y.Doc already has base state AND lastSavedState is available.
+  // lastSavedState is required for server-relative diff computation on reconnect.
+  // After cache recovery, lastSavedState is null — force complete mode so
+  // handleDocumentMessage can rebuild it from the full server response.
+  const knownSnapshotId = state.activeSnapshotId ?? null;
+  const pinSnapshotId = existingPin?.latestSnapshotId ?? null;
+
+  const useDelta = !!knownSnapshotId && !!state.lastSavedState;
   const joinParams: Record<string, unknown> = {
     pop_challenge: popHeaders["X-PoP-Challenge"],
     pop_signature: popHeaders["X-PoP-Signature"],
-    mode: "complete",
+    mode: useDelta ? "delta" : "complete",
   };
+  state._lastJoinMode = useDelta ? "delta" : "complete";
 
-  // Send knownSnapshotId from in-memory state (same-session only)
-  if (state.activeSnapshotId) {
-    joinParams.knownSnapshotId = state.activeSnapshotId;
+  // Always send knownSnapshotId when available (from state or pin) for proof chain verification
+  const effectiveKnownSnapshot = knownSnapshotId ?? pinSnapshotId;
+  if (effectiveKnownSnapshot) {
+    joinParams.knownSnapshotId = effectiveKnownSnapshot;
+  }
+  if (useDelta) {
+    const clocks =
+      Object.keys(state.confirmedClocks).length > 0
+        ? state.confirmedClocks
+        : (existingPin?.perDeviceMaxClocks ?? {});
+    joinParams.knownSnapshotUpdateClocks = { ...clocks };
   }
 
   // 4. Wait for initial document event
@@ -177,6 +224,12 @@ async function doInitializeDocumentSync(
   function failClosed(reason: string, err?: unknown): void {
     if (state.error) return;
     if (err) console.error(`[ws] ${reason}:`, err);
+    // On workspace access loss, purge KEK cache (design: keep DEK for local read-only)
+    if (reason === "not_a_member" || reason === "permission_denied") {
+      import("@/shared/lib/offline/offline-store").then(({ deleteOfflineKek }) =>
+        deleteOfflineKek(workspaceId).catch(() => {}),
+      );
+    }
     state.error = reason;
     state.initialized = false;
     state.initPromise = null;
@@ -228,7 +281,7 @@ async function doInitializeDocumentSync(
       });
     },
     onUpdateSaved: (payload) => {
-      handleUpdateSaved(payload as unknown as UpdateSavedPayload, state);
+      handleUpdateSaved(payload as unknown as UpdateSavedPayload, state, documentId);
     },
     onUpdateSaveFailed: (payload) => {
       handleUpdateSaveFailed(payload as unknown as UpdateSaveFailedPayload, state);
@@ -238,7 +291,7 @@ async function doInitializeDocumentSync(
       }
     },
     onSnapshotSaved: (payload) => {
-      handleSnapshotSaved(payload as unknown as SnapshotSavedPayload, state);
+      handleSnapshotSaved(payload as unknown as SnapshotSavedPayload, state, documentId);
     },
     onSnapshotSaveFailed: (payload) => {
       handleSnapshotSaveFailed(
@@ -342,19 +395,24 @@ async function doInitializeDocumentSync(
     return;
   }
 
-  // 7. Derive localClock: find max clock from updates[] for this device
-  // (parentSnapshotUpdateClocks values are pre-snapshot; post-snapshot clocks start at 0)
+  // 7. Derive localClock per design: nextClockの導出
+  // Step 1: baseClock from parentSnapshotUpdateClocks
+  //   - Snapshot received: use snapshot.publicData.parentSnapshotUpdateClocks
+  //   - snapshot: null (same snapshot delta): use previously known clocks (sent as join params)
+  // Step 2: advance from updates[] for this device
   if (localDeviceSigningPubKey) {
-    let maxClock = -1;
+    const parentClocks =
+      documentPayload.snapshot?.publicData?.parentSnapshotUpdateClocks ?? state.confirmedClocks;
+    let baseClock = parentClocks[localDeviceSigningPubKey] ?? -1;
     for (const update of documentPayload.updates) {
       if (
         update.publicData.signingPubKey === localDeviceSigningPubKey &&
-        update.publicData.clock > maxClock
+        update.publicData.clock > baseClock
       ) {
-        maxClock = update.publicData.clock;
+        baseClock = update.publicData.clock;
       }
     }
-    state.localClock = maxClock + 1;
+    state.localClock = baseClock + 1;
   }
 
   // 8. Detect pending rotation: server flag OR stale title (crash-resilient)
@@ -378,6 +436,18 @@ async function doInitializeDocumentSync(
 
   // 9. Start auto-sync
   state.autoSync = startAutoSync(documentId, state);
+  // Trigger send for any pending local changes (e.g., edits made during offline→online re-init)
+  state.autoSync.notifyLocalEdit();
+
+  // 9b. Initialize offline cache (design order: DEK → KEK → document state)
+  const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
+  await cacheDek(documentId, state.keyVersion).catch(() => {});
+  if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
+    await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {});
+  }
+  cacheDocumentState(documentId, workspaceId, state).catch(() => {});
+  state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state);
+  checkAndEvict().catch(() => {});
 
   // 10. Initialize ephemeral session and awareness relay
   const auth = authState();
@@ -401,6 +471,15 @@ async function doInitializeDocumentSync(
 }
 
 export function teardownDocumentSync(documentId: string, state: DocumentState): void {
+  // Final offline cache flush before teardown
+  if (state.initialized && state.keyVersion > 0) {
+    cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+    cachePendingChanges(documentId, state).catch(() => {});
+  }
+  if (state.offlineFlushCleanup) {
+    state.offlineFlushCleanup();
+    state.offlineFlushCleanup = null;
+  }
   if (state.autoSync) {
     state.autoSync.dispose();
     state.autoSync = null;

@@ -102,6 +102,15 @@ export type CryptoRequestType =
   | "unwrap-umk-from-dsk"
   | "wrap-device-keys-with-dsk"
   | "unwrap-device-keys-from-dsk"
+  // Offline cache operations
+  | "encrypt-offline-cache"
+  | "decrypt-offline-cache"
+  | "encrypt-offline-pending"
+  | "decrypt-offline-pending"
+  | "wrap-dek-for-offline"
+  | "unwrap-dek-from-offline"
+  | "wrap-kek-for-offline"
+  | "unwrap-kek-from-offline"
   // PDK wrapping
   | "wrap-with-pdk"
   | "unwrap-with-pdk"

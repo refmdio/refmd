@@ -1,8 +1,12 @@
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { authApi, ApiError, devicesApi } from "@/shared/api";
-import { loadDskInitData } from "@/shared/lib/crypto/dsk";
+import { loadDskInitData, storeAuthBootstrap, loadAuthBootstrap } from "@/shared/lib/crypto/dsk";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { hasPdkData, getPersistedDeviceId } from "./key-persistence";
+import {
+  getAllOfflineDocumentMetas,
+  ensureOfflineDbReady,
+} from "@/shared/lib/offline/offline-store";
 
 export interface SessionRestoreResult {
   userId: string;
@@ -35,6 +39,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
 
     // Attempt Crypto Worker initialization from DSK (IndexedDB)
     let dskData = await loadDskInitData();
+    const dskForBootstrap = dskData?.dsk ?? null;
     if (dskData && deviceId) {
       try {
         // Build identity key data from server response (if available)
@@ -157,6 +162,17 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       }
     }
 
+    // Cache user info (DSK-encrypted) for offline session restoration
+    if (dskForBootstrap && deviceId) {
+      storeAuthBootstrap(dskForBootstrap, {
+        userId: me.user_id,
+        email: me.email,
+        name: me.name,
+        deviceId,
+        cachedAt: Date.now(),
+      }).catch(() => {});
+    }
+
     return {
       userId: me.user_id,
       email: me.email,
@@ -184,5 +200,81 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       if (err.status === 429) return "rate_limited";
     }
     return "transient_error";
+  }
+}
+
+export interface OfflineSessionResult {
+  userId: string;
+  email: string;
+  name: string;
+  deviceId: string;
+  workerReady: boolean;
+  deviceSigningPublic: Uint8Array | null;
+  deviceEcdhPublic: Uint8Array | null;
+}
+
+export async function restoreOfflineSession(): Promise<OfflineSessionResult | null> {
+  try {
+    await ensureOfflineDbReady();
+
+    const dskData = await loadDskInitData();
+    if (!dskData?.dsk) return null;
+
+    const deviceId = getPersistedDeviceId();
+    if (!deviceId) return null;
+
+    const offlineDocs = await getAllOfflineDocumentMetas();
+    if (offlineDocs.length === 0) return null;
+
+    const cachedUser = await loadAuthBootstrap(dskData.dsk);
+    if (!cachedUser) return null;
+    const { userId, email, name } = cachedUser;
+
+    const worker = getCryptoWorker();
+
+    const wrappedUmk = dskData.wrappedUmk ?? undefined;
+    const wrappedJson = sessionStorage.getItem("refmd-session-umk-wrapped");
+    let sessionWrappedUmk: { ciphertext: ArrayBuffer; iv: ArrayBuffer } | undefined;
+    if (!wrappedUmk && wrappedJson) {
+      try {
+        const parsed = JSON.parse(wrappedJson);
+        sessionWrappedUmk = {
+          ciphertext: new Uint8Array(parsed.ciphertext).buffer,
+          iv: new Uint8Array(parsed.iv).buffer,
+        };
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    await worker.init({
+      dsk: dskData.dsk,
+      wrappedUmk: wrappedUmk ?? sessionWrappedUmk,
+      wrappedDeviceEcdh: dskData.wrappedDeviceEcdh ?? undefined,
+      wrappedDeviceSigning: dskData.wrappedDeviceSigning ?? undefined,
+      userId,
+      deviceId,
+    });
+
+    // isReady() requires UMK, but offline editing only needs DSK + device keys.
+    // For KMSI-disabled sessions after browser restart, UMK is unavailable but
+    // the DSK→offline-dek-cache→DEK chain still works for offline document access.
+    const workerReady = await worker.isReady();
+
+    let deviceSigningPublic: Uint8Array | null = null;
+    let deviceEcdhPublic: Uint8Array | null = null;
+    try {
+      const pubKeys = await worker.getPublicKeys();
+      deviceSigningPublic = pubKeys.deviceSigningPublic;
+      deviceEcdhPublic = pubKeys.deviceEcdhPublic;
+    } catch {
+      // Best effort
+    }
+
+    // Even if !workerReady (no UMK), DSK is set and device keys may be available.
+    // Offline document operations (unwrapDekFromOffline, decryptOfflineCache) only need DSK.
+    return { userId, email, name, deviceId, workerReady, deviceSigningPublic, deviceEcdhPublic };
+  } catch {
+    return null;
   }
 }

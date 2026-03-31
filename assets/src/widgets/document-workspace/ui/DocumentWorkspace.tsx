@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Mosaic, MosaicWindow } from "solid-mosaic-component";
 import type { MosaicBranch } from "solid-mosaic-component";
 import {
@@ -18,11 +18,14 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { useDocuments, useDocumentTitles, setTileDropHandler } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
+import { OfflineIndicator } from "@/features/editor";
+import { setupFlushHooks } from "@/features/editor";
 import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
 import { documentManager } from "@/shared/lib/document-manager";
 import { workspaceManager } from "@/features/panel";
 import {
   getEditor,
+  getDocumentState,
   CodeMirrorEditor,
   ProseMirrorEditor,
   PresenceAvatars,
@@ -44,6 +47,11 @@ export function DocumentWorkspace() {
   const workspaceId = () => currentWorkspaceId();
   const { flatDocuments } = useDocuments(workspaceId);
   const { getTitle: getTitleFromDoc, isTitleReady } = useDocumentTitles(flatDocuments, workspaceId);
+
+  onMount(() => {
+    const cleanup = setupFlushHooks();
+    onCleanup(cleanup);
+  });
 
   documentManager.setTitleResolver((doc) => {
     const found = flatDocuments().find((d) => d.id === doc.id);
@@ -206,7 +214,7 @@ export function DocumentWorkspace() {
                 documentId={panel.documentId}
                 panelId={panelId}
                 scrollGroupId={panel.scrollGroupId}
-                readOnly={isArchived}
+                readOnly={isArchived || getDocumentState(panel.documentId)?.readOnly}
                 onDocChange={() => {
                   const editor = getEditor(panelId);
                   documentManager.notifyDocumentChangeFor(panel.documentId, editor);
@@ -238,7 +246,7 @@ export function DocumentWorkspace() {
                 documentId={panel.documentId}
                 panelId={panelId}
                 scrollGroupId={panel.scrollGroupId}
-                readOnly={isArchived}
+                readOnly={isArchived || getDocumentState(panel.documentId)?.readOnly}
                 onDocChange={() => {
                   const editor = getEditor(panelId);
                   documentManager.notifyDocumentChangeFor(panel.documentId, editor);
@@ -299,7 +307,9 @@ export function DocumentWorkspace() {
         ref={setStatusBarEl}
         class="flex items-center gap-3 px-2 py-0.5 text-xs text-muted-foreground border-t border-border shrink-0"
         classList={{ hidden: !workspace.mosaicState() }}
-      />
+      >
+        <OfflineIndicator />
+      </div>
     </div>
   );
 }

@@ -49,7 +49,7 @@ export function AccountSection() {
     }
     await serverLogout;
 
-    clearSessionData();
+    await clearSessionData();
     clearDocumentKeyCache();
     queryClient.clear();
     clearSession();

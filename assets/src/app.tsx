@@ -10,7 +10,7 @@ import DeviceRegisterPage from "@/routes/devices/register";
 import RecoveryPage from "@/routes/auth/recovery";
 import PasswordResetPage from "@/routes/auth/password-reset";
 import InvitePage from "@/routes/invite";
-import { PasswordReentryDialog, restoreSession } from "@/features/auth";
+import { PasswordReentryDialog, restoreSession, restoreOfflineSession } from "@/features/auth";
 import { PendingDeviceMonitor } from "@/features/devices";
 import {
   setFullSession,
@@ -44,9 +44,61 @@ export default function App() {
         return;
       }
       if (result === "transient_error") {
-        setTransientError(
-          "Could not connect to the server. Please check your connection and try again.",
-        );
+        const offlineResult = await restoreOfflineSession();
+        if (offlineResult) {
+          setAuthState({
+            user: {
+              id: offlineResult.userId,
+              email: offlineResult.email,
+              name: offlineResult.name,
+            },
+            sessionId: "",
+            identitySigningPublic: null,
+            identityEcdhPublic: null,
+            expiresAt: "",
+          });
+          setDeviceState({
+            deviceId: offlineResult.deviceId,
+            deviceSigningPublic: offlineResult.deviceSigningPublic,
+            deviceEcdhPublic: offlineResult.deviceEcdhPublic,
+          });
+          // DSK is set even if !workerReady (no UMK). Offline operations
+          // (unwrapDekFromOffline, decryptOfflineCache) only need DSK.
+          setCryptoWorkerReady(true);
+        } else {
+          setTransientError(
+            "Could not connect to the server. Please check your connection and try again.",
+          );
+        }
+        return;
+      }
+      // null = no valid session (401/403/no cookie). Try offline if network is down.
+      if (!result) {
+        const { offlineMode } = await import("@/shared/lib/offline/offline-state");
+        if (offlineMode()) {
+          const offlineResult = await restoreOfflineSession();
+          if (offlineResult) {
+            setAuthState({
+              user: {
+                id: offlineResult.userId,
+                email: offlineResult.email,
+                name: offlineResult.name,
+              },
+              sessionId: "",
+              identitySigningPublic: null,
+              identityEcdhPublic: null,
+              expiresAt: "",
+            });
+            setDeviceState({
+              deviceId: offlineResult.deviceId,
+              deviceSigningPublic: offlineResult.deviceSigningPublic,
+              deviceEcdhPublic: offlineResult.deviceEcdhPublic,
+            });
+            setCryptoWorkerReady(true);
+            return;
+          }
+        }
+        // No offline fallback available — stay on login page
         return;
       }
       if (result) {

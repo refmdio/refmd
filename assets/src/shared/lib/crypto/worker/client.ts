@@ -851,6 +851,118 @@ export class CryptoWorkerClient {
     };
   }
 
+  async wrapWithDsk(params: {
+    plaintext: Uint8Array;
+    aad: Uint8Array;
+  }): Promise<{ ciphertext: ArrayBuffer; iv: ArrayBuffer }> {
+    return (await this.send("wrap-with-dsk", params as unknown as Record<string, unknown>)) as {
+      ciphertext: ArrayBuffer;
+      iv: ArrayBuffer;
+    };
+  }
+
+  async unwrapWithDsk(params: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+    aad: Uint8Array;
+  }): Promise<Uint8Array> {
+    const result = (await this.send(
+      "unwrap-with-dsk",
+      params as unknown as Record<string, unknown>,
+    )) as { plaintext: Uint8Array };
+    return result.plaintext;
+  }
+
+  // ── Offline cache operations ──────────────────────────
+
+  async encryptOfflineCache(params: {
+    plaintext: Uint8Array;
+    documentId: string;
+    keyVersion: number;
+  }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }> {
+    return (await this.send(
+      "encrypt-offline-cache",
+      params as unknown as Record<string, unknown>,
+    )) as { ciphertext: Uint8Array; nonce: Uint8Array };
+  }
+
+  async decryptOfflineCache(params: {
+    ciphertext: Uint8Array;
+    nonce: Uint8Array;
+    documentId: string;
+    keyVersion: number;
+  }): Promise<Uint8Array> {
+    const result = (await this.send(
+      "decrypt-offline-cache",
+      params as unknown as Record<string, unknown>,
+    )) as { plaintext: Uint8Array };
+    return result.plaintext;
+  }
+
+  async encryptOfflinePending(params: {
+    plaintext: Uint8Array;
+    documentId: string;
+    keyVersion: number;
+  }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }> {
+    return (await this.send(
+      "encrypt-offline-pending",
+      params as unknown as Record<string, unknown>,
+    )) as { ciphertext: Uint8Array; nonce: Uint8Array };
+  }
+
+  async decryptOfflinePending(params: {
+    ciphertext: Uint8Array;
+    nonce: Uint8Array;
+    documentId: string;
+    keyVersion: number;
+  }): Promise<Uint8Array> {
+    const result = (await this.send(
+      "decrypt-offline-pending",
+      params as unknown as Record<string, unknown>,
+    )) as { plaintext: Uint8Array };
+    return result.plaintext;
+  }
+
+  async wrapDekForOffline(params: {
+    documentId: string;
+    keyVersion: number;
+  }): Promise<{ ciphertext: ArrayBuffer; iv: ArrayBuffer }> {
+    return (await this.send("wrap-dek-for-offline", params)) as {
+      ciphertext: ArrayBuffer;
+      iv: ArrayBuffer;
+    };
+  }
+
+  async unwrapDekFromOffline(params: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+    documentId: string;
+    keyVersion: number;
+    isActive?: boolean;
+  }): Promise<void> {
+    await this.send("unwrap-dek-from-offline", params as unknown as Record<string, unknown>);
+  }
+
+  async wrapKekForOffline(params: {
+    workspaceId: string;
+    keyVersion: number;
+  }): Promise<{ ciphertext: ArrayBuffer; iv: ArrayBuffer }> {
+    return (await this.send("wrap-kek-for-offline", params)) as {
+      ciphertext: ArrayBuffer;
+      iv: ArrayBuffer;
+    };
+  }
+
+  async unwrapKekFromOffline(params: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+    workspaceId: string;
+    keyVersion: number;
+    isActive?: boolean;
+  }): Promise<void> {
+    await this.send("unwrap-kek-from-offline", params as unknown as Record<string, unknown>);
+  }
+
   // ── Internal ──────────────────────────────────────────
 
   private async sendWithRateLimitRetry(

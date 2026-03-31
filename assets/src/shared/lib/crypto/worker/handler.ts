@@ -22,6 +22,10 @@ import {
   buildDskDeviceSigningAad,
   buildDocumentContentAad,
   buildDeviceUmkDistributionAad,
+  buildOfflineDocumentCacheAad,
+  buildOfflinePendingChangesAad,
+  buildOfflineDekCacheAad,
+  buildOfflineKekCacheAad,
   canonicalizeBytes,
 } from "../aad";
 import { generateDek, wrapDek, unwrapDek, encryptTitle, decryptTitle } from "../dek";
@@ -417,6 +421,24 @@ export async function handleRequest(
       return handleTofuGetAllEntries();
     case "tofu-import-entries":
       return handleTofuImportEntries(p);
+
+    // Offline cache operations
+    case "encrypt-offline-cache":
+      return handleEncryptOfflineCache(state, p);
+    case "decrypt-offline-cache":
+      return handleDecryptOfflineCache(state, p);
+    case "encrypt-offline-pending":
+      return handleEncryptOfflinePending(state, p);
+    case "decrypt-offline-pending":
+      return handleDecryptOfflinePending(state, p);
+    case "wrap-dek-for-offline":
+      return handleWrapDekForOffline(state, p);
+    case "unwrap-dek-from-offline":
+      return handleUnwrapDekFromOffline(state, p);
+    case "wrap-kek-for-offline":
+      return handleWrapKekForOffline(state, p);
+    case "unwrap-kek-from-offline":
+      return handleUnwrapKekFromOffline(state, p);
 
     // DSK generation
     case "generate-dsk":
@@ -2061,4 +2083,136 @@ async function handleSha256Hash(p: Record<string, unknown>): Promise<unknown> {
   const data = p.data as Uint8Array;
   const hashBuffer = await crypto.subtle.digest("SHA-256", data.buffer as ArrayBuffer);
   return { hash: base64UrlEncode(new Uint8Array(hashBuffer)) };
+}
+
+// ── Offline cache operations ──────────────────────────────────
+
+function handleEncryptOfflineCache(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const plaintext = p.plaintext as Uint8Array;
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+
+  const nonce = randomBytes(24);
+  const aad = buildOfflineDocumentCacheAad(documentId, keyVersion);
+  const cipher = xchacha20poly1305(dek, nonce, aad);
+  const ciphertext = cipher.encrypt(plaintext);
+
+  return { ciphertext, nonce };
+}
+
+function handleDecryptOfflineCache(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const ciphertext = p.ciphertext as Uint8Array;
+  const nonce = p.nonce as Uint8Array;
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+
+  const aad = buildOfflineDocumentCacheAad(documentId, keyVersion);
+  const cipher = xchacha20poly1305(dek, nonce, aad);
+  const plaintext = cipher.decrypt(ciphertext);
+
+  return { plaintext };
+}
+
+function handleEncryptOfflinePending(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const plaintext = p.plaintext as Uint8Array;
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+
+  const nonce = randomBytes(24);
+  const aad = buildOfflinePendingChangesAad(documentId, keyVersion);
+  const cipher = xchacha20poly1305(dek, nonce, aad);
+  const ciphertext = cipher.encrypt(plaintext);
+
+  return { ciphertext, nonce };
+}
+
+function handleDecryptOfflinePending(state: WorkerKeyState, p: Record<string, unknown>): unknown {
+  const ciphertext = p.ciphertext as Uint8Array;
+  const nonce = p.nonce as Uint8Array;
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+
+  const aad = buildOfflinePendingChangesAad(documentId, keyVersion);
+  const cipher = xchacha20poly1305(dek, nonce, aad);
+  const plaintext = cipher.decrypt(ciphertext);
+
+  return { plaintext };
+}
+
+async function handleWrapDekForOffline(
+  state: WorkerKeyState,
+  p: Record<string, unknown>,
+): Promise<unknown> {
+  const dsk = requireDsk(state);
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+
+  const aad = buildOfflineDekCacheAad(documentId, keyVersion);
+  return await dskEncrypt(dsk, dek, aad);
+}
+
+async function handleUnwrapDekFromOffline(
+  state: WorkerKeyState,
+  p: Record<string, unknown>,
+): Promise<unknown> {
+  const dsk = requireDsk(state);
+  const ciphertext = p.ciphertext as ArrayBuffer;
+  const iv = p.iv as ArrayBuffer;
+  const documentId = p.documentId as string;
+  const keyVersion = p.keyVersion as number;
+  const isActive = (p.isActive as boolean | undefined) ?? true;
+
+  const dek = await dskDecrypt(
+    dsk,
+    ciphertext,
+    iv,
+    buildOfflineDekCacheAad(documentId, keyVersion),
+  );
+  setCachedDek(state, documentId, dek, keyVersion);
+  if (isActive) {
+    setActiveDekVersion(state, documentId, keyVersion);
+  }
+  return { restored: true };
+}
+
+async function handleWrapKekForOffline(
+  state: WorkerKeyState,
+  p: Record<string, unknown>,
+): Promise<unknown> {
+  const dsk = requireDsk(state);
+  const workspaceId = p.workspaceId as string;
+  const keyVersion = p.keyVersion as number;
+  const { kek } = requireKekForWorkspace(state, workspaceId, keyVersion);
+
+  const aad = buildOfflineKekCacheAad(workspaceId, keyVersion);
+  return await dskEncrypt(dsk, kek, aad);
+}
+
+async function handleUnwrapKekFromOffline(
+  state: WorkerKeyState,
+  p: Record<string, unknown>,
+): Promise<unknown> {
+  const dsk = requireDsk(state);
+  const ciphertext = p.ciphertext as ArrayBuffer;
+  const iv = p.iv as ArrayBuffer;
+  const workspaceId = p.workspaceId as string;
+  const keyVersion = p.keyVersion as number;
+  const isActive = (p.isActive as boolean | undefined) ?? true;
+
+  const kek = await dskDecrypt(
+    dsk,
+    ciphertext,
+    iv,
+    buildOfflineKekCacheAad(workspaceId, keyVersion),
+  );
+  setCachedKek(state, workspaceId, kek, keyVersion);
+  if (isActive) {
+    setActiveKekVersion(state, workspaceId, keyVersion);
+  }
+  return { restored: true };
 }

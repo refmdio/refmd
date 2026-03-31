@@ -67,9 +67,11 @@ export async function persistWrappedUmk(params: {
   }
 }
 
-export function clearSessionData(): void {
+export async function clearSessionData(): Promise<void> {
   sessionStorage.clear();
   inMemoryPdk = null;
+  const { clearAuthBootstrap } = await import("@/shared/lib/crypto/dsk");
+  await clearAuthBootstrap().catch(() => {});
 }
 
 export async function clearAllPersistedKeys(): Promise<void> {
@@ -94,6 +96,7 @@ export async function clearAllPersistedKeys(): Promise<void> {
     "wrapped-umk",
     "wrapped-device-ecdh",
     "wrapped-device-signing",
+    "auth-bootstrap",
   ]);
   await overwriteDbEntries("refmd-trust", []);
   await overwriteDbEntries("refmd-offline", []);
@@ -116,7 +119,7 @@ export async function clearAllPersistedKeys(): Promise<void> {
       }
     });
 
-  const dbNames = ["refmd-keys", "refmd-trust", "refmd-offline"];
+  const dbNames = ["refmd-keys", "refmd-trust", "refmd-offline", "refmd-security"];
   const dbResults = await Promise.all(dbNames.map((name) => deleteDb(name)));
   const failedDbs = dbResults.filter((r) => !r.deleted);
   if (failedDbs.length > 0) {

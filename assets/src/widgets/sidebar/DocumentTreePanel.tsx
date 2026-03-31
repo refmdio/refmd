@@ -1,4 +1,5 @@
-import { createSignal, createEffect, onCleanup, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import { offlineMode } from "@/shared/lib/offline/offline-state";
 import { useQueryClient } from "@tanstack/solid-query";
 import { FilePlusIcon, FolderPlusIcon } from "lucide-solid";
 import { Button } from "@/shared/ui/button";
@@ -53,18 +54,6 @@ export function DocumentTreePanel() {
 
   const drag = useDocumentDrag(flatDocuments, handleDragDrop, expand);
 
-  const [isOnline, setIsOnline] = createSignal(navigator.onLine);
-  createEffect(() => {
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    onCleanup(() => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    });
-  });
-
   const [createDocOpen, setCreateDocOpen] = createSignal(false);
   const [createFolderOpen, setCreateFolderOpen] = createSignal(false);
   const [contextTarget, setContextTarget] = createSignal<DocumentResponse | null>(null);
@@ -109,7 +98,7 @@ export function DocumentTreePanel() {
 
   const handleCreateFolder = async (name: string) => {
     const wsId = workspaceId();
-    if (!wsId || !navigator.onLine) return;
+    if (!wsId || offlineMode()) return;
     const folderId = await createFolder(wsId, name, selectedParentId());
     invalidateDocuments();
     setSelectedDocumentId(folderId);
@@ -189,7 +178,7 @@ export function DocumentTreePanel() {
             size="icon"
             class="size-7"
             onClick={() => setCreateFolderOpen(true)}
-            disabled={isSelectedInArchivedFolder() || !isOnline()}
+            disabled={isSelectedInArchivedFolder() || offlineMode()}
             title="New Folder"
           >
             <FolderPlusIcon class="size-4" />

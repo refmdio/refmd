@@ -21,13 +21,20 @@ import {
 } from "./ws-handlers";
 import { authState, deviceState } from "@/shared/lib/auth-state";
 import { removeAwarenessStates } from "y-protocols/awareness";
-import { getDocumentState, notifyAwarenessReady, type DocumentState } from "./document-state-cache";
+import {
+  getDocumentState,
+  notifyAwarenessReady,
+  requestReauth,
+  type DocumentState,
+} from "./document-state-cache";
+import { setWsConnected, notifyOfflineListeners } from "@/shared/lib/offline/offline-state";
 import { buildDeviceKeyCaches } from "./document-verification";
 import { createEphemeralSession } from "./ephemeral-session";
 import { assignUserColor } from "./user-colors";
 import { handleEphemeralMessage, handlePeerLeft } from "./ws-ephemeral-handler";
 import { setupAwarenessRelay } from "./ws-awareness-relay";
 import { sendInitialize } from "./document-sync";
+import { cacheDocumentState, cacheDek } from "@/shared/lib/offline/cache-manager";
 
 const MAX_RECONNECT_ATTEMPTS = 13;
 const RECONNECT_BASE_MS = 100;
@@ -85,6 +92,7 @@ async function attemptReconnect(
         pop_signature: popHeaders["X-PoP-Signature"],
         mode: useDelta ? "delta" : "complete",
       };
+      state._lastJoinMode = useDelta ? "delta" : "complete";
       if (state.activeSnapshotId) {
         joinParams.knownSnapshotId = state.activeSnapshotId;
       }
@@ -118,7 +126,7 @@ async function attemptReconnect(
           });
         },
         onUpdateSaved: (payload) => {
-          handleUpdateSaved(payload as unknown as UpdateSavedPayload, state);
+          handleUpdateSaved(payload as unknown as UpdateSavedPayload, state, documentId);
         },
         onUpdateSaveFailed: (payload) => {
           handleUpdateSaveFailed(payload as unknown as UpdateSaveFailedPayload, state);
@@ -128,7 +136,7 @@ async function attemptReconnect(
           }
         },
         onSnapshotSaved: (payload) => {
-          handleSnapshotSaved(payload as unknown as SnapshotSavedPayload, state);
+          handleSnapshotSaved(payload as unknown as SnapshotSavedPayload, state, documentId);
         },
         onSnapshotSaveFailed: (payload) => {
           handleSnapshotSaveFailed(
@@ -152,7 +160,8 @@ async function attemptReconnect(
           handlePeerLeft(payload, state);
         },
         onUnauthorized: () => {
-          failClosed("unauthorized");
+          // Session expired mid-connection: trigger reconnect which handles re-auth
+          triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
         },
         onError: (reason) => {
           if (
@@ -207,15 +216,32 @@ async function attemptReconnect(
     } catch (err) {
       const resp = (err as any)?.joinErrorResp;
       const reason = resp?.reason;
-      if (
-        reason === "not_a_member" ||
-        reason === "permission_denied" ||
-        reason === "document_not_found" ||
-        reason === "unauthorized" ||
-        reason === "pop_verification_failed"
-      ) {
+      if (reason === "not_a_member" || reason === "permission_denied") {
+        // Access revoked: switch to read-only cached mode, purge KEK
+        state.readOnly = true;
+        if (state.autoSync) {
+          state.autoSync.dispose();
+          state.autoSync = null;
+        }
+        import("@/shared/lib/offline/offline-store").then(({ deleteOfflineKek }) =>
+          deleteOfflineKek(workspaceId).catch(() => {}),
+        );
+        import("@/shared/lib/notice")
+          .then(({ Notice }) => new Notice("Workspace access revoked. Document is now read-only."))
+          .catch(() => {});
+        return;
+      }
+      if (reason === "document_not_found" || reason === "pop_verification_failed") {
         failClosed(reason);
         return;
+      }
+      if (reason === "unauthorized") {
+        // Session expired: request re-authentication and retry
+        await requestReauth(documentId);
+        // After re-auth completes, reset attempt counter and retry
+        attempt = -1; // Will be incremented to 0 by the loop
+        useDelta = !!state.activeSnapshotId;
+        continue;
       }
       if (useDelta) useDelta = false;
     }
@@ -232,6 +258,12 @@ async function handleReconnectDocument(
   failClosed: (reason: string, err?: unknown) => void,
 ): Promise<void> {
   try {
+    // Channel successfully rejoined — ensure offlineMode() returns false
+    // so auto-sync sends local diffs to the server instead of caching them.
+    // Socket.onOpen may not have fired yet due to event loop ordering.
+    setWsConnected(true);
+    notifyOfflineListeners();
+
     const localClientId = state.awareness.clientID;
     const staleClients: number[] = [];
     state.awareness.getStates().forEach((_, clientId) => {
@@ -357,6 +389,14 @@ async function handleReconnectDocument(
 
     // Remaining local changes: only trigger if queue replay didn't take the sending lock
     if (!state.sending && state.autoSync) state.autoSync.notifyLocalEdit();
+
+    // Update offline cache after successful reconnect.
+    // Do NOT delete pending-changes here — they must persist until
+    // the auto-sync successfully sends the diff and update-saved confirms it.
+    // handleUpdateSaved already calls deletePendingChanges on confirmation.
+    state.loadedFromOfflineCache = false;
+    cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+    cacheDek(documentId, state.keyVersion).catch(() => {});
   } catch (err) {
     failClosed("reconnect_failed", err);
   }

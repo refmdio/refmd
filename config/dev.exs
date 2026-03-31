@@ -1,5 +1,7 @@
 import Config
 
+dev_port = String.to_integer(System.get_env("PORT") || "4000")
+
 # Configure your database
 config :refmd, RefMD.Repo,
   username: "postgres",
@@ -20,6 +22,7 @@ config :refmd, RefMDWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
+  url: [host: "localhost", port: dev_port, scheme: "http"],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
@@ -53,7 +56,8 @@ config :refmd, RefMDWeb.Endpoint,
 config :refmd, dummy_salt_secret: "dev-dummy-salt-secret-do-not-use-in-production"
 
 # CORS origins for VerifyOrigin plug (same-origin in dev)
-config :refmd, cors_origins: ["http://localhost:4000", "http://localhost:5173"]
+config :refmd,
+  cors_origins: Enum.uniq(["http://localhost:#{dev_port}", "http://localhost:4000", "http://localhost:5173"])
 
 # Enable dev routes for dashboard and mailbox
 config :refmd, dev_routes: true

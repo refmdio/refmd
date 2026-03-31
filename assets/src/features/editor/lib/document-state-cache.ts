@@ -93,6 +93,27 @@ export interface DocumentState {
 
   // Queue for events received during reconnect initialization
   _pendingRemoteEvents: Array<{ type: "update" | "snapshot"; payload: unknown }>;
+  _lastJoinMode: "complete" | "delta";
+
+  // Offline cache periodic flush cleanup
+  offlineFlushCleanup: (() => void) | null;
+  offlineResumeCleanup: (() => void) | null;
+
+  // Whether this document was loaded from offline cache (not from server)
+  loadedFromOfflineCache: boolean;
+
+  // Re-authentication callback
+  _reauthResolver: (() => void) | null;
+  // Rollback warning approval callback
+  _rollbackResolver: (() => void) | null;
+  // True while the document is being synced without an attached panel/UI.
+  _headlessSync: boolean;
+  // Read-only mode (access revoked, document deleted, etc.)
+  readOnly: boolean;
+
+  // Cached confirmed state vector for offline pending diff computation.
+  // Set from document-cache entry during offline recovery when lastSavedState is unavailable.
+  _cachedConfirmedStateVector: Uint8Array | null;
 }
 
 // ── Cache ────────────────────────────────────────────────────
@@ -158,6 +179,15 @@ export function createDocumentState(documentId: string, workspaceId: string): Do
     awarenessRelayCleanup: null,
     _reconnecting: false,
     _pendingRemoteEvents: [],
+    _lastJoinMode: "complete",
+    offlineFlushCleanup: null,
+    offlineResumeCleanup: null,
+    loadedFromOfflineCache: false,
+    _reauthResolver: null,
+    _rollbackResolver: null,
+    _headlessSync: false,
+    readOnly: false,
+    _cachedConfirmedStateVector: null,
   };
 
   cache.set(documentId, state);
@@ -175,6 +205,9 @@ export async function acquireDocumentState(
       existing.error = null;
       existing.initPromise = null;
       existing.initialized = false;
+      existing.offlineResumeCleanup?.();
+      existing.offlineResumeCleanup = null;
+      existing._headlessSync = false;
       existing.awareness.destroy();
       existing.yDoc.destroy();
       existing.yDoc = new Y.Doc();
@@ -187,6 +220,7 @@ export async function acquireDocumentState(
       existing.localClock = 0;
       existing.latestVersion = 0;
       existing.awarenessClientOwners.clear();
+      existing._lastJoinMode = "complete";
       const signal = errorSignals.get(documentId);
       if (signal) signal[1](null);
     }
@@ -225,6 +259,23 @@ export function releaseDocumentState(documentId: string): void {
 }
 
 function teardownState(documentId: string, state: DocumentState): void {
+  // Final offline cache flush before teardown
+  if (state.initialized && state.keyVersion > 0) {
+    import("@/shared/lib/offline/cache-manager").then(
+      ({ cacheDocumentState, cachePendingChanges }) => {
+        cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+        cachePendingChanges(documentId, state).catch(() => {});
+      },
+    );
+  }
+  if (state.offlineFlushCleanup) {
+    state.offlineFlushCleanup();
+    state.offlineFlushCleanup = null;
+  }
+  if (state.offlineResumeCleanup) {
+    state.offlineResumeCleanup();
+    state.offlineResumeCleanup = null;
+  }
   if (state.autoSync) {
     state.autoSync.dispose();
     state.autoSync = null;
@@ -265,6 +316,10 @@ export function getDocumentState(documentId: string): DocumentState | undefined 
   return cache.get(documentId);
 }
 
+export function getAllActiveDocumentStates(): Map<string, DocumentState> {
+  return cache;
+}
+
 // ── Reactive error signals (for UI notification after init) ──
 
 const errorSignals = new Map<string, ReturnType<typeof createSignal<string | null>>>();
@@ -288,6 +343,88 @@ export function setDocumentError(documentId: string, error: string): void {
   setError(error);
   const state = cache.get(documentId);
   if (state) state.error = error;
+}
+
+// ── Reactive reauth signals ──────────────────────────────────
+
+const reauthSignals = new Map<string, ReturnType<typeof createSignal<boolean>>>();
+
+function getReauthSignal(documentId: string) {
+  let signal = reauthSignals.get(documentId);
+  if (!signal) {
+    signal = createSignal(false);
+    reauthSignals.set(documentId, signal);
+  }
+  return signal;
+}
+
+export function needsReauth(documentId: string): boolean {
+  const [getter] = getReauthSignal(documentId);
+  return getter();
+}
+
+export function requestReauth(documentId: string): Promise<void> {
+  const [, setter] = getReauthSignal(documentId);
+  setter(true);
+  return new Promise<void>((resolve) => {
+    const state = cache.get(documentId);
+    if (state) {
+      state._reauthResolver = resolve;
+    } else {
+      resolve();
+    }
+  });
+}
+
+export function completeReauth(documentId: string): void {
+  const [, setter] = getReauthSignal(documentId);
+  setter(false);
+  const state = cache.get(documentId);
+  if (state?._reauthResolver) {
+    state._reauthResolver();
+    state._reauthResolver = null;
+  }
+}
+
+// ── Reactive rollback warning signals ─────────────────────────
+
+const rollbackSignals = new Map<string, ReturnType<typeof createSignal<string | null>>>();
+
+function getRollbackSignal(documentId: string) {
+  let signal = rollbackSignals.get(documentId);
+  if (!signal) {
+    signal = createSignal<string | null>(null);
+    rollbackSignals.set(documentId, signal);
+  }
+  return signal;
+}
+
+export function getRollbackWarning(documentId: string): string | null {
+  const [getter] = getRollbackSignal(documentId);
+  return getter();
+}
+
+export function requestRollbackApproval(documentId: string, message: string): Promise<void> {
+  const [, setter] = getRollbackSignal(documentId);
+  setter(message);
+  return new Promise<void>((resolve) => {
+    const state = cache.get(documentId);
+    if (state) {
+      state._rollbackResolver = resolve;
+    } else {
+      resolve();
+    }
+  });
+}
+
+export function approveRollback(documentId: string): void {
+  const [, setter] = getRollbackSignal(documentId);
+  setter(null);
+  const state = cache.get(documentId);
+  if (state?._rollbackResolver) {
+    state._rollbackResolver();
+    state._rollbackResolver = null;
+  }
 }
 
 // ── Reactive awareness signal (for PresenceAvatars) ──────────

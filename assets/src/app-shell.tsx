@@ -65,8 +65,17 @@ export function AppShell(props: ParentProps) {
   );
   documentManager.setDocTextResolver((id) => getDocText(id));
   documentManager.setCreateDocumentFn(async (wsId, title, parentId) => {
-    const { createDocument } = await import("@/features/document");
-    return createDocument(wsId, title, parentId);
+    try {
+      const { createDocument } = await import("@/features/document");
+      return await createDocument(wsId, title, parentId);
+    } catch (err) {
+      // Only fall back to offline creation on network errors, not auth/permission errors
+      if (err instanceof TypeError || (err instanceof Error && err.message.includes("fetch"))) {
+        const { createDocumentOffline } = await import("@/shared/lib/offline/offline-create-sync");
+        return createDocumentOffline(wsId, parentId, title);
+      }
+      throw err;
+    }
   });
 
   workspaceManager.setEditorContextResolver(() => {
@@ -118,6 +127,50 @@ export function AppShell(props: ParentProps) {
     openDocuments: () => documentWorkspace.openDocuments(),
     mosaicState: () => documentWorkspace.mosaicState(),
     statusBarEl: () => getStatusBarEl(),
+  });
+
+  // Sync offline-created documents and start background caching
+  let bgCacheCleanup: (() => void) | null = null;
+  let offlineWatchCleanup: (() => void) | null = null;
+
+  function triggerOfflineSync() {
+    const wsId = currentWorkspaceId();
+    if (!wsId || !cryptoWorkerReady()) return;
+    void (async () => {
+      const { offlineMode: isOffline } = await import("@/shared/lib/offline/offline-state");
+      if (isOffline()) return;
+
+      const { syncOfflineCreatedDocuments } = await import("@/shared/lib/offline/offline-create-sync");
+      await syncOfflineCreatedDocuments().catch(() => {});
+
+      const { syncPendingDocuments } = await import("@/features/editor");
+      await syncPendingDocuments().catch(() => {});
+
+      if (bgCacheCleanup) bgCacheCleanup();
+      const { startBackgroundCaching } = await import("@/shared/lib/offline/background-cache");
+      bgCacheCleanup = startBackgroundCaching(wsId);
+    })();
+  }
+
+  // Run on workspace/crypto ready change
+  createEffect(() => {
+    const wsId = currentWorkspaceId();
+    if (wsId && cryptoWorkerReady()) {
+      triggerOfflineSync();
+
+      // Also re-run on offline → online transition
+      if (!offlineWatchCleanup) {
+        import("@/shared/lib/offline/offline-state").then(({ onOfflineModeChange }) => {
+          offlineWatchCleanup = onOfflineModeChange((isOffline) => {
+            if (!isOffline) triggerOfflineSync();
+          });
+        });
+      }
+    }
+  });
+  onCleanup(() => {
+    bgCacheCleanup?.();
+    offlineWatchCleanup?.();
   });
 
   // Core plugin lifecycle: initial load (synchronous, before Sidebar mount)

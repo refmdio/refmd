@@ -69,8 +69,49 @@ export async function createDocument(page: Page, title: string): Promise<void> {
  * Open a document by title from the sidebar.
  */
 export async function openDocument(page: Page, title: string): Promise<void> {
-  await page.locator("aside").getByText(title).click();
-  await expect(page.locator(".cm-content")).toBeVisible({ timeout: 15_000 });
+  const button = page.getByRole("button", { name: title });
+  await expect(button).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(async () => (await button.getAttribute("class")) ?? "", {
+      timeout: 15_000,
+      message: `document row did not become interactive: ${title}`,
+    })
+    .not.toContain("cursor-default");
+  await button.click();
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => document.querySelectorAll("[data-panel-id]").length),
+      {
+        timeout: 5_000,
+        message: `document panel did not open: ${title}`,
+      },
+    )
+    .toBeGreaterThan(0);
+
+  const deadline = Date.now() + 15_000;
+  let lastState: {
+    hasCm: boolean;
+    hasPm: boolean;
+    noDocumentsOpen: boolean;
+    failedToLoad: boolean;
+    bodySnippet: string;
+  } | null = null;
+
+  while (Date.now() < deadline) {
+    lastState = await page.evaluate(() => ({
+      hasCm: !!document.querySelector(".cm-content"),
+      hasPm: !!document.querySelector(".ProseMirror"),
+      noDocumentsOpen: document.body.textContent?.includes("No documents open") ?? false,
+      failedToLoad: document.body.textContent?.includes("Failed to load document") ?? false,
+      bodySnippet: document.body.textContent?.slice(0, 400) ?? "",
+    }));
+
+    if (lastState.hasCm || lastState.hasPm) return;
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(`editor did not mount for ${title}: ${JSON.stringify(lastState)}`);
 }
 
 /**

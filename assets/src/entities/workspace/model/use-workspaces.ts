@@ -3,11 +3,47 @@ import { createQuery } from "@tanstack/solid-query";
 import { workspacesApi } from "@/shared/api";
 import { authState, cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "./workspace-selection";
+import { putOfflineWorkspaces, getOfflineWorkspaces } from "@/shared/lib/offline/offline-store";
 
 export function useWorkspaces() {
   const query = createQuery(() => ({
     queryKey: ["workspaces"],
-    queryFn: () => workspacesApi.list(),
+    queryFn: async () => {
+      try {
+        const result = await workspacesApi.list();
+        // Cache for offline use
+        putOfflineWorkspaces(
+          result.workspaces.map((ws) => ({
+            id: ws.id,
+            name: ws.name,
+            description: ws.description ?? "",
+            slug: ws.slug,
+            isDefault: ws.is_default ?? false,
+            updatedAt: ws.updated_at,
+            lastSyncedAt: Date.now(),
+          })),
+        ).catch(() => {});
+        return result;
+      } catch (err) {
+        const cached = await getOfflineWorkspaces().catch(() => []);
+        if (cached.length > 0) {
+          return {
+            workspaces: cached.map((ws) => ({
+              id: ws.id,
+              name: ws.name,
+              description: ws.description,
+              slug: ws.slug,
+              is_default: ws.isDefault,
+              updated_at: ws.updatedAt,
+              current_kek_version: 0,
+              needs_kek_rotation: false,
+              kek_rotation_initiator_user_id: null,
+            })),
+          };
+        }
+        throw err;
+      }
+    },
     enabled: !!authState() && cryptoWorkerReady(),
   }));
 

@@ -20,6 +20,11 @@ export const AAD_PURPOSE = {
   PDK_UMK_WRAP: "pdk_umk_wrap",
   PDK_DEVICE_ECDH_PRIVATE: "pdk_device_ecdh_private",
   PDK_DEVICE_SIGNING_PRIVATE: "pdk_device_signing_private",
+  OFFLINE_DOCUMENT_CACHE: "offline_document_cache",
+  OFFLINE_PENDING_CHANGES: "offline_pending_changes",
+  OFFLINE_DEK_CACHE: "offline_dek_cache",
+  OFFLINE_KEK_CACHE: "offline_kek_cache",
+  DSK_AUTH_BOOTSTRAP: "dsk_auth_bootstrap",
 } as const;
 
 function canonicalize(obj: unknown): string {
@@ -185,4 +190,40 @@ export function buildDocumentTitleAad(documentId: string, keyVersion: number): U
     document_id: documentId,
     key_version: keyVersion,
   });
+}
+
+export function buildOfflineDocumentCacheAad(documentId: string, keyVersion: number): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.OFFLINE_DOCUMENT_CACHE,
+    document_id: documentId,
+    key_version: keyVersion,
+  });
+}
+
+export function buildOfflinePendingChangesAad(documentId: string, keyVersion: number): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.OFFLINE_PENDING_CHANGES,
+    document_id: documentId,
+    key_version: keyVersion,
+  });
+}
+
+export function buildOfflineDekCacheAad(documentId: string, keyVersion: number): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.OFFLINE_DEK_CACHE,
+    document_id: documentId,
+    key_version: keyVersion,
+  });
+}
+
+export function buildOfflineKekCacheAad(workspaceId: string, keyVersion: number): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.OFFLINE_KEK_CACHE,
+    workspace_id: workspaceId,
+    key_version: keyVersion,
+  });
+}
+
+export function buildDskAuthBootstrapAad(): Uint8Array {
+  return buildAad({ purpose: AAD_PURPOSE.DSK_AUTH_BOOTSTRAP });
 }

@@ -1,5 +1,6 @@
 import { Socket, Channel } from "phoenix";
 import { authApi } from "@/shared/api/auth";
+import { setWsConnected, notifyOfflineListeners } from "@/shared/lib/offline/offline-state";
 
 // Singleton Socket instance (authenticates via ws-token, all channels multiplex)
 let socket: Socket | null = null;
@@ -22,16 +23,29 @@ function getOrCreateSocket(): Socket {
     reconnectAfterMs: (tries: number) => Math.min(100 * Math.pow(1.8, tries), 30_000),
   });
 
+  socket.onOpen(() => {
+    setWsConnected(true);
+    notifyOfflineListeners();
+  });
+
   // Refresh token on disconnect/error so reconnect uses a fresh token
   socket.onError(() => {
+    setWsConnected(false);
+    notifyOfflineListeners();
     refreshWsToken().catch(() => {});
   });
   socket.onClose(() => {
+    setWsConnected(false);
+    notifyOfflineListeners();
     refreshWsToken().catch(() => {});
   });
 
   socket.connect();
   return socket;
+}
+
+export function isSocketConnected(): boolean {
+  return socket !== null && (socket as any).isConnected();
 }
 
 export interface DocumentChannelCallbacks {
