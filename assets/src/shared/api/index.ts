@@ -1,4 +1,10 @@
-export { client, ApiError, throwIfError, POP_DEVICE_OVERRIDE_HEADER } from "./core";
+export {
+  client,
+  ApiError,
+  throwIfError,
+  POP_DEVICE_OVERRIDE_HEADER,
+  getRateLimitRetryMs,
+} from "./core";
 export { authApi } from "./auth";
 export { devicesApi } from "./devices";
 export { documentsApi } from "./documents";

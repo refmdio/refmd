@@ -94,8 +94,7 @@ export function idbConditionalPut<T>(
       }
 
       wrote = true;
-      const putRequest =
-        store.keyPath === null ? store.put(value, key) : store.put(value);
+      const putRequest = store.keyPath === null ? store.put(value, key) : store.put(value);
       putRequest.onerror = () => reject(putRequest.error);
     };
 

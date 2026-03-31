@@ -26,9 +26,6 @@ export interface DocumentInfo {
 }
 
 export interface PanelWorkspaceOps {
-  openDocument: (doc: { id: string; title?: string }) => void;
-  addToTile: (doc: { id: string; title?: string }) => void;
-  closePanel: (panelId: string) => void;
   focusedDocumentId: () => string | null;
 }
 
@@ -46,7 +43,59 @@ type DocumentsQueryData = {
   }>;
 };
 
-export class DocumentManagerImpl extends Events {
+export interface DocumentQueries {
+  getActiveDocument(): DocumentView | null;
+  getDocumentById(id: string): Promise<DocumentContent | null>;
+  getDocumentList(): DocumentInfo[];
+  getActiveDocumentText(): string | null;
+}
+
+export interface DocumentCommandService {
+  createDocument(title: string, parentId?: string | null): Promise<string>;
+}
+
+export interface DocumentEventSource {
+  on(event: "document-open", cb: (doc: DocumentView) => void): EventRef;
+  on(event: "document-close", cb: (docId: string) => void): EventRef;
+  on(event: "document-change", cb: (doc: DocumentView) => void): EventRef;
+  on(event: "document-create", cb: (docId: string) => void): EventRef;
+  on(event: "document-delete", cb: (docId: string) => void): EventRef;
+  on(event: "document-rename", cb: (docId: string, oldTitle: string) => void): EventRef;
+  on(event: string, cb: (...data: any[]) => any, ctx?: unknown): EventRef;
+  offref(ref: EventRef): void;
+}
+
+export interface DocumentEventDispatcher extends DocumentEventSource {
+  flushPendingOpens(): void;
+  notifyDocumentOpen(docId: string, title: string): void;
+  notifyDocumentClose(docId: string): void;
+  notifyDocumentChangeFor(docId: string, editor: EditorLike | null): void;
+  notifyDocumentCreate(docId: string): void;
+  notifyDocumentDelete(docId: string): void;
+  notifyDocumentRename(docId: string, oldTitle: string): void;
+}
+
+export interface DocumentRuntime {
+  setTitleResolver(fn: (doc: { id: string }) => string): void;
+  setDocTextResolver(fn: (id: string) => string | null): void;
+  setCreateDocumentFn(
+    fn: (wsId: string, title: string, parentId: string | null) => Promise<string>,
+  ): void;
+  init(
+    ops: PanelWorkspaceOps,
+    queryClient: QueryClientLike,
+    getWorkspaceId: () => string | null,
+    getActiveEditorFn: () => EditorLike | null,
+    getEditorForDocFn: (docId: string) => EditorLike | null,
+  ): void;
+}
+
+export type AppDocuments = DocumentQueries & DocumentEventSource;
+
+export class DocumentManagerImpl
+  extends Events
+  implements DocumentQueries, DocumentCommandService, DocumentEventDispatcher, DocumentRuntime
+{
   private ops: PanelWorkspaceOps | null = null;
   private queryClient: QueryClientLike | null = null;
   private getWorkspaceId: (() => string | null) | null = null;
@@ -173,11 +222,6 @@ export class DocumentManagerImpl extends Events {
     }));
   }
 
-  openDocument(id: string, title?: string): void {
-    const resolvedTitle = title ?? this.getTitleFn?.({ id }) ?? "Untitled";
-    this.ops?.openDocument({ id, title: resolvedTitle });
-  }
-
   getActiveDocumentText(): string | null {
     const docId = this.ops?.focusedDocumentId();
     if (!docId) return null;
@@ -208,13 +252,6 @@ export class DocumentManagerImpl extends Events {
 
   notifyDocumentClose(docId: string): void {
     this.trigger("document-close", docId);
-  }
-
-  notifyDocumentChange(): void {
-    const doc = this.getActiveDocument();
-    if (doc) {
-      this.trigger("document-change", doc);
-    }
   }
 
   notifyDocumentChangeFor(docId: string, editor: EditorLike | null): void {
@@ -250,3 +287,8 @@ export class DocumentManagerImpl extends Events {
 }
 
 export const documentManager = new DocumentManagerImpl();
+export const appDocuments: AppDocuments = documentManager;
+export const documentQueries: DocumentQueries = documentManager;
+export const documentCommands: DocumentCommandService = documentManager;
+export const documentEvents: DocumentEventDispatcher = documentManager;
+export const documentRuntime: DocumentRuntime = documentManager;

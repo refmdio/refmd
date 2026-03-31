@@ -75,7 +75,10 @@ export const authApi = {
       }),
     ),
 
-  popChallenge: async (deviceId: string): Promise<{ challenge: string }> => {
+  popChallenge: async (
+    deviceId: string,
+    init?: Pick<RequestInit, "signal">,
+  ): Promise<{ challenge: string }> => {
     const { waitForGlobalRateLimit, handleRateLimitResponse } = await import("./core");
     let lastRetryAfter = "60";
     for (let attempt = 0; attempt <= 3; attempt++) {
@@ -83,6 +86,7 @@ export const authApi = {
       const res = await fetch("/api/auth/pop-challenge", {
         method: "POST",
         credentials: "include",
+        signal: init?.signal,
         headers: {
           "Content-Type": "application/json",
           "X-PoP-Device-Id": deviceId,

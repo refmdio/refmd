@@ -33,6 +33,7 @@ export {
 export { OfflineIndicator } from "./ui/OfflineIndicator";
 export { setupFlushHooks } from "./lib/flush-hooks";
 export { syncPendingDocuments } from "./lib/offline-pending-sync";
+export { useDocumentRouteController } from "./lib/document-route-controller";
 export type {
   EditorLike,
   EditorPosition,

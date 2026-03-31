@@ -1,11 +1,15 @@
 import { Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { Button } from "@/shared/ui/button";
+import { usePanelWorkspace } from "@/features/panel";
+import { useDocumentRouteController } from "@/features/editor";
 import { authState } from "@/shared/lib/auth-state";
 import { DocumentWorkspace } from "@/widgets/document-workspace";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const documentWorkspace = usePanelWorkspace();
+  useDocumentRouteController(documentWorkspace);
 
   return (
     <Show

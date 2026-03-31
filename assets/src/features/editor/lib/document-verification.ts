@@ -38,7 +38,34 @@ export type ResolveSigningKeyResult =
 //   4. Verify each device's identity_signature cross-sign (via Worker)
 //   5. Cache verified device signing keys
 
-export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceKeyCacheResult> {
+const pendingWorkspaceDeviceKeyCaches = new Map<string, Promise<DeviceKeyCacheResult>>();
+const MEMBER_DEVICE_FETCH_CONCURRENCY = 2;
+
+export async function buildDeviceKeyCaches(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
+  const pending = pendingWorkspaceDeviceKeyCaches.get(workspaceId);
+  if (pending) return pending;
+
+  const refresh = doBuildDeviceKeyCaches(workspaceId, signal).then(
+    (result) => {
+      pendingWorkspaceDeviceKeyCaches.delete(workspaceId);
+      return result;
+    },
+    (error) => {
+      pendingWorkspaceDeviceKeyCaches.delete(workspaceId);
+      throw error;
+    },
+  );
+  pendingWorkspaceDeviceKeyCaches.set(workspaceId, refresh);
+  return refresh;
+}
+
+async function doBuildDeviceKeyCaches(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
   const worker = getCryptoWorker();
   const signingKeys = new Map<string, Uint8Array>();
   const revokedSigningKeys = new Set<string>();
@@ -46,7 +73,7 @@ export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceK
   const signingKeyOwners = new Map<string, string>();
 
   // Step 1: Get member Identity public keys
-  const memberKeysResponse = await encryptionApi.getWorkspaceMemberKeys(workspaceId);
+  const memberKeysResponse = await encryptionApi.getWorkspaceMemberKeys(workspaceId, { signal });
 
   // Step 2: TOFU verify each member's Identity key (Worker handles IndexedDB trust store)
   for (const member of memberKeysResponse.members) {
@@ -80,22 +107,17 @@ export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceK
     });
   }
 
-  // Step 2b: Get member names for verified presence display
   const memberNames = new Map<string, string>();
-  try {
-    const membersResp = await workspacesApi.listMembers(workspaceId);
-    for (const m of membersResp.members) {
-      memberNames.set(m.user_id, m.name);
-    }
-  } catch {
-    // Best-effort: names are used for display only
-  }
 
   // Step 3: Get each member's devices (using user_ids from /member-keys, not /members)
-  const memberDevicesResults = await Promise.all(
-    memberKeysResponse.members.map(async (member) => {
+  const memberDevicesResults = await mapWithConcurrencyLimit(
+    memberKeysResponse.members,
+    MEMBER_DEVICE_FETCH_CONCURRENCY,
+    async (member) => {
       try {
-        const resp = await workspacesApi.listMemberDevices(workspaceId, member.user_id, true);
+        const resp = await workspacesApi.listMemberDevices(workspaceId, member.user_id, true, {
+          signal,
+        });
         return { userId: member.user_id, devices: resp.devices };
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
@@ -103,7 +125,7 @@ export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceK
         }
         throw err;
       }
-    }),
+    },
   );
   const memberDevices = memberDevicesResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
@@ -185,6 +207,27 @@ export async function buildDeviceKeyCaches(workspaceId: string): Promise<DeviceK
     revokedSigningKeys,
     rejectedSigningKeys,
   };
+}
+
+async function mapWithConcurrencyLimit<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 // ── Resolve signing key ──────────────────────────────────────

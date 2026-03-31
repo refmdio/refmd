@@ -55,6 +55,50 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
 export const POP_DEVICE_OVERRIDE_HEADER = "X-Pop-Override-Device-Id";
 
 const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_CONCURRENT_POP_REQUESTS = 2;
+
+let activePopRequests = 0;
+const popRequestWaiters: Array<() => void> = [];
+
+function createRequestAbortError(): Error {
+  const error = new Error("request_aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+async function acquirePopRequestSlot(signal: AbortSignal): Promise<() => void> {
+  if (signal.aborted) throw createRequestAbortError();
+
+  if (activePopRequests < MAX_CONCURRENT_POP_REQUESTS) {
+    activePopRequests++;
+    return releasePopRequestSlot;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const grant = () => {
+      signal.removeEventListener("abort", onAbort);
+      activePopRequests++;
+      resolve();
+    };
+
+    const onAbort = () => {
+      const index = popRequestWaiters.indexOf(grant);
+      if (index >= 0) popRequestWaiters.splice(index, 1);
+      reject(createRequestAbortError());
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    popRequestWaiters.push(grant);
+  });
+
+  return releasePopRequestSlot;
+}
+
+function releasePopRequestSlot(): void {
+  activePopRequests = Math.max(0, activePopRequests - 1);
+  const next = popRequestWaiters.shift();
+  if (next) next();
+}
 
 async function applyPopHeaders(request: Request): Promise<void> {
   if (isSessionOnlyEndpoint(request.url, request.method)) return;
@@ -116,6 +160,36 @@ function parseRetryAfter(response: Response, attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 4000);
 }
 
+function createRateLimitedResponse(retryMs: number): Response {
+  const retrySeconds = Math.max(1, Math.ceil(retryMs / 1000));
+  return new Response(JSON.stringify({ error: "rate_limit_exceeded", retry_after: retrySeconds }), {
+    status: 429,
+    headers: {
+      "Content-Type": "application/json",
+      "Retry-After": String(retrySeconds),
+    },
+  });
+}
+
+function getPopChallengeRetryMs(error: unknown): number | null {
+  if (!(error instanceof Error) || error.message !== "pop-challenge failed: rate limited") {
+    return null;
+  }
+
+  const retryAfter = (error as { retryAfter?: unknown }).retryAfter;
+  if (typeof retryAfter === "string") {
+    const parsed = parseFloat(retryAfter);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed * 1000;
+    }
+  }
+  if (typeof retryAfter === "number" && retryAfter > 0) {
+    return retryAfter * 1000;
+  }
+
+  return 1000;
+}
+
 export function handleRateLimitResponse(response: Response, attempt: number): void {
   const retryMs = parseRetryAfter(response, attempt);
   setGlobalRateLimit(retryMs);
@@ -131,9 +205,28 @@ export const client = createClient<paths>({
       await waitForGlobalRateLimit();
 
       const request = new Request(input, init);
+      const requiresPop = !isSessionOnlyEndpoint(request.url, request.method);
+      let releasePopSlot: (() => void) | null = null;
 
       try {
+        if (requiresPop) {
+          releasePopSlot = await acquirePopRequestSlot(request.signal);
+        }
         await applyPopHeaders(request);
+        const response = await fetch(request);
+
+        if (response.status !== 429) {
+          return response;
+        }
+
+        const retryMs = parseRetryAfter(response, attempt);
+        setGlobalRateLimit(retryMs);
+
+        if (retryMs > 10_000) {
+          return response;
+        }
+
+        lastResponse = response;
       } catch (e) {
         if (e instanceof CryptoWorkerError && e.code === "rate_limited") {
           return new Response(JSON.stringify({ error: "rate_limit_exceeded", retry_after: 60 }), {
@@ -141,23 +234,24 @@ export const client = createClient<paths>({
             headers: { "Content-Type": "application/json", "Retry-After": "60" },
           });
         }
+        const retryMs = getPopChallengeRetryMs(e);
+        if (retryMs !== null) {
+          setGlobalRateLimit(retryMs);
+          const response = createRateLimitedResponse(retryMs);
+          if (retryMs > 10_000) {
+            return response;
+          }
+          lastResponse = response;
+          continue;
+        }
+        if (e instanceof Error && e.name === "AbortError") {
+          throw e;
+        }
         console.error("[PoP] Failed to apply PoP headers:", e);
+        throw e;
+      } finally {
+        releasePopSlot?.();
       }
-
-      const response = await fetch(request);
-
-      if (response.status !== 429) {
-        return response;
-      }
-
-      const retryMs = parseRetryAfter(response, attempt);
-      setGlobalRateLimit(retryMs);
-
-      if (retryMs > 10_000) {
-        return response;
-      }
-
-      lastResponse = response;
     }
 
     return lastResponse!;
@@ -174,6 +268,23 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+export function getRateLimitRetryMs(error: unknown): number | null {
+  if (!(error instanceof ApiError) || error.status !== 429) return null;
+
+  const retryAfter = error.body?.retry_after;
+  if (typeof retryAfter === "number" && retryAfter > 0) {
+    return retryAfter * 1000;
+  }
+  if (typeof retryAfter === "string") {
+    const parsed = parseFloat(retryAfter);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed * 1000;
+    }
+  }
+
+  return 1000;
 }
 
 function throwIfError<T>(result: { data?: T; error?: unknown; response: Response }): T {

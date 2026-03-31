@@ -5,12 +5,12 @@ import { Sidebar } from "@/widgets/sidebar";
 import { SettingsDialog } from "@/widgets/settings";
 import { currentWorkspaceId, setCurrentWorkspaceId, useWorkspaces } from "@/entities/workspace";
 import { useSettings } from "@/entities/settings";
-import { workspacesApi, encryptionApi } from "@/shared/api";
+import { workspacesApi, encryptionApi, getRateLimitRetryMs } from "@/shared/api";
 import { authState, deviceState, cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { usePendingDevices, performKekRotation } from "@/features/devices";
-import { usePanelWorkspace } from "@/features/panel";
+import { attachActiveLeafRouteSync, usePanelWorkspace, workspaceManager } from "@/features/panel";
 import { Button } from "@/shared/ui/button";
 import { BellIcon } from "lucide-solid";
 import {
@@ -20,8 +20,13 @@ import {
   getEditorForDocument,
   getDocText,
 } from "@/features/editor";
-import { documentManager } from "@/shared/lib/document-manager";
-import { workspaceManager } from "@/features/panel";
+import {
+  appDocuments,
+  documentEvents,
+  documentQueries,
+  documentRuntime,
+} from "@/shared/lib/document-manager";
+import { documentNavigation } from "@/shared/lib/document-navigation";
 import { initApp } from "@/shared/lib/app-context";
 import {
   registerCorePlugins,
@@ -32,6 +37,7 @@ import { loadDocumentTree, unloadDocumentTree } from "@/core-plugins/document-tr
 import { loadCommandPalette, unloadCommandPalette } from "@/core-plugins/command-palette";
 import { loadWordCount, unloadWordCount } from "@/core-plugins/word-count";
 import { getStatusBarEl } from "@/widgets/document-workspace";
+import { buildDocumentPath } from "@/shared/lib/document-routes";
 import { createWorkspaceBridge } from "@/shared/lib/workspace-bridge";
 import { Toaster } from "@/shared/ui/sonner";
 
@@ -49,13 +55,13 @@ export function AppShell(props: ParentProps) {
   // --- Plugin infrastructure initialization ---
 
   setFocusedPanelIdAccessor(() => documentWorkspace.focusedPanelId());
-  setOnEditorRegistered(() => documentManager.flushPendingOpens());
+  setOnEditorRegistered(() => documentEvents.flushPendingOpens());
+  documentNavigation.init((documentId) =>
+    navigate(buildDocumentPath(documentId), { replace: true, scroll: false }),
+  );
 
-  documentManager.init(
+  documentRuntime.init(
     {
-      openDocument: (doc) => documentWorkspace.openDocument(doc),
-      addToTile: (doc) => documentWorkspace.addToTile(doc),
-      closePanel: (panelId) => documentWorkspace.closePanel(panelId),
       focusedDocumentId: () => documentWorkspace.focusedDocumentId(),
     },
     queryClient,
@@ -63,8 +69,8 @@ export function AppShell(props: ParentProps) {
     () => getActiveEditor(),
     (docId) => getEditorForDocument(docId),
   );
-  documentManager.setDocTextResolver((id) => getDocText(id));
-  documentManager.setCreateDocumentFn(async (wsId, title, parentId) => {
+  documentRuntime.setDocTextResolver((id) => getDocText(id));
+  documentRuntime.setCreateDocumentFn(async (wsId, title, parentId) => {
     try {
       const { createDocument } = await import("@/features/document");
       return await createDocument(wsId, title, parentId);
@@ -80,13 +86,13 @@ export function AppShell(props: ParentProps) {
 
   workspaceManager.setEditorContextResolver(() => {
     const editor = getActiveEditor();
-    const doc = documentManager.getActiveDocument();
+    const doc = documentQueries.getActiveDocument();
     if (!editor || !doc) return null;
     return { editor, doc };
   });
-  workspaceManager.setActiveDocumentResolver(() => documentManager.getActiveDocument());
+  workspaceManager.setActiveDocumentResolver(() => documentQueries.getActiveDocument());
 
-  const app = initApp(workspaceManager, documentManager);
+  const app = initApp(workspaceManager, appDocuments);
   workspaceManager.setAppRef(app);
   workspaceManager.setMosaicOps({
     focusPanel: (panelId) => documentWorkspace.focusPanel(panelId),
@@ -122,53 +128,99 @@ export function AppShell(props: ParentProps) {
   ]);
 
   // Centralized reactive bridges: SolidJS signals → WorkspaceManager/DocumentManager events
-  createWorkspaceBridge(workspaceManager, documentManager, {
+  createWorkspaceBridge(workspaceManager, documentEvents, {
     focusedPanelId: () => documentWorkspace.focusedPanelId(),
     openDocuments: () => documentWorkspace.openDocuments(),
     mosaicState: () => documentWorkspace.mosaicState(),
     statusBarEl: () => getStatusBarEl(),
   });
 
+  onCleanup(attachActiveLeafRouteSync(navigate, () => documentWorkspace.openDocuments()));
+
   // Sync offline-created documents and start background caching
   let bgCacheCleanup: (() => void) | null = null;
   let offlineWatchCleanup: (() => void) | null = null;
+  let offlineSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  let offlineSyncInFlight = false;
+  let offlineSyncQueued = false;
 
-  function triggerOfflineSync() {
+  function clearOfflineSyncTimer() {
+    if (offlineSyncTimer) {
+      clearTimeout(offlineSyncTimer);
+      offlineSyncTimer = null;
+    }
+  }
+
+  async function runOfflineSync(): Promise<void> {
     const wsId = currentWorkspaceId();
     if (!wsId || !cryptoWorkerReady()) return;
-    void (async () => {
+    if (offlineSyncInFlight) {
+      offlineSyncQueued = true;
+      return;
+    }
+
+    offlineSyncInFlight = true;
+    try {
       const { offlineMode: isOffline } = await import("@/shared/lib/offline/offline-state");
       if (isOffline()) return;
 
-      const { syncOfflineCreatedDocuments } = await import("@/shared/lib/offline/offline-create-sync");
-      await syncOfflineCreatedDocuments().catch(() => {});
+      const { waitForGlobalRateLimit } = await import("@/shared/api/core");
+      await waitForGlobalRateLimit();
+
+      const { syncOfflineCreatedDocuments } =
+        await import("@/shared/lib/offline/offline-create-sync");
+      await syncOfflineCreatedDocuments(wsId).catch(() => {});
 
       const { syncPendingDocuments } = await import("@/features/editor");
-      await syncPendingDocuments().catch(() => {});
+      await syncPendingDocuments(wsId);
 
       if (bgCacheCleanup) bgCacheCleanup();
       const { startBackgroundCaching } = await import("@/shared/lib/offline/background-cache");
       bgCacheCleanup = startBackgroundCaching(wsId);
-    })();
+    } catch (error) {
+      const retryMs = getRateLimitRetryMs(error);
+      if (retryMs !== null) {
+        scheduleOfflineSync(retryMs);
+        return;
+      }
+    } finally {
+      offlineSyncInFlight = false;
+      if (offlineSyncQueued) {
+        offlineSyncQueued = false;
+        scheduleOfflineSync();
+      }
+    }
+  }
+
+  function scheduleOfflineSync(delayMs = 3_000) {
+    const wsId = currentWorkspaceId();
+    if (!wsId || !cryptoWorkerReady()) return;
+
+    clearOfflineSyncTimer();
+    offlineSyncTimer = setTimeout(() => {
+      offlineSyncTimer = null;
+      void runOfflineSync();
+    }, delayMs);
   }
 
   // Run on workspace/crypto ready change
   createEffect(() => {
     const wsId = currentWorkspaceId();
     if (wsId && cryptoWorkerReady()) {
-      triggerOfflineSync();
+      scheduleOfflineSync();
 
       // Also re-run on offline → online transition
       if (!offlineWatchCleanup) {
         import("@/shared/lib/offline/offline-state").then(({ onOfflineModeChange }) => {
           offlineWatchCleanup = onOfflineModeChange((isOffline) => {
-            if (!isOffline) triggerOfflineSync();
+            if (!isOffline) scheduleOfflineSync(1_000);
           });
         });
       }
     }
   });
   onCleanup(() => {
+    clearOfflineSyncTimer();
     bgCacheCleanup?.();
     offlineWatchCleanup?.();
   });

@@ -3,6 +3,7 @@ import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
+import { documentEvents } from "@/shared/lib/document-manager";
 import { injectDecryptedTitle } from "@/entities/document";
 import type { DocumentResponse } from "@/entities/document";
 
@@ -10,9 +11,11 @@ export async function renameDocument(
   doc: DocumentResponse,
   newTitle: string,
   workspaceId: string,
+  oldTitle: string,
 ): Promise<void> {
   if (doc.doc_type === "folder") {
     await documentsApi.update(doc.id, { title: newTitle });
+    documentEvents.notifyDocumentRename(doc.id, oldTitle);
     return;
   }
 
@@ -54,4 +57,5 @@ export async function renameDocument(
   });
 
   injectDecryptedTitle(doc.id, newTitle, base64UrlEncode(nonce));
+  documentEvents.notifyDocumentRename(doc.id, oldTitle);
 }

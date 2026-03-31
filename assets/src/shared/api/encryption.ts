@@ -4,13 +4,18 @@ import type { components } from "./schema";
 export const encryptionApi = {
   getWorkspaceIds: async () => throwIfError(await client.GET("/api/workspaces/ids")),
 
-  getWorkspaceKeysWithPop: async (workspaceId: string, deviceId: string) =>
+  getWorkspaceKeysWithPop: async (
+    workspaceId: string,
+    deviceId: string,
+    init?: Pick<RequestInit, "signal">,
+  ) =>
     throwIfError(
       await client.GET("/api/encryption/workspaces/{workspace_id}/keys", {
         params: {
           path: { workspace_id: workspaceId },
           query: { device_id: deviceId },
         },
+        ...init,
       }),
     ),
 
@@ -77,19 +82,21 @@ export const encryptionApi = {
     return throwIfError(result);
   },
 
-  getWorkspaceMemberKeys: async (workspaceId: string) =>
+  getWorkspaceMemberKeys: async (workspaceId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/member-keys", {
         params: { path: { workspace_id: workspaceId } },
+        ...init,
       }),
     ),
 
   setupComplete: async () => throwIfError(await client.POST("/api/encryption/setup-complete")),
 
-  getDocumentKeys: async (documentId: string) =>
+  getDocumentKeys: async (documentId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/encryption/documents/{document_id}/keys", {
         params: { path: { document_id: documentId } },
+        ...init,
       }),
     ),
 

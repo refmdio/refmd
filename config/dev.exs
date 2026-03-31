@@ -57,7 +57,8 @@ config :refmd, dummy_salt_secret: "dev-dummy-salt-secret-do-not-use-in-productio
 
 # CORS origins for VerifyOrigin plug (same-origin in dev)
 config :refmd,
-  cors_origins: Enum.uniq(["http://localhost:#{dev_port}", "http://localhost:4000", "http://localhost:5173"])
+  cors_origins:
+    Enum.uniq(["http://localhost:#{dev_port}", "http://localhost:4000", "http://localhost:5173"])
 
 # Enable dev routes for dashboard and mailbox
 config :refmd, dev_routes: true

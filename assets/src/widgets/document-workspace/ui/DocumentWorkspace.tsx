@@ -21,7 +21,7 @@ import { currentWorkspaceId } from "@/entities/workspace";
 import { OfflineIndicator } from "@/features/editor";
 import { setupFlushHooks } from "@/features/editor";
 import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
-import { documentManager } from "@/shared/lib/document-manager";
+import { documentEvents, documentRuntime } from "@/shared/lib/document-manager";
 import { workspaceManager } from "@/features/panel";
 import {
   getEditor,
@@ -53,7 +53,7 @@ export function DocumentWorkspace() {
     onCleanup(cleanup);
   });
 
-  documentManager.setTitleResolver((doc) => {
+  documentRuntime.setTitleResolver((doc) => {
     const found = flatDocuments().find((d) => d.id === doc.id);
     return found ? getTitleFromDoc(found) : "Untitled";
   });
@@ -217,7 +217,7 @@ export function DocumentWorkspace() {
                 readOnly={isArchived || getDocumentState(panel.documentId)?.readOnly}
                 onDocChange={() => {
                   const editor = getEditor(panelId);
-                  documentManager.notifyDocumentChangeFor(panel.documentId, editor);
+                  documentEvents.notifyDocumentChangeFor(panel.documentId, editor);
                   workspaceManager.trigger("editor-change", editor, {
                     id: panel.documentId,
                     title,
@@ -249,7 +249,7 @@ export function DocumentWorkspace() {
                 readOnly={isArchived || getDocumentState(panel.documentId)?.readOnly}
                 onDocChange={() => {
                   const editor = getEditor(panelId);
-                  documentManager.notifyDocumentChangeFor(panel.documentId, editor);
+                  documentEvents.notifyDocumentChangeFor(panel.documentId, editor);
                   workspaceManager.trigger("editor-change", editor, {
                     id: panel.documentId,
                     title,

@@ -9,6 +9,7 @@ import {
   getDocumentError,
   initializeDocumentSync,
   initializeDocumentFromCache,
+  restoreDocumentStateFromCache,
   needsReauth,
   completeReauth,
   requestReauth,
@@ -31,11 +32,24 @@ interface DocumentPanelShellProps {
   documentId: string;
 }
 
+function hasWarmCacheState(documentId: string): boolean {
+  const state = getDocumentState(documentId);
+  if (!state) return false;
+
+  return (
+    state.keyVersion > 0 ||
+    state.activeSnapshotId !== null ||
+    state._cachedConfirmedStateVector !== null ||
+    state.loadedFromOfflineCache
+  );
+}
+
 export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) {
   const [isLoading, setIsLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [isOfflineCached, setIsOfflineCached] = createSignal(false);
   const [isAccessRevoked, setIsAccessRevoked] = createSignal(false);
+  const [hasWarmCachePreview, setHasWarmCachePreview] = createSignal(false);
 
   createEffect(() => {
     const documentId = props.documentId;
@@ -49,6 +63,8 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
     setIsLoading(true);
     setError(null);
     setIsOfflineCached(false);
+    setIsAccessRevoked(false);
+    setHasWarmCachePreview(false);
 
     let cancelled = false;
 
@@ -58,6 +74,21 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
 
         const state = getDocumentState(documentId);
         if (!state || cancelled) return;
+
+        if (!state.initialized && !hasWarmCacheState(documentId)) {
+          try {
+            const recovered = await restoreDocumentStateFromCache(documentId, workspaceId, state);
+            if (recovered && !cancelled) {
+              setHasWarmCachePreview(true);
+              setIsLoading(false);
+            }
+          } catch {
+            // Best-effort: warm preview is opportunistic
+          }
+        } else if (!state.initialized && hasWarmCacheState(documentId)) {
+          setHasWarmCachePreview(true);
+          setIsLoading(false);
+        }
 
         // If already initialized (shared with another panel), skip sync init
         if (!state.initialized && !state.initPromise) {
@@ -70,6 +101,7 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
 
         if (cancelled) return;
 
+        setHasWarmCachePreview(false);
         if (state.error) {
           setError(state.error);
         }
@@ -104,6 +136,7 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
 
             if (cancelled) return;
 
+            setHasWarmCachePreview(false);
             setError(state.error);
             setIsOfflineCached(state.loadedFromOfflineCache);
             setIsLoading(false);
@@ -130,12 +163,14 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
                   state.autoSync = null;
                 }
                 state.readOnly = true;
+                setHasWarmCachePreview(false);
                 setIsOfflineCached(true);
                 setIsAccessRevoked(true);
                 setError(null);
                 setIsLoading(false);
                 return;
               }
+              setHasWarmCachePreview(false);
               setIsOfflineCached(true);
               setError(null);
               setIsLoading(false);
@@ -226,24 +261,42 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
         }
       >
         <Show
-          when={!isLoading()}
+          when={!isLoading() || hasWarmCachePreview()}
           fallback={
             <div class="flex items-center justify-center h-full bg-background">
               <Spinner class="size-6" />
             </div>
           }
         >
-          <Show when={isOfflineCached()}>
-            <div class="flex items-center gap-1.5 px-3 py-1 text-xs bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300 border-b border-yellow-200 dark:border-yellow-800">
-              <WifiOffIcon class="size-3" />
-              <span>
-                {isAccessRevoked()
-                  ? "Read-only — workspace access revoked"
-                  : "Editing offline — changes will sync when reconnected"}
-              </span>
+          <div class="relative flex h-full flex-col">
+            <Show when={isOfflineCached()}>
+              <div class="flex items-center gap-1.5 px-3 py-1 text-xs bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300 border-b border-yellow-200 dark:border-yellow-800">
+                <WifiOffIcon class="size-3" />
+                <span>
+                  {isAccessRevoked()
+                    ? "Read-only — workspace access revoked"
+                    : "Editing offline — changes will sync when reconnected"}
+                </span>
+              </div>
+            </Show>
+            <div class="relative min-h-0 flex-1">
+              <div
+                class="h-full"
+                inert={isLoading() && hasWarmCachePreview()}
+                aria-busy={isLoading() && hasWarmCachePreview() ? "true" : "false"}
+              >
+                {props.children}
+              </div>
+              <Show when={isLoading() && hasWarmCachePreview()}>
+                <div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/55 backdrop-blur-[1px]">
+                  <Spinner class="size-5" />
+                  <p class="text-xs text-muted-foreground">
+                    Showing cached content while loading the latest version...
+                  </p>
+                </div>
+              </Show>
             </div>
-          </Show>
-          {props.children}
+          </div>
         </Show>
       </Show>
     </>

@@ -6,7 +6,7 @@ import { encryptionApi } from "@/shared/api/encryption";
 import { documentsApi } from "@/shared/api/documents";
 import { deviceState } from "@/shared/lib/auth-state";
 import { resolveSigningKey } from "./document-verification";
-import type { DocumentState } from "./document-state-cache";
+import { getDocumentState, type DocumentState } from "./document-state-cache";
 import { cacheDocumentState } from "@/shared/lib/offline/cache-manager";
 import { deletePendingChanges } from "@/shared/lib/offline/offline-store";
 import {
@@ -79,6 +79,22 @@ export interface SnapshotSaveFailedPayload {
   snapshotProofChain: unknown[];
 }
 
+function createProcessingCancelledError(): Error {
+  const error = new Error("document_processing_cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+function isDocumentProcessingCancelled(documentId: string, state: DocumentState): boolean {
+  return getDocumentState(documentId) !== state || (state.refCount <= 0 && !state._headlessSync);
+}
+
+function throwIfDocumentProcessingCancelled(documentId: string, state: DocumentState): void {
+  if (isDocumentProcessingCancelled(documentId, state)) {
+    throw createProcessingCancelledError();
+  }
+}
+
 interface SnapshotProofChainEntry {
   snapshotId: string;
   ciphertextHash: string;
@@ -93,6 +109,7 @@ export async function handleDocumentMessage(
   state: DocumentState,
   documentId: string,
 ): Promise<void> {
+  throwIfDocumentProcessingCancelled(documentId, state);
   const worker = getCryptoWorker();
 
   // Validate against persisted anti-rollback pin (if exists).
@@ -170,6 +187,7 @@ export async function handleDocumentMessage(
 
   if (payload.snapshot) {
     const snap = payload.snapshot;
+    throwIfDocumentProcessingCancelled(documentId, state);
 
     // Step 3a: signingPubKey membership confirmation
     const keyResult = await resolveSigningKey(snap.publicData.signingPubKey, state);
@@ -230,6 +248,7 @@ export async function handleDocumentMessage(
     }
 
     // Step 3d: AEAD decryption
+    throwIfDocumentProcessingCancelled(documentId, state);
     await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion);
     decryptedSnapshot = await worker.decryptSnapshot({
       ciphertext: base64UrlDecode(snap.ciphertext),
@@ -723,6 +742,10 @@ export async function handleSnapshotSaveFailed(
       state.snapshotUpdatesCount = Infinity;
       if (state.autoSync) state.autoSync.notifyLocalEdit();
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        state.snapshotUpdatesCount = 0;
+        return;
+      }
       console.error("[ws] snapshot recovery failed (non-fatal):", err);
       // Reset counter to suppress further snapshot attempts until next threshold
       state.snapshotUpdatesCount = 0;
@@ -772,6 +795,7 @@ async function verifyAndDecryptUpdates(
   const results: DecryptedUpdate[] = [];
 
   for (const update of updates) {
+    throwIfDocumentProcessingCancelled(documentId, state);
     const result = await verifyAndDecryptSingleUpdate(
       update,
       state,
@@ -793,6 +817,7 @@ async function verifyAndDecryptSingleUpdate(
   documentId: string,
   allowUnknownSigner = false,
 ): Promise<DecryptedUpdate | null> {
+  throwIfDocumentProcessingCancelled(documentId, state);
   const worker = getCryptoWorker();
 
   // signingPubKey membership confirmation + TOFU
@@ -872,6 +897,7 @@ async function verifyAndDecryptSingleUpdate(
   }
 
   // Step 4d: AEAD decryption (before clock commit — failed decrypt must not poison clocks)
+  throwIfDocumentProcessingCancelled(documentId, state);
   await ensureDekCached(documentId, state.workspaceId, update.publicData.keyVersion);
   const decrypted = await worker.decryptContent({
     ciphertext: base64UrlDecode(update.ciphertext),

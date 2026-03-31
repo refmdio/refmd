@@ -1,4 +1,4 @@
-import type { DocumentManagerImpl } from "./document-manager";
+import type { AppDocuments } from "./document-manager";
 import type { EventRef } from "./events";
 import type { ViewCreator, WorkspaceLeaf, View } from "./view";
 
@@ -61,13 +61,13 @@ export interface AppWorkspace {
 
 export interface App {
   workspace: AppWorkspace;
-  documents: DocumentManagerImpl;
+  documents: AppDocuments;
   isDarkMode(): boolean;
 }
 
 let appInstance: App | null = null;
 
-export function initApp(workspace: AppWorkspace, documents: DocumentManagerImpl): App {
+export function initApp(workspace: AppWorkspace, documents: AppDocuments): App {
   appInstance = {
     workspace,
     documents,

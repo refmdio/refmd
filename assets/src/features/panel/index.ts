@@ -1,5 +1,7 @@
 export { usePanelWorkspace } from "./model/use-panel-workspace";
 export type { OpenDocument } from "./model/use-panel-workspace";
+export { attachActiveLeafRouteSync } from "./lib/active-leaf-route-sync";
+export { closeDocumentPanels } from "./lib/close-document-panels";
 export {
   encodePanelId,
   decodePanelId,

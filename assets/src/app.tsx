@@ -220,7 +220,7 @@ export default function App() {
               {/* Authenticated routes with layout */}
               <Route path="/" component={AppShell}>
                 <Route path="/" component={() => <Navigate href="/dashboard" />} />
-                <Route path="/dashboard" component={DashboardPage} />
+                <Route path={["/dashboard", "/document/:documentId"]} component={DashboardPage} />
               </Route>
             </Router>
             <PasswordReentryDialog

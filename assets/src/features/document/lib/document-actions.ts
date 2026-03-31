@@ -1,4 +1,5 @@
 import { documentsApi } from "@/shared/api";
+import { documentEvents } from "@/shared/lib/document-manager";
 
 export async function archiveDocument(documentId: string): Promise<void> {
   await documentsApi.archive(documentId);
@@ -10,4 +11,5 @@ export async function unarchiveDocument(documentId: string): Promise<void> {
 
 export async function deleteDocument(documentId: string): Promise<void> {
   await documentsApi.delete(documentId);
+  documentEvents.notifyDocumentDelete(documentId);
 }

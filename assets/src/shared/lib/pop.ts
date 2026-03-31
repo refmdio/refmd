@@ -8,12 +8,15 @@ export interface PopHeaders {
   "X-PoP-Signature": string;
 }
 
-export async function getPopHeaders(deviceIdOverride?: string): Promise<PopHeaders> {
+export async function getPopHeaders(
+  deviceIdOverride?: string,
+  signal?: AbortSignal,
+): Promise<PopHeaders> {
   const worker = getCryptoWorker();
 
   const deviceId = deviceIdOverride ?? (await worker.getDeviceId());
 
-  const { challenge } = await authApi.popChallenge(deviceId);
+  const { challenge } = await authApi.popChallenge(deviceId, { signal });
 
   const { signature } = await worker.signPop({ challenge, deviceId });
 

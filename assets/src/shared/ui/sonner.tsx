@@ -90,13 +90,6 @@ const toastToneCSS = `
 }
 `;
 
-const toastIcons = {
-  success: (<CheckCheck class="size-3.5" />) as unknown as JSX.Element,
-  info: (<Info class="size-3.5" />) as unknown as JSX.Element,
-  warning: (<TriangleAlert class="size-3.5" />) as unknown as JSX.Element,
-  error: (<TriangleAlert class="size-3.5" />) as unknown as JSX.Element,
-};
-
 function useResolvedTheme(): () => "light" | "dark" | "system" {
   const initial =
     typeof document !== "undefined"
@@ -127,6 +120,12 @@ function useResolvedTheme(): () => "light" | "dark" | "system" {
 const Toaster: Component<ToasterProps> = (props) => {
   const [local, rest] = splitProps(props, ["theme", "class", "style", "icons", "toastOptions"]);
   const resolvedTheme = useResolvedTheme();
+  const toastIcons = () => ({
+    success: (<CheckCheck class="size-3.5" />) as unknown as JSX.Element,
+    info: (<Info class="size-3.5" />) as unknown as JSX.Element,
+    warning: (<TriangleAlert class="size-3.5" />) as unknown as JSX.Element,
+    error: (<TriangleAlert class="size-3.5" />) as unknown as JSX.Element,
+  });
 
   const userClasses = () => local.toastOptions?.classes ?? {};
 
@@ -146,7 +145,7 @@ const Toaster: Component<ToasterProps> = (props) => {
           "--offset-left": "var(--offset, 32px)",
           ...(typeof local.style === "object" ? local.style : {}),
         }}
-        icons={{ ...toastIcons, ...local.icons }}
+        icons={{ ...toastIcons(), ...local.icons }}
         toastOptions={{
           ...local.toastOptions,
           unstyled: true,

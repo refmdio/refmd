@@ -36,10 +36,11 @@ export const workspacesApi = {
     ),
 
   // Members
-  listMembers: async (workspaceId: string) =>
+  listMembers: async (workspaceId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/members", {
         params: { path: { workspace_id: workspaceId } },
+        ...init,
       }),
     ),
 
@@ -142,13 +143,19 @@ export const workspacesApi = {
       }),
     ),
 
-  listMemberDevices: async (workspaceId: string, userId: string, includeRevoked = false) =>
+  listMemberDevices: async (
+    workspaceId: string,
+    userId: string,
+    includeRevoked = false,
+    init?: Pick<RequestInit, "signal">,
+  ) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/members/{user_id}/devices", {
         params: {
           path: { workspace_id: workspaceId, user_id: userId },
           query: includeRevoked ? { include_revoked: true } : {},
         },
+        ...init,
       }),
     ),
 

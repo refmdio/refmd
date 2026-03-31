@@ -26,6 +26,7 @@ export interface DocumentState {
   initialized: boolean;
   error: string | null;
   initPromise: Promise<void> | null;
+  _initAbortController: AbortController | null;
 
   // DEK (raw DEK lives in Crypto Worker only; metadata here)
   dekResolved: boolean;
@@ -140,6 +141,7 @@ export function createDocumentState(documentId: string, workspaceId: string): Do
     initialized: false,
     error: null,
     initPromise: null,
+    _initAbortController: null,
 
     dekResolved: false,
     keyVersion: 0,
@@ -204,6 +206,7 @@ export async function acquireDocumentState(
     if (existing.error) {
       existing.error = null;
       existing.initPromise = null;
+      existing._initAbortController = null;
       existing.initialized = false;
       existing.offlineResumeCleanup?.();
       existing.offlineResumeCleanup = null;
@@ -249,6 +252,13 @@ export function releaseDocumentState(documentId: string): void {
 
   state.refCount--;
   if (state.refCount <= 0) {
+    if (state.initPromise && !state.initialized && !state._headlessSync) {
+      void state.initPromise.catch(() => {});
+      state._initAbortController?.abort();
+      state._initAbortController = null;
+      leaveDocument(documentId);
+      state.channel = null;
+    }
     setTimeout(() => {
       const current = cache.get(documentId);
       if (current && current.refCount <= 0) {
@@ -259,6 +269,8 @@ export function releaseDocumentState(documentId: string): void {
 }
 
 function teardownState(documentId: string, state: DocumentState): void {
+  state._initAbortController?.abort();
+  state._initAbortController = null;
   // Final offline cache flush before teardown
   if (state.initialized && state.keyVersion > 0) {
     import("@/shared/lib/offline/cache-manager").then(

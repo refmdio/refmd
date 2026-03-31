@@ -2,7 +2,7 @@ import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { workspaceManager } from "@/features/panel";
 import { getActiveEditor } from "@/features/editor";
-import { documentManager } from "@/shared/lib/document-manager";
+import { documentQueries } from "@/shared/lib/document-manager";
 
 const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
 
@@ -52,13 +52,13 @@ function CommandPaletteInner() {
       if (c.id === "command-palette:open") return false;
       if (c.editorCheckCallback) {
         const editor = getActiveEditor();
-        const doc = documentManager.getActiveDocument();
+        const doc = documentQueries.getActiveDocument();
         if (!editor || !doc) return false;
         return c.editorCheckCallback(true, editor, doc) !== false;
       }
       if (c.editorCallback) {
         const editor = getActiveEditor();
-        const doc = documentManager.getActiveDocument();
+        const doc = documentQueries.getActiveDocument();
         return !!(editor && doc);
       }
       if (c.checkCallback) return c.checkCallback(true) !== false;
@@ -87,14 +87,14 @@ function CommandPaletteInner() {
     close();
     if (cmd.editorCheckCallback) {
       const editor = getActiveEditor();
-      const doc = documentManager.getActiveDocument();
+      const doc = documentQueries.getActiveDocument();
       if (editor && doc) {
         const canRun = cmd.editorCheckCallback(true, editor, doc);
         if (canRun) cmd.editorCheckCallback(false, editor, doc);
       }
     } else if (cmd.editorCallback) {
       const editor = getActiveEditor();
-      const doc = documentManager.getActiveDocument();
+      const doc = documentQueries.getActiveDocument();
       if (editor && doc) {
         cmd.editorCallback(editor, doc);
       }

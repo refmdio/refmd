@@ -16,9 +16,10 @@ import {
   setSelectedDocumentId,
 } from "@/entities/document";
 import type { DocumentResponse } from "@/entities/document";
-import { usePanelWorkspace, hasDocumentPanels, findFirstPanelId } from "@/features/panel";
+import { usePanelWorkspace, closeDocumentPanels } from "@/features/panel";
 import { currentWorkspaceId } from "@/entities/workspace";
-import { documentManager } from "@/shared/lib/document-manager";
+import { documentCommands } from "@/shared/lib/document-manager";
+import { documentNavigation } from "@/shared/lib/document-navigation";
 import {
   createFolder,
   renameDocument,
@@ -90,8 +91,7 @@ export function DocumentTreePanel() {
   };
 
   const handleCreateDocument = async (title: string) => {
-    const docId = await documentManager.createDocument(title, selectedParentId());
-    documentManager.notifyDocumentCreate(docId);
+    const docId = await documentCommands.createDocument(title, selectedParentId());
     invalidateDocuments();
     setSelectedDocumentId(docId);
   };
@@ -109,8 +109,7 @@ export function DocumentTreePanel() {
     const wsId = workspaceId();
     if (!wsId) return;
     const oldTitle = getTitle(doc);
-    await renameDocument(doc, newTitle, wsId);
-    documentManager.notifyDocumentRename(doc.id, oldTitle);
+    await renameDocument(doc, newTitle, wsId, oldTitle);
     invalidateDocuments();
   };
 
@@ -138,19 +137,10 @@ export function DocumentTreePanel() {
 
   const handleDelete = async (doc: DocumentResponse) => {
     await deleteDocument(doc.id);
-    documentManager.notifyDocumentDelete(doc.id);
     if (selectedDocumentId() === doc.id) {
       setSelectedDocumentId(null);
     }
-    const state = workspace.mosaicState();
-    if (state && hasDocumentPanels(state, doc.id)) {
-      let panelId = findFirstPanelId(state, doc.id);
-      while (panelId) {
-        workspace.closePanel(panelId);
-        const next = workspace.mosaicState();
-        panelId = next ? findFirstPanelId(next, doc.id) : null;
-      }
-    }
+    closeDocumentPanels(workspace, doc.id);
     invalidateDocuments();
   };
 
@@ -208,7 +198,7 @@ export function DocumentTreePanel() {
                 setSelectedDocumentId(id);
                 const doc = flatDocuments().find((d) => d.id === id);
                 if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
-                  documentManager.openDocument(doc.id, getTitle(doc));
+                  documentNavigation.openDocument(doc.id);
                 }
               }}
               getTitle={getTitle}

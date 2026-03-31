@@ -139,6 +139,8 @@ export async function cachePendingChanges(
       keyVersion: state.keyVersion,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      syncBlockedReason: existing?.syncBlockedReason ?? null,
+      syncBlockedAt: existing?.syncBlockedAt ?? null,
     };
 
     await putPendingChanges(pendingEntry);

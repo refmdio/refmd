@@ -3,20 +3,53 @@ import { base64UrlEncode, base64UrlDecode } from "./encoding";
 import { getCryptoWorker } from "./worker/client";
 import { authState, deviceState } from "@/shared/lib/auth-state";
 
-export async function resolveActiveKek(workspaceId: string): Promise<{ kekVersion: number }> {
+const pendingActiveKekResolutions = new Map<string, Promise<{ kekVersion: number }>>();
+
+export async function resolveActiveKek(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<{ kekVersion: number }> {
   const worker = getCryptoWorker();
   const auth = authState();
   const device = deviceState();
   if (!auth || !device?.deviceId) throw new Error("Not authenticated");
 
-  const userId = auth.user.id;
-  const deviceId = device.deviceId;
+  const cached = await worker.resolveKek(workspaceId);
+  if (cached.found && cached.keyVersion !== undefined) {
+    await worker.setActiveKekVersion(workspaceId, cached.keyVersion);
+    return { kekVersion: cached.keyVersion };
+  }
+
+  const pending = pendingActiveKekResolutions.get(workspaceId);
+  if (pending) return pending;
+
+  const resolution = doResolveActiveKek(workspaceId, auth.user.id, device.deviceId, worker, signal);
+  pendingActiveKekResolutions.set(workspaceId, resolution);
+
+  try {
+    return await resolution;
+  } finally {
+    pendingActiveKekResolutions.delete(workspaceId);
+  }
+}
+
+async function doResolveActiveKek(
+  workspaceId: string,
+  userId: string,
+  deviceId: string,
+  worker: ReturnType<typeof getCryptoWorker>,
+  signal?: AbortSignal,
+): Promise<{ kekVersion: number }> {
+  const device = deviceState();
+  if (!device?.deviceId) throw new Error("Not authenticated");
 
   let keys: Awaited<ReturnType<typeof encryptionApi.getWorkspaceKeysWithPop>>["keys"] = [];
   let currentKekVersion = 0;
 
   try {
-    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
+    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId, {
+      signal,
+    });
     keys = keysResponse.keys;
     currentKekVersion = keysResponse.current_kek_version;
   } catch (e) {
@@ -230,7 +263,11 @@ export async function resolveActiveKek(workspaceId: string): Promise<{ kekVersio
  * Used when unwrapping old DEKs that were wrapped with a previous KEK version.
  * Priority: worker cache → device envelope → UMK backup
  */
-export async function resolveKekByVersion(workspaceId: string, keyVersion: number): Promise<void> {
+export async function resolveKekByVersion(
+  workspaceId: string,
+  keyVersion: number,
+  signal?: AbortSignal,
+): Promise<void> {
   const worker = getCryptoWorker();
   const auth = authState();
   const device = deviceState();
@@ -250,6 +287,7 @@ export async function resolveKekByVersion(workspaceId: string, keyVersion: numbe
     userId,
     deviceId,
     keyVersion,
+    signal,
   );
   if (resolved) return;
 
@@ -324,10 +362,13 @@ async function tryDecryptKekViaDeviceEnvelope(
   userId: string,
   deviceId: string,
   keyVersion: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   let envelopeFound = false;
   try {
-    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
+    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId, {
+      signal,
+    });
     const matchingKey = keysResponse.keys.find((k) => k.key_version === keyVersion);
 
     if (!matchingKey?.sender_ecdh_public_key || !matchingKey.sender_signing_public_key) {

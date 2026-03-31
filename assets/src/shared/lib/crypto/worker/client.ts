@@ -230,10 +230,9 @@ export class CryptoWorkerClient {
     salt: Uint8Array;
     kdfParams: { memory: number; iterations: number; parallelism: number };
   }): Promise<{ authKey: Uint8Array }> {
-    return (await this.sendWithRateLimitRetry(
-      "derive-auth-keys",
-      params as unknown as Record<string, unknown>,
-    )) as { authKey: Uint8Array };
+    return (await this.send("derive-auth-keys", params as unknown as Record<string, unknown>)) as {
+      authKey: Uint8Array;
+    };
   }
 
   async validateMnemonic(mnemonic: string): Promise<boolean> {
@@ -965,21 +964,37 @@ export class CryptoWorkerClient {
 
   // ── Internal ──────────────────────────────────────────
 
-  private async sendWithRateLimitRetry(
+  private getRateLimitRetryPolicy(
     type: CryptoRequestType,
-    payload: Record<string, unknown>,
-    maxRetries = 2,
-  ): Promise<unknown> {
+  ): { maxRetries: number; baseDelayMs: number; maxDelayMs: number } | null {
+    if (type === "derive-auth-keys") {
+      return { maxRetries: 2, baseDelayMs: 10_000, maxDelayMs: 10_000 };
+    }
+    if (type.startsWith("decrypt-")) {
+      return { maxRetries: 12, baseDelayMs: 100, maxDelayMs: 1_000 };
+    }
+    return null;
+  }
+
+  private async send(type: CryptoRequestType, payload: Record<string, unknown>): Promise<unknown> {
+    const retryPolicy = this.getRateLimitRetryPolicy(type);
+
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.send(type, payload);
+        return await this.sendOnce(type, payload);
       } catch (err) {
         if (
+          retryPolicy &&
           err instanceof CryptoWorkerError &&
           err.code === "rate_limited" &&
-          attempt < maxRetries
+          attempt < retryPolicy.maxRetries
         ) {
-          await new Promise((r) => setTimeout(r, 10_000));
+          const backoffMs = Math.min(
+            retryPolicy.baseDelayMs * (attempt + 1),
+            retryPolicy.maxDelayMs,
+          );
+          const jitterMs = Math.floor(Math.random() * 50);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs + jitterMs));
           continue;
         }
         throw err;
@@ -987,7 +1002,7 @@ export class CryptoWorkerClient {
     }
   }
 
-  private send(type: CryptoRequestType, payload: Record<string, unknown>): Promise<unknown> {
+  private sendOnce(type: CryptoRequestType, payload: Record<string, unknown>): Promise<unknown> {
     if (this.terminated) {
       return Promise.reject(new Error("Worker terminated"));
     }

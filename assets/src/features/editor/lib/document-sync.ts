@@ -52,19 +52,63 @@ import {
   notifyForegroundDocumentOpen,
   notifyForegroundDocumentClose,
 } from "@/shared/lib/offline/background-cache";
+import { queryClient } from "@/shared/lib/query-client";
+
+function createInitCancelledError(): Error {
+  const error = new Error("init_cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+function isInitCancelledError(error: unknown): boolean {
+  return (
+    error instanceof Error && (error.name === "AbortError" || error.message === "init_cancelled")
+  );
+}
+
+function throwIfInitializationCancelled(
+  documentId: string,
+  state: DocumentState,
+  signal: AbortSignal,
+): void {
+  if (
+    signal.aborted ||
+    getDocumentState(documentId) !== state ||
+    (state.refCount <= 0 && !state._headlessSync)
+  ) {
+    throw createInitCancelledError();
+  }
+}
+
+function getCachedDocumentMeta(
+  documentId: string,
+  workspaceId: string,
+): Awaited<ReturnType<typeof documentsApi.get>> | null {
+  const cached = queryClient.getQueryData<Awaited<ReturnType<typeof documentsApi.list>>>([
+    "documents",
+    workspaceId,
+  ]);
+  return cached?.documents.find((doc) => doc.id === documentId) ?? null;
+}
 
 export async function initializeDocumentSync(
   documentId: string,
   workspaceId: string,
   state: DocumentState,
 ): Promise<void> {
+  const abortController = new AbortController();
+  state._initAbortController?.abort();
+  state._initAbortController = abortController;
   notifyForegroundDocumentOpen();
   try {
-    await doInitializeDocumentSync(documentId, workspaceId, state);
+    await doInitializeDocumentSync(documentId, workspaceId, state, abortController.signal);
   } catch (err) {
     state.initPromise = null;
     throw err;
   } finally {
+    if (state._initAbortController === abortController) {
+      state._initAbortController = null;
+    }
     notifyForegroundDocumentClose();
   }
 }
@@ -73,32 +117,33 @@ async function doInitializeDocumentSync(
   documentId: string,
   workspaceId: string,
   state: DocumentState,
+  signal: AbortSignal,
 ): Promise<void> {
   const worker = getCryptoWorker();
   const device = deviceState();
   if (!device) throw new Error("Device state not available");
 
-  // Fast-fail on network errors only (not HTTP errors like 401).
-  // Without this, sequential API calls (KEK, DEK, PoP, channel join) each
-  // fail independently, adding seconds of delay before the offline cache
-  // fallback path in DocumentPanelShell can kick in.
-  try {
-    await fetch("/api/auth/me", { method: "HEAD", credentials: "include" });
-  } catch (e) {
-    if (e instanceof TypeError) {
-      throw new Error("Server unreachable");
-    }
-  }
-
   const localDeviceSigningPubKey = device.deviceSigningPublic
     ? base64UrlEncode(device.deviceSigningPublic)
     : undefined;
 
-  // 1. KEK resolution
-  const { kekVersion: activeKekVersion } = await resolveActiveKek(workspaceId);
+  throwIfInitializationCancelled(documentId, state, signal);
 
-  // 2. DEK resolution: unwrap all versions
-  const keysResponse = await encryptionApi.getDocumentKeys(documentId);
+  const activeKekPromise = resolveActiveKek(workspaceId, signal);
+  const documentKeysPromise = encryptionApi.getDocumentKeys(documentId, { signal });
+  const deviceKeyCachePromise = buildDeviceKeyCaches(workspaceId, signal)
+    .then((result) => ({ result }))
+    .catch((error) => ({ error }));
+  const existingPinPromise = import("@/shared/lib/anti-rollback/document-state-pins").then(
+    ({ getDocumentStatePin }) => getDocumentStatePin(documentId).catch(() => null),
+  );
+
+  const [{ kekVersion: activeKekVersion }, keysResponse] = await Promise.all([
+    activeKekPromise,
+    documentKeysPromise,
+  ]);
+  throwIfInitializationCancelled(documentId, state, signal);
+
   const keys = keysResponse.keys;
   const activeKey = keys.find((k) => k.is_active);
 
@@ -108,7 +153,8 @@ async function doInitializeDocumentSync(
 
   // Resolve KEK for active DEK if it was wrapped with a different KEK version
   if (activeKey.kek_version !== activeKekVersion) {
-    await resolveKekByVersion(workspaceId, activeKey.kek_version);
+    await resolveKekByVersion(workspaceId, activeKey.kek_version, signal);
+    throwIfInitializationCancelled(documentId, state, signal);
   }
 
   // Unwrap active DEK first (required for document open)
@@ -122,25 +168,14 @@ async function doInitializeDocumentSync(
     kekVersion: activeKey.kek_version,
   });
 
-  // Unwrap old DEK versions (best-effort; failure does not block document open)
-  for (const key of keys) {
-    if (key.key_version === activeKey.key_version) continue;
-    try {
-      if (key.kek_version !== activeKekVersion) {
-        await resolveKekByVersion(workspaceId, key.kek_version);
-      }
-      await worker.unwrapDek({
-        encryptedDek: base64UrlDecode(key.encrypted_dek),
-        nonce: base64UrlDecode(key.nonce),
-        documentId,
-        workspaceId,
-        keyVersion: key.key_version,
-        kekVersion: key.kek_version,
-      });
-    } catch {
-      // Old DEK resolution is best-effort; on-demand via ensureDekCached
-    }
-  }
+  const oldDekPrimePromise = primeHistoricalDeks(
+    documentId,
+    workspaceId,
+    keys,
+    activeKekVersion,
+    activeKey.key_version,
+    signal,
+  );
   state.dekResolved = true;
   state.keyVersion = activeKey.key_version;
 
@@ -159,22 +194,12 @@ async function doInitializeDocumentSync(
     }
   }, 30_000);
 
-  // 3. Build device key cache (signing key membership + TOFU)
-  const cacheResult = await buildDeviceKeyCaches(workspaceId);
-  if (cacheResult.status === "key_changed") {
-    throw new Error(`TOFU key change detected: device ${cacheResult.warning.deviceId}`);
-  }
-  state.signingKeys = cacheResult.signingKeys;
-  state.signingKeyOwners = cacheResult.signingKeyOwners;
-  state.memberNames = cacheResult.memberNames;
-  state.revokedSigningKeys = cacheResult.revokedSigningKeys;
-  state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
-
   // 4. PoP for Channel join
-  const popHeaders = await getPopHeaders();
-  // Use persisted pin for knownSnapshotId when in-memory state is empty (after restart)
-  const { getDocumentStatePin } = await import("@/shared/lib/anti-rollback/document-state-pins");
-  const existingPin = await getDocumentStatePin(documentId).catch(() => null);
+  const [popHeaders, existingPin] = await Promise.all([
+    getPopHeaders(undefined, signal),
+    existingPinPromise,
+  ]);
+  throwIfInitializationCancelled(documentId, state, signal);
   // Use delta mode only if Y.Doc already has base state AND lastSavedState is available.
   // lastSavedState is required for server-relative diff computation on reconnect.
   // After cache recovery, lastSavedState is null — force complete mode so
@@ -222,6 +247,11 @@ async function doInitializeDocumentSync(
 
   // Fail-closed: stop sync + disconnect channel + reject pending init
   function failClosed(reason: string, err?: unknown): void {
+    if (signal.aborted) {
+      if (documentTimeout) clearTimeout(documentTimeout);
+      if (rejectDocumentPromise) rejectDocumentPromise(createInitCancelledError());
+      return;
+    }
     if (state.error) return;
     if (err) console.error(`[ws] ${reason}:`, err);
     // On workspace access loss, purge KEK cache (design: keep DEK for local read-only)
@@ -341,13 +371,18 @@ async function doInitializeDocumentSync(
 
   let channel;
   try {
+    throwIfInitializationCancelled(documentId, state, signal);
     channel = await joinDocument(documentId, joinParams, callbacks);
   } catch (err) {
     if (documentTimeout) clearTimeout(documentTimeout);
     state._onDocumentMessage = null;
+    if (isInitCancelledError(err)) {
+      throw err;
+    }
     throw err;
   }
   state.channel = channel;
+  throwIfInitializationCancelled(documentId, state, signal);
 
   // Guard: if state was torn down during async init, leave immediately
   if (!getDocumentState(documentId)) {
@@ -360,12 +395,32 @@ async function doInitializeDocumentSync(
   try {
     documentPayload = await documentPromise;
   } catch (err) {
+    if (isInitCancelledError(err)) throw err;
     failClosed("initial_load_failed", err);
     throw err;
   }
+  throwIfInitializationCancelled(documentId, state, signal);
+
+  const deviceKeyCacheOutcome = await deviceKeyCachePromise;
+  throwIfInitializationCancelled(documentId, state, signal);
+  if ("error" in deviceKeyCacheOutcome) {
+    if (isInitCancelledError(deviceKeyCacheOutcome.error)) throw deviceKeyCacheOutcome.error;
+    failClosed("initial_load_failed", deviceKeyCacheOutcome.error);
+    throw deviceKeyCacheOutcome.error;
+  }
+  const cacheResult = deviceKeyCacheOutcome.result;
+  if (cacheResult.status === "key_changed") {
+    const err = new Error(`TOFU key change detected: device ${cacheResult.warning.deviceId}`);
+    failClosed("initial_load_failed", err);
+    throw err;
+  }
+  applyDeviceKeyCache(state, cacheResult);
+
   try {
+    throwIfInitializationCancelled(documentId, state, signal);
     await handleDocumentMessage(documentPayload, state, documentId);
   } catch (err) {
+    if (isInitCancelledError(err)) throw err;
     failClosed("initial_load_failed", err);
     throw err;
   }
@@ -373,6 +428,7 @@ async function doInitializeDocumentSync(
   // Drain events queued during async document processing
   const queued = state._pendingRemoteEvents.splice(0);
   for (const event of queued) {
+    throwIfInitializationCancelled(documentId, state, signal);
     if (event.type === "update") {
       await handleRemoteUpdate(
         event.payload as Parameters<typeof handleRemoteUpdate>[0],
@@ -415,59 +471,12 @@ async function doInitializeDocumentSync(
     state.localClock = baseClock + 1;
   }
 
-  // 8. Detect pending rotation: server flag OR stale title (crash-resilient)
-  if (!state.pendingRotationSnapshot) {
-    try {
-      const docMeta = await documentsApi.get(documentId);
-      if (docMeta.needs_rotation_snapshot) {
-        state.pendingRotationSnapshot = true;
-      }
-      // Immediate title re-encryption if stale (crash recovery)
-      if (
-        docMeta.encrypted_title_key_version &&
-        docMeta.encrypted_title_key_version < state.keyVersion
-      ) {
-        await reEncryptTitleIfNeeded(documentId, workspaceId, state);
-      }
-    } catch {
-      // Non-blocking
-    }
-  }
-
-  // 9. Start auto-sync
+  // 8. Start auto-sync before non-critical post-open work so the editor becomes interactive sooner.
   state.autoSync = startAutoSync(documentId, state);
-  // Trigger send for any pending local changes (e.g., edits made during offline→online re-init)
   state.autoSync.notifyLocalEdit();
 
-  // 9b. Initialize offline cache (design order: DEK → KEK → document state)
-  const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
-  await cacheDek(documentId, state.keyVersion).catch(() => {});
-  if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
-    await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {});
-  }
-  cacheDocumentState(documentId, workspaceId, state).catch(() => {});
-  state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state);
-  checkAndEvict().catch(() => {});
-
-  // 10. Initialize ephemeral session and awareness relay
-  const auth = authState();
-  const currentDevice = deviceState();
-  if (auth && currentDevice && localDeviceSigningPubKey) {
-    state.awareness.setLocalStateField("user", {
-      userId: auth.user.id,
-      name: auth.user.name,
-      color: assignUserColor(auth.user.id, state.awareness),
-      signingPubKey: localDeviceSigningPubKey,
-    });
-
-    const session = createEphemeralSession();
-    state.ephemeralSession = session;
-
-    sendInitialize(session, state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
-
-    setupAwarenessRelay(state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
-    notifyAwarenessReady(documentId);
-  }
+  void oldDekPrimePromise;
+  void runPostInitializationTasks(documentId, workspaceId, state, localDeviceSigningPubKey);
 }
 
 export function teardownDocumentSync(documentId: string, state: DocumentState): void {
@@ -492,6 +501,118 @@ export function teardownDocumentSync(documentId: string, state: DocumentState): 
   state.pendingSnapshotEnvelope = null;
   state.channel = null;
   leaveDocument(documentId);
+}
+
+function applyDeviceKeyCache(
+  state: DocumentState,
+  cacheResult: Extract<Awaited<ReturnType<typeof buildDeviceKeyCaches>>, { status: "ok" }>,
+): void {
+  state.signingKeys = cacheResult.signingKeys;
+  state.signingKeyOwners = cacheResult.signingKeyOwners;
+  state.memberNames = cacheResult.memberNames;
+  state.revokedSigningKeys = cacheResult.revokedSigningKeys;
+  state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
+}
+
+async function primeHistoricalDeks(
+  documentId: string,
+  workspaceId: string,
+  keys: Awaited<ReturnType<typeof encryptionApi.getDocumentKeys>>["keys"],
+  activeKekVersion: number,
+  activeKeyVersion: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const worker = getCryptoWorker();
+
+  for (const key of keys) {
+    if (signal?.aborted) return;
+    if (key.key_version === activeKeyVersion) continue;
+    try {
+      if (key.kek_version !== activeKekVersion) {
+        await resolveKekByVersion(workspaceId, key.kek_version, signal);
+      }
+      await worker.unwrapDek({
+        encryptedDek: base64UrlDecode(key.encrypted_dek),
+        nonce: base64UrlDecode(key.nonce),
+        documentId,
+        workspaceId,
+        keyVersion: key.key_version,
+        kekVersion: key.kek_version,
+      });
+    } catch {
+      // Historical DEKs are best-effort; ensureDekCached handles on-demand recovery.
+    }
+  }
+}
+
+async function runPostInitializationTasks(
+  documentId: string,
+  workspaceId: string,
+  state: DocumentState,
+  localDeviceSigningPubKey?: string,
+): Promise<void> {
+  const isCurrentState = () => getDocumentState(documentId) === state;
+
+  const documentMetaTask = async () => {
+    if (state.pendingRotationSnapshot) return;
+
+    try {
+      const docMeta = getCachedDocumentMeta(documentId, workspaceId);
+      if (!docMeta || !isCurrentState()) return;
+
+      if (docMeta.needs_rotation_snapshot) {
+        state.pendingRotationSnapshot = true;
+      }
+      if (
+        docMeta.encrypted_title_key_version &&
+        docMeta.encrypted_title_key_version < state.keyVersion
+      ) {
+        await reEncryptTitleIfNeeded(documentId, workspaceId, state, state.keyVersion, docMeta);
+      }
+    } catch {
+      // Best-effort
+    }
+  };
+
+  const offlineCacheTask = async () => {
+    try {
+      const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
+      await cacheDek(documentId, state.keyVersion).catch(() => {});
+      if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
+        await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {});
+      }
+      if (!isCurrentState()) return;
+      cacheDocumentState(documentId, workspaceId, state).catch(() => {});
+      state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state);
+      checkAndEvict().catch(() => {});
+    } catch {
+      // Best-effort
+    }
+  };
+
+  const awarenessTask = async () => {
+    if (!localDeviceSigningPubKey || !isCurrentState() || state.ephemeralSession) return;
+
+    const auth = authState();
+    const currentDevice = deviceState();
+    if (!auth || !currentDevice) return;
+
+    state.awareness.setLocalStateField("user", {
+      userId: auth.user.id,
+      name: auth.user.name,
+      color: assignUserColor(auth.user.id, state.awareness),
+      signingPubKey: localDeviceSigningPubKey,
+    });
+
+    const session = createEphemeralSession();
+    state.ephemeralSession = session;
+
+    sendInitialize(session, state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
+    setupAwarenessRelay(state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
+    notifyAwarenessReady(documentId);
+  };
+
+  await Promise.allSettled([documentMetaTask(), offlineCacheTask(), awarenessTask()]);
 }
 
 /**
@@ -610,16 +731,17 @@ async function reEncryptTitleIfNeeded(
   _workspaceId: string,
   state: DocumentState,
   targetKeyVersion?: number,
+  docMeta?: Awaited<ReturnType<typeof documentsApi.get>>,
 ): Promise<void> {
   const worker = getCryptoWorker();
   const newKeyVersion = targetKeyVersion ?? state.keyVersion;
 
-  let doc: Awaited<ReturnType<typeof documentsApi.get>>;
-  try {
-    doc = await documentsApi.get(documentId);
-  } catch {
-    return;
-  }
+  const doc =
+    docMeta ??
+    (await documentsApi.get(documentId).catch(() => {
+      return null;
+    }));
+  if (!doc) return;
 
   if (!doc.encrypted_title || !doc.encrypted_title_nonce || !doc.encrypted_title_key_version) {
     return;

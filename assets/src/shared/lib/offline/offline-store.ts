@@ -46,7 +46,11 @@ export interface PendingChangesEntry {
   keyVersion: number;
   createdAt: number;
   updatedAt: number;
+  syncBlockedReason?: PendingSyncBlockReason | null;
+  syncBlockedAt?: number | null;
 }
+
+export type PendingSyncBlockReason = "not_a_member" | "permission_denied";
 
 export interface OfflineDekEntry {
   documentId: string;
@@ -136,6 +140,8 @@ interface PendingChangesIdb {
   keyVersion: number;
   createdAt: number;
   updatedAt: number;
+  syncBlockedReason?: PendingSyncBlockReason;
+  syncBlockedAt?: number;
 }
 
 interface OfflineDocumentMetaIdb {
@@ -282,6 +288,8 @@ function serializePendingChanges(entry: PendingChangesEntry): PendingChangesIdb 
     keyVersion: entry.keyVersion,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
+    syncBlockedReason: entry.syncBlockedReason ?? undefined,
+    syncBlockedAt: entry.syncBlockedAt ?? undefined,
   };
 }
 
@@ -293,6 +301,8 @@ function deserializePendingChanges(raw: PendingChangesIdb): PendingChangesEntry 
     keyVersion: raw.keyVersion,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
+    syncBlockedReason: raw.syncBlockedReason ?? null,
+    syncBlockedAt: raw.syncBlockedAt ?? null,
   };
 }
 
@@ -305,6 +315,20 @@ export async function getPendingChanges(documentId: string): Promise<PendingChan
 export async function putPendingChanges(entry: PendingChangesEntry): Promise<void> {
   const db = await openOfflineDb();
   await idbPut(db, STORE_PENDING_CHANGES, serializePendingChanges(entry));
+}
+
+export async function blockPendingChangesSync(
+  documentId: string,
+  reason: PendingSyncBlockReason,
+): Promise<void> {
+  const existing = await getPendingChanges(documentId);
+  if (!existing) return;
+
+  await putPendingChanges({
+    ...existing,
+    syncBlockedReason: reason,
+    syncBlockedAt: Date.now(),
+  });
 }
 
 export async function deletePendingChanges(documentId: string): Promise<void> {
