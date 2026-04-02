@@ -4,6 +4,7 @@ import { setCommandPaletteOpen, CommandPaletteModal } from "./CommandPaletteModa
 
 let currentApp: App | null = null;
 let disposeModal: (() => void) | null = null;
+let modalContainer: HTMLDivElement | null = null;
 
 export function loadCommandPalette(app: App): void {
   currentApp = app;
@@ -14,16 +15,17 @@ export function loadCommandPalette(app: App): void {
     callback: () => setCommandPaletteOpen(true),
   });
 
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  disposeModal = render(() => CommandPaletteModal(), container);
+  modalContainer = document.createElement("div");
+  document.body.appendChild(modalContainer);
+  disposeModal = render(() => CommandPaletteModal(), modalContainer);
 }
 
 export function unloadCommandPalette(): void {
-  if (!currentApp) return;
-  currentApp.workspace.removeCommand("command-palette:open");
+  currentApp?.workspace.removeCommand("command-palette:open");
   setCommandPaletteOpen(false);
   disposeModal?.();
   disposeModal = null;
+  modalContainer?.remove();
+  modalContainer = null;
   currentApp = null;
 }

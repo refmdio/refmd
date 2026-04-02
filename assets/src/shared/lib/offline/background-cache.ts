@@ -7,7 +7,7 @@ import {
 } from "@/shared/lib/ws/phoenix-channel";
 import { documentsApi } from "@/shared/api/documents";
 import { encryptionApi } from "@/shared/api/encryption";
-import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
+import { resolveActiveKek, type KekResolverSession } from "@/shared/lib/crypto/kek-resolver";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import * as Y from "yjs";
 import {
@@ -19,56 +19,62 @@ import {
   type DocumentCacheEntry,
 } from "./offline-store";
 import { cacheDek, cacheKek } from "./cache-manager";
-
 import { offlineMode } from "./offline-state";
 import { checkAndEvict } from "./lru-eviction";
-
-const BACKGROUND_CACHE_INTERVAL_MS = 2_000;
+import type { components } from "@/shared/api";
+const BACKGROUND_CACHE_INTERVAL_MS = 2000;
 const MAX_BACKGROUND_CACHE_BROWSER = 50;
 const MAX_BACKGROUND_CACHE_DESKTOP = 200;
 const FOREGROUND_PAUSE_CHECK_MS = 500;
-
+type DeviceKeyCacheResult =
+  | {
+      status: "ok";
+      signingKeys: Map<string, Uint8Array>;
+    }
+  | {
+      status: "key_changed";
+    };
+type BuildDeviceKeyCaches = (
+  workspaceId: string,
+  signal?: AbortSignal,
+) => Promise<DeviceKeyCacheResult>;
+type DocumentListEntry = Awaited<ReturnType<typeof documentsApi.list>>["documents"][number];
+type DocumentKey = components["schemas"]["DocumentKeyResponse"];
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI__" in window;
 }
-
 function getMaxBackgroundCache(): number {
   return isTauri() ? MAX_BACKGROUND_CACHE_DESKTOP : MAX_BACKGROUND_CACHE_BROWSER;
 }
-
 let activeCachingWorkspace: string | null = null;
-let foregroundBusy = false;
-
+let foregroundBusyCount = 0;
 export function notifyForegroundDocumentOpen(): void {
-  foregroundBusy = true;
+  foregroundBusyCount += 1;
 }
-
 export function notifyForegroundDocumentClose(): void {
-  foregroundBusy = false;
+  foregroundBusyCount = Math.max(0, foregroundBusyCount - 1);
 }
-
 async function waitForForegroundIdle(cancelled: () => boolean): Promise<void> {
-  while (foregroundBusy && !cancelled()) {
+  while (foregroundBusyCount > 0 && !cancelled()) {
     await new Promise((r) => setTimeout(r, FOREGROUND_PAUSE_CHECK_MS));
   }
 }
-
-export function startBackgroundCaching(workspaceId: string): () => void {
+export function startBackgroundCaching(
+  workspaceId: string,
+  buildDeviceKeyCaches: BuildDeviceKeyCaches,
+  getKekResolverSession: () => KekResolverSession,
+): () => void {
   let cancelled = false;
-
   const run = async () => {
     if (activeCachingWorkspace === workspaceId) return;
     activeCachingWorkspace = workspaceId;
-
     try {
       const result = await documentsApi.list(workspaceId);
       if (cancelled || offlineMode()) return;
-
       // Sort by lastAccessedAt from offline-documents (local access history),
       // falling back to server updated_at for documents not yet accessed locally
       const offlineMetas = await getAllOfflineDocumentMetas().catch(() => []);
       const accessMap = new Map(offlineMetas.map((m) => [m.documentId, m.lastAccessedAt]));
-
       const sortedDocs = [...result.documents]
         .filter((d) => d.doc_type === "document")
         .sort((a, b) => {
@@ -77,33 +83,32 @@ export function startBackgroundCaching(workspaceId: string): () => void {
           if (aAccess !== bAccess) {
             return bAccess - aAccess;
           }
-
           const aUpdatedAt = Date.parse(a.updated_at ?? "") || 0;
           const bUpdatedAt = Date.parse(b.updated_at ?? "") || 0;
           return bUpdatedAt - aUpdatedAt;
         })
         .slice(0, getMaxBackgroundCache());
-
       for (const doc of sortedDocs) {
         if (cancelled || offlineMode()) break;
-
         // Pause while user is actively opening a document
         await waitForForegroundIdle(() => cancelled);
         if (cancelled || offlineMode()) break;
-
         const existing = await getDocumentCache(doc.id);
         if (existing) continue;
-
         try {
-          await cacheDocumentSilently(doc.id, workspaceId, doc);
+          await cacheDocumentSilently(
+            doc.id,
+            workspaceId,
+            buildDeviceKeyCaches,
+            getKekResolverSession,
+            doc,
+          );
         } catch {
           // Skip failures
         }
-
         if (cancelled) break;
         await new Promise((r) => setTimeout(r, BACKGROUND_CACHE_INTERVAL_MS));
       }
-
       checkAndEvict().catch(() => {});
     } catch {
       // Document list fetch failed
@@ -111,44 +116,37 @@ export function startBackgroundCaching(workspaceId: string): () => void {
       activeCachingWorkspace = null;
     }
   };
-
   // Start after a short delay to not interfere with initial page load
-  const timer = setTimeout(run, 5_000);
-
+  const timer = setTimeout(run, 5000);
   return () => {
     cancelled = true;
     clearTimeout(timer);
   };
 }
-
 async function cacheDocumentSilently(
   documentId: string,
   workspaceId: string,
-  docInfo?: any,
+  buildDeviceKeyCaches: BuildDeviceKeyCaches,
+  getKekResolverSession: () => KekResolverSession,
+  docInfo?: DocumentListEntry,
 ): Promise<void> {
   const popHeaders = await getPopHeaders();
-
   const worker = getCryptoWorker();
-
   // Build member signing key set for signature verification
-  const { buildDeviceKeyCaches } = await import("@/features/editor/lib/document-verification");
   const keyCaches = await buildDeviceKeyCaches(workspaceId);
   if (keyCaches.status === "key_changed") throw new Error("TOFU key change detected");
   const validSigningKeys = keyCaches.signingKeys;
-
   // Resolve KEK and cache to offline-kek-cache
-  const { kekVersion } = await resolveActiveKek(workspaceId);
+  const { kekVersion } = await resolveActiveKek(workspaceId, getKekResolverSession());
   await cacheKek(workspaceId, kekVersion).catch(() => {});
   const dekResp = await encryptionApi.getDocumentKeys(documentId);
-  const activeDek = dekResp.keys.find((k: any) => k.is_active);
+  const activeDek = dekResp.keys.find((key: DocumentKey) => key.is_active);
   if (!activeDek) return;
-
   // Resolve version-specific KEK if DEK was wrapped by an older KEK version
   if (activeDek.kek_version && activeDek.kek_version !== kekVersion) {
     const { resolveKekByVersion } = await import("@/shared/lib/crypto/kek-resolver");
-    await resolveKekByVersion(workspaceId, activeDek.kek_version);
+    await resolveKekByVersion(workspaceId, activeDek.kek_version, getKekResolverSession());
   }
-
   await worker.unwrapDek({
     encryptedDek: base64UrlDecode(activeDek.encrypted_dek),
     nonce: base64UrlDecode(activeDek.nonce),
@@ -158,7 +156,6 @@ async function cacheDocumentSilently(
     isActive: true,
     kekVersion: activeDek.kek_version,
   });
-
   // Get pin before entering Promise executor (which cannot use await)
   const { getDocumentStatePin: getPin } =
     await import("@/shared/lib/anti-rollback/document-state-pins");
@@ -172,7 +169,6 @@ async function cacheDocumentSilently(
   if (bgPin?.latestSnapshotId) {
     joinParams.knownSnapshotId = bgPin.latestSnapshotId;
   }
-
   return new Promise<void>((resolve, reject) => {
     let resolved = false;
     const timeout = setTimeout(() => {
@@ -181,17 +177,14 @@ async function cacheDocumentSilently(
         leaveDocument(documentId);
         reject(new Error("Timeout"));
       }
-    }, 30_000);
-
+    }, 30000);
     const callbacks: DocumentChannelCallbacks = {
       onDocument: async (payload) => {
         try {
-          const p = payload as any;
           const yDoc = new Y.Doc();
-
           // Verify and decrypt snapshot
-          if (p.snapshot) {
-            const snap = p.snapshot;
+          if (payload.snapshot) {
+            const snap = payload.snapshot;
             const spk = snap.publicData.signingPubKey;
             if (!validSigningKeys.has(spk))
               throw new Error("Snapshot signer not a workspace member");
@@ -212,10 +205,9 @@ async function cacheDocumentSilently(
             });
             Y.applyUpdateV2(yDoc, decrypted, "remote");
           }
-
           // Verify and decrypt updates
-          if (p.updates) {
-            for (const update of p.updates) {
+          if (payload.updates) {
+            for (const update of payload.updates) {
               const upk = update.publicData.signingPubKey;
               if (!validSigningKeys.has(upk))
                 throw new Error("Update signer not a workspace member");
@@ -237,7 +229,6 @@ async function cacheDocumentSilently(
               Y.applyUpdate(yDoc, decrypted, "remote");
             }
           }
-
           // Encrypt and cache
           const yjsState = Y.encodeStateAsUpdate(yDoc);
           const { ciphertext, nonce } = await worker.encryptOfflineCache({
@@ -245,14 +236,12 @@ async function cacheDocumentSilently(
             documentId,
             keyVersion: activeDek.key_version,
           });
-
-          const snapshotId = p.snapshot?.publicData?.snapshotId ?? "";
-
+          const snapshotId = payload.snapshot?.publicData.snapshotId ?? "";
           // Build confirmed sync metadata from payload
-          let confirmedVersion = p.latestVersion ?? 0;
+          let confirmedVersion = payload.latestVersion ?? 0;
           const confirmedClocks: Record<string, number> = {};
-          if (p.updates) {
-            for (const update of p.updates) {
+          if (payload.updates) {
+            for (const update of payload.updates) {
               const key = update.publicData.signingPubKey;
               const clock = update.publicData.clock;
               if (clock > (confirmedClocks[key] ?? -1)) {
@@ -263,7 +252,6 @@ async function cacheDocumentSilently(
               }
             }
           }
-
           const entry: DocumentCacheEntry = {
             documentId,
             workspaceId,
@@ -277,15 +265,16 @@ async function cacheDocumentSilently(
             cachedAt: Date.now(),
             updatedAt: Date.now(),
           };
-
           // Cache DEK first (design: offline-dek-cache before document-cache for crash safety)
           await cacheDek(documentId, activeDek.key_version);
-
           // Validate against anti-rollback pin BEFORE persisting (fail-closed)
           try {
             const { validateDocumentPayloadAgainstPin, persistPin } =
               await import("@/shared/lib/anti-rollback/validate-document-payload");
-            const validation = await validateDocumentPayloadAgainstPin(documentId, p);
+            const validation = await validateDocumentPayloadAgainstPin(
+              documentId,
+              payload as import("@/shared/lib/anti-rollback/validate-document-payload").DocumentPayloadForValidation,
+            );
             if (validation.rollbackWarnings.length > 0) {
               // Skip pin update and document cache for rollback-detected documents.
               // These require user approval which background cache cannot provide.
@@ -305,10 +294,9 @@ async function cacheDocumentSilently(
             reject(pinErr);
             return;
           }
-
           // Store metadata with DSK-encrypted title
-          let encTitle = new Uint8Array(0);
-          let encTitleNonce = new Uint8Array(0);
+          let encTitle: Uint8Array = new Uint8Array(0);
+          let encTitleNonce: Uint8Array = new Uint8Array(0);
           if (
             docInfo?.encrypted_title &&
             docInfo?.encrypted_title_nonce &&
@@ -321,14 +309,10 @@ async function cacheDocumentSilently(
                 documentId,
                 keyVersion: docInfo.encrypted_title_key_version,
               });
-              const { buildOfflineDocumentCacheAad } = await import("@/shared/lib/crypto/aad");
-              const titleAad = buildOfflineDocumentCacheAad(documentId, 0);
-              const { ciphertext: ct, iv } = await worker.wrapWithDsk({
-                plaintext: new TextEncoder().encode(titlePlain),
-                aad: titleAad,
-              });
-              encTitle = new Uint8Array(ct);
-              encTitleNonce = new Uint8Array(iv);
+              const { wrapTitleWithDsk } = await import("./cache-manager");
+              const wrapped = await wrapTitleWithDsk(documentId, titlePlain);
+              encTitle = wrapped.encryptedTitle;
+              encTitleNonce = wrapped.encryptedTitleNonce;
             } catch {
               // Title encryption failed, keep empty
             }
@@ -346,7 +330,6 @@ async function cacheDocumentSilently(
             lastAccessedAt: existingMeta?.lastAccessedAt ?? 0,
             cacheSize: ciphertext.byteLength,
           });
-
           yDoc.destroy();
           leaveDocument(documentId);
           clearTimeout(timeout);
@@ -385,7 +368,6 @@ async function cacheDocumentSilently(
         }
       },
     };
-
     joinDocument(documentId, joinParams, callbacks).catch((err) => {
       clearTimeout(timeout);
       resolved = true;

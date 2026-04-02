@@ -1,7 +1,7 @@
 import { createEffect } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { workspacesApi } from "@/shared/api";
-import { authState, cryptoWorkerReady } from "@/shared/lib/auth-state";
+import { authState, cryptoWorkerReady } from "@/entities/session";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "./workspace-selection";
 import { putOfflineWorkspaces, getOfflineWorkspaces } from "@/shared/lib/offline/offline-store";
 

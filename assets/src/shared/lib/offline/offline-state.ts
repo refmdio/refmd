@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from "solid-js";
+import { createSignal } from "solid-js";
 
 const [networkOnline, setNetworkOnline] = createSignal(
   typeof navigator !== "undefined" ? navigator.onLine : true,
@@ -18,6 +18,7 @@ if (typeof window !== "undefined") {
 
 export function setWsConnected(connected: boolean): void {
   setWsConnectedInternal(connected);
+  notifyOfflineListeners();
 }
 
 export function offlineMode(): boolean {
@@ -35,7 +36,7 @@ const listeners = new Set<OfflineChangeCallback>();
 
 let prevOffline = false;
 
-export function notifyOfflineListeners(): void {
+function notifyOfflineListeners(): void {
   const current = offlineMode();
   if (current !== prevOffline) {
     prevOffline = current;
@@ -50,11 +51,4 @@ export function onOfflineModeChange(callback: OfflineChangeCallback): () => void
   return () => {
     listeners.delete(callback);
   };
-}
-
-export function useOfflineModeEffect(callback: OfflineChangeCallback): void {
-  createEffect(() => {
-    const isOffline = offlineMode();
-    callback(isOffline);
-  });
 }

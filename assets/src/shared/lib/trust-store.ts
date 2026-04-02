@@ -1,4 +1,4 @@
-import { openIdb, idbGet, idbPut, idbClear, toArrayBuffer } from "./idb";
+import { openIdb, idbGet, idbPut, toArrayBuffer } from "./idb";
 
 const DB_NAME = "refmd-trust";
 const DB_VERSION = 1;
@@ -76,39 +76,25 @@ export async function updateLastSeen(userId: string, deviceId: string): Promise<
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
     const getRequest = store.get(compositeKey(userId, deviceId));
+    let updated = false;
 
     getRequest.onerror = () => reject(getRequest.error);
     getRequest.onsuccess = () => {
       const result = getRequest.result as SerializedTofuEntry | undefined;
       if (!result) {
-        resolve(false);
         return;
       }
+      updated = true;
       result.lastSeenAt = Date.now();
       const putRequest = store.put(result);
       putRequest.onerror = () => reject(putRequest.error);
-      putRequest.onsuccess = () => resolve(true);
     };
 
-    tx.oncomplete = () => db.close();
-  });
-}
-
-export async function getAllTofuEntriesForUser(userId: string): Promise<TofuEntry[]> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly");
-    const store = tx.objectStore(STORE_NAME);
-    const index = store.index("by-user");
-    const request = index.getAll(userId);
-
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const results = request.result as SerializedTofuEntry[];
-      resolve(results.map(deserialize));
+    tx.oncomplete = () => {
+      db.close();
+      resolve(updated);
     };
-
-    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -118,20 +104,19 @@ export async function getAllTofuEntries(): Promise<TofuEntry[]> {
     const tx = db.transaction(STORE_NAME, "readonly");
     const store = tx.objectStore(STORE_NAME);
     const request = store.getAll();
+    let results: TofuEntry[] = [];
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
-      const results = request.result as SerializedTofuEntry[];
-      resolve(results.map(deserialize));
+      results = (request.result as SerializedTofuEntry[]).map(deserialize);
     };
 
-    tx.oncomplete = () => db.close();
+    tx.oncomplete = () => {
+      db.close();
+      resolve(results);
+    };
+    tx.onerror = () => reject(tx.error);
   });
-}
-
-export async function clearAllTofuEntries(): Promise<void> {
-  const db = await openDb();
-  await idbClear(db, STORE_NAME);
 }
 
 export async function importTofuEntries(entries: TofuEntry[]): Promise<void> {
@@ -142,20 +127,15 @@ export async function importTofuEntries(entries: TofuEntry[]): Promise<void> {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
 
-    let completed = 0;
-    const total = entries.length;
-
     for (const entry of entries) {
       const request = store.put(serialize(entry));
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        completed++;
-        if (completed === total) {
-          resolve();
-        }
-      };
     }
 
-    tx.oncomplete = () => db.close();
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
   });
 }

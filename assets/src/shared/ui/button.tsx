@@ -2,7 +2,6 @@ import { type JSX, splitProps, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/shared/lib/utils";
-
 const buttonVariants = cva(
   "relative inline-flex items-center justify-center gap-2 font-mono uppercase tracking-[0.28em] text-[11px] transition-[color,background,opacity,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40 isolate overflow-hidden text-[color:var(--button-text)]",
   {
@@ -37,15 +36,12 @@ const buttonVariants = cva(
     },
   },
 );
-
-export type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> &
+type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
   };
-
 function Button(props: ButtonProps) {
   const [local, rest] = splitProps(props, ["class", "variant", "size", "children", "asChild"]);
-
   return (
     <Dynamic
       component={local.asChild ? "span" : "button"}
@@ -61,5 +57,4 @@ function Button(props: ButtonProps) {
     </Dynamic>
   );
 }
-
-export { Button, buttonVariants };
+export { Button };

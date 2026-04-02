@@ -8,26 +8,22 @@ import {
   proseMirrorDocToMarkdown,
   normalizeMarkdown,
 } from "./markdown-convert";
-
 function createSerialize(_schema: Schema) {
   return (doc: Node): string => {
     return proseMirrorDocToMarkdown(doc);
   };
 }
-
 function createParse(schema: Schema) {
   return (text: string): Node => {
     return markdownToProseMirrorDoc(text, schema);
   };
 }
-
-export interface CollabSetup {
+interface CollabSetup {
   plugins: Plugin[];
   doc: Node;
   bridge: YjsBridgeHandle;
   destroy: () => void;
 }
-
 export function setupCollabPlugins(opts: {
   yDoc: Y.Doc;
   schema: Schema;
@@ -36,13 +32,10 @@ export function setupCollabPlugins(opts: {
   xmlFieldName?: string;
 }): CollabSetup {
   const { yDoc, schema, awareness, textFieldName = "content", xmlFieldName = "prosemirror" } = opts;
-
   const sharedText = yDoc.getText(textFieldName);
   const sharedProseMirror = yDoc.getXmlFragment(xmlFieldName);
-
   const serialize = createSerialize(schema);
   const parse = createParse(schema);
-
   const bridge = createYjsBridge({
     doc: yDoc,
     sharedText,
@@ -53,7 +46,6 @@ export function setupCollabPlugins(opts: {
     normalize: normalizeMarkdown,
     skipOrigins: new Set<unknown>(["remote"]),
   });
-
   const { plugins, doc } = createCollabPlugins(schema, {
     sharedProseMirror,
     awareness,
@@ -62,7 +54,6 @@ export function setupCollabPlugins(opts: {
     cursorSync: true,
     serialize,
   });
-
   return {
     plugins,
     doc,

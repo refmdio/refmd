@@ -1,10 +1,17 @@
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
-import { authApi, devicesApi } from "@/shared/api";
+import { ApiError, authApi, devicesApi } from "@/shared/api";
 import { loadDskInitData } from "@/shared/lib/crypto/dsk";
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { getPersistedDeviceId, persistSessionPdk, hasPdkData } from "./key-persistence";
-
-export type LoginResult =
+import { getCryptoWorker, isTofuHardFail } from "@/shared/lib/crypto/worker/client";
+import {
+  getPersistedDeviceId,
+  hasPdkData,
+  persistPdkWrappedKeys,
+  readPdkBlobs,
+} from "@/shared/lib/auth-key-persistence";
+import type { DeviceInfo } from "@/shared/api/devices";
+import type { InitPayload } from "@/shared/lib/crypto/worker/types";
+import { AuthError } from "./auth-error";
+type LoginResult =
   | {
       type: "verified";
       userId: string;
@@ -26,17 +33,18 @@ export type LoginResult =
       name: string;
       sessionId: string;
     };
-
+type PdkBlobFields = Pick<
+  InitPayload,
+  "pdkWrappedUmk" | "pdkWrappedDeviceEcdh" | "pdkWrappedDeviceSigning"
+>;
 export async function login(
   email: string,
   password: string,
   rememberMe: boolean,
 ): Promise<LoginResult> {
   const worker = getCryptoWorker();
-
   // Step 1: Get salt and KDF params
   let saltRes = await authApi.getSalt(email);
-
   // Step 2: Derive keys in Worker (PUK/PDK stored in Worker, authKey returned)
   // Ensure transient keys are cleared even if subsequent steps throw
   try {
@@ -46,31 +54,34 @@ export async function login(
       kdfParams: saltRes.kdf_params,
     });
     const authKeyBase64 = base64UrlEncode(authKey);
-
     // Step 3: Authenticate
     const deviceId = getPersistedDeviceId();
-    const loginRes = await authApi.login({
-      email,
-      auth_key: authKeyBase64,
-      remember_me: rememberMe,
-      ...(deviceId ? { device_id: deviceId } : {}),
-    });
-
+    let loginRes: Awaited<ReturnType<typeof authApi.login>>;
+    try {
+      loginRes = await authApi.login({
+        email,
+        auth_key: authKeyBase64,
+        remember_me: rememberMe,
+        ...(deviceId ? { device_id: deviceId } : {}),
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        const code =
+          error.body?.error === "invalid_credentials" ? "invalid_credentials" : "unknown";
+        throw new AuthError(code, error.message);
+      }
+      throw error;
+    }
     const userId = loginRes.user.id;
-
-    // Read PDK blobs from localStorage (used by both KDF migration and normal init)
-    const pdkUmkRaw = localStorage.getItem("refmd-pdk-umk");
-    const pdkEcdhRaw = localStorage.getItem("refmd-pdk-device-ecdh");
-    const pdkSigningRaw = localStorage.getItem("refmd-pdk-device-signing");
-    const pdkBlobs: Record<string, any> =
-      pdkUmkRaw && pdkEcdhRaw && pdkSigningRaw
+    const { pdkWrappedUmk, pdkWrappedDeviceEcdh, pdkWrappedDeviceSigning } = readPdkBlobs();
+    const pdkBlobs: PdkBlobFields =
+      pdkWrappedUmk && pdkWrappedDeviceEcdh && pdkWrappedDeviceSigning
         ? {
-            pdkWrappedUmk: JSON.parse(pdkUmkRaw),
-            pdkWrappedDeviceEcdh: JSON.parse(pdkEcdhRaw),
-            pdkWrappedDeviceSigning: JSON.parse(pdkSigningRaw),
+            pdkWrappedUmk,
+            pdkWrappedDeviceEcdh,
+            pdkWrappedDeviceSigning,
           }
         : {};
-
     // Step 4: KDF migration (before device check — encrypted_umk is available at top level)
     const migrationUmk = loginRes.encrypted_umk ?? loginRes.keys?.encrypted_umk;
     const migrationNonce = loginRes.umk_nonce ?? loginRes.keys?.umk_nonce;
@@ -83,7 +94,7 @@ export async function login(
       // Init with old password params: derives old PDK internally to restore device keys
       await worker.setUserContext(userId);
       await worker.init({
-        dsk: null as unknown as CryptoKey,
+        dsk: null,
         userId,
         deviceId: "",
         serverEncryptedUmk: base64UrlDecode(migrationUmk),
@@ -95,7 +106,6 @@ export async function login(
           kdfParams: saltRes.kdf_params,
         },
       });
-
       // Derive new PDK/PUK with target params
       const targetParams = loginRes.target_kdf_params;
       const migrationSaltRes = await authApi.getSalt(email);
@@ -120,7 +130,6 @@ export async function login(
         loginRes.umk_nonce = base64UrlEncode(newWrapped.nonce);
       }
       saltRes = await authApi.getSalt(email);
-
       // Re-wrap keys with new PDK and update localStorage
       if (hasPdkData()) {
         try {
@@ -131,19 +140,11 @@ export async function login(
               kdfParams: targetParams,
             },
           });
+          persistPdkWrappedKeys(newPdkWrapped);
           if (newPdkWrapped.wrappedUmk) {
-            localStorage.setItem("refmd-pdk-umk", JSON.stringify(newPdkWrapped.wrappedUmk));
             pdkBlobs.pdkWrappedUmk = newPdkWrapped.wrappedUmk;
           }
           if (newPdkWrapped.wrappedDeviceKeys) {
-            localStorage.setItem(
-              "refmd-pdk-device-ecdh",
-              JSON.stringify(newPdkWrapped.wrappedDeviceKeys.ecdh),
-            );
-            localStorage.setItem(
-              "refmd-pdk-device-signing",
-              JSON.stringify(newPdkWrapped.wrappedDeviceKeys.signing),
-            );
             pdkBlobs.pdkWrappedDeviceEcdh = newPdkWrapped.wrappedDeviceKeys.ecdh;
             pdkBlobs.pdkWrappedDeviceSigning = newPdkWrapped.wrappedDeviceKeys.signing;
           }
@@ -152,11 +153,9 @@ export async function login(
         }
       }
     }
-
     // Step 5: Check device status
     if (!loginRes.device_verified || !loginRes.keys) {
       await worker.clearTransientKeys();
-      persistSessionPdk(new Uint8Array(1));
       return {
         type: "device_required",
         userId,
@@ -165,18 +164,14 @@ export async function login(
         sessionId: loginRes.session_id,
       };
     }
-
     const keys = loginRes.keys;
-
     // Step 6: Initialize Worker with DSK data + server keys
     // PDK blobs are passed to init for DSK-unavailable fallback restoration
     let dskData = await loadDskInitData();
     const hadDsk = dskData?.dsk != null;
     const needPdkPersistence = !hadDsk;
     await worker.setUserContext(userId, deviceId ?? undefined);
-
     let initPdkWrapped: import("@/shared/lib/crypto/worker/types").InitPdkResult | null = null;
-
     if (dskData && deviceId) {
       if (dskData.dsk) {
         await worker.setDsk(dskData.dsk);
@@ -218,26 +213,12 @@ export async function login(
       });
       initPdkWrapped = initResult.pdkWrapped;
     }
-
     // Step 7: Persist UMK + device keys (KMSI-aware)
     if (hadDsk) {
       try {
         const wrappedUmk = await worker.wrapUmkWithDsk(userId);
-        if (rememberMe) {
-          const db = await openKeysDB();
-          await idbPutRaw(db, "wrapped-umk", wrappedUmk);
-          db.close();
-        } else {
-          sessionStorage.setItem(
-            "refmd-session-umk-wrapped",
-            JSON.stringify({
-              ciphertext: Array.from(new Uint8Array(wrappedUmk.ciphertext)),
-              iv: Array.from(new Uint8Array(wrappedUmk.iv)),
-            }),
-          );
-          const { clearWrappedUmk } = await import("@/shared/lib/crypto/dsk");
-          await clearWrappedUmk();
-        }
+        const { persistWrappedUmk } = await import("@/shared/lib/auth-key-persistence");
+        await persistWrappedUmk({ wrappedUmk, kmsi: rememberMe, userId });
         // Re-persist device keys with DSK (may have been restored from PDK fallback)
         const wrappedDeviceKeys = await worker.wrapDeviceKeysWithDsk(userId);
         const { storeWrappedDeviceKeysRaw } = await import("@/shared/lib/crypto/dsk");
@@ -255,42 +236,15 @@ export async function login(
               kdfParams: saltRes.kdf_params,
             },
           });
-          if (pdkFallback.wrappedUmk) {
-            localStorage.setItem("refmd-pdk-umk", JSON.stringify(pdkFallback.wrappedUmk));
-          }
-          if (pdkFallback.wrappedDeviceKeys) {
-            localStorage.setItem(
-              "refmd-pdk-device-ecdh",
-              JSON.stringify(pdkFallback.wrappedDeviceKeys.ecdh),
-            );
-            localStorage.setItem(
-              "refmd-pdk-device-signing",
-              JSON.stringify(pdkFallback.wrappedDeviceKeys.signing),
-            );
-          }
+          persistPdkWrappedKeys(pdkFallback);
         } catch {
           // PDK fallback also failed — session works but won't survive restart
         }
       }
     } else if (initPdkWrapped) {
       // PDK fallback: store PDK-wrapped blobs returned from init
-      if (initPdkWrapped.wrappedUmk) {
-        localStorage.setItem("refmd-pdk-umk", JSON.stringify(initPdkWrapped.wrappedUmk));
-      }
-      if (initPdkWrapped.wrappedDeviceKeys) {
-        localStorage.setItem(
-          "refmd-pdk-device-ecdh",
-          JSON.stringify(initPdkWrapped.wrappedDeviceKeys.ecdh),
-        );
-        localStorage.setItem(
-          "refmd-pdk-device-signing",
-          JSON.stringify(initPdkWrapped.wrappedDeviceKeys.signing),
-        );
-      }
+      persistPdkWrappedKeys(initPdkWrapped);
     }
-
-    persistSessionPdk(new Uint8Array(1));
-
     // Step 8: Check if device keys were restored (init handles PDK fallback internally)
     const ready = await worker.isReady();
     let hasDeviceKeys = false;
@@ -302,7 +256,6 @@ export async function login(
         hasDeviceKeys = false;
       }
     }
-
     if (!hasDeviceKeys) {
       return {
         type: "device_required",
@@ -312,17 +265,15 @@ export async function login(
         sessionId: loginRes.session_id,
       };
     }
-
     await worker.setInitialized();
-
     // Step 9: TOFU verification (in Worker)
     let tofuWarnings: string[] = [];
     try {
       const { devices } = await devicesApi.list({ popDeviceId: deviceId! });
       const tofuResult = await worker.tofuVerifyAllDevices({
-        devices: devices.map((d: any) => ({
+        devices: devices.map((d: DeviceInfo) => ({
           name: d.name,
-          userId: d.user_id,
+          userId,
           deviceId: d.id,
           signingPublicKey: base64UrlDecode(d.signing_public_key),
           ecdhPublicKey: base64UrlDecode(d.ecdh_public_key),
@@ -332,15 +283,11 @@ export async function login(
       });
       tofuWarnings = tofuResult.errors;
     } catch (e) {
-      if (
-        e instanceof Error &&
-        (("code" in e && (e as any).code === "tofu_hard_fail") || e.message.includes("TOFU"))
-      )
+      if (isTofuHardFail(e)) {
         throw e;
+      }
     }
-
     const pubKeys = await worker.getPublicKeys();
-
     return {
       type: "verified",
       userId,
@@ -358,30 +305,4 @@ export async function login(
   } finally {
     await worker.clearTransientKeys().catch(() => {});
   }
-}
-
-// ── IndexedDB helpers for UMK persistence (thin wrappers) ──
-
-function openKeysDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("refmd-keys", 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains("keystore")) {
-        db.createObjectStore("keystore");
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function idbPutRaw(db: IDBDatabase, key: string, value: unknown): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("keystore", "readwrite");
-    const store = tx.objectStore("keystore");
-    const req = store.put(value, key);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
 }

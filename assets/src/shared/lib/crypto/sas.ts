@@ -1,5 +1,4 @@
 import { blake3 } from "@noble/hashes/blake3.js";
-
 // 256 visually distinct emojis for SAS display (Signal-inspired categories)
 // Each byte (0-255) maps to exactly one emoji
 const SAS_EMOJIS: readonly string[] = [
@@ -265,12 +264,10 @@ const SAS_EMOJIS: readonly string[] = [
   "\u{1F3CD}\u{FE0F}",
   "\u{1F6A1}",
 ] as const;
-
-export interface SasResult {
+interface SasResult {
   emojis: string[];
   bytes: Uint8Array;
 }
-
 export function computeSas(
   identitySigningPublic: Uint8Array,
   deviceSigningPublic: Uint8Array,
@@ -291,14 +288,11 @@ export function computeSas(
   input.set(deviceEcdhPublic, offset);
   offset += deviceEcdhPublic.length;
   input.set(clientNonce, offset);
-
   const hash = blake3(input);
   const sasBytes = hash.slice(0, 7);
-
   const emojis: string[] = [];
   for (let i = 0; i < 7; i++) {
     emojis.push(SAS_EMOJIS[sasBytes[i]!]!);
   }
-
   return { emojis, bytes: sasBytes };
 }

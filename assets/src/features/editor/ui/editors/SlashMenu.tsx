@@ -62,7 +62,7 @@ function groupByCategory(commands: SlashCommand[]) {
   return groups;
 }
 
-export interface SlashMenuProps {
+interface SlashMenuProps {
   view: EditorView;
   slashState: SlashMenuState;
   onSelect: (cmd: SlashCommand) => void;

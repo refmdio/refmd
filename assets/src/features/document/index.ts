@@ -1,8 +1,10 @@
 export { createDocument } from "./lib/create-document";
-export { createFolder } from "./lib/create-folder";
-export { renameDocument } from "./lib/rename-document";
-export { moveDocument } from "./lib/move-document";
-export { archiveDocument, unarchiveDocument, deleteDocument } from "./lib/document-actions";
+export {
+  resolveDocumentWithOfflineFallback,
+  isDocumentAccessError,
+  type ResolvedDocument,
+} from "./lib/resolve-document";
+export { useDocumentTreeHandlers } from "./model/useDocumentTreeHandlers";
 export { CreateDocumentDialog } from "./ui/CreateDocumentDialog";
 export { CreateFolderDialog } from "./ui/CreateFolderDialog";
 export { RenameDialog } from "./ui/RenameDialog";

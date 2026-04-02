@@ -1,19 +1,15 @@
 import type { MosaicNode } from "solid-mosaic-component";
-
 export type PanelType = "markdown" | "wysiwyg";
-
-export interface PanelId {
+interface PanelId {
   documentId: string;
   type: PanelType;
   instanceId: string;
   scrollGroupId: string;
 }
-
 let instanceCounter = 0;
 function generateInstanceId(): string {
   return `${Date.now()}-${++instanceCounter}`;
 }
-
 export function encodePanelId(
   documentId: string,
   type: PanelType,
@@ -24,7 +20,6 @@ export function encodePanelId(
   const sg = scrollGroupId ?? generateInstanceId();
   return `${documentId}:${type}:${id}:${sg}`;
 }
-
 export function decodePanelId(panelId: string): PanelId | null {
   const parts = panelId.split(":");
   if (parts.length < 4) return null;
@@ -33,13 +28,11 @@ export function decodePanelId(panelId: string): PanelId | null {
     return null;
   return { documentId, type: type as PanelType, instanceId, scrollGroupId };
 }
-
 export function findFirstDocumentId(node: MosaicNode<string> | null): string | null {
   if (!node) return null;
   if (typeof node === "string") return decodePanelId(node)?.documentId ?? null;
   return findFirstDocumentId(node.first) ?? findFirstDocumentId(node.second);
 }
-
 export function findFirstPanelId(
   node: MosaicNode<string> | null,
   documentId: string,
@@ -51,20 +44,10 @@ export function findFirstPanelId(
   }
   return findFirstPanelId(node.first, documentId) ?? findFirstPanelId(node.second, documentId);
 }
-
-export function findFirstPanelType(node: MosaicNode<string>, documentId: string): PanelType | null {
-  if (typeof node === "string") {
-    const panel = decodePanelId(node);
-    return panel?.documentId === documentId ? panel.type : null;
-  }
-  return findFirstPanelType(node.first, documentId) ?? findFirstPanelType(node.second, documentId);
-}
-
 export function hasDocumentPanels(node: MosaicNode<string>, documentId: string): boolean {
   if (typeof node === "string") return decodePanelId(node)?.documentId === documentId;
   return hasDocumentPanels(node.first, documentId) || hasDocumentPanels(node.second, documentId);
 }
-
 export function hasScrollGroupPeer(
   node: MosaicNode<string>,
   scrollGroupId: string,
@@ -80,7 +63,6 @@ export function hasScrollGroupPeer(
     hasScrollGroupPeer(node.second, scrollGroupId, excludePanelId)
   );
 }
-
 export function findScrollGroupPeerId(
   node: MosaicNode<string>,
   scrollGroupId: string,
@@ -96,22 +78,6 @@ export function findScrollGroupPeerId(
     findScrollGroupPeerId(node.second, scrollGroupId, excludePanelId)
   );
 }
-
-export function hasDocumentPanelOfType(
-  node: MosaicNode<string>,
-  documentId: string,
-  type: PanelType,
-): boolean {
-  if (typeof node === "string") {
-    const panel = decodePanelId(node);
-    return panel?.documentId === documentId && panel.type === type;
-  }
-  return (
-    hasDocumentPanelOfType(node.first, documentId, type) ||
-    hasDocumentPanelOfType(node.second, documentId, type)
-  );
-}
-
 export function removeFromMosaic(
   node: MosaicNode<string>,
   idToRemove: string,
@@ -124,7 +90,6 @@ export function removeFromMosaic(
   if (!second) return first;
   return { ...node, first, second };
 }
-
 export function replacePanelInMosaic(
   node: MosaicNode<string>,
   panelId: string,
@@ -137,7 +102,6 @@ export function replacePanelInMosaic(
     second: replacePanelInMosaic(node.second, panelId, newNode),
   };
 }
-
 export function extractDocumentSubtrees(node: MosaicNode<string>): MosaicNode<string>[] {
   if (typeof node === "string") return [node];
   const leftGroupIds = new Set(getLeafScrollGroupIds(node.first));
@@ -145,7 +109,6 @@ export function extractDocumentSubtrees(node: MosaicNode<string>): MosaicNode<st
   if ([...leftGroupIds].some((id) => rightGroupIds.has(id))) return [node];
   return [...extractDocumentSubtrees(node.first), ...extractDocumentSubtrees(node.second)];
 }
-
 function getLeafScrollGroupIds(node: MosaicNode<string>): string[] {
   if (typeof node === "string") {
     const panel = decodePanelId(node);
@@ -153,7 +116,6 @@ function getLeafScrollGroupIds(node: MosaicNode<string>): string[] {
   }
   return [...getLeafScrollGroupIds(node.first), ...getLeafScrollGroupIds(node.second)];
 }
-
 export function replacePanelIdInMosaic(
   node: MosaicNode<string>,
   oldId: string,

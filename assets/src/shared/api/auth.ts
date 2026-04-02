@@ -1,14 +1,8 @@
 import { client, throwIfError } from "./core";
 import type { components } from "./schema";
 
-export type KdfParams = components["schemas"]["KdfParams"];
-export type SaltResponse = components["schemas"]["SaltResponse"];
-export type RegisterRequest = components["schemas"]["RegisterRequest"];
-export type RegisterResponse = components["schemas"]["RegisterResponse"];
-export type LoginRequest = components["schemas"]["LoginRequest"];
-export type LoginResponse = components["schemas"]["LoginResponse"];
-export type LoginKeys = components["schemas"]["LoginKeys"];
-export type MeResponse = components["schemas"]["MeResponse"];
+type RegisterRequest = components["schemas"]["RegisterRequest"];
+type LoginRequest = components["schemas"]["LoginRequest"];
 
 export const authApi = {
   getSalt: async (email: string) =>
@@ -74,38 +68,6 @@ export const authApi = {
         body: { token },
       }),
     ),
-
-  popChallenge: async (
-    deviceId: string,
-    init?: Pick<RequestInit, "signal">,
-  ): Promise<{ challenge: string }> => {
-    const { waitForGlobalRateLimit, handleRateLimitResponse } = await import("./core");
-    let lastRetryAfter = "60";
-    for (let attempt = 0; attempt <= 3; attempt++) {
-      await waitForGlobalRateLimit();
-      const res = await fetch("/api/auth/pop-challenge", {
-        method: "POST",
-        credentials: "include",
-        signal: init?.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "X-PoP-Device-Id": deviceId,
-        },
-      });
-      if (res.status === 429) {
-        lastRetryAfter = res.headers.get("retry-after") ?? lastRetryAfter;
-        handleRateLimitResponse(res, attempt);
-        const retrySeconds = parseInt(lastRetryAfter, 10);
-        if (!isNaN(retrySeconds) && retrySeconds > 10) break;
-        continue;
-      }
-      if (!res.ok) throw new Error(`pop-challenge failed: ${res.status}`);
-      return res.json();
-    }
-    const err = new Error("pop-challenge failed: rate limited");
-    (err as any).retryAfter = lastRetryAfter;
-    throw err;
-  },
 
   wsToken: async (): Promise<{ token: string }> =>
     throwIfError(await client.POST("/api/auth/ws-token")),

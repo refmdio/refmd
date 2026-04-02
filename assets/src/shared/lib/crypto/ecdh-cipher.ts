@@ -2,9 +2,8 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "./encoding";
+import { HKDF_ZERO_SALT } from "./constants";
 import { ecdhSharedSecret } from "./identity";
-
-const HKDF_ZERO_SALT = new Uint8Array(32);
 
 export function ecdhEncrypt(
   plaintext: Uint8Array,

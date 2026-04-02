@@ -1,13 +1,13 @@
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { authApi, ApiError, devicesApi } from "@/shared/api";
 import { loadDskInitData, storeAuthBootstrap, loadAuthBootstrap } from "@/shared/lib/crypto/dsk";
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { hasPdkData, getPersistedDeviceId } from "./key-persistence";
+import { getCryptoWorker, isTofuHardFail } from "@/shared/lib/crypto/worker/client";
+import { hasPdkData, getPersistedDeviceId } from "@/shared/lib/auth-key-persistence";
 import {
   getAllOfflineDocumentMetas,
   ensureOfflineDbReady,
 } from "@/shared/lib/offline/offline-store";
-
+import type { DeviceInfo } from "@/shared/api/devices";
 export interface SessionRestoreResult {
   userId: string;
   email: string;
@@ -24,19 +24,14 @@ export interface SessionRestoreResult {
   deviceEcdhPublic: Uint8Array | null;
   workerReady: boolean;
 }
-
-export type SessionRestoreError = "rate_limited" | "transient_error";
-
+type SessionRestoreError = "rate_limited" | "transient_error";
 export async function restoreSession(): Promise<SessionRestoreResult | SessionRestoreError | null> {
   try {
     const me = await authApi.me();
     const worker = getCryptoWorker();
-
     let workerReady = false;
     let needsPasswordReentry = false;
-
-    const deviceId = me.device_id ?? getPersistedDeviceId();
-
+    const deviceId = me.device_id ?? getPersistedDeviceId(me.user_id);
     // Attempt Crypto Worker initialization from DSK (IndexedDB)
     let dskData = await loadDskInitData();
     const dskForBootstrap = dskData?.dsk ?? null;
@@ -44,7 +39,6 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       try {
         // Build identity key data from server response (if available)
         const hasIdentityKeys = me.device_verified && me.keys?.encrypted_ecdh_private;
-
         await worker.init({
           dsk: dskData.dsk,
           wrappedUmk: me.remember_me !== false ? (dskData.wrappedUmk ?? undefined) : undefined,
@@ -61,14 +55,11 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
               }
             : {}),
         });
-
         workerReady = await worker.isReady();
-      } catch (initErr) {
-        console.error("[session] Worker init failed:", initErr);
+      } catch {
         workerReady = false;
       }
     }
-
     if (!workerReady && dskData && deviceId) {
       // DSK init didn't restore UMK from IndexedDB. Try sessionStorage (non-KMSI fallback).
       // New format: DSK-wrapped UMK JSON in sessionStorage
@@ -97,14 +88,12 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
               : {}),
           });
           workerReady = await worker.isReady();
-        } catch (sessionFallbackErr) {
-          console.error("[session] Worker sessionStorage fallback failed:", sessionFallbackErr);
+        } catch {
           workerReady = false;
         }
       }
     }
     dskData = null;
-
     if (!workerReady && me.device_verified) {
       if (me.auth_type === "password" && hasPdkData()) {
         needsPasswordReentry = true;
@@ -116,13 +105,11 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
         me.device_verified = false;
       }
     }
-
     // Get public keys from Worker (if ready)
     let identitySigningPublic: Uint8Array | null = null;
     let identityEcdhPublic: Uint8Array | null = null;
     let deviceSigningPublic: Uint8Array | null = null;
     let deviceEcdhPublic: Uint8Array | null = null;
-
     if (workerReady) {
       try {
         const pubKeys = await worker.getPublicKeys();
@@ -134,16 +121,15 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
         // Public key retrieval failed
       }
     }
-
     // TOFU verification (runs inside Worker)
     let tofuWarnings: string[] = [];
     if (workerReady && me.device_verified && deviceId) {
       try {
         const { devices } = await devicesApi.list({ popDeviceId: deviceId });
         const tofuResult = await worker.tofuVerifyAllDevices({
-          devices: devices.map((d: any) => ({
+          devices: devices.map((d: DeviceInfo) => ({
             name: d.name,
-            userId: d.user_id,
+            userId: me.user_id,
             deviceId: d.id,
             signingPublicKey: base64UrlDecode(d.signing_public_key),
             ecdhPublicKey: base64UrlDecode(d.ecdh_public_key),
@@ -153,15 +139,11 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
         });
         tofuWarnings = tofuResult.errors;
       } catch (e) {
-        if (
-          e instanceof Error &&
-          (("code" in e && (e as any).code === "tofu_hard_fail") || e.message.includes("TOFU"))
-        ) {
+        if (isTofuHardFail(e)) {
           throw e;
         }
       }
     }
-
     // Cache user info (DSK-encrypted) for offline session restoration
     if (dskForBootstrap && deviceId) {
       storeAuthBootstrap(dskForBootstrap, {
@@ -172,7 +154,6 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
         cachedAt: Date.now(),
       }).catch(() => {});
     }
-
     return {
       userId: me.user_id,
       email: me.email,
@@ -190,11 +171,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       workerReady,
     };
   } catch (err) {
-    if (
-      err instanceof Error &&
-      (("code" in err && (err as any).code === "tofu_hard_fail") || err.message.includes("TOFU"))
-    )
-      throw err;
+    if (isTofuHardFail(err)) throw err;
     if (err instanceof ApiError) {
       if (err.status === 401 || err.status === 403) return null;
       if (err.status === 429) return "rate_limited";
@@ -202,7 +179,6 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
     return "transient_error";
   }
 }
-
 export interface OfflineSessionResult {
   userId: string;
   email: string;
@@ -212,29 +188,26 @@ export interface OfflineSessionResult {
   deviceSigningPublic: Uint8Array | null;
   deviceEcdhPublic: Uint8Array | null;
 }
-
 export async function restoreOfflineSession(): Promise<OfflineSessionResult | null> {
   try {
     await ensureOfflineDbReady();
-
     const dskData = await loadDskInitData();
     if (!dskData?.dsk) return null;
-
-    const deviceId = getPersistedDeviceId();
-    if (!deviceId) return null;
-
-    const offlineDocs = await getAllOfflineDocumentMetas();
-    if (offlineDocs.length === 0) return null;
-
     const cachedUser = await loadAuthBootstrap(dskData.dsk);
     if (!cachedUser) return null;
-    const { userId, email, name } = cachedUser;
-
+    const { userId, email, name, deviceId } = cachedUser;
+    if (!deviceId) return null;
+    const offlineDocs = await getAllOfflineDocumentMetas();
+    if (offlineDocs.length === 0) return null;
     const worker = getCryptoWorker();
-
     const wrappedUmk = dskData.wrappedUmk ?? undefined;
     const wrappedJson = sessionStorage.getItem("refmd-session-umk-wrapped");
-    let sessionWrappedUmk: { ciphertext: ArrayBuffer; iv: ArrayBuffer } | undefined;
+    let sessionWrappedUmk:
+      | {
+          ciphertext: ArrayBuffer;
+          iv: ArrayBuffer;
+        }
+      | undefined;
     if (!wrappedUmk && wrappedJson) {
       try {
         const parsed = JSON.parse(wrappedJson);
@@ -246,7 +219,6 @@ export async function restoreOfflineSession(): Promise<OfflineSessionResult | nu
         // Ignore parse errors
       }
     }
-
     await worker.init({
       dsk: dskData.dsk,
       wrappedUmk: wrappedUmk ?? sessionWrappedUmk,
@@ -255,12 +227,10 @@ export async function restoreOfflineSession(): Promise<OfflineSessionResult | nu
       userId,
       deviceId,
     });
-
     // isReady() requires UMK, but offline editing only needs DSK + device keys.
     // For KMSI-disabled sessions after browser restart, UMK is unavailable but
     // the DSK→offline-dek-cache→DEK chain still works for offline document access.
     const workerReady = await worker.isReady();
-
     let deviceSigningPublic: Uint8Array | null = null;
     let deviceEcdhPublic: Uint8Array | null = null;
     try {
@@ -270,7 +240,6 @@ export async function restoreOfflineSession(): Promise<OfflineSessionResult | nu
     } catch {
       // Best effort
     }
-
     // Even if !workerReady (no UMK), DSK is set and device keys may be available.
     // Offline document operations (unwrapDekFromOffline, decryptOfflineCache) only need DSK.
     return { userId, email, name, deviceId, workerReady, deviceSigningPublic, deviceEcdhPublic };

@@ -3,17 +3,13 @@ import type { EditorView } from "prosemirror-view";
 import type { Schema } from "prosemirror-model";
 import { setBlockType } from "prosemirror-commands";
 import { wrapInList } from "prosemirror-schema-list";
-
 export type SlashCommandCategory = "text" | "list" | "other";
-
 export const CATEGORY_LABELS: Record<SlashCommandCategory, string> = {
   text: "Text",
   list: "List",
   other: "Other",
 };
-
 export const CATEGORY_ORDER: SlashCommandCategory[] = ["text", "list", "other"];
-
 export interface SlashCommand {
   label: string;
   description: string;
@@ -22,10 +18,8 @@ export interface SlashCommand {
   icon: string;
   execute: (view: EditorView) => boolean;
 }
-
 function buildCommands(schema: Schema): SlashCommand[] {
   const commands: SlashCommand[] = [];
-
   if (schema.nodes.paragraph) {
     commands.push({
       label: "Text",
@@ -39,7 +33,6 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   if (schema.nodes.heading) {
     commands.push({
       label: "Heading 1",
@@ -75,7 +68,6 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   if (schema.nodes.bullet_list) {
     commands.push({
       label: "Bullet List",
@@ -89,7 +81,6 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   if (schema.nodes.ordered_list) {
     commands.push({
       label: "Numbered List",
@@ -103,7 +94,6 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   if (schema.nodes.blockquote) {
     commands.push({
       label: "Quote",
@@ -121,7 +111,6 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   if (schema.nodes.code_block) {
     commands.push({
       label: "Code",
@@ -135,7 +124,6 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   if (schema.nodes.horizontal_rule) {
     commands.push({
       label: "Divider",
@@ -155,14 +143,10 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
-
   commands.sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category));
-
   return commands;
 }
-
-export const slashCommandsKey = new PluginKey("slashCommands");
-
+const slashCommandsKey = new PluginKey("slashCommands");
 export interface SlashMenuState {
   active: boolean;
   query: string;
@@ -170,7 +154,6 @@ export interface SlashMenuState {
   selectedIndex: number;
   pos: number;
 }
-
 export const INACTIVE: SlashMenuState = {
   active: false,
   query: "",
@@ -178,10 +161,8 @@ export const INACTIVE: SlashMenuState = {
   selectedIndex: 0,
   pos: 0,
 };
-
 export function slashCommandsPlugin(schema: Schema): Plugin {
   const allCommands = buildCommands(schema);
-
   function filterCommands(query: string): SlashCommand[] {
     if (!query) return allCommands;
     const q = query.toLowerCase();
@@ -189,10 +170,8 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
       (c) => c.label.toLowerCase().includes(q) || c.shortcut.toLowerCase().includes(q),
     );
   }
-
   return new Plugin({
     key: slashCommandsKey,
-
     state: {
       init: () => INACTIVE,
       apply(tr, prev) {
@@ -201,11 +180,9 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         return prev;
       },
     },
-
     props: {
       handleKeyDown(view, event) {
         const state = slashCommandsKey.getState(view.state) as SlashMenuState | undefined;
-
         if (!state?.active) {
           if (event.key === "/") {
             const { $from } = view.state.selection;
@@ -228,12 +205,10 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           }
           return false;
         }
-
         if (event.key === "Escape") {
           view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
           return true;
         }
-
         if (event.key === "ArrowDown") {
           const next = {
             ...state,
@@ -242,7 +217,6 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(view.state.tr.setMeta(slashCommandsKey, next));
           return true;
         }
-
         if (event.key === "ArrowUp") {
           const next = {
             ...state,
@@ -252,7 +226,6 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(view.state.tr.setMeta(slashCommandsKey, next));
           return true;
         }
-
         if (event.key === "Enter") {
           const cmd = state.commands[state.selectedIndex];
           if (cmd) {
@@ -267,7 +240,6 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           }
           return true;
         }
-
         if (event.key === "Backspace") {
           if (state.query.length === 0) {
             view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
@@ -285,7 +257,6 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(tr);
           return true;
         }
-
         if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
           const newQuery = state.query + event.key;
           const filtered = filterCommands(newQuery);
@@ -305,7 +276,6 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(tr);
           return true;
         }
-
         return false;
       },
     },

@@ -105,17 +105,3 @@ export function idbConditionalPut<T>(
     tx.onerror = () => reject(tx.error);
   });
 }
-
-export function idbClear(db: IDBDatabase, storeName: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readwrite");
-    const store = tx.objectStore(storeName);
-    const request = store.clear();
-    request.onerror = () => reject(request.error);
-    tx.oncomplete = () => {
-      resolve();
-      db.close();
-    };
-    tx.onerror = () => reject(tx.error);
-  });
-}

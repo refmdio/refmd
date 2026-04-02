@@ -1,28 +1,27 @@
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, onCleanup, type Accessor } from "solid-js";
 import type { DocumentResponse } from "./types";
-
-let activeSidebarDragDocId: string | null = null;
-let onTileDrop: ((docId: string) => void) | null = null;
-
-export function setTileDropHandler(handler: ((docId: string) => void) | null) {
-  onTileDrop = handler;
-}
-
-function installDocumentDndListeners() {
+function installDocumentDndListeners(
+  draggedId: Accessor<string | null>,
+  onExternalDrop: ((docId: string) => void) | undefined,
+  finishExternalDrop: () => void,
+) {
+  if (!onExternalDrop) return null;
   const handleDragOver = (e: DragEvent) => {
-    if (activeSidebarDragDocId) {
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    }
+    if (!draggedId()) return;
+    const target = e.target;
+    if (target instanceof HTMLElement && target.closest("aside")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
   };
   const handleDrop = (e: DragEvent) => {
-    if (activeSidebarDragDocId && onTileDrop) {
-      const target = e.target as HTMLElement;
-      if (target.closest("aside")) return;
-      e.preventDefault();
-      e.stopPropagation();
-      onTileDrop(activeSidebarDragDocId);
-    }
+    const currentDraggedId = draggedId();
+    if (!currentDraggedId) return;
+    const target = e.target;
+    if (target instanceof HTMLElement && target.closest("aside")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onExternalDrop(currentDraggedId);
+    finishExternalDrop();
   };
   document.addEventListener("dragover", handleDragOver, { capture: true });
   document.addEventListener("drop", handleDrop, { capture: true });
@@ -31,31 +30,26 @@ function installDocumentDndListeners() {
     document.removeEventListener("drop", handleDrop, { capture: true });
   };
 }
-
-let cleanupDndListeners: (() => void) | null = null;
-
-export type DropPosition = "before" | "inside" | "after";
-
+type DropPosition = "before" | "inside" | "after";
 export interface DropTarget {
   documentId: string;
   position: DropPosition;
 }
-
 export function useDocumentDrag(
   flatDocuments: () => DocumentResponse[],
   onDrop: (draggedId: string, targetParentId: string | null, position: number) => void,
   expandFolder: (folderId: string) => void,
+  onExternalDrop?: (docId: string) => void,
 ) {
   const [draggedId, setDraggedId] = createSignal<string | null>(null);
   const [dropTarget, setDropTarget] = createSignal<DropTarget | null>(null);
-
   let autoExpandTimer: ReturnType<typeof setTimeout> | null = null;
   let autoExpandTargetId: string | null = null;
-
+  let cleanupDndListeners: (() => void) | null = null;
   onCleanup(() => {
     if (autoExpandTimer) clearTimeout(autoExpandTimer);
+    cleanupDndListeners?.();
   });
-
   function isDescendant(parentId: string, childId: string): boolean {
     const docs = flatDocuments();
     let current = docs.find((d) => d.id === childId);
@@ -66,13 +60,11 @@ export function useDocumentDrag(
     }
     return false;
   }
-
   function canDrop(dragId: string, targetDoc: DocumentResponse, pos: DropPosition): boolean {
     if (dragId === targetDoc.id) return false;
     if (targetDoc.archived_at) return false;
     if (pos === "inside" && targetDoc.doc_type !== "folder") return false;
     if (pos === "inside" && isDescendant(dragId, targetDoc.id)) return false;
-
     const parentId = pos === "inside" ? targetDoc.id : (targetDoc.parent_id ?? null);
     if (parentId) {
       if (parentId === dragId) return false;
@@ -82,27 +74,26 @@ export function useDocumentDrag(
     }
     return true;
   }
-
   function handleDragStart(e: DragEvent, docId: string) {
     if (!e.dataTransfer) return;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", docId);
     setDraggedId(docId);
-    activeSidebarDragDocId = docId;
     cleanupDndListeners?.();
-    cleanupDndListeners = installDocumentDndListeners();
+    cleanupDndListeners = installDocumentDndListeners(draggedId, onExternalDrop, () => {
+      cleanupDndListeners?.();
+      cleanupDndListeners = null;
+      reset();
+    });
   }
-
   function handleDragOver(e: DragEvent, targetDoc: DocumentResponse, element: HTMLElement) {
     e.preventDefault();
     if (!e.dataTransfer) return;
     const dragId = draggedId();
     if (!dragId) return;
-
     const rect = element.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const height = rect.height;
-
     let pos: DropPosition;
     if (targetDoc.doc_type === "folder") {
       if (y < height * 0.25) pos = "before";
@@ -111,29 +102,24 @@ export function useDocumentDrag(
     } else {
       pos = y < height * 0.5 ? "before" : "after";
     }
-
     if (!canDrop(dragId, targetDoc, pos)) {
       e.dataTransfer.dropEffect = "none";
       setDropTarget(null);
       clearAutoExpand();
       return;
     }
-
     e.dataTransfer.dropEffect = "move";
     setDropTarget({ documentId: targetDoc.id, position: pos });
-
     if (targetDoc.doc_type === "folder") {
       startAutoExpand(targetDoc.id);
     } else {
       clearAutoExpand();
     }
   }
-
   function handleDragLeave() {
     setDropTarget(null);
     clearAutoExpand();
   }
-
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     const target = dropTarget();
@@ -142,17 +128,14 @@ export function useDocumentDrag(
       reset();
       return;
     }
-
     const docs = flatDocuments();
     const targetDoc = docs.find((d) => d.id === target.documentId);
     if (!targetDoc) {
       reset();
       return;
     }
-
     let parentId: string | null;
     let position: number;
-
     if (target.position === "inside") {
       parentId = targetDoc.id;
       const siblings = docs.filter((d) => d.parent_id === parentId && d.id !== dragId);
@@ -169,18 +152,14 @@ export function useDocumentDrag(
         position = targetIndex >= 0 ? targetIndex + 1 : siblings.length;
       }
     }
-
     onDrop(dragId, parentId, position);
     reset();
   }
-
   function handleDragEnd() {
     cleanupDndListeners?.();
     cleanupDndListeners = null;
-    activeSidebarDragDocId = null;
     reset();
   }
-
   function handleRootDragOver(e: DragEvent) {
     e.preventDefault();
     const dragId = draggedId();
@@ -189,7 +168,6 @@ export function useDocumentDrag(
     setDropTarget({ documentId: "__root__", position: "inside" });
     clearAutoExpand();
   }
-
   function handleRootDrop(e: DragEvent) {
     e.preventDefault();
     const dragId = draggedId();
@@ -202,7 +180,6 @@ export function useDocumentDrag(
     onDrop(dragId, null, siblings.length);
     reset();
   }
-
   function startAutoExpand(folderId: string) {
     if (autoExpandTargetId === folderId) return;
     clearAutoExpand();
@@ -212,7 +189,6 @@ export function useDocumentDrag(
       autoExpandTargetId = null;
     }, 500);
   }
-
   function clearAutoExpand() {
     if (autoExpandTimer) {
       clearTimeout(autoExpandTimer);
@@ -220,13 +196,11 @@ export function useDocumentDrag(
     }
     autoExpandTargetId = null;
   }
-
   function reset() {
     setDraggedId(null);
     setDropTarget(null);
     clearAutoExpand();
   }
-
   return {
     draggedId,
     dropTarget,

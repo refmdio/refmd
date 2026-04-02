@@ -1,7 +1,7 @@
 import { type Accessor } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { documentsApi } from "@/shared/api";
-import { authState, cryptoWorkerReady } from "@/shared/lib/auth-state";
+import { authState, cryptoWorkerReady } from "@/entities/session";
 import {
   putOfflineDocumentIndex,
   getOfflineDocumentIndex,
@@ -33,8 +33,8 @@ export function useDocuments(workspaceId: Accessor<string | null>) {
         ).catch(() => {});
         return result;
       } catch (err) {
-        const cached = await getOfflineDocumentIndex(wsId).catch(() => []);
-        if (cached.length > 0) {
+        const cached = await getOfflineDocumentIndex(wsId).catch(() => null);
+        if (cached !== null) {
           // Attempt to decrypt titles from offline-documents DSK-encrypted metadata
           const worker = getCryptoWorker();
           const titleMap = new Map<string, string>();

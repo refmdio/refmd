@@ -6,7 +6,7 @@ import {
   updatePinFromState,
   type DocumentStatePin,
 } from "./document-state-pins";
-
+import { collectClockObservations } from "./clock-observations";
 export interface DocumentPayloadForValidation {
   snapshot?: {
     ciphertext: string;
@@ -30,23 +30,19 @@ export interface DocumentPayloadForValidation {
   }>;
   latestVersion?: number;
 }
-
-export interface ValidationResult {
+interface ValidationResult {
   rollbackWarnings: string[];
   newPin: DocumentStatePin;
   snapshotProofHash: string;
   snapshotCiphertextHash: string;
 }
-
 export async function validateDocumentPayloadAgainstPin(
   documentId: string,
   payload: DocumentPayloadForValidation,
 ): Promise<ValidationResult> {
   const worker = getCryptoWorker();
   const pin = await getDocumentStatePin(documentId).catch(() => null);
-
   const rollbackWarnings: string[] = [];
-
   // Version rollback check
   let incomingVersion = payload.latestVersion ?? 0;
   if (payload.updates) {
@@ -59,7 +55,6 @@ export async function validateDocumentPayloadAgainstPin(
       `Version rollback: server=${incomingVersion} < pin=${pin.latestGlobalVersion}`,
     );
   }
-
   // Clock rollback check
   if (pin) {
     const sameSnapshot = payload.snapshot
@@ -82,13 +77,11 @@ export async function validateDocumentPayloadAgainstPin(
       }
     }
   }
-
   // Proof chain verification
   const anchorSnapshotId = pin?.latestSnapshotId ?? null;
   const anchorProofHash = pin?.latestSnapshotProofHash ?? "";
   let snapshotProofHash = anchorProofHash;
   let snapshotCiphertextHash = pin?.latestSnapshotCiphertextHash ?? "";
-
   if (payload.snapshot && anchorSnapshotId) {
     const snapshotChanged = payload.snapshot.publicData.snapshotId !== anchorSnapshotId;
     if (snapshotChanged) {
@@ -128,7 +121,6 @@ export async function validateDocumentPayloadAgainstPin(
       }
     }
   }
-
   // Compute new proof hash for active snapshot
   if (payload.snapshot) {
     const ciphertextHash = base64UrlEncode(
@@ -141,7 +133,6 @@ export async function validateDocumentPayloadAgainstPin(
       snapshotId: payload.snapshot.publicData.snapshotId,
     });
   }
-
   // Build confirmed clocks
   const confirmedClocks: Record<string, number> = {};
   if (payload.updates) {
@@ -153,7 +144,6 @@ export async function validateDocumentPayloadAgainstPin(
       }
     }
   }
-
   // Create updated pin
   const snapshotId = payload.snapshot?.publicData?.snapshotId ?? anchorSnapshotId;
   const newPin = updatePinFromState(
@@ -165,30 +155,8 @@ export async function validateDocumentPayloadAgainstPin(
     confirmedClocks,
     incomingVersion,
   );
-
   return { rollbackWarnings, newPin, snapshotProofHash, snapshotCiphertextHash };
 }
-
 export async function persistPin(pin: DocumentStatePin): Promise<void> {
   await putDocumentStatePin(pin).catch(() => {});
-}
-
-function collectClockObservations(
-  updates: DocumentPayloadForValidation["updates"],
-): Map<string, { max: number; seen: Set<number> }> {
-  const observations = new Map<string, { max: number; seen: Set<number> }>();
-
-  for (const update of updates) {
-    const deviceKey = update.publicData.signingPubKey;
-    const clock = update.publicData.clock;
-    const existing = observations.get(deviceKey);
-    if (existing) {
-      existing.max = Math.max(existing.max, clock);
-      existing.seen.add(clock);
-      continue;
-    }
-    observations.set(deviceKey, { max: clock, seen: new Set([clock]) });
-  }
-
-  return observations;
 }

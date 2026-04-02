@@ -7,7 +7,7 @@ import type { DocumentState } from "./document-state-cache";
 
 // ── Types ────────────────────────────────────────────────────
 
-export interface TofuKeyChangeWarning {
+interface TofuKeyChangeWarning {
   userId: string;
   deviceId?: string;
   oldFingerprint?: string;
@@ -25,10 +25,23 @@ type DeviceKeyCacheResult =
     }
   | { status: "key_changed"; warning: TofuKeyChangeWarning };
 
-export type ResolveSigningKeyResult =
+type ResolveSigningKeyResult =
   | { status: "found"; key: Uint8Array }
   | { status: "not_found" }
   | { status: "key_changed"; warning: TofuKeyChangeWarning };
+
+type SuccessfulDeviceKeyCacheResult = Extract<DeviceKeyCacheResult, { status: "ok" }>;
+
+export function applyDeviceKeyCache(
+  state: DocumentState,
+  cacheResult: SuccessfulDeviceKeyCacheResult,
+): void {
+  state.signingKeys = cacheResult.signingKeys;
+  state.signingKeyOwners = cacheResult.signingKeyOwners;
+  state.memberNames = cacheResult.memberNames;
+  state.revokedSigningKeys = cacheResult.revokedSigningKeys;
+  state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
+}
 
 // ── Build device key caches ──────────────────────────────────
 // Implements the device resolution flow:
@@ -45,6 +58,10 @@ export async function buildDeviceKeyCaches(
   workspaceId: string,
   signal?: AbortSignal,
 ): Promise<DeviceKeyCacheResult> {
+  if (signal) {
+    return doBuildDeviceKeyCaches(workspaceId, signal);
+  }
+
   const pending = pendingWorkspaceDeviceKeyCaches.get(workspaceId);
   if (pending) return pending;
 
@@ -72,8 +89,15 @@ async function doBuildDeviceKeyCaches(
   const rejectedSigningKeys = new Set<string>();
   const signingKeyOwners = new Map<string, string>();
 
-  // Step 1: Get member Identity public keys
-  const memberKeysResponse = await encryptionApi.getWorkspaceMemberKeys(workspaceId, { signal });
+  // Step 1: Get workspace members and their Identity public keys
+  const [memberKeysResponse, workspaceMembersResponse] = await Promise.all([
+    encryptionApi.getWorkspaceMemberKeys(workspaceId, { signal }),
+    workspacesApi.listMembers(workspaceId, { signal }),
+  ]);
+
+  const memberNames = new Map(
+    workspaceMembersResponse.members.map((member) => [member.user_id, member.name]),
+  );
 
   // Step 2: TOFU verify each member's Identity key (Worker handles IndexedDB trust store)
   for (const member of memberKeysResponse.members) {
@@ -106,8 +130,6 @@ async function doBuildDeviceKeyCaches(
       },
     });
   }
-
-  const memberNames = new Map<string, string>();
 
   // Step 3: Get each member's devices (using user_ids from /member-keys, not /members)
   const memberDevicesResults = await mapWithConcurrencyLimit(
@@ -216,7 +238,7 @@ async function mapWithConcurrencyLimit<T, R>(
 ): Promise<R[]> {
   if (items.length === 0) return [];
 
-  const results = new Array<R>(items.length);
+  const results = Array<R>(items.length);
   let nextIndex = 0;
 
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {

@@ -2,8 +2,14 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { EditorView } from "prosemirror-view";
 import { EditorState, type Plugin } from "prosemirror-state";
 import * as Y from "yjs";
-import { acquireYDoc, releaseYDoc, onScrollSync, emitScrollSync } from "../../lib/ydoc-cache";
-import { ProseMirrorEditorApi, registerEditor, unregisterEditor } from "../../lib/editor-api";
+import {
+  acquireYDoc,
+  releaseYDoc,
+  onScrollSync,
+  emitScrollSync,
+} from "../../lib/document-state-cache";
+import { registerEditor, unregisterEditor } from "../../lib/editor-api";
+import { ProseMirrorEditorApi } from "../../lib/editor-api-impl";
 import { markdownSchema } from "../../lib/prosemirror/schema";
 import { setupCollabPlugins } from "../../lib/prosemirror/collab-plugins";
 import { buildCollabPlugins } from "../../lib/prosemirror/plugins";
@@ -16,7 +22,7 @@ import { FloatingToolbar } from "./FloatingToolbar";
 
 import "./prosemirror-editor.css";
 
-export interface ProseMirrorEditorProps {
+interface ProseMirrorEditorProps {
   documentId: string;
   panelId: string;
   scrollGroupId?: string;
@@ -33,6 +39,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   let view: EditorView | undefined;
   let slashPlugin: Plugin | null = null;
   let activeDocumentId: string | undefined;
+  let cleanupViewListeners: (() => void) | undefined;
   let destroyCollab: (() => void) | undefined;
   let unsubScroll: (() => void) | undefined;
   let suppressScroll = false;
@@ -43,6 +50,8 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   const [currentView, setCurrentView] = createSignal<EditorView | null>(null);
 
   function destroyEditor() {
+    cleanupViewListeners?.();
+    cleanupViewListeners = undefined;
     unsubScroll?.();
     unsubScroll = undefined;
     destroyCollab?.();
@@ -60,6 +69,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
   function createEditor(documentId: string) {
     if (!containerEl) return;
+    const rootEl = containerEl;
 
     const { yDoc, awareness } = acquireYDoc(documentId);
     activeDocumentId = documentId;
@@ -119,35 +129,40 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const undoMgr = new Y.UndoManager(yText);
     registerEditor(props.panelId, new ProseMirrorEditorApi(editorView, yText, undoMgr));
 
-    editorView.dom.addEventListener("paste", (e) => props.onEditorPaste?.(e));
-    editorView.dom.addEventListener("drop", (e) => props.onEditorDrop?.(e));
+    const handlePaste = (event: ClipboardEvent) => props.onEditorPaste?.(event);
+    const handleDrop = (event: DragEvent) => props.onEditorDrop?.(event);
+
+    editorView.dom.addEventListener("paste", handlePaste);
+    editorView.dom.addEventListener("drop", handleDrop);
 
     const groupId = props.scrollGroupId;
     const handleScroll = () => {
       if (suppressScroll || !groupId) return;
-      const maxScroll = containerEl!.scrollHeight - containerEl!.clientHeight;
+      const maxScroll = rootEl.scrollHeight - rootEl.clientHeight;
       if (maxScroll <= 0) return;
-      emitScrollSync(groupId, containerEl!.scrollTop / maxScroll, scrollSourceId);
+      emitScrollSync(groupId, rootEl.scrollTop / maxScroll, scrollSourceId);
     };
-    containerEl.addEventListener("scroll", handleScroll, { passive: true });
+    rootEl.addEventListener("scroll", handleScroll, { passive: true });
 
     if (groupId) {
       unsubScroll = onScrollSync(groupId, (ratio, sourceId) => {
         if (sourceId === scrollSourceId) return;
-        const maxScroll = containerEl!.scrollHeight - containerEl!.clientHeight;
+        const maxScroll = rootEl.scrollHeight - rootEl.clientHeight;
         if (maxScroll <= 0) return;
         suppressScroll = true;
-        containerEl!.scrollTop = ratio * maxScroll;
+        rootEl.scrollTop = ratio * maxScroll;
         requestAnimationFrame(() => {
           suppressScroll = false;
         });
       });
     }
 
-    onCleanup(() => {
+    cleanupViewListeners = () => {
       destroyed = true;
-      containerEl?.removeEventListener("scroll", handleScroll);
-    });
+      editorView.dom.removeEventListener("paste", handlePaste);
+      editorView.dom.removeEventListener("drop", handleDrop);
+      rootEl.removeEventListener("scroll", handleScroll);
+    };
   }
 
   createEffect(() => {

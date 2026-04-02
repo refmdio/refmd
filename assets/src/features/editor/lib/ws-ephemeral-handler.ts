@@ -1,6 +1,6 @@
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
-import { deviceState } from "@/shared/lib/auth-state";
+import { deviceState } from "@/entities/session";
 import { resolveSigningKey } from "./document-verification";
 import type { DocumentState } from "./document-state-cache";
 import {
@@ -16,11 +16,10 @@ import {
   applyAwarenessUpdate,
   removeAwarenessStates,
 } from "y-protocols/awareness";
-
+import type { EphemeralPayload, PeerLeftPayload } from "@/shared/lib/ws/document-payloads";
 // ── Ephemeral message handling ────────────────────────────────
-
 export function handleEphemeralMessage(
-  payload: Record<string, unknown>,
+  payload: EphemeralPayload,
   state: DocumentState,
   documentId: string,
   localDeviceSigningPubKey: string | undefined,
@@ -32,9 +31,8 @@ export function handleEphemeralMessage(
     },
   );
 }
-
 async function processEphemeral(
-  payload: Record<string, unknown>,
+  payload: EphemeralPayload,
   state: DocumentState,
   documentId: string,
   localDeviceSigningPubKey: string | undefined,
@@ -42,19 +40,15 @@ async function processEphemeral(
 ): Promise<void> {
   const device = deviceState();
   if (!device || !state.ephemeralSession) return;
-
-  const pd = payload.publicData as Record<string, unknown> | undefined;
-  const senderPubKeyB64 = pd?.signingPubKey as string | undefined;
+  const pd = payload.publicData;
+  const senderPubKeyB64 = pd.signingPubKey;
   if (!senderPubKeyB64 || !pd) return;
-
   if (pd.docId !== documentId) return;
-
   // Same device (same signingPubKey): skip. This covers both own broadcasts
   // (server uses broadcast_from) and same-device other-tab broadcasts.
   // Design: awareness is per-device, not per-tab. Same-device tabs share
   // the same user identity and don't need mutual cursor visibility.
   if (senderPubKeyB64 === localDeviceSigningPubKey) return;
-
   const resolveResult = await resolveSigningKey(senderPubKeyB64, state);
   if (resolveResult.status === "key_changed") {
     failClosed("verification_failed");
@@ -66,9 +60,7 @@ async function processEphemeral(
   }
   if (state.revokedSigningKeys.has(senderPubKeyB64)) return;
   const senderPubKeyBytes = resolveResult.key;
-
   const worker = getCryptoWorker();
-
   const valid = await worker.verifyWsSignature({
     prefix: "refmd_ephemeral",
     ciphertext: payload.ciphertext as string,
@@ -78,7 +70,6 @@ async function processEphemeral(
     signingPubKey: senderPubKeyBytes,
   });
   if (!valid) return;
-
   let decrypted: Uint8Array;
   try {
     decrypted = await worker.decryptContent({
@@ -90,10 +81,8 @@ async function processEphemeral(
   } catch {
     return;
   }
-
   const decoded = decodeEphemeralPayload(decrypted);
   if (!decoded) return;
-
   const result = await handleIncomingEphemeral(
     state.ephemeralSession,
     decoded,
@@ -101,9 +90,7 @@ async function processEphemeral(
     senderPubKeyBytes,
     worker,
   );
-
   const remoteSessionIdB64 = base64UrlEncode(decoded.sessionId);
-
   switch (result.action) {
     case "respond":
       await sendEphemeralEnvelope(
@@ -136,16 +123,18 @@ async function processEphemeral(
         changedClients = [...added, ...updated];
         removedClients = [...removed];
       };
-
       // Pre-check ownership: save legitimate owner states + meta before apply so
       // hijacking reverts both state and clock/timeout metadata.
       const savedStates = new Map<number, Record<string, unknown>>();
-      const savedMeta = new Map<number, { clock: number; lastUpdated: number }>();
-      const states = state.awareness.getStates();
-      const meta = (state.awareness as any).meta as Map<
+      const savedMeta = new Map<
         number,
-        { clock: number; lastUpdated: number }
-      >;
+        {
+          clock: number;
+          lastUpdated: number;
+        }
+      >();
+      const states = state.awareness.getStates();
+      const meta = state.awareness.meta;
       for (const [clientId, clientState] of states) {
         const existingOwner = state.awarenessClientOwners.get(clientId);
         if (existingOwner && existingOwner !== senderPubKeyB64) {
@@ -154,7 +143,6 @@ async function processEphemeral(
           if (m) savedMeta.set(clientId, { ...m });
         }
       }
-
       // Suppress "change" events during apply — unverified data must not
       // be observable by UI consumers. Events are re-emitted after verification.
       const originalEmit = state.awareness.emit.bind(state.awareness);
@@ -168,7 +156,6 @@ async function processEphemeral(
         state.awareness.off("update", captureChange);
         state.awareness.emit = originalEmit;
       }
-
       // Verify clientID ownership for removals: a peer can only remove its own clientIDs.
       // Restore illegitimate removals from the saved state.
       const illegitimateRemovals: number[] = [];
@@ -187,7 +174,6 @@ async function processEphemeral(
         }
         removedClients = removedClients.filter((id) => !illegitimateRemovals.includes(id));
       }
-
       // Verify clientID ownership for updates: each clientID must belong to the sender.
       // If a clientID was previously owned by a different signingPubKey, restore
       // the legitimate owner's state instead of removing it entirely.
@@ -223,7 +209,6 @@ async function processEphemeral(
         }
         changedClients = changedClients.filter((id) => !hijackedClients.includes(id));
       }
-
       // Dedup: same signingPubKey should have at most one clientID (per-device granularity).
       // If a new clientID arrives from the same device, remove the old one.
       const staleForDevice: number[] = [];
@@ -240,7 +225,6 @@ async function processEphemeral(
           state.awarenessClientOwners.delete(id);
         }
       }
-
       // Override self-reported user fields with verified values to prevent impersonation.
       const verifiedUserId = state.signingKeyOwners.get(senderPubKeyB64);
       if (verifiedUserId) {
@@ -292,23 +276,24 @@ async function processEphemeral(
       break;
   }
 }
-
-export function handlePeerLeft(payload: Record<string, unknown>, state: DocumentState): void {
-  const signingPubKey = payload.signingPubKey as string | undefined;
+export function handlePeerLeft(payload: PeerLeftPayload, state: DocumentState): void {
+  const signingPubKey = payload.signingPubKey;
   if (!signingPubKey) return;
-
   // Server broadcasts peer-left only after delayed Presence recheck confirms
   // the device has no remaining connections. Trust the server's judgment.
   const toRemove: number[] = [];
   const localId = state.awareness.clientID;
   state.awareness.getStates().forEach((awarenessState, clientId) => {
     if (clientId === localId) return;
-    const user = awarenessState.user as { signingPubKey?: string } | undefined;
+    const user = awarenessState.user as
+      | {
+          signingPubKey?: string;
+        }
+      | undefined;
     if (user?.signingPubKey === signingPubKey) {
       toRemove.push(clientId);
     }
   });
-
   if (toRemove.length > 0) {
     removeAwarenessStates(state.awareness, toRemove, "peer-left");
     for (const clientId of toRemove) {
@@ -316,8 +301,7 @@ export function handlePeerLeft(payload: Record<string, unknown>, state: Document
     }
   }
 }
-
-export async function resendAwareness(
+async function resendAwareness(
   state: DocumentState,
   documentId: string,
   deviceId: string,

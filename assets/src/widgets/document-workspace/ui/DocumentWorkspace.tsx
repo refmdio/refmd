@@ -16,13 +16,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { useDocuments, useDocumentTitles, setTileDropHandler } from "@/entities/document";
+import { useDocuments, useDocumentTitles } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { OfflineIndicator } from "@/features/editor";
 import { setupFlushHooks } from "@/features/editor";
 import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
-import { documentEvents, documentRuntime } from "@/shared/lib/document-manager";
 import { workspaceManager } from "@/features/panel";
+import { getApp } from "@/shared/lib/app-context";
 import {
   getEditor,
   getDocumentState,
@@ -44,9 +44,10 @@ export function getStatusBarEl(): HTMLDivElement | null {
 
 export function DocumentWorkspace() {
   const workspace = usePanelWorkspace();
+  const { documentEvents, documentRuntime } = getApp();
   const workspaceId = () => currentWorkspaceId();
   const { flatDocuments } = useDocuments(workspaceId);
-  const { getTitle: getTitleFromDoc, isTitleReady } = useDocumentTitles(flatDocuments, workspaceId);
+  const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
 
   onMount(() => {
     const cleanup = setupFlushHooks();
@@ -67,14 +68,6 @@ export function DocumentWorkspace() {
       focusable?.focus();
     }
   });
-
-  setTileDropHandler((docId: string) => {
-    const doc = flatDocuments().find((d) => d.id === docId);
-    if (doc && doc.doc_type === "document" && isTitleReady(doc)) {
-      workspace.addToTile({ id: doc.id, title: getTitleFromDoc(doc) });
-    }
-  });
-  onCleanup(() => setTileDropHandler(null));
 
   const renderTile = (panelId: string, path: MosaicBranch[]) => {
     const panel = decodePanelId(panelId);
@@ -106,16 +99,48 @@ export function DocumentWorkspace() {
       }
       return <div />;
     }
-    if (!panel) return <div />;
-
     const doc = flatDocuments().find((d) => d.id === panel.documentId);
     const title = doc ? getTitleFromDoc(doc) : "Untitled";
     const isMarkdown = panel.type === "markdown";
     const isArchived = !!doc?.archived_at;
+    const readOnly = isArchived || getDocumentState(panel.documentId)?.readOnly;
     const panelLabel = isMarkdown ? "Markdown" : "WYSIWYG";
     const isAlreadySplit = () => {
       const state = workspace.mosaicState();
       return state ? hasScrollGroupPeer(state, panel.scrollGroupId, panelId) : false;
+    };
+    const getDocumentEventContext = () => {
+      const editor = getEditor(panelId);
+      return {
+        editor,
+        documentView: {
+          id: panel.documentId,
+          title,
+          editor,
+        },
+      };
+    };
+    const handleDocChange = () => {
+      const { editor, documentView } = getDocumentEventContext();
+      documentEvents.notifyDocumentChangeFor(panel.documentId, editor);
+      workspaceManager.trigger("editor-change", editor, documentView);
+    };
+    const handleEditorPaste = (evt: ClipboardEvent) => {
+      const { editor, documentView } = getDocumentEventContext();
+      workspaceManager.trigger("editor-paste", evt, editor, documentView);
+    };
+    const handleEditorDrop = (evt: DragEvent) => {
+      const { editor, documentView } = getDocumentEventContext();
+      workspaceManager.trigger("editor-drop", evt, editor, documentView);
+    };
+    const editorProps = {
+      documentId: panel.documentId,
+      panelId,
+      scrollGroupId: panel.scrollGroupId,
+      readOnly,
+      onDocChange: handleDocChange,
+      onEditorPaste: handleEditorPaste,
+      onEditorDrop: handleEditorDrop,
     };
 
     return (
@@ -210,69 +235,9 @@ export function DocumentWorkspace() {
         >
           <DocumentPanelShell documentId={panel.documentId}>
             {isMarkdown ? (
-              <CodeMirrorEditor
-                documentId={panel.documentId}
-                panelId={panelId}
-                scrollGroupId={panel.scrollGroupId}
-                readOnly={isArchived || getDocumentState(panel.documentId)?.readOnly}
-                onDocChange={() => {
-                  const editor = getEditor(panelId);
-                  documentEvents.notifyDocumentChangeFor(panel.documentId, editor);
-                  workspaceManager.trigger("editor-change", editor, {
-                    id: panel.documentId,
-                    title,
-                    editor,
-                  });
-                }}
-                onEditorPaste={(evt) => {
-                  const editor = getEditor(panelId);
-                  workspaceManager.trigger("editor-paste", evt, editor, {
-                    id: panel.documentId,
-                    title,
-                    editor,
-                  });
-                }}
-                onEditorDrop={(evt) => {
-                  const editor = getEditor(panelId);
-                  workspaceManager.trigger("editor-drop", evt, editor, {
-                    id: panel.documentId,
-                    title,
-                    editor,
-                  });
-                }}
-              />
+              <CodeMirrorEditor {...editorProps} />
             ) : (
-              <ProseMirrorEditor
-                documentId={panel.documentId}
-                panelId={panelId}
-                scrollGroupId={panel.scrollGroupId}
-                readOnly={isArchived || getDocumentState(panel.documentId)?.readOnly}
-                onDocChange={() => {
-                  const editor = getEditor(panelId);
-                  documentEvents.notifyDocumentChangeFor(panel.documentId, editor);
-                  workspaceManager.trigger("editor-change", editor, {
-                    id: panel.documentId,
-                    title,
-                    editor,
-                  });
-                }}
-                onEditorPaste={(evt) => {
-                  const editor = getEditor(panelId);
-                  workspaceManager.trigger("editor-paste", evt, editor, {
-                    id: panel.documentId,
-                    title,
-                    editor,
-                  });
-                }}
-                onEditorDrop={(evt) => {
-                  const editor = getEditor(panelId);
-                  workspaceManager.trigger("editor-drop", evt, editor, {
-                    id: panel.documentId,
-                    title,
-                    editor,
-                  });
-                }}
-              />
+              <ProseMirrorEditor {...editorProps} />
             )}
           </DocumentPanelShell>
         </div>

@@ -3,18 +3,12 @@ import { Spinner } from "@/shared/ui/spinner";
 import { AlertCircleIcon, WifiOffIcon } from "lucide-solid";
 import { currentWorkspaceId } from "@/entities/workspace";
 import {
-  acquireDocumentState,
-  releaseDocumentState,
-  getDocumentState,
   getDocumentError,
-  initializeDocumentSync,
-  initializeDocumentFromCache,
-  restoreDocumentStateFromCache,
   needsReauth,
   completeReauth,
-  requestReauth,
   getRollbackWarning,
   approveRollback,
+  initializeDocumentPanel,
 } from "@/features/editor";
 import {
   Dialog,
@@ -26,177 +20,46 @@ import {
 } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
 
-const PasswordReentryDialog = lazy(() => import("@/features/auth/password-reentry-dialog"));
+const PasswordReentryDialog = lazy(async () => {
+  const auth = await import("@/features/auth");
+  return { default: auth.PasswordReentryDialog };
+});
 
 interface DocumentPanelShellProps {
   documentId: string;
 }
 
-function hasWarmCacheState(documentId: string): boolean {
-  const state = getDocumentState(documentId);
-  if (!state) return false;
-
-  return (
-    state.keyVersion > 0 ||
-    state.activeSnapshotId !== null ||
-    state._cachedConfirmedStateVector !== null ||
-    state.loadedFromOfflineCache
-  );
-}
+const EXPORTABLE_ERROR_MESSAGES = new Set([
+  "document_not_found",
+  "not_a_member",
+  "permission_denied",
+]);
 
 export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) {
   const [isLoading, setIsLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [isOfflineCached, setIsOfflineCached] = createSignal(false);
   const [isAccessRevoked, setIsAccessRevoked] = createSignal(false);
+  const [isDocumentDeleted, setIsDocumentDeleted] = createSignal(false);
   const [hasWarmCachePreview, setHasWarmCachePreview] = createSignal(false);
 
   createEffect(() => {
-    const documentId = props.documentId;
-    const workspaceId = currentWorkspaceId();
-    if (!workspaceId) {
-      setError("No workspace selected");
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    setIsOfflineCached(false);
-    setIsAccessRevoked(false);
-    setHasWarmCachePreview(false);
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        await acquireDocumentState(documentId, workspaceId);
-
-        const state = getDocumentState(documentId);
-        if (!state || cancelled) return;
-
-        if (!state.initialized && !hasWarmCacheState(documentId)) {
-          try {
-            const recovered = await restoreDocumentStateFromCache(documentId, workspaceId, state);
-            if (recovered && !cancelled) {
-              setHasWarmCachePreview(true);
-              setIsLoading(false);
-            }
-          } catch {
-            // Best-effort: warm preview is opportunistic
-          }
-        } else if (!state.initialized && hasWarmCacheState(documentId)) {
-          setHasWarmCachePreview(true);
-          setIsLoading(false);
-        }
-
-        // If already initialized (shared with another panel), skip sync init
-        if (!state.initialized && !state.initPromise) {
-          state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
-        }
-
-        if (state.initPromise) {
-          await state.initPromise;
-        }
-
-        if (cancelled) return;
-
-        setHasWarmCachePreview(false);
-        if (state.error) {
-          setError(state.error);
-        }
-        if (state.loadedFromOfflineCache) {
-          setIsOfflineCached(true);
-        }
-      } catch (err) {
-        if (cancelled) return;
-
-        // Attempt cache recovery when server sync fails (offline or server unreachable).
-        // Do NOT recover for security failures (proof chain, verification) — those are fail-closed.
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const isSecurityFailure =
-          errMsg.includes("rollback attack") ||
-          errMsg.includes("verification_failed") ||
-          errMsg.includes("Version regression") ||
-          errMsg.includes("Snapshot proof chain") ||
-          errMsg.includes("Proof chain");
-        const isAuthFailure = errMsg.includes("unauthorized");
-        const isAccessDenied =
-          errMsg.includes("not_a_member") || errMsg.includes("permission_denied");
-        const isDeleted = errMsg.includes("document_not_found");
-        const state = getDocumentState(documentId);
-        if (state && isAuthFailure) {
-          try {
-            await requestReauth(documentId);
-            if (cancelled) return;
-
-            state.error = null;
-            state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
-            await state.initPromise;
-
-            if (cancelled) return;
-
-            setHasWarmCachePreview(false);
-            setError(state.error);
-            setIsOfflineCached(state.loadedFromOfflineCache);
-            setIsLoading(false);
-            return;
-          } catch (retryError) {
-            const retryMessage =
-              retryError instanceof Error ? retryError.message : "Failed to load document";
-            setError(retryMessage);
-            state.error = retryMessage;
-            setIsLoading(false);
-            return;
-          }
-        }
-
-        // Deleted documents: skip cache recovery, show error + export (design requirement)
-        if (state && !state.initialized && !isSecurityFailure && !isDeleted) {
-          try {
-            const recovered = await initializeDocumentFromCache(documentId, workspaceId, state);
-            if (recovered && !cancelled) {
-              // For access-denied cases, stop auto-sync and mark read-only
-              if (isAccessDenied) {
-                if (state.autoSync) {
-                  state.autoSync.dispose();
-                  state.autoSync = null;
-                }
-                state.readOnly = true;
-                setHasWarmCachePreview(false);
-                setIsOfflineCached(true);
-                setIsAccessRevoked(true);
-                setError(null);
-                setIsLoading(false);
-                return;
-              }
-              setHasWarmCachePreview(false);
-              setIsOfflineCached(true);
-              setError(null);
-              setIsLoading(false);
-              return;
-            }
-          } catch {
-            // Recovery failed, fall through to error
-          }
-        }
-
-        const msg = err instanceof Error ? err.message : "Failed to load document";
-        setError(msg);
-        if (state) state.error = msg;
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-
-    onCleanup(() => {
-      cancelled = true;
-      releaseDocumentState(documentId);
+    const cleanup = initializeDocumentPanel(props.documentId, currentWorkspaceId(), {
+      setError,
+      setHasWarmCachePreview,
+      setIsAccessRevoked,
+      setIsDocumentDeleted,
+      setIsLoading,
+      setIsOfflineCached,
     });
+
+    onCleanup(cleanup);
   });
 
   const runtimeError = () => getDocumentError(props.documentId);
   const displayError = () => error() || runtimeError();
+  const canExportCachedContent = () =>
+    isAccessRevoked() || isDocumentDeleted() || EXPORTABLE_ERROR_MESSAGES.has(displayError() ?? "");
 
   const showReauth = () => needsReauth(props.documentId);
   const rollbackWarning = () => getRollbackWarning(props.documentId);
@@ -228,28 +91,29 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
           <div class="flex flex-col items-center justify-center h-full bg-background gap-3">
             <AlertCircleIcon class="size-6 text-destructive" />
             <p class="text-sm text-destructive">{displayError()}</p>
-            <Show
-              when={
-                displayError()?.includes("not_found") || displayError()?.includes("not_a_member")
-              }
-            >
+            <Show when={canExportCachedContent()}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={async () => {
+                  const { Notice } = await import("@/shared/lib/notice");
                   try {
                     const { recoverDocumentFromCache } =
                       await import("@/shared/lib/offline/cache-manager");
                     const recovered = await recoverDocumentFromCache(props.documentId);
-                    if (recovered) {
-                      const text = recovered.yDoc.getText("content").toString();
-                      recovered.yDoc.destroy();
+                    if (!recovered) {
+                      new Notice("No cached content available");
+                      return;
+                    }
+                    const text = recovered.yDoc.getText("content").toString();
+                    recovered.yDoc.destroy();
+                    try {
                       await navigator.clipboard.writeText(text);
-                      const { Notice } = await import("@/shared/lib/notice");
                       new Notice("Content copied to clipboard");
+                    } catch {
+                      new Notice("Failed to copy to clipboard");
                     }
                   } catch {
-                    const { Notice } = await import("@/shared/lib/notice");
                     new Notice("No cached content available");
                   }
                 }}

@@ -7,7 +7,7 @@ const GRIP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentC
 
 const ALLOWED_HTML = new Set([PLUS_SVG, GRIP_SVG]);
 const ttPolicy =
-  (globalThis as any).trustedTypes?.createPolicy("refmd-block-handle", {
+  globalThis.trustedTypes?.createPolicy("refmd-block-handle", {
     createHTML(input: string) {
       if (ALLOWED_HTML.has(input)) return input;
       throw new TypeError("Unexpected HTML in block-handle-plugin");

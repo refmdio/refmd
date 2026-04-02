@@ -1,7 +1,7 @@
 import { render } from "solid-js/web";
 import type { JSX } from "solid-js";
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { queryClient } from "./query-client";
+import { queryClient } from "@/shared/lib/query-client";
 
 export function renderPluginContent(
   component: () => JSX.Element,

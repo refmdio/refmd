@@ -1,5 +1,4 @@
 import type { EventRef } from "@/shared/lib/events";
-import { buildDocumentPath } from "@/shared/lib/document-routes";
 import { decodePanelId } from "./panel-utils";
 import { workspaceManager } from "./workspace-manager";
 
@@ -18,13 +17,14 @@ export function attachActiveLeafRouteSync(
     const panel = leaf ? decodePanelId(leaf.id) : null;
     if (!panel) {
       if (getOpenDocuments().size > 0) return;
-      const nextPath = buildDocumentPath(null);
+      if (window.location.pathname.startsWith("/document/")) return;
+      const nextPath = "/dashboard";
       if (window.location.pathname === nextPath) return;
       navigate(nextPath, { replace: true, scroll: false });
       return;
     }
 
-    const nextPath = buildDocumentPath(panel.documentId);
+    const nextPath = `/document/${panel.documentId}`;
     if (window.location.pathname === nextPath) return;
     navigate(nextPath, { replace: true, scroll: false });
   });

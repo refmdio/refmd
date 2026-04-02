@@ -1,12 +1,13 @@
-import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
+import { createSignal, createEffect, createMemo, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { workspaceManager } from "@/features/panel";
 import { getActiveEditor } from "@/features/editor";
-import { documentQueries } from "@/shared/lib/document-manager";
+import { getApp } from "@/shared/lib/app-context";
+import type { Command } from "@/shared/lib/app-context";
 
 const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
 
-export { commandPaletteOpen, setCommandPaletteOpen };
+export { setCommandPaletteOpen };
 
 function fuzzyMatch(query: string, text: string): number {
   if (!query) return 1;
@@ -42,28 +43,59 @@ export function CommandPaletteModal() {
 }
 
 function CommandPaletteInner() {
+  const { documentQueries } = getApp();
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
 
-  const filteredCommands = () => {
+  const getActiveCommandContext = () => {
+    const editor = getActiveEditor();
+    const doc = documentQueries.getActiveDocument();
+    return editor && doc ? { editor, doc } : null;
+  };
+
+  const isCommandAvailable = (cmd: Command) => {
+    if (cmd.id === "command-palette:open") return false;
+
+    const context = getActiveCommandContext();
+    if (cmd.editorCheckCallback) {
+      return context ? cmd.editorCheckCallback(true, context.editor, context.doc) !== false : false;
+    }
+    if (cmd.editorCallback) {
+      return context !== null;
+    }
+    if (cmd.checkCallback) return cmd.checkCallback(true) !== false;
+    return true;
+  };
+
+  const runCommand = (cmd: Command) => {
+    close();
+
+    const context = getActiveCommandContext();
+    if (cmd.editorCheckCallback) {
+      if (context && cmd.editorCheckCallback(true, context.editor, context.doc)) {
+        cmd.editorCheckCallback(false, context.editor, context.doc);
+      }
+      return;
+    }
+    if (cmd.editorCallback) {
+      if (context) {
+        cmd.editorCallback(context.editor, context.doc);
+      }
+      return;
+    }
+    if (cmd.checkCallback) {
+      if (cmd.checkCallback(true)) {
+        cmd.checkCallback(false);
+      }
+      return;
+    }
+    cmd.callback?.();
+  };
+
+  const filteredCommands = createMemo(() => {
     const q = query();
-    const commands = workspaceManager.listCommands().filter((c) => {
-      if (c.id === "command-palette:open") return false;
-      if (c.editorCheckCallback) {
-        const editor = getActiveEditor();
-        const doc = documentQueries.getActiveDocument();
-        if (!editor || !doc) return false;
-        return c.editorCheckCallback(true, editor, doc) !== false;
-      }
-      if (c.editorCallback) {
-        const editor = getActiveEditor();
-        const doc = documentQueries.getActiveDocument();
-        return !!(editor && doc);
-      }
-      if (c.checkCallback) return c.checkCallback(true) !== false;
-      return true;
-    });
+    const commands = workspaceManager.listCommands().filter(isCommandAvailable);
     if (!q) return commands;
 
     return commands
@@ -71,7 +103,7 @@ function CommandPaletteInner() {
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((x) => x.cmd);
-  };
+  });
 
   createEffect(() => {
     filteredCommands();
@@ -84,26 +116,7 @@ function CommandPaletteInner() {
     const cmds = filteredCommands();
     const cmd = cmds[idx];
     if (!cmd) return;
-    close();
-    if (cmd.editorCheckCallback) {
-      const editor = getActiveEditor();
-      const doc = documentQueries.getActiveDocument();
-      if (editor && doc) {
-        const canRun = cmd.editorCheckCallback(true, editor, doc);
-        if (canRun) cmd.editorCheckCallback(false, editor, doc);
-      }
-    } else if (cmd.editorCallback) {
-      const editor = getActiveEditor();
-      const doc = documentQueries.getActiveDocument();
-      if (editor && doc) {
-        cmd.editorCallback(editor, doc);
-      }
-    } else if (cmd.checkCallback) {
-      const canRun = cmd.checkCallback(true);
-      if (canRun) cmd.checkCallback(false);
-    } else if (cmd.callback) {
-      cmd.callback();
-    }
+    runCommand(cmd);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -136,10 +149,6 @@ function CommandPaletteInner() {
 
   createEffect(() => {
     inputRef()?.focus();
-  });
-
-  onCleanup(() => {
-    // ensure closed state on unmount
   });
 
   return (

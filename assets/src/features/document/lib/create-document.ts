@@ -1,11 +1,33 @@
 import { documentsApi, encryptionApi, ApiError } from "@/shared/api";
+import { cryptoWorkerReady, getKekResolverSession } from "@/entities/session";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
-import { documentEvents } from "@/shared/lib/document-manager";
 import { injectDecryptedTitle } from "@/entities/document";
-
+import { getApp } from "@/shared/lib/app-context";
+class DocumentKeyPersistenceError extends Error {
+  constructor() {
+    super("Failed to persist document encryption key");
+    this.name = "DocumentKeyPersistenceError";
+  }
+}
+async function cleanupFailedDocumentCreation(documentId: string): Promise<void> {
+  await documentsApi.delete(documentId).catch(() => {
+    // Best-effort cleanup. The original key persistence failure is surfaced to the caller.
+  });
+}
+async function ensureDocumentKeyPersisted(documentId: string, keyVersion: number): Promise<void> {
+  try {
+    const keys = await encryptionApi.getDocumentKeys(documentId);
+    if (keys.keys.some((key) => key.key_version === keyVersion)) {
+      return;
+    }
+  } catch {
+    // Fall through and report the typed persistence failure below.
+  }
+  await cleanupFailedDocumentCreation(documentId);
+  throw new DocumentKeyPersistenceError();
+}
 export async function createDocument(
   workspaceId: string,
   title: string,
@@ -14,24 +36,19 @@ export async function createDocument(
   if (!cryptoWorkerReady()) {
     throw new Error("Crypto worker not ready");
   }
-
-  await resolveActiveKek(workspaceId);
-
+  await resolveActiveKek(workspaceId, getKekResolverSession());
   const worker = getCryptoWorker();
   const documentId = crypto.randomUUID();
-
   const {
     encryptedDek,
     nonce: dekNonce,
     keyVersion: kekVersion,
   } = await worker.generateDek(documentId, workspaceId);
-
   const { encrypted: encryptedTitleBytes, nonce: titleNonce } = await worker.encryptTitle({
     title,
     documentId,
     keyVersion: 1,
   });
-
   await documentsApi.create({
     id: documentId,
     workspace_id: workspaceId,
@@ -42,14 +59,12 @@ export async function createDocument(
     encrypted_title_key_version: 1,
     parent_id: parentId,
   });
-
   const keyBody = {
     key_version: 1,
     kek_version: kekVersion,
     encrypted_dek: base64UrlEncode(encryptedDek),
     nonce: base64UrlEncode(dekNonce),
   };
-
   const tryCreateKey = async (): Promise<boolean> => {
     try {
       await encryptionApi.createDocumentKey(documentId, keyBody);
@@ -59,23 +74,10 @@ export async function createDocument(
       return false;
     }
   };
-
   if (!(await tryCreateKey()) && !(await tryCreateKey())) {
-    try {
-      const keys = await encryptionApi.getDocumentKeys(documentId);
-      if (!keys.keys.some((k) => k.key_version === keyBody.key_version)) {
-        await documentsApi.delete(documentId).catch(() => {});
-        throw new Error("Failed to persist document encryption key");
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message === "Failed to persist document encryption key") throw e;
-      await documentsApi.delete(documentId).catch(() => {});
-      throw new Error("Failed to persist document encryption key");
-    }
+    await ensureDocumentKeyPersisted(documentId, keyBody.key_version);
   }
-
   injectDecryptedTitle(documentId, title, base64UrlEncode(titleNonce));
-  documentEvents.notifyDocumentCreate(documentId);
-
+  getApp().documentEvents.notifyDocumentCreate(documentId);
   return documentId;
 }

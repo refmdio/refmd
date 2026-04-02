@@ -1,0 +1,114 @@
+import { createEffect, createSignal, untrack } from "solid-js";
+import { useNavigate, useParams } from "@solidjs/router";
+import { setSelectedDocumentId } from "@/entities/document";
+import { currentWorkspaceId, setCurrentWorkspaceId } from "@/entities/workspace";
+import { cryptoWorkerReady } from "@/entities/session";
+import { authState } from "@/entities/session";
+import {
+  resolveDocumentWithOfflineFallback,
+  isDocumentAccessError,
+  type ResolvedDocument,
+} from "@/features/document";
+import { Notice } from "@/shared/lib/notice";
+
+interface DocumentRouteWorkspace {
+  focusedDocumentId: () => string | null;
+  openDocuments: () => Map<string, { title?: string }>;
+  openDocument: (doc: { id: string; title?: string }) => void;
+}
+
+export function useDocumentRouteController(documentWorkspace: DocumentRouteWorkspace): void {
+  const navigate = useNavigate();
+  const params = useParams<{ documentId?: string }>();
+  const [pendingRouteOpen, setPendingRouteOpen] = createSignal<ResolvedDocument | null>(null);
+  let routeRequestVersion = 0;
+
+  const routeDocumentId = () => {
+    const id = params.documentId;
+    return typeof id === "string" && id.length > 0 ? id : null;
+  };
+
+  createEffect(() => {
+    const routeDocId = routeDocumentId();
+    const auth = authState();
+    const workerReady = cryptoWorkerReady();
+    const focusedDocId = untrack(() => documentWorkspace.focusedDocumentId());
+    const openDocs = untrack(() => documentWorkspace.openDocuments());
+    const pending = untrack(() => pendingRouteOpen());
+
+    if (!routeDocId) {
+      routeRequestVersion += 1;
+      setPendingRouteOpen(null);
+      return;
+    }
+
+    if (!auth || !workerReady) return;
+
+    if (focusedDocId === routeDocId && openDocs.has(routeDocId)) {
+      setPendingRouteOpen(null);
+      return;
+    }
+
+    if (pending?.documentId === routeDocId) return;
+
+    if (openDocs.has(routeDocId)) {
+      const workspaceId = currentWorkspaceId();
+      if (!workspaceId) return;
+      setPendingRouteOpen({
+        documentId: routeDocId,
+        workspaceId,
+        title: openDocs.get(routeDocId)?.title,
+      });
+      return;
+    }
+
+    const requestVersion = ++routeRequestVersion;
+    setPendingRouteOpen(null);
+
+    void (async () => {
+      try {
+        const resolved = await resolveDocumentWithOfflineFallback(routeDocId);
+
+        if (requestVersion !== routeRequestVersion || routeDocumentId() !== routeDocId) return;
+
+        if (!resolved) {
+          new Notice("Folders cannot be opened in the editor.");
+          navigate("/dashboard", { replace: true, scroll: false });
+          return;
+        }
+
+        setPendingRouteOpen(resolved);
+        if (currentWorkspaceId() !== resolved.workspaceId) {
+          setCurrentWorkspaceId(resolved.workspaceId);
+        }
+      } catch (error) {
+        if (requestVersion !== routeRequestVersion || routeDocumentId() !== routeDocId) return;
+
+        setPendingRouteOpen(null);
+        new Notice(
+          isDocumentAccessError(error)
+            ? "Document not found or access denied."
+            : "Failed to open document.",
+        );
+        navigate("/dashboard", { replace: true, scroll: false });
+      }
+    })();
+  });
+
+  createEffect(() => {
+    const pending = pendingRouteOpen();
+    const workspaceId = currentWorkspaceId();
+    if (!pending || !workspaceId || workspaceId !== pending.workspaceId) return;
+
+    documentWorkspace.openDocument({ id: pending.documentId, title: pending.title });
+    setSelectedDocumentId(pending.documentId);
+  });
+
+  createEffect(() => {
+    const pending = pendingRouteOpen();
+    const focusedDocId = documentWorkspace.focusedDocumentId();
+    if (!pending || focusedDocId !== pending.documentId) return;
+
+    setPendingRouteOpen(null);
+  });
+}

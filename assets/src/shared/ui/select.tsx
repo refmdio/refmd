@@ -1,20 +1,32 @@
-import { splitProps, type ParentProps, type JSX } from "solid-js";
+import { splitProps, type ParentProps } from "solid-js";
 import * as SelectPrimitive from "@kobalte/core/select";
 import { CheckIcon, ChevronDownIcon } from "lucide-solid";
-
 import { cn } from "@/shared/lib/utils";
-
+type SelectTriggerProps = ParentProps<
+  SelectPrimitive.SelectTriggerProps & {
+    class?: string;
+    size?: "sm" | "default";
+  }
+>;
+type SelectContentProps = ParentProps<
+  SelectPrimitive.SelectContentProps & {
+    class?: string;
+  }
+>;
+type SelectItemProps = ParentProps<
+  SelectPrimitive.SelectItemProps & {
+    class?: string;
+  }
+>;
+// kobalte Select is generic (SelectRoot<Option>) and propagates Option to children via JSX context.
+// Wrapper components cannot preserve this generic inference, so passthrough typing is required.
 function Select(props: any) {
   return <SelectPrimitive.Root data-slot="select" {...props} />;
 }
-
 function SelectValue(props: { class?: string; children?: any; [key: string]: any }) {
   return <SelectPrimitive.Value data-slot="select-value" {...props} />;
 }
-
-function SelectTrigger(
-  props: ParentProps<{ class?: string; size?: "sm" | "default"; [key: string]: any }>,
-) {
+function SelectTrigger(props: SelectTriggerProps) {
   const [local, rest] = splitProps(props, ["class", "children", "size"]);
   const size = () => local.size ?? "default";
   return (
@@ -36,8 +48,7 @@ function SelectTrigger(
     </SelectPrimitive.Trigger>
   );
 }
-
-function SelectContent(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function SelectContent(props: SelectContentProps) {
   const [local, rest] = splitProps(props, ["class", "children"]);
   return (
     <SelectPrimitive.Portal>
@@ -56,29 +67,7 @@ function SelectContent(props: ParentProps<{ class?: string; [key: string]: any }
     </SelectPrimitive.Portal>
   );
 }
-
-function SelectGroup(props: ParentProps<{ class?: string } & JSX.HTMLAttributes<HTMLDivElement>>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return <div data-slot="select-group" role="group" class={local.class} {...rest} />;
-}
-
-function SelectGroupLabel(
-  props: ParentProps<{ class?: string } & JSX.HTMLAttributes<HTMLDivElement>>,
-) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <div
-      data-slot="select-label"
-      class={cn(
-        "px-3 py-2 font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground/90",
-        local.class,
-      )}
-      {...rest}
-    />
-  );
-}
-
-function SelectItem(props: ParentProps<{ class?: string; item: any; [key: string]: any }>) {
+function SelectItem(props: SelectItemProps) {
   const [local, rest] = splitProps(props, ["class", "children"]);
   return (
     <SelectPrimitive.Item
@@ -103,55 +92,4 @@ function SelectItem(props: ParentProps<{ class?: string; item: any; [key: string
     </SelectPrimitive.Item>
   );
 }
-
-function SelectSeparator(
-  props: ParentProps<{ class?: string } & JSX.HTMLAttributes<HTMLDivElement>>,
-) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <div
-      data-slot="select-separator"
-      role="separator"
-      class={cn(
-        "pointer-events-none -mx-1 my-1 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent",
-        local.class,
-      )}
-      {...rest}
-    />
-  );
-}
-
-function SelectDescription(props: ParentProps<{ class?: string; [key: string]: any }>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <SelectPrimitive.Description
-      data-slot="select-description"
-      class={cn("text-sm text-muted-foreground", local.class)}
-      {...rest}
-    />
-  );
-}
-
-function SelectErrorMessage(props: ParentProps<{ class?: string; [key: string]: any }>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <SelectPrimitive.ErrorMessage
-      data-slot="select-error-message"
-      class={cn("text-sm text-destructive", local.class)}
-      {...rest}
-    />
-  );
-}
-
-export {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectGroupLabel,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-  SelectDescription,
-  SelectErrorMessage,
-};
+export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue };

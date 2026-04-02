@@ -2,9 +2,8 @@ import {
   getTotalCacheSize,
   getEvictionCandidates,
   deleteDocumentOfflineData,
-  deleteOfflineKek,
+  deleteOrphanedKeks,
   getAllOfflineDocumentMetas,
-  getAllOfflineKekWorkspaceIds,
   getOfflineDocumentMeta,
   putOfflineDocumentMeta,
 } from "./offline-store";
@@ -65,19 +64,6 @@ export async function checkAndEvict(): Promise<void> {
 
 async function cleanupOrphanedKeks(): Promise<void> {
   const metas = await getAllOfflineDocumentMetas();
-  // Only workspaces with actual cached content (cacheSize > 0) are active
-  const activeWorkspaceIds = new Set(
-    metas.filter((m) => m.cacheSize > 0).map((m) => m.workspaceId),
-  );
-  const cachedKekWorkspaceIds = await getAllOfflineKekWorkspaceIds();
-
-  for (const wsId of cachedKekWorkspaceIds) {
-    if (!activeWorkspaceIds.has(wsId)) {
-      await deleteOfflineKek(wsId);
-    }
-  }
-}
-
-export async function evictDocument(documentId: string): Promise<void> {
-  await deleteDocumentOfflineData(documentId);
+  const activeWorkspaceIds = metas.filter((m) => m.cacheSize > 0).map((m) => m.workspaceId);
+  await deleteOrphanedKeks(activeWorkspaceIds);
 }

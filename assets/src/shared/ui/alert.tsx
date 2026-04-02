@@ -1,9 +1,7 @@
 import { type JSX, splitProps } from "solid-js";
 import { cva, type VariantProps } from "class-variance-authority";
-
 import { cn } from "@/shared/lib/utils";
 import { toneVarDefaults, toneVarOverrides } from "@/shared/lib/tone";
-
 const alertVariants = cva(
   [
     toneVarDefaults,
@@ -27,13 +25,10 @@ const alertVariants = cva(
     },
   },
 );
-
 type AlertProps = JSX.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>;
-
 function Alert(props: AlertProps) {
   const [local, rest] = splitProps(props, ["class", "variant"]);
   const tone = () => local.variant ?? "default";
-
   return (
     <div
       data-slot="alert"
@@ -44,7 +39,6 @@ function Alert(props: AlertProps) {
     />
   );
 }
-
 function AlertTitle(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
@@ -58,7 +52,6 @@ function AlertTitle(props: JSX.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
-
 function AlertDescription(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
@@ -72,19 +65,4 @@ function AlertDescription(props: JSX.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
-
-function AlertActions(props: JSX.HTMLAttributes<HTMLDivElement>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <div
-      data-slot="alert-actions"
-      class={cn(
-        "col-start-2 flex flex-wrap items-center gap-2 pt-1 text-[10px] font-mono uppercase tracking-[0.32em] text-[color:var(--tone-title)]",
-        local.class,
-      )}
-      {...rest}
-    />
-  );
-}
-
-export { Alert, AlertActions, AlertDescription, AlertTitle, alertVariants };
+export { Alert, AlertDescription, AlertTitle };

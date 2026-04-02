@@ -1,9 +1,5 @@
-export {
-  PendingDeviceMonitor,
-  usePendingDevices,
-  type KekRotationNeeded,
-  type PendingDeviceContextValue,
-} from "./pending-device-monitor";
-export { ApproveDeviceDialog } from "./approve-dialog";
-export { RevokeDeviceDialog, performKekRotation } from "./revoke-dialog";
-export { SafetyNumber } from "./safety-number";
+export { usePendingDevices } from "./model";
+export { useDeviceManagement } from "./model";
+export { PendingDeviceMonitor, RevokeDeviceDialog } from "./ui";
+export { performKekRotation, createWorkspaceKekRotationTrigger } from "./lib";
+export { DeviceRegistrationFlow } from "./register";

@@ -2,14 +2,12 @@ import { x25519, ed25519 } from "@noble/curves/ed25519.js";
 import { randomBytes, base64UrlEncode } from "./encoding";
 import { sign, verify } from "./identity";
 import { buildSignatureMessage, SIGNATURE_ACTION } from "./signature";
-
-export interface DeviceKeyPair {
+interface DeviceKeyPair {
   ecdhPrivate: Uint8Array;
   ecdhPublic: Uint8Array;
   signingPrivate: Uint8Array;
   signingPublic: Uint8Array;
 }
-
 export function generateDeviceKeyPair(): DeviceKeyPair {
   const ecdhPrivate = x25519.utils.randomSecretKey();
   const signingPrivate = ed25519.utils.randomSecretKey();
@@ -20,11 +18,9 @@ export function generateDeviceKeyPair(): DeviceKeyPair {
     signingPublic: ed25519.getPublicKey(signingPrivate),
   };
 }
-
 export function generateClientNonce(): Uint8Array {
   return randomBytes(16);
 }
-
 export function signDeviceApproval(
   deviceSigningPublicKey: Uint8Array,
   deviceEcdhPublicKey: Uint8Array,
@@ -38,7 +34,6 @@ export function signDeviceApproval(
   });
   return sign(message, identitySigningPrivate);
 }
-
 export function signDeviceRegistration(
   deviceSigningPublicKey: Uint8Array,
   deviceEcdhPublicKey: Uint8Array,
@@ -52,7 +47,6 @@ export function signDeviceRegistration(
   });
   return sign(message, identitySigningPrivate);
 }
-
 export function verifyDeviceIdentitySignature(
   deviceSigningPublicKey: Uint8Array,
   deviceEcdhPublicKey: Uint8Array,

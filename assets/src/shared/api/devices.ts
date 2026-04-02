@@ -1,9 +1,8 @@
 import { client, throwIfError, POP_DEVICE_OVERRIDE_HEADER } from "./core";
 import type { components } from "./schema";
 
-export type CreateDeviceRegistrationRequest =
-  components["schemas"]["CreateDeviceRegistrationRequest"];
-export type ApproveDeviceRequest = components["schemas"]["ApproveDeviceRequest"];
+type CreateDeviceRegistrationRequest = components["schemas"]["CreateDeviceRegistrationRequest"];
+type ApproveDeviceRequest = components["schemas"]["ApproveDeviceRequest"];
 
 export type DeviceInfo = components["schemas"]["DeviceFullInfo"];
 
@@ -22,12 +21,6 @@ export interface DeviceRegistrationInfo {
 export interface WorkspaceRotationInfo {
   workspace_id: string;
   current_kek_version: number;
-}
-
-export interface RevokeDeviceResult {
-  revoked_device_id: string;
-  revocation_mode: string;
-  workspaces_needing_kek_rotation: WorkspaceRotationInfo[];
 }
 
 export const devicesApi = {

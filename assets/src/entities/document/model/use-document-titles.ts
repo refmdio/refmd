@@ -1,7 +1,7 @@
 import { createSignal, createEffect, type Accessor } from "solid-js";
+import { cryptoWorkerReady, getKekResolverSession } from "@/entities/session";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { encryptionApi } from "@/shared/api";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import type { TitleDecryptItem } from "@/shared/lib/crypto/worker/types";
@@ -10,6 +10,7 @@ import { getOfflineDek } from "@/shared/lib/offline/offline-store";
 import { recoverKekFromCache, cacheOfflineTitle } from "@/shared/lib/offline/cache-manager";
 
 const titleCache = new Map<string, { title: string; nonce: string | null }>();
+const pendingBatches = new Map<string, Promise<void>>();
 
 export function injectDecryptedTitle(documentId: string, title: string, nonce?: string): void {
   titleCache.set(documentId, { title, nonce: nonce ?? null });
@@ -24,8 +25,10 @@ export function useDocumentTitles(
   workspaceId: Accessor<string | null>,
 ) {
   const [decryptedTitles, setDecryptedTitles] = createSignal<Record<string, string>>({});
+  let decryptionVersion = 0;
 
   createEffect(() => {
+    const currentVersion = ++decryptionVersion;
     const docs = documents();
     const wsId = workspaceId();
     if (!wsId || docs.length === 0) return;
@@ -56,6 +59,7 @@ export function useDocumentTitles(
     }
 
     const updateSignal = () => {
+      if (currentVersion !== decryptionVersion) return;
       const titles: Record<string, string> = {};
       for (const d of docs) {
         const cached = titleCache.get(d.id);
@@ -64,11 +68,19 @@ export function useDocumentTitles(
       setDecryptedTitles(titles);
     };
 
-    decryptBatch(needsDecryption, wsId, (docId, title, nonce) => {
+    const batchKey = `${wsId}:${needsDecryption.map((d) => d.id).join(",")}`;
+    const existing = pendingBatches.get(batchKey);
+    if (existing) {
+      existing.then(updateSignal);
+      return;
+    }
+    const batch = decryptBatch(needsDecryption, wsId, (docId, title, nonce) => {
+      if (currentVersion !== decryptionVersion) return;
       titleCache.set(docId, { title, nonce });
       updateSignal();
       cacheOfflineTitle(docId, wsId, title).catch(() => {});
-    });
+    }).finally(() => pendingBatches.delete(batchKey));
+    pendingBatches.set(batchKey, batch);
   });
 
   function getTitle(doc: DocumentResponse): string {
@@ -101,7 +113,7 @@ async function decryptBatch(
   // Best-effort active KEK resolution (not blocking — per-document
   // ensureDekForTitleDecryption resolves version-specific KEK as needed)
   try {
-    await resolveActiveKek(workspaceId);
+    await resolveActiveKek(workspaceId, getKekResolverSession());
   } catch {
     // Active KEK resolution failed; try offline KEK cache
     await recoverKekFromCache(workspaceId).catch(() => {});
@@ -145,12 +157,12 @@ async function ensureDekForTitleDecryption(
 
   try {
     const dekResponse = await encryptionApi.getDocumentKeys(doc.id);
-    const matchingKey = dekResponse.keys.find((k: any) => k.key_version === titleKeyVersion);
+    const matchingKey = dekResponse.keys.find((key) => key.key_version === titleKeyVersion);
     if (!matchingKey) return;
 
     // Resolve version-specific KEK before unwrapping DEK
     if (matchingKey.kek_version) {
-      await resolveKekByVersion(workspaceId, matchingKey.kek_version);
+      await resolveKekByVersion(workspaceId, matchingKey.kek_version, getKekResolverSession());
     }
 
     await worker.unwrapDek({

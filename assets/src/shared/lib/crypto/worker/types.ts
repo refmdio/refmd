@@ -1,9 +1,7 @@
 // Shared types between Crypto Worker and main thread CryptoWorkerClient.
-// This file must NOT import any crypto libraries (imported by both contexts).
-
+// This file must NOT import crypto libraries (imported by both contexts).
 // ── Request types ─────────────────────────────────────────
-
-export type CryptoRequestType =
+type CryptoRequestType =
   // Lifecycle
   | "init"
   | "init-from-password"
@@ -123,36 +121,42 @@ export type CryptoRequestType =
   // TOFU store management
   | "tofu-get-all-entries"
   | "tofu-import-entries";
-
 export interface CryptoRequest {
   id: string;
   type: CryptoRequestType;
   payload: Record<string, unknown>;
 }
-
 export interface CryptoResponse {
   id: string;
   type: "success" | "error";
   payload: unknown;
 }
-
 // ── Init payloads ─────────────────────────────────────────
-
 export interface PdkWrappedBlobs {
   ciphertext: string;
   nonce: string;
 }
-
 export interface InitPdkResult {
   wrappedUmk?: PdkWrappedBlobs;
-  wrappedDeviceKeys?: { ecdh: PdkWrappedBlobs; signing: PdkWrappedBlobs };
+  wrappedDeviceKeys?: {
+    ecdh: PdkWrappedBlobs;
+    signing: PdkWrappedBlobs;
+  };
 }
-
 export interface InitPayload {
-  dsk: CryptoKey;
-  wrappedUmk?: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
-  wrappedDeviceEcdh?: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
-  wrappedDeviceSigning?: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
+  dsk: CryptoKey | null;
+  wrappedUmk?: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+  };
+  wrappedDeviceEcdh?: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+  };
+  wrappedDeviceSigning?: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+  };
   userId: string;
   deviceId: string;
   encryptedIdentityEcdh?: Uint8Array;
@@ -171,17 +175,30 @@ export interface InitPayload {
   passwordParams?: {
     password: string;
     salt: Uint8Array;
-    kdfParams: { memory: number; iterations: number; parallelism: number };
+    kdfParams: {
+      memory: number;
+      iterations: number;
+      parallelism: number;
+    };
   };
 }
-
 export interface InitFromPasswordPayload {
   password: string;
   salt: Uint8Array;
-  kdfParams: { memory: number; iterations: number; parallelism: number };
+  kdfParams: {
+    memory: number;
+    iterations: number;
+    parallelism: number;
+  };
   dsk: CryptoKey | null;
-  wrappedDeviceEcdh?: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
-  wrappedDeviceSigning?: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
+  wrappedDeviceEcdh?: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+  };
+  wrappedDeviceSigning?: {
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+  };
   serverEncryptedUmk?: Uint8Array;
   serverUmkNonce?: Uint8Array;
   userId: string;
@@ -195,32 +212,25 @@ export interface InitFromPasswordPayload {
   pdkWrappedDeviceSigning?: PdkWrappedBlobs;
   returnPdkWrapped?: boolean;
 }
-
 // ── Public keys (safe to expose) ──────────────────────────
-
 export interface PublicKeys {
   deviceSigningPublic: Uint8Array;
   deviceEcdhPublic: Uint8Array;
   identitySigningPublic: Uint8Array | null;
   identityEcdhPublic: Uint8Array | null;
 }
-
 // ── Title batch ───────────────────────────────────────────
-
 export interface TitleDecryptItem {
   documentId: string;
   keyVersion: number;
   encrypted: Uint8Array;
   nonce: Uint8Array;
 }
-
 export interface TitleDecryptResult {
   documentId: string;
   title: string | null;
 }
-
 // ── KEK distribution params ───────────────────────────────
-
 export interface KekForDeviceParams {
   workspaceId: string;
   userId: string;
@@ -229,7 +239,6 @@ export interface KekForDeviceParams {
   targetDeviceEcdhPublic: Uint8Array;
   keyVersion: number;
 }
-
 export interface KekFromDeviceEnvelopeParams {
   workspaceId: string;
   userId: string;
@@ -240,7 +249,6 @@ export interface KekFromDeviceEnvelopeParams {
   nonce: Uint8Array;
   keyVersion: number;
 }
-
 export interface KekForMemberParams {
   workspaceId: string;
   targetUserId: string;
@@ -248,7 +256,6 @@ export interface KekForMemberParams {
   senderDeviceId: string;
   keyVersion: number;
 }
-
 export interface KekFromMemberEnvelopeParams {
   workspaceId: string;
   targetUserId: string;
@@ -258,13 +265,11 @@ export interface KekFromMemberEnvelopeParams {
   nonce: Uint8Array;
   keyVersion: number;
 }
-
 export interface KekBackupParams {
   workspaceId: string;
   userId: string;
   keyVersion: number;
 }
-
 export interface KekFromBackupParams {
   workspaceId: string;
   userId: string;
@@ -272,14 +277,12 @@ export interface KekFromBackupParams {
   nonce: Uint8Array;
   keyVersion: number;
 }
-
 export interface KekForInvitationParams {
   workspaceId: string;
   invitationId: string;
   token: Uint8Array;
   keyVersion: number;
 }
-
 export interface KekFromInvitationParams {
   workspaceId: string;
   invitationId: string;
@@ -288,16 +291,15 @@ export interface KekFromInvitationParams {
   nonce: Uint8Array;
   keyVersion: number;
 }
-
 // ── SAS result ────────────────────────────────────────────
-
 export interface SasResultData {
-  emojis: { emoji: string; name: string }[];
+  emojis: {
+    emoji: string;
+    name: string;
+  }[];
   hash: Uint8Array;
 }
-
 // ── Error codes ───────────────────────────────────────────
-
 export type CryptoErrorCode =
   | "not_initialized"
   | "already_initialized"
@@ -308,7 +310,6 @@ export type CryptoErrorCode =
   | "key_not_found"
   | "tofu_hard_fail"
   | "internal_error";
-
 export interface CryptoError {
   code: CryptoErrorCode;
   message: string;

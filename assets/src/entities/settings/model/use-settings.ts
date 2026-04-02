@@ -1,6 +1,6 @@
 import { createQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
 import { settingsApi, type SettingsResponse } from "@/shared/api";
-import { authState } from "@/shared/lib/auth-state";
+import { authState } from "@/entities/session";
 
 function getSettingsKey() {
   const userId = authState()?.user?.id;
@@ -23,7 +23,7 @@ function cacheToLocalStorage(settings: SettingsResponse) {
   }
 }
 
-function readFromLocalStorage(): { data: SettingsResponse; updatedAt: number } | null {
+export function readFromLocalStorage(): { data: SettingsResponse; updatedAt: number } | null {
   const key = getCacheKey();
   if (!key) return null;
   try {

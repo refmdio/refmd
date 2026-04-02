@@ -8,13 +8,15 @@ import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { yCollab, ySyncFacet } from "y-codemirror.next";
 import * as Y from "yjs";
-import { acquireYDoc, releaseYDoc, onScrollSync, emitScrollSync } from "../../lib/ydoc-cache";
-import { EditorApi, registerEditor, unregisterEditor } from "../../lib/editor-api";
+import {
+  acquireYDoc,
+  releaseYDoc,
+  onScrollSync,
+  emitScrollSync,
+} from "../../lib/document-state-cache";
+import { registerEditor, unregisterEditor } from "../../lib/editor-api";
+import { EditorApi } from "../../lib/editor-api-impl";
 import "./codemirror-cursors.css";
-
-const themeCompartment = new Compartment();
-const editableCompartment = new Compartment();
-const keymapCompartment = new Compartment();
 
 interface ThemeColors {
   linkColor: string;
@@ -136,7 +138,7 @@ function localEditNotifier(onLocalEdit: () => void) {
   );
 }
 
-export interface CodeMirrorEditorProps {
+interface CodeMirrorEditorProps {
   documentId: string;
   panelId: string;
   scrollGroupId?: string;
@@ -148,6 +150,9 @@ export interface CodeMirrorEditorProps {
 }
 
 export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
+  const themeCompartment = new Compartment();
+  const editableCompartment = new Compartment();
+  const keymapCompartment = new Compartment();
   const scrollSourceId = `cm-${Math.random().toString(36).slice(2)}`;
   let containerEl: HTMLDivElement | undefined;
   let view: EditorView | undefined;

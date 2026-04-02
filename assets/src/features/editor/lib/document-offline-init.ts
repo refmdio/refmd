@@ -2,12 +2,9 @@ import * as Y from "yjs";
 import type { DocumentState } from "./document-state-cache";
 import { startAutoSync } from "./auto-sync";
 import { recoverDocumentFromCache, startPeriodicFlush } from "@/shared/lib/offline/cache-manager";
-import {
-  onOfflineModeChange,
-  setWsConnected,
-  notifyOfflineListeners,
-} from "@/shared/lib/offline/offline-state";
+import { onOfflineModeChange, setWsConnected } from "@/shared/lib/offline/offline-state";
 import { isSocketConnected } from "@/shared/lib/ws/phoenix-channel";
+import { DocumentSyncError } from "./document-sync-error";
 
 function teardownOfflineRuntime(state: DocumentState): void {
   if (state.autoSync) {
@@ -43,9 +40,8 @@ async function resumeDocumentFromServer(
     return;
   } catch (err) {
     state.initPromise = null;
-    const msg = err instanceof Error ? err.message : String(err);
 
-    if (msg.includes("unauthorized")) {
+    if (err instanceof DocumentSyncError && err.code === "unauthorized") {
       const { requestReauth } = await import("./document-state-cache");
       await requestReauth(documentId);
 
@@ -55,22 +51,21 @@ async function resumeDocumentFromServer(
         return;
       } catch (retryErr) {
         state.initPromise = null;
-        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-        if (retryMsg.includes("Server unreachable")) {
+        if (retryErr instanceof DocumentSyncError && retryErr.code === "server_unreachable") {
           activateOfflineEditingSession(documentId, workspaceId, state, true);
           return;
         }
-        state.error = retryMsg;
+        state.error = retryErr instanceof Error ? retryErr.message : String(retryErr);
         return;
       }
     }
 
-    if (msg.includes("Server unreachable")) {
+    if (err instanceof DocumentSyncError && err.code === "server_unreachable") {
       activateOfflineEditingSession(documentId, workspaceId, state, true);
       return;
     }
 
-    state.error = msg;
+    state.error = err instanceof Error ? err.message : String(err);
   }
 }
 
@@ -86,7 +81,6 @@ function activateOfflineEditingSession(
 
   if (forceOfflineMode || !isSocketConnected()) {
     setWsConnected(false);
-    notifyOfflineListeners();
   }
 
   state.autoSync = startAutoSync(documentId, state);

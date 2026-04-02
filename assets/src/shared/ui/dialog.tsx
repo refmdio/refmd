@@ -2,24 +2,22 @@ import { splitProps, Show, type ParentProps } from "solid-js";
 import * as DialogPrimitive from "@kobalte/core/dialog";
 import { XIcon } from "lucide-solid";
 import { cn } from "@/shared/lib/utils";
-
-function Dialog(props: ParentProps<{ [key: string]: any }>) {
+function Dialog(
+  props: ParentProps<{
+    [key: string]: any;
+  }>,
+) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
-
-function DialogTrigger(props: ParentProps<{ [key: string]: any }>) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
-}
-
 function DialogPortal(props: ParentProps) {
   return <DialogPrimitive.Portal>{props.children}</DialogPrimitive.Portal>;
 }
-
-function DialogClose(props: ParentProps<{ [key: string]: any }>) {
-  return <DialogPrimitive.CloseButton data-slot="dialog-close" {...props} />;
-}
-
-function DialogOverlay(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function DialogOverlay(
+  props: ParentProps<{
+    class?: string;
+    [key: string]: any;
+  }>,
+) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <DialogPrimitive.Overlay
@@ -33,9 +31,12 @@ function DialogOverlay(props: ParentProps<{ class?: string; [key: string]: any }
     />
   );
 }
-
 function DialogContent(
-  props: ParentProps<{ class?: string; showCloseButton?: boolean; [key: string]: any }>,
+  props: ParentProps<{
+    class?: string;
+    showCloseButton?: boolean;
+    [key: string]: any;
+  }>,
 ) {
   const [local, rest] = splitProps(props, ["class", "children", "showCloseButton"]);
   const showClose = () => local.showCloseButton !== false;
@@ -66,13 +67,21 @@ function DialogContent(
     </DialogPortal>
   );
 }
-
-function DialogHeader(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function DialogHeader(
+  props: ParentProps<{
+    class?: string;
+    [key: string]: any;
+  }>,
+) {
   const [local, rest] = splitProps(props, ["class"]);
   return <div data-slot="dialog-header" class={cn("flex flex-col gap-3", local.class)} {...rest} />;
 }
-
-function DialogFooter(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function DialogFooter(
+  props: ParentProps<{
+    class?: string;
+    [key: string]: any;
+  }>,
+) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <div
@@ -85,8 +94,12 @@ function DialogFooter(props: ParentProps<{ class?: string; [key: string]: any }>
     />
   );
 }
-
-function DialogTitle(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function DialogTitle(
+  props: ParentProps<{
+    class?: string;
+    [key: string]: any;
+  }>,
+) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <DialogPrimitive.Title
@@ -96,8 +109,12 @@ function DialogTitle(props: ParentProps<{ class?: string; [key: string]: any }>)
     />
   );
 }
-
-function DialogDescription(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function DialogDescription(
+  props: ParentProps<{
+    class?: string;
+    [key: string]: any;
+  }>,
+) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <DialogPrimitive.Description
@@ -107,16 +124,4 @@ function DialogDescription(props: ParentProps<{ class?: string; [key: string]: a
     />
   );
 }
-
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-};
+export { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle };

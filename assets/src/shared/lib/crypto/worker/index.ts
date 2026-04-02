@@ -5,6 +5,7 @@
 import type { CryptoRequest, CryptoResponse, CryptoErrorCode } from "./types";
 import { createInitialState } from "./state";
 import { handleRequest } from "./handler";
+import { CryptoOperationError } from "./operation-error";
 
 // In a Dedicated Worker, `self` is DedicatedWorkerGlobalScope.
 // We cast to a minimal interface to avoid needing the WebWorker lib
@@ -76,15 +77,9 @@ function checkRateLimit(type: string): boolean {
 workerSelf.onmessage = async (event: MessageEvent<CryptoRequest>) => {
   const request = event.data;
 
-  if (request.type === "lock") {
-    // Route to handler so transientPuk/transientRuk are also cleared
+  if (request.type === "lock" || request.type === "is-ready") {
     const result = await handleRequest(state, request);
     respond(request.id, result);
-    return;
-  }
-
-  if (request.type === "is-ready") {
-    respond(request.id, { ready: state.initialized });
     return;
   }
 
@@ -98,22 +93,8 @@ workerSelf.onmessage = async (event: MessageEvent<CryptoRequest>) => {
     respond(request.id, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    let code: CryptoErrorCode = "internal_error";
-
-    const errorName = error instanceof Error ? error.name : "";
-
-    if (errorName === "TofuHardFailError" || message.includes("TOFU") || message.includes("tofu")) {
-      code = "tofu_hard_fail";
-    } else if (message.includes("Identity key changed") || message.includes("ECDH key mismatch")) {
-      code = "tofu_hard_fail";
-    } else if (message.includes("not initialized") || message.includes("not_initialized")) {
-      code = "not_initialized";
-    } else if (message.includes("decryp")) {
-      code = "decryption_failed";
-    } else if (message.includes("signat")) {
-      code = "signature_failed";
-    }
-
+    const code: CryptoErrorCode =
+      error instanceof CryptoOperationError ? error.code : "internal_error";
     respondError(request.id, code, message);
   }
 };

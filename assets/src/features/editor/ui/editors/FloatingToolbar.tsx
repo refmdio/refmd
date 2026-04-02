@@ -26,7 +26,7 @@ function isMarkActive(state: EditorView["state"], markType: MarkType): boolean {
   return state.doc.rangeHasMark(from, to, markType);
 }
 
-export interface FloatingToolbarProps {
+interface FloatingToolbarProps {
   view: EditorView;
   schema: Schema;
   selectionVersion: number;

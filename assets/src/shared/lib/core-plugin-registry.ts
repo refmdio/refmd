@@ -1,12 +1,16 @@
-import type { App } from "./app-context";
-
-export interface CorePluginEntry {
+import type { App } from "@/shared/lib/app-context";
+interface CorePluginEntry {
   id: string;
   name: string;
   description: string;
   defaultEnabled: boolean;
   load: (app: App) => void;
   unload: () => void;
+}
+
+interface CorePluginPreferenceState {
+  disabled: Set<string>;
+  enabled: Set<string>;
 }
 
 let registeredPlugins: CorePluginEntry[] = [];
@@ -24,86 +28,88 @@ function getStorageKey(workspaceId: string): string {
   return `refmd-core-plugins:${workspaceId}`;
 }
 
-function getDisabledSet(workspaceId: string): Set<string> {
+function readPreferenceState(workspaceId: string): CorePluginPreferenceState {
   try {
     const raw = localStorage.getItem(getStorageKey(workspaceId));
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as { disabled?: string[] };
-    return new Set(parsed.disabled ?? []);
+    if (!raw) {
+      return {
+        disabled: new Set(),
+        enabled: new Set(),
+      };
+    }
+
+    const parsed = JSON.parse(raw) as {
+      disabled?: string[];
+      enabled?: string[];
+    };
+
+    return {
+      disabled: new Set(parsed.disabled ?? []),
+      enabled: new Set(parsed.enabled ?? []),
+    };
   } catch {
-    return new Set();
+    return {
+      disabled: new Set(),
+      enabled: new Set(),
+    };
   }
 }
 
-function saveState(workspaceId: string, disabled: Set<string>, enabled: Set<string>): void {
+function savePreferenceState(workspaceId: string, state: CorePluginPreferenceState): void {
   try {
     localStorage.setItem(
       getStorageKey(workspaceId),
-      JSON.stringify({ disabled: [...disabled], enabled: [...enabled] }),
+      JSON.stringify({
+        disabled: [...state.disabled],
+        enabled: [...state.enabled],
+      }),
     );
   } catch {
     // localStorage unavailable
   }
 }
 
-function getEnabledSet(workspaceId: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(getStorageKey(workspaceId));
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as { enabled?: string[] };
-    return new Set(parsed.enabled ?? []);
-  } catch {
-    return new Set();
-  }
-}
-
 export function isCorePluginEnabled(id: string, workspaceId: string): boolean {
-  const disabled = getDisabledSet(workspaceId);
-  const enabled = getEnabledSet(workspaceId);
+  const { disabled, enabled } = readPreferenceState(workspaceId);
   const plugin = registeredPlugins.find((p) => p.id === id);
   if (!plugin) return false;
   if (disabled.has(id)) return false;
   if (enabled.has(id)) return true;
   return plugin.defaultEnabled;
 }
-
 export function setCorePluginEnabled(
   id: string,
   workspaceId: string,
   enabled: boolean,
   app: App,
 ): void {
-  const disabled = getDisabledSet(workspaceId);
-  const enabledSet = getEnabledSet(workspaceId);
-
+  const preferenceState = readPreferenceState(workspaceId);
   const plugin = registeredPlugins.find((p) => p.id === id);
   const isDefault = plugin?.defaultEnabled ?? true;
-
   if (enabled) {
-    disabled.delete(id);
+    preferenceState.disabled.delete(id);
     if (!isDefault) {
-      enabledSet.add(id);
+      preferenceState.enabled.add(id);
     } else {
-      enabledSet.delete(id);
+      preferenceState.enabled.delete(id);
     }
     if (plugin && !loadedPlugins.has(id)) {
       plugin.load(app);
       loadedPlugins.add(id);
     }
   } else {
-    enabledSet.delete(id);
+    preferenceState.enabled.delete(id);
     if (isDefault) {
-      disabled.add(id);
+      preferenceState.disabled.add(id);
     } else {
-      disabled.delete(id);
+      preferenceState.disabled.delete(id);
     }
     if (plugin && loadedPlugins.has(id)) {
       plugin.unload();
       loadedPlugins.delete(id);
     }
   }
-
-  saveState(workspaceId, disabled, enabledSet);
+  savePreferenceState(workspaceId, preferenceState);
 }
 
 export function loadCorePlugins(app: App, workspaceId: string): void {

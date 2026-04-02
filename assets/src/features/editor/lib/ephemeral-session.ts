@@ -13,42 +13,32 @@
  * Binary format of decrypted ephemeral content:
  *   [1B type][24B sessionId][4B counter LE][payload]
  */
-
 import { randomBytes, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import type { CryptoWorkerClient } from "@/shared/lib/crypto/worker/client";
-
 // =============================================================================
 // Constants
 // =============================================================================
-
 export const MSG_INITIALIZE = 1;
-export const MSG_PROOF_AND_REQUEST = 2;
-export const MSG_PROOF = 3;
+const MSG_PROOF_AND_REQUEST = 2;
+const MSG_PROOF = 3;
 export const MSG_MESSAGE = 4;
-
 const SESSION_PROOF_PREFIX = "refmd_ephemeral_session_proof";
-
 const SESSION_ID_LEN = 24;
 const COUNTER_LEN = 4;
 const HEADER_LEN = 1 + SESSION_ID_LEN + COUNTER_LEN; // 29
-
 const MAX_PEERS = 256;
 const MAX_PENDING = 256;
-
 // =============================================================================
 // Types
 // =============================================================================
-
-export interface TrustedPeer {
+interface TrustedPeer {
   lastCounter: number;
   signingPubKey: string; // base64url
 }
-
-export interface PendingPeer {
+interface PendingPeer {
   signingPubKey: string; // base64url
   lastCounter: number;
 }
-
 export interface EphemeralSession {
   sessionId: Uint8Array; // 24 bytes random
   sessionCounter: number; // monotonic outbound counter
@@ -56,24 +46,32 @@ export interface EphemeralSession {
   pendingInitializes: Map<string, PendingPeer>;
   initializeSent: boolean;
 }
-
-export interface DecodedEphemeral {
+interface DecodedEphemeral {
   messageType: number;
   sessionId: Uint8Array;
   counter: number;
   payload: Uint8Array;
 }
-
-export type EphemeralAction =
-  | { action: "respond"; responsePayload: Uint8Array }
-  | { action: "trusted"; awarenessData?: undefined }
-  | { action: "awareness"; awarenessData: Uint8Array }
-  | { action: "reject"; reason: string };
-
+type EphemeralAction =
+  | {
+      action: "respond";
+      responsePayload: Uint8Array;
+    }
+  | {
+      action: "trusted";
+      awarenessData?: undefined;
+    }
+  | {
+      action: "awareness";
+      awarenessData: Uint8Array;
+    }
+  | {
+      action: "reject";
+      reason: string;
+    };
 // =============================================================================
 // Session lifecycle
 // =============================================================================
-
 export function createEphemeralSession(): EphemeralSession {
   return {
     sessionId: randomBytes(SESSION_ID_LEN),
@@ -83,7 +81,6 @@ export function createEphemeralSession(): EphemeralSession {
     initializeSent: false,
   };
 }
-
 function evictOldestTrusted(map: Map<string, TrustedPeer>): void {
   let oldestKey: string | undefined;
   let oldestCounter = Infinity;
@@ -95,7 +92,6 @@ function evictOldestTrusted(map: Map<string, TrustedPeer>): void {
   }
   if (oldestKey) map.delete(oldestKey);
 }
-
 function evictOldestPending(map: Map<string, PendingPeer>): void {
   let oldestKey: string | undefined;
   let oldestCounter = Infinity;
@@ -107,11 +103,9 @@ function evictOldestPending(map: Map<string, PendingPeer>): void {
   }
   if (oldestKey) map.delete(oldestKey);
 }
-
 // =============================================================================
 // Encode / Decode
 // =============================================================================
-
 export function encodeEphemeralPayload(
   session: EphemeralSession,
   messageType: number,
@@ -125,7 +119,6 @@ export function encodeEphemeralPayload(
   result.set(payload, HEADER_LEN);
   return result;
 }
-
 export function decodeEphemeralPayload(data: Uint8Array): DecodedEphemeral | null {
   if (data.length < HEADER_LEN) return null;
   const messageType = data[0];
@@ -134,11 +127,9 @@ export function decodeEphemeralPayload(data: Uint8Array): DecodedEphemeral | nul
   const payload = data.slice(HEADER_LEN);
   return { messageType, sessionId, counter, payload };
 }
-
 // =============================================================================
 // Incoming message handler (async — uses CryptoWorker for sign/verify)
 // =============================================================================
-
 export async function handleIncomingEphemeral(
   session: EphemeralSession,
   decoded: DecodedEphemeral,
@@ -147,7 +138,6 @@ export async function handleIncomingEphemeral(
   worker: CryptoWorkerClient,
 ): Promise<EphemeralAction> {
   const remoteSessionIdB64 = base64UrlEncode(decoded.sessionId);
-
   switch (decoded.messageType) {
     case MSG_INITIALIZE: {
       const existingInitPeer = session.trustedPeers.get(remoteSessionIdB64);
@@ -181,13 +171,11 @@ export async function handleIncomingEphemeral(
       if (!existingPending && session.pendingInitializes.size >= MAX_PENDING) {
         evictOldestPending(session.pendingInitializes);
       }
-
       const { signature: proof } = await worker.signSessionProof({
         prefix: SESSION_PROOF_PREFIX,
         localSessionId: base64UrlEncode(session.sessionId),
         remoteSessionId: base64UrlEncode(decoded.sessionId),
       });
-
       session.pendingInitializes.set(remoteSessionIdB64, {
         signingPubKey: senderPubKeyB64,
         lastCounter: decoded.counter,
@@ -195,7 +183,6 @@ export async function handleIncomingEphemeral(
       const response = encodeEphemeralPayload(session, MSG_PROOF_AND_REQUEST, proof);
       return { action: "respond", responsePayload: response };
     }
-
     case MSG_PROOF_AND_REQUEST: {
       if (!session.initializeSent) {
         return { action: "reject", reason: "unexpected proofAndRequest (no initialize sent)" };
@@ -234,7 +221,6 @@ export async function handleIncomingEphemeral(
         return { action: "reject", reason: "proofAndRequest payload length mismatch" };
       }
       const proofSig = decoded.payload;
-
       const valid = await worker.verifySessionProof({
         prefix: SESSION_PROOF_PREFIX,
         localSessionId: base64UrlEncode(decoded.sessionId),
@@ -245,16 +231,13 @@ export async function handleIncomingEphemeral(
       if (!valid) {
         return { action: "reject", reason: "proofAndRequest signature invalid" };
       }
-
       if (!existingPeer && session.trustedPeers.size >= MAX_PEERS) {
         evictOldestTrusted(session.trustedPeers);
       }
-
       session.trustedPeers.set(remoteSessionIdB64, {
         lastCounter: decoded.counter,
         signingPubKey: senderPubKeyB64,
       });
-
       const { signature: ourProof } = await worker.signSessionProof({
         prefix: SESSION_PROOF_PREFIX,
         localSessionId: base64UrlEncode(session.sessionId),
@@ -263,7 +246,6 @@ export async function handleIncomingEphemeral(
       const response = encodeEphemeralPayload(session, MSG_PROOF, ourProof);
       return { action: "respond", responsePayload: response };
     }
-
     case MSG_PROOF: {
       const pendingPeer = session.pendingInitializes.get(remoteSessionIdB64);
       if (!pendingPeer) {
@@ -294,7 +276,6 @@ export async function handleIncomingEphemeral(
         return { action: "reject", reason: "proof payload length mismatch" };
       }
       const proofSig = decoded.payload;
-
       const valid = await worker.verifySessionProof({
         prefix: SESSION_PROOF_PREFIX,
         localSessionId: base64UrlEncode(decoded.sessionId),
@@ -305,11 +286,9 @@ export async function handleIncomingEphemeral(
       if (!valid) {
         return { action: "reject", reason: "proof signature invalid" };
       }
-
       if (!existingProofPeer && session.trustedPeers.size >= MAX_PEERS) {
         evictOldestTrusted(session.trustedPeers);
       }
-
       session.pendingInitializes.delete(remoteSessionIdB64);
       session.trustedPeers.set(remoteSessionIdB64, {
         lastCounter: decoded.counter,
@@ -317,7 +296,6 @@ export async function handleIncomingEphemeral(
       });
       return { action: "trusted" };
     }
-
     case MSG_MESSAGE: {
       const peer = session.trustedPeers.get(remoteSessionIdB64);
       if (!peer) {
@@ -335,7 +313,6 @@ export async function handleIncomingEphemeral(
       peer.lastCounter = decoded.counter;
       return { action: "awareness", awarenessData: decoded.payload };
     }
-
     default:
       return { action: "reject", reason: `unknown messageType ${decoded.messageType}` };
   }

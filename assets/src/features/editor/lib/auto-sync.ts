@@ -1,21 +1,15 @@
 import * as Y from "yjs";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
-import { deviceState } from "@/shared/lib/auth-state";
-import { pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
-import type { DocumentState } from "./document-state-cache";
+import { deviceState } from "@/entities/session";
+import { getChannelState, pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
+import type { AutoSyncHandle, DocumentState } from "./document-state-cache";
 import { offlineMode, onOfflineModeChange } from "@/shared/lib/offline/offline-state";
 import { cachePendingChanges } from "@/shared/lib/offline/cache-manager";
 
 const THROTTLE_MS = 25;
 const SNAPSHOT_UPDATE_THRESHOLD = 100;
 const SNAPSHOT_RETRY_DELAY_MS = 5_000;
-
-export interface AutoSyncHandle {
-  dispose: () => void;
-  notifyLocalEdit: () => void;
-  flush: () => void;
-}
 
 export function startAutoSync(documentId: string, state: DocumentState): AutoSyncHandle {
   let dirty = false;
@@ -64,7 +58,7 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
   // If the channel disconnected, triggerReconnect handles the delta rejoin flow.
   const cleanupOfflineWatch = onOfflineModeChange((isOffline) => {
     if (!isOffline && state.initialized && state.channel) {
-      const chanState = (state.channel as any).state;
+      const chanState = getChannelState(state.channel);
       if (chanState === "joined") {
         dirty = true;
         scheduleSend();

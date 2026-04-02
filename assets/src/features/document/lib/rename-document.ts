@@ -1,11 +1,11 @@
 import { documentsApi, encryptionApi } from "@/shared/api";
+import { cryptoWorkerReady, getKekResolverSession } from "@/entities/session";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { cryptoWorkerReady } from "@/shared/lib/auth-state";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
-import { documentEvents } from "@/shared/lib/document-manager";
 import { injectDecryptedTitle } from "@/entities/document";
 import type { DocumentResponse } from "@/entities/document";
+import { getApp } from "@/shared/lib/app-context";
 
 export async function renameDocument(
   doc: DocumentResponse,
@@ -15,7 +15,7 @@ export async function renameDocument(
 ): Promise<void> {
   if (doc.doc_type === "folder") {
     await documentsApi.update(doc.id, { title: newTitle });
-    documentEvents.notifyDocumentRename(doc.id, oldTitle);
+    getApp().documentEvents.notifyDocumentRename(doc.id, oldTitle);
     return;
   }
 
@@ -24,7 +24,7 @@ export async function renameDocument(
   }
 
   const worker = getCryptoWorker();
-  await resolveActiveKek(workspaceId);
+  await resolveActiveKek(workspaceId, getKekResolverSession());
 
   const keysResponse = await encryptionApi.getDocumentKeys(doc.id);
   const activeKey = keysResponse.keys.find((k) => k.is_active);
@@ -32,7 +32,7 @@ export async function renameDocument(
   const keyVersion = activeKey.key_version;
 
   if (activeKey.kek_version) {
-    await resolveKekByVersion(workspaceId, activeKey.kek_version);
+    await resolveKekByVersion(workspaceId, activeKey.kek_version, getKekResolverSession());
   }
   await worker.unwrapDek({
     encryptedDek: base64UrlDecode(activeKey.encrypted_dek),
@@ -57,5 +57,5 @@ export async function renameDocument(
   });
 
   injectDecryptedTitle(doc.id, newTitle, base64UrlEncode(nonce));
-  documentEvents.notifyDocumentRename(doc.id, oldTitle);
+  getApp().documentEvents.notifyDocumentRename(doc.id, oldTitle);
 }

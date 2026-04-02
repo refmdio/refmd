@@ -1,5 +1,4 @@
-const AAD_PROTOCOL = { protocol: "refmd", version: 1 } as const;
-
+export const AAD_PROTOCOL = { protocol: "refmd", version: 1 } as const;
 export const AAD_PURPOSE = {
   UMK_WRAP: "umk_wrap",
   RECOVERY_UMK_WRAP: "recovery_umk_wrap",
@@ -26,7 +25,6 @@ export const AAD_PURPOSE = {
   OFFLINE_KEK_CACHE: "offline_kek_cache",
   DSK_AUTH_BOOTSTRAP: "dsk_auth_bootstrap",
 } as const;
-
 function canonicalize(obj: unknown): string {
   if (obj === null) return "null";
   if (typeof obj === "boolean" || typeof obj === "number") return JSON.stringify(obj);
@@ -43,36 +41,28 @@ function canonicalize(obj: unknown): string {
   }
   throw new Error("Cannot canonicalize: " + typeof obj);
 }
-
 export function canonicalizeBytes(obj: Record<string, unknown>): Uint8Array {
   return new TextEncoder().encode(canonicalize(obj));
 }
-
 interface AadHeader {
   purpose: string;
   [key: string]: unknown;
 }
-
 function buildAad(header: AadHeader): Uint8Array {
   return canonicalizeBytes({ ...AAD_PROTOCOL, ...header });
 }
-
 export function buildUmkWrapAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.UMK_WRAP, user_id: userId });
 }
-
 export function buildRecoveryUmkWrapAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.RECOVERY_UMK_WRAP, user_id: userId });
 }
-
 export function buildIdentityEcdhAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.IDENTITY_ECDH, user_id: userId });
 }
-
 export function buildIdentitySigningAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.IDENTITY_SIGNING, user_id: userId });
 }
-
 export function buildDeviceUmkDistributionAad(
   userId: string,
   senderDeviceId: string,
@@ -85,7 +75,6 @@ export function buildDeviceUmkDistributionAad(
     target_device_id: targetDeviceId,
   });
 }
-
 export function buildDeviceKekDistributionAad(
   workspaceId: string,
   userId: string,
@@ -102,7 +91,6 @@ export function buildDeviceKekDistributionAad(
     key_version: keyVersion,
   });
 }
-
 export function buildUmkKekBackupAad(
   workspaceId: string,
   userId: string,
@@ -115,31 +103,24 @@ export function buildUmkKekBackupAad(
     key_version: keyVersion,
   });
 }
-
 export function buildDskUmkCacheAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.DSK_UMK_CACHE, user_id: userId });
 }
-
 export function buildDskDeviceEcdhAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.DSK_DEVICE_ECDH_PRIVATE, user_id: userId });
 }
-
 export function buildDskDeviceSigningAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.DSK_DEVICE_SIGNING_PRIVATE, user_id: userId });
 }
-
 export function buildPdkUmkWrapAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.PDK_UMK_WRAP, user_id: userId });
 }
-
 export function buildPdkDeviceEcdhAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.PDK_DEVICE_ECDH_PRIVATE, user_id: userId });
 }
-
 export function buildPdkDeviceSigningAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.PDK_DEVICE_SIGNING_PRIVATE, user_id: userId });
 }
-
 export function buildInvitationKekWrapAad(
   workspaceId: string,
   invitationId: string,
@@ -152,7 +133,6 @@ export function buildInvitationKekWrapAad(
     key_version: keyVersion,
   });
 }
-
 export function buildMemberEnvelopeKekAad(
   workspaceId: string,
   targetUserId: string,
@@ -167,7 +147,6 @@ export function buildMemberEnvelopeKekAad(
     sender_device_id: senderDeviceId,
   });
 }
-
 export function buildDekWrapAad(documentId: string, workspaceId: string): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.DEK_WRAP,
@@ -175,7 +154,6 @@ export function buildDekWrapAad(documentId: string, workspaceId: string): Uint8A
     workspace_id: workspaceId,
   });
 }
-
 export function buildDocumentContentAad(documentId: string, keyVersion: number): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.DOCUMENT_CONTENT,
@@ -183,7 +161,6 @@ export function buildDocumentContentAad(documentId: string, keyVersion: number):
     key_version: keyVersion,
   });
 }
-
 export function buildDocumentTitleAad(documentId: string, keyVersion: number): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.DOCUMENT_TITLE,
@@ -191,7 +168,6 @@ export function buildDocumentTitleAad(documentId: string, keyVersion: number): U
     key_version: keyVersion,
   });
 }
-
 export function buildOfflineDocumentCacheAad(documentId: string, keyVersion: number): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.OFFLINE_DOCUMENT_CACHE,
@@ -199,7 +175,6 @@ export function buildOfflineDocumentCacheAad(documentId: string, keyVersion: num
     key_version: keyVersion,
   });
 }
-
 export function buildOfflinePendingChangesAad(documentId: string, keyVersion: number): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.OFFLINE_PENDING_CHANGES,
@@ -207,7 +182,6 @@ export function buildOfflinePendingChangesAad(documentId: string, keyVersion: nu
     key_version: keyVersion,
   });
 }
-
 export function buildOfflineDekCacheAad(documentId: string, keyVersion: number): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.OFFLINE_DEK_CACHE,
@@ -215,7 +189,6 @@ export function buildOfflineDekCacheAad(documentId: string, keyVersion: number):
     key_version: keyVersion,
   });
 }
-
 export function buildOfflineKekCacheAad(workspaceId: string, keyVersion: number): Uint8Array {
   return buildAad({
     purpose: AAD_PURPOSE.OFFLINE_KEK_CACHE,
@@ -223,7 +196,6 @@ export function buildOfflineKekCacheAad(workspaceId: string, keyVersion: number)
     key_version: keyVersion,
   });
 }
-
 export function buildDskAuthBootstrapAad(): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.DSK_AUTH_BOOTSTRAP });
 }

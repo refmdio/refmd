@@ -1,14 +1,11 @@
 import { getAllActiveDocumentStates } from "./document-state-cache";
-import { cacheDocumentState, cachePendingChanges } from "@/shared/lib/offline/cache-manager";
+import { flushDocumentCache } from "@/shared/lib/offline/cache-manager";
 import { onOfflineModeChange } from "@/shared/lib/offline/offline-state";
 
 function flushAllActive(): void {
   const states = getAllActiveDocumentStates();
   for (const [documentId, state] of states) {
-    if (state.initialized && state.keyVersion > 0) {
-      cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
-      cachePendingChanges(documentId, state).catch(() => {});
-    }
+    flushDocumentCache(documentId, state.workspaceId, state);
   }
 }
 

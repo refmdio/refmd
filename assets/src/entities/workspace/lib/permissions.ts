@@ -12,11 +12,8 @@ export const ALL_PERMISSIONS = [
   "member:remove",
   "role:manage",
 ] as const;
-
-export type Permission = (typeof ALL_PERMISSIONS)[number];
-
+type Permission = (typeof ALL_PERMISSIONS)[number];
 export type BaseRole = "owner" | "admin" | "editor" | "viewer";
-
 export const PERMISSION_LABELS: Record<Permission, string> = {
   "document:read": "Read documents",
   "document:write": "Write documents",
@@ -31,15 +28,13 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "member:remove": "Remove members",
   "role:manage": "Manage roles",
 };
-
 export const PRIVILEGE_LEVEL: Record<BaseRole, number> = {
   viewer: 0,
   editor: 1,
   admin: 2,
   owner: 3,
 };
-
-export const SINCE_VERSION: Record<Permission, number> = {
+const SINCE_VERSION: Record<Permission, number> = {
   "document:read": 1,
   "document:write": 1,
   "document:delete": 1,
@@ -53,7 +48,6 @@ export const SINCE_VERSION: Record<Permission, number> = {
   "member:remove": 1,
   "role:manage": 1,
 };
-
 export const CEILING: Record<Permission, BaseRole> = {
   "document:read": "viewer",
   "document:write": "editor",
@@ -68,12 +62,10 @@ export const CEILING: Record<Permission, BaseRole> = {
   "member:remove": "admin",
   "role:manage": "admin",
 };
-
 export function isAtOrAbove(role: BaseRole, ceilingRole: BaseRole): boolean {
   return PRIVILEGE_LEVEL[role] >= PRIVILEGE_LEVEL[ceilingRole];
 }
-
-export function defaultGrant(baseRole: BaseRole, perm: Permission): boolean {
+function defaultGrant(baseRole: BaseRole, perm: Permission): boolean {
   switch (perm) {
     case "document:read":
     case "member:list":
@@ -95,35 +87,31 @@ export function defaultGrant(baseRole: BaseRole, perm: Permission): boolean {
       return false;
   }
 }
-
 export function checkEffectivePermission(
   roles: Array<{
     id: string;
     base_role: string;
     catalog_version?: number | null;
-    permissions?: Array<{ permission: string; granted: boolean }>;
+    permissions?: Array<{
+      permission: string;
+      granted: boolean;
+    }>;
   }>,
   roleId: string,
   permission: string,
 ): boolean {
   const role = roles.find((r) => r.id === roleId);
   if (!role) return false;
-
   const baseRole = role.base_role as BaseRole;
   const perm = permission as Permission;
-
   if (!(ALL_PERMISSIONS as readonly string[]).includes(perm)) return false;
   if (baseRole === "owner") return true;
-
   const ceiling = CEILING[perm];
   if (ceiling && !isAtOrAbove(baseRole, ceiling)) return false;
-
   const override = role.permissions?.find((o) => o.permission === permission);
   if (override !== undefined) return override.granted;
-
   if (role.catalog_version != null && SINCE_VERSION[perm] > role.catalog_version) {
     return false;
   }
-
   return defaultGrant(baseRole, perm);
 }

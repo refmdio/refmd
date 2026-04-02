@@ -1,4 +1,5 @@
-import { createSignal, type Accessor } from "solid-js";
+import { createSignal, type Accessor, type Setter } from "solid-js";
+import type { MosaicNode } from "solid-mosaic-component";
 import { Events, type EventRef } from "@/shared/lib/events";
 import type {
   App,
@@ -29,20 +30,16 @@ function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
   return e.key.toLowerCase() === hotkey.key.toLowerCase();
 }
 
-const [sidebarPanels, setSidebarPanels] = createSignal<SidebarPanelConfig[]>([]);
-const [activeSidebarPanelId, setActiveSidebarPanelId] = createSignal<string | null>(null);
-const [settingTabs, setSettingTabs] = createSignal<SettingTabConfig[]>([]);
-
 type EditorContextResolver = () => { editor: unknown; doc: DocumentView } | null;
 type ActiveDocumentResolver = () => DocumentView | null;
 
 type MosaicOps = {
   focusPanel: (panelId: string) => void;
-  setMosaicState: (state: any) => void;
-  mosaicState: () => any;
+  setMosaicState: (state: MosaicNode<string> | null) => void;
+  mosaicState: () => MosaicNode<string> | null;
 };
 
-export class WorkspaceManagerImpl extends Events implements AppWorkspace {
+class WorkspaceManagerImpl extends Events implements AppWorkspace {
   private viewRegistry = new Map<string, ViewCreator>();
   private commandRegistry = new Map<string, Command>();
   private hotkeyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -57,25 +54,37 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
   private editorContextResolver: EditorContextResolver | null = null;
   private activeDocumentResolver: ActiveDocumentResolver | null = null;
   private mosaicOps: MosaicOps | null = null;
+  private sidebarPanels!: Accessor<SidebarPanelConfig[]>;
+  private setSidebarPanels!: Setter<SidebarPanelConfig[]>;
+  private activeSidebarPanelId!: Accessor<string | null>;
+  private setActiveSidebarPanelId!: Setter<string | null>;
+  private settingTabs!: Accessor<SettingTabConfig[]>;
+  private setSettingTabs!: Setter<SettingTabConfig[]>;
+  private readonly sidebarPanelsAccessor: Accessor<SidebarPanelConfig[]>;
+  private readonly activeSidebarPanelIdAccessor: Accessor<string | null>;
+  private readonly settingTabsAccessor: Accessor<SettingTabConfig[]>;
   appRef: App | null = null;
 
   constructor() {
     super();
+    this.sidebarPanelsAccessor = () => this.sidebarPanels();
+    this.activeSidebarPanelIdAccessor = () => this.activeSidebarPanelId();
+    this.settingTabsAccessor = () => this.settingTabs();
+    this.resetSignals();
+  }
+
+  init(): void {
+    if (this.hotkeyHandler) return;
     this.hotkeyHandler = this.handleHotkey.bind(this);
     if (typeof window !== "undefined") {
       window.addEventListener("keydown", this.hotkeyHandler, true);
     }
   }
 
-  destroy(): void {
-    if (this.hotkeyHandler && typeof window !== "undefined") {
-      window.removeEventListener("keydown", this.hotkeyHandler, true);
-    }
-    for (const leaf of this.leaves.values()) {
-      leaf.detach();
-    }
-    this.leaves.clear();
-    this.sidebarLeafIds.clear();
+  private resetSignals(): void {
+    [this.sidebarPanels, this.setSidebarPanels] = createSignal<SidebarPanelConfig[]>([]);
+    [this.activeSidebarPanelId, this.setActiveSidebarPanelId] = createSignal<string | null>(null);
+    [this.settingTabs, this.setSettingTabs] = createSignal<SettingTabConfig[]>([]);
   }
 
   setAppRef(app: App): void {
@@ -95,6 +104,10 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
   }
 
   reset(): void {
+    if (this.hotkeyHandler && typeof window !== "undefined") {
+      window.removeEventListener("keydown", this.hotkeyHandler, true);
+      this.hotkeyHandler = null;
+    }
     for (const leaf of this.leaves.values()) {
       leaf.detach();
     }
@@ -103,9 +116,7 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     this.activeLeaf = null;
     this.viewRegistry.clear();
     this.commandRegistry.clear();
-    setSidebarPanels([]);
-    setActiveSidebarPanelId(null);
-    setSettingTabs([]);
+    this.resetSignals();
     if (this.statusBarContainer) {
       this.statusBarContainer.replaceChildren();
     }
@@ -161,7 +172,7 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     if (!this.sidebarLeafIds.has(leaf.id)) return;
     if (!leaf.view) return;
     const viewType = leaf.view.getViewType();
-    const existing = sidebarPanels().find((p) => p.viewType === viewType);
+    const existing = this.sidebarPanels().find((p) => p.viewType === viewType);
     if (!existing) {
       this.addSidebarPanel({
         id: viewType,
@@ -170,7 +181,7 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
         icon: leaf.getIcon(),
       });
     }
-    setActiveSidebarPanelId(existing?.id ?? viewType);
+    this.setActiveSidebarPanelId(existing?.id ?? viewType);
   }
 
   // --- View Registry ---
@@ -200,18 +211,18 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     }
   }
 
-  getViewCreator(type: string): ViewCreator | undefined {
-    return this.viewRegistry.get(type);
-  }
-
   // --- Leaf operations ---
 
-  getActiveViewOfType<T extends View>(_type: { new (...args: any[]): T }): T | null {
-    if (this.activeLeaf && !this.activeLeaf.isDetached && this.activeLeaf.view instanceof _type) {
+  getActiveViewOfType<T extends View>(viewType: abstract new (...args: unknown[]) => T): T | null {
+    if (
+      this.activeLeaf &&
+      !this.activeLeaf.isDetached &&
+      this.activeLeaf.view instanceof viewType
+    ) {
       return this.activeLeaf.view as T;
     }
     for (const leaf of this.leaves.values()) {
-      if (!leaf.isDetached && leaf.view instanceof _type) {
+      if (!leaf.isDetached && leaf.view instanceof viewType) {
         return leaf.view as T;
       }
     }
@@ -241,13 +252,13 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     return this.createLeaf();
   }
 
-  getLeftLeaf(_split: boolean): WorkspaceLeaf | null {
+  getLeftLeaf(): WorkspaceLeaf | null {
     const leaf = this.createLeaf();
     this.sidebarLeafIds.add(leaf.id);
     return leaf;
   }
 
-  getRightLeaf(_split: boolean): WorkspaceLeaf | null {
+  getRightLeaf(): WorkspaceLeaf | null {
     const leaf = this.createLeaf();
     this.sidebarLeafIds.add(leaf.id);
     return leaf;
@@ -257,15 +268,17 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     return this.leaves.get(id) ?? null;
   }
 
-  setActiveLeaf(leaf: WorkspaceLeaf, _options?: { focus?: boolean }): void {
+  setActiveLeaf(leaf: WorkspaceLeaf, options?: { focus?: boolean }): void {
     this.activeLeaf = leaf;
-    this.mosaicOps?.focusPanel(leaf.id);
+    if (options?.focus !== false) {
+      this.mosaicOps?.focusPanel(leaf.id);
+    }
     this.trigger("active-leaf-change", leaf);
   }
 
-  syncMosaicLeaves(mosaicState: any): void {
+  syncMosaicLeaves(mosaicState: MosaicNode<string> | null): void {
     const activePanelIds = new Set<string>();
-    const collect = (node: any) => {
+    const collect = (node: MosaicNode<string> | null) => {
       if (typeof node === "string") activePanelIds.add(node);
       else if (node) {
         collect(node.first);
@@ -295,24 +308,12 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
     const parts = panelId.split(":");
     if (parts.length >= 2) {
       const viewType = parts[1] === "markdown" || parts[1] === "wysiwyg" ? parts[1] : "document";
-      leaf.view = {
-        getViewType: () => viewType,
-        getDisplayText: () => panelId,
-        containerEl: document.createElement("div"),
-        app: this.appRef,
-        icon: "",
-        navigation: true,
-        leaf,
-        onOpen: async () => {},
-        onClose: async () => {},
-        getState: () => ({}),
-        setState: async () => {},
-        getEphemeralState: () => ({}),
-        setEphemeralState: () => {},
-        getIcon: () => "",
-        onResize: () => {},
-        onPaneMenu: () => {},
-      } as View;
+      const creator = this.viewRegistry.get(viewType);
+      if (creator) {
+        const view = creator(leaf);
+        view.app = this.appRef;
+        leaf.open(view);
+      }
     }
     this.leaves.set(panelId, leaf);
   }
@@ -366,17 +367,17 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
   // --- Setting Tabs ---
 
   addSettingTab(settingTab: SettingTabConfig): void {
-    const existing = settingTabs();
+    const existing = this.settingTabs();
     if (existing.some((t) => t.id === settingTab.id)) return;
-    setSettingTabs([...existing, settingTab]);
+    this.setSettingTabs([...existing, settingTab]);
   }
 
   removeSettingTab(id: string): void {
-    setSettingTabs(settingTabs().filter((t) => t.id !== id));
+    this.setSettingTabs(this.settingTabs().filter((t) => t.id !== id));
   }
 
   getSettingTabs(): Accessor<SettingTabConfig[]> {
-    return settingTabs;
+    return this.settingTabsAccessor;
   }
 
   // --- Command Registry ---
@@ -420,21 +421,21 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
   // --- Sidebar Panels ---
 
   addSidebarPanel(config: SidebarPanelConfig): void {
-    const existing = sidebarPanels();
+    const existing = this.sidebarPanels();
     if (existing.some((p) => p.id === config.id)) return;
-    setSidebarPanels([...existing, config]);
-    if (!activeSidebarPanelId()) {
-      setActiveSidebarPanelId(config.id);
+    this.setSidebarPanels([...existing, config]);
+    if (!this.activeSidebarPanelId()) {
+      this.setActiveSidebarPanelId(config.id);
     }
   }
 
   removeSidebarPanel(id: string): void {
-    const panel = sidebarPanels().find((p) => p.id === id);
+    const panel = this.sidebarPanels().find((p) => p.id === id);
     const viewType = panel?.viewType ?? id;
-    const remaining = sidebarPanels().filter((p) => p.id !== id);
-    setSidebarPanels(remaining);
-    if (activeSidebarPanelId() === id) {
-      setActiveSidebarPanelId(remaining.length > 0 ? remaining[0].id : null);
+    const remaining = this.sidebarPanels().filter((p) => p.id !== id);
+    this.setSidebarPanels(remaining);
+    if (this.activeSidebarPanelId() === id) {
+      this.setActiveSidebarPanelId(remaining.length > 0 ? remaining[0].id : null);
     }
     for (const [leafId, leaf] of this.leaves) {
       if (this.sidebarLeafIds.has(leafId) && leaf.view?.getViewType() === viewType) {
@@ -446,17 +447,11 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
   }
 
   getSidebarPanels(): Accessor<SidebarPanelConfig[]> {
-    return sidebarPanels;
+    return this.sidebarPanelsAccessor;
   }
 
   getActiveSidebarPanelId(): Accessor<string | null> {
-    return activeSidebarPanelId;
-  }
-
-  setActiveSidebarPanel(id: string): void {
-    if (sidebarPanels().some((p) => p.id === id)) {
-      setActiveSidebarPanelId(id);
-    }
+    return this.activeSidebarPanelIdAccessor;
   }
 
   getSidebarLeaf(viewType: string): WorkspaceLeaf | null {
@@ -491,12 +486,15 @@ export class WorkspaceManagerImpl extends Events implements AppWorkspace {
   on(event: "editor-drop", cb: (evt: DragEvent, editor: unknown, view: unknown) => void): EventRef;
   on(event: "resize", cb: () => void): EventRef;
   on(event: "css-change", cb: () => void): EventRef;
-  on(event: string, cb: (...data: any[]) => any, ctx?: unknown): EventRef {
+  on(event: string, cb: (...data: unknown[]) => unknown, ctx?: unknown): EventRef {
     return super.on(event, cb, ctx);
   }
 }
 
-function pruneNodes(node: any, removedIds: Set<string>): any {
+function pruneNodes(
+  node: MosaicNode<string> | null,
+  removedIds: Set<string>,
+): MosaicNode<string> | null {
   if (typeof node === "string") {
     return removedIds.has(node) ? null : node;
   }

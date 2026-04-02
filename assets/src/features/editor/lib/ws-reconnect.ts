@@ -3,23 +3,12 @@ import {
   rejoinDocument,
   pushUpdate,
   pushSnapshot,
-  type DocumentChannelCallbacks,
+  isPhoenixJoinError,
+  PhoenixChannelTransportError,
 } from "@/shared/lib/ws/phoenix-channel";
-import {
-  handleDocumentMessage,
-  handleRemoteUpdate,
-  handleRemoteSnapshot,
-  handleUpdateSaved,
-  handleUpdateSaveFailed,
-  handleSnapshotSaved,
-  handleSnapshotSaveFailed,
-  type DocumentPayload,
-  type UpdateSavedPayload,
-  type UpdateSaveFailedPayload,
-  type SnapshotSavedPayload,
-  type SnapshotSaveFailedPayload,
-} from "./ws-handlers";
-import { authState, deviceState } from "@/shared/lib/auth-state";
+import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
+import { handleDocumentMessage, handleRemoteUpdate, handleRemoteSnapshot } from "./ws-handlers";
+import { authState, deviceState } from "@/entities/session";
 import { removeAwarenessStates } from "y-protocols/awareness";
 import {
   getDocumentState,
@@ -27,14 +16,14 @@ import {
   requestReauth,
   type DocumentState,
 } from "./document-state-cache";
-import { setWsConnected, notifyOfflineListeners } from "@/shared/lib/offline/offline-state";
-import { buildDeviceKeyCaches } from "./document-verification";
+import { setWsConnected } from "@/shared/lib/offline/offline-state";
+import { applyDeviceKeyCache, buildDeviceKeyCaches } from "./document-verification";
 import { createEphemeralSession } from "./ephemeral-session";
 import { assignUserColor } from "./user-colors";
-import { handleEphemeralMessage, handlePeerLeft } from "./ws-ephemeral-handler";
 import { setupAwarenessRelay } from "./ws-awareness-relay";
-import { sendInitialize } from "./document-sync";
+import { sendInitialize } from "./document-sync-post-init";
 import { cacheDocumentState, cacheDek } from "@/shared/lib/offline/cache-manager";
+import { buildDocumentChannelCallbacks } from "./document-channel-callbacks";
 
 const MAX_RECONNECT_ATTEMPTS = 13;
 const RECONNECT_BASE_MS = 100;
@@ -103,85 +92,62 @@ async function attemptReconnect(
       let documentHandled: Promise<void> | null = null;
       let earlyCloseReject: ((err: Error) => void) | null = null;
 
-      const callbacks: DocumentChannelCallbacks = {
-        onDocument: (payload) => {
-          documentHandled = handleReconnectDocument(
-            payload as unknown as DocumentPayload,
-            state,
-            documentId,
-            localDeviceSigningPubKey,
-            failClosed,
-          );
-        },
-        onUpdate: (payload) => {
-          handleRemoteUpdate(payload as any, state, documentId, localDeviceSigningPubKey).catch(
-            (err) => {
-              failClosed("verification_failed", err);
-            },
-          );
-        },
-        onSnapshot: (payload) => {
-          handleRemoteSnapshot(payload as any, state, documentId).catch((err) => {
-            failClosed("verification_failed", err);
-          });
-        },
-        onUpdateSaved: (payload) => {
-          handleUpdateSaved(payload as unknown as UpdateSavedPayload, state, documentId);
-        },
-        onUpdateSaveFailed: (payload) => {
-          handleUpdateSaveFailed(payload as unknown as UpdateSaveFailedPayload, state);
-          const p = payload as unknown as UpdateSaveFailedPayload;
-          if (p.requiresNewSnapshot) {
-            failClosed("snapshot_mismatch");
-          }
-        },
-        onSnapshotSaved: (payload) => {
-          handleSnapshotSaved(payload as unknown as SnapshotSavedPayload, state, documentId);
-        },
-        onSnapshotSaveFailed: (payload) => {
-          handleSnapshotSaveFailed(
-            payload as unknown as SnapshotSaveFailedPayload,
-            state,
-            documentId,
-          ).catch((err) => {
-            failClosed("verification_failed", err);
-          });
-        },
-        onEphemeralMessage: (payload) => {
-          handleEphemeralMessage(
-            payload as Record<string, unknown>,
-            state,
-            documentId,
-            localDeviceSigningPubKey,
-            failClosed,
-          );
-        },
-        onPeerLeft: (payload) => {
-          handlePeerLeft(payload, state);
-        },
-        onUnauthorized: () => {
-          // Session expired mid-connection: trigger reconnect which handles re-auth
-          triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
-        },
-        onError: (reason) => {
-          if (
-            reason === "document_not_found" ||
-            reason === "document_error" ||
-            reason === "connection_cap_evict"
-          ) {
-            failClosed(String(reason));
-          } else {
+      const callbacks = buildDocumentChannelCallbacks(
+        state,
+        documentId,
+        localDeviceSigningPubKey,
+        failClosed,
+        {
+          onDocument: (payload) => {
+            documentHandled = handleReconnectDocument(
+              payload,
+              state,
+              documentId,
+              localDeviceSigningPubKey,
+              failClosed,
+            );
+          },
+          onUnauthorized: () => {
+            // Session expired mid-connection: trigger reconnect which handles re-auth
             triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
-          }
+          },
+          onError: (reason) => {
+            if (
+              reason === "document_not_found" ||
+              reason === "document_error" ||
+              reason === "connection_cap_evict"
+            ) {
+              failClosed(String(reason));
+            } else {
+              triggerReconnect(
+                state,
+                documentId,
+                workspaceId,
+                localDeviceSigningPubKey,
+                failClosed,
+              );
+            }
+          },
+          onClose: () => {
+            if (earlyCloseReject) {
+              earlyCloseReject(
+                new PhoenixChannelTransportError(
+                  "disconnected_before_document",
+                  "Disconnected before document received",
+                ),
+              );
+            } else {
+              triggerReconnect(
+                state,
+                documentId,
+                workspaceId,
+                localDeviceSigningPubKey,
+                failClosed,
+              );
+            }
+          },
         },
-        onClose: () => {
-          if (earlyCloseReject) {
-            earlyCloseReject(new Error("Disconnected before document received"));
-          } else {
-            triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
-          }
-        },
-      };
+      );
 
       state.channel = null;
       state.initialized = false;
@@ -214,7 +180,7 @@ async function attemptReconnect(
       });
       return;
     } catch (err) {
-      const resp = (err as any)?.joinErrorResp;
+      const resp = isPhoenixJoinError(err) ? err.joinErrorResp : undefined;
       const reason = resp?.reason;
       if (reason === "not_a_member" || reason === "permission_denied") {
         // Access revoked: switch to read-only cached mode, purge KEK
@@ -262,7 +228,6 @@ async function handleReconnectDocument(
     // so auto-sync sends local diffs to the server instead of caching them.
     // Socket.onOpen may not have fired yet due to event loop ordering.
     setWsConnected(true);
-    notifyOfflineListeners();
 
     const localClientId = state.awareness.clientID;
     const staleClients: number[] = [];
@@ -281,11 +246,7 @@ async function handleReconnectDocument(
       failClosed("verification_failed");
       return;
     }
-    state.signingKeys = cacheResult.signingKeys;
-    state.signingKeyOwners = cacheResult.signingKeyOwners;
-    state.memberNames = cacheResult.memberNames;
-    state.revokedSigningKeys = cacheResult.revokedSigningKeys;
-    state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
+    applyDeviceKeyCache(state, cacheResult);
 
     // Save in-flight envelopes before clearing (for queue replay on same-snapshot)
     const savedUpdateEnvelope = state.pendingUpdateEnvelope;
@@ -307,9 +268,9 @@ async function handleReconnectDocument(
     const queued = state._pendingRemoteEvents.splice(0);
     for (const event of queued) {
       if (event.type === "update") {
-        await handleRemoteUpdate(event.payload as any, state, documentId, localDeviceSigningPubKey);
+        await handleRemoteUpdate(event.payload, state, documentId, localDeviceSigningPubKey);
       } else {
-        await handleRemoteSnapshot(event.payload as any, state, documentId);
+        await handleRemoteSnapshot(event.payload, state, documentId);
       }
     }
 

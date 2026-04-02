@@ -1,22 +1,12 @@
-export { default as PasswordReentryDialog } from "./password-reentry-dialog";
+export { default as PasswordReentryDialog } from "./ui/PasswordReentryDialog";
+export { RecoveryFlow } from "./recovery/ui/RecoveryFlow";
+export { LoginPage } from "./login";
+export { RegisterPage } from "./register";
+export { PasswordResetPage } from "./password-reset";
 export { register } from "./lib/register";
-export type { RegisterResult } from "./lib/register";
 export { login } from "./lib/login";
-export type { LoginResult } from "./lib/login";
+export { AuthError } from "./lib/auth-error";
 export { restoreSession, restoreOfflineSession } from "./lib/session";
-export type {
-  SessionRestoreResult,
-  SessionRestoreError,
-  OfflineSessionResult,
-} from "./lib/session";
-export {
-  persistWrappedDeviceKeys,
-  persistWrappedUmk,
-  persistDeviceId,
-  getPersistedDeviceId,
-  hasPdkData,
-  persistSessionPdk,
-  restoreSessionPdk,
-  clearSessionData,
-  clearAllPersistedKeys,
-} from "./lib/key-persistence";
+export type { SessionRestoreResult, OfflineSessionResult } from "./lib/session";
+export { verifyPasswordResetToken, requestPasswordReset } from "./lib/password-reset";
+export { performLogout } from "./lib/logout";

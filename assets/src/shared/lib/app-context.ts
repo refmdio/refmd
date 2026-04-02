@@ -1,6 +1,12 @@
-import type { AppDocuments } from "./document-manager";
-import type { EventRef } from "./events";
-import type { ViewCreator, WorkspaceLeaf, View } from "./view";
+import type {
+  AppDocuments,
+  DocumentCommandService,
+  DocumentEventDispatcher,
+  DocumentQueries,
+  DocumentRuntime,
+} from "@/shared/lib/document-manager";
+import type { EventRef } from "@/shared/lib/events";
+import type { ViewCreator, WorkspaceLeaf, View } from "@/shared/lib/view";
 
 export interface Command {
   id: string;
@@ -37,11 +43,11 @@ export interface SidebarPanelConfig {
 export interface AppWorkspace {
   registerView(type: string, viewCreator: ViewCreator): void;
   unregisterView(type: string): void;
-  getActiveViewOfType<T extends View>(type: { new (...args: any[]): T }): T | null;
+  getActiveViewOfType<T extends View>(type: abstract new (...args: unknown[]) => T): T | null;
   getLeavesOfType(viewType: string): WorkspaceLeaf[];
   getLeaf(newLeaf?: boolean | "split"): WorkspaceLeaf;
-  getLeftLeaf(split: boolean): WorkspaceLeaf | null;
-  getRightLeaf(split: boolean): WorkspaceLeaf | null;
+  getLeftLeaf(): WorkspaceLeaf | null;
+  getRightLeaf(): WorkspaceLeaf | null;
   setActiveLeaf(leaf: WorkspaceLeaf, options?: { focus?: boolean }): void;
   revealLeaf(leaf: WorkspaceLeaf): void;
   getActiveDocumentView(): unknown;
@@ -54,7 +60,7 @@ export interface AppWorkspace {
   removeSidebarPanel(id: string): void;
   addSettingTab(settingTab: SettingTabConfig): void;
   removeSettingTab(id: string): void;
-  on(event: string, cb: (...data: any[]) => any, ctx?: unknown): EventRef;
+  on(event: string, cb: (...data: unknown[]) => unknown, ctx?: unknown): EventRef;
   offref(ref: EventRef): void;
   trigger(name: string, ...data: unknown[]): void;
 }
@@ -62,21 +68,17 @@ export interface AppWorkspace {
 export interface App {
   workspace: AppWorkspace;
   documents: AppDocuments;
+  documentCommands: DocumentCommandService;
+  documentEvents: DocumentEventDispatcher;
+  documentQueries: DocumentQueries;
+  documentRuntime: DocumentRuntime;
   isDarkMode(): boolean;
 }
 
-let appInstance: App | null = null;
-
-export function initApp(workspace: AppWorkspace, documents: AppDocuments): App {
-  appInstance = {
-    workspace,
-    documents,
-    isDarkMode: () => document.documentElement.classList.contains("dark"),
-  };
-  return appInstance;
-}
+export const APP_INSTANCE_KEY = "__REFMD_APP_INSTANCE__" as const;
 
 export function getApp(): App {
+  const appInstance = Reflect.get(globalThis, APP_INSTANCE_KEY) as App | null | undefined;
   if (!appInstance) throw new Error("App not initialized");
   return appInstance;
 }
