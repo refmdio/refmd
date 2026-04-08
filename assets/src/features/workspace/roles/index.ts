@@ -1,3 +1,3 @@
-export { WorkspaceRolesSection } from "./ui/WorkspaceRolesSection";
-export { WorkspaceRoleManagementDialogs } from "./ui/WorkspaceRoleManagementDialogs";
-export { useWorkspaceRoleManagement } from "./model/useWorkspaceRoleManagement";
+export { WorkspaceRolesSection } from "./ui/Section";
+export { WorkspaceRoleManagementDialogs } from "./ui/Dialogs";
+export { useWorkspaceRoleManagement } from "./model/useManagement";

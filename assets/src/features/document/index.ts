@@ -1,4 +1,4 @@
-export { createDocument } from "./lib/create-document";
+export { createDocument, createDocumentWithOfflineFallback } from "./lib/create-document";
 export {
   resolveDocumentWithOfflineFallback,
   isDocumentAccessError,

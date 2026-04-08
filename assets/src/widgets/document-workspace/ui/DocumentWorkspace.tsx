@@ -1,37 +1,14 @@
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
-import { Mosaic, MosaicWindow } from "solid-mosaic-component";
+import { Show, createEffect, createSignal } from "solid-js";
+import { Mosaic } from "solid-mosaic-component";
 import type { MosaicBranch } from "solid-mosaic-component";
-import {
-  FileTextIcon,
-  MoreVerticalIcon,
-  SplitIcon,
-  Columns2Icon,
-  RefreshCwIcon,
-  XIcon,
-} from "lucide-solid";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
+import { FileTextIcon } from "lucide-solid";
 import { useDocuments, useDocumentTitles } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { OfflineIndicator } from "@/features/editor";
-import { setupFlushHooks } from "@/features/editor";
-import { decodePanelId, usePanelWorkspace, hasScrollGroupPeer } from "@/features/panel";
+import { decodePanelId, usePanelWorkspace } from "@/features/panel";
 import { workspaceManager } from "@/features/panel";
-import { getApp } from "@/shared/lib/app-context";
-import {
-  getEditor,
-  getDocumentState,
-  CodeMirrorEditor,
-  ProseMirrorEditor,
-  PresenceAvatars,
-  getDocumentAwareness,
-} from "@/features/editor";
-import { DocumentPanelShell } from "./DocumentPanelShell";
+import { CustomTile } from "./CustomTile";
+import { DocumentTile } from "./DocumentTile";
 
 import "solid-mosaic-component/solid-mosaic-component.css";
 import "./mosaic-theme.css";
@@ -44,20 +21,9 @@ export function getStatusBarEl(): HTMLDivElement | null {
 
 export function DocumentWorkspace() {
   const workspace = usePanelWorkspace();
-  const { documentEvents, documentRuntime } = getApp();
   const workspaceId = () => currentWorkspaceId();
   const { flatDocuments } = useDocuments(workspaceId);
   const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
-
-  onMount(() => {
-    const cleanup = setupFlushHooks();
-    onCleanup(cleanup);
-  });
-
-  documentRuntime.setTitleResolver((doc) => {
-    const found = flatDocuments().find((d) => d.id === doc.id);
-    return found ? getTitleFromDoc(found) : "Untitled";
-  });
 
   createEffect(() => {
     const pid = workspace.focusedPanelId();
@@ -72,176 +38,24 @@ export function DocumentWorkspace() {
   const renderTile = (panelId: string, path: MosaicBranch[]) => {
     const panel = decodePanelId(panelId);
 
-    // Custom view leaf (non-document panel)
     if (!panel) {
       const leaf = workspaceManager.getLeafById(panelId);
-      if (leaf?.view) {
-        return (
-          <MosaicWindow<string>
-            title={leaf.getDisplayText()}
-            path={path}
-            onDragStart={() => workspace.focusPanel(panelId)}
-            toolbarControls={<div />}
-          >
-            <div
-              class="h-full"
-              data-panel-id={panelId}
-              onFocusIn={() => workspace.focusPanel(panelId)}
-              onMouseDown={() => workspace.focusPanel(panelId)}
-              ref={(el) => {
-                if (leaf.view?.containerEl && !el.contains(leaf.view.containerEl)) {
-                  el.appendChild(leaf.view.containerEl);
-                }
-              }}
-            />
-          </MosaicWindow>
-        );
-      }
+      if (leaf?.view) return <CustomTile panelId={panelId} path={path} workspace={workspace} />;
       return <div />;
     }
+
     const doc = flatDocuments().find((d) => d.id === panel.documentId);
     const title = doc ? getTitleFromDoc(doc) : "Untitled";
-    const isMarkdown = panel.type === "markdown";
-    const isArchived = !!doc?.archived_at;
-    const readOnly = isArchived || getDocumentState(panel.documentId)?.readOnly;
-    const panelLabel = isMarkdown ? "Markdown" : "WYSIWYG";
-    const isAlreadySplit = () => {
-      const state = workspace.mosaicState();
-      return state ? hasScrollGroupPeer(state, panel.scrollGroupId, panelId) : false;
-    };
-    const getDocumentEventContext = () => {
-      const editor = getEditor(panelId);
-      return {
-        editor,
-        documentView: {
-          id: panel.documentId,
-          title,
-          editor,
-        },
-      };
-    };
-    const handleDocChange = () => {
-      const { editor, documentView } = getDocumentEventContext();
-      documentEvents.notifyDocumentChangeFor(panel.documentId, editor);
-      workspaceManager.trigger("editor-change", editor, documentView);
-    };
-    const handleEditorPaste = (evt: ClipboardEvent) => {
-      const { editor, documentView } = getDocumentEventContext();
-      workspaceManager.trigger("editor-paste", evt, editor, documentView);
-    };
-    const handleEditorDrop = (evt: DragEvent) => {
-      const { editor, documentView } = getDocumentEventContext();
-      workspaceManager.trigger("editor-drop", evt, editor, documentView);
-    };
-    const editorProps = {
-      documentId: panel.documentId,
-      panelId,
-      scrollGroupId: panel.scrollGroupId,
-      readOnly,
-      onDocChange: handleDocChange,
-      onEditorPaste: handleEditorPaste,
-      onEditorDrop: handleEditorDrop,
-    };
 
     return (
-      <MosaicWindow<string>
-        title={`${title} - ${panelLabel}`}
+      <DocumentTile
+        panelId={panelId}
+        panel={panel}
         path={path}
-        onDragStart={() => workspace.focusPanel(panelId)}
-        toolbarControls={
-          <div class="flex items-center">
-            <Show when={workspace.focusedPanelId() === panelId}>
-              <PresenceAvatars awareness={getDocumentAwareness(panel.documentId)} />
-            </Show>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                as="button"
-                class="p-1 hover:bg-muted rounded"
-                onClick={(e: MouseEvent) => e.stopPropagation()}
-              >
-                <MoreVerticalIcon class="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => workspace.splitPanel(panelId, "row")}>
-                  <Columns2Icon class="size-4 mr-2" />
-                  Split Horizontal
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => workspace.splitPanel(panelId, "column")}>
-                  <SplitIcon class="size-4 mr-2" />
-                  Split Vertical
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <Show
-                  when={isAlreadySplit()}
-                  fallback={
-                    <>
-                      <DropdownMenuItem onClick={() => workspace.switchPanelType(panelId)}>
-                        <RefreshCwIcon class="size-4 mr-2" />
-                        Switch to {isMarkdown ? "WYSIWYG" : "Markdown"}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => workspace.switchToSplit(panelId)}>
-                        <Columns2Icon class="size-4 mr-2" />
-                        Switch to Split
-                      </DropdownMenuItem>
-                    </>
-                  }
-                >
-                  <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "markdown")}>
-                    <RefreshCwIcon class="size-4 mr-2" />
-                    Markdown only
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => workspace.collapseSplitTo(panelId, "wysiwyg")}>
-                    <RefreshCwIcon class="size-4 mr-2" />
-                    WYSIWYG only
-                  </DropdownMenuItem>
-                </Show>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => workspace.closePanel(panelId)}>
-                  <XIcon class="size-4 mr-2" />
-                  Close
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        }
-      >
-        <div
-          class="h-full"
-          classList={{
-            "hide-remote-cursors": (() => {
-              const focusedId = workspace.focusedPanelId();
-              if (focusedId === panelId) return false;
-              if (!focusedId) return true;
-              const focusedPanel = decodePanelId(focusedId);
-              if (!focusedPanel) return true;
-              return (
-                focusedPanel.type !== panel.type || focusedPanel.documentId !== panel.documentId
-              );
-            })(),
-          }}
-          data-panel-id={panelId}
-          onFocusIn={() => workspace.focusPanel(panelId)}
-          onMouseDown={() => workspace.focusPanel(panelId)}
-          onContextMenu={(_e: MouseEvent) => {
-            const editor = getEditor(panelId);
-            if (editor) {
-              workspaceManager.trigger("editor-menu", null, editor, {
-                id: panel.documentId,
-                title,
-                editor,
-              });
-            }
-          }}
-        >
-          <DocumentPanelShell documentId={panel.documentId}>
-            {isMarkdown ? (
-              <CodeMirrorEditor {...editorProps} />
-            ) : (
-              <ProseMirrorEditor {...editorProps} />
-            )}
-          </DocumentPanelShell>
-        </div>
-      </MosaicWindow>
+        title={title}
+        archivedAt={doc?.archived_at}
+        workspace={workspace}
+      />
     );
   };
 

@@ -10,7 +10,11 @@ import {
 import { loadDskInitData, storeWrappedDeviceKeysRaw } from "@/shared/lib/crypto/dsk";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker, isTofuHardFail } from "@/shared/lib/crypto/worker/client";
-import { persistPdkWrappedKeys, readPdkBlobs } from "@/shared/lib/auth-key-persistence";
+import {
+  persistPdkWrappedKeys,
+  persistWrappedUmk,
+  readPdkBlobs,
+} from "@/shared/lib/auth/key-persistence";
 import type { InitPdkResult } from "@/shared/lib/crypto/worker/types";
 
 export async function restoreKeysFromPassword(password: string): Promise<void> {
@@ -125,7 +129,6 @@ async function persistRestoredKeysWithDsk(
 
   try {
     const wrappedUmk = await worker.wrapUmkWithDsk(userId);
-    const { persistWrappedUmk } = await import("@/shared/lib/auth-key-persistence");
     await persistWrappedUmk({ wrappedUmk, kmsi: rememberMe, userId });
 
     const wrappedDeviceKeys = await worker.wrapDeviceKeysWithDsk(userId);
@@ -136,7 +139,6 @@ async function persistRestoredKeysWithDsk(
   } catch {
     try {
       const pdkWrapped = await worker.wrapWithPdk({ passwordParams });
-      const { persistPdkWrappedKeys } = await import("@/shared/lib/auth-key-persistence");
       persistPdkWrappedKeys(pdkWrapped);
     } catch {
       // PDK fallback also failed

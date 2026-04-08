@@ -1,4 +1,6 @@
-import { openIdb } from "@/shared/lib/idb";
+import { openIdb } from "@/shared/lib/storage/idb";
+import { buildDskAuthBootstrapAad } from "./aad";
+import { getCryptoWorker } from "./worker/client";
 const DB_NAME = "refmd-keys";
 const DB_VERSION = 1;
 const STORE_NAME = "keystore";
@@ -140,14 +142,11 @@ interface AuthBootstrapData {
   cachedAt: number;
 }
 async function getWorkerForDsk(dsk: CryptoKey) {
-  // This module is shared with the worker, so load the client lazily on the main-thread path.
-  const { getCryptoWorker } = await import("./worker/client");
   const worker = getCryptoWorker();
   await worker.setDsk(dsk);
   return worker;
 }
 export async function storeAuthBootstrap(dsk: CryptoKey, data: AuthBootstrapData): Promise<void> {
-  const { buildDskAuthBootstrapAad } = await import("./aad");
   const aad = buildDskAuthBootstrapAad();
   const plaintext = new TextEncoder().encode(JSON.stringify(data));
   const worker = await getWorkerForDsk(dsk);
@@ -162,7 +161,6 @@ export async function loadAuthBootstrap(dsk: CryptoKey): Promise<AuthBootstrapDa
     const wrapped = await idbGet<WrappedBlob>(db, AUTH_BOOTSTRAP_KEY);
     db.close();
     if (!wrapped) return null;
-    const { buildDskAuthBootstrapAad } = await import("./aad");
     const aad = buildDskAuthBootstrapAad();
     const worker = await getWorkerForDsk(dsk);
     const plaintext = await worker.unwrapWithDsk({

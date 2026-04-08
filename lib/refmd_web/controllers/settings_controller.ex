@@ -68,12 +68,4 @@ defmodule RefMDWeb.SettingsController do
       editor_layout_mode: settings.editor_layout_mode
     }
   end
-
-  defp format_errors(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-  end
 end

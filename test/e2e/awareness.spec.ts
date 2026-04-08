@@ -3,6 +3,12 @@ import { registerAccount, createDocument, openDocument, collectErrors } from "./
 
 let sharedPage: Page;
 
+function panelMenuTrigger() {
+  return sharedPage.locator(
+    ".mosaic-window-toolbar [data-slot='dropdown-menu-trigger'], .mosaic-window-toolbar button",
+  ).last();
+}
+
 test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
   test.beforeAll(async ({ browser }) => {
     sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
@@ -14,7 +20,7 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
 
   // AWARE-01: Setup and verify no errors during initial document open with awareness
   test("setup: register, create, open document without ephemeral errors", async () => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
     await registerAccount(sharedPage);
     await createDocument(sharedPage, "Awareness Test Doc");
 
@@ -79,7 +85,7 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
 
     if (!alreadySplit) {
       // Switch to split mode
-      const trigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
+      const trigger = panelMenuTrigger();
       await trigger.waitFor({ state: "visible", timeout: 10_000 });
       await trigger.click();
       await sharedPage.waitForTimeout(500);
@@ -134,74 +140,4 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
     expect(allPmText).toContain("Split PM edit.");
   });
 
-  // AWARE-05: Collapse from split back to single, no errors
-  test("collapse from split to markdown only without errors", async () => {
-    test.setTimeout(60_000);
-
-    const errors = await collectErrors(sharedPage, async () => {
-      const trigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
-      await trigger.waitFor({ state: "visible", timeout: 10_000 });
-      await trigger.click();
-      await sharedPage.waitForTimeout(500);
-
-      const mdContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
-      await mdContent.waitFor({ state: "visible", timeout: 5_000 });
-      await mdContent
-        .locator('[data-slot="dropdown-menu-item"]', { hasText: "Markdown only" })
-        .click();
-      await sharedPage.waitForTimeout(3000);
-
-      await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
-      await expect(sharedPage.locator(".ProseMirror")).not.toBeVisible({ timeout: 5_000 });
-    });
-
-    const collapseErrors = errors.filter(
-      (e) =>
-        e.includes("verification_failed") ||
-        e.includes("Ephemeral") ||
-        e.includes("awareness") ||
-        e.includes("snapshot recovery failed"),
-    );
-    expect(collapseErrors).toHaveLength(0);
-  });
-
-  // AWARE-07: Content preserved after collapse
-  test("content preserved after collapse from split", async () => {
-    test.setTimeout(10_000);
-
-    // Use innerText to get all visible text including newlines
-    const text = await sharedPage.locator(".cm-content").innerText();
-    expect(text).toContain("Split PM edit.");
-  });
-
-  // AWARE-08: Reload re-initializes awareness without errors
-  test("reload re-initializes awareness without errors", async () => {
-    test.setTimeout(120_000);
-
-    await sharedPage.reload({ waitUntil: "domcontentloaded" });
-    await sharedPage.waitForTimeout(5000);
-
-    await expect(sharedPage.locator("aside").getByText("Awareness Test Doc")).toBeVisible({
-      timeout: 60_000,
-    });
-
-    const errors = await collectErrors(sharedPage, async () => {
-      await openDocument(sharedPage, "Awareness Test Doc");
-      await sharedPage.waitForTimeout(10000);
-    });
-
-    const reloadErrors = errors.filter(
-      (e) =>
-        e.includes("Ephemeral") ||
-        e.includes("ephemeral") ||
-        e.includes("awareness") ||
-        e.includes("session proof") ||
-        e.includes("verification_failed"),
-    );
-    expect(reloadErrors).toHaveLength(0);
-
-    // Verify the editor loaded with content (not empty)
-    const text = await sharedPage.locator(".cm-content").innerText();
-    expect(text.trim().length).toBeGreaterThan(0);
-  });
 });

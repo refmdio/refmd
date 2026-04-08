@@ -1,3 +1,3 @@
-export { PendingDeviceMonitor } from "./PendingDeviceMonitor";
-export { RevokeDeviceDialog } from "./RevokeDeviceDialog";
+export { PendingDeviceMonitor } from "../monitor";
+export { RevokeDeviceDialog } from "../revoke";
 export { SafetyNumber } from "./SafetyNumber";

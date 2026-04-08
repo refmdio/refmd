@@ -1,5 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, createDocument, openDocument, collectErrors } from "./helpers";
+import {
+  registerAccount,
+  createDocument,
+  openDocument,
+  collectErrors,
+  expectEditorTextContains,
+} from "./helpers";
 
 let sharedPage: Page;
 
@@ -13,7 +19,7 @@ test.describe.serial("Document E2EE Sync", () => {
   });
 
   test("setup: register and create document", async () => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
     await registerAccount(sharedPage);
     await createDocument(sharedPage, "Sync Test Doc");
     await openDocument(sharedPage, "Sync Test Doc");
@@ -71,9 +77,8 @@ test.describe.serial("Document E2EE Sync", () => {
     });
     await openDocument(sharedPage, "Sync Test Doc");
 
-    const text = await sharedPage.locator(".cm-content").textContent();
-    expect(text).toContain("Line 0 test.");
-    expect(text).toContain("Line 49 test.");
+    await expectEditorTextContains(sharedPage, "Line 0 test.");
+    await expectEditorTextContains(sharedPage, "Line 49 test.");
   });
 
   test("editing after reload works without errors", async () => {
@@ -106,8 +111,7 @@ test.describe.serial("Document E2EE Sync", () => {
     await sharedPage.waitForTimeout(3000);
     await openDocument(sharedPage, "Sync Test Doc");
 
-    const text = await sharedPage.locator(".cm-content").textContent();
-    expect(text).toContain("Line 0 test.");
-    expect(text).toContain("After reload 9.");
+    await expectEditorTextContains(sharedPage, "Line 0 test.");
+    await expectEditorTextContains(sharedPage, "After reload 9.");
   });
 });

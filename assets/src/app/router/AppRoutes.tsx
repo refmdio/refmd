@@ -1,13 +1,16 @@
+import { lazy } from "solid-js";
 import { Navigate, Route, Router } from "@solidjs/router";
-import LoginPage from "@/routes/auth/login";
-import RegisterPage from "@/routes/auth/register";
-import DeviceRegisterPage from "@/routes/devices/register";
-import RecoveryPage from "@/routes/auth/recovery";
-import PasswordResetPage from "@/routes/auth/password-reset";
-import InvitePage from "@/routes/invite";
-import { DashboardRoute } from "@/app/router/DashboardRoute";
 import { WorkspaceRoot } from "@/app/workspace/WorkspaceRoot";
 import { RequireAuth, RequireGuest } from "@/app/router/AuthGuard";
+
+const LoginPage = lazy(() => import("@/routes/auth/login"));
+const RegisterPage = lazy(() => import("@/routes/auth/register"));
+const DeviceRegisterPage = lazy(() => import("@/routes/devices/register"));
+const RecoveryPage = lazy(() => import("@/routes/auth/recovery"));
+const PasswordResetPage = lazy(() => import("@/routes/auth/password-reset"));
+const DocumentPage = lazy(() => import("@/routes/document/[documentId]"));
+const InvitePage = lazy(() => import("@/routes/invite"));
+const DashboardPage = lazy(() => import("@/routes/dashboard"));
 
 export function AppRoutes() {
   return (
@@ -25,7 +28,8 @@ export function AppRoutes() {
       <Route path="/" component={RequireAuth}>
         <Route path="/" component={WorkspaceRoot}>
           <Route path="/" component={() => <Navigate href="/dashboard" />} />
-          <Route path={["/dashboard", "/document/:documentId"]} component={DashboardRoute} />
+          <Route path="/dashboard" component={DashboardPage} />
+          <Route path="/document/:documentId" component={DocumentPage} />
         </Route>
       </Route>
     </Router>

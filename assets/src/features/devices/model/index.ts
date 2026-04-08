@@ -1,6 +1,2 @@
-export {
-  PendingDeviceContext,
-  usePendingDeviceMonitorState,
-  usePendingDevices,
-} from "./pending-device-monitor";
-export { useDeviceManagement } from "./useDeviceManagement";
+export { PendingDeviceContext, usePendingDeviceMonitorState, usePendingDevices } from "../monitor";
+export { useDeviceManagement } from "../manage";

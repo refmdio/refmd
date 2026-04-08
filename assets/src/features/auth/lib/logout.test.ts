@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getCryptoWorker: vi.fn(),
   lock: vi.fn(),
   logout: vi.fn(),
+  resetPhoenixConnection: vi.fn(),
   setCurrentWorkspaceId: vi.fn(),
   terminateCryptoWorker: vi.fn(),
 }));
@@ -22,7 +23,7 @@ vi.mock("@/shared/api", () => ({
   },
 }));
 
-vi.mock("@/shared/lib/auth-key-persistence", () => ({
+vi.mock("@/shared/lib/auth/key-persistence", () => ({
   clearAllPersistedKeys: mocks.clearAllPersistedKeys,
   clearSessionData: mocks.clearSessionData,
 }));
@@ -38,6 +39,10 @@ vi.mock("@/entities/workspace", () => ({
 vi.mock("@/shared/lib/crypto/worker/client", () => ({
   getCryptoWorker: mocks.getCryptoWorker,
   terminateCryptoWorker: mocks.terminateCryptoWorker,
+}));
+
+vi.mock("@/shared/lib/ws/phoenix-channel", () => ({
+  resetPhoenixConnection: mocks.resetPhoenixConnection,
 }));
 
 import { performLogout } from "./logout";
@@ -60,6 +65,7 @@ describe("logout", () => {
 
     expect(mocks.lock).toHaveBeenCalledTimes(1);
     expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1);
+    expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).toHaveBeenCalledTimes(1);
@@ -79,6 +85,7 @@ describe("logout", () => {
     expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(1);
     expect(mocks.clearSessionData).toHaveBeenCalledTimes(1);
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
+    expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.setCurrentWorkspaceId).toHaveBeenCalledWith(null);
   });
 
@@ -94,6 +101,7 @@ describe("logout", () => {
     expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).toHaveBeenCalledTimes(1);
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
+    expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.setCurrentWorkspaceId).toHaveBeenCalledWith(null);
   });
 
@@ -108,6 +116,19 @@ describe("logout", () => {
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(mocks.clearSessionData).toHaveBeenCalledTimes(1);
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
+    expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.setCurrentWorkspaceId).toHaveBeenCalledWith(null);
+  });
+
+  it("still resets documents and socket when worker lock fails", async () => {
+    mocks.lock.mockRejectedValueOnce(new Error("worker already gone"));
+
+    await expect(performLogout(true)).resolves.toEqual({
+      logoutIncomplete: false,
+      redirectPath: "/auth/login",
+    });
+
+    expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1);
+    expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
   });
 });

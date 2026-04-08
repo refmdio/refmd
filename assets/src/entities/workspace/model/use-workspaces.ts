@@ -3,7 +3,7 @@ import { createQuery } from "@tanstack/solid-query";
 import { workspacesApi } from "@/shared/api";
 import { authState, cryptoWorkerReady } from "@/entities/session";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "./workspace-selection";
-import { putOfflineWorkspaces, getOfflineWorkspaces } from "@/shared/lib/offline/offline-store";
+import { putOfflineWorkspaces, getOfflineWorkspaces } from "@/shared/lib/offline/storage/store";
 
 export function useWorkspaces() {
   const query = createQuery(() => ({

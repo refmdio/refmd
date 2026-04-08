@@ -1,9 +1,10 @@
 import { clearDocumentKeyCache } from "@/entities/document";
 import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { authApi } from "@/shared/api";
-import { clearAllPersistedKeys, clearSessionData } from "@/shared/lib/auth-key-persistence";
+import { clearAllPersistedKeys, clearSessionData } from "@/shared/lib/auth/key-persistence";
 import { clearSession } from "@/entities/session";
 import { getCryptoWorker, terminateCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
 
 interface LogoutResult {
   logoutIncomplete: boolean;
@@ -17,6 +18,7 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
     // Worker may not be initialized.
   }
   terminateCryptoWorker();
+  resetPhoenixConnection();
 
   let logoutIncomplete = false;
 

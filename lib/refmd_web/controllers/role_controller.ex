@@ -393,14 +393,4 @@ defmodule RefMDWeb.RoleController do
       permissions: permissions
     }
   end
-
-  defp format_errors(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
-  end
-
-  defp format_errors(error), do: %{base: [to_string(error)]}
 end

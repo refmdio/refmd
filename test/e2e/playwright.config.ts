@@ -6,7 +6,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   use: {
-    baseURL: process.env.BASE_URL || "http://localhost:5173",
+    baseURL: process.env.BASE_URL || "http://localhost:4000",
     bypassCSP: true,
     launchOptions: {
       args: ["--disable-web-security"],

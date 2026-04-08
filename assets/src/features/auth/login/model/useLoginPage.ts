@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { resolvePostAuthRedirect } from "@/shared/lib/invite-redirect";
+import { resolvePostAuthRedirect } from "@/shared/lib/invite/redirect";
 import {
   setFullSession,
   setAuthState,
@@ -8,7 +8,7 @@ import {
   setTofuErrors,
   setCryptoWorkerReady,
 } from "@/entities/session";
-import { login } from "@/features/auth/lib/login";
+import { login } from "@/features/auth/login";
 import { AuthError } from "@/features/auth/lib/auth-error";
 
 export function useLoginPage() {

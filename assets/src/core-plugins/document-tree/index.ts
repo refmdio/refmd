@@ -1,5 +1,5 @@
-import type { App } from "@/shared/lib/app-context";
-import type { WorkspaceLeaf } from "@/shared/lib/view";
+import type { App } from "@/shared/lib/workspace/app";
+import type { WorkspaceLeaf } from "@/shared/lib/workspace/view";
 import { DocumentTreeView } from "./DocumentTreeView";
 
 let currentApp: App | null = null;

@@ -3,7 +3,7 @@ import {
   getDocumentCache,
   getOfflineCreated,
   getOfflineDocumentMeta,
-} from "@/shared/lib/offline/offline-store";
+} from "@/shared/lib/offline/storage/store";
 
 export interface ResolvedDocument {
   documentId: string;

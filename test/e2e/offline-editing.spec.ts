@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, createDocument, openDocument } from "./helpers";
+import { registerAccount, createDocument, openDocument, expectEditorTextContains } from "./helpers";
 
 let sharedPage: Page;
 
@@ -94,10 +94,9 @@ test.describe.serial("Offline Editing", () => {
     await sharedPage.context().setOffline(false);
     await sharedPage.waitForTimeout(20000);
 
-    const text = await editor.textContent();
-    expect(text).toContain("Hello online content");
-    expect(text).toContain("Offline edit line 1");
-    expect(text).toContain("Offline edit line 2");
+    await expectEditorTextContains(sharedPage, "Hello online content");
+    await expectEditorTextContains(sharedPage, "Offline edit line 1");
+    await expectEditorTextContains(sharedPage, "Offline edit line 2");
     await sharedPage.waitForTimeout(15000);
   });
 
@@ -111,10 +110,9 @@ test.describe.serial("Offline Editing", () => {
     });
     await openDocument(sharedPage, "Offline Test Doc");
 
-    const text = await sharedPage.locator(".cm-content").textContent();
-    expect(text).toContain("Hello online content");
-    expect(text).toContain("Offline edit line 1");
-    expect(text).toContain("Offline edit line 2");
+    await expectEditorTextContains(sharedPage, "Hello online content");
+    await expectEditorTextContains(sharedPage, "Offline edit line 1");
+    await expectEditorTextContains(sharedPage, "Offline edit line 2");
   });
 
   test("multiple offline-online cycles preserve all content", async () => {
@@ -141,9 +139,8 @@ test.describe.serial("Offline Editing", () => {
     await sharedPage.context().setOffline(false);
     await sharedPage.waitForTimeout(10000);
 
-    const text = await editor.textContent();
-    expect(text).toContain("Cycle 1 offline");
-    expect(text).toContain("Cycle 2 offline");
+    await expectEditorTextContains(sharedPage, "Cycle 1 offline");
+    await expectEditorTextContains(sharedPage, "Cycle 2 offline");
   });
 
   test("pending-changes cleared after successful sync", async () => {

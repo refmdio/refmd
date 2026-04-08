@@ -1,6 +1,7 @@
 import { createEffect, onCleanup, type ParentProps } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
+import { useDocuments, useDocumentTitles } from "@/entities/document";
 import { useSettings } from "@/entities/settings";
 import { currentWorkspaceId, setCurrentWorkspaceId, useWorkspaces } from "@/entities/workspace";
 import { useWorkspaceKekRotationMonitor } from "@/app/workspace/useWorkspaceKekRotationMonitor";
@@ -11,6 +12,7 @@ import { useOfflineSync } from "@/app/bootstrap/useOfflineSync";
 import { usePendingDevices } from "@/features/devices";
 import { createWorkspaceWithInitialKek } from "@/features/workspace";
 import { disposePanelWorkspace, usePanelWorkspace } from "@/features/panel";
+import { getDocumentRuntime } from "@/shared/lib/document/manager";
 
 export function WorkspaceRoot(props: ParentProps) {
   const navigate = useNavigate();
@@ -18,6 +20,9 @@ export function WorkspaceRoot(props: ParentProps) {
   const { workspaces, workspacesNeedingRotation } = useWorkspaces();
   const { pendingCount } = usePendingDevices();
   const documentWorkspace = usePanelWorkspace();
+  const workspaceId = () => currentWorkspaceId();
+  const { flatDocuments } = useDocuments(workspaceId);
+  const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
 
   onCleanup(() => disposePanelWorkspace());
 
@@ -27,6 +32,11 @@ export function WorkspaceRoot(props: ParentProps) {
   useCorePluginLifecycle(app, documentWorkspace);
   useOfflineSync();
   useWorkspaceKekRotationMonitor(workspacesNeedingRotation, queryClient);
+
+  getDocumentRuntime().setTitleResolver((doc) => {
+    const found = flatDocuments().find((candidate) => candidate.id === doc.id);
+    return found ? getTitleFromDoc(found) : "Untitled";
+  });
 
   let previousWorkspaceId: string | null = null;
   createEffect(() => {

@@ -1,5 +1,5 @@
-import { ItemView } from "@/shared/lib/view";
-import { renderPluginContent } from "@/shared/lib/plugin-render";
+import { ItemView } from "@/shared/lib/workspace/view";
+import { renderPluginContent } from "@/shared/lib/plugin/render";
 import { DocumentTreePanel } from "@/widgets/sidebar";
 
 export class DocumentTreeView extends ItemView {

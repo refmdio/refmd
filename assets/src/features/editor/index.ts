@@ -7,23 +7,22 @@ export {
   getEditorForDocument,
   setFocusedPanelIdAccessor,
   setOnEditorRegistered,
-} from "./lib/editor-api";
+} from "./model/editor-api";
+export { acquireDocumentState, getDocumentState, getDocText } from "./model/document-state/store";
+export { clearAllDocumentStates, releaseDocumentState } from "./model/document-state/lifecycle";
 export {
-  acquireDocumentState,
-  releaseDocumentState,
-  getDocumentState,
-  getDocumentError,
-  getDocumentAwareness,
-  getDocText,
-  needsReauth,
-  completeReauth,
-  getRollbackWarning,
   approveRollback,
-} from "./lib/document-state-cache";
-export { initializeDocumentSync } from "./lib/document-sync";
-export { initializeDocumentPanel } from "./lib/document-panel-lifecycle";
-export { buildDeviceKeyCaches } from "./lib/document-verification";
-export { createDocumentOffline, syncOfflineCreatedDocuments } from "./lib/offline-create-sync";
-export { syncPendingDocuments } from "./lib/offline-pending-sync";
+  completeReauth,
+  getDocumentAwareness,
+  getDocumentError,
+  getRollbackWarning,
+  needsReauth,
+} from "./model/document-state/signals";
+export { initializeDocumentSync } from "./lib/sync/initialize";
+export { initializeDocumentPanel } from "./lib/sync/bootstrap/panel-lifecycle";
+export { buildDeviceKeyCaches } from "./lib/sync/inbound/signing-keys";
+export { createDocumentOffline } from "./lib/offline/create";
+export { syncOfflineCreatedDocuments } from "./lib/offline/sync-created";
+export { syncPendingDocuments } from "./lib/offline/pending-sync";
 export { OfflineIndicator } from "./ui/OfflineIndicator";
-export { setupFlushHooks } from "./lib/flush-hooks";
+export { setupFlushHooks } from "./lib/offline/flush-hooks";

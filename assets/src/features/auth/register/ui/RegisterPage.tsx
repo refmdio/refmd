@@ -51,11 +51,7 @@ export function RegisterPage() {
                 </div>
 
                 <div class="flex gap-2">
-                  <Button
-                    onClick={state.handleCopyRecoveryKey}
-                    variant="outline"
-                    class="flex-1"
-                  >
+                  <Button onClick={state.handleCopyRecoveryKey} variant="outline" class="flex-1">
                     Copy
                   </Button>
                   <Button

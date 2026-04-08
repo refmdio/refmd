@@ -11,7 +11,8 @@ import type {
   DocumentView,
   EditorLike,
   PanelWorkspaceOps,
-} from "@/shared/lib/document-manager";
+} from "@/shared/lib/document/manager";
+import { registerDocumentInternals } from "@/shared/lib/document/manager";
 
 type QueryClientLike = {
   getQueryData: <T>(key: unknown[]) => T | undefined;
@@ -38,6 +39,7 @@ class DocumentManagerImpl
   private getActiveEditorFn: (() => EditorLike | null) | null = null;
   private getEditorForDocFn: ((docId: string) => EditorLike | null) | null = null;
   private getDocTextFn: ((id: string) => string | null) | null = null;
+  private openDocumentFn: ((documentId: string) => void) | null = null;
   private createDocumentFn:
     | ((wsId: string, title: string, parentId: string | null) => Promise<string>)
     | null = null;
@@ -68,10 +70,18 @@ class DocumentManagerImpl
     this.getDocTextFn = fn;
   }
 
+  setOpenDocumentFn(fn: (documentId: string) => void): void {
+    this.openDocumentFn = fn;
+  }
+
   setCreateDocumentFn(
     fn: (wsId: string, title: string, parentId: string | null) => Promise<string>,
   ): void {
     this.createDocumentFn = fn;
+  }
+
+  openDocument(id: string): void {
+    this.openDocumentFn?.(id);
   }
 
   async createDocument(title: string, parentId?: string | null): Promise<string> {
@@ -225,7 +235,8 @@ class DocumentManagerImpl
   on(event: "document-create", cb: (docId: string) => void): EventRef;
   on(event: "document-delete", cb: (docId: string) => void): EventRef;
   on(event: "document-rename", cb: (docId: string, oldTitle: string) => void): EventRef;
-  on(event: string, cb: (...data: unknown[]) => unknown, ctx?: unknown): EventRef {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, cb: (...data: any[]) => any, ctx?: any): EventRef {
     return super.on(event, cb, ctx);
   }
 }
@@ -236,3 +247,8 @@ export const documentQueries: DocumentQueries = documentManager;
 export const documentCommands: DocumentCommandService = documentManager;
 export const documentEvents: DocumentEventDispatcher = documentManager;
 export const documentRuntime: DocumentRuntime = documentManager;
+
+registerDocumentInternals({
+  documentEvents,
+  documentRuntime,
+});

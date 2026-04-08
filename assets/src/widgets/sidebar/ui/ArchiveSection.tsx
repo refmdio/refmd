@@ -10,7 +10,7 @@ import {
 } from "@/entities/document";
 import type { DocumentResponse } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
-import { useSidebarDocumentTreeHandlers } from "./useSidebarDocumentTreeHandlers";
+import { useSidebarDocumentTreeHandlers } from "../model/useSidebarDocumentTreeHandlers";
 
 export function ArchiveSection() {
   const workspaceId = () => currentWorkspaceId();

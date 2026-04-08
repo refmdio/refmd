@@ -1,10 +1,7 @@
 import { createSignal, onMount, type Accessor } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { setAuthState, setDeviceState, setCryptoWorkerReady } from "@/entities/session";
-import {
-  requestPasswordReset,
-  verifyPasswordResetToken,
-} from "@/features/auth/lib/password-reset";
+import { requestPasswordReset, verifyPasswordResetToken } from "@/features/auth/password-reset";
 
 type Phase = "request" | "sent" | "verifying" | "error";
 

@@ -1,4 +1,4 @@
-import { type TofuEntry, getTofuEntry, saveTofuEntry, updateLastSeen } from "../trust-store";
+import { type TofuEntry, getTofuEntry, saveTofuEntry, updateLastSeen } from "./trust-store";
 import { calculateFingerprint, formatFingerprint } from "./fingerprint";
 import { constantTimeEqual, base64UrlDecode } from "./encoding";
 import { verifyDeviceIdentitySignature } from "./device";

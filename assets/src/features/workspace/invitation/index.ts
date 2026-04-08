@@ -1,4 +1,4 @@
-export { WorkspaceInvitationFlow } from "./ui/WorkspaceInvitationFlow";
-export { WorkspaceInvitationDialog } from "./ui/WorkspaceInvitationDialog";
-export { PendingWorkspaceInvitationList } from "./ui/PendingWorkspaceInvitationList";
-export { useWorkspaceInvitationManagement } from "./model/useWorkspaceInvitationManagement";
+export { WorkspaceInvitationFlow } from "./ui/Flow";
+export { WorkspaceInvitationDialog } from "./ui/Dialog";
+export { PendingWorkspaceInvitationList } from "./ui/PendingList";
+export { useWorkspaceInvitationManagement } from "./model/useManagement";

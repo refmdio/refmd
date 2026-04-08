@@ -1,9 +1,9 @@
-import { splitProps, type ParentProps } from "solid-js";
+import { splitProps, type ComponentProps } from "solid-js";
 import * as RadioGroupPrimitive from "@kobalte/core/radio-group";
 import { CircleIcon } from "lucide-solid";
 import { cn } from "@/shared/lib/utils";
 
-function RadioGroup(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function RadioGroup(props: ComponentProps<typeof RadioGroupPrimitive.Root>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <RadioGroupPrimitive.Root
@@ -14,7 +14,7 @@ function RadioGroup(props: ParentProps<{ class?: string; [key: string]: any }>) 
   );
 }
 
-function RadioGroupItem(props: ParentProps<{ class?: string; value: string; [key: string]: any }>) {
+function RadioGroupItem(props: ComponentProps<typeof RadioGroupPrimitive.Item>) {
   const [local, rest] = splitProps(props, ["class", "children", "value", "id"]);
   return (
     <RadioGroupPrimitive.Item value={local.value} {...rest}>

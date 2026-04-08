@@ -12,6 +12,7 @@ import type {
   EphemeralPayload,
   PeerLeftPayload,
 } from "./document-payloads";
+
 // Singleton Socket instance (authenticates via ws-token, all channels multiplex)
 let socket: Socket | null = null;
 let cachedWsToken: string | null = null;
@@ -35,32 +36,50 @@ async function refreshWsToken(): Promise<void> {
   const result = await authApi.wsToken();
   cachedWsToken = result.token;
 }
-function getOrCreateSocket(): Socket {
-  if (socket) return socket;
+
+function getSocketUrl(): string {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${protocol}//${location.host}/api/socket`;
-  socket = new Socket(url, {
+  return `${protocol}//${location.host}/api/socket`;
+}
+
+function getOrCreateSocket(): Socket {
+  if (socket) {
+    if (!socket.isConnected()) {
+      socket.connect();
+    }
+    return socket;
+  }
+  const activeSocket = new Socket(getSocketUrl(), {
     params: () => ({ token: cachedWsToken }),
     reconnectAfterMs: (tries: number) => Math.min(100 * Math.pow(1.8, tries), 30000),
   });
-  socket.onOpen(() => {
+  socket = activeSocket;
+  activeSocket.onOpen(() => {
+    if (socket !== activeSocket) return;
     setWsConnected(true);
   });
   // Refresh token on disconnect/error so reconnect uses a fresh token
-  socket.onError(() => {
+  activeSocket.onError(() => {
+    if (socket !== activeSocket) return;
     setWsConnected(false);
     refreshWsToken().catch(() => {});
   });
-  socket.onClose(() => {
+  activeSocket.onClose(() => {
+    if (socket !== activeSocket) return;
     setWsConnected(false);
     refreshWsToken().catch(() => {});
   });
-  socket.connect();
-  return socket;
+  activeSocket.connect();
+  return activeSocket;
 }
 export function getChannelState(channel: Channel): string {
   return channel.state;
 }
+
+export function hasTrackedDocumentChannel(documentId: string): boolean {
+  return channels.has(documentId);
+}
+
 export function isSocketConnected(target: Socket): boolean;
 export function isSocketConnected(): boolean;
 export function isSocketConnected(target?: Socket): boolean {
@@ -90,38 +109,45 @@ export interface DocumentChannelCallbacks {
   onError: (reason: unknown) => void;
   onClose: () => void;
 }
-export async function joinDocument(
-  documentId: string,
-  params: Record<string, unknown>,
+
+export interface TemporaryDocumentChannelHandle {
+  channel: Channel;
+  dispose: () => void;
+}
+
+function clearChannelStateChangeRefs(channel: Channel): void {
+  const refs = channel.stateChangeRefs;
+  if (!refs) return;
+
+  const channelSocket = channel.socket;
+  for (const ref of refs) {
+    channelSocket.off([ref]);
+  }
+  refs.length = 0;
+}
+
+function configureDocumentChannel(
+  sock: Socket,
+  channel: Channel,
   callbacks: DocumentChannelCallbacks,
-): Promise<Channel> {
-  if (!socket) {
-    await refreshWsToken();
-  }
-  const sock = getOrCreateSocket();
-  const topic = `document:${documentId}`;
-  const existing = channels.get(documentId);
-  if (existing && getChannelState(existing) === "joined") {
-    return Promise.resolve(existing);
-  }
-  const channel = sock.channel(topic, params);
+): void {
   const stateChangeRefs = channel.stateChangeRefs;
   const rejoinTimer = channel.rejoinTimer;
+
   // Disable Phoenix auto-rejoin BEFORE join(): PoP challenge is consumed on
   // first join, so auto-rejoin with stale params always fails.
-  // 1. Remove socket.onOpen/onError refs that trigger channel.rejoin()
   if (stateChangeRefs) {
     for (const ref of stateChangeRefs) {
       sock.off([ref]);
     }
     stateChangeRefs.length = 0;
   }
-  // 2. Neuter the rejoinTimer so error/timeout handlers can't schedule retries
+
   if (rejoinTimer) {
     rejoinTimer.reset();
     rejoinTimer.scheduleTimeout = () => {};
   }
-  // 3. Notify onClose when socket disconnects so document-sync can reconnect
+
   stateChangeRefs?.push(
     sock.onClose(() => {
       if (getChannelState(channel) === "joined") {
@@ -130,6 +156,7 @@ export async function joinDocument(
       }
     }),
   );
+
   channel.on<DocumentPayload>("document", (payload) => callbacks.onDocument(payload));
   channel.on<UpdatePayload>("update", (payload) => callbacks.onUpdate(payload));
   channel.on<RemoteSnapshotPayload>("snapshot", (payload) => callbacks.onSnapshot(payload));
@@ -151,8 +178,26 @@ export async function joinDocument(
   channel.on("unauthorized", () => callbacks.onUnauthorized());
   channel.on("document-not-found", () => callbacks.onError("document_not_found"));
   channel.on("document-error", () => callbacks.onError("document_error"));
-  channel.onError((reason) => callbacks.onError(reason));
+  channel.onError((reason) => callbacks.onError(reason ?? "connection_error"));
   channel.onClose(() => callbacks.onClose());
+}
+
+export async function joinDocument(
+  documentId: string,
+  params: Record<string, unknown>,
+  callbacks: DocumentChannelCallbacks,
+): Promise<Channel> {
+  if (!socket || !socket.isConnected()) {
+    await refreshWsToken();
+  }
+  const sock = getOrCreateSocket();
+  const topic = `document:${documentId}`;
+  const existing = channels.get(documentId);
+  if (existing && getChannelState(existing) === "joined") {
+    return Promise.resolve(existing);
+  }
+  const channel = sock.channel(topic, params);
+  configureDocumentChannel(sock, channel, callbacks);
   channels.set(documentId, channel);
   return new Promise<Channel>((resolve, reject) => {
     channel
@@ -174,6 +219,51 @@ export async function joinDocument(
       });
   });
 }
+
+export async function joinTemporaryDocument(
+  documentId: string,
+  params: Record<string, unknown>,
+  callbacks: DocumentChannelCallbacks,
+): Promise<TemporaryDocumentChannelHandle> {
+  if (!cachedWsToken) {
+    await refreshWsToken();
+  }
+
+  const tempSocket = new Socket(getSocketUrl(), {
+    params: () => ({ token: cachedWsToken }),
+    reconnectAfterMs: () => Infinity,
+  });
+  tempSocket.connect();
+
+  const channel = tempSocket.channel(`document:${documentId}`, params);
+  configureDocumentChannel(tempSocket, channel, callbacks);
+
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    clearChannelStateChangeRefs(channel);
+    channel.leave();
+    tempSocket.disconnect();
+  };
+
+  return new Promise<TemporaryDocumentChannelHandle>((resolve, reject) => {
+    channel
+      .join()
+      .receive("ok", () => {
+        resolve({ channel, dispose });
+      })
+      .receive("error", (resp) => {
+        dispose();
+        reject(createPhoenixJoinError(resp));
+      })
+      .receive("timeout", () => {
+        dispose();
+        reject(new PhoenixChannelTransportError("join_timeout", "Channel join timed out"));
+      });
+  });
+}
+
 export function pushUpdate(
   documentId: string,
   payload: Record<string, unknown>,
@@ -232,15 +322,31 @@ export async function rejoinDocument(
 export function leaveDocument(documentId: string): void {
   const channel = channels.get(documentId);
   if (!channel) return;
-  // Release socket-level stateChangeRefs to prevent listener leak
-  const refs = channel.stateChangeRefs;
-  if (refs) {
-    const channelSocket = channel.socket;
-    for (const ref of refs) {
-      channelSocket.off([ref]);
-    }
-    refs.length = 0;
-  }
+  clearChannelStateChangeRefs(channel);
   channel.leave();
   channels.delete(documentId);
+}
+
+export function resetPhoenixConnection(): void {
+  const activeSocket = socket;
+  socket = null;
+  for (const [documentId, channel] of channels) {
+    const refs = channel.stateChangeRefs;
+    if (refs) {
+      const channelSocket = channel.socket;
+      for (const ref of refs) {
+        channelSocket.off([ref]);
+      }
+      refs.length = 0;
+    }
+    channel.leave();
+    channels.delete(documentId);
+  }
+
+  if (activeSocket) {
+    activeSocket.disconnect();
+  }
+
+  cachedWsToken = null;
+  setWsConnected(true);
 }

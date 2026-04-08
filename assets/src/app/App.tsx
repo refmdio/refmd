@@ -4,7 +4,7 @@ import { PasswordReentryDialog } from "@/features/auth";
 import { PendingDeviceMonitor } from "@/features/devices";
 import { deviceState, tofuErrors } from "@/entities/session";
 import { initializeApiClient } from "@/shared/api";
-import { queryClient } from "@/shared/lib/query-client";
+import { queryClient } from "@/shared/lib/query/client";
 import { Spinner } from "@/shared/ui/spinner";
 import { ThemeProvider } from "@/shared/ui/theme-provider";
 import { isPublicPath, useSessionBootstrap } from "@/app/bootstrap/session";

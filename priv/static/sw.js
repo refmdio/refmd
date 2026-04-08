@@ -123,6 +123,8 @@ self.addEventListener("fetch", (event) => {
 async function trimCache(cache) {
   const keys = await cache.keys();
   if (keys.length <= MAX_CACHE_ENTRIES) return;
-  const toDelete = keys.slice(0, keys.length - MAX_CACHE_ENTRIES);
+  const evictable = keys.filter((req) => new URL(req.url).pathname !== "/index.html");
+  const excess = keys.length - MAX_CACHE_ENTRIES;
+  const toDelete = evictable.slice(0, excess);
   await Promise.all(toDelete.map((key) => cache.delete(key)));
 }

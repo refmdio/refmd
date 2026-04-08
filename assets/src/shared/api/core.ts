@@ -1,7 +1,7 @@
 import createClient from "openapi-fetch";
 import type { paths } from "./schema";
 import { getCryptoWorker, CryptoWorkerError } from "@/shared/lib/crypto/worker/client";
-import { PopChallengeRateLimitError } from "@/shared/lib/pop";
+import { PopChallengeRateLimitError } from "@/shared/lib/auth/pop";
 function isSessionOnlyEndpoint(url: string, method: string): boolean {
   const path = new URL(url, "http://localhost").pathname;
   // Auth: session-only subset (excludes PATCH /auth/password, PUT /auth/recovery-key)
@@ -42,7 +42,7 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
 }
 export const POP_DEVICE_OVERRIDE_HEADER = "X-Pop-Override-Device-Id";
 const MAX_RATE_LIMIT_RETRIES = 3;
-const MAX_CONCURRENT_POP_REQUESTS = 2;
+const MAX_CONCURRENT_POP_REQUESTS = 10;
 let getDeviceId = (): string | null => null;
 let activePopRequests = 0;
 const popRequestWaiters: Array<() => void> = [];
@@ -94,7 +94,7 @@ async function applyPopHeaders(request: Request): Promise<void> {
       return;
     }
   }
-  const { getPopHeaders } = await import("@/shared/lib/pop");
+  const { getPopHeaders } = await import("@/shared/lib/auth/pop");
   const headers = await getPopHeaders(deviceIdOverride, request.signal);
   request.headers.set("X-PoP-Device-Id", headers["X-PoP-Device-Id"]);
   request.headers.set("X-PoP-Challenge", headers["X-PoP-Challenge"]);

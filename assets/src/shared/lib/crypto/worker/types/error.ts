@@ -1,0 +1,15 @@
+export type CryptoErrorCode =
+  | "not_initialized"
+  | "already_initialized"
+  | "rate_limited"
+  | "decryption_failed"
+  | "signature_failed"
+  | "invalid_key"
+  | "key_not_found"
+  | "tofu_hard_fail"
+  | "internal_error";
+
+export interface CryptoError {
+  code: CryptoErrorCode;
+  message: string;
+}

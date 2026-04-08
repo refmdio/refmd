@@ -4,6 +4,7 @@ import { createDocument, openContextMenu, openDocument, registerAccount } from "
 let sharedPage: Page;
 let documentIdA: string;
 let documentIdB: string;
+let documentIdC: string;
 
 function documentRouteRegex(documentId: string): RegExp {
   return new RegExp(`/document/${documentId}$`);
@@ -41,6 +42,31 @@ async function openDocumentIds(page: Page): Promise<string[]> {
   });
 }
 
+async function openPanelIds(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll("[data-panel-id]"))
+      .map((el) => el.getAttribute("data-panel-id") ?? "")
+      .filter((panelId) => panelId.length > 0),
+  );
+}
+
+async function closePanel(page: Page, panelId: string): Promise<void> {
+  const panel = page.locator(`[data-panel-id="${panelId}"]`);
+  const windowRoot = panel.locator(
+    'xpath=ancestor::*[contains(@class,"mosaic-window-body")]/parent::*[contains(@class,"mosaic-window")]',
+  );
+
+  await panel.click();
+  await windowRoot.locator('[data-slot="dropdown-menu-trigger"]').click();
+  await page.getByRole("menuitem", { name: "Close" }).click();
+  await expect
+    .poll(async () => page.locator(`[data-panel-id="${panelId}"]`).count(), {
+      timeout: 10_000,
+      message: `panel did not close: ${panelId}`,
+    })
+    .toBe(0);
+}
+
 test.describe.serial("Document URL Routing", () => {
   test.beforeAll(async ({ browser }) => {
     sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
@@ -55,6 +81,7 @@ test.describe.serial("Document URL Routing", () => {
     await registerAccount(sharedPage);
     await createDocument(sharedPage, "Route Doc A");
     await createDocument(sharedPage, "Route Doc B");
+    await createDocument(sharedPage, "Route Doc C");
   });
 
   test("opening a document updates the URL", async () => {
@@ -92,6 +119,21 @@ test.describe.serial("Document URL Routing", () => {
     await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdB), { timeout: 10_000 });
   });
 
+  test("sidebar click replaces the tiled workspace", async () => {
+    test.setTimeout(45_000);
+
+    await openDocument(sharedPage, "Route Doc C");
+    documentIdC = await currentDocumentId(sharedPage);
+
+    await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdC), { timeout: 10_000 });
+    await expect
+      .poll(async () => openDocumentIds(sharedPage), {
+        timeout: 10_000,
+        message: "sidebar click did not replace the tiled workspace",
+      })
+      .toEqual([documentIdC]);
+  });
+
   test("direct document URL opens the target document", async () => {
     test.setTimeout(60_000);
 
@@ -106,5 +148,23 @@ test.describe.serial("Document URL Routing", () => {
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
     await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdA), { timeout: 10_000 });
     await waitForPanel(sharedPage, documentIdA);
+  });
+
+  test("closing the last open panel returns to dashboard", async () => {
+    test.setTimeout(60_000);
+
+    let panelIds = await openPanelIds(sharedPage);
+    while (panelIds.length > 0) {
+      await closePanel(sharedPage, panelIds[0]);
+      panelIds = await openPanelIds(sharedPage);
+    }
+
+    await expect(sharedPage).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
+    await expect
+      .poll(async () => sharedPage.locator("[data-panel-id]").count(), {
+        timeout: 10_000,
+        message: "document panels remained open after closing the last panel",
+      })
+      .toBe(0);
   });
 });

@@ -2,8 +2,8 @@ import { createSignal, createEffect, createMemo, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { workspaceManager } from "@/features/panel";
 import { getActiveEditor } from "@/features/editor";
-import { getApp } from "@/shared/lib/app-context";
-import type { Command } from "@/shared/lib/app-context";
+import { getApp } from "@/shared/lib/workspace/app";
+import type { Command } from "@/shared/lib/workspace/app";
 
 const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
 
@@ -43,14 +43,14 @@ export function CommandPaletteModal() {
 }
 
 function CommandPaletteInner() {
-  const { documentQueries } = getApp();
+  const { documents } = getApp();
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
 
   const getActiveCommandContext = () => {
     const editor = getActiveEditor();
-    const doc = documentQueries.getActiveDocument();
+    const doc = documents.getActiveDocument();
     return editor && doc ? { editor, doc } : null;
   };
 

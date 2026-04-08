@@ -512,15 +512,6 @@ defmodule RefMDWeb.DeviceController do
     end
   end
 
-  defp decode_binary!(base64) when is_binary(base64) do
-    Base.url_decode64!(base64, padding: false)
-  end
-
-  defp decode_binary!(_), do: raise(ArgumentError, "missing required binary field")
-
-  defp encode_binary(nil), do: nil
-  defp encode_binary(bin), do: Base.url_encode64(bin, padding: false)
-
   defp device_name_from_ua(ua) do
     cond do
       String.contains?(ua, "Chrome") -> "Chrome"
@@ -541,9 +532,5 @@ defmodule RefMDWeb.DeviceController do
   defp do_requires_reauth?(session) do
     last_auth = session.last_verified_at || session.created_at
     DateTime.diff(DateTime.utc_now(), last_auth, :second) >= @reauth_max_age_seconds
-  end
-
-  defp format_errors(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
   end
 end

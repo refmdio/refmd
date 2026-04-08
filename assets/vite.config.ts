@@ -6,11 +6,49 @@ import path from "node:path";
 
 const __dirname = import.meta.dirname;
 
+function matchesAny(id: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => id.includes(pattern));
+}
+
+function getManualChunk(id: string): string | undefined {
+  const normalizedId = id.replaceAll("\\", "/");
+
+  if (normalizedId.includes("shared/lib/crypto/worker/client")) {
+    return "crypto-client";
+  }
+
+  if (!normalizedId.includes("/node_modules/")) {
+    return undefined;
+  }
+
+  if (
+    matchesAny(normalizedId, [
+      "/node_modules/@codemirror/lang-markdown/",
+      "/node_modules/@codemirror/language/",
+      "/node_modules/@lezer/",
+    ])
+  ) {
+    return "codemirror-markdown";
+  }
+
+  if (
+    matchesAny(normalizedId, [
+      "/node_modules/@codemirror/",
+      "/node_modules/codemirror/",
+      "/node_modules/y-codemirror.next/",
+    ])
+  ) {
+    return "codemirror-extensions";
+  }
+
+  return undefined;
+}
+
 export default defineConfig({
   lint: {
     plugins: ["oxc", "typescript", "unicorn"],
     categories: {
-      correctness: "warn",
+      correctness: "error",
     },
     ignorePatterns: ["src/shared/api/schema.d.ts"],
     settings: {
@@ -40,8 +78,8 @@ export default defineConfig({
         rules: {
           "no-var": "error",
           "prefer-const": "error",
-          "typescript/no-explicit-any": "off",
-          "typescript/no-empty-object-type": "off",
+          "typescript/no-explicit-any": "error",
+          "typescript/no-empty-object-type": "error",
         },
       },
       {
@@ -127,7 +165,7 @@ export default defineConfig({
               ],
             },
           ],
-          "boundaries/no-unknown": ["warn"],
+          "boundaries/no-unknown": ["error"],
         },
         jsPlugins: [
           "eslint-plugin-boundaries",
@@ -161,13 +199,13 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, "../priv/static"),
     emptyOutDir: true,
+    // The remaining large chunk is the lazy-loaded CodeMirror vendor bundle.
+    // Keep the warning sensitive to regressions in eagerly loaded code while
+    // avoiding noise from the editor payload that is only fetched on demand.
+    chunkSizeWarningLimit: 550,
     rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes("shared/lib/crypto/worker/client")) {
-            return "crypto-client";
-          }
-        },
+        manualChunks: getManualChunk,
       },
     },
   },

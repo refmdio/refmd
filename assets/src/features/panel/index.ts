@@ -1,5 +1,5 @@
-export { disposePanelWorkspace, usePanelWorkspace } from "./model/use-panel-workspace";
-export { attachActiveLeafRouteSync } from "./lib/active-leaf-route-sync";
-export { closeDocumentPanels } from "./lib/close-document-panels";
-export { decodePanelId, hasScrollGroupPeer } from "./lib/panel-utils";
-export { workspaceManager } from "./lib/workspace-manager";
+export { attachActiveLeafRouteSync } from "./lib/manager/active-leaf-route-sync";
+export { closeDocumentPanels } from "./lib/workspace/close-document-panels";
+export { decodePanelId, hasScrollGroupPeer } from "./lib/workspace/panel-utils";
+export { disposePanelWorkspace, usePanelWorkspace } from "./model/workspace/use-panel-workspace";
+export { workspaceManager } from "./lib/manager/workspace-manager";

@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import type { App } from "@/shared/lib/app-context";
+import type { App } from "@/shared/lib/workspace/app";
 import { setCommandPaletteOpen, CommandPaletteModal } from "./CommandPaletteModal";
 
 let currentApp: App | null = null;

@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { resolvePostAuthRedirect } from "@/shared/lib/invite-redirect";
+import { resolvePostAuthRedirect } from "@/shared/lib/invite/redirect";
 import { setFullSession, setCryptoWorkerReady } from "@/entities/session";
-import { formatRecoveryKeyFile } from "@/shared/lib/recovery-key-format";
-import { register } from "@/features/auth/lib/register";
+import { formatRecoveryKeyFile } from "@/shared/lib/recovery/key-format";
+import { register } from "@/features/auth/register";
 
 export function useRegisterPage() {
   const navigate = useNavigate();

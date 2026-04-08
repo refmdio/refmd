@@ -43,8 +43,8 @@ defmodule RefMDWeb.Router do
     post "/login", AuthController, :login
     post "/recovery/challenge", AuthController, :recovery_challenge
     post "/recovery/session", AuthController, :recovery_session
-    post "/password-reset/request", AuthController, :password_reset_request
-    post "/password-reset/verify", AuthController, :password_reset_verify
+    post "/password-reset/request", PasswordController, :password_reset_request
+    post "/password-reset/verify", PasswordController, :password_reset_verify
   end
 
   # SSE endpoints (no :api pipeline — EventSource sends Accept: text/event-stream, not json)
@@ -68,7 +68,7 @@ defmodule RefMDWeb.Router do
     post "/auth/ws-token", AuthController, :ws_token
     post "/auth/kdf-migration", AuthController, :kdf_migration
     get "/auth/recovery", AuthController, :get_recovery
-    post "/auth/password-set", AuthController, :password_set
+    post "/auth/password-set", PasswordController, :password_set
 
     # Device (bootstrap, registration, listing, status polling)
     post "/devices/bootstrap", DeviceController, :bootstrap
@@ -103,8 +103,8 @@ defmodule RefMDWeb.Router do
     pipe_through [:api, :require_pop, :verify_origin]
 
     # Auth (PoP required)
-    patch "/auth/password", AuthController, :change_password
-    put "/auth/recovery-key", AuthController, :regenerate_recovery_key
+    patch "/auth/password", PasswordController, :change_password
+    put "/auth/recovery-key", PasswordController, :regenerate_recovery_key
 
     # Trust transfer (PoP required: state sending)
     post "/trust-transfer/state", TrustTransferController, :send_state
@@ -154,12 +154,12 @@ defmodule RefMDWeb.Router do
     delete "/devices/:device_id", DeviceController, :revoke
 
     # UMK distribution (PoP required)
-    post "/devices/:device_id/keys/umk", EncryptionController, :distribute_umk
-    get "/devices/:device_id/keys/umk", EncryptionController, :get_umk
+    post "/devices/:device_id/keys/umk", UmkController, :distribute_umk
+    get "/devices/:device_id/keys/umk", UmkController, :get_umk
 
     # Encryption (DEK operations)
-    get "/encryption/documents/:document_id/keys", EncryptionController, :get_document_keys
-    post "/encryption/documents/:document_id/keys", EncryptionController, :create_document_key
+    get "/encryption/documents/:document_id/keys", DocumentKeyController, :get_document_keys
+    post "/encryption/documents/:document_id/keys", DocumentKeyController, :create_document_key
 
     # Encryption (KEK operations)
     post "/encryption/workspaces/:workspace_id/keys", EncryptionController, :create_workspace_key
@@ -173,19 +173,19 @@ defmodule RefMDWeb.Router do
 
     # KEK Rotation
     post "/encryption/workspaces/:workspace_id/kek-rotation",
-         EncryptionController,
+         KekRotationController,
          :start_kek_rotation
 
     post "/encryption/workspaces/:workspace_id/kek-rotation/complete",
-         EncryptionController,
+         KekRotationController,
          :complete_kek_rotation
 
     post "/encryption/workspaces/:workspace_id/member-envelopes",
-         EncryptionController,
+         KekRotationController,
          :save_member_envelopes
 
     get "/encryption/workspaces/:workspace_id/member-envelope",
-        EncryptionController,
+        KekRotationController,
         :get_member_envelope
   end
 

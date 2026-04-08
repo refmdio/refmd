@@ -3,7 +3,7 @@ import { A } from "@solidjs/router";
 import { AlertTriangleIcon, ShieldCheckIcon } from "lucide-solid";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import { useDeviceRegistrationFlow } from "../model/useDeviceRegistrationFlow";
+import { useDeviceRegistrationFlow } from "../model/useRegistrationFlow";
 import { DeviceRegistrationPhaseContent } from "./DeviceRegistrationPhaseContent";
 
 export function DeviceRegistrationFlow() {

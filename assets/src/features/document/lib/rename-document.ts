@@ -5,7 +5,7 @@ import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import { injectDecryptedTitle } from "@/entities/document";
 import type { DocumentResponse } from "@/entities/document";
-import { getApp } from "@/shared/lib/app-context";
+import { getDocumentEvents } from "@/shared/lib/document/manager";
 
 export async function renameDocument(
   doc: DocumentResponse,
@@ -15,7 +15,7 @@ export async function renameDocument(
 ): Promise<void> {
   if (doc.doc_type === "folder") {
     await documentsApi.update(doc.id, { title: newTitle });
-    getApp().documentEvents.notifyDocumentRename(doc.id, oldTitle);
+    getDocumentEvents().notifyDocumentRename(doc.id, oldTitle);
     return;
   }
 
@@ -57,5 +57,5 @@ export async function renameDocument(
   });
 
   injectDecryptedTitle(doc.id, newTitle, base64UrlEncode(nonce));
-  getApp().documentEvents.notifyDocumentRename(doc.id, oldTitle);
+  getDocumentEvents().notifyDocumentRename(doc.id, oldTitle);
 }

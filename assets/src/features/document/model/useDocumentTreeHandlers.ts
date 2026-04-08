@@ -1,13 +1,12 @@
 import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, type Accessor } from "solid-js";
 import {
-  documentNavigation,
   useDocumentDrag,
   selectedDocumentId,
   setSelectedDocumentId,
   type DocumentResponse,
 } from "@/entities/document";
-import { getApp } from "@/shared/lib/app-context";
+import { getApp } from "@/shared/lib/workspace/app";
 import { Notice } from "@/shared/lib/notice";
 import { createFolder } from "../lib/create-folder";
 import { archiveDocument, deleteDocument, unarchiveDocument } from "../lib/document-actions";
@@ -28,7 +27,7 @@ interface UseDocumentTreeHandlersOptions {
 }
 
 export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions) {
-  const { documentCommands } = getApp();
+  const { documents } = getApp();
   const queryClient = useQueryClient();
   const [contextTarget, setContextTarget] = createSignal<DocumentResponse | null>(null);
   const [contextPosition, setContextPosition] = createSignal<{ x: number; y: number } | null>(null);
@@ -81,10 +80,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
 
   const handleCreateDocument = options.selectedParentId
     ? async (title: string) => {
-        const documentId = await documentCommands.createDocument(
-          title,
-          options.selectedParentId!(),
-        );
+        const documentId = await documents.createDocument(title, options.selectedParentId!());
         invalidateDocuments();
         setSelectedDocumentId(documentId);
       }
@@ -147,7 +143,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
     setSelectedDocumentId(documentId);
     const doc = options.flatDocuments().find((candidate) => candidate.id === documentId);
     if (doc && doc.doc_type === "document" && options.isTitleReady(doc)) {
-      documentNavigation.openDocument(doc.id);
+      documents.openDocument(doc.id);
     }
   };
 

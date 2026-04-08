@@ -1,12 +1,12 @@
 import { createEffect, onCleanup } from "solid-js";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { usePanelWorkspace, workspaceManager } from "@/features/panel";
-import type { App } from "@/shared/lib/app-context";
+import type { App } from "@/shared/lib/workspace/app";
 import {
   loadCorePlugins,
   registerCorePlugins,
   unloadCorePlugins,
-} from "@/shared/lib/core-plugin-registry";
+} from "@/shared/lib/plugin/core-registry";
 import { loadCommandPalette, unloadCommandPalette } from "@/core-plugins/command-palette";
 import { loadDocumentTree, unloadDocumentTree } from "@/core-plugins/document-tree";
 import { loadWordCount, unloadWordCount } from "@/core-plugins/word-count";

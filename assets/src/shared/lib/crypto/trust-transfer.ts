@@ -1,4 +1,4 @@
-import type { TofuEntry } from "../trust-store";
+import type { TofuEntry } from "./trust-store";
 import { SIGNATURE_ACTION, buildSignatureMessage } from "./signature";
 import { ecdhEncrypt, ecdhDecrypt } from "./ecdh-cipher";
 import { sign, verify } from "./identity";

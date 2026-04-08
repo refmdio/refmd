@@ -66,7 +66,7 @@ export interface paths {
         };
         get?: never;
         /** Regenerate recovery key (PoP required) */
-        put: operations["RefMDWeb.AuthController.regenerate_recovery_key"];
+        put: operations["RefMDWeb.PasswordController.regenerate_recovery_key"];
         post?: never;
         delete?: never;
         options?: never;
@@ -118,7 +118,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Save member envelopes for KEK rotation */
-        post: operations["RefMDWeb.EncryptionController.save_member_envelopes"];
+        post: operations["RefMDWeb.KekRotationController.save_member_envelopes"];
         delete?: never;
         options?: never;
         head?: never;
@@ -172,7 +172,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Request a password reset email */
-        post: operations["RefMDWeb.AuthController.password_reset_request"];
+        post: operations["RefMDWeb.PasswordController.password_reset_request"];
         delete?: never;
         options?: never;
         head?: never;
@@ -223,7 +223,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Set password after recovery (recovery session required) */
-        post: operations["RefMDWeb.AuthController.password_set"];
+        post: operations["RefMDWeb.PasswordController.password_set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -307,10 +307,10 @@ export interface paths {
             cookie?: never;
         };
         /** Get all DEK versions for a document */
-        get: operations["RefMDWeb.EncryptionController.get_document_keys"];
+        get: operations["RefMDWeb.DocumentKeyController.get_document_keys"];
         put?: never;
         /** Register a DEK for a document */
-        post: operations["RefMDWeb.EncryptionController.create_document_key"];
+        post: operations["RefMDWeb.DocumentKeyController.create_document_key"];
         delete?: never;
         options?: never;
         head?: never;
@@ -570,7 +570,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Start KEK rotation for a workspace (manual trigger) */
-        post: operations["RefMDWeb.EncryptionController.start_kek_rotation"];
+        post: operations["RefMDWeb.KekRotationController.start_kek_rotation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -638,7 +638,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Complete KEK rotation for a workspace */
-        post: operations["RefMDWeb.EncryptionController.complete_kek_rotation"];
+        post: operations["RefMDWeb.KekRotationController.complete_kek_rotation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -725,7 +725,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Verify password reset token and create session */
-        post: operations["RefMDWeb.AuthController.password_reset_verify"];
+        post: operations["RefMDWeb.PasswordController.password_reset_verify"];
         delete?: never;
         options?: never;
         head?: never;
@@ -862,10 +862,10 @@ export interface paths {
             cookie?: never;
         };
         /** Get distributed UMK for a device */
-        get: operations["RefMDWeb.EncryptionController.get_umk"];
+        get: operations["RefMDWeb.UmkController.get_umk"];
         put?: never;
         /** Distribute UMK to a device (existing device sends) */
-        post: operations["RefMDWeb.EncryptionController.distribute_umk"];
+        post: operations["RefMDWeb.UmkController.distribute_umk"];
         delete?: never;
         options?: never;
         head?: never;
@@ -886,7 +886,7 @@ export interface paths {
         options?: never;
         head?: never;
         /** Change password (PoP required) */
-        patch: operations["RefMDWeb.AuthController.change_password"];
+        patch: operations["RefMDWeb.PasswordController.change_password"];
         trace?: never;
     };
     "/api/workspaces/ids": {
@@ -914,7 +914,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get own member envelope for KEK recovery */
-        get: operations["RefMDWeb.EncryptionController.get_member_envelope"];
+        get: operations["RefMDWeb.KekRotationController.get_member_envelope"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1897,7 +1897,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.regenerate_recovery_key": {
+    "RefMDWeb.PasswordController.regenerate_recovery_key": {
         parameters: {
             query?: never;
             header?: never;
@@ -2014,7 +2014,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.save_member_envelopes": {
+    "RefMDWeb.KekRotationController.save_member_envelopes": {
         parameters: {
             query?: never;
             header?: never;
@@ -2265,7 +2265,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.password_reset_request": {
+    "RefMDWeb.PasswordController.password_reset_request": {
         parameters: {
             query?: never;
             header?: never;
@@ -2380,7 +2380,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.password_set": {
+    "RefMDWeb.PasswordController.password_set": {
         parameters: {
             query?: never;
             header?: never;
@@ -2591,7 +2591,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.get_document_keys": {
+    "RefMDWeb.DocumentKeyController.get_document_keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -2631,7 +2631,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.create_document_key": {
+    "RefMDWeb.DocumentKeyController.create_document_key": {
         parameters: {
             query?: never;
             header?: never;
@@ -3423,7 +3423,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.start_kek_rotation": {
+    "RefMDWeb.KekRotationController.start_kek_rotation": {
         parameters: {
             query?: never;
             header?: never;
@@ -3557,7 +3557,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.complete_kek_rotation": {
+    "RefMDWeb.KekRotationController.complete_kek_rotation": {
         parameters: {
             query?: never;
             header?: never;
@@ -3889,7 +3889,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.password_reset_verify": {
+    "RefMDWeb.PasswordController.password_reset_verify": {
         parameters: {
             query?: never;
             header?: never;
@@ -4288,7 +4288,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.get_umk": {
+    "RefMDWeb.UmkController.get_umk": {
         parameters: {
             query?: never;
             header?: never;
@@ -4328,7 +4328,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.distribute_umk": {
+    "RefMDWeb.UmkController.distribute_umk": {
         parameters: {
             query?: never;
             header?: never;
@@ -4382,7 +4382,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.change_password": {
+    "RefMDWeb.PasswordController.change_password": {
         parameters: {
             query?: never;
             header?: never;
@@ -4445,7 +4445,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.get_member_envelope": {
+    "RefMDWeb.KekRotationController.get_member_envelope": {
         parameters: {
             query?: never;
             header?: never;

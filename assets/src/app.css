@@ -161,7 +161,6 @@
 
 :root {
   --radius: 0.625rem;
-
   --glass-shadow-outline-heavy: 0 0 0 1px rgba(15, 23, 42, 0.2);
   --glass-shadow-outline-faint: 0 0 0 1px rgba(15, 23, 42, 0.06);
   --glass-shadow-inset: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
@@ -226,6 +225,47 @@
   --tone-warning-description: #b45309;
   --tone-warning-icon-fg: #b45309;
   --tone-warning-title: #b45309;
+  --glass-radiant-warning: rgba(254, 243, 199, 0.9);
+  --glass-toast-warning: rgba(254, 243, 199, 0.9);
+  --tone-destructive-bar: rgba(239, 68, 68, 0.7);
+  --tone-destructive-bg: rgba(239, 68, 68, 0.08);
+  --tone-destructive-border: rgba(239, 68, 68, 0.45);
+  --tone-destructive-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(239, 68, 68, 0.5),
+    transparent
+  );
+  --tone-destructive-icon-bg: rgba(239, 68, 68, 0.15);
+  --tone-destructive-icon-border: rgba(239, 68, 68, 0.5);
+  --tone-info-bar: rgba(56, 189, 248, 0.7);
+  --tone-info-bg: rgba(14, 165, 233, 0.1);
+  --tone-info-border: rgba(14, 165, 233, 0.4);
+  --tone-info-gradient: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.5), transparent);
+  --tone-info-icon-bg: rgba(14, 165, 233, 0.15);
+  --tone-info-icon-border: rgba(56, 189, 248, 0.5);
+  --tone-success-bar: rgba(52, 211, 153, 0.7);
+  --tone-success-bg: rgba(16, 185, 129, 0.1);
+  --tone-success-border: rgba(16, 185, 129, 0.4);
+  --tone-success-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(52, 211, 153, 0.5),
+    transparent
+  );
+  --tone-success-icon-bg: rgba(16, 185, 129, 0.15);
+  --tone-success-icon-border: rgba(52, 211, 153, 0.5);
+  --tone-warning-bar: rgba(251, 191, 36, 0.7);
+  --tone-warning-bg: rgba(245, 158, 11, 0.1);
+  --tone-warning-border: rgba(245, 158, 11, 0.4);
+  --tone-warning-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(251, 191, 36, 0.5),
+    transparent
+  );
+  --tone-warning-icon-bg: rgba(245, 158, 11, 0.15);
+  --tone-warning-icon-border: rgba(251, 191, 36, 0.5);
 }
 
 :root,
@@ -262,7 +302,6 @@
 
 .dark {
   color-scheme: dark;
-
   --glass-shadow-card: 0 0 10px rgba(0, 0, 0, 0.45);
   --glass-shadow-card-dark: 0 0 10px rgba(0, 0, 0, 0.45);
   --glass-shadow-card-inner-light: var(--glass-shadow-card-inner-dark);

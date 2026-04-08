@@ -2672,7 +2672,7 @@
     "/api/auth/recovery-key": {
       "put": {
         "callbacks": {},
-        "operationId": "RefMDWeb.AuthController.regenerate_recovery_key",
+        "operationId": "RefMDWeb.PasswordController.regenerate_recovery_key",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2817,7 +2817,7 @@
     "/api/encryption/workspaces/{workspace_id}/member-envelopes": {
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.save_member_envelopes",
+        "operationId": "RefMDWeb.KekRotationController.save_member_envelopes",
         "parameters": [
           {
             "description": "",
@@ -3130,7 +3130,7 @@
     "/api/auth/password-reset/request": {
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.AuthController.password_reset_request",
+        "operationId": "RefMDWeb.PasswordController.password_reset_request",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3265,7 +3265,7 @@
     "/api/auth/password-set": {
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.AuthController.password_set",
+        "operationId": "RefMDWeb.PasswordController.password_set",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3522,7 +3522,7 @@
     "/api/encryption/documents/{document_id}/keys": {
       "get": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.get_document_keys",
+        "operationId": "RefMDWeb.DocumentKeyController.get_document_keys",
         "parameters": [
           {
             "description": "",
@@ -3571,7 +3571,7 @@
       },
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.create_document_key",
+        "operationId": "RefMDWeb.DocumentKeyController.create_document_key",
         "parameters": [
           {
             "description": "",
@@ -4577,7 +4577,7 @@
     "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.start_kek_rotation",
+        "operationId": "RefMDWeb.KekRotationController.start_kek_rotation",
         "parameters": [
           {
             "description": "",
@@ -4742,7 +4742,7 @@
     "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.complete_kek_rotation",
+        "operationId": "RefMDWeb.KekRotationController.complete_kek_rotation",
         "parameters": [
           {
             "description": "",
@@ -5188,7 +5188,7 @@
     "/api/auth/password-reset/verify": {
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.AuthController.password_reset_verify",
+        "operationId": "RefMDWeb.PasswordController.password_reset_verify",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -5721,7 +5721,7 @@
     "/api/devices/{device_id}/keys/umk": {
       "get": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.get_umk",
+        "operationId": "RefMDWeb.UmkController.get_umk",
         "parameters": [
           {
             "description": "",
@@ -5770,7 +5770,7 @@
       },
       "post": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.distribute_umk",
+        "operationId": "RefMDWeb.UmkController.distribute_umk",
         "parameters": [
           {
             "description": "",
@@ -5842,7 +5842,7 @@
     "/api/auth/password": {
       "patch": {
         "callbacks": {},
-        "operationId": "RefMDWeb.AuthController.change_password",
+        "operationId": "RefMDWeb.PasswordController.change_password",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -5915,7 +5915,7 @@
     "/api/encryption/workspaces/{workspace_id}/member-envelope": {
       "get": {
         "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.get_member_envelope",
+        "operationId": "RefMDWeb.KekRotationController.get_member_envelope",
         "parameters": [
           {
             "description": "",

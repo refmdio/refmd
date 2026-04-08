@@ -4,7 +4,7 @@
 
 import type { CryptoRequest, CryptoResponse, CryptoErrorCode } from "./types";
 import { createInitialState } from "./state";
-import { handleRequest } from "./handler";
+import { handleRequest } from "./handler/index";
 import { CryptoOperationError } from "./operation-error";
 
 // In a Dedicated Worker, `self` is DedicatedWorkerGlobalScope.

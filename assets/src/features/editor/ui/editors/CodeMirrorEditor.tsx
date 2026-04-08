@@ -1,21 +1,31 @@
 import { createEffect, onCleanup } from "solid-js";
-import { EditorState, Compartment, type Transaction } from "@codemirror/state";
-import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
+import { EditorState, Compartment, type Extension } from "@codemirror/state";
+import {
+  EditorView,
+  ViewPlugin,
+  drawSelection,
+  dropCursor,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  keymap,
+  lineNumbers,
+} from "@codemirror/view";
 import type { ViewUpdate } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags } from "@lezer/highlight";
-import { basicSetup } from "codemirror";
-import { yCollab, ySyncFacet } from "y-codemirror.next";
-import * as Y from "yjs";
 import {
-  acquireYDoc,
-  releaseYDoc,
-  onScrollSync,
-  emitScrollSync,
-} from "../../lib/document-state-cache";
-import { registerEditor, unregisterEditor } from "../../lib/editor-api";
-import { EditorApi } from "../../lib/editor-api-impl";
+  HighlightStyle,
+  bracketMatching,
+  indentOnInput,
+  syntaxHighlighting,
+} from "@codemirror/language";
+import { tags } from "@lezer/highlight";
+import { yCollab, ySyncFacet, yUndoManagerKeymap } from "y-codemirror.next";
+import * as Y from "yjs";
+import { acquireYDoc, releaseYDoc } from "../../model/document-state/lifecycle";
+import { emitScrollSync, onScrollSync } from "../../model/document-state/scroll";
+import { registerEditor, unregisterEditor } from "../../model/editor-api";
+import { EditorApi } from "../../model/codemirror-editor-api";
 import "./codemirror-cursors.css";
 
 interface ThemeColors {
@@ -114,35 +124,25 @@ function isDarkMode(): boolean {
   return document.documentElement.classList.contains("dark");
 }
 
-function localEditNotifier(onLocalEdit: () => void) {
-  const isLocalUserEdit = (tr: Transaction): boolean => {
-    if (!tr.docChanged) return false;
-    return (
-      tr.isUserEvent("input") ||
-      tr.isUserEvent("delete") ||
-      tr.isUserEvent("move") ||
-      tr.isUserEvent("undo") ||
-      tr.isUserEvent("redo")
-    );
-  };
-
-  return ViewPlugin.fromClass(
-    class {
-      update(update: ViewUpdate) {
-        if (!update.docChanged) return;
-        if (update.transactions.some(isLocalUserEdit)) {
-          onLocalEdit();
-        }
-      }
-    },
-  );
+function createBaseExtensions(): Extension[] {
+  return [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    highlightSpecialChars(),
+    drawSelection(),
+    dropCursor(),
+    EditorState.allowMultipleSelections.of(true),
+    indentOnInput(),
+    bracketMatching(),
+    highlightActiveLine(),
+    keymap.of(yUndoManagerKeymap),
+  ];
 }
 
 interface CodeMirrorEditorProps {
   documentId: string;
   panelId: string;
   scrollGroupId?: string;
-  onLocalEdit?: () => void;
   onDocChange?: () => void;
   onEditorPaste?: (evt: ClipboardEvent) => void;
   onEditorDrop?: (evt: DragEvent) => void;
@@ -181,12 +181,13 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     const { yDoc, awareness } = acquireYDoc(documentId);
     activeDocumentId = documentId;
     const yText = yDoc.getText("content");
+    const undoManager = new Y.UndoManager(yText);
     const dark = isDarkMode();
 
     const startState = EditorState.create({
       doc: yText.toString(),
       extensions: [
-        basicSetup,
+        ...createBaseExtensions(),
         markdown(),
         themeCompartment.of([
           dark ? darkTheme : lightTheme,
@@ -194,9 +195,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         ]),
         editableCompartment.of(EditorView.editable.of(!props.readOnly)),
         yCollab(yText, awareness, {
-          undoManager: new Y.UndoManager(yText),
+          undoManager,
         }),
-        localEditNotifier(() => props.onLocalEdit?.()),
         ViewPlugin.fromClass(
           class {
             update(update: ViewUpdate) {
@@ -226,7 +226,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       },
     });
 
-    registerEditor(props.panelId, new EditorApi(view));
+    registerEditor(props.panelId, new EditorApi(view, undoManager));
 
     view.contentDOM.addEventListener("paste", (e) => props.onEditorPaste?.(e));
     view.contentDOM.addEventListener("drop", (e) => props.onEditorDrop?.(e));

@@ -6,6 +6,7 @@ import {
   createDocument,
   openDocument,
   collectErrors,
+  expectEditorTextContains,
 } from "./helpers";
 
 let sharedPage: Page;
@@ -43,7 +44,9 @@ test.describe.serial("Cross-Session Persistence", () => {
   test("login with same credentials reaches dashboard", async () => {
     test.setTimeout(180_000);
     await login(sharedPage, email);
-    await expect(sharedPage).toHaveURL(/dashboard/, { timeout: 10_000 });
+    await expect(sharedPage.getByRole("button", { name: "New Document" })).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   // XSESS-04
@@ -59,8 +62,7 @@ test.describe.serial("Cross-Session Persistence", () => {
     test.setTimeout(30_000);
     await openDocument(sharedPage, "Persist Doc");
 
-    const text = await sharedPage.locator(".cm-content").textContent();
-    expect(text).toContain("Cross-session content");
+    await expectEditorTextContains(sharedPage, "Cross-session content", 10_000);
   });
 
   // XSESS-06
@@ -68,7 +70,7 @@ test.describe.serial("Cross-Session Persistence", () => {
     test.setTimeout(60_000);
 
     const errors = await collectErrors(sharedPage, async () => {
-      const editor = sharedPage.locator(".cm-content");
+      const editor = sharedPage.locator(".cm-content, .ProseMirror").first();
       await editor.click();
       await sharedPage.keyboard.press("End");
       await sharedPage.keyboard.press("Enter");

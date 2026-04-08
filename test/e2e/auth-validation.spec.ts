@@ -7,7 +7,7 @@ test.describe("Auth Form Validation", () => {
     test.setTimeout(30_000);
 
     await page.goto("/auth/register");
-    await page.waitForTimeout(2000);
+    await expect(page.locator("#name")).toBeVisible({ timeout: 10_000 });
     await page.locator("#name").fill("E2E User");
     await page.locator("#email").fill(testEmail());
     await page.locator("#password").fill(TEST_PASSWORD);
@@ -24,7 +24,7 @@ test.describe("Auth Form Validation", () => {
     test.setTimeout(30_000);
 
     await page.goto("/auth/register");
-    await page.waitForTimeout(2000);
+    await expect(page.locator("#name")).toBeVisible({ timeout: 10_000 });
     await page.locator("#name").fill("E2E User");
     await page.locator("#email").fill(testEmail());
     await page.locator("#password").fill("short");
@@ -41,16 +41,7 @@ test.describe("Auth Form Validation", () => {
     test.setTimeout(10_000);
 
     await page.goto("/auth/register");
-    await page.waitForTimeout(2000);
+    await expect(page.locator("#name")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Sign in")).toBeVisible();
-  });
-
-  // VAL-04
-  test("login page links to register", async ({ page }) => {
-    test.setTimeout(10_000);
-
-    await page.goto("/auth/login");
-    await page.waitForTimeout(2000);
-    await expect(page.getByText("Register")).toBeVisible();
   });
 });

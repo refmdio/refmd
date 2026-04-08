@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, createDocument, openDocument } from "./helpers";
+import { expectEditorTextContains, registerAccount, createDocument, openDocument } from "./helpers";
 
 let sharedPage: Page;
 
@@ -58,8 +58,7 @@ test.describe.serial("Editor Modes", () => {
   // MODE-04
   test("content preserved after switching to WYSIWYG", async () => {
     test.setTimeout(10_000);
-    const text = await sharedPage.locator(".ProseMirror").textContent();
-    expect(text).toContain("Hello from Markdown");
+    await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
   });
 
   // MODE-05
@@ -102,8 +101,9 @@ test.describe.serial("Editor Modes", () => {
 
   // MODE-07
   test("content preserved through all mode switches", async () => {
-    test.setTimeout(10_000);
-    const text = await sharedPage.locator(".cm-content").textContent();
-    expect(text).toContain("Hello from Markdown");
+    test.setTimeout(30_000);
+    await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
+    await openDocument(sharedPage, "Mode Test Doc");
+    await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
   });
 });

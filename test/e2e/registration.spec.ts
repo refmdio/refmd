@@ -1,42 +1,34 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { TEST_PASSWORD, testEmail } from "./helpers";
+
+async function reachRecoveryKey(page: Page, email = testEmail()) {
+  await page.goto("/auth/register");
+  await page.locator("#name").fill("E2E User");
+  await page.locator("#email").fill(email);
+  await page.locator("#password").fill(TEST_PASSWORD);
+  await page.locator("#confirm-password").fill(TEST_PASSWORD);
+  await page.locator('button[type="submit"]').click();
+
+  await expect(page.getByText("Recovery Key", { exact: true })).toBeVisible({
+    timeout: 120_000,
+  });
+
+  return email;
+}
 
 test.describe("Account Registration", () => {
   // REG-01
   test("Argon2 derivation completes and recovery key screen appears", async ({ page }) => {
     test.setTimeout(180_000);
 
-    const email = testEmail();
-    await page.goto("/");
-    await page.getByText("Create Account").click();
-    await page.locator("#name").fill("E2E User");
-    await page.locator("#email").fill(email);
-    await page.locator("#password").fill(TEST_PASSWORD);
-    await page.locator("#confirm-password").fill(TEST_PASSWORD);
-    await page.locator('button[type="submit"]').click();
-
-    await expect(page.getByText("Recovery Key", { exact: true })).toBeVisible({
-      timeout: 120_000,
-    });
+    await reachRecoveryKey(page);
   });
 
   // REG-02
   test("recovery key displays 24 words", async ({ page }) => {
     test.setTimeout(180_000);
 
-    const email = testEmail();
-    await page.goto("/");
-    await page.getByText("Create Account").click();
-    await page.locator("#name").fill("E2E User");
-    await page.locator("#email").fill(email);
-    await page.locator("#password").fill(TEST_PASSWORD);
-    await page.locator("#confirm-password").fill(TEST_PASSWORD);
-    await page.locator('button[type="submit"]').click();
-
-    await expect(page.getByText("Recovery Key", { exact: true })).toBeVisible({
-      timeout: 120_000,
-    });
-
+    await reachRecoveryKey(page);
     await expect(page.getByText("24 words")).toBeVisible({ timeout: 5_000 });
   });
 
@@ -44,18 +36,7 @@ test.describe("Account Registration", () => {
   test("show/hide toggle reveals and hides recovery words", async ({ page }) => {
     test.setTimeout(180_000);
 
-    const email = testEmail();
-    await page.goto("/");
-    await page.getByText("Create Account").click();
-    await page.locator("#name").fill("E2E User");
-    await page.locator("#email").fill(email);
-    await page.locator("#password").fill(TEST_PASSWORD);
-    await page.locator("#confirm-password").fill(TEST_PASSWORD);
-    await page.locator('button[type="submit"]').click();
-
-    await expect(page.getByText("Recovery Key", { exact: true })).toBeVisible({
-      timeout: 120_000,
-    });
+    await reachRecoveryKey(page);
 
     // Words should be hidden by default (masked as "------")
     await expect(page.getByText("------").first()).toBeVisible({ timeout: 5_000 });
@@ -79,18 +60,7 @@ test.describe("Account Registration", () => {
   test("download button downloads recovery key file", async ({ page }) => {
     test.setTimeout(180_000);
 
-    const email = testEmail();
-    await page.goto("/");
-    await page.getByText("Create Account").click();
-    await page.locator("#name").fill("E2E User");
-    await page.locator("#email").fill(email);
-    await page.locator("#password").fill(TEST_PASSWORD);
-    await page.locator("#confirm-password").fill(TEST_PASSWORD);
-    await page.locator('button[type="submit"]').click();
-
-    await expect(page.getByText("Recovery Key", { exact: true })).toBeVisible({
-      timeout: 120_000,
-    });
+    await reachRecoveryKey(page);
 
     const [download] = await Promise.all([
       page.waitForEvent("download"),
@@ -104,18 +74,7 @@ test.describe("Account Registration", () => {
   test("continue is disabled until key is backed up, then reaches dashboard", async ({ page }) => {
     test.setTimeout(180_000);
 
-    const email = testEmail();
-    await page.goto("/");
-    await page.getByText("Create Account").click();
-    await page.locator("#name").fill("E2E User");
-    await page.locator("#email").fill(email);
-    await page.locator("#password").fill(TEST_PASSWORD);
-    await page.locator("#confirm-password").fill(TEST_PASSWORD);
-    await page.locator('button[type="submit"]').click();
-
-    await expect(page.getByText("Recovery Key", { exact: true })).toBeVisible({
-      timeout: 120_000,
-    });
+    await reachRecoveryKey(page);
 
     // Continue should be disabled before backup
     const continueBtn = page.getByRole("button", { name: "Continue" });

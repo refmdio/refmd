@@ -1,5 +1,7 @@
 import { type JSX, splitProps } from "solid-js";
+
 import { cn } from "@/shared/lib/utils";
+
 function Card(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
@@ -13,6 +15,7 @@ function Card(props: JSX.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
+
 function CardHeader(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
@@ -26,6 +29,7 @@ function CardHeader(props: JSX.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
+
 function CardTitle(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
@@ -36,6 +40,7 @@ function CardTitle(props: JSX.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
+
 function CardDescription(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
@@ -46,8 +51,35 @@ function CardDescription(props: JSX.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
+
+function CardAction(props: JSX.HTMLAttributes<HTMLDivElement>) {
+  const [local, rest] = splitProps(props, ["class"]);
+  return (
+    <div
+      data-slot="card-action"
+      class={cn("col-start-2 row-span-2 row-start-1 self-start justify-self-end", local.class)}
+      {...rest}
+    />
+  );
+}
+
 function CardContent(props: JSX.HTMLAttributes<HTMLDivElement>) {
   const [local, rest] = splitProps(props, ["class"]);
   return <div data-slot="card-content" class={cn("px-6 py-6", local.class)} {...rest} />;
 }
-export { Card, CardHeader, CardTitle, CardDescription, CardContent };
+
+function CardFooter(props: JSX.HTMLAttributes<HTMLDivElement>) {
+  const [local, rest] = splitProps(props, ["class"]);
+  return (
+    <div
+      data-slot="card-footer"
+      class={cn(
+        "flex items-center justify-between gap-3 border-t border-border px-6 py-4 text-muted-foreground",
+        local.class,
+      )}
+      {...rest}
+    />
+  );
+}
+
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent };

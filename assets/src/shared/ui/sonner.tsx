@@ -12,16 +12,14 @@ import { Toaster as Sonner } from "solid-sonner";
 import { CheckCheck, Info, TriangleAlert } from "lucide-solid";
 
 import { cn } from "@/shared/lib/utils";
-import { getCspNonce } from "@/shared/lib/csp-nonce";
 import { toneVarDefaults, toneVarOverrides } from "@/shared/lib/tone";
 
 type ToasterProps = ComponentProps<typeof Sonner>;
 
 const toastBaseClass = cn(
   toneVarDefaults,
-  "group/toast relative grid min-w-[20rem] max-w-[420px] grid-cols-[auto_1fr] items-start gap-x-4 gap-y-3 overflow-hidden rounded-none border border-[color:var(--tone-border)] px-6 py-5 text-sm text-[color:var(--tone-body)] shadow-[var(--glass-shadow-outline)] backdrop-blur-[12px] transition-colors",
+  "group/toast relative grid min-w-[20rem] max-w-[420px] grid-cols-[auto_1fr] items-start gap-x-4 gap-y-3 overflow-hidden rounded-none border border-[color:var(--tone-border)] bg-[image:var(--tone-gradient)] bg-no-repeat bg-[length:100%_1px] bg-[position:0_0] px-6 py-5 text-sm text-[color:var(--tone-body)] shadow-[var(--glass-shadow-outline)] backdrop-blur-[12px] transition-colors",
   "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-full before:bg-[color:var(--tone-bar)] before:content-['']",
-  "after:absolute after:inset-x-0 after:top-0 after:h-px after:bg-[image:var(--tone-gradient)] after:bg-no-repeat after:bg-[length:100%_100%] after:content-['']",
 );
 
 const toastVariants = {
@@ -90,6 +88,13 @@ const toastToneCSS = `
 }
 `;
 
+const toastIcons: Record<string, JSX.Element> = {
+  success: <CheckCheck class="size-3.5" />,
+  info: <Info class="size-3.5" />,
+  warning: <TriangleAlert class="size-3.5" />,
+  error: <TriangleAlert class="size-3.5" />,
+};
+
 function useResolvedTheme(): () => "light" | "dark" | "system" {
   const initial =
     typeof document !== "undefined"
@@ -120,18 +125,12 @@ function useResolvedTheme(): () => "light" | "dark" | "system" {
 const Toaster: Component<ToasterProps> = (props) => {
   const [local, rest] = splitProps(props, ["theme", "class", "style", "icons", "toastOptions"]);
   const resolvedTheme = useResolvedTheme();
-  const toastIcons = () => ({
-    success: (<CheckCheck class="size-3.5" />) as unknown as JSX.Element,
-    info: (<Info class="size-3.5" />) as unknown as JSX.Element,
-    warning: (<TriangleAlert class="size-3.5" />) as unknown as JSX.Element,
-    error: (<TriangleAlert class="size-3.5" />) as unknown as JSX.Element,
-  });
 
   const userClasses = () => local.toastOptions?.classes ?? {};
 
   return (
     <>
-      <style nonce={getCspNonce()}>{toastToneCSS}</style>
+      <style>{toastToneCSS}</style>
       <Sonner
         theme={local.theme ?? resolvedTheme()}
         class={cn("toaster group", local.class)}
@@ -145,7 +144,7 @@ const Toaster: Component<ToasterProps> = (props) => {
           "--offset-left": "var(--offset, 32px)",
           ...(typeof local.style === "object" ? local.style : {}),
         }}
-        icons={{ ...toastIcons(), ...local.icons }}
+        icons={{ ...toastIcons, ...local.icons }}
         toastOptions={{
           ...local.toastOptions,
           unstyled: true,

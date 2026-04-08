@@ -1,4 +1,4 @@
-import type { App } from "@/shared/lib/app-context";
+import type { App } from "@/shared/lib/workspace/app";
 import type { EventRef } from "@/shared/lib/events";
 
 let currentApp: App | null = null;

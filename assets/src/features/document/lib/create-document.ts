@@ -4,7 +4,8 @@ import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
 import { injectDecryptedTitle } from "@/entities/document";
-import { getApp } from "@/shared/lib/app-context";
+import { getDocumentEvents } from "@/shared/lib/document/manager";
+
 class DocumentKeyPersistenceError extends Error {
   constructor() {
     super("Failed to persist document encryption key");
@@ -78,6 +79,22 @@ export async function createDocument(
     await ensureDocumentKeyPersisted(documentId, keyBody.key_version);
   }
   injectDecryptedTitle(documentId, title, base64UrlEncode(titleNonce));
-  getApp().documentEvents.notifyDocumentCreate(documentId);
+  getDocumentEvents().notifyDocumentCreate(documentId);
   return documentId;
+}
+
+export async function createDocumentWithOfflineFallback(
+  createOffline: (workspaceId: string, parentId: string | null, title?: string) => Promise<string>,
+  workspaceId: string,
+  title: string,
+  parentId: string | null,
+): Promise<string> {
+  try {
+    return await createDocument(workspaceId, title, parentId);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return createOffline(workspaceId, parentId, title);
+    }
+    throw error;
+  }
 }

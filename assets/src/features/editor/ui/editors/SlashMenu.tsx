@@ -21,7 +21,7 @@ import {
   type SlashCommand,
   type SlashMenuState,
   type SlashCommandCategory,
-} from "../../lib/prosemirror/slash-commands";
+} from "../../lib/prosemirror/plugins/slash-commands";
 
 const ICON_MAP: Record<string, Component<LucideProps>> = {
   type: Type,

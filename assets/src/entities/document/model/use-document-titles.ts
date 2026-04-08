@@ -6,8 +6,8 @@ import { encryptionApi } from "@/shared/api";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import type { TitleDecryptItem } from "@/shared/lib/crypto/worker/types";
 import type { DocumentResponse } from "./types";
-import { getOfflineDek } from "@/shared/lib/offline/offline-store";
-import { recoverKekFromCache, cacheOfflineTitle } from "@/shared/lib/offline/cache-manager";
+import { getOfflineDek } from "@/shared/lib/offline/storage/store";
+import { cacheOfflineTitle, recoverKekFromCache } from "@/shared/lib/offline/cache/manager/keys";
 
 const titleCache = new Map<string, { title: string; nonce: string | null }>();
 const pendingBatches = new Map<string, Promise<void>>();

@@ -1,4 +1,4 @@
-import { openIdb, idbConditionalPut, idbGet } from "@/shared/lib/idb";
+import { openIdb, idbConditionalPut, idbGet } from "@/shared/lib/storage/idb";
 
 const DB_NAME = "refmd-security";
 const DB_VERSION = 1;

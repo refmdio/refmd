@@ -1,13 +1,20 @@
-import { splitProps, type ParentProps } from "solid-js";
+import { splitProps, type ComponentProps, type JSX } from "solid-js";
 import * as CheckboxPrimitive from "@kobalte/core/checkbox";
 import { CheckIcon } from "lucide-solid";
+
+import { useOptionalFormControlProps } from "@/shared/lib/form-control";
 import { cn } from "@/shared/lib/utils";
 
-function Checkbox(props: ParentProps<{ class?: string; [key: string]: any }>) {
+function Checkbox(props: ComponentProps<typeof CheckboxPrimitive.Root>) {
   const [local, rest] = splitProps(props, ["class", "children", "id"]);
+  const formControlProps = useOptionalFormControlProps();
   return (
     <CheckboxPrimitive.Root data-slot="checkbox" {...rest}>
-      <CheckboxPrimitive.Input id={local.id} />
+      <CheckboxPrimitive.Input
+        id={local.id ?? formControlProps?.().id}
+        aria-describedby={formControlProps?.()["aria-describedby"]}
+        aria-invalid={formControlProps?.()["aria-invalid"]}
+      />
       <CheckboxPrimitive.Control
         onClick={(event) => event.preventDefault()}
         class={cn(
@@ -27,7 +34,7 @@ function Checkbox(props: ParentProps<{ class?: string; [key: string]: any }>) {
           <CheckIcon class="size-3.5" />
         </CheckboxPrimitive.Indicator>
       </CheckboxPrimitive.Control>
-      {local.children}
+      {local.children as JSX.Element}
     </CheckboxPrimitive.Root>
   );
 }

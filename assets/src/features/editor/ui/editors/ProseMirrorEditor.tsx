@@ -2,21 +2,17 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { EditorView } from "prosemirror-view";
 import { EditorState, type Plugin } from "prosemirror-state";
 import * as Y from "yjs";
-import {
-  acquireYDoc,
-  releaseYDoc,
-  onScrollSync,
-  emitScrollSync,
-} from "../../lib/document-state-cache";
-import { registerEditor, unregisterEditor } from "../../lib/editor-api";
-import { ProseMirrorEditorApi } from "../../lib/editor-api-impl";
+import { acquireYDoc, releaseYDoc } from "../../model/document-state/lifecycle";
+import { emitScrollSync, onScrollSync } from "../../model/document-state/scroll";
+import { registerEditor, unregisterEditor } from "../../model/editor-api";
+import { ProseMirrorEditorApi } from "../../model/prosemirror-editor-api";
 import { markdownSchema } from "../../lib/prosemirror/schema";
-import { setupCollabPlugins } from "../../lib/prosemirror/collab-plugins";
-import { buildCollabPlugins } from "../../lib/prosemirror/plugins";
-import { slashCommandsPlugin, INACTIVE } from "../../lib/prosemirror/slash-commands";
-import type { SlashMenuState, SlashCommand } from "../../lib/prosemirror/slash-commands";
-import { placeholderPlugin } from "../../lib/prosemirror/placeholder-plugin";
-import { blockHandlePlugin } from "../../lib/prosemirror/block-handle-plugin";
+import { buildCollabPlugins } from "../../lib/prosemirror/plugins/base";
+import { setupCollabPlugins } from "../../lib/prosemirror/plugins/collab";
+import { blockHandlePlugin } from "../../lib/prosemirror/plugins/block-handle";
+import { placeholderPlugin } from "../../lib/prosemirror/plugins/placeholder";
+import { INACTIVE, slashCommandsPlugin } from "../../lib/prosemirror/plugins/slash-commands";
+import type { SlashCommand, SlashMenuState } from "../../lib/prosemirror/plugins/slash-commands";
 import { SlashMenu } from "./SlashMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 
@@ -26,7 +22,6 @@ interface ProseMirrorEditorProps {
   documentId: string;
   panelId: string;
   scrollGroupId?: string;
-  onLocalEdit?: () => void;
   onDocChange?: () => void;
   onEditorPaste?: (evt: ClipboardEvent) => void;
   onEditorDrop?: (evt: DragEvent) => void;
@@ -108,9 +103,6 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
         if (tr.docChanged) {
           props.onDocChange?.();
-          if (!tr.getMeta("y-sync$")) {
-            props.onLocalEdit?.();
-          }
         }
 
         const ss = sp.getState(newState) as SlashMenuState | undefined;

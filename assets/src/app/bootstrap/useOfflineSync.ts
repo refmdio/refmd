@@ -2,9 +2,17 @@ import { createEffect, onCleanup } from "solid-js";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { getRateLimitRetryMs } from "@/shared/api";
 import { cryptoWorkerReady, getKekResolverSession } from "@/entities/session";
+import { documentEvents } from "@/app/bootstrap/document-manager";
+import {
+  buildDeviceKeyCaches,
+  syncOfflineCreatedDocuments,
+  syncPendingDocuments,
+} from "@/features/editor";
+import type { EventRef } from "@/shared/lib/events";
 
 export function useOfflineSync(): void {
   let bgCacheCleanup: (() => void) | null = null;
+  let documentCreateRef: EventRef | null = null;
   let offlineWatchCleanup: (() => void) | null = null;
   let offlineWatchPending = false;
   let offlineSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -51,8 +59,6 @@ export function useOfflineSync(): void {
       await waitForGlobalRateLimit();
       if (!isCurrentRun(workspaceId, generation)) return;
 
-      const { buildDeviceKeyCaches, syncOfflineCreatedDocuments, syncPendingDocuments } =
-        await import("@/features/editor");
       await syncOfflineCreatedDocuments(workspaceId).catch(() => {
         // Per-document failures stay queued in IndexedDB, so dropping this aggregate rejection is
         // safe: the next scheduled sync run will retry the unsynced offline-created documents.
@@ -63,7 +69,7 @@ export function useOfflineSync(): void {
       if (!isCurrentRun(workspaceId, generation)) return;
 
       stopBackgroundCaching();
-      const { startBackgroundCaching } = await import("@/shared/lib/offline/background-cache");
+      const { startBackgroundCaching } = await import("@/shared/lib/offline/cache/background");
       if (!isCurrentRun(workspaceId, generation)) return;
       bgCacheCleanup = startBackgroundCaching(
         workspaceId,
@@ -115,6 +121,12 @@ export function useOfflineSync(): void {
       });
   }
 
+  if (!documentCreateRef) {
+    documentCreateRef = documentEvents.on("document-create", () => {
+      scheduleOfflineSync(1_000);
+    });
+  }
+
   createEffect(() => {
     const workspaceId = currentWorkspaceId();
     const workerReady = cryptoWorkerReady();
@@ -136,6 +148,10 @@ export function useOfflineSync(): void {
     offlineSyncQueued = false;
     clearOfflineSyncTimer();
     stopBackgroundCaching();
+    if (documentCreateRef) {
+      documentEvents.offref(documentCreateRef);
+      documentCreateRef = null;
+    }
     offlineWatchCleanup?.();
     offlineWatchCleanup = null;
   });

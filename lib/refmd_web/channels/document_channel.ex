@@ -11,7 +11,7 @@ defmodule RefMDWeb.DocumentChannel do
   alias RefMD.Documents
   alias RefMD.Documents.Server, as: DocumentServer
   alias RefMD.Workspaces
-  alias RefMDWeb.{DocumentConnectionManager, TokenBucket}
+  alias RefMDWeb.{DocumentConnectionManager, DocumentEnvelope, TokenBucket}
   alias RefMDWeb.Plugs.RequireRBAC
 
   @ephemeral_rate 10.0
@@ -126,9 +126,10 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   def handle_in("update", payload, socket) do
-    with {:ok, parsed} <- parse_update_envelope(payload, socket),
-         :ok <- verify_envelope_signature("refmd_update", payload, parsed, socket),
-         :ok <- verify_update_hash(parsed, socket),
+    with {:ok, parsed} <- DocumentEnvelope.parse_update_envelope(payload, socket),
+         :ok <-
+           DocumentEnvelope.verify_envelope_signature("refmd_update", payload, parsed, socket),
+         :ok <- DocumentEnvelope.verify_update_hash(parsed, socket),
          :ok <- validate_device_active(socket) do
       result =
         Documents.save_update(
@@ -156,8 +157,9 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   def handle_in("snapshot", payload, socket) do
-    with {:ok, parsed} <- parse_snapshot_envelope(payload, socket),
-         :ok <- verify_envelope_signature("refmd_snapshot", payload, parsed, socket),
+    with {:ok, parsed} <- DocumentEnvelope.parse_snapshot_envelope(payload, socket),
+         :ok <-
+           DocumentEnvelope.verify_envelope_signature("refmd_snapshot", payload, parsed, socket),
          :ok <- validate_device_active(socket) do
       result =
         Documents.save_snapshot(
@@ -197,7 +199,7 @@ defmodule RefMDWeb.DocumentChannel do
         {:error, reason, recovery}
         when reason in [:parent_mismatch, :clocks_mismatch, :key_version_too_old] ->
           failure_data =
-            build_snapshot_failure(
+            DocumentEnvelope.build_snapshot_failure(
               recovery,
               socket.assigns.document_id,
               parsed.public_data["parentSnapshotId"]
@@ -208,7 +210,7 @@ defmodule RefMDWeb.DocumentChannel do
 
         {:error, :serialization_conflict, recovery} ->
           failure_data =
-            build_snapshot_failure(
+            DocumentEnvelope.build_snapshot_failure(
               recovery,
               socket.assigns.document_id,
               parsed.public_data["parentSnapshotId"]
@@ -243,8 +245,14 @@ defmodule RefMDWeb.DocumentChannel do
       {:ok, bucket} ->
         socket = assign(socket, :ephemeral_bucket, bucket)
 
-        with {:ok, parsed} <- parse_ephemeral_envelope(payload, socket),
-             :ok <- verify_envelope_signature("refmd_ephemeral", payload, parsed, socket),
+        with {:ok, parsed} <- DocumentEnvelope.parse_ephemeral_envelope(payload, socket),
+             :ok <-
+               DocumentEnvelope.verify_envelope_signature(
+                 "refmd_ephemeral",
+                 payload,
+                 parsed,
+                 socket
+               ),
              :ok <- validate_device_active(socket),
              :ok <- check_ephemeral_rbac(socket) do
           broadcast_from(socket, "ephemeral-message", payload)
@@ -283,9 +291,9 @@ defmodule RefMDWeb.DocumentChannel do
     :ok
   end
 
+  # ── Connection Lifecycle ──────────────────────
+
   defp cleanup_on_terminate(%{assigns: %{document_id: _document_id, silent: true}} = _socket) do
-    # Silent connection cleanup: Presence auto-untracks on process exit,
-    # so no explicit decrement is needed.
     :ok
   end
 
@@ -305,6 +313,8 @@ defmodule RefMDWeb.DocumentChannel do
 
   defp silent_join?(%{"silent" => true}), do: true
   defp silent_join?(_params), do: false
+
+  # ── RBAC ──────────────────────────────────────
 
   defp check_ephemeral_rbac(socket) do
     case check_broadcast_rbac(socket) do
@@ -336,6 +346,24 @@ defmodule RefMDWeb.DocumentChannel do
       _ -> :skip
     end
   end
+
+  defp check_rbac(workspace_id, user_id) do
+    case Workspaces.get_member_with_role(workspace_id, user_id) do
+      nil ->
+        {:error, %{reason: "not_a_member"}}
+
+      {_member, role} ->
+        perms = RequireRBAC.effective_permissions(role)
+
+        if MapSet.member?(perms, "document:read") do
+          :ok
+        else
+          {:error, %{reason: "permission_denied"}}
+        end
+    end
+  end
+
+  # ── Join Helpers ──────────────────────────────
 
   defp subscribe_device_revocation(user_id) do
     Phoenix.PubSub.subscribe(RefMD.PubSub, "device_revocation:#{user_id}")
@@ -443,21 +471,7 @@ defmodule RefMDWeb.DocumentChannel do
     end
   end
 
-  defp check_rbac(workspace_id, user_id) do
-    case Workspaces.get_member_with_role(workspace_id, user_id) do
-      nil ->
-        {:error, %{reason: "not_a_member"}}
-
-      {_member, role} ->
-        perms = RequireRBAC.effective_permissions(role)
-
-        if MapSet.member?(perms, "document:read") do
-          :ok
-        else
-          {:error, %{reason: "permission_denied"}}
-        end
-    end
-  end
+  # ── Initial Data Loading ──────────────────────
 
   defp load_initial_data(document, params, workspace_id, user_id) do
     mode = params["mode"] || "complete"
@@ -484,8 +498,8 @@ defmodule RefMDWeb.DocumentChannel do
           )
 
         data = %{
-          snapshot: if(delta_same, do: nil, else: format_snapshot(snapshot)),
-          updates: Enum.map(updates, &format_update/1),
+          snapshot: if(delta_same, do: nil, else: DocumentEnvelope.format_snapshot(snapshot)),
+          updates: Enum.map(updates, &DocumentEnvelope.format_update/1),
           snapshotProofChain: proof_chain,
           latestVersion: latest_version
         }
@@ -519,226 +533,7 @@ defmodule RefMDWeb.DocumentChannel do
     end)
   end
 
-  # ── Formatters ─────────────────────────────────
-
-  defp format_snapshot(nil), do: nil
-
-  defp format_snapshot(snap) do
-    %{
-      ciphertext: Base.url_encode64(snap.data, padding: false),
-      nonce: Base.url_encode64(snap.nonce, padding: false),
-      signature: Base.url_encode64(snap.signature, padding: false),
-      publicData: %{
-        docId: snap.document_id,
-        snapshotId: snap.id,
-        deviceId: snap.device_id,
-        signingPubKey: snap.created_by_device,
-        keyVersion: snap.key_version,
-        parentSnapshotId: snap.parent_snapshot_id,
-        parentSnapshotProof: snap.parent_snapshot_proof,
-        parentSnapshotUpdateClocks: snap.parent_snapshot_update_clocks
-      }
-    }
-  end
-
-  defp format_update(update) do
-    base = %{
-      ciphertext: Base.url_encode64(update.update_data, padding: false),
-      nonce: Base.url_encode64(update.nonce, padding: false),
-      version: update.version,
-      publicData: %{
-        docId: update.document_id,
-        deviceId: update.device_id,
-        signingPubKey: update.device_signing_pub_key,
-        keyVersion: update.key_version,
-        refSnapshotId: update.snapshot_id,
-        clock: update.clock,
-        timestamp: update.timestamp,
-        updateHash: update.update_hash
-      }
-    }
-
-    if update.signature do
-      Map.put(base, :signature, Base.url_encode64(update.signature, padding: false))
-    else
-      Map.put(base, :mac, Base.url_encode64(update.mac, padding: false))
-    end
-  end
-
-  # ── Update/Snapshot Helpers ───────────────────
-
-  @update_public_data_keys ~w(docId deviceId signingPubKey clock keyVersion timestamp refSnapshotId updateHash)
-  @snapshot_public_data_keys ~w(docId deviceId signingPubKey snapshotId keyVersion parentSnapshotId parentSnapshotProof parentSnapshotUpdateClocks)
-  @ephemeral_public_data_keys ~w(docId deviceId signingPubKey)
-
-  defp parse_update_envelope(payload, socket) do
-    public_data = payload["publicData"]
-
-    with {:ok, _} <- validate_map(public_data, "publicData"),
-         :ok <- validate_exact_keys(public_data, @update_public_data_keys),
-         :ok <- validate_doc_id(public_data, socket),
-         :ok <- validate_signing_pub_key(public_data, socket),
-         :ok <- validate_device_id(public_data, socket),
-         :ok <- validate_integer_field(public_data, "clock"),
-         :ok <- validate_integer_field(public_data, "keyVersion"),
-         :ok <- validate_integer_field(public_data, "timestamp"),
-         :ok <- validate_uuid_field(public_data, "refSnapshotId"),
-         :ok <- validate_string_field(public_data, "updateHash"),
-         {:ok, ciphertext_raw} <- decode_field(payload, "ciphertext"),
-         {:ok, nonce_raw} <- decode_and_validate_nonce(payload),
-         {:ok, signature_raw} <- decode_field(payload, "signature") do
-      {:ok,
-       %{
-         ciphertext_raw: ciphertext_raw,
-         nonce_raw: nonce_raw,
-         signature_raw: signature_raw,
-         public_data: public_data
-       }}
-    end
-  end
-
-  defp parse_snapshot_envelope(payload, socket) do
-    public_data = payload["publicData"]
-
-    with {:ok, _} <- validate_map(public_data, "publicData"),
-         :ok <- validate_exact_keys(public_data, @snapshot_public_data_keys),
-         :ok <- validate_doc_id(public_data, socket),
-         :ok <- validate_signing_pub_key(public_data, socket),
-         :ok <- validate_device_id(public_data, socket),
-         :ok <- validate_uuid_field(public_data, "snapshotId"),
-         :ok <- validate_integer_field(public_data, "keyVersion"),
-         :ok <- validate_snapshot_lineage(public_data),
-         {:ok, ciphertext_raw} <- decode_field(payload, "ciphertext"),
-         {:ok, nonce_raw} <- decode_and_validate_nonce(payload),
-         {:ok, signature_raw} <- decode_field(payload, "signature") do
-      {:ok,
-       %{
-         ciphertext_raw: ciphertext_raw,
-         nonce_raw: nonce_raw,
-         signature_raw: signature_raw,
-         public_data: public_data
-       }}
-    end
-  end
-
-  defp validate_map(nil, name), do: {:error, "missing_#{name}"}
-  defp validate_map(m, _name) when is_map(m), do: {:ok, m}
-  defp validate_map(_, name), do: {:error, "invalid_#{name}"}
-
-  defp validate_exact_keys(public_data, allowed_keys) do
-    extra = Map.keys(public_data) -- allowed_keys
-
-    if extra == [] do
-      :ok
-    else
-      {:error, "unexpected_publicData_keys"}
-    end
-  end
-
-  defp validate_doc_id(public_data, socket) do
-    if public_data["docId"] == socket.assigns.document_id do
-      :ok
-    else
-      {:error, "doc_id_mismatch"}
-    end
-  end
-
-  defp validate_signing_pub_key(public_data, socket) do
-    if public_data["signingPubKey"] == socket.assigns.device_signing_pub_key do
-      :ok
-    else
-      {:error, "signing_pub_key_mismatch"}
-    end
-  end
-
-  defp validate_snapshot_lineage(public_data) do
-    with :ok <- validate_nullable_uuid_field(public_data, "parentSnapshotId"),
-         :ok <- validate_parent_snapshot_proof(public_data["parentSnapshotProof"]) do
-      validate_parent_snapshot_clocks(public_data["parentSnapshotUpdateClocks"])
-    end
-  end
-
-  defp validate_nullable_uuid_field(public_data, field) do
-    if Map.has_key?(public_data, field) do
-      validate_nullable_uuid_value(public_data[field], field)
-    else
-      {:error, "missing_#{field}"}
-    end
-  end
-
-  defp validate_nullable_uuid_value(nil, _field), do: :ok
-
-  defp validate_nullable_uuid_value(v, field) when is_binary(v) do
-    case Ecto.UUID.cast(v) do
-      {:ok, _} -> :ok
-      :error -> {:error, "invalid_#{field}"}
-    end
-  end
-
-  defp validate_nullable_uuid_value(_, field), do: {:error, "invalid_#{field}"}
-
-  defp validate_parent_snapshot_proof(proof) when is_binary(proof), do: :ok
-  defp validate_parent_snapshot_proof(_), do: {:error, "invalid_parentSnapshotProof"}
-
-  defp validate_parent_snapshot_clocks(clocks) when is_map(clocks) do
-    if Enum.all?(clocks, fn {_k, v} -> is_integer(v) end) do
-      :ok
-    else
-      {:error, "invalid_parentSnapshotUpdateClocks"}
-    end
-  end
-
-  defp validate_parent_snapshot_clocks(_), do: {:error, "invalid_parentSnapshotUpdateClocks"}
-
-  defp validate_string_field(public_data, field) do
-    case public_data[field] do
-      v when is_binary(v) -> :ok
-      nil -> {:error, "missing_#{field}"}
-      _ -> {:error, "invalid_#{field}"}
-    end
-  end
-
-  defp validate_uuid_field(public_data, field) do
-    case public_data[field] do
-      nil ->
-        {:error, "missing_#{field}"}
-
-      v when is_binary(v) ->
-        case Ecto.UUID.cast(v) do
-          {:ok, _} -> :ok
-          :error -> {:error, "invalid_#{field}"}
-        end
-
-      _ ->
-        {:error, "invalid_#{field}"}
-    end
-  end
-
-  defp validate_integer_field(public_data, field) do
-    case public_data[field] do
-      v when is_integer(v) -> :ok
-      nil -> {:error, "missing_#{field}"}
-      _ -> {:error, "invalid_#{field}"}
-    end
-  end
-
-  defp verify_envelope_signature(prefix, payload, parsed, socket) do
-    verified =
-      try do
-        RefMD.Crypto.verify_ws_envelope_signature(
-          prefix,
-          payload["ciphertext"],
-          payload["nonce"],
-          parsed.public_data,
-          parsed.signature_raw,
-          socket.assigns.device_signing_pub_key_raw
-        )
-      rescue
-        _ -> false
-      end
-
-    if verified, do: :ok, else: {:error, "signature_verification_failed"}
-  end
+  # ── Update/Snapshot Result Handlers ───────────
 
   defp validate_device_active(socket) do
     case Devices.get_device(socket.assigns.device_id) do
@@ -803,98 +598,6 @@ defmodule RefMDWeb.DocumentChannel do
 
     broadcast_envelope = Map.put(payload, "version", saved.version)
     broadcast_from(socket, "update", broadcast_envelope)
-  end
-
-  defp verify_update_hash(parsed, socket) do
-    claimed_hash = parsed.public_data["updateHash"]
-
-    params = %{
-      "clock" => parsed.public_data["clock"],
-      "device_signing_pub_key" => socket.assigns.device_signing_pub_key,
-      "document_id" => socket.assigns.document_id,
-      "encrypted_content" => Base.url_encode64(parsed.ciphertext_raw, padding: false),
-      "key_version" => parsed.public_data["keyVersion"],
-      "nonce" => Base.url_encode64(parsed.nonce_raw, padding: false),
-      "ref_snapshot_id" => parsed.public_data["refSnapshotId"],
-      "timestamp" => parsed.public_data["timestamp"]
-    }
-
-    if RefMD.Crypto.verify_update_hash(claimed_hash, params) do
-      :ok
-    else
-      {:error, "update_hash_mismatch"}
-    end
-  end
-
-  defp parse_ephemeral_envelope(payload, socket) do
-    public_data = payload["publicData"]
-
-    with {:ok, _} <- validate_map(public_data, "publicData"),
-         :ok <- validate_exact_keys(public_data, @ephemeral_public_data_keys),
-         :ok <- validate_doc_id(public_data, socket),
-         :ok <- validate_signing_pub_key(public_data, socket),
-         :ok <- validate_device_id(public_data, socket),
-         {:ok, _ciphertext_raw} <- decode_field(payload, "ciphertext"),
-         {:ok, _nonce_raw} <- decode_and_validate_nonce(payload),
-         {:ok, signature_raw} <- decode_field(payload, "signature") do
-      {:ok,
-       %{
-         signature_raw: signature_raw,
-         public_data: public_data
-       }}
-    end
-  end
-
-  defp validate_device_id(public_data, socket) do
-    if public_data["deviceId"] == socket.assigns.device_id do
-      :ok
-    else
-      {:error, "device_id_mismatch"}
-    end
-  end
-
-  defp build_snapshot_failure(nil, _document_id, _known_snapshot_id) do
-    %{snapshot: nil, updates: [], snapshotProofChain: []}
-  end
-
-  defp build_snapshot_failure(
-         %{snapshot: snapshot, updates: updates},
-         document_id,
-         known_snapshot_id
-       ) do
-    active_snapshot_id = if snapshot, do: snapshot.id
-
-    proof_chain =
-      Documents.build_snapshot_proof_chain(document_id, known_snapshot_id, active_snapshot_id)
-
-    %{
-      snapshot: format_snapshot(snapshot),
-      updates: Enum.map(updates, &format_update/1),
-      snapshotProofChain: proof_chain
-    }
-  end
-
-  defp decode_and_validate_nonce(params) do
-    with {:ok, nonce} <- decode_field(params, "nonce") do
-      if byte_size(nonce) == 24 do
-        {:ok, nonce}
-      else
-        {:error, "invalid_nonce_length"}
-      end
-    end
-  end
-
-  defp decode_field(params, key) do
-    case params[key] do
-      nil ->
-        {:error, "missing_#{key}"}
-
-      val ->
-        case Base.url_decode64(val, padding: false) do
-          {:ok, decoded} -> {:ok, decoded}
-          :error -> {:error, "invalid_#{key}"}
-        end
-    end
   end
 
   # ── Param Helpers ──────────────────────────────

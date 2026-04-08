@@ -6,7 +6,7 @@ import {
   putOfflineDocumentIndex,
   getOfflineDocumentIndex,
   getOfflineDocumentMeta,
-} from "@/shared/lib/offline/offline-store";
+} from "@/shared/lib/offline/storage/store";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { buildOfflineDocumentCacheAad } from "@/shared/lib/crypto/aad";
 

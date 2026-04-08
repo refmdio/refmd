@@ -2,11 +2,11 @@ import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { authApi, ApiError, devicesApi } from "@/shared/api";
 import { loadDskInitData, storeAuthBootstrap, loadAuthBootstrap } from "@/shared/lib/crypto/dsk";
 import { getCryptoWorker, isTofuHardFail } from "@/shared/lib/crypto/worker/client";
-import { hasPdkData, getPersistedDeviceId } from "@/shared/lib/auth-key-persistence";
+import { hasPdkData, getPersistedDeviceId } from "@/shared/lib/auth/key-persistence";
 import {
   getAllOfflineDocumentMetas,
   ensureOfflineDbReady,
-} from "@/shared/lib/offline/offline-store";
+} from "@/shared/lib/offline/storage/store";
 import type { DeviceInfo } from "@/shared/api/devices";
 export interface SessionRestoreResult {
   userId: string;

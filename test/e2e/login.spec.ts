@@ -1,16 +1,18 @@
-import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, login, logout, TEST_PASSWORD } from "./helpers";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { registerAccount, login, logout, TEST_PASSWORD, waitForWorkspaceReady } from "./helpers";
 
+let sharedContext: BrowserContext;
 let sharedPage: Page;
 let email: string;
 
 test.describe.serial("Login, Logout & Session", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedContext = await browser.newContext({ bypassCSP: true, acceptDownloads: true });
+    sharedPage = await sharedContext.newPage();
   });
 
   test.afterAll(async () => {
-    await sharedPage.context().close();
+    await sharedContext.close();
   });
 
   test("setup: register account", async () => {
@@ -53,6 +55,10 @@ test.describe.serial("Login, Logout & Session", () => {
   // LOGIN-01
   test("login with valid credentials", async () => {
     test.setTimeout(180_000);
+    if (!sharedPage.isClosed()) {
+      await sharedPage.close();
+    }
+    sharedPage = await sharedContext.newPage();
     await login(sharedPage, email);
     await expect(sharedPage).toHaveURL(/dashboard/, { timeout: 10_000 });
   });
@@ -65,26 +71,39 @@ test.describe.serial("Login, Logout & Session", () => {
     await sharedPage.waitForTimeout(5000);
 
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
-    await sharedPage.waitForTimeout(5000);
-
     await expect(sharedPage).toHaveURL(/dashboard/, { timeout: 120_000 });
+    await waitForWorkspaceReady(sharedPage);
   });
 
   // SESSION-02
   test("session persists after logout-login-reload cycle", async () => {
     test.setTimeout(180_000);
+    if (!sharedPage.isClosed()) {
+      await sharedPage.close();
+    }
+    sharedPage = await sharedContext.newPage();
+    await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
+    await waitForWorkspaceReady(sharedPage);
     await logout(sharedPage);
+    if (!sharedPage.isClosed()) {
+      await sharedPage.close();
+    }
+    sharedPage = await sharedContext.newPage();
     await login(sharedPage, email);
 
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
-    await sharedPage.waitForTimeout(3000);
-
     await expect(sharedPage).toHaveURL(/dashboard/, { timeout: 10_000 });
+    await waitForWorkspaceReady(sharedPage);
   });
 
   // LOGIN-02 (last — Argon2 for dummy salt is slow, don't block other tests)
   test("login rejects invalid credentials", async () => {
     test.setTimeout(180_000);
+    if (!sharedPage.isClosed()) {
+      await sharedPage.close();
+    }
+    sharedPage = await sharedContext.newPage();
+    await sharedPage.goto("/auth/login", { waitUntil: "domcontentloaded" });
     await logout(sharedPage);
 
     await sharedPage.locator("#email").fill("nonexistent@test.com");

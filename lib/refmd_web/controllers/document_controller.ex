@@ -352,17 +352,6 @@ defmodule RefMDWeb.DocumentController do
     end
   end
 
-  defp encode_binary(nil), do: nil
-  defp encode_binary(bin), do: Base.url_encode64(bin, padding: false)
-
-  defp format_errors(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
-  end
-
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
 
   defp fetch_required(params, key) do

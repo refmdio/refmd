@@ -3,7 +3,7 @@ defmodule RefMDWeb.EncryptionController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Devices, Encryption, Users, Workspaces}
-  alias RefMDWeb.{DeviceEventsController, Schemas}
+  alias RefMDWeb.Schemas
 
   operation(:create_workspace_key,
     summary: "Create a workspace encryption key",
@@ -170,336 +170,6 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  operation(:distribute_umk,
-    summary: "Distribute UMK to a device (existing device sends)",
-    parameters: [
-      device_id: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"UMK distribution params", "application/json", Schemas.DistributeUmkRequest},
-    responses: [
-      created: {"UMK distributed", "application/json", Schemas.OkResponse},
-      forbidden: {"Invalid device", "application/json", Schemas.ErrorResponse},
-      conflict: {"UMK already distributed", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec distribute_umk(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def distribute_umk(conn, %{"device_id" => target_device_id} = params) do
-    user_id = conn.assigns.current_user_id
-    sender_device_id = conn.assigns.pop_device_id
-
-    with :ok <- validate_sender_device_match(sender_device_id, params["sender_device_id"]),
-         :ok <- validate_active_device_ownership(user_id, target_device_id) do
-      execute_distribute_umk(conn, user_id, target_device_id, sender_device_id, params)
-    else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
-    end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
-  end
-
-  operation(:get_umk,
-    summary: "Get distributed UMK for a device",
-    parameters: [
-      device_id: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"UMK data", "application/json", Schemas.GetUmkResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
-      forbidden: {"Invalid device", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec get_umk(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_umk(conn, %{"device_id" => device_id}) do
-    user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
-
-    cond do
-      pop_device_id != nil and pop_device_id != device_id ->
-        conn |> put_status(:forbidden) |> json(%{error: "device_mismatch"})
-
-      not Devices.user_owns_active_device?(user_id, device_id) ->
-        conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
-
-      true ->
-        respond_with_umk(conn, user_id, device_id)
-    end
-  end
-
-  operation(:start_kek_rotation,
-    summary: "Start KEK rotation for a workspace (manual trigger)",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"Rotation started", "application/json", Schemas.KekRotationStartResponse},
-      not_found: {"Workspace not found", "application/json", Schemas.ErrorResponse},
-      forbidden: {"Not authorized", "application/json", Schemas.ErrorResponse},
-      conflict: {"Rotation already in progress", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec start_kek_rotation(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def start_kek_rotation(conn, %{"workspace_id" => workspace_id}) do
-    user_id = conn.assigns.current_user_id
-    base_role = Workspaces.get_member_role(workspace_id, user_id)
-
-    if base_role in ~w(owner admin) do
-      case Workspaces.start_kek_rotation(workspace_id, user_id) do
-        {:ok, _} ->
-          json(conn, %{workspace_id: workspace_id, needs_kek_rotation: true})
-
-        {:error, :not_found} ->
-          conn |> put_status(:not_found) |> json(%{error: "workspace_not_found"})
-
-        {:error, :kek_rotation_already_in_progress} ->
-          conn |> put_status(:conflict) |> json(%{error: "kek_rotation_already_in_progress"})
-      end
-    else
-      conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-    end
-  end
-
-  operation(:complete_kek_rotation,
-    summary: "Complete KEK rotation for a workspace",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"Completion params", "application/json", Schemas.KekRotationCompleteRequest},
-    responses: [
-      ok: {"Rotation completed", "application/json", Schemas.OkResponse},
-      forbidden: {"Not authorized", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Preconditions not met", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec complete_kek_rotation(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def complete_kek_rotation(conn, %{"workspace_id" => workspace_id} = params) do
-    user_id = conn.assigns.current_user_id
-    new_kek_version = params["new_kek_version"]
-
-    if not is_integer(new_kek_version) or new_kek_version <= 0 do
-      conn |> put_status(:bad_request) |> json(%{error: "invalid_kek_version"})
-    else
-      with {:ok, workspace} <- fetch_workspace(workspace_id, "workspace_not_found"),
-           {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-           :ok <- require_rotation_in_progress(workspace),
-           :ok <- require_rotation_authority(workspace, user_id, base_role) do
-        envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
-
-        Workspaces.complete_kek_rotation(workspace_id, new_kek_version,
-          envelope_checks: envelope_checks
-        )
-        |> handle_rotation_completion(conn)
-      else
-        {:error, status, error} ->
-          conn |> put_status(status) |> json(%{error: error})
-      end
-    end
-  end
-
-  operation(:save_member_envelopes,
-    summary: "Save member envelopes for KEK rotation",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"Member envelopes", "application/json", Schemas.SaveMemberEnvelopesRequest},
-    responses: [
-      ok: {"Envelopes saved", "application/json", Schemas.OkResponse},
-      forbidden: {"Not authorized", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec save_member_envelopes(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def save_member_envelopes(conn, %{"workspace_id" => workspace_id} = params) do
-    user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
-    envelopes = params["envelopes"] || []
-
-    with {:ok, workspace} <- fetch_workspace(workspace_id, "workspace_not_found"),
-         {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-         :ok <- require_rotation_in_progress(workspace),
-         :ok <- require_rotation_authority(workspace, user_id, base_role),
-         :ok <- validate_envelope_senders(envelopes, pop_device_id) do
-      case Encryption.save_member_envelopes(workspace_id, envelopes) do
-        {:ok, _} ->
-          json(conn, %{ok: true})
-
-        {:error, _} ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "save_failed"})
-      end
-    else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
-    end
-  end
-
-  operation(:get_member_envelope,
-    summary: "Get own member envelope for KEK recovery",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"Member envelope", "application/json", Schemas.MemberEnvelopeResponse},
-      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec get_member_envelope(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_member_envelope(conn, %{"workspace_id" => workspace_id}) do
-    user_id = conn.assigns.current_user_id
-
-    if Workspaces.get_member_role(workspace_id, user_id) == nil do
-      conn |> put_status(:forbidden) |> json(%{error: "not_a_member"})
-    else
-      render_member_envelope(conn, workspace_id, user_id)
-    end
-  end
-
-  defp render_member_envelope(conn, workspace_id, user_id) do
-    case Encryption.get_member_envelope(workspace_id, user_id) do
-      nil ->
-        conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-      envelope ->
-        case Devices.get_device(envelope.sender_device_id) do
-          nil ->
-            conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-          sender ->
-            json(conn, %{
-              key_version: envelope.key_version,
-              sender_device_id: envelope.sender_device_id,
-              sender_user_id: sender.user_id,
-              sender_ecdh_public_key: encode_binary(sender.ecdh_public_key),
-              sender_signing_public_key: encode_binary(sender.signing_public_key),
-              encrypted_kek: encode_binary(envelope.encrypted_kek),
-              nonce: encode_binary(envelope.nonce)
-            })
-        end
-    end
-  end
-
-  # ── Document Keys (DEK) ───────────────────────
-
-  plug RefMDWeb.Plugs.ResolveDocumentWorkspace
-       when action in [:get_document_keys, :create_document_key]
-
-  plug RefMDWeb.Plugs.RequireRBAC,
-       [permission: "document:read"] when action in [:get_document_keys]
-
-  plug RefMDWeb.Plugs.RequireRBAC,
-       [permission: "document:write"] when action in [:create_document_key]
-
-  operation(:get_document_keys,
-    summary: "Get all DEK versions for a document",
-    parameters: [
-      document_id: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"Document keys", "application/json", Schemas.DocumentKeysResponse},
-      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec get_document_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_document_keys(conn, _params) do
-    document = conn.assigns.document
-    keys = Encryption.list_document_encrypted_keys(document.id)
-
-    json(conn, %{
-      keys: Enum.map(keys, &format_document_key/1)
-    })
-  end
-
-  operation(:create_document_key,
-    summary: "Register a DEK for a document",
-    parameters: [
-      document_id: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"DEK params", "application/json", Schemas.CreateDocumentKeyRequest},
-    responses: [
-      created: {"Key created", "application/json", Schemas.OkResponse},
-      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
-      conflict: {"Version already exists", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec create_document_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def create_document_key(conn, params) do
-    document = conn.assigns.document
-
-    attrs = %{
-      document_id: document.id,
-      key_version: params["key_version"],
-      kek_version: params["kek_version"],
-      encrypted_dek: decode_binary!(params["encrypted_dek"]),
-      nonce: decode_binary!(params["nonce"])
-    }
-
-    case Encryption.create_document_key_with_rotation(attrs) do
-      {:ok, _key} ->
-        conn |> put_status(:created) |> json(%{ok: true})
-
-      {:error, :kek_version_mismatch} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "kek_version_mismatch"})
-
-      {:error, :key_version_too_old} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "key_version_too_old"})
-
-      {:error, :key_version_not_consecutive} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "key_version_not_consecutive"})
-
-      {:error, :folders_cannot_have_dek} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "folders_cannot_have_dek"})
-
-      {:error, :document_not_found} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "document_not_found"})
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        if has_unique_constraint_error?(changeset) do
-          conn |> put_status(:conflict) |> json(%{error: "key_version_already_exists"})
-        else
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "invalid_key", details: format_errors(changeset)})
-        end
-    end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
-  end
-
-  defp format_document_key(key) do
-    %{
-      document_id: key.document_id,
-      key_version: key.key_version,
-      encrypted_dek: encode_binary(key.encrypted_dek),
-      nonce: encode_binary(key.nonce),
-      kek_version: key.kek_version,
-      is_active: key.is_active,
-      created_at: key.created_at
-    }
-  end
-
   operation(:workspace_ids,
     summary: "Get workspace IDs for the current user",
     responses: [
@@ -547,7 +217,7 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  # --- Shared validation helpers ---
+  # --- Validation helpers ---
 
   defp fetch_workspace(workspace_id, error_key \\ "not_found") do
     case Workspaces.get_workspace(workspace_id) do
@@ -564,13 +234,6 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp fetch_membership(workspace_id, user_id) do
-    case Workspaces.get_member_role(workspace_id, user_id) do
-      nil -> {:error, :forbidden, "not_a_member"}
-      role -> {:ok, role}
-    end
-  end
-
   defp validate_sender_device_match(pop_device_id, sender_device_id) do
     if pop_device_id != nil and sender_device_id != nil and sender_device_id != pop_device_id do
       {:error, :forbidden, "sender_device_id_mismatch"}
@@ -582,14 +245,6 @@ defmodule RefMDWeb.EncryptionController do
   defp validate_device_ownership(_user_id, nil), do: :ok
 
   defp validate_device_ownership(user_id, device_id) do
-    if Devices.user_owns_active_device?(user_id, device_id) do
-      :ok
-    else
-      {:error, :forbidden, "invalid_device"}
-    end
-  end
-
-  defp validate_active_device_ownership(user_id, device_id) do
     if Devices.user_owns_active_device?(user_id, device_id) do
       :ok
     else
@@ -651,35 +306,6 @@ defmodule RefMDWeb.EncryptionController do
   defp validate_pop_device_match(pop_device_id, device_id) do
     if pop_device_id != device_id do
       {:error, :forbidden, "device_mismatch"}
-    else
-      :ok
-    end
-  end
-
-  defp require_rotation_in_progress(workspace) do
-    if workspace.needs_kek_rotation do
-      :ok
-    else
-      {:error, :unprocessable_entity, "not_in_rotation"}
-    end
-  end
-
-  defp require_rotation_authority(workspace, user_id, base_role) do
-    if workspace.kek_rotation_initiator_user_id == user_id or base_role in ~w(owner admin) do
-      :ok
-    else
-      {:error, :forbidden, "forbidden"}
-    end
-  end
-
-  defp validate_envelope_senders(envelopes, pop_device_id) do
-    has_invalid =
-      Enum.any?(envelopes, fn env ->
-        env["sender_device_id"] != pop_device_id
-      end)
-
-    if has_invalid do
-      {:error, :forbidden, "sender_device_id_mismatch"}
     else
       :ok
     end
@@ -779,33 +405,6 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp execute_distribute_umk(conn, user_id, target_device_id, sender_device_id, params) do
-    case Devices.create_device_encrypted_umk(%{
-           user_id: user_id,
-           device_id: target_device_id,
-           sender_device_id: sender_device_id,
-           encrypted_umk: decode_binary!(params["encrypted_umk"]),
-           nonce: decode_binary!(params["nonce"])
-         }) do
-      {:ok, _} ->
-        DeviceEventsController.broadcast_registration_approved(user_id, target_device_id)
-        conn |> put_status(:created) |> json(%{ok: true})
-
-      {:error, %Ecto.Changeset{} = changeset} when changeset.errors != [] ->
-        handle_umk_changeset_error(conn, changeset)
-    end
-  end
-
-  defp handle_umk_changeset_error(conn, changeset) do
-    if has_unique_constraint_error?(changeset) do
-      conn |> put_status(:conflict) |> json(%{error: "umk_already_distributed"})
-    else
-      conn
-      |> put_status(:unprocessable_entity)
-      |> json(%{error: "invalid_umk", details: format_errors(changeset)})
-    end
-  end
-
   defp format_workspace_key(key) do
     sender = if key.sender_device_id, do: Devices.get_device(key.sender_device_id)
 
@@ -818,90 +417,6 @@ defmodule RefMDWeb.EncryptionController do
       sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
       sender_signing_public_key: sender && encode_binary(sender.signing_public_key)
     }
-  end
-
-  defp build_envelope_checks(workspace_id, user_id, new_kek_version) do
-    fn ->
-      cond do
-        not Encryption.all_user_devices_have_key?(workspace_id, user_id, new_kek_version) ->
-          {:error, :missing_device_envelopes}
-
-        not Encryption.all_members_have_envelope?(workspace_id, new_kek_version) ->
-          {:error, :missing_member_envelopes}
-
-        true ->
-          :ok
-      end
-    end
-  end
-
-  defp handle_rotation_completion(result, conn) do
-    case result do
-      :ok ->
-        json(conn, %{ok: true})
-
-      {:error, :not_in_rotation} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "not_in_rotation"})
-
-      {:error, :version_not_monotonic} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "version_not_monotonic"})
-
-      {:error, :not_found} ->
-        conn |> put_status(:not_found) |> json(%{error: "workspace_not_found"})
-
-      {:error, :missing_device_envelopes} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_device_envelopes"})
-
-      {:error, :missing_member_envelopes} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_member_envelopes"})
-    end
-  end
-
-  # --- Encoding / error helpers ---
-
-  defp decode_binary!(base64) when is_binary(base64) do
-    Base.url_decode64!(base64, padding: false)
-  end
-
-  defp decode_binary!(_), do: raise(ArgumentError, "missing required binary field")
-
-  defp respond_with_umk(conn, user_id, device_id) do
-    case Devices.get_device_encrypted_umk(user_id, device_id) do
-      nil ->
-        conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-      umk_data ->
-        format_umk_response(conn, umk_data)
-    end
-  end
-
-  defp format_umk_response(conn, umk_data) do
-    case Devices.get_device(umk_data.sender_device_id) do
-      nil ->
-        conn |> put_status(:not_found) |> json(%{error: "sender_device_not_found"})
-
-      sender ->
-        json(conn, %{
-          encrypted_umk: encode_binary(umk_data.encrypted_umk),
-          nonce: encode_binary(umk_data.nonce),
-          sender_device_id: umk_data.sender_device_id,
-          sender_ecdh_public_key: encode_binary(sender.ecdh_public_key),
-          sender_signing_public_key: encode_binary(sender.signing_public_key)
-        })
-    end
-  end
-
-  defp encode_binary(nil), do: nil
-  defp encode_binary(bin), do: Base.url_encode64(bin, padding: false)
-
-  defp format_errors(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
-  end
-
-  defp has_unique_constraint_error?(changeset) do
-    Enum.any?(changeset.errors, fn {_field, {_msg, opts}} ->
-      Keyword.get(opts, :constraint) == :unique
-    end)
   end
 
   defp resolve_kek_backup(workspace_id, user_id, nil) do

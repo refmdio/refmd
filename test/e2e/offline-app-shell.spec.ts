@@ -2,9 +2,9 @@ import { test, expect, chromium } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registerAccount, createDocument } from "./helpers";
+import { registerAccount, createDocument, openDocument } from "./helpers";
 
-const baseURL = process.env.BASE_URL || "http://localhost:5173";
+const baseURL = process.env.BASE_URL || "http://localhost:4000";
 const requiresStaticServer = !baseURL.includes(":5173");
 
 async function captureUiState(page: Parameters<typeof registerAccount>[0]) {
@@ -82,15 +82,24 @@ test("service worker serves app shell after browser restart while fully offline"
 
     await waitForServiceWorker(page);
 
+    // Ensure the fetch handler has cached /index.html via a controlled navigation
+    await page.reload({ waitUntil: "load" });
+    await page.waitForTimeout(2_000);
+
     const cacheState = await page.evaluate(async () => {
       const cache = await caches.open("app-shell-v1");
       const keys = await cache.keys();
+      const paths = keys.map((req) => new URL(req.url).pathname);
+      const hasIndex = paths.includes("/index.html");
+      const canServeOffline = hasIndex || (await cache.match("/index.html")) !== undefined;
       return {
         count: keys.length,
-        hasIndex: keys.some((req) => new URL(req.url).pathname === "/index.html"),
+        hasIndex,
+        canServeOffline,
+        paths: paths.slice(0, 10),
       };
     });
-    expect(cacheState.hasIndex).toBe(true);
+    expect(cacheState.canServeOffline).toBe(true);
     expect(cacheState.count).toBeGreaterThan(1);
 
     await context.close();

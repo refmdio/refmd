@@ -42,6 +42,7 @@ defmodule RefMDWeb do
       use Gettext, backend: RefMDWeb.Gettext
 
       import Plug.Conn
+      import RefMDWeb.Helpers
 
       unquote(verified_routes())
     end

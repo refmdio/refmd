@@ -1,11 +1,5 @@
-import type {
-  AppDocuments,
-  DocumentCommandService,
-  DocumentEventDispatcher,
-  DocumentQueries,
-  DocumentRuntime,
-} from "@/shared/lib/document-manager";
-import { APP_INSTANCE_KEY, type App, type AppWorkspace } from "@/shared/lib/app-context";
+import type { AppDocuments } from "@/shared/lib/document/manager";
+import { APP_INSTANCE_KEY, type App, type AppWorkspace } from "@/shared/lib/workspace/app";
 
 type GlobalAppState = typeof globalThis & {
   [APP_INSTANCE_KEY]?: App | null;
@@ -15,10 +9,6 @@ export function initApp(
   workspace: AppWorkspace,
   documentServices: {
     documents: AppDocuments;
-    documentCommands: DocumentCommandService;
-    documentEvents: DocumentEventDispatcher;
-    documentQueries: DocumentQueries;
-    documentRuntime: DocumentRuntime;
   },
 ): App {
   const app: App = {

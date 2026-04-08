@@ -195,16 +195,4 @@ defmodule RefMDWeb.TrustTransferController do
         conn |> put_status(:forbidden) |> json(%{error: "invalid_or_expired_nonce"})
     end
   end
-
-  defp decode_binary(base64) when is_binary(base64) do
-    case Base.url_decode64(base64, padding: false) do
-      {:ok, bytes} -> {:ok, bytes}
-      :error -> {:error, :invalid_base64}
-    end
-  end
-
-  defp decode_binary(_), do: {:error, :invalid_base64}
-
-  defp encode_binary(nil), do: nil
-  defp encode_binary(bin), do: Base.url_encode64(bin, padding: false)
 end

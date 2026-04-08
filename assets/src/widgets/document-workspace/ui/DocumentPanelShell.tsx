@@ -1,4 +1,4 @@
-import { Show, createSignal, createEffect, onCleanup, lazy, type ParentProps } from "solid-js";
+import { Show, createSignal, createEffect, onCleanup, type ParentProps } from "solid-js";
 import { Spinner } from "@/shared/ui/spinner";
 import { AlertCircleIcon, WifiOffIcon } from "lucide-solid";
 import { currentWorkspaceId } from "@/entities/workspace";
@@ -19,11 +19,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
-
-const PasswordReentryDialog = lazy(async () => {
-  const auth = await import("@/features/auth");
-  return { default: auth.PasswordReentryDialog };
-});
+import { PasswordReentryDialog } from "@/features/auth";
 
 interface DocumentPanelShellProps {
   documentId: string;
@@ -99,7 +95,7 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
                   const { Notice } = await import("@/shared/lib/notice");
                   try {
                     const { recoverDocumentFromCache } =
-                      await import("@/shared/lib/offline/cache-manager");
+                      await import("@/shared/lib/offline/cache/manager/recover");
                     const recovered = await recoverDocumentFromCache(props.documentId);
                     if (!recovered) {
                       new Notice("No cached content available");

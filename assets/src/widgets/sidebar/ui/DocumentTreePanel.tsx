@@ -15,7 +15,7 @@ import {
 } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { CreateDocumentDialog, CreateFolderDialog } from "@/features/document";
-import { useSidebarDocumentTreeHandlers } from "./useSidebarDocumentTreeHandlers";
+import { useSidebarDocumentTreeHandlers } from "../model/useSidebarDocumentTreeHandlers";
 
 export function DocumentTreePanel() {
   const workspaceId = () => currentWorkspaceId();

@@ -122,12 +122,7 @@ class SessionStateStore {
   }
 }
 
-let sessionStateStore = new SessionStateStore();
-
-function replaceSessionStateStore(): void {
-  sessionStateStore.dispose();
-  sessionStateStore = new SessionStateStore();
-}
+const sessionStateStore = new SessionStateStore();
 
 export const authState = () => sessionStateStore.authState();
 export const deviceState = () => sessionStateStore.deviceState();
@@ -160,8 +155,4 @@ export function setFullSession(auth: AuthState, device: DeviceState): void {
 
 export function clearSession(): void {
   sessionStateStore.clearSession();
-}
-
-export function resetSessionStateStoreForTests(): void {
-  replaceSessionStateStore();
 }
