@@ -24,6 +24,9 @@ export const AAD_PURPOSE = {
   OFFLINE_DEK_CACHE: "offline_dek_cache",
   OFFLINE_KEK_CACHE: "offline_kek_cache",
   DSK_AUTH_BOOTSTRAP: "dsk_auth_bootstrap",
+  SHARE_DEK_WRAP: "share_dek_wrap",
+  SHARE_MANAGE_ACCESS: "share_manage_access",
+  GUEST_INVITE_REDEEM_MATERIAL: "guest_invite_redeem_material",
 } as const;
 function canonicalize(obj: unknown): string {
   if (obj === null) return "null";
@@ -166,6 +169,27 @@ export function buildDocumentTitleAad(documentId: string, keyVersion: number): U
     purpose: AAD_PURPOSE.DOCUMENT_TITLE,
     document_id: documentId,
     key_version: keyVersion,
+  });
+}
+
+export function buildShareDekWrapAad(shareId: string, documentId: string): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.SHARE_DEK_WRAP,
+    share_id: shareId,
+    document_id: documentId,
+  });
+}
+export function buildShareManageAccessAad(documentId: string, shareId: string): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.SHARE_MANAGE_ACCESS,
+    document_id: documentId,
+    share_id: shareId,
+  });
+}
+export function buildGuestInviteRedeemMaterialAad(tokenHash: string): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.GUEST_INVITE_REDEEM_MATERIAL,
+    token_hash: tokenHash,
   });
 }
 export function buildOfflineDocumentCacheAad(documentId: string, keyVersion: number): Uint8Array {

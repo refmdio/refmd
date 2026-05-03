@@ -5,6 +5,7 @@ import {
   joinTemporaryDocument,
   type DocumentChannelCallbacks,
 } from "@/shared/lib/ws/phoenix-channel";
+import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
 import { documentsApi } from "@/shared/api/documents";
 import { encryptionApi } from "@/shared/api/encryption";
 import { resolveActiveKek, type KekResolverSession } from "@/shared/lib/crypto/kek-resolver";
@@ -40,6 +41,7 @@ type BuildDeviceKeyCaches = (
 ) => Promise<DeviceKeyCacheResult>;
 type DocumentListEntry = Awaited<ReturnType<typeof documentsApi.list>>["documents"][number];
 type DocumentKey = components["schemas"]["DocumentKeyResponse"];
+
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI__" in window;
 }
@@ -47,6 +49,7 @@ function getMaxBackgroundCache(): number {
   return isTauri() ? MAX_BACKGROUND_CACHE_DESKTOP : MAX_BACKGROUND_CACHE_BROWSER;
 }
 let activeCachingWorkspace: string | null = null;
+
 export function startBackgroundCaching(
   workspaceId: string,
   buildDeviceKeyCaches: BuildDeviceKeyCaches,
@@ -119,12 +122,15 @@ async function cacheDocumentSilently(
   getKekResolverSession: () => KekResolverSession,
   docInfo?: DocumentListEntry,
 ): Promise<void> {
+  await ensurePhoenixWsToken("user");
   const popHeaders = await getPopHeaders();
   const worker = getCryptoWorker();
   // Build member signing key set for signature verification
   const keyCaches = await buildDeviceKeyCaches(workspaceId);
   if (keyCaches.status === "key_changed") throw new Error("TOFU key change detected");
   const validSigningKeys = keyCaches.signingKeys;
+  const resolveSigningKey = (signingPubKey: string): Uint8Array | null =>
+    validSigningKeys.get(signingPubKey) ?? null;
   // Resolve KEK and cache to offline-kek-cache
   const { kekVersion } = await resolveActiveKek(workspaceId, getKekResolverSession());
   await cacheKek(workspaceId, kekVersion).catch(() => {});
@@ -146,7 +152,7 @@ async function cacheDocumentSilently(
     kekVersion: activeDek.kek_version,
   });
   // Get pin before entering Promise executor (which cannot use await)
-  const { getDocumentStatePin: getPin } =
+  const { getDocumentStatePin: getPin, hasCompleteSnapshotPin } =
     await import("@/shared/lib/anti-rollback/document-state-pins");
   const bgPin = await getPin(documentId).catch(() => null);
   const joinParams: Record<string, unknown> = {
@@ -155,7 +161,7 @@ async function cacheDocumentSilently(
     mode: "complete",
     silent: true,
   };
-  if (bgPin?.latestSnapshotId) {
+  if (hasCompleteSnapshotPin(bgPin)) {
     joinParams.knownSnapshotId = bgPin.latestSnapshotId;
   }
   return new Promise<void>((resolve, reject) => {
@@ -181,15 +187,15 @@ async function cacheDocumentSilently(
           if (payload.snapshot) {
             const snap = payload.snapshot;
             const spk = snap.publicData.signingPubKey;
-            if (!validSigningKeys.has(spk))
-              throw new Error("Snapshot signer not a workspace member");
+            const signingKey = resolveSigningKey(spk);
+            if (!signingKey) throw new Error("Snapshot signer is not foreground-verifiable");
             const sigValid = await worker.verifyWsSignature({
               prefix: "refmd_snapshot",
               ciphertext: snap.ciphertext,
               nonce: snap.nonce,
               publicData: snap.publicData,
               signature: base64UrlDecode(snap.signature),
-              signingPubKey: validSigningKeys.get(spk)!,
+              signingPubKey: signingKey,
             });
             if (!sigValid) throw new Error("Snapshot signature verification failed");
             const decrypted = await worker.decryptSnapshot({
@@ -204,15 +210,15 @@ async function cacheDocumentSilently(
           if (payload.updates) {
             for (const update of payload.updates) {
               const upk = update.publicData.signingPubKey;
-              if (!validSigningKeys.has(upk))
-                throw new Error("Update signer not a workspace member");
+              const signingKey = resolveSigningKey(upk);
+              if (!signingKey) throw new Error("Update signer is not foreground-verifiable");
               const sigValid = await worker.verifyWsSignature({
                 prefix: "refmd_update",
                 ciphertext: update.ciphertext,
                 nonce: update.nonce,
                 publicData: update.publicData,
                 signature: base64UrlDecode(update.signature),
-                signingPubKey: validSigningKeys.get(upk)!,
+                signingPubKey: signingKey,
               });
               if (!sigValid) throw new Error("Update signature verification failed");
               const decrypted = await worker.decryptContent({
@@ -262,9 +268,11 @@ async function cacheDocumentSilently(
           };
           // Cache DEK first (design: offline-dek-cache before document-cache for crash safety)
           await cacheDek(documentId, activeDek.key_version);
-          // Validate against anti-rollback pin BEFORE persisting (fail-closed)
+          // Validate against anti-rollback pin before caching. Background cache does not advance
+          // the durable pin because its signer context is best-effort and must not outrank
+          // foreground verification.
           try {
-            const { validateDocumentPayloadAgainstPin, persistPin } =
+            const { validateDocumentPayloadAgainstPin } =
               await import("@/shared/lib/anti-rollback/validate-document-payload");
             const validation = await validateDocumentPayloadAgainstPin(
               documentId,
@@ -276,8 +284,6 @@ async function cacheDocumentSilently(
               console.warn("[background-cache] Rollback detected, skipping:", documentId);
               throw new Error("Rollback detected during background cache");
             }
-            await persistPin(validation.newPin);
-            // Pin validated — now safe to persist document cache
             await putDocumentCache(entry);
           } catch (pinErr) {
             // Pin validation failure in background cache: skip this document
@@ -342,6 +348,7 @@ async function cacheDocumentSilently(
       onSnapshotSaveFailed: () => {},
       onEphemeralMessage: () => {},
       onPeerLeft: () => {},
+      onPublicStatusChanged: () => {},
       onUnauthorized: () => {
         cleanup();
         resolved = true;
@@ -360,7 +367,7 @@ async function cacheDocumentSilently(
         }
       },
     };
-    joinTemporaryDocument(documentId, joinParams, callbacks)
+    joinTemporaryDocument(documentId, joinParams, callbacks, "user")
       .then(({ dispose }) => {
         disposeChannel = dispose;
       })

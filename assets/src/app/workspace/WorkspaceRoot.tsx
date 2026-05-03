@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, type ParentProps } from "solid-js";
+import { createEffect, getOwner, onCleanup, type ParentProps } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { useDocuments, useDocumentTitles } from "@/entities/document";
@@ -10,9 +10,11 @@ import { useCorePluginLifecycle } from "@/app/bootstrap/useCorePluginLifecycle";
 import { useDocumentWorkspaceRuntime } from "@/app/bootstrap/useDocumentWorkspaceRuntime";
 import { useOfflineSync } from "@/app/bootstrap/useOfflineSync";
 import { usePendingDevices } from "@/features/devices";
+import { installPublicationRenameAutoSync } from "@/features/editor";
 import { createWorkspaceWithInitialKek } from "@/features/workspace";
 import { disposePanelWorkspace, usePanelWorkspace } from "@/features/panel";
 import { getDocumentRuntime } from "@/shared/lib/document/manager";
+import { setDefaultPluginRenderOwner } from "@/shared/lib/plugin/render";
 
 export function WorkspaceRoot(props: ParentProps) {
   const navigate = useNavigate();
@@ -23,8 +25,12 @@ export function WorkspaceRoot(props: ParentProps) {
   const workspaceId = () => currentWorkspaceId();
   const { flatDocuments } = useDocuments(workspaceId);
   const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
+  const disposePluginRenderOwner = setDefaultPluginRenderOwner(getOwner());
+  const disposePublicationRenameSync = installPublicationRenameAutoSync();
 
   onCleanup(() => disposePanelWorkspace());
+  onCleanup(disposePluginRenderOwner);
+  onCleanup(disposePublicationRenameSync);
 
   useSettings();
 

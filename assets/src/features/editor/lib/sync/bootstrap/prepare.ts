@@ -1,13 +1,23 @@
 import { deviceState, getKekResolverSession } from "@/entities/session";
 import { encryptionApi } from "@/shared/api/encryption";
 import { getPopHeaders } from "@/shared/lib/auth/pop";
-import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import {
+  buildDocumentStatePinKey,
+  getDocumentStatePin,
+  hasCompleteSnapshotPin,
+} from "@/shared/lib/anti-rollback/document-state-pins";
+import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { getShareParticipantCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
+import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
 import type { DocumentState } from "../../../model/document-state/types";
-import { buildDeviceKeyCaches } from "../inbound/signing-keys";
+import { buildDeviceKeyCaches, buildDocumentSigningKeyCaches } from "../inbound/signing-keys";
 import { completeDekRotationIfNeeded } from "./key-rotation";
 import { primeHistoricalDeks } from "./post-init";
+import { ensureSharedDekCached } from "../share-access";
+import { getLocalSigningPubKeyOrEncode } from "../share-identity";
+import { isRawSharedDocumentAccess } from "../../../model/document-state/access";
 
 type DeviceKeyCacheBuildResult = Awaited<ReturnType<typeof buildDeviceKeyCaches>>;
 
@@ -29,22 +39,70 @@ export async function prepareInitializationSession(
 ): Promise<PreparedInitialization> {
   const worker = getCryptoWorker();
   const device = deviceState();
-  if (!device) throw new Error("Device state not available");
-
-  const localDeviceSigningPubKey = device.deviceSigningPublic
-    ? base64UrlEncode(device.deviceSigningPublic)
-    : undefined;
+  const localDeviceSigningPubKey = getLocalSigningPubKeyOrEncode(
+    state,
+    device?.deviceSigningPublic,
+  );
+  if (!localDeviceSigningPubKey) throw new Error("Device state not available");
 
   assertActive();
+  await ensurePhoenixWsToken(isRawSharedDocumentAccess(state.access) ? "share" : "user");
+  assertActive();
+
+  if (state.access.kind === "share") {
+    await ensureSharedDekCached(state, documentId, state.access.keyVersion);
+    assertActive();
+
+    state.dekResolved = true;
+    state.keyVersion = state.access.keyVersion;
+    state.readOnly = state.access.permission !== "edit";
+
+    const deviceKeyCachePromise = buildDocumentSigningKeyCaches(state, signal)
+      .then((result) => ({ result }))
+      .catch((error) => ({ error }));
+
+    const popHeaders = isRawSharedDocumentAccess(state.access)
+      ? await getPopHeaders(
+          state.access.participantDeviceId,
+          signal,
+          "share",
+          getShareParticipantCryptoWorker(state.access.shareSlug),
+        )
+      : await getPopHeaders(undefined, signal, "user");
+    const existingPin = await getDocumentStatePin(
+      buildDocumentStatePinKey(documentId, state.access.shareId),
+    ).catch(() => null);
+    assertActive();
+
+    state._lastJoinMode = "complete";
+    const stateKnownSnapshotId =
+      state.activeSnapshotId && state.snapshotProofHash && state.snapshotCiphertextHash
+        ? state.activeSnapshotId
+        : null;
+    const knownSnapshotId =
+      (hasCompleteSnapshotPin(existingPin) ? existingPin.latestSnapshotId : null) ??
+      stateKnownSnapshotId;
+
+    return {
+      localDeviceSigningPubKey,
+      deviceKeyCachePromise,
+      oldDekPrimePromise: Promise.resolve(),
+      joinParams: {
+        pop_challenge: popHeaders["X-PoP-Challenge"],
+        pop_signature: popHeaders["X-PoP-Signature"],
+        mode: "complete",
+        ...(knownSnapshotId ? { knownSnapshotId } : {}),
+        ...(state.access.mountId ? { mount_id: state.access.mountId } : {}),
+      },
+    };
+  }
 
   const activeKekPromise = resolveActiveKek(workspaceId, getKekResolverSession(), signal);
   const documentKeysPromise = encryptionApi.getDocumentKeys(documentId, { signal });
   const deviceKeyCachePromise = buildDeviceKeyCaches(workspaceId, signal)
     .then((result) => ({ result }))
     .catch((error) => ({ error }));
-  const existingPinPromise = import("@/shared/lib/anti-rollback/document-state-pins").then(
-    ({ getDocumentStatePin }) => getDocumentStatePin(documentId).catch(() => null),
-  );
+  const existingPinPromise = getDocumentStatePin(documentId).catch(() => null);
 
   const [{ kekVersion: activeKekVersion }, keysResponse] = await Promise.all([
     activeKekPromise,
@@ -106,9 +164,15 @@ export async function prepareInitializationSession(
 
   assertActive();
 
-  const knownSnapshotId = state.activeSnapshotId ?? null;
-  const pinSnapshotId = existingPin?.latestSnapshotId ?? null;
-  const useDelta = !!knownSnapshotId && !!state.lastSavedState;
+  const stateSnapshotId =
+    state.activeSnapshotId && state.snapshotProofHash && state.snapshotCiphertextHash
+      ? state.activeSnapshotId
+      : null;
+  const pinSnapshotId = hasCompleteSnapshotPin(existingPin) ? existingPin.latestSnapshotId : null;
+  const useDelta =
+    !!stateSnapshotId &&
+    !!state.lastSavedState &&
+    (!pinSnapshotId || pinSnapshotId === stateSnapshotId);
   const joinParams: Record<string, unknown> = {
     pop_challenge: popHeaders["X-PoP-Challenge"],
     pop_signature: popHeaders["X-PoP-Signature"],
@@ -117,16 +181,12 @@ export async function prepareInitializationSession(
 
   state._lastJoinMode = useDelta ? "delta" : "complete";
 
-  const effectiveKnownSnapshot = knownSnapshotId ?? pinSnapshotId;
+  const effectiveKnownSnapshot = useDelta ? stateSnapshotId : (pinSnapshotId ?? stateSnapshotId);
   if (effectiveKnownSnapshot) {
     joinParams.knownSnapshotId = effectiveKnownSnapshot;
   }
   if (useDelta) {
-    const clocks =
-      Object.keys(state.confirmedClocks).length > 0
-        ? state.confirmedClocks
-        : (existingPin?.perDeviceMaxClocks ?? {});
-    joinParams.knownSnapshotUpdateClocks = { ...clocks };
+    joinParams.knownSnapshotUpdateClocks = { ...state.confirmedClocks };
   }
 
   return {

@@ -4,6 +4,7 @@ import type { DeviceRegistrationInfo } from "@/shared/api/devices";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { persistWorkspaceKekForDevice } from "@/shared/lib/crypto/workspace-kek-persistence";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { joinUserDeviceEvents } from "@/features/devices/lib/device-events-channel";
 interface PendingDeviceApprovalKeys {
   clientNonce: Uint8Array;
   deviceSigningPublic: Uint8Array;
@@ -207,31 +208,38 @@ async function transferTrustState(
 }
 function waitForTrustTransferNonce(targetDeviceId: string): Promise<string | null> {
   return new Promise((resolve) => {
-    const eventSource = new EventSource("/api/devices/events");
-    const timeout = setTimeout(() => {
-      eventSource.close();
-      resolve(null);
-    }, 10000);
-    eventSource.addEventListener("trust_transfer_nonce_ready", (event) => {
-      try {
-        const data = JSON.parse((event as MessageEvent).data) as {
-          new_device_id?: string;
-          nonce?: string;
-        };
-        if (data.new_device_id === targetDeviceId && data.nonce) {
-          clearTimeout(timeout);
-          eventSource.close();
-          resolve(data.nonce);
-        }
-      } catch {
-        // Parse error. Continue waiting.
-      }
-    });
-    eventSource.onerror = () => {
+    let settled = false;
+    let handle: { dispose: () => void } | undefined;
+
+    const finish = (nonce: string | null) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
-      eventSource.close();
-      resolve(null);
+      handle?.dispose();
+      resolve(nonce);
     };
+
+    const timeout = setTimeout(() => {
+      finish(null);
+    }, 10000);
+
+    joinUserDeviceEvents({
+      onTrustTransferNonceReady: (data) => {
+        if (data.new_device_id === targetDeviceId && data.nonce) {
+          finish(data.nonce);
+        }
+      },
+      onError: () => finish(null),
+      onClose: () => finish(null),
+    })
+      .then((joined) => {
+        if (settled) {
+          joined.dispose();
+          return;
+        }
+        handle = joined;
+      })
+      .catch(() => finish(null));
   });
 }
 async function verifyApprovedDeviceFromServer(params: {

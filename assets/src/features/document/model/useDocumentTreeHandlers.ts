@@ -5,6 +5,7 @@ import {
   selectedDocumentId,
   setSelectedDocumentId,
   type DocumentResponse,
+  type DragSibling,
 } from "@/entities/document";
 import { getApp } from "@/shared/lib/workspace/app";
 import { Notice } from "@/shared/lib/notice";
@@ -21,6 +22,7 @@ interface UseDocumentTreeHandlersOptions {
   expand: (folderId: string) => void;
   selectedParentId?: Accessor<string | null>;
   isOffline?: Accessor<boolean>;
+  getDragSiblings?: (parentId: string | null, excludedDocumentId: string) => DragSibling[];
   onAddToTile?: (doc: DocumentResponse) => void;
   onDeleteSuccess?: (documentId: string) => void;
   onDragDropError?: (error: unknown) => void;
@@ -30,7 +32,6 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
   const { documents } = getApp();
   const queryClient = useQueryClient();
   const [contextTarget, setContextTarget] = createSignal<DocumentResponse | null>(null);
-  const [contextPosition, setContextPosition] = createSignal<{ x: number; y: number } | null>(null);
 
   const invalidateDocuments = () => {
     queryClient.invalidateQueries({ queryKey: ["documents", options.workspaceId()] });
@@ -76,6 +77,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
           if (doc) addDocumentToTile(doc);
         }
       : undefined,
+    options.getDragSiblings,
   );
 
   const handleCreateDocument = options.selectedParentId
@@ -106,9 +108,18 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
   };
 
   const handleMove = async (doc: DocumentResponse, parentId: string | null) => {
-    const siblings = options
-      .flatDocuments()
-      .filter((candidate) => (candidate.parent_id ?? null) === parentId && candidate.id !== doc.id);
+    const siblings =
+      options.getDragSiblings?.(parentId, doc.id) ??
+      options
+        .flatDocuments()
+        .filter(
+          (candidate) => (candidate.parent_id ?? null) === parentId && candidate.id !== doc.id,
+        )
+        .map((candidate) => ({
+          key: candidate.id,
+          documentId: candidate.id,
+          position: candidate.position,
+        }));
     await moveAndInvalidate(doc.id, parentId, siblings.length);
   };
 
@@ -147,14 +158,12 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
     }
   };
 
-  const handleContextMenu = (e: MouseEvent, doc: DocumentResponse) => {
+  const handleContextMenu = (_e: MouseEvent, doc: DocumentResponse) => {
     setContextTarget(doc);
-    setContextPosition({ x: e.clientX, y: e.clientY });
   };
 
   const closeContextMenu = () => {
     setContextTarget(null);
-    setContextPosition(null);
   };
 
   return {
@@ -162,7 +171,6 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
     drag,
     selectedId: selectedDocumentId,
     contextTarget,
-    contextPosition,
     handleSelect,
     handleContextMenu,
     closeContextMenu,

@@ -32,6 +32,53 @@ if config_env() == :prod do
 
   config :refmd, dummy_salt_secret: dummy_salt_secret
 
+  share_server_key_id = System.get_env("SHARE_SERVER_KEY_ID", "primary")
+  share_server_key = System.get_env("SHARE_SERVER_KEY")
+  share_server_keys_json = System.get_env("SHARE_SERVER_KEYS")
+
+  share_server_keys =
+    cond do
+      is_binary(share_server_keys_json) and share_server_keys_json != "" ->
+        case Jason.decode(share_server_keys_json) do
+          {:ok, keys} when is_map(keys) and map_size(keys) > 0 ->
+            keys
+
+          _ ->
+            raise "SHARE_SERVER_KEYS must be a non-empty JSON object of {key_id: base64url_key}"
+        end
+
+      is_binary(share_server_key) and share_server_key != "" ->
+        %{share_server_key_id => share_server_key}
+
+      true ->
+        raise """
+        environment variable SHARE_SERVER_KEY (or SHARE_SERVER_KEYS) is missing.
+        Generate a random 32-byte server key for share envelope encryption.
+        Example: SHARE_SERVER_KEY=$(openssl rand -base64 32 | tr -d '+/=' | tr '/+' '-_')
+        """
+    end
+
+  Enum.each(share_server_keys, fn {kid, encoded} ->
+    case Base.url_decode64(encoded, padding: false) do
+      {:ok, decoded} when byte_size(decoded) == 32 ->
+        :ok
+
+      {:ok, decoded} ->
+        raise "share_server_keys[#{kid}] must decode to 32 bytes (got #{byte_size(decoded)})"
+
+      :error ->
+        raise "share_server_keys[#{kid}] must be base64url-encoded"
+    end
+  end)
+
+  unless Map.has_key?(share_server_keys, share_server_key_id) do
+    raise "SHARE_SERVER_KEY_ID '#{share_server_key_id}' has no corresponding key in SHARE_SERVER_KEYS"
+  end
+
+  config :refmd,
+    share_server_key_id: share_server_key_id,
+    share_server_keys: share_server_keys
+
   cors_origins =
     case System.get_env("CORS_ORIGINS") do
       nil -> []
@@ -118,6 +165,16 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
+
+  if https_key = System.get_env("HTTPS_KEY_PATH") do
+    config :refmd, RefMDWeb.Endpoint,
+      https: [
+        port: String.to_integer(System.get_env("HTTPS_PORT", "4443")),
+        cipher_suite: :compatible,
+        keyfile: https_key,
+        certfile: System.get_env("HTTPS_CERT_PATH")
+      ]
+  end
 
   # ## SSL Support
   #

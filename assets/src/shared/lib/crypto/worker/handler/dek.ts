@@ -10,6 +10,7 @@ import {
   buildOfflinePendingChangesAad,
 } from "../../aad";
 import { decryptTitle, encryptTitle, generateDek, unwrapDek, wrapDek } from "../../dek";
+import { wrapShareDek } from "../../share-dek";
 import {
   dskDecrypt,
   dskEncrypt,
@@ -21,15 +22,16 @@ import {
 
 export function handleGenerateDek(state: WorkerKeyState, p: HandlerPayload): unknown {
   const documentId = p.documentId as string;
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
   const workspaceId = p.workspaceId as string;
   const setActive = (p.setActive as boolean) !== false;
   const { kek, keyVersion: kekVersion } = requireKekForWorkspace(state, workspaceId);
 
   const dek = generateDek();
   const dekKeyVersion = (p.dekKeyVersion as number) ?? 1;
-  setCachedDek(state, documentId, dek, dekKeyVersion);
+  setCachedDek(state, cacheKey, dek, dekKeyVersion);
   if (setActive) {
-    setActiveDekVersion(state, documentId, dekKeyVersion);
+    setActiveDekVersion(state, cacheKey, dekKeyVersion);
   }
 
   const { encryptedDek, nonce } = wrapDek(dek, kek, documentId, workspaceId);
@@ -38,19 +40,35 @@ export function handleGenerateDek(state: WorkerKeyState, p: HandlerPayload): unk
 
 export function handleWrapDek(state: WorkerKeyState, p: HandlerPayload): unknown {
   const documentId = p.documentId as string;
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
   const workspaceId = p.workspaceId as string;
   const keyVersion = p.keyVersion as number | undefined;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
   const { kek } = requireKekForWorkspace(state, workspaceId);
 
   const { encryptedDek, nonce } = wrapDek(dek, kek, documentId, workspaceId);
   return { encryptedDek, nonce };
 }
 
+export function handleWrapDekForShare(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const documentId = p.documentId as string;
+  const shareId = p.shareId as string;
+  const keyVersion = p.keyVersion as number | undefined;
+  const shareDekEncryptionKey = p.shareDekEncryptionKey as Uint8Array | undefined;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+
+  if (!shareDekEncryptionKey) {
+    return { encryptedDek: new Uint8Array(dek), nonce: null };
+  }
+
+  return wrapShareDek({ dek, dekEncryptionKey: shareDekEncryptionKey, shareId, documentId });
+}
+
 export function handleUnwrapDek(state: WorkerKeyState, p: HandlerPayload): unknown {
   const encryptedDek = p.encryptedDek as Uint8Array;
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
   const workspaceId = p.workspaceId as string;
   const keyVersion = p.keyVersion as number;
   const isActive = p.isActive as boolean | undefined;
@@ -58,9 +76,9 @@ export function handleUnwrapDek(state: WorkerKeyState, p: HandlerPayload): unkno
   const { kek } = requireKekForWorkspace(state, workspaceId, kekVersion);
 
   const dek = unwrapDek(encryptedDek, nonce, kek, documentId, workspaceId);
-  setCachedDek(state, documentId, dek, keyVersion);
+  setCachedDek(state, cacheKey, dek, keyVersion);
   if (isActive) {
-    setActiveDekVersion(state, documentId, keyVersion);
+    setActiveDekVersion(state, cacheKey, keyVersion);
   }
   return { status: "ok" };
 }
@@ -69,7 +87,8 @@ export function handleEncryptTitle(state: WorkerKeyState, p: HandlerPayload): un
   const title = p.title as string;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const result = encryptTitle(title, dek, documentId, keyVersion);
   return { encrypted: result.encrypted, nonce: result.nonce };
@@ -80,7 +99,8 @@ export function handleDecryptTitle(state: WorkerKeyState, p: HandlerPayload): un
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const title = decryptTitle(encrypted, nonce, dek, documentId, keyVersion);
   return { title };
@@ -117,7 +137,8 @@ export function handleEncryptContent(state: WorkerKeyState, p: HandlerPayload): 
   const plaintext = p.plaintext as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const nonce = randomBytes(24);
   const aad = buildDocumentContentAad(documentId, keyVersion);
@@ -132,7 +153,8 @@ export function handleDecryptContent(state: WorkerKeyState, p: HandlerPayload): 
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const aad = buildDocumentContentAad(documentId, keyVersion);
   const cipher = xchacha20poly1305(dek, nonce, aad);
@@ -144,22 +166,52 @@ export function handleDecryptContent(state: WorkerKeyState, p: HandlerPayload): 
 export function handleHasDek(state: WorkerKeyState, p: HandlerPayload): unknown {
   const documentId = p.documentId as string;
   const requiredVersion = p.keyVersion as number | undefined;
-  const cached = getCachedDek(state, documentId, requiredVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const cached = getCachedDek(state, cacheKey, requiredVersion);
   return { hasDek: !!cached };
+}
+
+export const HAS_DEK_BATCH_MAX_SIZE = 500;
+
+interface HasDekBatchItem {
+  requestId: string;
+  documentId: string;
+  keyVersion: number;
+  cacheKey?: string;
+}
+
+export function handleHasDekBatch(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const items = p.items as HasDekBatchItem[] | undefined;
+  if (!Array.isArray(items)) {
+    throw new Error("has-dek-batch: items must be an array");
+  }
+  if (items.length > HAS_DEK_BATCH_MAX_SIZE) {
+    throw new Error(
+      `has-dek-batch: items exceeds max size ${HAS_DEK_BATCH_MAX_SIZE} (got ${items.length})`,
+    );
+  }
+  const results = items.map((item) => {
+    const cacheKey = item.cacheKey ?? item.documentId;
+    const cached = getCachedDek(state, cacheKey, item.keyVersion);
+    return { requestId: item.requestId, hasDek: !!cached };
+  });
+  return { results };
 }
 
 export function handleCacheDek(state: WorkerKeyState, p: HandlerPayload): unknown {
   const documentId = p.documentId as string;
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
   const dek = p.dek as Uint8Array;
   const keyVersion = p.keyVersion as number;
-  setCachedDek(state, documentId, dek, keyVersion);
+  setCachedDek(state, cacheKey, dek, keyVersion);
   return { status: "ok" };
 }
 
 export function handleEvictDek(state: WorkerKeyState, p: HandlerPayload): unknown {
   const documentId = p.documentId as string;
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
   const keyVersion = p.keyVersion as number;
-  evictCachedDek(state, documentId, keyVersion);
+  evictCachedDek(state, cacheKey, keyVersion);
   return { status: "ok" };
 }
 
@@ -167,7 +219,8 @@ export function handleEncryptOfflineCache(state: WorkerKeyState, p: HandlerPaylo
   const plaintext = p.plaintext as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const nonce = randomBytes(24);
   const aad = buildOfflineDocumentCacheAad(documentId, keyVersion);
@@ -182,7 +235,8 @@ export function handleDecryptOfflineCache(state: WorkerKeyState, p: HandlerPaylo
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const aad = buildOfflineDocumentCacheAad(documentId, keyVersion);
   const cipher = xchacha20poly1305(dek, nonce, aad);
@@ -195,7 +249,8 @@ export function handleEncryptOfflinePending(state: WorkerKeyState, p: HandlerPay
   const plaintext = p.plaintext as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const nonce = randomBytes(24);
   const aad = buildOfflinePendingChangesAad(documentId, keyVersion);
@@ -210,7 +265,8 @@ export function handleDecryptOfflinePending(state: WorkerKeyState, p: HandlerPay
   const nonce = p.nonce as Uint8Array;
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const aad = buildOfflinePendingChangesAad(documentId, keyVersion);
   const cipher = xchacha20poly1305(dek, nonce, aad);
@@ -226,7 +282,8 @@ export async function handleWrapDekForOffline(
   const dsk = requireDsk(state);
   const documentId = p.documentId as string;
   const keyVersion = p.keyVersion as number;
-  const { dek } = requireDekForDocument(state, documentId, keyVersion);
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
+  const { dek } = requireDekForDocument(state, documentId, keyVersion, cacheKey);
 
   const aad = buildOfflineDekCacheAad(documentId, keyVersion);
   return await dskEncrypt(dsk, dek, aad);
@@ -240,6 +297,7 @@ export async function handleUnwrapDekFromOffline(
   const ciphertext = p.ciphertext as ArrayBuffer;
   const iv = p.iv as ArrayBuffer;
   const documentId = p.documentId as string;
+  const cacheKey = (p.cacheKey as string | undefined) ?? documentId;
   const keyVersion = p.keyVersion as number;
   const isActive = (p.isActive as boolean | undefined) ?? true;
 
@@ -249,9 +307,9 @@ export async function handleUnwrapDekFromOffline(
     iv,
     buildOfflineDekCacheAad(documentId, keyVersion),
   );
-  setCachedDek(state, documentId, dek, keyVersion);
+  setCachedDek(state, cacheKey, dek, keyVersion);
   if (isActive) {
-    setActiveDekVersion(state, documentId, keyVersion);
+    setActiveDekVersion(state, cacheKey, keyVersion);
   }
   return { restored: true };
 }

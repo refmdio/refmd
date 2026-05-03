@@ -1,11 +1,9 @@
 import { For, Show } from "solid-js";
 import { ShieldIcon, UserMinusIcon, UserPlusIcon } from "lucide-solid";
+import type { WorkspaceMember } from "@/entities/workspace";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
-import type { components } from "@/shared/api";
 import type { WorkspaceMemberManagementModel } from "../model/useManagement";
-
-type WorkspaceMember = components["schemas"]["MemberInfo"];
 
 interface WorkspaceMembersSectionProps {
   members: WorkspaceMember[] | undefined;

@@ -5,6 +5,7 @@ import { resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import { encryptionApi } from "@/shared/api/encryption";
 import { documentsApi } from "@/shared/api/documents";
 import { queryClient } from "@/shared/lib/query/client";
+import { getChannelState } from "@/shared/lib/ws/phoenix-channel";
 import { getDocumentState } from "../../../model/document-state/store";
 import { notifyAwarenessReady } from "../../../model/document-state/signals";
 import type { DocumentState } from "../../../model/document-state/types";
@@ -20,6 +21,9 @@ import { cacheDocumentState, startPeriodicFlush } from "@/shared/lib/offline/cac
 import { cacheDek, cacheKek } from "@/shared/lib/offline/cache/manager/keys";
 import { checkAndEvict } from "@/shared/lib/offline/cache/eviction";
 import { reEncryptTitleIfNeeded } from "./key-rotation";
+import { getLocalDeviceId, getLocalIdentity } from "../share-identity";
+import { getDocumentDekCacheKey } from "../share-access";
+import { getDocumentCryptoWorker } from "../crypto-worker";
 
 const INIT_RETRY_DELAY_MS = 5_000;
 const MAX_INIT_RETRIES = 3;
@@ -72,7 +76,7 @@ export async function runPostInitializationTasks(
   state: DocumentState,
   localDeviceSigningPubKey?: string,
 ): Promise<void> {
-  const isCurrentState = () => getDocumentState(documentId) === state;
+  const isCurrentState = () => getDocumentState(state.stateKey) === state;
 
   const documentMetaTask = async () => {
     if (state.pendingRotationSnapshot) return;
@@ -114,24 +118,32 @@ export async function runPostInitializationTasks(
   const awarenessTask = async () => {
     if (!localDeviceSigningPubKey || !isCurrentState() || state.ephemeralSession) return;
 
-    const auth = authState();
-    const currentDevice = deviceState();
-    if (!auth || !currentDevice) return;
+    const auth = state.access.kind === "share" ? null : authState();
+    const currentDevice = state.access.kind === "share" ? null : deviceState();
+    const shareIdentity = getLocalIdentity(state);
+    const shareDeviceId = getLocalDeviceId(state);
+    if (!shareIdentity && (!auth || !currentDevice)) return;
 
     state.awareness.setLocalStateField("user", {
-      userId: auth.user.id,
-      name: auth.user.name,
-      color: assignUserColor(auth.user.id, state.awareness),
+      userId: shareIdentity?.id ?? auth!.user.id,
+      name: shareIdentity?.name ?? auth!.user.name,
+      color: assignUserColor(shareIdentity?.colorSeed ?? auth!.user.id, state.awareness),
       signingPubKey: localDeviceSigningPubKey,
     });
 
     const session = createEphemeralSession();
     state.ephemeralSession = session;
 
-    sendInitialize(session, state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
-    setupAwarenessRelay(state, documentId, currentDevice.deviceId, localDeviceSigningPubKey);
-    notifyAwarenessReady(documentId);
+    const deviceId = shareDeviceId ?? currentDevice!.deviceId;
+    sendInitialize(session, state, documentId, deviceId, localDeviceSigningPubKey);
+    setupAwarenessRelay(state, documentId, deviceId, localDeviceSigningPubKey);
+    notifyAwarenessReady(state.stateKey);
   };
+
+  if (state.access.kind === "share") {
+    await awarenessTask();
+    return;
+  }
 
   await Promise.allSettled([documentMetaTask(), offlineCacheTask(), awarenessTask()]);
 }
@@ -147,7 +159,16 @@ export function sendInitialize(
   attempt = 0,
 ): void {
   const payload = encodeEphemeralPayload(session, MSG_INITIALIZE, new Uint8Array(0));
-  sendEphemeralEnvelope(payload, documentId, state.keyVersion, deviceId, signingPubKeyB64)
+  sendEphemeralEnvelope(
+    payload,
+    documentId,
+    state.keyVersion,
+    deviceId,
+    signingPubKeyB64,
+    state.stateKey,
+    getDocumentDekCacheKey(state, documentId),
+    getDocumentCryptoWorker(state),
+  )
     .then(() => {
       session.initializeSent = true;
     })
@@ -155,7 +176,13 @@ export function sendInitialize(
 
   if (attempt < MAX_INIT_RETRIES) {
     setTimeout(() => {
-      if (state.ephemeralSession !== session || !state.channel) return;
+      if (
+        state.ephemeralSession !== session ||
+        !state.channel ||
+        getChannelState(state.channel) !== "joined"
+      ) {
+        return;
+      }
       sendInitialize(session, state, documentId, deviceId, signingPubKeyB64, attempt + 1);
     }, INIT_RETRY_DELAY_MS);
   }

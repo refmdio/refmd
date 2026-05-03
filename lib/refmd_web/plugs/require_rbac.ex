@@ -30,10 +30,12 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
     "document:delete" => %{base_role_ceiling: "admin", since_version: 1},
     "document:archive" => %{base_role_ceiling: "editor", since_version: 1},
     "workspace:update" => %{base_role_ceiling: "admin", since_version: 1},
+    "workspace:features" => %{base_role_ceiling: "admin", since_version: 1},
     "workspace:admin" => %{base_role_ceiling: "admin", since_version: 1},
     "workspace:delete" => %{base_role_ceiling: "owner", since_version: 1},
     "member:list" => %{base_role_ceiling: "viewer", since_version: 1},
     "member:invite" => %{base_role_ceiling: "admin", since_version: 1},
+    "guest:invite" => %{base_role_ceiling: "admin", since_version: 1},
     "member:change_role" => %{base_role_ceiling: "admin", since_version: 1},
     "member:remove" => %{base_role_ceiling: "admin", since_version: 1},
     "role:manage" => %{base_role_ceiling: "admin", since_version: 1}
@@ -42,21 +44,22 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
   @base_role_defaults %{
     "owner" => MapSet.new(~w(
         document:read document:write document:delete document:archive
-        workspace:update workspace:admin workspace:delete
-        member:list member:invite member:change_role member:remove
+        workspace:update workspace:features workspace:admin workspace:delete
+        member:list member:invite guest:invite member:change_role member:remove
         role:manage
       )),
     "admin" => MapSet.new(~w(
         document:read document:write document:delete document:archive
-        workspace:update workspace:admin
-        member:list member:invite member:change_role member:remove
+        workspace:update workspace:features workspace:admin
+        member:list member:invite guest:invite member:change_role member:remove
         role:manage
       )),
     "editor" => MapSet.new(~w(document:read document:write document:archive member:list)),
-    "viewer" => MapSet.new(~w(document:read member:list))
+    "viewer" => MapSet.new(~w(document:read member:list)),
+    "guest" => MapSet.new(~w(document:read document:write document:archive))
   }
 
-  @role_power %{"owner" => 4, "admin" => 3, "editor" => 2, "viewer" => 1}
+  @role_power %{"owner" => 4, "admin" => 3, "editor" => 2, "viewer" => 1, "guest" => 2}
 
   @spec permission_catalog() :: map()
   def permission_catalog, do: @permission_catalog
@@ -115,7 +118,7 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
         conn = assign_workspace_context(conn, workspace_id, member, role)
 
         if permission == :membership do
-          conn
+          maybe_enforce_guest_scope(conn, :membership)
         else
           check_permission(conn, permission, role)
         end
@@ -139,11 +142,15 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
   end
 
   defp permission_granted?(perm_key, perm_info, role, defaults, overrides) do
-    ceiling_power = @role_power[perm_info.base_role_ceiling]
-    role_power_val = @role_power[role.base_role]
+    if role.base_role == "guest" and not MapSet.member?(defaults, perm_key) do
+      false
+    else
+      ceiling_power = @role_power[perm_info.base_role_ceiling]
+      role_power_val = @role_power[role.base_role]
 
-    role_power_val >= ceiling_power and
-      resolve_grant(perm_key, perm_info, role, defaults, overrides)
+      role_power_val >= ceiling_power and
+        resolve_grant(perm_key, perm_info, role, defaults, overrides)
+    end
   end
 
   defp resolve_grant(perm_key, perm_info, role, defaults, overrides) do
@@ -163,16 +170,22 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
 
   defp check_permission(conn, permission, role) do
     if role.base_role == "owner" do
-      conn
+      maybe_enforce_guest_scope(conn, permission)
     else
+      defaults = @base_role_defaults[role.base_role]
       perm_info = @permission_catalog[permission]
       ceiling_power = @role_power[perm_info.base_role_ceiling]
       role_power_val = @role_power[role.base_role]
 
-      if role_power_val < ceiling_power do
-        deny(conn)
-      else
-        check_db_permission(conn, permission, role, perm_info)
+      cond do
+        role.base_role == "guest" and not MapSet.member?(defaults, permission) ->
+          deny(conn)
+
+        role_power_val < ceiling_power ->
+          deny(conn)
+
+        true ->
+          check_db_permission(conn, permission, role, perm_info)
       end
     end
   end
@@ -182,15 +195,114 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
 
     cond do
       override != nil ->
-        if override.granted, do: conn, else: deny(conn)
+        if override.granted, do: maybe_enforce_guest_scope(conn, permission), else: deny(conn)
 
       role.catalog_version != nil and perm_info.since_version > role.catalog_version ->
         deny(conn)
 
       true ->
         defaults = @base_role_defaults[role.base_role]
-        if MapSet.member?(defaults, permission), do: conn, else: deny(conn)
+
+        if MapSet.member?(defaults, permission),
+          do: maybe_enforce_guest_scope(conn, permission),
+          else: deny(conn)
     end
+  end
+
+  defp maybe_enforce_guest_scope(conn, permission) do
+    if Workspaces.guest_user?(conn.assigns.current_user_id) do
+      authorize_guest_scope(conn, permission)
+    else
+      conn
+    end
+  end
+
+  defp authorize_guest_scope(%{assigns: %{allow_guest_crypto_access: true}} = conn, :membership) do
+    case Workspaces.authorize_guest_permission(
+           conn.assigns.workspace_id,
+           conn.assigns.current_user_id,
+           "document:read",
+           nil
+         ) do
+      :ok -> conn
+      {:error, _reason} -> deny(conn)
+    end
+  end
+
+  defp authorize_guest_scope(conn, permission) do
+    case guest_authorization_result(conn, permission) do
+      :ok -> conn
+      {:error, _reason} -> deny(conn)
+    end
+  end
+
+  defp guest_authorization_result(%{assigns: %{document: document}} = conn, "document:write") do
+    if Map.has_key?(conn.params, "parent_id") do
+      Workspaces.authorize_guest_document_reorder(
+        conn.assigns.workspace_id,
+        conn.assigns.current_user_id,
+        document.id,
+        conn.params["parent_id"]
+      )
+    else
+      Workspaces.authorize_guest_permission(
+        conn.assigns.workspace_id,
+        conn.assigns.current_user_id,
+        "document:write",
+        document
+      )
+    end
+  end
+
+  defp guest_authorization_result(%{assigns: %{document: document}} = conn, permission)
+       when permission in ["document:read", "document:archive"] do
+    Workspaces.authorize_guest_permission(
+      conn.assigns.workspace_id,
+      conn.assigns.current_user_id,
+      permission,
+      document
+    )
+  end
+
+  defp guest_authorization_result(conn, "document:read") do
+    Workspaces.authorize_guest_permission(
+      conn.assigns.workspace_id,
+      conn.assigns.current_user_id,
+      "document:read",
+      nil
+    )
+  end
+
+  defp guest_authorization_result(conn, "document:write") do
+    cond do
+      Map.has_key?(conn.params, "doc_type") ->
+        Workspaces.authorize_guest_document_create(
+          conn.assigns.workspace_id,
+          conn.assigns.current_user_id,
+          conn.params["doc_type"],
+          conn.params["parent_id"]
+        )
+
+      Map.has_key?(conn.params, "document_id") and Map.has_key?(conn.params, "position") ->
+        Workspaces.authorize_guest_document_reorder(
+          conn.assigns.workspace_id,
+          conn.assigns.current_user_id,
+          conn.params["document_id"],
+          conn.params["parent_id"]
+        )
+
+      true ->
+        {:error, :permission_denied}
+    end
+  end
+
+  defp guest_authorization_result(conn, permission) do
+    Workspaces.authorize_guest_permission(
+      conn.assigns.workspace_id,
+      conn.assigns.current_user_id,
+      permission,
+      nil
+    )
   end
 
   defp deny(conn) do

@@ -11,6 +11,7 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
+import { defaultKeymap } from "@codemirror/commands";
 import type { ViewUpdate } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import {
@@ -135,12 +136,13 @@ function createBaseExtensions(): Extension[] {
     indentOnInput(),
     bracketMatching(),
     highlightActiveLine(),
-    keymap.of(yUndoManagerKeymap),
+    keymap.of([...yUndoManagerKeymap, ...defaultKeymap]),
   ];
 }
 
 interface CodeMirrorEditorProps {
   documentId: string;
+  stateKey: string;
   panelId: string;
   scrollGroupId?: string;
   onDocChange?: () => void;
@@ -157,7 +159,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   let containerEl: HTMLDivElement | undefined;
   let view: EditorView | undefined;
   let themeObserver: MutationObserver | undefined;
-  let activeDocumentId: string | undefined;
+  let activeStateKey: string | undefined;
   let unsubScroll: (() => void) | undefined;
   let suppressScroll = false;
 
@@ -169,17 +171,17 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     unregisterEditor(props.panelId);
     view?.destroy();
     view = undefined;
-    if (activeDocumentId) {
-      releaseYDoc(activeDocumentId);
-      activeDocumentId = undefined;
+    if (activeStateKey) {
+      releaseYDoc(activeStateKey);
+      activeStateKey = undefined;
     }
   }
 
-  function createEditor(documentId: string) {
+  function createEditor(stateKey: string) {
     if (!containerEl) return;
 
-    const { yDoc, awareness } = acquireYDoc(documentId);
-    activeDocumentId = documentId;
+    const { yDoc, awareness } = acquireYDoc(stateKey);
+    activeStateKey = stateKey;
     const yText = yDoc.getText("content");
     const undoManager = new Y.UndoManager(yText);
     const dark = isDarkMode();
@@ -271,10 +273,10 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   }
 
   createEffect(() => {
-    const documentId = props.documentId;
-    if (activeDocumentId === documentId) return;
+    const stateKey = props.stateKey;
+    if (activeStateKey === stateKey) return;
     destroyEditor();
-    createEditor(documentId);
+    createEditor(stateKey);
   });
 
   createEffect(() => {
@@ -292,7 +294,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     <div
       ref={(el) => {
         containerEl = el;
-        createEditor(props.documentId);
+        createEditor(props.stateKey);
       }}
       class="h-full overflow-hidden"
       data-testid="document-editor"

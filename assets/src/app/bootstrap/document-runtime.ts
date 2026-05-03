@@ -10,6 +10,7 @@ import {
   getEditorForDocument,
   initializeDocumentSync,
   releaseDocumentState,
+  resetDocumentState,
 } from "@/features/editor";
 import { documentNavigation } from "@/entities/document";
 import { documentRuntime } from "@/app/bootstrap/document-manager";
@@ -50,7 +51,20 @@ export function initializeDocumentRuntime(
   );
   documentRuntime.setDocTextResolver((id) => getDocText(id));
   documentRuntime.setOpenDocumentFn((documentId) => {
+    const routePath = `/document/${documentId}`;
+    const sameRoute = window.location.pathname === routePath;
+    if (
+      sameRoute &&
+      documentWorkspace.openDocuments().has(documentId) &&
+      !getEditorForDocument(documentId)
+    ) {
+      resetDocumentState(documentId, { flushCache: false });
+      documentWorkspace.refreshDocument({ id: documentId });
+      return;
+    }
+
     documentNavigation.openDocument(documentId);
+    if (sameRoute) documentWorkspace.openDocument({ id: documentId });
   });
   documentRuntime.setCreateDocumentFn(async (wsId, title, parentId) => {
     return createDocumentWithOfflineFallback(createDocumentOffline, wsId, title, parentId);

@@ -5,7 +5,7 @@ export { selectedDocumentId, setSelectedDocumentId } from "./model/document-sele
 export { useExpandedFolders } from "./model/expanded-folders";
 export { useDocuments } from "./model/use-documents";
 export { useDocumentDrag } from "./model/use-document-drag";
-export type { DropTarget } from "./model/use-document-drag";
+export type { DragSibling, DropTarget } from "./model/use-document-drag";
 export {
   useDocumentTitles,
   injectDecryptedTitle,

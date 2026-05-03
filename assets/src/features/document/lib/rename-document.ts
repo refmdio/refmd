@@ -15,7 +15,7 @@ export async function renameDocument(
 ): Promise<void> {
   if (doc.doc_type === "folder") {
     await documentsApi.update(doc.id, { title: newTitle });
-    getDocumentEvents().notifyDocumentRename(doc.id, oldTitle);
+    getDocumentEvents().notifyDocumentRename(doc.id, oldTitle, newTitle, false);
     return;
   }
 
@@ -57,5 +57,5 @@ export async function renameDocument(
   });
 
   injectDecryptedTitle(doc.id, newTitle, base64UrlEncode(nonce));
-  getDocumentEvents().notifyDocumentRename(doc.id, oldTitle);
+  getDocumentEvents().notifyDocumentRename(doc.id, oldTitle, newTitle, doc.is_published);
 }

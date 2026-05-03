@@ -18,7 +18,7 @@ defmodule RefMDWeb.Plugs.ResolveDocumentWorkspace do
   def init(opts), do: opts
 
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
-  def call(conn, _opts) do
+  def call(conn, opts) do
     document_id = conn.path_params["document_id"]
 
     if Regex.match?(@uuid_regex, document_id || "") do
@@ -26,7 +26,9 @@ defmodule RefMDWeb.Plugs.ResolveDocumentWorkspace do
         nil ->
           conn
           |> put_status(:not_found)
-          |> Phoenix.Controller.json(%{error: "document_not_found"})
+          |> Phoenix.Controller.json(%{
+            error: Keyword.get(opts, :not_found_error, "document_not_found")
+          })
           |> halt()
 
         document ->
@@ -37,7 +39,9 @@ defmodule RefMDWeb.Plugs.ResolveDocumentWorkspace do
     else
       conn
       |> put_status(:bad_request)
-      |> Phoenix.Controller.json(%{error: "invalid_document_id"})
+      |> Phoenix.Controller.json(%{
+        error: Keyword.get(opts, :invalid_error, "invalid_document_id")
+      })
       |> halt()
     end
   end

@@ -8,7 +8,10 @@ defmodule RefMD.Workspaces do
   alias RefMD.Repo
 
   alias RefMD.Workspaces.{
+    GuestInvitation,
     Workspace,
+    WorkspaceGuestGrant,
+    WorkspaceInvitation,
     WorkspaceMember,
     WorkspaceRole
   }
@@ -62,6 +65,78 @@ defmodule RefMD.Workspaces do
     to: RefMD.Workspaces.Invitations
 
   defdelegate revoke_all_active_invitations(workspace_ids), to: RefMD.Workspaces.Invitations
+  defdelegate revoke_all_active_guest_invitations(workspace_ids), to: RefMD.Workspaces.Guests
+
+  @spec lookup_invitation_kind(String.t()) :: {:ok, :member | :guest} | {:error, :not_found}
+  def lookup_invitation_kind(token_hash) when is_binary(token_hash) do
+    cond do
+      Repo.exists?(from(i in WorkspaceInvitation, where: i.token_hash == ^token_hash)) ->
+        {:ok, :member}
+
+      Repo.exists?(from(i in GuestInvitation, where: i.token_hash == ^token_hash)) ->
+        {:ok, :guest}
+
+      true ->
+        {:error, :not_found}
+    end
+  end
+
+  @spec revoke_all_active_access_invitations([Ecto.UUID.t()]) :: %{
+          member_invitations: non_neg_integer(),
+          guest_invitations: non_neg_integer()
+        }
+  def revoke_all_active_access_invitations(workspace_ids) do
+    %{
+      member_invitations: revoke_all_active_invitations(workspace_ids),
+      guest_invitations: revoke_all_active_guest_invitations(workspace_ids)
+    }
+  end
+
+  # ── Guest Invitations (delegated to RefMD.Workspaces.Guests) ──
+
+  defdelegate guest_user?(user_id), to: RefMD.Workspaces.Guests
+
+  defdelegate authorize_guest_permission(workspace_id, user_id, permission, document \\ nil),
+    to: RefMD.Workspaces.Guests,
+    as: :authorize_permission
+
+  defdelegate authorize_guest_document_create(workspace_id, user_id, doc_type, parent_id),
+    to: RefMD.Workspaces.Guests,
+    as: :authorize_document_create
+
+  defdelegate authorize_guest_document_reorder(workspace_id, user_id, document_id, parent_id),
+    to: RefMD.Workspaces.Guests,
+    as: :authorize_document_reorder
+
+  defdelegate filter_guest_documents(workspace_id, user_id, documents),
+    to: RefMD.Workspaces.Guests,
+    as: :filter_documents
+
+  defdelegate create_guest_invitation(attrs), to: RefMD.Workspaces.Guests
+  defdelegate list_guest_invitations(workspace_id), to: RefMD.Workspaces.Guests
+
+  defdelegate revoke_guest_invitation(workspace_id, invitation_id, actor_user_id),
+    to: RefMD.Workspaces.Guests
+
+  defdelegate redeem_guest_invitation(token_hash, device_attrs, session_attrs),
+    to: RefMD.Workspaces.Guests
+
+  defdelegate revoke_guest_grants(workspace_id, user_id), to: RefMD.Workspaces.Guests
+  defdelegate guest_invites_enabled?(workspace_id), to: RefMD.Workspaces.Guests
+
+  @spec share_links_enabled?(Ecto.UUID.t()) :: boolean()
+  def share_links_enabled?(workspace_id) when is_binary(workspace_id) do
+    from(w in Workspace, where: w.id == ^workspace_id, select: w.share_links_enabled)
+    |> Repo.one()
+    |> Kernel.==(true)
+  end
+
+  @spec public_publishing_enabled?(Ecto.UUID.t()) :: boolean()
+  def public_publishing_enabled?(workspace_id) when is_binary(workspace_id) do
+    from(w in Workspace, where: w.id == ^workspace_id, select: w.public_publishing_enabled)
+    |> Repo.one()
+    |> Kernel.==(true)
+  end
 
   # ── Workspace CRUD ──────────────────────────────
 
@@ -82,7 +157,8 @@ defmodule RefMD.Workspaces do
               {"owner", "Owner"},
               {"admin", "Admin"},
               {"editor", "Editor"},
-              {"viewer", "Viewer"}
+              {"viewer", "Viewer"},
+              {"guest", "Guest"}
             ] do
           insert_or_rollback(
             %WorkspaceRole{created_at: DateTime.utc_now()}
@@ -134,7 +210,8 @@ defmodule RefMD.Workspaces do
               {"owner", "Owner"},
               {"admin", "Admin"},
               {"editor", "Editor"},
-              {"viewer", "Viewer"}
+              {"viewer", "Viewer"},
+              {"guest", "Guest"}
             ] do
           insert_or_rollback(
             %WorkspaceRole{created_at: DateTime.utc_now()}
@@ -235,6 +312,41 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
+  @spec list_discoverable_workspaces(Ecto.UUID.t()) :: [
+          %{
+            workspace: Workspace.t(),
+            is_default: boolean(),
+            role_id: Ecto.UUID.t(),
+            base_role: String.t()
+          }
+        ]
+  def list_discoverable_workspaces(user_id) do
+    if guest_user?(user_id) do
+      from(wm in WorkspaceMember,
+        join: w in Workspace,
+        on: w.id == wm.workspace_id,
+        join: r in WorkspaceRole,
+        on: r.id == wm.role_id,
+        join: g in WorkspaceGuestGrant,
+        on:
+          g.workspace_id == wm.workspace_id and
+            g.user_id == wm.user_id and
+            is_nil(g.revoked_at),
+        where: wm.user_id == ^user_id,
+        select: %{
+          workspace: w,
+          is_default: wm.is_default,
+          role_id: wm.role_id,
+          base_role: r.base_role
+        },
+        order_by: [asc: w.name]
+      )
+      |> Repo.all()
+    else
+      list_user_workspaces(user_id)
+    end
+  end
+
   @spec get_user_workspace_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def get_user_workspace_ids(user_id) do
     from(wm in WorkspaceMember,
@@ -242,6 +354,24 @@ defmodule RefMD.Workspaces do
       select: wm.workspace_id
     )
     |> Repo.all()
+  end
+
+  @spec get_discoverable_workspace_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
+  def get_discoverable_workspace_ids(user_id) do
+    if guest_user?(user_id) do
+      from(wm in WorkspaceMember,
+        join: g in WorkspaceGuestGrant,
+        on:
+          g.workspace_id == wm.workspace_id and
+            g.user_id == wm.user_id and
+            is_nil(g.revoked_at),
+        where: wm.user_id == ^user_id,
+        select: wm.workspace_id
+      )
+      |> Repo.all()
+    else
+      get_user_workspace_ids(user_id)
+    end
   end
 
   @spec get_user_workspace_ids_with_kek_version(Ecto.UUID.t()) :: [{Ecto.UUID.t(), integer()}]

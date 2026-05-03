@@ -13,6 +13,14 @@ const markdownStringifier = unified()
     join: [() => 0],
   });
 
+function isEmptyParagraph(node: ProseMirrorNode): boolean {
+  return node.type.name === "paragraph" && node.content.size === 0;
+}
+
+function hasTrailingEmptyParagraph(doc: ProseMirrorNode): boolean {
+  return doc.childCount > 1 && !!doc.lastChild && isEmptyParagraph(doc.lastChild);
+}
+
 function markToMdastNode(
   markName: string,
   child: PhrasingContent,
@@ -171,5 +179,6 @@ export function proseMirrorDocToMarkdown(doc: ProseMirrorNode): string {
   });
 
   const markdown = markdownStringifier.stringify(root);
-  return typeof markdown === "string" ? markdown.replace(/\n$/, "") : "";
+  if (typeof markdown !== "string") return "";
+  return hasTrailingEmptyParagraph(doc) ? markdown : markdown.replace(/\n$/, "");
 }

@@ -1,21 +1,34 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, Show, type ParentProps } from "solid-js";
 import {
   PencilIcon,
   MoveIcon,
   PanelRightIcon,
+  Share2Icon,
   ArchiveIcon,
   ArchiveRestoreIcon,
+  Globe2Icon,
   TrashIcon,
 } from "lucide-solid";
 import type { DocumentResponse } from "@/entities/document";
+import { currentWorkspaceId } from "@/entities/workspace";
 import { RenameDialog, DeleteConfirmDialog, MoveDialog } from "@/features/document";
+import { PublishDialog } from "@/features/publication";
+import { ShareManagementDialog } from "@/features/share";
+import { useWorkspaceQuery } from "@/features/workspace";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/shared/ui/context-menu";
 
 interface DocumentContextMenuProps {
   targetDoc: DocumentResponse | null;
-  position: { x: number; y: number } | null;
   onClose: () => void;
   getTitle: (doc: DocumentResponse) => string;
   folders: DocumentResponse[];
+  documents: DocumentResponse[];
   onRename: (doc: DocumentResponse, newTitle: string) => Promise<void>;
   onMove: (doc: DocumentResponse, parentId: string | null) => Promise<void>;
   isTitleReady: (doc: DocumentResponse) => boolean;
@@ -23,16 +36,28 @@ interface DocumentContextMenuProps {
   onArchive: (doc: DocumentResponse) => Promise<void>;
   onUnarchive: (doc: DocumentResponse) => Promise<void>;
   onDelete: (doc: DocumentResponse) => Promise<void>;
+  canManageShares: boolean;
+  canDeleteShares: boolean;
+  canPublishPublic: boolean;
+  setError: (value: string | null) => void;
 }
 
-export function DocumentContextMenu(props: DocumentContextMenuProps) {
+export function DocumentContextMenu(props: ParentProps<DocumentContextMenuProps>) {
   const [renameOpen, setRenameOpen] = createSignal(false);
   const [moveOpen, setMoveOpen] = createSignal(false);
   const [deleteOpen, setDeleteOpen] = createSignal(false);
+  const [shareOpen, setShareOpen] = createSignal(false);
+  const [publishOpen, setPublishOpen] = createSignal(false);
   const [dialogDoc, setDialogDoc] = createSignal<DocumentResponse | null>(null);
+  const workspace = useWorkspaceQuery(currentWorkspaceId);
 
   const doc = () => props.targetDoc;
   const isArchived = () => doc()?.archived_at != null;
+  const canShare = () => props.canManageShares && workspace.data?.share_links_enabled === true;
+  const canPublish = () =>
+    props.canPublishPublic &&
+    doc()?.doc_type === "document" &&
+    workspace.data?.public_publishing_enabled === true;
 
   const openRename = () => {
     setDialogDoc(doc());
@@ -52,88 +77,97 @@ export function DocumentContextMenu(props: DocumentContextMenuProps) {
     props.onClose();
   };
 
+  const openShare = () => {
+    setDialogDoc(doc());
+    setShareOpen(true);
+    props.onClose();
+  };
+
+  const openPublish = () => {
+    setDialogDoc(doc());
+    setPublishOpen(true);
+    props.onClose();
+  };
+
   return (
     <>
-      <Show when={doc() && props.position}>
-        <div
-          class="fixed inset-0 z-40"
-          onClick={props.onClose}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            props.onClose();
-          }}
-        >
-          <div
-            class="absolute z-50 min-w-[10rem] border border-border/60 bg-muted/60 p-1 text-foreground shadow-[var(--glass-shadow-outline)] backdrop-blur-[6px]"
-            style={{
-              left: `${props.position!.x}px`,
-              top: `${props.position!.y}px`,
-            }}
-            onClick={(e) => e.stopPropagation()}
+      <ContextMenu
+        modal={false}
+        onOpenChange={(open: boolean) => {
+          if (!open) props.onClose();
+        }}
+      >
+        <ContextMenuTrigger class="contents">{props.children}</ContextMenuTrigger>
+        <Show when={doc()}>
+          <ContextMenuContent
+            onEscapeKeyDown={props.onClose}
+            onPointerDownOutside={props.onClose}
+            onFocusOutside={props.onClose}
+            onInteractOutside={props.onClose}
           >
             <Show when={doc()?.doc_type === "document" && props.isTitleReady(doc()!)}>
-              <button
-                class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-muted-foreground/80 outline-hidden transition-[background,color] hover:bg-foreground hover:text-background"
-                onClick={() => {
+              <ContextMenuItem
+                onSelect={() => {
                   props.onAddToTile(doc()!);
                   props.onClose();
                 }}
               >
                 <PanelRightIcon class="size-3.5" />
                 Add to Tile
-              </button>
+              </ContextMenuItem>
             </Show>
             <Show when={!isArchived()}>
-              <button
-                class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-muted-foreground/80 outline-hidden transition-[background,color] hover:bg-foreground hover:text-background"
-                onClick={openRename}
-              >
+              <ContextMenuItem onSelect={openRename}>
                 <PencilIcon class="size-3.5" />
                 Rename
-              </button>
-              <button
-                class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-muted-foreground/80 outline-hidden transition-[background,color] hover:bg-foreground hover:text-background"
-                onClick={openMove}
-              >
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={openMove}>
                 <MoveIcon class="size-3.5" />
                 Move
-              </button>
+              </ContextMenuItem>
+              <Show when={canShare()}>
+                <ContextMenuItem onSelect={openShare}>
+                  <Share2Icon class="size-3.5" />
+                  Share
+                </ContextMenuItem>
+              </Show>
+              <Show when={canPublish()}>
+                <ContextMenuItem onSelect={openPublish}>
+                  <Globe2Icon class="size-3.5" />
+                  Publish
+                </ContextMenuItem>
+              </Show>
             </Show>
             <Show when={!isArchived()}>
-              <button
-                class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-muted-foreground/80 outline-hidden transition-[background,color] hover:bg-foreground hover:text-background"
-                onClick={() => {
+              <ContextMenuItem
+                onSelect={() => {
                   void props.onArchive(doc()!);
                   props.onClose();
                 }}
               >
                 <ArchiveIcon class="size-3.5" />
                 Archive
-              </button>
+              </ContextMenuItem>
             </Show>
             <Show when={isArchived()}>
-              <button
-                class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-muted-foreground/80 outline-hidden transition-[background,color] hover:bg-foreground hover:text-background"
-                onClick={() => {
+              <ContextMenuItem
+                onSelect={() => {
                   void props.onUnarchive(doc()!);
                   props.onClose();
                 }}
               >
                 <ArchiveRestoreIcon class="size-3.5" />
                 Unarchive
-              </button>
+              </ContextMenuItem>
             </Show>
-            <div class="pointer-events-none -mx-1 my-1 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent" />
-            <button
-              class="relative flex w-full cursor-default items-center gap-3 px-3 py-2 text-[11px] font-mono uppercase tracking-[0.28em] text-destructive outline-hidden transition-[background,color] hover:bg-destructive hover:text-background"
-              onClick={openDelete}
-            >
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onSelect={openDelete}>
               <TrashIcon class="size-3.5" />
               Delete
-            </button>
-          </div>
-        </div>
-      </Show>
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </Show>
+      </ContextMenu>
       <Show when={dialogDoc()}>
         <RenameDialog
           open={renameOpen()}
@@ -154,6 +188,24 @@ export function DocumentContextMenu(props: DocumentContextMenuProps) {
           title={props.getTitle(dialogDoc()!)}
           isFolder={dialogDoc()!.doc_type === "folder"}
           onConfirm={() => props.onDelete(dialogDoc()!)}
+        />
+        <ShareManagementDialog
+          open={shareOpen()}
+          onOpenChange={setShareOpen}
+          document={dialogDoc()}
+          documents={props.documents}
+          canDeleteShares={props.canDeleteShares}
+          getTitle={props.getTitle}
+          title={props.getTitle(dialogDoc()!)}
+          setError={props.setError}
+        />
+        <PublishDialog
+          open={publishOpen()}
+          onOpenChange={setPublishOpen}
+          document={dialogDoc()}
+          title={props.getTitle(dialogDoc()!)}
+          canPublishPublic={props.canPublishPublic}
+          setError={props.setError}
         />
       </Show>
     </>

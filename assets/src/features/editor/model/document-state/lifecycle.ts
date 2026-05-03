@@ -6,15 +6,15 @@ import { documentStateEvictionDelayMs, documentStates } from "./registry";
 import type { DocumentState, TeardownOptions } from "./types";
 
 function teardownState(
-  documentId: string,
+  stateKey: string,
   state: DocumentState,
   options: TeardownOptions = {},
 ): void {
   const { flushCache = true } = options;
   state._initAbortController?.abort();
   state._initAbortController = null;
-  if (flushCache) {
-    flushDocumentCache(documentId, state.workspaceId, state);
+  if (flushCache && state.access.kind !== "share") {
+    flushDocumentCache(state.documentId, state.workspaceId, state);
   }
   if (state.offlineFlushCleanup) {
     state.offlineFlushCleanup();
@@ -28,24 +28,39 @@ function teardownState(
     state.autoSync.dispose();
     state.autoSync = null;
   }
+  state.writerLockCleanup?.();
+  state.writerLockCleanup = null;
+  if (state.pendingSaveTimeout) {
+    clearTimeout(state.pendingSaveTimeout);
+    state.pendingSaveTimeout = null;
+  }
+  if (state._syncGapTimer) {
+    clearTimeout(state._syncGapTimer);
+    state._syncGapTimer = null;
+  }
+  if (state._reconnectTimer) {
+    clearTimeout(state._reconnectTimer);
+    state._reconnectTimer = null;
+  }
+  state._onRecoverableSyncGap = null;
   for (const resolve of state._reauthResolvers) resolve();
   state._reauthResolvers = [];
   for (const resolve of state._rollbackResolvers) resolve();
   state._rollbackResolvers = [];
-  documentStates.delete(documentId);
-  clearDocumentSignals(documentId);
+  documentStates.delete(stateKey);
+  clearDocumentSignals(stateKey);
   removeAwarenessStates(state.awareness, [state.awareness.clientID], "local");
   state.awarenessRelayCleanup?.();
   state.awarenessRelayCleanup = null;
   state.ephemeralSession = null;
-  leaveDocument(documentId);
+  leaveDocument(state.documentId, state.stateKey);
   state.channel = null;
   state.awareness.destroy();
   state.yDoc.destroy();
 }
 
-export function releaseDocumentState(documentId: string): void {
-  const state = documentStates.get(documentId);
+export function releaseDocumentState(stateKey: string): void {
+  const state = documentStates.get(stateKey);
   if (!state) return;
   state.refCount--;
   if (state.refCount <= 0) {
@@ -53,38 +68,44 @@ export function releaseDocumentState(documentId: string): void {
       void state.initPromise.catch(() => {});
       state._initAbortController?.abort();
       state._initAbortController = null;
-      leaveDocument(documentId);
+      leaveDocument(state.documentId, state.stateKey);
       state.channel = null;
     }
     setTimeout(() => {
-      const current = documentStates.get(documentId);
+      const current = documentStates.get(stateKey);
       if (current && current.refCount <= 0) {
-        teardownState(documentId, current);
+        teardownState(stateKey, current);
       }
     }, documentStateEvictionDelayMs);
   }
 }
 
 export function clearAllDocumentStates(options: TeardownOptions = {}): void {
-  for (const [documentId, state] of documentStates) {
-    teardownState(documentId, state, options);
+  for (const [stateKey, state] of documentStates) {
+    teardownState(stateKey, state, options);
   }
 }
 
-export function acquireYDoc(documentId: string): {
+export function resetDocumentState(stateKey: string, options: TeardownOptions = {}): void {
+  const state = documentStates.get(stateKey);
+  if (!state) return;
+  teardownState(stateKey, state, options);
+}
+
+export function acquireYDoc(stateKey: string): {
   yDoc: DocumentState["yDoc"];
   awareness: DocumentState["awareness"];
 } {
-  const state = documentStates.get(documentId);
+  const state = documentStates.get(stateKey);
   if (!state) {
     throw new Error(
-      `acquireYDoc: no DocumentState for ${documentId}. Call acquireDocumentState first.`,
+      `acquireYDoc: no DocumentState for ${stateKey}. Call acquireDocumentState first.`,
     );
   }
   state.refCount++;
   return { yDoc: state.yDoc, awareness: state.awareness };
 }
 
-export function releaseYDoc(documentId: string): void {
-  releaseDocumentState(documentId);
+export function releaseYDoc(stateKey: string): void {
+  releaseDocumentState(stateKey);
 }

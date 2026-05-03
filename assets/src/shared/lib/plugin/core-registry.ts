@@ -123,6 +123,21 @@ export function loadCorePlugins(app: App, workspaceId: string): void {
   }
 }
 
+export function syncCorePlugins(app: App, workspaceId: string): void {
+  for (const plugin of registeredPlugins) {
+    const enabled = isCorePluginEnabled(plugin.id, workspaceId);
+    const loaded = loadedPlugins.has(plugin.id);
+
+    if (enabled && !loaded) {
+      plugin.load(app);
+      loadedPlugins.add(plugin.id);
+    } else if (!enabled && loaded) {
+      plugin.unload();
+      loadedPlugins.delete(plugin.id);
+    }
+  }
+}
+
 export function unloadCorePlugins(): void {
   for (const plugin of registeredPlugins) {
     if (!loadedPlugins.has(plugin.id)) continue;

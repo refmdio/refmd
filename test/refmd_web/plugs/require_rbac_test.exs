@@ -320,7 +320,8 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
       role = %WorkspaceRole{base_role: "owner", permissions: []}
       perms = RequireRBAC.effective_permissions(role)
 
-      assert MapSet.size(perms) == 12
+      assert MapSet.size(perms) == 14
+      assert MapSet.member?(perms, "guest:invite")
       assert MapSet.member?(perms, "workspace:delete")
     end
 
@@ -329,6 +330,20 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
       perms = RequireRBAC.effective_permissions(role)
 
       assert perms == MapSet.new(~w(document:read member:list))
+    end
+
+    test "guest role stays document-only even if a membership permission override is present" do
+      role = %WorkspaceRole{
+        base_role: "guest",
+        catalog_version: 1,
+        permissions: [
+          %WorkspaceRolePermission{permission: "member:list", granted: true}
+        ]
+      }
+
+      perms = RequireRBAC.effective_permissions(role)
+
+      assert perms == MapSet.new(~w(document:read document:write document:archive))
     end
 
     test "applies overrides for custom role" do

@@ -1,4 +1,3 @@
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { deviceState } from "@/entities/session";
 import { resolveSigningKey } from "../inbound/signing-keys";
@@ -11,56 +10,55 @@ import {
 } from "./session";
 import { sendEphemeralEnvelope } from "./send";
 import { assignUserColor } from "../../user-colors";
+import { getDocumentDekCacheKey } from "../share-access";
 import {
   encodeAwarenessUpdate,
   applyAwarenessUpdate,
   removeAwarenessStates,
 } from "y-protocols/awareness";
 import type { EphemeralPayload, PeerLeftPayload } from "@/shared/lib/ws/document-payloads";
+import { getLocalDeviceId } from "../share-identity";
+import { getDocumentCryptoWorker } from "../crypto-worker";
 // ── Ephemeral message handling ────────────────────────────────
 export function handleEphemeralMessage(
   payload: EphemeralPayload,
   state: DocumentState,
   documentId: string,
   localDeviceSigningPubKey: string | undefined,
-  failClosed: (reason: string, err?: unknown) => void,
 ): void {
-  processEphemeral(payload, state, documentId, localDeviceSigningPubKey, failClosed).catch(
-    (err) => {
-      console.warn("[ws] Ephemeral processing error:", err);
-    },
-  );
+  processEphemeral(payload, state, documentId, localDeviceSigningPubKey).catch((err) => {
+    console.warn("[ws] Ephemeral processing error:", err);
+  });
 }
 async function processEphemeral(
   payload: EphemeralPayload,
   state: DocumentState,
   documentId: string,
   localDeviceSigningPubKey: string | undefined,
-  failClosed: (reason: string, err?: unknown) => void,
 ): Promise<void> {
   const device = deviceState();
-  if (!device || !state.ephemeralSession) return;
+  const localDeviceId = getLocalDeviceId(state) ?? device?.deviceId ?? null;
+  const session = state.ephemeralSession;
+  if (!localDeviceId || !session) return;
   const pd = payload.publicData;
   const senderPubKeyB64 = pd.signingPubKey;
   if (!senderPubKeyB64 || !pd) return;
   if (pd.docId !== documentId) return;
   // Same device (same signingPubKey): skip. This covers both own broadcasts
   // (server uses broadcast_from) and same-device other-tab broadcasts.
-  // Design: awareness is per-device, not per-tab. Same-device tabs share
-  // the same user identity and don't need mutual cursor visibility.
+  // Awareness is per-device, not per-tab; same-device tabs share identity
+  // and don't need mutual cursor visibility.
   if (senderPubKeyB64 === localDeviceSigningPubKey) return;
   const resolveResult = await resolveSigningKey(senderPubKeyB64, state);
   if (resolveResult.status === "key_changed") {
-    failClosed("verification_failed");
     return;
   }
   if (resolveResult.status === "not_found") {
-    failClosed("verification_failed");
     return;
   }
   if (state.revokedSigningKeys.has(senderPubKeyB64)) return;
   const senderPubKeyBytes = resolveResult.key;
-  const worker = getCryptoWorker();
+  const worker = getDocumentCryptoWorker(state);
   const valid = await worker.verifyWsSignature({
     prefix: "refmd_ephemeral",
     ciphertext: payload.ciphertext as string,
@@ -77,14 +75,16 @@ async function processEphemeral(
       nonce: base64UrlDecode(payload.nonce as string),
       documentId,
       keyVersion: state.keyVersion,
+      cacheKey: getDocumentDekCacheKey(state, documentId),
     });
   } catch {
     return;
   }
   const decoded = decodeEphemeralPayload(decrypted);
   if (!decoded) return;
+  if (state.ephemeralSession !== session) return;
   const result = await handleIncomingEphemeral(
-    state.ephemeralSession,
+    session,
     decoded,
     senderPubKeyB64,
     senderPubKeyBytes,
@@ -97,29 +97,34 @@ async function processEphemeral(
         result.responsePayload,
         documentId,
         state.keyVersion,
-        device.deviceId,
+        localDeviceId,
         localDeviceSigningPubKey!,
+        state.stateKey,
+        getDocumentDekCacheKey(state, documentId),
+        worker,
       );
       if (state.ephemeralSession?.trustedPeers.has(remoteSessionIdB64)) {
-        await resendAwareness(state, documentId, device.deviceId, localDeviceSigningPubKey!);
+        await resendAwareness(state, documentId, localDeviceId, localDeviceSigningPubKey!);
       }
       break;
     case "trusted":
-      await resendAwareness(state, documentId, device.deviceId, localDeviceSigningPubKey!);
+      await resendAwareness(state, documentId, localDeviceId, localDeviceSigningPubKey!);
       break;
     case "awareness": {
-      // Track which clientIDs are added/updated/removed
+      // Track only semantic awareness changes. The lower-level "update"
+      // event also fires for keepalives with unchanged state.
       let changedClients: number[] = [];
       let removedClients: number[] = [];
-      const captureChange = ({
-        added,
-        updated,
-        removed,
-      }: {
-        added: number[];
-        updated: number[];
-        removed: number[];
-      }) => {
+      const captureChange = (args: unknown[]) => {
+        const change = args[0] as
+          | {
+              added: number[];
+              updated: number[];
+              removed: number[];
+            }
+          | undefined;
+        if (!change) return;
+        const { added, updated, removed } = change;
         changedClients = [...added, ...updated];
         removedClients = [...removed];
       };
@@ -147,13 +152,15 @@ async function processEphemeral(
       // be observable by UI consumers. Events are re-emitted after verification.
       const originalEmit = state.awareness.emit.bind(state.awareness);
       state.awareness.emit = (event: string, args: unknown[]) => {
+        if (event === "change") {
+          captureChange(args);
+          return;
+        }
         if (event === "update") originalEmit(event, args);
       };
-      state.awareness.on("update", captureChange);
       try {
         applyAwarenessUpdate(state.awareness, result.awarenessData, "remote");
       } finally {
-        state.awareness.off("update", captureChange);
         state.awareness.emit = originalEmit;
       }
       // Verify clientID ownership for removals: a peer can only remove its own clientIDs.
@@ -313,5 +320,14 @@ async function resendAwareness(
   if (!localState) return;
   const encoded = encodeAwarenessUpdate(state.awareness, [state.awareness.clientID]);
   const payload = encodeEphemeralPayload(session, MSG_MESSAGE, encoded);
-  await sendEphemeralEnvelope(payload, documentId, state.keyVersion, deviceId, signingPubKeyB64);
+  await sendEphemeralEnvelope(
+    payload,
+    documentId,
+    state.keyVersion,
+    deviceId,
+    signingPubKeyB64,
+    state.stateKey,
+    getDocumentDekCacheKey(state, documentId),
+    getDocumentCryptoWorker(state),
+  );
 }

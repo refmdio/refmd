@@ -7,15 +7,20 @@ defmodule RefMDWeb.MemberController do
   alias RefMDWeb.Schemas
 
   plug :validate_user_id when action in [:devices, :update, :delete]
+  plug :allow_guest_crypto_access when action in [:identity_keys, :devices]
 
-  plug RequireRBAC, [permission: "member:list"] when action in [:index, :identity_keys]
-  plug RequireRBAC, [permission: :membership] when action in [:devices]
+  plug RequireRBAC, [permission: "member:list"] when action in [:index]
+  plug RequireRBAC, [permission: :membership] when action in [:identity_keys, :devices]
   plug RequireRBAC, [permission: "member:change_role"] when action in [:update]
 
   # DELETE uses manual RBAC check for self-removal bypass
   plug RequireRBAC, [permission: :membership] when action in [:delete]
 
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+
+  defp allow_guest_crypto_access(conn, _opts) do
+    assign(conn, :allow_guest_crypto_access, true)
+  end
 
   defp validate_user_id(conn, _opts) do
     user_id = conn.path_params["user_id"]
@@ -248,6 +253,10 @@ defmodule RefMDWeb.MemberController do
 
   defp handle_member_error(conn, :invalid_role) do
     conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_role"})
+  end
+
+  defp handle_member_error(conn, :guest_role_immutable) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "guest_role_immutable"})
   end
 
   defp handle_member_error(conn, error) do

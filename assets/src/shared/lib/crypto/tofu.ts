@@ -1,4 +1,10 @@
-import { type TofuEntry, getTofuEntry, saveTofuEntry, updateLastSeen } from "./trust-store";
+import {
+  type TofuEntry,
+  DEFAULT_TOFU_NAMESPACE,
+  getTofuEntry,
+  saveTofuEntry,
+  updateLastSeen,
+} from "./trust-store";
 import { calculateFingerprint, formatFingerprint } from "./fingerprint";
 import { constantTimeEqual, base64UrlDecode } from "./encoding";
 import { verifyDeviceIdentitySignature } from "./device";
@@ -17,6 +23,7 @@ export async function verifyTofu(
   deviceId: string,
   signingPublicKey: Uint8Array,
   ecdhPublicKey: Uint8Array,
+  namespace = DEFAULT_TOFU_NAMESPACE,
 ): Promise<TofuVerifyResult> {
   if (!isValidEd25519PublicKey(signingPublicKey)) {
     throw new Error("Invalid Ed25519 signing public key");
@@ -33,7 +40,7 @@ export async function verifyTofu(
     firstSeenAt: now,
     lastSeenAt: now,
   };
-  const storedEntry = await getTofuEntry(userId, deviceId);
+  const storedEntry = await getTofuEntry(userId, deviceId, namespace);
   if (!storedEntry) {
     return { status: "first_seen", newEntry };
   }
@@ -59,19 +66,29 @@ export async function verifyTofu(
   }
   return { status: "ecdh_key_mismatch", storedEntry, newEntry };
 }
-export async function trustDevice(entry: TofuEntry): Promise<void> {
-  await saveTofuEntry(entry);
+export async function trustDevice(
+  entry: TofuEntry,
+  namespace = DEFAULT_TOFU_NAMESPACE,
+): Promise<void> {
+  await saveTofuEntry(entry, namespace);
 }
-export async function updateDeviceLastSeen(userId: string, deviceId: string): Promise<void> {
-  await updateLastSeen(userId, deviceId);
+export async function updateDeviceLastSeen(
+  userId: string,
+  deviceId: string,
+  namespace = DEFAULT_TOFU_NAMESPACE,
+): Promise<void> {
+  await updateLastSeen(userId, deviceId, namespace);
 }
-export async function handleTofuResult(result: TofuVerifyResult): Promise<TofuVerifyResult> {
+export async function handleTofuResult(
+  result: TofuVerifyResult,
+  namespace = DEFAULT_TOFU_NAMESPACE,
+): Promise<TofuVerifyResult> {
   switch (result.status) {
     case "first_seen":
-      await trustDevice(result.newEntry);
+      await trustDevice(result.newEntry, namespace);
       break;
     case "known_trusted":
-      await updateDeviceLastSeen(result.newEntry.userId, result.newEntry.deviceId);
+      await updateDeviceLastSeen(result.newEntry.userId, result.newEntry.deviceId, namespace);
       break;
     case "identity_key_changed":
     case "ecdh_key_mismatch":

@@ -151,22 +151,24 @@ defmodule RefMDWeb.EncryptionController do
   def get_kek_backup(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
 
-    if Workspaces.get_member_role(workspace_id, user_id) == nil do
-      conn |> put_status(:forbidden) |> json(%{error: "not_a_member"})
-    else
-      backup = resolve_kek_backup(workspace_id, user_id, params["key_version"])
+    case require_workspace_crypto_access(workspace_id, user_id) do
+      :ok ->
+        backup = resolve_kek_backup(workspace_id, user_id, params["key_version"])
 
-      case backup do
-        nil ->
-          conn |> put_status(:not_found) |> json(%{error: "not_found"})
+        case backup do
+          nil ->
+            conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
-        b ->
-          json(conn, %{
-            key_version: b.key_version,
-            encrypted_kek: encode_binary(b.encrypted_kek),
-            nonce: encode_binary(b.nonce)
-          })
-      end
+          b ->
+            json(conn, %{
+              key_version: b.key_version,
+              encrypted_kek: encode_binary(b.encrypted_kek),
+              nonce: encode_binary(b.nonce)
+            })
+        end
+
+      {:error, status, error} ->
+        conn |> put_status(status) |> json(%{error: error})
     end
   end
 
@@ -180,7 +182,7 @@ defmodule RefMDWeb.EncryptionController do
   @spec workspace_ids(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def workspace_ids(conn, _params) do
     user_id = conn.assigns.current_user_id
-    ids = Workspaces.get_user_workspace_ids(user_id)
+    ids = Workspaces.get_discoverable_workspace_ids(user_id)
     json(conn, %{workspace_ids: ids})
   end
 
@@ -226,13 +228,23 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp require_membership(workspace_id, user_id) do
-    if Workspaces.get_member_role(workspace_id, user_id) == nil do
-      {:error, :forbidden, "not_a_member"}
-    else
-      :ok
+  defp require_workspace_crypto_access(workspace_id, user_id) do
+    cond do
+      Workspaces.get_member_role(workspace_id, user_id) == nil ->
+        {:error, :forbidden, "not_a_member"}
+
+      Workspaces.guest_user?(user_id) and
+          Workspaces.authorize_guest_permission(workspace_id, user_id, "document:read", nil) !=
+            :ok ->
+        {:error, :forbidden, "permission_denied"}
+
+      true ->
+        :ok
     end
   end
+
+  defp require_membership(workspace_id, user_id),
+    do: require_workspace_crypto_access(workspace_id, user_id)
 
   defp validate_sender_device_match(pop_device_id, sender_device_id) do
     if pop_device_id != nil and sender_device_id != nil and sender_device_id != pop_device_id do

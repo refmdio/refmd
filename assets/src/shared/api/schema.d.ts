@@ -57,6 +57,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/guest-invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List guest invitations */
+        get: operations["RefMDWeb.GuestInvitationController.index"];
+        put?: never;
+        /** Create a guest invitation */
+        post: operations["RefMDWeb.GuestInvitationController.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update workspace feature settings */
+        patch: operations["RefMDWeb.WorkspaceController.update_features"];
+        trace?: never;
+    };
     "/api/auth/recovery-key": {
         parameters: {
             query?: never;
@@ -74,6 +109,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/invitations/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lookup invitation kind */
+        post: operations["RefMDWeb.InvitationController.lookup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/ws-token": {
         parameters: {
             query?: never;
@@ -85,6 +137,23 @@ export interface paths {
         put?: never;
         /** Generate a short-lived WebSocket authentication token */
         post: operations["RefMDWeb.AuthController.ws_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares/{share_slug}/mounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List saved mounts for a share */
+        get: operations["RefMDWeb.ShareMountController.share_mounts"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -142,6 +211,23 @@ export interface paths {
         head?: never;
         /** Update a document */
         patch: operations["RefMDWeb.DocumentController.update"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/share-verification-directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get share participant verification directory for a document */
+        get: operations["RefMDWeb.DocumentShareController.verification_directory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/settings": {
@@ -213,6 +299,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shares/{share_slug}/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a password challenge for a share */
+        get: operations["RefMDWeb.ShareController.challenge"];
+        put?: never;
+        /** Respond to a password challenge for a share */
+        post: operations["RefMDWeb.ShareController.respond_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password-set": {
         parameters: {
             query?: never;
@@ -247,6 +351,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/mounts/{mount_id}/folders/{folder_token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a mounted folder subtree */
+        get: operations["RefMDWeb.ShareMountController.folder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/registrations/{id}": {
         parameters: {
             query?: never;
@@ -259,6 +380,42 @@ export interface paths {
         post?: never;
         /** Reject (delete) a device registration */
         delete: operations["RefMDWeb.DeviceController.reject_registration"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List share mounts for a workspace */
+        get: operations["RefMDWeb.ShareMountController.index"];
+        put?: never;
+        /** Create a share mount */
+        post: operations["RefMDWeb.ShareMountController.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mounts/{mount_id}/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a password challenge for a mounted share */
+        get: operations["RefMDWeb.ShareMountController.challenge"];
+        put?: never;
+        /** Respond to a password challenge for a mounted share */
+        post: operations["RefMDWeb.ShareMountController.respond_challenge"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -317,6 +474,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/authors/{author_slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a public author page */
+        get: operations["RefMDWeb.PublicDocumentController.show_author"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/archive": {
         parameters: {
             query?: never;
@@ -345,6 +519,40 @@ export interface paths {
         put?: never;
         /** Register a new user */
         post: operations["RefMDWeb.AuthController.register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares/{share_slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get share landing metadata */
+        get: operations["RefMDWeb.ShareController.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/guest-invitations/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem a guest invitation */
+        post: operations["RefMDWeb.GuestInvitationController.redeem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -420,6 +628,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shares/f/{folder_token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get canonical folder bootstrap for a share */
+        get: operations["RefMDWeb.ShareController.folder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a guest invitation */
+        delete: operations["RefMDWeb.GuestInvitationController.delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares/{share_id}/admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a share as workspace admin */
+        delete: operations["RefMDWeb.DocumentShareController.admin_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/kek-backup": {
         parameters: {
             query?: never;
@@ -473,6 +732,77 @@ export interface paths {
         patch: operations["RefMDWeb.DocumentController.reorder"];
         trace?: never;
     };
+    "/api/documents/{document_id}/shares/{share_id}/exclusions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update folder share exclusions */
+        patch: operations["RefMDWeb.DocumentShareController.update_exclusions"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get publication settings */
+        get: operations["RefMDWeb.PublicDocumentController.show"];
+        put?: never;
+        /** Publish a document */
+        post: operations["RefMDWeb.PublicDocumentController.create"];
+        /** Unpublish a document */
+        delete: operations["RefMDWeb.PublicDocumentController.delete"];
+        options?: never;
+        head?: never;
+        /** Update publication settings */
+        patch: operations["RefMDWeb.PublicDocumentController.update"];
+        trace?: never;
+    };
+    "/api/shares/d/{document_token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get canonical document bootstrap for a share */
+        get: operations["RefMDWeb.ShareController.document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares/{share_slug}/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bootstrap a share participant session */
+        post: operations["RefMDWeb.ShareController.bootstrap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/setup-complete": {
         parameters: {
             query?: never;
@@ -488,6 +818,23 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares/{share_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update folder share keys */
+        patch: operations["RefMDWeb.DocumentShareController.update_keys"];
         trace?: never;
     };
     "/api/documents/{document_id}/unarchive": {
@@ -594,6 +941,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a share */
+        delete: operations["RefMDWeb.DocumentShareController.delete"];
+        options?: never;
+        head?: never;
+        /** Update share settings */
+        patch: operations["RefMDWeb.DocumentShareController.update"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/publication/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sync publication content */
+        put: operations["RefMDWeb.PublicDocumentController.update_content"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices": {
         parameters: {
             query?: never;
@@ -618,7 +1000,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get device registration status (polling fallback for SSE) */
+        /** Get device registration status (polling fallback for realtime events) */
         get: operations["RefMDWeb.DeviceController.get_registration_sas"];
         put?: never;
         post?: never;
@@ -749,6 +1131,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/mounts/{mount_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a share mount */
+        get: operations["RefMDWeb.ShareMountController.show"];
+        put?: never;
+        post?: never;
+        /** Delete a share mount */
+        delete: operations["RefMDWeb.ShareMountController.delete"];
+        options?: never;
+        head?: never;
+        /** Update a share mount position */
+        patch: operations["RefMDWeb.ShareMountController.update"];
+        trace?: never;
+    };
     "/api/auth/kdf-migration": {
         parameters: {
             query?: never;
@@ -803,6 +1204,23 @@ export interface paths {
         patch: operations["RefMDWeb.MemberController.update"];
         trace?: never;
     };
+    "/api/public/authors/{author_slug}/documents/{document_slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a public document */
+        get: operations["RefMDWeb.PublicDocumentController.show_public"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/recovery/challenge": {
         parameters: {
             query?: never;
@@ -848,6 +1266,24 @@ export interface paths {
         get: operations["RefMDWeb.MemberController.identity_keys"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List shares for a document */
+        get: operations["RefMDWeb.DocumentShareController.index"];
+        put?: never;
+        /** Create a share for a document */
+        post: operations["RefMDWeb.DocumentShareController.create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -927,6 +1363,44 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CreatePublicationRequest */
+        CreatePublicationRequest: {
+            content: string;
+            content_hash: string;
+            noindex?: boolean;
+            slug?: string | null;
+            title: string;
+        };
+        /** SharePasswordChallengeResponse */
+        SharePasswordChallengeResponse: {
+            challenge: string;
+            kdf_params: components["schemas"]["KdfParams"];
+            salt: string;
+        };
+        /** ShareMountResponse */
+        ShareMountResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            parent_id: string | null;
+            password_protected: boolean;
+            position: number;
+            share: components["schemas"]["ShareMountShareSummary"];
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            status: "active" | "expired" | "access_limit_reached";
+            target: components["schemas"]["ShareMountTarget"];
+            /** Format: uuid */
+            target_document_id: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string | null;
+            title: string | null;
+            title_state: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** DeviceInfo */
         DeviceInfo: {
             device_type: string;
@@ -978,6 +1452,28 @@ export interface components {
             /** Format: uuid */
             sender_device_id: string;
         };
+        /** ShareLandingResponse */
+        ShareLandingResponse: {
+            root: components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"];
+            share: components["schemas"]["ShareMetadata"];
+        };
+        /** ShareMountFolderChallengeResponse */
+        ShareMountFolderChallengeResponse: {
+            child_shares: components["schemas"]["ShareMountChildShare"][];
+            folder_tree: {
+                entries: components["schemas"]["ShareTreeEntry"][];
+                folder: components["schemas"]["ShareTreeEntry"];
+            };
+            mount: components["schemas"]["ShareMountResponse"];
+        };
+        /** UpdateShareExclusionsRequest */
+        UpdateShareExclusionsRequest: {
+            add: string[];
+            remove?: string[];
+        } | {
+            add?: string[];
+            remove: string[];
+        };
         /** RoleDeleteResponse */
         RoleDeleteResponse: {
             invalidated_invitation_count: number;
@@ -990,6 +1486,31 @@ export interface components {
         /** MembersListResponse */
         MembersListResponse: {
             members: components["schemas"]["MemberInfo"][];
+        };
+        /** ShareMountListResponse */
+        ShareMountListResponse: {
+            mounts: components["schemas"]["ShareMountResponse"][];
+        };
+        /** ShareDocumentBootstrapResponse */
+        ShareDocumentBootstrapResponse: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            key_version: number;
+            nonce: string | null;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            share_id: string;
+            share_slug: string;
+            title: string | null;
+            verification_directory: components["schemas"]["ShareVerificationDirectory"];
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** AcceptInvitationRequest */
         AcceptInvitationRequest: {
@@ -1015,10 +1536,34 @@ export interface components {
             /** Format: uuid */
             device_id: string;
         };
+        /** ShareMountChallengeRequest */
+        ShareMountChallengeRequest: {
+            /** Format: uuid */
+            document_id?: string | null;
+            response: string;
+            /** Format: uuid */
+            share_id?: string | null;
+        };
+        /** ShareMountLookupItem */
+        ShareMountLookupItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** InvitationLookupRequest */
+        InvitationLookupRequest: {
+            token: string;
+        };
         /** RoleResponse */
         RoleResponse: {
             /** @enum {string} */
-            base_role: "owner" | "admin" | "editor" | "viewer";
+            base_role: "owner" | "admin" | "editor" | "viewer" | "guest";
             catalog_version?: number | null;
             /** Format: date-time */
             created_at: string;
@@ -1090,11 +1635,22 @@ export interface components {
         DocumentKeysResponse: {
             keys: components["schemas"]["DocumentKeyResponse"][];
         };
+        /** InvitationLookupResponse */
+        InvitationLookupResponse: {
+            /** @enum {string} */
+            kind: "member" | "guest";
+        };
         /** UpdateRoleRequest */
         UpdateRoleRequest: {
             is_default?: boolean;
             name?: string;
             permissions?: components["schemas"]["PermissionOverride"][];
+        };
+        /** DocumentShareRoot */
+        DocumentShareRoot: {
+            document_token: string;
+            /** @enum {string} */
+            kind: "document";
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1118,6 +1674,7 @@ export interface components {
         };
         /** MeResponse */
         MeResponse: {
+            account_type?: string | null;
             auth_type?: string | null;
             /** Format: uuid */
             device_id?: string | null;
@@ -1142,10 +1699,29 @@ export interface components {
         WsTokenResponse: {
             token: string;
         };
+        /** UpdateWorkspaceFeaturesRequest */
+        UpdateWorkspaceFeaturesRequest: {
+            guest_invites_enabled?: boolean;
+            guest_member_limit?: number | null;
+            public_author_bio?: string | null;
+            public_author_display_name?: string | null;
+            public_author_slug?: string | null;
+            public_publishing_enabled?: boolean;
+            share_links_enabled?: boolean;
+        };
+        /** ShareParticipantInfo */
+        ShareParticipantInfo: {
+            /** Format: uuid */
+            device_id: string;
+            /** @enum {string} */
+            grant: "view" | "edit";
+            /** Format: uuid */
+            principal_id: string;
+        };
         /** MemberInfo */
         MemberInfo: {
             /** @enum {string} */
-            base_role: "owner" | "admin" | "editor" | "viewer";
+            base_role: "owner" | "admin" | "editor" | "viewer" | "guest";
             /** Format: email */
             email: string;
             is_default?: boolean;
@@ -1157,6 +1733,28 @@ export interface components {
             role_name: string;
             /** Format: uuid */
             user_id: string;
+        };
+        /** ShareMountDetailResponse */
+        ShareMountDetailResponse: {
+            admission: components["schemas"]["MountedShareAdmission"] | null;
+            child_shares: components["schemas"]["ShareMountChildShare"][] | null;
+            folder_tree: {
+                entries?: components["schemas"]["ShareTreeEntry"][];
+                folder?: components["schemas"]["ShareTreeEntry"];
+            } | null;
+            mount: components["schemas"]["ShareMountResponse"];
+        };
+        /** ShareMetadata */
+        ShareMetadata: {
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            id: string;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** @enum {string} */
+            scope: "document" | "folder";
         };
         /** RemoveMemberResponse */
         RemoveMemberResponse: {
@@ -1175,6 +1773,72 @@ export interface components {
         /** DeviceRegistrationsResponse */
         DeviceRegistrationsResponse: {
             devices: components["schemas"]["DeviceRegistrationInfo"][];
+        };
+        /** ShareMountCreateResponse */
+        ShareMountCreateResponse: components["schemas"]["ShareMountResponse"];
+        /** ShareVerificationDirectory */
+        ShareVerificationDirectory: {
+            share_participant_devices: Record<string, never>[];
+            workspace_devices: Record<string, never>[];
+        };
+        /** GuestInvitationResponse */
+        GuestInvitationResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: uuid */
+            invited_by: string;
+            kek_version: number;
+            max_redemptions: number;
+            permission: string;
+            redemption_count: number;
+            /** Format: date-time */
+            revoked_at: string | null;
+            /** Format: uuid */
+            target_document_id?: string | null;
+            target_scope: string;
+            token_prefix: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareMountChildShare */
+        ShareMountChildShare: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            /** Format: uuid */
+            document_id: string;
+            document_token: string | null;
+            folder_token: string | null;
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** ShareTreeEntry */
+        ShareTreeEntry: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            document_token: string | null;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            folder_token: string | null;
+            /** Format: uuid */
+            id: string;
+            key_version: number;
+            nonce: string | null;
+            /** Format: uuid */
+            parent_id: string | null;
+            position: number | null;
+            /** Format: uuid */
+            share_id: string;
+            title: string | null;
+        };
+        /** GuestInvitationsListResponse */
+        GuestInvitationsListResponse: {
+            invitations: components["schemas"]["GuestInvitationResponse"][];
         };
         /** CreateInvitationRequest */
         CreateInvitationRequest: {
@@ -1196,6 +1860,7 @@ export interface components {
         DocumentResponse: {
             /** Format: date-time */
             archived_at?: string | null;
+            can_sync_publication: boolean;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
@@ -1208,6 +1873,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             is_encrypted: boolean;
+            is_published: boolean;
             min_dek_version: number;
             needs_dek_rotation: boolean;
             needs_rotation_snapshot?: boolean;
@@ -1240,9 +1906,38 @@ export interface components {
             parent_id?: string | null;
             title?: string;
         };
+        /** MountedShareAdmission */
+        MountedShareAdmission: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            key_version: number;
+            nonce: string | null;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            share_id: string;
+            title: string | null;
+            verification_directory: components["schemas"]["ShareVerificationDirectory"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** WorkspacesListResponse */
         WorkspacesListResponse: {
             workspaces: components["schemas"]["WorkspaceResponse"][];
+        };
+        /** ShareUpdateResponse */
+        ShareUpdateResponse: {
+            access_count: number;
+            access_limit?: number | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            id: string;
         };
         /** UpdateSettingsRequest */
         UpdateSettingsRequest: {
@@ -1264,10 +1959,113 @@ export interface components {
         ApproveDeviceResponse: {
             device: components["schemas"]["DeviceInfo"];
         };
+        /** ShareChildListItem */
+        ShareChildListItem: {
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** ShareBootstrapResponse */
+        ShareBootstrapResponse: {
+            participant: components["schemas"]["ShareParticipantInfo"];
+            root: components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"];
+        };
+        /** PublicAuthorResponse */
+        PublicAuthorResponse: {
+            author_description: string | null;
+            author_name: string;
+            author_slug: string;
+            documents: components["schemas"]["PublicAuthorDocument"][];
+        };
+        /** ShareMountConflictResponse */
+        ShareMountConflictResponse: {
+            mount: components["schemas"]["ShareMountResponse"];
+        };
+        /** ShareFolderBootstrapResponse */
+        ShareFolderBootstrapResponse: {
+            entries: components["schemas"]["ShareTreeEntry"][];
+            folder: components["schemas"]["ShareTreeEntry"];
+            password_protected: boolean;
+            /** Format: uuid */
+            share_id: string;
+            share_slug: string;
+            verification_directory: components["schemas"]["ShareVerificationDirectory"];
+        };
+        /** CreateGuestInvitationRequest */
+        CreateGuestInvitationRequest: {
+            encrypted_kek: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            invitation_id: string;
+            kek_nonce: string;
+            kek_version: number;
+            max_redemptions?: number | null;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            target_document_id?: string | null;
+            /** @enum {string} */
+            target_scope: "workspace" | "document" | "folder";
+            token_hash: string;
+            token_prefix: string;
+        };
+        /** ShareMountLookupResponse */
+        ShareMountLookupResponse: {
+            mounts: components["schemas"]["ShareMountLookupItem"][];
+        };
+        /** ReplaceFolderShareKeyItem */
+        ReplaceFolderShareKeyItem: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            nonce?: string | null;
+            /**
+             * Format: uuid
+             * @description Existing child share ID whose key will be replaced
+             */
+            share_id: string;
+        };
+        /** CreateShareMountRequest */
+        CreateShareMountRequest: {
+            /** Format: uuid */
+            parent_id?: string | null;
+            share_slug: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** SaltResponse */
         SaltResponse: {
             kdf_params: components["schemas"]["KdfParams"];
             salt: string;
+        };
+        /** ShareMountDocumentChallengeResponse */
+        ShareMountDocumentChallengeResponse: {
+            admission: components["schemas"]["MountedShareAdmission"];
+        };
+        /** PublicationConflictResponse */
+        PublicationConflictResponse: {
+            error: string;
+            suggested_slug?: string | null;
+        };
+        /** ShareMountFolderMountSummary */
+        ShareMountFolderMountSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            status: "active";
+        };
+        /** UpdateShareRequest */
+        UpdateShareRequest: {
+            access_limit?: number | null;
+            /** Format: date-time */
+            expires_at?: string | null;
         };
         /** CreateDocumentRequest */
         CreateDocumentRequest: {
@@ -1304,6 +2102,31 @@ export interface components {
         RenameDeviceRequest: {
             name: string;
         };
+        /** UpdatePublicationContentRequest */
+        UpdatePublicationContentRequest: {
+            content: string;
+            content_hash: string;
+            title: string;
+        };
+        /** RedeemGuestInvitationResponse */
+        RedeemGuestInvitationResponse: {
+            encrypted_kek: string;
+            /** Format: uuid */
+            guest_device_id: string;
+            /** Format: uuid */
+            guest_user_id: string;
+            /** Format: uuid */
+            invitation_id: string;
+            kek_nonce: string;
+            kek_version: number;
+            permission: string;
+            /** Format: uuid */
+            target_document_id?: string | null;
+            target_scope: string;
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_name: string;
+        };
         /** DistributeUmkRequest */
         DistributeUmkRequest: {
             encrypted_umk: string;
@@ -1311,13 +2134,100 @@ export interface components {
             /** Format: uuid */
             sender_device_id: string;
         };
+        /** CreateFolderShareKeyItem */
+        CreateFolderShareKeyItem: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            nonce?: string | null;
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** CreateDocumentShareRequest */
+        CreateDocumentShareRequest: {
+            access_limit?: number | null;
+            auth_key?: string | null;
+            encrypted_dek: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            kdf_params?: components["schemas"]["KdfParams"] | null;
+            nonce?: string | null;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            salt?: string | null;
+            /** @enum {string} */
+            scope: "document";
+            share_slug: string;
+            token_prefix: string;
+        };
         /** DocumentsListResponse */
         DocumentsListResponse: {
             documents: components["schemas"]["DocumentResponse"][];
         };
+        /** ShareCreateResponse */
+        ShareCreateResponse: {
+            /** Format: uuid */
+            id: string;
+            share_manage_token: string;
+            share_slug: string;
+        };
+        /** ShareDocumentBootstrapRequiredResponse */
+        ShareDocumentBootstrapRequiredResponse: {
+            bootstrap_required: boolean;
+            share_slug: string;
+        };
         /** SaveMemberEnvelopesRequest */
         SaveMemberEnvelopesRequest: {
             envelopes: components["schemas"]["MemberEnvelopeItem"][];
+        };
+        /** PublicationResponse */
+        PublicationResponse: {
+            /** Format: uuid */
+            document_id: string;
+            noindex: boolean;
+            /** Format: date-time */
+            published_at: string;
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
+            url: string;
+        };
+        /** ShareListItem */
+        ShareListItem: {
+            access_count: number;
+            access_limit?: number | null;
+            child_shares: components["schemas"]["ShareChildListItem"][];
+            /** Format: date-time */
+            created_at: string;
+            exclusions: string[];
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            kdf_params?: components["schemas"]["KdfParams"];
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            salt?: string | null;
+            /** @enum {string} */
+            scope: "document" | "folder";
+            share_slug: string;
+            token_prefix: string;
+        };
+        /** AddFolderShareKeyItem */
+        AddFolderShareKeyItem: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            nonce?: string | null;
+            /**
+             * Format: uuid
+             * @description New child share ID generated before encryption
+             */
+            share_id: string;
         };
         /** PasswordSetResponse */
         PasswordSetResponse: {
@@ -1341,6 +2251,12 @@ export interface components {
             revoked_device_id: string;
             workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
         };
+        /** ShareMountFolderResponse */
+        ShareMountFolderResponse: {
+            entries: components["schemas"]["ShareTreeEntry"][];
+            folder: components["schemas"]["ShareTreeEntry"];
+            mount: components["schemas"]["ShareMountFolderMountSummary"];
+        };
         /** WorkspaceIdsResponse */
         WorkspaceIdsResponse: {
             workspace_ids: string[];
@@ -1358,9 +2274,29 @@ export interface components {
             session_id: string;
             user: components["schemas"]["UserInfo"];
         };
+        /** FolderShareRoot */
+        FolderShareRoot: {
+            folder_token: string;
+            /** @enum {string} */
+            kind: "folder";
+        };
+        /** ShareBootstrapRequest */
+        ShareBootstrapRequest: {
+            device_encryption_pub_key: string;
+            device_signing_pub_key: string;
+            display_name: string;
+        };
         /** VerifyKeyRequest */
         VerifyKeyRequest: {
             auth_key: string;
+        };
+        /** UpdateShareKeysRequest */
+        UpdateShareKeysRequest: {
+            add_keys: components["schemas"]["AddFolderShareKeyItem"][];
+            replace_keys?: components["schemas"]["ReplaceFolderShareKeyItem"][];
+        } | {
+            add_keys?: components["schemas"]["AddFolderShareKeyItem"][];
+            replace_keys: components["schemas"]["ReplaceFolderShareKeyItem"][];
         };
         /** MemberDeviceInfo */
         MemberDeviceInfo: {
@@ -1384,6 +2320,17 @@ export interface components {
         /** UpdateWorkspaceRequest */
         UpdateWorkspaceRequest: {
             description?: string | null;
+            encrypted_description?: string | null;
+            encrypted_description_key_version?: number | null;
+            encrypted_description_nonce?: string | null;
+            encrypted_icon?: string | null;
+            encrypted_icon_key_version?: number | null;
+            encrypted_icon_nonce?: string | null;
+            encrypted_name?: string | null;
+            encrypted_name_key_version?: number | null;
+            encrypted_name_nonce?: string | null;
+            guest_invites_enabled?: boolean;
+            guest_member_limit?: number | null;
             icon?: string | null;
             name?: string;
             slug?: string;
@@ -1469,6 +2416,12 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** ShareExclusionsResponse */
+        ShareExclusionsResponse: {
+            exclusions: string[];
+            /** Format: uuid */
+            share_id: string;
+        };
         /** DeviceRegistrationInfo */
         DeviceRegistrationInfo: {
             client_nonce: string;
@@ -1492,6 +2445,13 @@ export interface components {
             sender_device_id: string;
             sender_ecdh_public_key: string;
             sender_signing_public_key: string;
+        };
+        /** SharePasswordChallengeRequest */
+        SharePasswordChallengeRequest: {
+            device_encryption_pub_key: string;
+            device_signing_pub_key: string;
+            display_name: string;
+            response: string;
         };
         /** KdfMigrationRequest */
         KdfMigrationRequest: {
@@ -1546,6 +2506,22 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** ShareMountTarget */
+        ShareMountTarget: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            /** Format: uuid */
+            document_id: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            title: string | null;
+        };
+        /** PublicationContentResponse */
+        PublicationContentResponse: {
+            /** Format: date-time */
+            updated_at: string;
+        };
         /** KekRotationCompleteRequest */
         KekRotationCompleteRequest: {
             new_kek_version: number;
@@ -1554,12 +2530,64 @@ export interface components {
         PasswordResetVerifyBody: {
             token: string;
         };
+        /** RedeemGuestInvitationRequest */
+        RedeemGuestInvitationRequest: {
+            client_nonce: string;
+            device_encryption_pub_key: string;
+            device_name?: string | null;
+            device_signing_pub_key: string;
+            device_type?: string | null;
+            encrypted_identity_encryption_private: string;
+            encrypted_identity_encryption_private_nonce: string;
+            encrypted_identity_signing_private: string;
+            encrypted_identity_signing_private_nonce: string;
+            /** Format: uuid */
+            guest_user_id: string;
+            identity_encryption_pub_key: string;
+            identity_signature: string;
+            identity_signing_pub_key: string;
+            recovery_encrypted_umk: string;
+            recovery_nonce: string;
+            token: string;
+        };
+        /** ShareMountShareSummary */
+        ShareMountShareSummary: {
+            /** Format: uuid */
+            document_id: string;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** @enum {string} */
+            scope: "document" | "folder";
+        };
+        /** ShareListResponse */
+        ShareListResponse: {
+            shares: components["schemas"]["ShareListItem"][];
+        };
+        /** CreateShareRequest */
+        CreateShareRequest: components["schemas"]["CreateDocumentShareRequest"] | components["schemas"]["CreateFolderShareRequest"];
         /** ErrorResponse */
         ErrorResponse: {
             details?: {
                 [key: string]: unknown;
             };
             error: string;
+        };
+        /** PublicAuthorDocument */
+        PublicAuthorDocument: {
+            excerpt: string;
+            noindex: boolean;
+            /** Format: date-time */
+            published_at: string;
+            slug: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** UpdateShareMountRequest */
+        UpdateShareMountRequest: {
+            /** Format: uuid */
+            parent_id?: string | null;
+            position: number;
         };
         /** ReorderDocumentRequest */
         ReorderDocumentRequest: {
@@ -1580,6 +2608,17 @@ export interface components {
             /** Format: uuid */
             current_user_role_id?: string | null;
             description?: string | null;
+            encrypted_description?: string | null;
+            encrypted_description_key_version?: number | null;
+            encrypted_description_nonce?: string | null;
+            encrypted_icon?: string | null;
+            encrypted_icon_key_version?: number | null;
+            encrypted_icon_nonce?: string | null;
+            encrypted_name?: string | null;
+            encrypted_name_key_version?: number | null;
+            encrypted_name_nonce?: string | null;
+            guest_invites_enabled: boolean;
+            guest_member_limit?: number | null;
             icon?: string | null;
             /** Format: uuid */
             id: string;
@@ -1590,6 +2629,9 @@ export interface components {
             needs_kek_rotation: boolean;
             /** Format: uuid */
             owner_id: string;
+            public_author_profile?: components["schemas"]["PublicAuthorProfile"];
+            public_publishing_enabled: boolean;
+            share_links_enabled: boolean;
             slug: string;
             /** Format: date-time */
             updated_at: string;
@@ -1612,9 +2654,50 @@ export interface components {
             key_version: number;
             nonce: string;
         };
+        /** CreateFolderShareRequest */
+        CreateFolderShareRequest: {
+            access_limit?: number | null;
+            auth_key?: string | null;
+            encrypted_dek: string;
+            exclusions?: string[] | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            kdf_params?: {
+                algorithm: string;
+                hash_length: number;
+                iterations: number;
+                memory: number;
+                parallelism: number;
+            } | null;
+            nonce?: string | null;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            salt?: string | null;
+            /** @enum {string} */
+            scope: "folder";
+            share_keys: components["schemas"]["CreateFolderShareKeyItem"][];
+            share_slug: string;
+            token_prefix: string;
+        };
         /** ApproveDeviceRequest */
         ApproveDeviceRequest: {
             identity_signature: string;
+        };
+        /** ShareKeysUpdateResponse */
+        ShareKeysUpdateResponse: {
+            added: string[];
+            replaced: string[];
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** PublicAuthorProfile */
+        PublicAuthorProfile: {
+            bio?: string | null;
+            display_name: string;
+            slug: string;
         };
         /** DocumentKeyResponse */
         DocumentKeyResponse: {
@@ -1627,6 +2710,24 @@ export interface components {
             kek_version: number;
             key_version: number;
             nonce: string;
+        };
+        /** PublicDocumentResponse */
+        PublicDocumentResponse: {
+            author_description: string | null;
+            author_name: string;
+            author_slug: string;
+            content: string;
+            noindex: boolean;
+            /** Format: date-time */
+            published_at: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** UpdatePublicationRequest */
+        UpdatePublicationRequest: {
+            noindex?: boolean;
+            slug?: string;
         };
         /** MemberEnvelopeResponse */
         MemberEnvelopeResponse: {
@@ -1897,6 +2998,154 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.GuestInvitationController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest invitation list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestInvitationsListResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.GuestInvitationController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Guest invitation params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateGuestInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created guest invitation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.WorkspaceController.update_features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Feature params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkspaceFeaturesRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.PasswordController.regenerate_recovery_key": {
         parameters: {
             query?: never;
@@ -1931,6 +3180,49 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.InvitationController.lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lookup params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InvitationLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation kind */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationLookupResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.ws_token": {
         parameters: {
             query?: never;
@@ -1951,6 +3243,46 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.share_mounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share mounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountLookupResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2193,6 +3525,37 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DocumentShareController.verification_directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verification directory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareVerificationDirectory"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.SettingsController.show": {
         parameters: {
             query?: never;
@@ -2380,6 +3743,73 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.ShareController.challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Password challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePasswordChallengeResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareController.respond_challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        /** @description Challenge response */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SharePasswordChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Bootstrap result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareBootstrapResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.PasswordController.password_set": {
         parameters: {
             query?: never;
@@ -2457,6 +3887,65 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.ShareMountController.folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mount_id: string;
+                folder_token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mounted folder subtree */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountFolderResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.DeviceController.reject_registration": {
         parameters: {
             query?: never;
@@ -2475,6 +3964,246 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.index": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share mount list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountListResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Share mount params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateShareMountRequest"];
+            };
+        };
+        responses: {
+            /** @description Created mount */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountCreateResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountConflictResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Password challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePasswordChallengeResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.respond_challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Challenge response */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ShareMountChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Challenge result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountDocumentChallengeResponse"] | components["schemas"]["ShareMountFolderChallengeResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not found */
@@ -2694,6 +4423,37 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.PublicDocumentController.show_author": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                author_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public author */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAuthorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.DocumentController.archive": {
         parameters: {
             query?: never;
@@ -2768,6 +4528,107 @@ export interface operations {
             };
             /** @description Validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share landing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLandingResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.GuestInvitationController.redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Redeem guest invitation params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RedeemGuestInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Redeemed guest invitation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedeemGuestInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2952,6 +4813,146 @@ export interface operations {
             };
             /** @description Not authenticated */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareController.folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Folder bootstrap */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareFolderBootstrapResponse"] | components["schemas"]["ShareDocumentBootstrapRequiredResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.GuestInvitationController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid ID format */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Guest invites disabled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentShareController.admin_delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3154,6 +5155,354 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DocumentShareController.update_exclusions": {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share exclusion update params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateShareExclusionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated exclusions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareExclusionsResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.PublicDocumentController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Publication */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.PublicDocumentController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Publication params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreatePublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description Publication */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationConflictResponse"];
+                };
+            };
+            /** @description Too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.PublicDocumentController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.PublicDocumentController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Publication settings */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdatePublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description Publication */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationConflictResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareController.document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document bootstrap */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareDocumentBootstrapResponse"] | components["schemas"]["ShareDocumentBootstrapRequiredResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareController.bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        /** @description Bootstrap params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ShareBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Bootstrap result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareBootstrapResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.EncryptionController.setup_complete": {
         parameters: {
             query?: never;
@@ -3170,6 +5519,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentShareController.update_keys": {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share key update params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateShareKeysRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated share keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareKeysUpdateResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -3497,6 +5903,178 @@ export interface operations {
             };
             /** @description Invalid device */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentShareController.delete": {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentShareController.update": {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share update params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated share */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareUpdateResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.PublicDocumentController.update_content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Publication content */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdatePublicationContentRequest"];
+            };
+        };
+        responses: {
+            /** @description Content sync result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationContentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3973,6 +6551,197 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.ShareMountController.show": {
+        parameters: {
+            query?: {
+                share?: string;
+                document_id?: string;
+            };
+            header?: never;
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share mount */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountDetailResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.ShareMountController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share mount update params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateShareMountRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated mount */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.kdf_migration": {
         parameters: {
             query?: never;
@@ -4201,6 +6970,47 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.PublicDocumentController.show_public": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                author_slug: string;
+                document_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDocumentResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.recovery_challenge": {
         parameters: {
             query?: never;
@@ -4279,6 +7089,100 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentShareController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareListResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DocumentShareController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Created share */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareCreateResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

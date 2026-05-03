@@ -10,7 +10,20 @@ defmodule RefMD.Workspaces.Workspace do
     field :slug, :string
     field :description, :string
     field :icon, :string
+    field :encrypted_name, :binary
+    field :encrypted_name_nonce, :binary
+    field :encrypted_name_key_version, :integer
+    field :encrypted_description, :binary
+    field :encrypted_description_nonce, :binary
+    field :encrypted_description_key_version, :integer
+    field :encrypted_icon, :binary
+    field :encrypted_icon_nonce, :binary
+    field :encrypted_icon_key_version, :integer
     belongs_to :owner, RefMD.Users.User
+    field :share_links_enabled, :boolean, default: true
+    field :public_publishing_enabled, :boolean, default: false
+    field :guest_invites_enabled, :boolean, default: false
+    field :guest_member_limit, :integer
     field :current_kek_version, :integer, default: 0
     field :min_kek_version, :integer, default: 0
     field :needs_kek_rotation, :boolean, default: false
@@ -27,8 +40,28 @@ defmodule RefMD.Workspaces.Workspace do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(workspace, attrs) do
     workspace
-    |> cast(attrs, [:name, :slug, :description, :icon, :owner_id])
+    |> cast(attrs, [
+      :name,
+      :slug,
+      :description,
+      :icon,
+      :encrypted_name,
+      :encrypted_name_nonce,
+      :encrypted_name_key_version,
+      :encrypted_description,
+      :encrypted_description_nonce,
+      :encrypted_description_key_version,
+      :encrypted_icon,
+      :encrypted_icon_nonce,
+      :encrypted_icon_key_version,
+      :owner_id,
+      :share_links_enabled,
+      :public_publishing_enabled,
+      :guest_invites_enabled,
+      :guest_member_limit
+    ])
     |> validate_required([:name, :slug, :owner_id])
+    |> validate_number(:guest_member_limit, greater_than: 0)
     |> validate_slug()
     |> unique_constraint(:slug)
   end
@@ -36,9 +69,28 @@ defmodule RefMD.Workspaces.Workspace do
   @spec update_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def update_changeset(workspace, attrs) do
     workspace
-    |> cast(attrs, [:name, :slug, :description, :icon])
+    |> cast(attrs, [
+      :name,
+      :slug,
+      :description,
+      :icon,
+      :encrypted_name,
+      :encrypted_name_nonce,
+      :encrypted_name_key_version,
+      :encrypted_description,
+      :encrypted_description_nonce,
+      :encrypted_description_key_version,
+      :encrypted_icon,
+      :encrypted_icon_nonce,
+      :encrypted_icon_key_version,
+      :share_links_enabled,
+      :public_publishing_enabled,
+      :guest_invites_enabled,
+      :guest_member_limit
+    ])
     |> validate_length(:name, min: 1, max: 100)
     |> validate_length(:description, max: 500)
+    |> validate_number(:guest_member_limit, greater_than: 0)
     |> validate_slug()
     |> unique_constraint(:slug)
   end

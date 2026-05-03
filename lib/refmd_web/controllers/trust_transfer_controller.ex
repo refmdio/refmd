@@ -4,7 +4,7 @@ defmodule RefMDWeb.TrustTransferController do
 
   alias RefMD.Auth
   alias RefMD.Devices
-  alias RefMDWeb.{DeviceEventsController, Schemas}
+  alias RefMDWeb.Schemas
 
   operation(:create_nonce,
     summary: "Request a trust transfer nonce",
@@ -34,7 +34,7 @@ defmodule RefMDWeb.TrustTransferController do
       true ->
         case Auth.create_trust_transfer_nonce(user_id, device_id) do
           {:ok, nonce, expires_at} ->
-            DeviceEventsController.broadcast_trust_transfer_nonce_ready(user_id, device_id, nonce)
+            Devices.broadcast_trust_transfer_nonce_ready(user_id, device_id, nonce)
 
             json(conn, %{
               nonce: Base.url_encode64(nonce, padding: false),

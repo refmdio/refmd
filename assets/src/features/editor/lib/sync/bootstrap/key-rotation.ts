@@ -166,3 +166,27 @@ export async function reEncryptTitleIfNeeded(
     encrypted_title_key_version: newKeyVersion,
   });
 }
+
+export function checkRotationSnapshot(documentId: string, state: DocumentState): void {
+  if (state.access.kind === "share") return;
+
+  documentsApi
+    .get(documentId)
+    .then(async (doc) => {
+      // Retry deferred DEK rotation (KEK rotation may have completed since init)
+      if (doc.needs_dek_rotation && state._retryDekRotation) {
+        try {
+          await state._retryDekRotation();
+        } catch {
+          // Best-effort; will retry on next document open
+        }
+      }
+      if (doc.needs_rotation_snapshot && !state.pendingRotationSnapshot) {
+        state.pendingRotationSnapshot = true;
+        if (state.autoSync) state.autoSync.notifyLocalEdit();
+      } else if (!doc.needs_rotation_snapshot && state.pendingRotationSnapshot) {
+        state.pendingRotationSnapshot = false;
+      }
+    })
+    .catch(() => {});
+}

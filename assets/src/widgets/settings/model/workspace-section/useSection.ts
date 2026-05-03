@@ -1,8 +1,10 @@
-import { createSignal } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import {
   updateWorkspace,
+  updateWorkspaceFeatures,
   useWorkspaceDangerZone,
+  useGuestInvitationManagement,
   useWorkspaceInvitationManagement,
   useWorkspaceMemberManagement,
   useWorkspacePermissions,
@@ -65,6 +67,7 @@ export function useWorkspaceSection() {
     queryClient.invalidateQueries({ queryKey: ["workspace", id] });
     queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
     queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
+    queryClient.invalidateQueries({ queryKey: ["guest-invitations", id] });
     queryClient.invalidateQueries({ queryKey: ["workspaces"] });
   };
 
@@ -75,6 +78,10 @@ export function useWorkspaceSection() {
   const [editingSlug, setEditingSlug] = createSignal(false);
   const [newSlug, setNewSlug] = createSignal("");
   const [updating, setUpdating] = createSignal(false);
+  const [updatingFeatures, setUpdatingFeatures] = createSignal(false);
+  const [publicAuthorName, setPublicAuthorName] = createSignal("");
+  const [publicAuthorSlug, setPublicAuthorSlug] = createSignal("");
+  const [publicAuthorBio, setPublicAuthorBio] = createSignal("");
 
   const handleUpdateField = async (
     payload: Parameters<typeof updateWorkspace>[1],
@@ -114,12 +121,62 @@ export function useWorkspaceSection() {
     return handleUpdateField({ slug }, () => setEditingSlug(false));
   };
 
+  const handleUpdateFeatures = async (payload: Parameters<typeof updateWorkspaceFeatures>[1]) => {
+    const id = wsId();
+    if (!id) return;
+
+    setUpdatingFeatures(true);
+    setError(null);
+    try {
+      await updateWorkspaceFeatures(id, payload);
+      refetchAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update feature settings");
+    } finally {
+      setUpdatingFeatures(false);
+    }
+  };
+
+  const handleUpdatePublicAuthor = () => {
+    return handleUpdateFeatures({
+      public_author_display_name: publicAuthorName().trim(),
+      public_author_slug: publicAuthorSlug().trim(),
+      public_author_bio: publicAuthorBio().trim() || null,
+    });
+  };
+
   const invitationManagement = useWorkspaceInvitationManagement({
     workspaceId: wsId,
     canManageInvitations: permissions.canInvite,
     assignableRoles: permissions.assignableRoles,
     defaultRoleAssignable: permissions.defaultRoleAssignable,
     setError,
+  });
+
+  const guestInvitationManagement = useGuestInvitationManagement({
+    workspaceId: wsId,
+    canManageGuestInvitations: permissions.canInviteGuests,
+    canUpdateWorkspace: permissions.canUpdateWorkspace,
+    guestInvitesEnabled: () => workspace.data?.guest_invites_enabled ?? false,
+    guestMemberLimit: () => workspace.data?.guest_member_limit,
+    setError,
+    refetchWorkspace: refetchAll,
+  });
+
+  createEffect(() => {
+    void [
+      workspace.data?.id,
+      workspace.data?.guest_invites_enabled,
+      workspace.data?.guest_member_limit,
+    ];
+    guestInvitationManagement.syncSettings();
+  });
+
+  createEffect(() => {
+    const profile = workspace.data?.public_author_profile;
+    setPublicAuthorName(profile?.display_name ?? "");
+    setPublicAuthorSlug(profile?.slug ?? "");
+    setPublicAuthorBio(profile?.bio ?? "");
   });
 
   return {
@@ -132,7 +189,9 @@ export function useWorkspaceSection() {
     isOwner,
     memberPermissionDenied,
     canUpdateWorkspace: permissions.canUpdateWorkspace,
+    canManageFeatures: permissions.canManageFeatures,
     canInvite: permissions.canInvite,
+    canInviteGuests: permissions.canInviteGuests,
     canChangeRole: permissions.canChangeRole,
     canRemoveMember: permissions.canRemoveMember,
     canManageRoles: permissions.canManageRoles,
@@ -152,9 +211,18 @@ export function useWorkspaceSection() {
     newSlug,
     setNewSlug,
     updating,
+    updatingFeatures,
+    publicAuthorName,
+    setPublicAuthorName,
+    publicAuthorSlug,
+    setPublicAuthorSlug,
+    publicAuthorBio,
+    setPublicAuthorBio,
     handleUpdateName,
     handleUpdateDescription,
     handleUpdateSlug,
+    handleUpdateFeatures,
+    handleUpdatePublicAuthor,
     showDelete: dangerZone.showDelete,
     setShowDelete: dangerZone.setShowDelete,
     deleting: dangerZone.deleting,
@@ -165,6 +233,7 @@ export function useWorkspaceSection() {
     handleLeave: dangerZone.handleLeave,
     memberManagement,
     invitationManagement,
+    guestInvitationManagement,
     roleManagement,
   };
 }

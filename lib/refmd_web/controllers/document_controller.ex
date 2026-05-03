@@ -3,6 +3,7 @@ defmodule RefMDWeb.DocumentController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Documents
+  alias RefMDWeb.Channels.Document.Access
   alias RefMDWeb.Schemas
 
   plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:read"] when action in [:index]
@@ -36,10 +37,15 @@ defmodule RefMDWeb.DocumentController do
   @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     workspace_id = conn.assigns.workspace_id
-    documents = Documents.list_documents(workspace_id)
+
+    documents =
+      Documents.list_documents(workspace_id)
+      |> then(
+        &RefMD.Workspaces.filter_guest_documents(workspace_id, conn.assigns.current_user_id, &1)
+      )
 
     json(conn, %{
-      documents: Enum.map(documents, &serialize_document/1)
+      documents: Enum.map(documents, &serialize_document(conn, &1))
     })
   end
 
@@ -77,7 +83,7 @@ defmodule RefMDWeb.DocumentController do
           {:ok, document} ->
             conn
             |> put_status(:created)
-            |> json(serialize_document(document))
+            |> json(serialize_document(conn, document))
 
           {:error, changeset} ->
             conn
@@ -114,7 +120,7 @@ defmodule RefMDWeb.DocumentController do
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, _params) do
-    json(conn, serialize_document(conn.assigns.document))
+    json(conn, serialize_document(conn, conn.assigns.document))
   end
 
   # ── PATCH /api/documents/:document_id ───────────
@@ -151,7 +157,7 @@ defmodule RefMDWeb.DocumentController do
       {:ok, attrs} ->
         case Documents.update_document(document, attrs) do
           {:ok, updated} ->
-            json(conn, serialize_document(updated))
+            json(conn, serialize_document(conn, updated))
 
           {:error, :document_archived} ->
             conn
@@ -227,7 +233,7 @@ defmodule RefMDWeb.DocumentController do
 
     case Documents.archive_document(document) do
       {:ok, updated} ->
-        json(conn, serialize_document(updated))
+        json(conn, serialize_document(conn, updated))
 
       {:error, :already_archived} ->
         conn
@@ -258,7 +264,7 @@ defmodule RefMDWeb.DocumentController do
 
     case Documents.unarchive_document(document) do
       {:ok, updated} ->
-        json(conn, serialize_document(updated))
+        json(conn, serialize_document(conn, updated))
 
       {:error, :not_archived} ->
         conn
@@ -292,7 +298,7 @@ defmodule RefMDWeb.DocumentController do
          {:ok, new_parent_id} <- fetch_nullable_uuid(params, "parent_id") do
       case Documents.reorder_document(workspace_id, document_id, new_parent_id, position) do
         {:ok, updated} ->
-          json(conn, serialize_document(updated))
+          json(conn, serialize_document(conn, updated))
 
         {:error, reason} when is_atom(reason) ->
           conn
@@ -309,7 +315,7 @@ defmodule RefMDWeb.DocumentController do
 
   # ── Helpers ─────────────────────────────────────
 
-  defp serialize_document(document) do
+  defp serialize_document(conn, document) do
     %{
       id: document.id,
       workspace_id: document.workspace_id,
@@ -326,6 +332,9 @@ defmodule RefMDWeb.DocumentController do
       needs_dek_rotation: document.needs_dek_rotation,
       needs_rotation_snapshot: document.needs_rotation_snapshot,
       min_dek_version: document.min_dek_version,
+      is_published: RefMD.Public.published?(document.id),
+      can_sync_publication:
+        Access.publication_sync_allowed?(document, conn.assigns.current_user_id, nil, nil),
       created_by: document.created_by,
       archived_at: document.archived_at,
       created_at: document.created_at,

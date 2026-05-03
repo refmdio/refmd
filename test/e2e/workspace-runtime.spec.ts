@@ -5,6 +5,7 @@ import {
   openDocument,
   registerAccount,
   switchWorkspace,
+  newE2EContext,
 } from "./helpers";
 
 let sharedPage: Page;
@@ -38,6 +39,11 @@ async function runCommand(page: Page, query: string, commandName: string): Promi
   await openCommandPalette(page);
   const input = page.locator('input[placeholder="Type a command..."]');
   await input.fill(query);
+  const option = page.getByRole("option", { name: commandName });
+  if (await option.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await option.click();
+    return;
+  }
   await page.getByRole("button", { name: commandName }).click();
 }
 
@@ -59,7 +65,7 @@ async function revealDocumentTreeLeaf(page: Page): Promise<void> {
 
 test.describe.serial("Workspace Runtime", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {

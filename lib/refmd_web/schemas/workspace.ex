@@ -11,7 +11,21 @@ defmodule RefMDWeb.Schemas.WorkspaceResponse do
       slug: %Schema{type: :string},
       description: %Schema{type: :string, nullable: true},
       icon: %Schema{type: :string, nullable: true},
+      encrypted_name: %Schema{type: :string, nullable: true},
+      encrypted_name_nonce: %Schema{type: :string, nullable: true},
+      encrypted_name_key_version: %Schema{type: :integer, nullable: true},
+      encrypted_description: %Schema{type: :string, nullable: true},
+      encrypted_description_nonce: %Schema{type: :string, nullable: true},
+      encrypted_description_key_version: %Schema{type: :integer, nullable: true},
+      encrypted_icon: %Schema{type: :string, nullable: true},
+      encrypted_icon_nonce: %Schema{type: :string, nullable: true},
+      encrypted_icon_key_version: %Schema{type: :integer, nullable: true},
       owner_id: %Schema{type: :string, format: :uuid},
+      share_links_enabled: %Schema{type: :boolean},
+      public_publishing_enabled: %Schema{type: :boolean},
+      public_author_profile: RefMDWeb.Schemas.PublicAuthorProfile,
+      guest_invites_enabled: %Schema{type: :boolean},
+      guest_member_limit: %Schema{type: :integer, nullable: true},
       current_kek_version: %Schema{type: :integer},
       needs_kek_rotation: %Schema{type: :boolean},
       kek_rotation_initiator_user_id: %Schema{type: :string, format: :uuid, nullable: true},
@@ -26,6 +40,9 @@ defmodule RefMDWeb.Schemas.WorkspaceResponse do
       :name,
       :slug,
       :owner_id,
+      :share_links_enabled,
+      :public_publishing_enabled,
+      :guest_invites_enabled,
       :current_kek_version,
       :needs_kek_rotation,
       :created_at,
@@ -74,7 +91,37 @@ defmodule RefMDWeb.Schemas.UpdateWorkspaceRequest do
       name: %Schema{type: :string, minLength: 1, maxLength: 100},
       slug: %Schema{type: :string, pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
       description: %Schema{type: :string, maxLength: 500, nullable: true},
-      icon: %Schema{type: :string, nullable: true}
+      icon: %Schema{type: :string, nullable: true},
+      encrypted_name: %Schema{type: :string, nullable: true},
+      encrypted_name_nonce: %Schema{type: :string, nullable: true},
+      encrypted_name_key_version: %Schema{type: :integer, nullable: true},
+      encrypted_description: %Schema{type: :string, nullable: true},
+      encrypted_description_nonce: %Schema{type: :string, nullable: true},
+      encrypted_description_key_version: %Schema{type: :integer, nullable: true},
+      encrypted_icon: %Schema{type: :string, nullable: true},
+      encrypted_icon_nonce: %Schema{type: :string, nullable: true},
+      encrypted_icon_key_version: %Schema{type: :integer, nullable: true},
+      guest_invites_enabled: %Schema{type: :boolean},
+      guest_member_limit: %Schema{type: :integer, nullable: true}
+    }
+  })
+end
+
+defmodule RefMDWeb.Schemas.UpdateWorkspaceFeaturesRequest do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "UpdateWorkspaceFeaturesRequest",
+    type: :object,
+    properties: %{
+      share_links_enabled: %Schema{type: :boolean},
+      public_publishing_enabled: %Schema{type: :boolean},
+      guest_invites_enabled: %Schema{type: :boolean},
+      guest_member_limit: %Schema{type: :integer, nullable: true},
+      public_author_display_name: %Schema{type: :string, nullable: true},
+      public_author_slug: %Schema{type: :string, nullable: true},
+      public_author_bio: %Schema{type: :string, nullable: true}
     }
   })
 end

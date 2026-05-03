@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createDocument, openContextMenu, openDocument, registerAccount } from "./helpers";
+import { createDocument, openContextMenu, openDocument, registerAccount,
+  newE2EContext,
+} from "./helpers";
 
 let sharedPage: Page;
 let documentIdA: string;
@@ -52,13 +54,18 @@ async function openPanelIds(page: Page): Promise<string[]> {
 
 async function closePanel(page: Page, panelId: string): Promise<void> {
   const panel = page.locator(`[data-panel-id="${panelId}"]`);
-  const windowRoot = panel.locator(
-    'xpath=ancestor::*[contains(@class,"mosaic-window-body")]/parent::*[contains(@class,"mosaic-window")]',
-  );
 
   await panel.click();
-  await windowRoot.locator('[data-slot="dropdown-menu-trigger"]').click();
-  await page.getByRole("menuitem", { name: "Close" }).click();
+  await page.evaluate(() => {
+    const app = (globalThis as { __REFMD_APP_INSTANCE__?: unknown }).__REFMD_APP_INSTANCE__ as
+      | {
+          workspace: {
+            listCommands(): Array<{ id: string; callback?: () => void }>;
+          };
+        }
+      | undefined;
+    app?.workspace.listCommands().find((command) => command.id === "editor:close-panel")?.callback?.();
+  });
   await expect
     .poll(async () => page.locator(`[data-panel-id="${panelId}"]`).count(), {
       timeout: 10_000,
@@ -69,7 +76,7 @@ async function closePanel(page: Page, panelId: string): Promise<void> {
 
 test.describe.serial("Document URL Routing", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -97,7 +104,7 @@ test.describe.serial("Document URL Routing", () => {
     test.setTimeout(45_000);
 
     const menu = await openContextMenu(sharedPage, "Route Doc B");
-    await menu.locator("button", { hasText: "Add to Tile" }).click();
+    await menu.getByRole("menuitem", { name: "Add to Tile" }).click();
 
     await expect
       .poll(async () => (await openDocumentIds(sharedPage)).length, {

@@ -133,6 +133,9 @@ defmodule RefMD.Workspaces.Roles do
 
   defp apply_role_attrs(role, role_attrs) do
     cond do
+      role_attrs[:is_default] == true and role.base_role == "guest" ->
+        Repo.rollback(:guest_role_default_not_allowed)
+
       role_attrs[:is_default] == true and not role.is_default ->
         swap_default_role(role, role_attrs)
 

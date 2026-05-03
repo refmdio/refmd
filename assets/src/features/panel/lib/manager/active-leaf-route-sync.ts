@@ -11,7 +11,8 @@ type NavigateFn = (path: string, options?: NavigateOptions) => void;
 
 export function attachActiveLeafRouteSync(
   navigate: NavigateFn,
-  getOpenDocuments: () => Map<string, { title?: string }>,
+  getOpenDocuments: () => Map<string, { routePath: string }>,
+  getEmptyPath: () => string = () => "/dashboard",
 ): () => void {
   let hasSeenDocumentPanel = false;
   const ref: EventRef = workspaceManager.on("active-leaf-change", (leaf) => {
@@ -22,13 +23,14 @@ export function attachActiveLeafRouteSync(
     if (!panel) {
       if (getOpenDocuments().size > 0) return;
       if (window.location.pathname.startsWith("/document/") && !hasSeenDocumentPanel) return;
-      const nextPath = "/dashboard";
+      const nextPath = getEmptyPath();
       if (window.location.pathname === nextPath) return;
       navigate(nextPath, { replace: true, scroll: false });
       return;
     }
 
-    const nextPath = `/document/${panel.documentId}`;
+    const nextPath =
+      getOpenDocuments().get(panel.targetKey)?.routePath ?? `/document/${panel.documentId}`;
     if (window.location.pathname === nextPath) return;
     navigate(nextPath, { replace: true, scroll: false });
   });

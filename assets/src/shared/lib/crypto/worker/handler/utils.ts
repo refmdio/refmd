@@ -80,11 +80,12 @@ export function requireDekForDocument(
   state: WorkerKeyState,
   documentId: string,
   keyVersion?: number,
+  cacheKey = documentId,
 ): {
   dek: Uint8Array;
   keyVersion: number;
 } {
-  const cached = getCachedDek(state, documentId, keyVersion);
+  const cached = getCachedDek(state, cacheKey, keyVersion);
   if (!cached) {
     throw new CryptoOperationError(
       "key_not_found",

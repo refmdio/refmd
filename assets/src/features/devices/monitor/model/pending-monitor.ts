@@ -8,7 +8,12 @@ import {
 } from "solid-js";
 import type { DeviceRegistrationInfo } from "@/shared/api/devices";
 import { devicesApi } from "@/shared/api";
-import { deviceState } from "@/entities/session";
+import { authState, deviceState } from "@/entities/session";
+import {
+  DeviceEventsJoinError,
+  joinUserDeviceEvents,
+} from "@/features/devices/lib/device-events-channel";
+import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
 
 interface KekRotationNeeded {
   workspace_id: string;
@@ -52,9 +57,10 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
   const dismissed = new Set<string>();
   const seen = new Set<string>();
 
-  let eventSource: EventSource | undefined;
+  let deviceEvents: { dispose: () => void } | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let expiryTimers: ReturnType<typeof setTimeout>[] = [];
+  let connectionGeneration = 0;
 
   const pendingCount = () => pendingDevices().length;
 
@@ -64,7 +70,7 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
       setPendingDevices(res.devices);
       setKekRotationsNeeded([]);
     } catch {
-      // Silently ignore. SSE will keep state updated.
+      // Silently ignore. Device events will keep state updated.
     }
   };
 
@@ -74,83 +80,93 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
   };
 
   const clearConnectionState = () => {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = undefined;
-    }
+    connectionGeneration += 1;
+    const activeEvents = deviceEvents;
+    deviceEvents = undefined;
+    activeEvents?.dispose();
     if (retryTimer) {
       clearTimeout(retryTimer);
       retryTimer = undefined;
     }
   };
 
-  const connectSse = () => {
-    clearConnectionState();
+  const scheduleReconnect = (generation: number) => {
+    if (generation !== connectionGeneration) return;
 
-    try {
-      eventSource = new EventSource("/api/devices/events");
-
-      eventSource.addEventListener("pending_device_created", () => {
-        void refetchPending();
-      });
-
-      eventSource.addEventListener("pending_device_removed", () => {
-        void refetchPending();
-      });
-
-      eventSource.addEventListener("kek_rotation_needed", (event) => {
-        try {
-          const data = JSON.parse((event as MessageEvent).data);
-          if (data.workspace_id) {
-            setKekRotationsNeeded((prev) => {
-              if (prev.some((rotation) => rotation.workspace_id === data.workspace_id)) {
-                return prev;
-              }
-              return [
-                ...prev,
-                {
-                  workspace_id: data.workspace_id,
-                  current_kek_version: data.current_kek_version,
-                },
-              ];
-            });
-          }
-        } catch {
-          // Parse error.
+    if (!retryTimer) {
+      const delay = Math.max(5000, getAuthTransportBackoffMs());
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        if (generation === connectionGeneration) {
+          connectDeviceEvents();
         }
-      });
-
-      eventSource.addEventListener("trust_transfer_nonce_ready", (event) => {
-        try {
-          const data = JSON.parse((event as MessageEvent).data);
-          if (data.new_device_id && data.nonce) {
-            setTransferNonces((prev) => ({
-              ...prev,
-              [data.new_device_id]: data.nonce,
-            }));
-          }
-        } catch {
-          // Parse error.
-        }
-      });
-
-      eventSource.onerror = () => {
-        if (eventSource?.readyState === EventSource.CLOSED) {
-          eventSource = undefined;
-          retryTimer = setTimeout(connectSse, 5000);
-        }
-      };
-    } catch {
-      retryTimer = setTimeout(connectSse, 5000);
+      }, delay);
     }
   };
 
+  const connectDeviceEvents = () => {
+    clearConnectionState();
+    const generation = connectionGeneration;
+
+    joinUserDeviceEvents({
+      onPendingDeviceCreated: () => {
+        void refetchPending();
+      },
+      onPendingDeviceRemoved: () => {
+        void refetchPending();
+      },
+      onKekRotationNeeded: (data) => {
+        if (data.workspace_id) {
+          setKekRotationsNeeded((prev) => {
+            if (prev.some((rotation) => rotation.workspace_id === data.workspace_id)) {
+              return prev;
+            }
+            return [
+              ...prev,
+              {
+                workspace_id: data.workspace_id!,
+                current_kek_version: data.current_kek_version ?? 0,
+              },
+            ];
+          });
+        }
+      },
+      onTrustTransferNonceReady: (data) => {
+        if (data.new_device_id && data.nonce) {
+          setTransferNonces((prev) => ({
+            ...prev,
+            [data.new_device_id!]: data.nonce!,
+          }));
+        }
+      },
+      onClose: () => scheduleReconnect(generation),
+      onError: () => scheduleReconnect(generation),
+    })
+      .then((handle) => {
+        if (generation !== connectionGeneration) {
+          handle.dispose();
+          return;
+        }
+        deviceEvents = handle;
+      })
+      .catch((error) => {
+        if (error instanceof DeviceEventsJoinError && error.reason === "existing_device_required") {
+          return;
+        }
+        scheduleReconnect(generation);
+      });
+  };
+
   createEffect(() => {
+    const auth = authState();
     const device = deviceState();
-    if (!device?.deviceId) return;
+    if (!auth || !device?.deviceId) {
+      clearConnectionState();
+      return;
+    }
 
     void refetchPending();
-    connectSse();
+    connectDeviceEvents();
 
     onCleanup(() => {
       clearConnectionState();

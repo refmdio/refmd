@@ -24,7 +24,7 @@ defmodule RefMDWeb.Schemas.RoleResponse do
       id: %Schema{type: :string, format: :uuid},
       workspace_id: %Schema{type: :string, format: :uuid},
       name: %Schema{type: :string},
-      base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer"]},
+      base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer", "guest"]},
       is_default: %Schema{type: :boolean},
       catalog_version: %Schema{type: :integer, nullable: true},
       created_at: %Schema{type: :string, format: :"date-time"},

@@ -25,6 +25,7 @@ type DocumentsQueryData = {
     doc_type: string;
     parent_id: string | null;
     archived_at: string | null;
+    can_sync_publication: boolean;
   }>;
 };
 
@@ -168,9 +169,11 @@ class DocumentManagerImpl
     return data.documents.map((doc) => ({
       id: doc.id,
       title: this.getTitleFn?.({ id: doc.id }) ?? doc.title,
+      workspaceId: wsId,
       parentId: doc.parent_id,
       docType: doc.doc_type as "document" | "folder",
       archivedAt: doc.archived_at,
+      canSyncPublication: doc.can_sync_publication === true,
     }));
   }
 
@@ -225,8 +228,13 @@ class DocumentManagerImpl
     this.trigger("document-delete", docId);
   }
 
-  notifyDocumentRename(docId: string, oldTitle: string): void {
-    this.trigger("document-rename", docId, oldTitle);
+  notifyDocumentRename(
+    docId: string,
+    oldTitle: string,
+    newTitle: string,
+    isPublished: boolean,
+  ): void {
+    this.trigger("document-rename", docId, oldTitle, newTitle, isPublished);
   }
 
   on(event: "document-open", cb: (doc: DocumentView) => void): EventRef;
@@ -234,7 +242,10 @@ class DocumentManagerImpl
   on(event: "document-change", cb: (doc: DocumentView) => void): EventRef;
   on(event: "document-create", cb: (docId: string) => void): EventRef;
   on(event: "document-delete", cb: (docId: string) => void): EventRef;
-  on(event: "document-rename", cb: (docId: string, oldTitle: string) => void): EventRef;
+  on(
+    event: "document-rename",
+    cb: (docId: string, oldTitle: string, newTitle: string, isPublished: boolean) => void,
+  ): EventRef;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string, cb: (...data: any[]) => any, ctx?: any): EventRef {
     return super.on(event, cb, ctx);

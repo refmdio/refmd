@@ -8,6 +8,7 @@ defmodule RefMD.Users.User do
   schema "users" do
     field :email, :string
     field :name, :string
+    field :account_type, :string, default: "registered"
     field :encryption_setup_at, :utc_datetime_usec
 
     has_one :settings, RefMD.Users.UserSettings
@@ -22,8 +23,9 @@ defmodule RefMD.Users.User do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:email, :name, :encryption_setup_at])
-    |> validate_required([:email, :name])
+    |> cast(attrs, [:email, :name, :account_type, :encryption_setup_at])
+    |> validate_required([:email, :name, :account_type])
+    |> validate_inclusion(:account_type, ~w(registered guest))
     |> unique_constraint(:email)
   end
 end

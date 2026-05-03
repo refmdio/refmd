@@ -3,7 +3,7 @@ import type { MosaicNode } from "solid-mosaic-component";
 
 interface BridgeSources {
   focusedPanelId: () => string | null;
-  openDocuments: () => Map<string, { title?: string }>;
+  openDocuments: () => Map<string, { documentId: string; title?: string }>;
   mosaicState: () => MosaicNode<string> | null;
   statusBarEl: () => HTMLElement | null;
 }
@@ -35,11 +35,11 @@ export function createWorkspaceBridge(
   let prevOpenDocIds = new Set<string>();
   createEffect(() => {
     const currentDocs = sources.openDocuments();
-    const currentIds = new Set(currentDocs.keys());
+    const currentIds = new Set(Array.from(currentDocs.values(), (target) => target.documentId));
 
     for (const id of currentIds) {
       if (!prevOpenDocIds.has(id)) {
-        const doc = currentDocs.get(id);
+        const doc = [...currentDocs.values()].find((target) => target.documentId === id);
         documents.notifyDocumentOpen(id, doc?.title ?? "Untitled");
       }
     }

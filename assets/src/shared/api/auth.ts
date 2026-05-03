@@ -1,5 +1,6 @@
 import { client, throwIfError } from "./core";
 import type { components } from "./schema";
+import { SHARE_SESSION_SCOPE_HEADER } from "@/shared/lib/auth/session-scope";
 
 type RegisterRequest = components["schemas"]["RegisterRequest"];
 type LoginRequest = components["schemas"]["LoginRequest"];
@@ -19,7 +20,13 @@ export const authApi = {
 
   me: async () => throwIfError(await client.GET("/api/auth/me")),
 
-  logout: async () => throwIfError(await client.POST("/api/auth/logout")),
+  logout: async (options?: { sessionScope?: "share" }) =>
+    throwIfError(
+      await client.POST("/api/auth/logout", {
+        headers:
+          options?.sessionScope === "share" ? { [SHARE_SESSION_SCOPE_HEADER]: "share" } : undefined,
+      }),
+    ),
 
   kdfMigration: async (body: components["schemas"]["KdfMigrationRequest"]) =>
     throwIfError(await client.POST("/api/auth/kdf-migration", { body })),
@@ -69,6 +76,12 @@ export const authApi = {
       }),
     ),
 
-  wsToken: async (): Promise<{ token: string }> =>
-    throwIfError(await client.POST("/api/auth/ws-token")),
+  wsToken: async (options?: { sessionScope?: "user" | "share" }): Promise<{ token: string }> =>
+    throwIfError(
+      await client.POST("/api/auth/ws-token", {
+        headers: options?.sessionScope
+          ? { [SHARE_SESSION_SCOPE_HEADER]: options.sessionScope }
+          : undefined,
+      }),
+    ),
 };

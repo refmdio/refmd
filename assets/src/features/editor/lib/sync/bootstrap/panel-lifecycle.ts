@@ -1,9 +1,14 @@
 import { acquireDocumentState, getDocumentState } from "../../../model/document-state/store";
 import { releaseDocumentState } from "../../../model/document-state/lifecycle";
-import { requestReauth } from "../../../model/document-state/signals";
+import { requestReauth, requestShareReentry } from "../../../model/document-state/signals";
 import { initializeDocumentSync } from "../initialize";
 import { DocumentChannelError, DocumentSyncError } from "../error";
 import { initializeDocumentFromCache, restoreDocumentStateFromCache } from "../../offline/restore";
+import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
+import { shouldPreferOfflineCache } from "@/shared/lib/offline/offline-state";
+
+const panelInitializationLocks = new Map<string, Promise<void>>();
+
 interface DocumentPanelLifecycleState {
   setError: (value: string | null) => void;
   setHasWarmCachePreview: (value: boolean) => void;
@@ -12,8 +17,8 @@ interface DocumentPanelLifecycleState {
   setIsLoading: (value: boolean) => void;
   setIsOfflineCached: (value: boolean) => void;
 }
-function hasWarmCacheState(documentId: string): boolean {
-  const state = getDocumentState(documentId);
+function hasWarmCacheState(stateKey: string): boolean {
+  const state = getDocumentState(stateKey);
   if (!state) return false;
   return (
     state.keyVersion > 0 ||
@@ -26,6 +31,7 @@ export function initializeDocumentPanel(
   documentId: string,
   workspaceId: string | null,
   panelState: DocumentPanelLifecycleState,
+  stateKey = documentId,
 ): () => void {
   if (!workspaceId) {
     panelState.setError("No workspace selected");
@@ -39,22 +45,100 @@ export function initializeDocumentPanel(
   panelState.setIsDocumentDeleted(false);
   panelState.setHasWarmCachePreview(false);
   let cancelled = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleInitialRetry = (state: NonNullable<ReturnType<typeof getDocumentState>>) => {
+    if (retryTimer || state.initialized) return;
+    const delay = Math.max(getAuthTransportBackoffMs(), 1_000);
+    state.error = null;
+    panelState.setError(null);
+    panelState.setIsLoading(false);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (cancelled || state.initialized || state.initPromise) return;
+      panelState.setIsLoading(true);
+      state.error = null;
+      const retryInitPromise = initializeDocumentSync(documentId, workspaceId, state);
+      state.initPromise = retryInitPromise;
+      retryInitPromise
+        .then(() => {
+          if (cancelled) return;
+          panelState.setHasWarmCachePreview(false);
+          panelState.setError(state.error);
+          panelState.setIsOfflineCached(state.loadedFromOfflineCache);
+        })
+        .catch((retryErr) => {
+          if (cancelled) return;
+          if (state.initPromise === retryInitPromise) {
+            state.initPromise = null;
+          }
+          if (retryErr instanceof DocumentSyncError && retryErr.code === "server_unreachable") {
+            scheduleInitialRetry(state);
+            return;
+          }
+          const retryMessage =
+            retryErr instanceof Error ? retryErr.message : "Failed to load document";
+          state.error = retryMessage;
+          panelState.setError(retryMessage);
+        })
+        .finally(() => {
+          if (state.initPromise === retryInitPromise && !state.initialized) {
+            state.initPromise = null;
+          }
+          if (!cancelled) panelState.setIsLoading(false);
+        });
+    }, delay);
+  };
   void (async () => {
     try {
-      await acquireDocumentState(documentId, workspaceId);
-      const state = getDocumentState(documentId);
+      await acquireDocumentState(documentId, workspaceId, stateKey);
+      const state = getDocumentState(stateKey);
       if (!state || cancelled) return;
-      if (!state.initialized && !hasWarmCacheState(documentId)) {
-        try {
-          const recovered = await restoreDocumentStateFromCache(documentId, workspaceId, state);
-          if (recovered && !cancelled) {
-            panelState.setHasWarmCachePreview(true);
-            panelState.setIsLoading(false);
-          }
-        } catch {
-          // Best-effort: warm preview is opportunistic
+
+      if (!state.initialized && shouldPreferOfflineCache()) {
+        const recovered = await initializeDocumentFromCache(documentId, workspaceId, state);
+        if (recovered && !cancelled) {
+          panelState.setHasWarmCachePreview(false);
+          panelState.setIsOfflineCached(true);
+          panelState.setError(null);
+          panelState.setIsLoading(false);
+          return;
         }
-      } else if (!state.initialized && hasWarmCacheState(documentId)) {
+      }
+
+      if (!state.initialized && !state.initPromise) {
+        let initializationLock = panelInitializationLocks.get(stateKey);
+        if (!initializationLock) {
+          initializationLock = (async () => {
+            if (!state.initialized && !hasWarmCacheState(stateKey)) {
+              try {
+                const recovered = await restoreDocumentStateFromCache(
+                  documentId,
+                  workspaceId,
+                  state,
+                );
+                if (recovered && !cancelled) {
+                  panelState.setHasWarmCachePreview(true);
+                  panelState.setIsLoading(false);
+                }
+              } catch {
+                // Best-effort: warm preview is opportunistic
+              }
+            } else if (!state.initialized && hasWarmCacheState(stateKey) && !cancelled) {
+              panelState.setHasWarmCachePreview(true);
+              panelState.setIsLoading(false);
+            }
+            if (!state.initialized && !state.initPromise) {
+              state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
+            }
+          })().finally(() => {
+            if (panelInitializationLocks.get(stateKey) === initializationLock) {
+              panelInitializationLocks.delete(stateKey);
+            }
+          });
+          panelInitializationLocks.set(stateKey, initializationLock);
+        }
+        await initializationLock;
+      } else if (!state.initialized && hasWarmCacheState(stateKey)) {
         panelState.setHasWarmCachePreview(true);
         panelState.setIsLoading(false);
       }
@@ -78,15 +162,23 @@ export function initializeDocumentPanel(
         err instanceof DocumentSyncError &&
         (err.code === "rollback_attack" || err.code === "verification_failed");
       const isAuthFailure = err instanceof DocumentSyncError && err.code === "unauthorized";
+      const isServerUnreachable =
+        err instanceof DocumentSyncError && err.code === "server_unreachable";
       const isAccessDenied =
         err instanceof DocumentChannelError &&
         (err.code === "not_a_member" || err.code === "permission_denied");
       const isDeleted = err instanceof DocumentChannelError && err.code === "document_not_found";
-      const state = getDocumentState(documentId);
+      const state = getDocumentState(stateKey);
       panelState.setIsDocumentDeleted(isDeleted);
       if (state && isAuthFailure) {
+        if (state.access.kind === "share") {
+          requestShareReentry(stateKey);
+          panelState.setIsLoading(false);
+          return;
+        }
+
         try {
-          await requestReauth(documentId);
+          await requestReauth(stateKey);
           if (cancelled) return;
           state.error = null;
           state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
@@ -105,6 +197,15 @@ export function initializeDocumentPanel(
           panelState.setIsLoading(false);
           return;
         }
+      }
+      if (state && isAccessDenied && state.access.kind === "share") {
+        requestShareReentry(stateKey);
+        panelState.setHasWarmCachePreview(false);
+        panelState.setIsOfflineCached(false);
+        panelState.setIsAccessRevoked(false);
+        panelState.setError(null);
+        panelState.setIsLoading(false);
+        return;
       }
       if (state && !state.initialized && !isSecurityFailure && !isDeleted) {
         try {
@@ -133,6 +234,10 @@ export function initializeDocumentPanel(
           // Recovery failed, fall through to error
         }
       }
+      if (state && isServerUnreachable && !state.initialized && !isSecurityFailure && !isDeleted) {
+        scheduleInitialRetry(state);
+        return;
+      }
       const message = err instanceof Error ? err.message : "Failed to load document";
       panelState.setError(message);
       if (state) state.error = message;
@@ -142,6 +247,7 @@ export function initializeDocumentPanel(
   })();
   return () => {
     cancelled = true;
-    releaseDocumentState(documentId);
+    if (retryTimer) clearTimeout(retryTimer);
+    releaseDocumentState(stateKey);
   };
 }

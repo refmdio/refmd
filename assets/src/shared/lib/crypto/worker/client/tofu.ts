@@ -15,6 +15,7 @@ export interface TofuWorkerClientMethods {
     deviceId: string;
     signingPublicKey: Uint8Array;
     ecdhPublicKey: Uint8Array;
+    namespace?: string;
   }): Promise<{ status: string }>;
   tofuVerifyAllDevices(params: {
     devices: Array<{
@@ -29,11 +30,20 @@ export interface TofuWorkerClientMethods {
     deviceId: string;
     signingPublicKey: Uint8Array;
     ecdhPublicKey: Uint8Array;
+    namespace?: string;
   }): Promise<void>;
-  tofuUpdateLastSeen(params: { userId: string; deviceId: string }): Promise<void>;
-  tofuHandleResult(result: { status: string; newEntry?: TofuEntry }): Promise<void>;
-  tofuGetAllEntries(): Promise<TofuEntry[]>;
-  tofuImportEntries(entries: TofuEntry[]): Promise<void>;
+  tofuUpdateLastSeen(params: {
+    userId: string;
+    deviceId: string;
+    namespace?: string;
+  }): Promise<void>;
+  tofuHandleResult(params: {
+    status: string;
+    newEntry?: TofuEntry;
+    namespace?: string;
+  }): Promise<void>;
+  tofuGetAllEntries(params?: { namespace?: string }): Promise<TofuEntry[]>;
+  tofuImportEntries(entries: TofuEntry[], namespace?: string): Promise<void>;
 }
 
 export const tofuWorkerClientMethods: TofuWorkerClientMethods &
@@ -55,15 +65,17 @@ export const tofuWorkerClientMethods: TofuWorkerClientMethods &
   },
 
   async tofuHandleResult(result) {
-    await this.send("tofu-handle-result", { result });
+    await this.send("tofu-handle-result", result);
   },
 
-  async tofuGetAllEntries() {
-    const result = (await this.send("tofu-get-all-entries", {})) as { entries: TofuEntry[] };
+  async tofuGetAllEntries(params) {
+    const result = (await this.send("tofu-get-all-entries", params ?? {})) as {
+      entries: TofuEntry[];
+    };
     return result.entries;
   },
 
-  async tofuImportEntries(entries) {
-    await this.send("tofu-import-entries", { entries });
+  async tofuImportEntries(entries, namespace) {
+    await this.send("tofu-import-entries", { entries, namespace });
   },
 };

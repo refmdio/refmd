@@ -80,8 +80,7 @@ export async function getEvictionCandidates(count: number): Promise<string[]> {
 export async function deleteDocumentOfflineData(documentId: string): Promise<void> {
   const db = await openOfflineDb();
   return new Promise((resolve, reject) => {
-    // Design: eviction deletes document-cache, pending-changes, offline-dek-cache only.
-    // offline-documents metadata is preserved (title, lastAccessedAt for listing/management).
+    // Eviction removes cached content but keeps lightweight metadata for listing.
     const tx = db.transaction(
       [STORE_DOCUMENT_CACHE, STORE_PENDING_CHANGES, STORE_OFFLINE_DEK],
       "readwrite",

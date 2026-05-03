@@ -16,6 +16,9 @@ export class ShellState {
   readonly settingTabsAccessor: Accessor<SettingTabConfig[]>;
 
   constructor() {
+    [this.sidebarPanels, this.setSidebarPanels] = createSignal<SidebarPanelConfig[]>([]);
+    [this.activeSidebarPanelId, this.setActiveSidebarPanelId] = createSignal<string | null>(null);
+    [this.settingTabs, this.setSettingTabs] = createSignal<SettingTabConfig[]>([]);
     this.sidebarPanelsAccessor = () => this.sidebarPanels();
     this.activeSidebarPanelIdAccessor = () => this.activeSidebarPanelId();
     this.settingTabsAccessor = () => this.settingTabs();
@@ -23,9 +26,9 @@ export class ShellState {
   }
 
   reset(): void {
-    [this.sidebarPanels, this.setSidebarPanels] = createSignal<SidebarPanelConfig[]>([]);
-    [this.activeSidebarPanelId, this.setActiveSidebarPanelId] = createSignal<string | null>(null);
-    [this.settingTabs, this.setSettingTabs] = createSignal<SettingTabConfig[]>([]);
+    this.setSidebarPanels([]);
+    this.setActiveSidebarPanelId(null);
+    this.setSettingTabs([]);
     this.statusBar.reset();
   }
 

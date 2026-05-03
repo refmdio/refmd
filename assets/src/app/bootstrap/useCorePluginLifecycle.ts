@@ -5,6 +5,7 @@ import type { App } from "@/shared/lib/workspace/app";
 import {
   loadCorePlugins,
   registerCorePlugins,
+  syncCorePlugins,
   unloadCorePlugins,
 } from "@/shared/lib/plugin/core-registry";
 import { loadCommandPalette, unloadCommandPalette } from "@/core-plugins/command-palette";
@@ -12,6 +13,8 @@ import { loadDocumentTree, unloadDocumentTree } from "@/core-plugins/document-tr
 import { loadWordCount, unloadWordCount } from "@/core-plugins/word-count";
 
 type DocumentWorkspace = ReturnType<typeof usePanelWorkspace>;
+
+let lifecycleGeneration = 0;
 
 function registerBuiltinCommands(documentWorkspace: DocumentWorkspace): void {
   workspaceManager.addCommand({
@@ -86,6 +89,8 @@ function registerDefaultCorePlugins(): void {
 }
 
 export function useCorePluginLifecycle(app: App, documentWorkspace: DocumentWorkspace): void {
+  const lifecycleId = ++lifecycleGeneration;
+
   registerDefaultCorePlugins();
   registerBuiltinCommands(documentWorkspace);
 
@@ -101,22 +106,19 @@ export function useCorePluginLifecycle(app: App, documentWorkspace: DocumentWork
     const workspaceId = currentWorkspaceId();
     if (workspaceId === loadedForWorkspaceId && corePluginsLoaded) return;
 
-    if (corePluginsLoaded) {
-      unloadCorePlugins();
-      workspaceManager.reset();
-      workspaceManager.init();
-      registerBuiltinCommands(documentWorkspace);
-      corePluginsLoaded = false;
-    }
-
     if (workspaceId) {
-      loadCorePlugins(app, workspaceId);
+      syncCorePlugins(app, workspaceId);
       corePluginsLoaded = true;
       loadedForWorkspaceId = workspaceId;
+    } else if (corePluginsLoaded) {
+      unloadCorePlugins();
+      corePluginsLoaded = false;
+      loadedForWorkspaceId = null;
     }
   });
 
   onCleanup(() => {
+    if (lifecycleGeneration !== lifecycleId) return;
     if (!corePluginsLoaded) return;
     unloadCorePlugins();
   });

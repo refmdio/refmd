@@ -1,10 +1,16 @@
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import { documentStates, errorSignals } from "./registry";
+import { leaveDocument } from "@/shared/lib/ws/phoenix-channel";
+import { documentStates, errorSignals, syncPausedSignals } from "./registry";
+import { getRegisteredDocumentAccess } from "./access";
 import type { DocumentState } from "./types";
 
-function createDocumentState(documentId: string, workspaceId: string): DocumentState {
-  const existing = documentStates.get(documentId);
+function createDocumentState(
+  documentId: string,
+  workspaceId: string,
+  stateKey: string,
+): DocumentState {
+  const existing = documentStates.get(stateKey);
   if (existing) {
     existing.refCount++;
     return existing;
@@ -12,7 +18,11 @@ function createDocumentState(documentId: string, workspaceId: string): DocumentS
 
   const yDoc = new Y.Doc();
   const awareness = new Awareness(yDoc);
+  const access = getRegisteredDocumentAccess(stateKey) ?? { kind: "workspace" as const };
   const state: DocumentState = {
+    stateKey,
+    documentId,
+    access,
     yDoc,
     awareness,
     refCount: 1,
@@ -30,6 +40,7 @@ function createDocumentState(documentId: string, workspaceId: string): DocumentS
     localClock: 0,
     knownClocks: {},
     confirmedClocks: {},
+    snapshotBaseClocks: {},
     lastSavedState: null,
     snapshotUpdatesCount: 0,
     snapshotProofHash: "",
@@ -37,6 +48,7 @@ function createDocumentState(documentId: string, workspaceId: string): DocumentS
     pendingSnapshot: null,
     latestVersion: 0,
     signingKeys: new Map(),
+    historicalSigningKeys: new Map(),
     signingKeyOwners: new Map(),
     memberNames: new Map(),
     revokedSigningKeys: new Set(),
@@ -53,36 +65,54 @@ function createDocumentState(documentId: string, workspaceId: string): DocumentS
     ephemeralSession: null,
     awarenessRelayCleanup: null,
     _reconnecting: false,
+    _reconnectTimer: null,
+    _syncPaused: false,
     _pendingRemoteEvents: [],
+    _pendingOutOfOrderUpdates: [],
+    _drainingOutOfOrderUpdates: false,
+    _syncGapTimer: null,
+    _onRecoverableSyncGap: null,
     _lastJoinMode: "complete",
+    _forceCompleteReconnect: false,
     offlineFlushCleanup: null,
     offlineResumeCleanup: null,
     loadedFromOfflineCache: false,
     _reauthResolvers: [],
     _rollbackResolvers: [],
+    _replaceRollbackPinOnNextPersist: false,
     _headlessSync: false,
-    readOnly: false,
+    readOnly: access.kind === "share" ? access.permission !== "edit" : false,
+    writerLockCleanup: null,
+    pendingSaveTimeout: null,
+    publicationState: { isPublished: false, updatedAt: null },
+    canSyncPublication: false,
+    lastPublicationContentHash: null,
     _cachedConfirmedStateVector: null,
+    _applyingRemote: false,
   };
-  documentStates.set(documentId, state);
+  documentStates.set(stateKey, state);
   return state;
 }
 
 export async function acquireDocumentState(
   documentId: string,
   workspaceId: string,
+  stateKey = documentId,
 ): Promise<{
   yDoc: Y.Doc;
   awareness: Awareness;
 }> {
-  const existing = documentStates.get(documentId);
+  const existing = documentStates.get(stateKey);
   if (existing) {
     existing.refCount++;
     if (existing.error) {
+      leaveDocument(existing.documentId, existing.stateKey);
       existing.error = null;
       existing.initPromise = null;
       existing._initAbortController = null;
       existing.initialized = false;
+      existing.channel = null;
+      existing._onDocumentMessage = null;
       existing.offlineResumeCleanup?.();
       existing.offlineResumeCleanup = null;
       existing._headlessSync = false;
@@ -93,13 +123,27 @@ export async function acquireDocumentState(
       existing.activeSnapshotId = null;
       existing.knownClocks = {};
       existing.confirmedClocks = {};
+      existing.snapshotBaseClocks = {};
       existing.lastSavedState = null;
       existing.snapshotUpdatesCount = 0;
       existing.localClock = 0;
       existing.latestVersion = 0;
       existing.awarenessClientOwners.clear();
+      existing._pendingOutOfOrderUpdates = [];
+      existing._drainingOutOfOrderUpdates = false;
+      if (existing._syncGapTimer) {
+        clearTimeout(existing._syncGapTimer);
+        existing._syncGapTimer = null;
+      }
+      existing._onRecoverableSyncGap = null;
       existing._lastJoinMode = "complete";
-      errorSignals.get(documentId)?.[1](null);
+      if (existing._reconnectTimer) {
+        clearTimeout(existing._reconnectTimer);
+        existing._reconnectTimer = null;
+      }
+      existing._syncPaused = false;
+      syncPausedSignals.get(stateKey)?.[1](false);
+      errorSignals.get(stateKey)?.[1](null);
     }
     if (existing.initialized) {
       return { yDoc: existing.yDoc, awareness: existing.awareness };
@@ -115,12 +159,12 @@ export async function acquireDocumentState(
     return { yDoc: existing.yDoc, awareness: existing.awareness };
   }
 
-  const state = createDocumentState(documentId, workspaceId);
+  const state = createDocumentState(documentId, workspaceId, stateKey);
   return { yDoc: state.yDoc, awareness: state.awareness };
 }
 
-export function getDocumentState(documentId: string): DocumentState | undefined {
-  return documentStates.get(documentId);
+export function getDocumentState(stateKey: string): DocumentState | undefined {
+  return documentStates.get(stateKey);
 }
 
 export function getAllActiveDocumentStates(): Map<string, DocumentState> {

@@ -55,6 +55,60 @@ export interface EditorLike {
 }
 const editorRegistry = new Map<string, EditorLike>();
 let onEditorRegistered: (() => void) | null = null;
+declare global {
+  interface Window {
+    __REFMD_E2E__?: boolean;
+    __refmdSetEditorValueForDocument?: (documentId: string, value: string) => boolean;
+    __refmdGetDocumentSyncState?: (documentId: string) => {
+      autoSync: boolean;
+      channelState: string | null;
+      error: string | null;
+      initialized: boolean;
+      readOnly: boolean;
+      reconnecting: boolean;
+      sending: boolean;
+      syncPaused: boolean;
+    } | null;
+  }
+}
+function installE2EEditorHook(): void {
+  if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
+  window.__refmdGetDocumentSyncState = (documentId: string) => {
+    for (const state of getAllActiveDocumentStates().values()) {
+      if (state.documentId !== documentId) continue;
+      return {
+        autoSync: !!state.autoSync,
+        channelState: state.channel?.state ?? null,
+        error: state.error,
+        initialized: state.initialized,
+        readOnly: state.readOnly,
+        reconnecting: state._reconnecting,
+        sending: state.sending,
+        syncPaused: state._syncPaused,
+      };
+    }
+    return null;
+  };
+  window.__refmdSetEditorValueForDocument = (documentId: string, value: string) => {
+    const editor = getEditorForDocument(documentId);
+    if (editor) {
+      editor.setValue(value);
+    }
+    let synced = false;
+    for (const state of getAllActiveDocumentStates().values()) {
+      if (state.documentId !== documentId) continue;
+      if (!state.autoSync) continue;
+      const yText = state.yDoc.getText("content");
+      state.yDoc.transact(() => {
+        yText.delete(0, yText.length);
+        yText.insert(0, value);
+      });
+      state.autoSync.notifyLocalEdit();
+      synced = true;
+    }
+    return synced;
+  };
+}
 export function setOnEditorRegistered(cb: () => void): void {
   onEditorRegistered = cb;
 }
@@ -64,6 +118,7 @@ export function setFocusedPanelIdAccessor(accessor: () => string | null): void {
 }
 export function registerEditor(panelId: string, api: EditorLike): void {
   editorRegistry.set(panelId, api);
+  installE2EEditorHook();
   onEditorRegistered?.();
 }
 export function unregisterEditor(panelId: string): void {
@@ -85,3 +140,4 @@ export function getActiveEditor(): EditorLike | null {
   if (!panelId) return null;
   return editorRegistry.get(panelId) ?? null;
 }
+import { getAllActiveDocumentStates } from "./document-state/store";

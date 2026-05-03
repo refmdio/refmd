@@ -98,7 +98,13 @@ defmodule RefMD.Devices.Revocations do
   rescue
     e in Postgrex.Error ->
       serializable_error? =
-        e.postgres != nil and e.postgres.code in ["40001", "40P01"]
+        e.postgres != nil and
+          e.postgres.code in [
+            "40001",
+            "40P01",
+            :serialization_failure,
+            :deadlock_detected
+          ]
 
       if serializable_error? and attempt < @serializable_max_retries do
         Process.sleep(Enum.random(5..25))
@@ -183,7 +189,7 @@ defmodule RefMD.Devices.Revocations do
     ws_with_versions = RefMD.Workspaces.get_user_workspace_ids_with_kek_version(user_id)
     ws_ids = Enum.map(ws_with_versions, &elem(&1, 0))
 
-    RefMD.Workspaces.revoke_all_active_invitations(ws_ids)
+    RefMD.Workspaces.revoke_all_active_access_invitations(ws_ids)
     RefMD.Workspaces.mark_kek_rotation_needed(ws_ids, user_id)
     RefMD.Workspaces.mark_dek_rotation_needed(ws_ids)
 

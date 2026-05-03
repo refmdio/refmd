@@ -13,11 +13,13 @@ interface PersistWorkspaceKekForDeviceParams extends ConflictHandlingOptions {
   targetDeviceEcdhPublic: Uint8Array;
   keyVersion: number;
   isActive?: boolean;
+  popDeviceId?: string;
 }
 interface PersistWorkspaceKekBackupParams extends ConflictHandlingOptions {
   workspaceId: string;
   userId: string;
   keyVersion: number;
+  popDeviceId?: string;
 }
 interface PersistWorkspaceKekLocallyParams extends ConflictHandlingOptions {
   workspaceId: string;
@@ -38,6 +40,7 @@ export async function persistWorkspaceKekForDevice({
   targetDeviceEcdhPublic,
   keyVersion,
   isActive,
+  popDeviceId,
   ignoreConflict = false,
 }: PersistWorkspaceKekForDeviceParams): Promise<void> {
   const worker = getCryptoWorker();
@@ -50,14 +53,20 @@ export async function persistWorkspaceKekForDevice({
     keyVersion,
   });
   try {
-    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-      device_id: targetDeviceId,
-      sender_device_id: senderDeviceId,
-      encrypted_kek: base64UrlEncode(envelope.encrypted),
-      nonce: base64UrlEncode(envelope.nonce),
-      key_version: keyVersion,
-      is_active: isActive,
-    });
+    await encryptionApi.createWorkspaceKeyWithPop(
+      workspaceId,
+      {
+        device_id: targetDeviceId,
+        sender_device_id: senderDeviceId,
+        encrypted_kek: base64UrlEncode(envelope.encrypted),
+        nonce: base64UrlEncode(envelope.nonce),
+        key_version: keyVersion,
+        is_active: isActive,
+      },
+      {
+        popDeviceId,
+      },
+    );
   } catch (error) {
     if (!shouldIgnoreConflict(error, ignoreConflict)) {
       throw error;
@@ -68,6 +77,7 @@ export async function persistWorkspaceKekBackup({
   workspaceId,
   userId,
   keyVersion,
+  popDeviceId,
   ignoreConflict = false,
 }: PersistWorkspaceKekBackupParams): Promise<void> {
   const worker = getCryptoWorker();
@@ -77,11 +87,17 @@ export async function persistWorkspaceKekBackup({
     keyVersion,
   });
   try {
-    await encryptionApi.createKekBackupWithPop(workspaceId, {
-      key_version: keyVersion,
-      encrypted_kek: base64UrlEncode(backup.encrypted),
-      nonce: base64UrlEncode(backup.nonce),
-    });
+    await encryptionApi.createKekBackupWithPop(
+      workspaceId,
+      {
+        key_version: keyVersion,
+        encrypted_kek: base64UrlEncode(backup.encrypted),
+        nonce: base64UrlEncode(backup.nonce),
+      },
+      {
+        popDeviceId,
+      },
+    );
   } catch (error) {
     if (!shouldIgnoreConflict(error, ignoreConflict)) {
       throw error;
@@ -108,12 +124,14 @@ export async function persistWorkspaceKekLocally({
     targetDeviceEcdhPublic: deviceEcdhPublic,
     keyVersion,
     isActive,
+    popDeviceId: deviceId,
     ignoreConflict,
   });
   await persistWorkspaceKekBackup({
     workspaceId,
     userId,
     keyVersion,
+    popDeviceId: deviceId,
     ignoreConflict,
   });
 }

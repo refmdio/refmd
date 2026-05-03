@@ -1,11 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
-import { expectEditorTextContains, registerAccount, createDocument, openDocument } from "./helpers";
+import { expectEditorTextContains, registerAccount, createDocument, openDocument,
+  newE2EContext,
+} from "./helpers";
 
 let sharedPage: Page;
 
 test.describe.serial("Editor Modes", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -30,7 +32,7 @@ test.describe.serial("Editor Modes", () => {
     test.setTimeout(30_000);
     const editor = sharedPage.locator(".cm-content");
     await editor.click();
-    await sharedPage.keyboard.type("Hello from Markdown");
+    await sharedPage.keyboard.insertText("Hello from Markdown");
     await sharedPage.waitForTimeout(2000);
   });
 

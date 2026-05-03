@@ -1,11 +1,9 @@
 import { For, Show } from "solid-js";
 import { PencilIcon, PlusIcon, ShieldIcon, StarIcon, TrashIcon } from "lucide-solid";
+import type { WorkspaceRole } from "@/entities/workspace";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
-import type { components } from "@/shared/api";
 import type { WorkspaceRoleManagementModel } from "../model/useManagement";
-
-type WorkspaceRole = components["schemas"]["RoleResponse"];
 
 interface WorkspaceRolesSectionProps {
   roles: WorkspaceRole[] | undefined;

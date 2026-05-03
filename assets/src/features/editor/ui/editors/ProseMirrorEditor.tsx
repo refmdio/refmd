@@ -20,6 +20,7 @@ import "./prosemirror-editor.css";
 
 interface ProseMirrorEditorProps {
   documentId: string;
+  stateKey: string;
   panelId: string;
   scrollGroupId?: string;
   onDocChange?: () => void;
@@ -33,7 +34,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   let containerEl: HTMLDivElement | undefined;
   let view: EditorView | undefined;
   let slashPlugin: Plugin | null = null;
-  let activeDocumentId: string | undefined;
+  let activeStateKey: string | undefined;
   let cleanupViewListeners: (() => void) | undefined;
   let destroyCollab: (() => void) | undefined;
   let unsubScroll: (() => void) | undefined;
@@ -56,18 +57,18 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     view = undefined;
     setCurrentView(null);
     slashPlugin = null;
-    if (activeDocumentId) {
-      releaseYDoc(activeDocumentId);
-      activeDocumentId = undefined;
+    if (activeStateKey) {
+      releaseYDoc(activeStateKey);
+      activeStateKey = undefined;
     }
   }
 
-  function createEditor(documentId: string) {
+  function createEditor(stateKey: string) {
     if (!containerEl) return;
     const rootEl = containerEl;
 
-    const { yDoc, awareness } = acquireYDoc(documentId);
-    activeDocumentId = documentId;
+    const { yDoc, awareness } = acquireYDoc(stateKey);
+    activeStateKey = stateKey;
 
     const collab = setupCollabPlugins({
       yDoc,
@@ -158,10 +159,10 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   }
 
   createEffect(() => {
-    const documentId = props.documentId;
-    if (activeDocumentId === documentId) return;
+    const stateKey = props.stateKey;
+    if (activeStateKey === stateKey) return;
     destroyEditor();
-    createEditor(documentId);
+    createEditor(stateKey);
   });
 
   createEffect(() => {
@@ -201,7 +202,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       <div
         ref={(el) => {
           containerEl = el;
-          createEditor(props.documentId);
+          createEditor(props.stateKey);
         }}
         class="h-full overflow-auto relative"
       />

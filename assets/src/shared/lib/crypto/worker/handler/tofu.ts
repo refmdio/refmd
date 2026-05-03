@@ -108,8 +108,9 @@ export async function handleTofuVerify(p: HandlerPayload): Promise<unknown> {
   const deviceId = p.deviceId as string;
   const signingPublicKey = p.signingPublicKey as Uint8Array;
   const ecdhPublicKey = p.ecdhPublicKey as Uint8Array;
+  const namespace = p.namespace as string | undefined;
 
-  const result = await verifyTofu(userId, deviceId, signingPublicKey, ecdhPublicKey);
+  const result = await verifyTofu(userId, deviceId, signingPublicKey, ecdhPublicKey, namespace);
   return { status: result.status };
 }
 
@@ -146,29 +147,42 @@ export async function handleTofuVerifyAllDevices(
 }
 
 export async function handleTofuTrustDevice(p: HandlerPayload): Promise<unknown> {
-  await trustDevice({
-    userId: p.userId as string,
-    deviceId: p.deviceId as string,
-    signingPublicKey: p.signingPublicKey as Uint8Array,
-    ecdhPublicKey: p.ecdhPublicKey as Uint8Array,
-    firstSeenAt: (p.firstSeenAt as number) ?? Date.now(),
-    lastSeenAt: (p.lastSeenAt as number) ?? Date.now(),
-  });
+  await trustDevice(
+    {
+      userId: p.userId as string,
+      deviceId: p.deviceId as string,
+      signingPublicKey: p.signingPublicKey as Uint8Array,
+      ecdhPublicKey: p.ecdhPublicKey as Uint8Array,
+      firstSeenAt: (p.firstSeenAt as number) ?? Date.now(),
+      lastSeenAt: (p.lastSeenAt as number) ?? Date.now(),
+    },
+    p.namespace as string | undefined,
+  );
   return { status: "ok" };
 }
 
 export async function handleTofuUpdateLastSeen(p: HandlerPayload): Promise<unknown> {
-  await updateDeviceLastSeen(p.userId as string, p.deviceId as string);
+  await updateDeviceLastSeen(
+    p.userId as string,
+    p.deviceId as string,
+    p.namespace as string | undefined,
+  );
   return { status: "ok" };
 }
 
 export async function handleTofuHandleResult(p: HandlerPayload): Promise<unknown> {
-  await handleTofuResult(p.result as Parameters<typeof handleTofuResult>[0]);
+  await handleTofuResult(
+    {
+      status: p.status as Parameters<typeof handleTofuResult>[0]["status"],
+      newEntry: p.newEntry as Parameters<typeof handleTofuResult>[0]["newEntry"],
+    },
+    p.namespace as string | undefined,
+  );
   return { status: "ok" };
 }
 
-export async function handleTofuGetAllEntries(): Promise<unknown> {
-  const entries = await getAllTofuEntries();
+export async function handleTofuGetAllEntries(p: HandlerPayload): Promise<unknown> {
+  const entries = await getAllTofuEntries(p.namespace as string | undefined);
   return {
     entries: entries.map((entry) => ({
       userId: entry.userId,
@@ -190,6 +204,6 @@ export async function handleTofuImportEntries(p: HandlerPayload): Promise<unknow
     firstSeenAt: number;
     lastSeenAt: number;
   }>;
-  await importTofuEntries(entries);
+  await importTofuEntries(entries, p.namespace as string | undefined);
   return { status: "ok" };
 }

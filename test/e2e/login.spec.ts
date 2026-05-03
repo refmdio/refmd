@@ -1,5 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { registerAccount, login, logout, TEST_PASSWORD, waitForWorkspaceReady } from "./helpers";
+import { registerAccount, login, logout, TEST_PASSWORD, waitForWorkspaceReady,
+  newE2EContext,
+} from "./helpers";
 
 let sharedContext: BrowserContext;
 let sharedPage: Page;
@@ -7,7 +9,7 @@ let email: string;
 
 test.describe.serial("Login, Logout & Session", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedContext = await browser.newContext({ bypassCSP: true, acceptDownloads: true });
+    sharedContext = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
     sharedPage = await sharedContext.newPage();
   });
 
@@ -82,7 +84,7 @@ test.describe.serial("Login, Logout & Session", () => {
       await sharedPage.close();
     }
     sharedPage = await sharedContext.newPage();
-    await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
+    await login(sharedPage, email);
     await waitForWorkspaceReady(sharedPage);
     await logout(sharedPage);
     if (!sharedPage.isClosed()) {

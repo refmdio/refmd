@@ -132,6 +132,33 @@ export async function clearWrappedUmk(): Promise<void> {
     // Best effort
   }
 }
+
+export async function storeDskSecret<T>(key: string, value: T): Promise<void> {
+  const db = await openDB();
+  await idbPut(db, key, value);
+  db.close();
+}
+
+export async function loadDskSecret<T>(key: string): Promise<T | null> {
+  try {
+    const db = await openDB();
+    const value = await idbGet<T>(db, key);
+    db.close();
+    return value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteDskSecret(key: string): Promise<void> {
+  try {
+    const db = await openDB();
+    await idbDelete(db, key);
+    db.close();
+  } catch {
+    // Best effort
+  }
+}
 // ── Auth bootstrap cache (DSK-encrypted user profile for offline) ──
 const AUTH_BOOTSTRAP_KEY = "auth-bootstrap";
 interface AuthBootstrapData {

@@ -3,6 +3,7 @@ import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
 import { persistWorkspaceKekLocally } from "@/shared/lib/crypto/workspace-kek-persistence";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 type UpdateWorkspaceInput = Parameters<typeof workspacesApi.update>[1];
+type UpdateWorkspaceFeaturesInput = Parameters<typeof workspacesApi.updateFeatures>[1];
 interface CreateWorkspaceInput {
   name: string;
   description?: string;
@@ -40,6 +41,12 @@ export async function updateWorkspace(
   input: UpdateWorkspaceInput,
 ) {
   return workspacesApi.update(workspaceId, input);
+}
+export async function updateWorkspaceFeatures(
+  workspaceId: Parameters<typeof workspacesApi.updateFeatures>[0],
+  input: UpdateWorkspaceFeaturesInput,
+) {
+  return workspacesApi.updateFeatures(workspaceId, input);
 }
 export async function deleteWorkspace(workspaceId: Parameters<typeof workspacesApi.delete>[0]) {
   return workspacesApi.delete(workspaceId);

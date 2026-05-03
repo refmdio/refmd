@@ -167,6 +167,7 @@ defmodule RefMDWeb.Schemas.MeResponse do
       user_id: %Schema{type: :string, format: :uuid},
       email: %Schema{type: :string, format: :email},
       name: %Schema{type: :string},
+      account_type: %Schema{type: :string, nullable: true},
       encryption_setup_at: %Schema{type: :string, format: :"date-time", nullable: true},
       session_id: %Schema{type: :string, format: :uuid},
       device_id: %Schema{type: :string, format: :uuid, nullable: true},

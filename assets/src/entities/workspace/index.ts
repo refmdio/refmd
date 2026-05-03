@@ -9,3 +9,4 @@ export {
   checkEffectivePermission,
 } from "./lib/permissions";
 export type { BaseRole } from "./lib/permissions";
+export type { WorkspaceMember, WorkspaceRole } from "./model/types";

@@ -1,5 +1,7 @@
 import { encodeAwarenessUpdate } from "y-protocols/awareness";
+import { getChannelState } from "@/shared/lib/ws/phoenix-channel";
 import type { DocumentState } from "../../../model/document-state/types";
+import { getDocumentDekCacheKey } from "../share-access";
 import { encodeEphemeralPayload, MSG_MESSAGE } from "./session";
 import { sendEphemeralEnvelope } from "./send";
 
@@ -21,12 +23,19 @@ export function setupAwarenessRelay(
     if (!clients?.length) return;
     const session = state.ephemeralSession;
     if (!session || !state.channel) return;
+    if (getChannelState(state.channel) !== "joined") return;
     if (session.trustedPeers.size === 0) return;
     const encoded = encodeAwarenessUpdate(state.awareness, clients);
     const payload = encodeEphemeralPayload(session, MSG_MESSAGE, encoded);
-    sendEphemeralEnvelope(payload, documentId, state.keyVersion, deviceId, signingPubKeyB64).catch(
-      () => {},
-    );
+    sendEphemeralEnvelope(
+      payload,
+      documentId,
+      state.keyVersion,
+      deviceId,
+      signingPubKeyB64,
+      state.stateKey,
+      getDocumentDekCacheKey(state, documentId),
+    ).catch(() => {});
   };
 
   const onUpdate = (

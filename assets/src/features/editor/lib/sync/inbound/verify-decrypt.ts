@@ -9,16 +9,20 @@ import { getDocumentState } from "../../../model/document-state/store";
 import type { DocumentState } from "../../../model/document-state/types";
 import { DocumentSyncError } from "../error";
 import type { SnapshotProofChainEntry, UpdatePayload } from "@/shared/lib/ws/document-payloads";
+import { ensureSharedDekCached, getDocumentDekCacheKey } from "../share-access";
+import { getDocumentCryptoWorker } from "../crypto-worker";
 function createProcessingCancelledError(): Error {
   const error = new Error("document_processing_cancelled");
   error.name = "AbortError";
   return error;
 }
-function isDocumentProcessingCancelled(documentId: string, state: DocumentState): boolean {
-  return getDocumentState(documentId) !== state || (state.refCount <= 0 && !state._headlessSync);
+function isDocumentProcessingCancelled(state: DocumentState): boolean {
+  return (
+    getDocumentState(state.stateKey) !== state || (state.refCount <= 0 && !state._headlessSync)
+  );
 }
-export function throwIfDocumentProcessingCancelled(documentId: string, state: DocumentState): void {
-  if (isDocumentProcessingCancelled(documentId, state)) {
+export function throwIfDocumentProcessingCancelled(state: DocumentState): void {
+  if (isDocumentProcessingCancelled(state)) {
     throw createProcessingCancelledError();
   }
 }
@@ -27,6 +31,9 @@ export function createVerificationFailedError(message: string): DocumentSyncErro
 }
 export function createRollbackAttackError(message: string): DocumentSyncError {
   return new DocumentSyncError("rollback_attack", message);
+}
+export function createSyncGapError(message: string): DocumentSyncError {
+  return new DocumentSyncError("sync_gap", message);
 }
 interface DecryptedUpdate {
   decrypted: Uint8Array;
@@ -38,15 +45,17 @@ export async function verifyAndDecryptUpdates(
   state: DocumentState,
   documentId: string,
   allowUnknownSigner = false,
+  includeHistoricalSigners = false,
 ): Promise<DecryptedUpdate[]> {
   const results: DecryptedUpdate[] = [];
   for (const update of updates) {
-    throwIfDocumentProcessingCancelled(documentId, state);
+    throwIfDocumentProcessingCancelled(state);
     const result = await verifyAndDecryptSingleUpdate(
       update,
       state,
       documentId,
       allowUnknownSigner,
+      includeHistoricalSigners,
     );
     if (result) {
       results.push(result);
@@ -59,11 +68,14 @@ export async function verifyAndDecryptSingleUpdate(
   state: DocumentState,
   documentId: string,
   allowUnknownSigner = false,
+  includeHistoricalSigners = false,
 ): Promise<DecryptedUpdate | null> {
-  throwIfDocumentProcessingCancelled(documentId, state);
-  const worker = getCryptoWorker();
+  throwIfDocumentProcessingCancelled(state);
+  const worker = getDocumentCryptoWorker(state);
   // signingPubKey membership confirmation + TOFU
-  const keyResult = await resolveSigningKey(update.publicData.signingPubKey, state);
+  const keyResult = await resolveSigningKey(update.publicData.signingPubKey, state, {
+    includeHistorical: includeHistoricalSigners,
+  });
   if (keyResult.status === "key_changed") {
     throw createVerificationFailedError(`TOFU key change: device ${keyResult.warning.deviceId}`);
   }
@@ -79,7 +91,12 @@ export async function verifyAndDecryptSingleUpdate(
       );
     }
   }
-  // Ed25519 signature verification (skip if signer is unknown former member)
+  if (!includeHistoricalSigners && state.revokedSigningKeys.has(update.publicData.signingPubKey)) {
+    throw createVerificationFailedError(
+      `Update: revoked signing key ${update.publicData.signingPubKey}`,
+    );
+  }
+  // Ed25519 signature verification is mandatory when the signing key is known.
   if (keyResult.status === "found") {
     const valid = await worker.verifyWsSignature({
       prefix: "refmd_update",
@@ -107,42 +124,41 @@ export async function verifyAndDecryptSingleUpdate(
   if (recomputedHash !== update.publicData.updateHash) {
     throw createVerificationFailedError("Update hash verification failed");
   }
+  const deviceKey = update.publicData.signingPubKey;
+  const lastClock = state.knownClocks[deviceKey];
   // Step 2d/4b: refSnapshotId check
   if (
     state.activeSnapshotId !== null &&
     update.publicData.refSnapshotId !== state.activeSnapshotId
   ) {
-    throw createVerificationFailedError(
+    throw createSyncGapError(
       `Update refSnapshotId mismatch: expected=${state.activeSnapshotId}, got=${update.publicData.refSnapshotId}`,
     );
   }
   // Step 2e/4c: Clock contiguity check
-  const deviceKey = update.publicData.signingPubKey;
-  const lastClock = state.knownClocks[deviceKey];
   if (lastClock !== undefined) {
     if (update.publicData.clock <= lastClock) {
       return null; // stale or duplicate
     }
     if (update.publicData.clock !== lastClock + 1) {
-      // Clock gap: warn instead of fail-close (design: 欠落警告)
-      console.warn(
-        `[anti-rollback] Clock gap for device ${deviceKey}: expected=${lastClock + 1}, got=${update.publicData.clock}`,
+      throw createSyncGapError(
+        `Clock gap for device ${deviceKey}: expected=${lastClock + 1}, got=${update.publicData.clock}`,
       );
     }
   } else if (update.publicData.clock !== 0) {
-    // First clock gap: warn (design: 欠落警告)
-    console.warn(
-      `[anti-rollback] First clock for device ${deviceKey} expected 0, got=${update.publicData.clock}`,
+    throw createSyncGapError(
+      `First clock for device ${deviceKey}: expected=0, got=${update.publicData.clock}`,
     );
   }
   // Step 4d: AEAD decryption (before clock commit — failed decrypt must not poison clocks)
-  throwIfDocumentProcessingCancelled(documentId, state);
-  await ensureDekCached(documentId, state.workspaceId, update.publicData.keyVersion);
+  throwIfDocumentProcessingCancelled(state);
+  await ensureDekCached(documentId, state.workspaceId, update.publicData.keyVersion, state);
   const decrypted = await worker.decryptContent({
     ciphertext: base64UrlDecode(update.ciphertext),
     nonce: base64UrlDecode(update.nonce),
     documentId,
     keyVersion: update.publicData.keyVersion,
+    cacheKey: getDocumentDekCacheKey(state, documentId),
   });
   // Advance local keyVersion if remote uses a newer DEK (after rotation by another client)
   if (update.publicData.keyVersion > state.keyVersion) {
@@ -209,7 +225,14 @@ export async function ensureDekCached(
   documentId: string,
   workspaceId: string,
   keyVersion: number,
+  state?: DocumentState,
 ): Promise<void> {
+  const currentState = state ?? getDocumentState(documentId);
+  if (currentState?.access.kind === "share") {
+    await ensureSharedDekCached(currentState, documentId, keyVersion);
+    return;
+  }
+
   const worker = getCryptoWorker();
   const hasDek = await worker.hasDek(documentId, keyVersion);
   if (hasDek) return;
@@ -237,6 +260,8 @@ export async function ensureDekCached(
  * Fires async and sets pendingRotationSnapshot to trigger snapshot on next auto-sync cycle.
  */
 export function checkRotationSnapshot(documentId: string, state: DocumentState): void {
+  if (state.access.kind === "share") return;
+
   documentsApi
     .get(documentId)
     .then(async (doc) => {

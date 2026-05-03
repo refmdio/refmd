@@ -18,7 +18,7 @@ defmodule RefMD.Workspaces.WorkspaceRole do
 
   @type t :: %__MODULE__{}
 
-  @base_roles ~w(owner admin editor viewer)
+  @base_roles ~w(owner admin editor viewer guest)
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(role, attrs) do

@@ -5,8 +5,9 @@ defmodule RefMD.Documents do
 
   import Ecto.{Changeset, Query}
 
-  alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate}
+  alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate, TreeOrdering}
   alias RefMD.Repo
+  alias RefMD.Workspaces
 
   @max_nesting_depth 10
 
@@ -113,10 +114,144 @@ defmodule RefMD.Documents do
   @spec get_initial_document_data(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
   def get_initial_document_data(document_id, workspace_id, user_id) do
-    case Repo.query(
-           @initial_document_data_sql,
-           [Ecto.UUID.dump!(document_id), Ecto.UUID.dump!(workspace_id), Ecto.UUID.dump!(user_id)]
-         ) do
+    with :ok <- validate_guest_document_read(workspace_id, user_id, document_id),
+         {:ok, %{rows: rows, columns: columns}} <-
+           Repo.query(
+             @initial_document_data_sql,
+             [
+               Ecto.UUID.dump!(document_id),
+               Ecto.UUID.dump!(workspace_id),
+               Ecto.UUID.dump!(user_id)
+             ]
+           ) do
+      case rows do
+        [row] -> {:ok, parse_initial_data_row(row, columns)}
+        [] -> {:error, :unauthorized}
+      end
+    else
+      {:error, :permission_denied} ->
+        {:error, :unauthorized}
+
+      {:error, _reason} ->
+        {:error, :db_error}
+    end
+  end
+
+  defp validate_guest_document_read(workspace_id, user_id, document_id) do
+    if Workspaces.guest_user?(user_id) do
+      case get_document(document_id) do
+        %Document{} = document ->
+          Workspaces.authorize_guest_permission(workspace_id, user_id, "document:read", document)
+
+        nil ->
+          {:error, :permission_denied}
+      end
+    else
+      :ok
+    end
+  end
+
+  @initial_document_data_share_sql """
+  WITH RECURSIVE selected_share AS (
+    SELECT
+      sh.id AS selected_share_id,
+      sh.parent_share_id,
+      sh.document_id AS selected_document_id,
+      sh.scope AS selected_scope,
+      sh.expires_at AS selected_expires_at,
+      COALESCE(root_sh.id, sh.id) AS root_share_id,
+      COALESCE(root_sh.document_id, sh.document_id) AS root_document_id,
+      COALESCE(root_sh.scope, sh.scope) AS root_scope,
+      COALESCE(root_sh.expires_at, sh.expires_at) AS root_expires_at
+    FROM shares sh
+    LEFT JOIN shares root_sh ON root_sh.id = sh.parent_share_id
+    WHERE sh.id = $2
+  ),
+  share_descendants AS (
+    SELECT child.id, child.parent_id
+    FROM documents child
+    JOIN selected_share ss ON TRUE
+    WHERE child.parent_id = ss.root_document_id
+    UNION ALL
+    SELECT child.id, child.parent_id
+    FROM documents child
+    INNER JOIN share_descendants sd ON child.parent_id = sd.id
+  )
+  SELECT
+    s.id, s.document_id, s.parent_snapshot_id, s.device_id,
+    s.latest_version, s.data, s.nonce, s.key_version,
+    s.signature, s.ciphertext_hash, s.clocks,
+    s.parent_snapshot_update_clocks, s.parent_snapshot_proof,
+    s.created_by_device, s.created_at,
+    COALESCE(u.updates_json, '[]'::jsonb) AS updates_json
+  FROM selected_share ss
+  JOIN documents d
+    ON d.id = $1
+  LEFT JOIN document_snapshots s
+    ON s.id = d.active_snapshot_id AND s.document_id = d.id
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'id', du.id,
+        'document_id', du.document_id,
+        'snapshot_id', du.snapshot_id,
+        'device_id', du.device_id,
+        'clock', du.clock,
+        'version', du.version,
+        'device_signing_pub_key', du.device_signing_pub_key,
+        'update_data', encode(du.update_data, 'base64'),
+        'nonce', encode(du.nonce, 'base64'),
+        'key_version', du.key_version,
+        'update_hash', du.update_hash,
+        'signature', CASE WHEN du.signature IS NOT NULL THEN encode(du.signature, 'base64') END,
+        'mac', CASE WHEN du.mac IS NOT NULL THEN encode(du.mac, 'base64') END,
+        'share_id', du.share_id,
+        'timestamp', du.timestamp
+      ) ORDER BY du.version
+    ) AS updates_json
+    FROM document_updates du
+    WHERE du.document_id = d.id
+      AND du.snapshot_id = d.active_snapshot_id
+  ) u ON TRUE
+  WHERE d.id = $1
+    AND (ss.selected_expires_at IS NULL OR ss.selected_expires_at > $3)
+    AND (ss.root_expires_at IS NULL OR ss.root_expires_at > $3)
+    AND (
+      (
+        ss.parent_share_id IS NULL
+        AND ss.selected_scope = 'document'
+        AND ss.selected_document_id = d.id
+      )
+      OR (
+        ss.root_scope = 'folder'
+        AND (
+          ss.parent_share_id IS NULL
+          OR ss.selected_document_id = d.id
+        )
+        AND EXISTS(
+          SELECT 1
+          FROM shares child_sh
+          WHERE child_sh.parent_share_id = ss.root_share_id
+            AND child_sh.document_id = d.id
+            AND child_sh.scope = 'document'
+        )
+        AND EXISTS(
+          SELECT 1
+          FROM share_descendants sd
+          WHERE sd.id = d.id
+        )
+      )
+    )
+  """
+
+  @spec get_initial_document_data_for_share(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
+  def get_initial_document_data_for_share(document_id, share_id) do
+    case Repo.query(@initial_document_data_share_sql, [
+           Ecto.UUID.dump!(document_id),
+           Ecto.UUID.dump!(share_id),
+           DateTime.utc_now()
+         ]) do
       {:ok, %{rows: [row], columns: columns}} ->
         {:ok, parse_initial_data_row(row, columns)}
 
@@ -225,7 +360,7 @@ defmodule RefMD.Documents do
     parent_id = get_attr(attrs, :parent_id)
 
     is_encrypted = doc_type != "folder" && encrypted_title != nil
-    position = next_position(workspace_id, parent_id)
+    position = TreeOrdering.append_position(workspace_id, parent_id)
     slug_source = if is_encrypted, do: "untitled", else: title || "untitled"
     slug = generate_slug(slug_source)
 
@@ -258,14 +393,13 @@ defmodule RefMD.Documents do
   end
 
   def update_document(%Document{} = document, attrs) do
-    result =
+    changeset =
       document
       |> Document.changeset(attrs)
       |> validate_parent_constraints()
       |> validate_parent_change(document.id)
-      |> Repo.update()
 
-    result
+    update_document_result(document, changeset)
   end
 
   # ── Delete ───────────────────────────────────────
@@ -276,8 +410,72 @@ defmodule RefMD.Documents do
     if document.doc_type == "folder" && has_children?(document.id) do
       {:error, :folder_not_empty}
     else
-      Repo.delete(document)
+      document
+      |> delete_document_result()
+      |> normalize_delete_document_result(document.id)
     end
+  end
+
+  defp delete_document_tx(document) do
+    public_deleted? = RefMD.Public.handle_document_deleted(document.id) == :published_deleted
+    affected_groups = TreeOrdering.affected_parent_groups_for_document(document.id)
+
+    case Repo.delete(document) do
+      {:ok, deleted} ->
+        TreeOrdering.normalize_combined_siblings!(document.workspace_id, document.parent_id)
+        TreeOrdering.normalize_combined_sibling_groups!(affected_groups)
+        {deleted, public_deleted?}
+
+      {:error, changeset} ->
+        Repo.rollback(changeset)
+    end
+  end
+
+  defp delete_document_result(document),
+    do: Repo.transaction(fn -> delete_document_tx(document) end)
+
+  defp normalize_delete_document_result({:ok, {deleted, true}}, document_id) do
+    RefMD.Public.broadcast_unpublished(document_id)
+    {:ok, deleted}
+  end
+
+  defp normalize_delete_document_result({:ok, {deleted, false}}, _document_id), do: {:ok, deleted}
+  defp normalize_delete_document_result({:error, reason}, _document_id), do: {:error, reason}
+
+  defp update_document_result(document, changeset) do
+    if Map.has_key?(changeset.changes, :parent_id) do
+      document
+      |> update_document_parent_result(changeset)
+      |> normalize_update_document_result()
+    else
+      Repo.update(changeset)
+    end
+  end
+
+  defp update_document_parent_result(document, changeset) do
+    Repo.transaction(fn -> update_document_parent_tx(document, changeset) end)
+  end
+
+  defp update_document_parent_tx(document, changeset) do
+    case Repo.update(changeset) do
+      {:ok, updated} ->
+        normalize_parent_change!(document, updated)
+        Repo.get!(Document, updated.id)
+
+      {:error, changeset} ->
+        Repo.rollback(changeset)
+    end
+  end
+
+  defp normalize_update_document_result({:ok, updated}), do: {:ok, updated}
+  defp normalize_update_document_result({:error, reason}), do: {:error, reason}
+
+  defp normalize_parent_change!(%Document{} = original, %Document{} = updated) do
+    if original.parent_id != updated.parent_id do
+      TreeOrdering.normalize_combined_siblings!(original.workspace_id, original.parent_id)
+    end
+
+    TreeOrdering.normalize_combined_siblings!(updated.workspace_id, updated.parent_id)
   end
 
   # ── Archive / Unarchive ──────────────────────────
@@ -456,12 +654,12 @@ defmodule RefMD.Documents do
     case Map.fetch(changeset.changes, :parent_id) do
       {:ok, nil} ->
         workspace_id = get_field(changeset, :workspace_id)
-        new_position = next_position(workspace_id, nil)
+        new_position = TreeOrdering.append_position(workspace_id, nil)
         force_change(changeset, :position, new_position)
 
       {:ok, new_parent_id} ->
         workspace_id = get_field(changeset, :workspace_id)
-        new_position = next_position(workspace_id, new_parent_id)
+        new_position = TreeOrdering.append_position(workspace_id, new_parent_id)
 
         changeset
         |> force_change(:position, new_position)
@@ -547,25 +745,15 @@ defmodule RefMD.Documents do
   # ── Helpers ──────────────────────────────────────
 
   defp has_children?(document_id) do
-    from(d in Document, where: d.parent_id == ^document_id, limit: 1)
-    |> Repo.exists?()
-  end
+    document_children? =
+      from(d in Document, where: d.parent_id == ^document_id, limit: 1)
+      |> Repo.exists?()
 
-  defp next_position(workspace_id, parent_id) do
-    query =
-      if parent_id do
-        from(d in Document,
-          where: d.workspace_id == ^workspace_id and d.parent_id == ^parent_id,
-          select: fragment("coalesce(max(?), -1) + 1", d.position)
-        )
-      else
-        from(d in Document,
-          where: d.workspace_id == ^workspace_id and is_nil(d.parent_id),
-          select: fragment("coalesce(max(?), -1) + 1", d.position)
-        )
-      end
+    mount_children? =
+      from(m in RefMD.Sharing.ShareMount, where: m.parent_id == ^document_id, limit: 1)
+      |> Repo.exists?()
 
-    Repo.one(query)
+    document_children? or mount_children?
   end
 
   defp generate_slug(title) do

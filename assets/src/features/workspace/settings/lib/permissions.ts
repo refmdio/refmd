@@ -31,7 +31,9 @@ export function useWorkspacePermissions(options: UseWorkspacePermissionsOptions)
   };
 
   const canUpdateWorkspace = () => hasPermission("workspace:update");
+  const canManageFeatures = () => hasPermission("workspace:features");
   const canInvite = () => hasPermission("member:invite");
+  const canInviteGuests = () => hasPermission("guest:invite");
   const canChangeRole = () => hasPermission("member:change_role");
   const canRemoveMember = () => hasPermission("member:remove");
   const canManageRoles = () => hasPermission("role:manage");
@@ -71,7 +73,9 @@ export function useWorkspacePermissions(options: UseWorkspacePermissionsOptions)
   return {
     hasPermission,
     canUpdateWorkspace,
+    canManageFeatures,
     canInvite,
+    canInviteGuests,
     canChangeRole,
     canRemoveMember,
     canManageRoles,

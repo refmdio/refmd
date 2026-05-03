@@ -4,13 +4,14 @@ import {
   createDocument,
   createFolder,
   openContextMenu,
+  newE2EContext,
 } from "./helpers";
 
 let sharedPage: Page;
 
 test.describe.serial("Document & Folder Management", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -63,7 +64,7 @@ test.describe.serial("Document & Folder Management", () => {
   test("renames a document via context menu", async () => {
     test.setTimeout(30_000);
     const menu = await openContextMenu(sharedPage, "Second Doc");
-    await menu.locator("button", { hasText: "Rename" }).click();
+    await menu.getByRole("menuitem", { name: "Rename" }).click();
     await sharedPage.waitForTimeout(1000);
 
     const dialog = sharedPage.locator('[role="dialog"]');
@@ -90,7 +91,7 @@ test.describe.serial("Document & Folder Management", () => {
   test("archive removes document from main tree", async () => {
     test.setTimeout(30_000);
     const menu = await openContextMenu(sharedPage, "Renamed Doc");
-    await menu.locator("button", { hasText: "Archive" }).click();
+    await menu.getByRole("menuitem", { name: "Archive" }).click();
     await sharedPage.waitForTimeout(2000);
   });
 
@@ -116,7 +117,7 @@ test.describe.serial("Document & Folder Management", () => {
   test("unarchive restores document to main tree", async () => {
     test.setTimeout(30_000);
     const menu = await openContextMenu(sharedPage, "Renamed Doc");
-    await menu.locator("button", { hasText: "Unarchive" }).click();
+    await menu.getByRole("menuitem", { name: "Unarchive" }).click();
     await sharedPage.waitForTimeout(2000);
 
     await expect(
@@ -132,7 +133,7 @@ test.describe.serial("Document & Folder Management", () => {
     await createDocument(sharedPage, "Delete Me");
 
     const menu = await openContextMenu(sharedPage, "Delete Me");
-    await menu.locator("button", { hasText: "Delete" }).click();
+    await menu.getByRole("menuitem", { name: "Delete" }).click();
     await sharedPage.waitForTimeout(500);
 
     await sharedPage
@@ -158,7 +159,7 @@ test.describe.serial("Document & Folder Management", () => {
   test("renames a folder via context menu", async () => {
     test.setTimeout(30_000);
     const menu = await openContextMenu(sharedPage, "Test Folder");
-    await menu.locator("button", { hasText: "Rename" }).click();
+    await menu.getByRole("menuitem", { name: "Rename" }).click();
     await sharedPage.waitForTimeout(1000);
 
     const dialog = sharedPage.locator('[role="dialog"]');
@@ -179,7 +180,7 @@ test.describe.serial("Document & Folder Management", () => {
   test("moves a document into a folder via context menu", async () => {
     test.setTimeout(30_000);
     const menu = await openContextMenu(sharedPage, "Renamed Doc");
-    await menu.locator("button", { hasText: "Move" }).click();
+    await menu.getByRole("menuitem", { name: "Move" }).click();
     await sharedPage.waitForTimeout(1000);
 
     await sharedPage.getByRole("button", { name: "My Folder" }).click();
@@ -193,7 +194,7 @@ test.describe.serial("Document & Folder Management", () => {
     await createFolder(sharedPage, "Empty Folder");
 
     const menu = await openContextMenu(sharedPage, "Empty Folder");
-    await menu.locator("button", { hasText: "Delete" }).click();
+    await menu.getByRole("menuitem", { name: "Delete" }).click();
     await sharedPage.waitForTimeout(500);
 
     await sharedPage

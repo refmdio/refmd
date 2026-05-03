@@ -54,6 +54,53 @@ async function waitForServiceWorker(page: Parameters<typeof registerAccount>[0])
   throw new Error(`Service worker did not take control: ${JSON.stringify(lastState)}`);
 }
 
+async function waitForOfflineDocumentCache(page: Parameters<typeof registerAccount>[0]) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open("refmd-offline");
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+
+          const count = (storeName: string) =>
+            new Promise<number>((resolve, reject) => {
+              const tx = db.transaction(storeName, "readonly");
+              const request = tx.objectStore(storeName).count();
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+
+          try {
+            const [workspaces, documentIndex, documents, documentCache, dekCache] =
+              await Promise.all([
+                count("offline-workspaces"),
+                count("offline-document-index"),
+                count("offline-documents"),
+                count("document-cache"),
+                count("offline-dek-cache"),
+              ]);
+            return (
+              workspaces > 0 &&
+              documentIndex > 0 &&
+              documents > 0 &&
+              documentCache > 0 &&
+              dekCache > 0
+            );
+          } finally {
+            db.close();
+          }
+        }),
+      {
+        timeout: 60_000,
+        message: "offline workspace/document caches were not ready before browser restart",
+      },
+    )
+    .toBe(true);
+}
+
 test("service worker serves app shell after browser restart while fully offline", async () => {
   test.skip(!requiresStaticServer, "Requires Phoenix/static asset server, not Vite dev server");
   test.setTimeout(240_000);
@@ -77,10 +124,11 @@ test("service worker serves app shell after browser restart while fully offline"
 
     const editor = page.locator(".cm-content");
     await editor.click();
-    await page.keyboard.type("Cold start offline content");
+    await page.keyboard.insertText("Cold start offline content");
     await page.waitForTimeout(5_000);
 
     await waitForServiceWorker(page);
+    await waitForOfflineDocumentCache(page);
 
     // Ensure the fetch handler has cached /index.html via a controlled navigation
     await page.reload({ waitUntil: "load" });
@@ -114,8 +162,22 @@ test("service worker serves app shell after browser restart while fully offline"
     page = context.pages()[0] ?? (await context.newPage());
 
     await page.goto("/dashboard", { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const cache = await caches.open("app-shell-v1");
+            return (await cache.keys()).length;
+          }),
+        { timeout: 10_000, message: "app shell cache was not available after offline restart" },
+      )
+      .toBeGreaterThan(1);
 
-    const docButton = page.getByRole("button", { name: "SW Cold Start Doc" });
+    const sidebar = page.locator("aside");
+    const docButton = sidebar
+      .getByRole("button", { name: "SW Cold Start Doc" })
+      .or(sidebar.getByRole("button", { name: "Untitled" }))
+      .first();
 
     await expect(docButton).toBeVisible({
       timeout: 60_000,

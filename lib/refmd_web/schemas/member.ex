@@ -11,7 +11,7 @@ defmodule RefMDWeb.Schemas.MemberInfo do
       name: %Schema{type: :string},
       role_id: %Schema{type: :string, format: :uuid},
       role_name: %Schema{type: :string},
-      base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer"]},
+      base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer", "guest"]},
       is_default: %Schema{type: :boolean},
       joined_at: %Schema{type: :string, format: :"date-time"}
     },

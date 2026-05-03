@@ -105,6 +105,31 @@ defmodule RefMDWeb.InvitationController do
 
   # ── POST /api/workspaces/invitations/accept ─────────
 
+  operation(:lookup,
+    summary: "Lookup invitation kind",
+    request_body: {"Lookup params", "application/json", Schemas.InvitationLookupRequest},
+    responses: [
+      ok: {"Invitation kind", "application/json", Schemas.InvitationLookupResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec lookup(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def lookup(conn, %{"token" => token}) do
+    with {:ok, token_bytes} <- decode_token(token),
+         {:ok, token_hash} <- compute_token_hash(token_bytes),
+         {:ok, kind} <- Workspaces.lookup_invitation_kind(token_hash) do
+      json(conn, %{kind: Atom.to_string(kind)})
+    else
+      {:error, reason} -> handle_lookup_error(conn, reason)
+    end
+  end
+
+  def lookup(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing_token"})
+  end
+
   operation(:accept,
     summary: "Accept an invitation",
     request_body: {"Accept params", "application/json", Schemas.AcceptInvitationRequest},
@@ -151,7 +176,7 @@ defmodule RefMDWeb.InvitationController do
          :ok <- validate_token_hash(params["token_hash"]),
          :ok <- validate_token_prefix(params["token_prefix"]),
          :ok <- validate_invitation_id(params["invitation_id"]),
-         :ok <- validate_role_id(params["role_id"]),
+         :ok <- validate_role_id(workspace_id, params["role_id"]),
          :ok <- validate_email(params["invited_email"]),
          :ok <- validate_expires_at(params["expires_at"]) do
       {:ok,
@@ -225,15 +250,22 @@ defmodule RefMDWeb.InvitationController do
       else: {:error, :invalid_invitation_id_format}
   end
 
-  defp validate_role_id(nil), do: :ok
+  defp validate_role_id(_workspace_id, nil), do: :ok
 
-  defp validate_role_id(role_id) when is_binary(role_id) do
-    if Regex.match?(@uuid_regex, role_id),
-      do: :ok,
-      else: {:error, :invalid_role}
+  defp validate_role_id(workspace_id, role_id) when is_binary(role_id) do
+    cond do
+      not Regex.match?(@uuid_regex, role_id) ->
+        {:error, :invalid_role}
+
+      match?(%{base_role: "guest"}, Workspaces.get_role_with_permissions(workspace_id, role_id)) ->
+        {:error, :invalid_role}
+
+      true ->
+        :ok
+    end
   end
 
-  defp validate_role_id(_), do: {:error, :invalid_role}
+  defp validate_role_id(_workspace_id, _role_id), do: {:error, :invalid_role}
 
   defp validate_email(nil), do: {:error, :invalid_email_format}
   defp validate_email(email) when not is_binary(email), do: {:error, :invalid_email_format}
@@ -442,5 +474,17 @@ defmodule RefMDWeb.InvitationController do
 
   defp handle_accept_error(conn, error) do
     conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
+  end
+
+  defp handle_lookup_error(conn, :not_found) do
+    conn |> put_status(:not_found) |> json(%{error: "not_found"})
+  end
+
+  defp handle_lookup_error(conn, :invalid_token_format) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_token_format"})
+  end
+
+  defp handle_lookup_error(conn, :invalid_token_length) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_token_length"})
   end
 end

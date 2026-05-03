@@ -3,6 +3,7 @@ import type { DocumentState } from "../../../model/document-state/types";
 import { createEphemeralSession } from "../ephemeral/session";
 import { setupAwarenessRelay } from "../ephemeral/awareness-relay";
 import { sendInitialize } from "../bootstrap/post-init";
+import { getLocalDeviceId } from "../share-identity";
 
 export function runPostReconnectSession(
   state: DocumentState,
@@ -11,7 +12,8 @@ export function runPostReconnectSession(
   localDeviceSigningPubKey: string,
 ): void {
   const currentDevice = deviceState();
-  if (!currentDevice || currentDevice.deviceId !== deviceId) return;
+  const localDeviceId = getLocalDeviceId(state) ?? currentDevice?.deviceId ?? null;
+  if (!localDeviceId || localDeviceId !== deviceId) return;
 
   const session = createEphemeralSession();
   state.ephemeralSession = session;

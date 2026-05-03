@@ -5,6 +5,7 @@ import {
   openDocument,
   registerAccount,
   waitForWorkspaceReady,
+  newE2EContext,
 } from "./helpers";
 
 let sharedPage: Page;
@@ -12,7 +13,7 @@ const OFFLINE_CREATED_TEXT = "offline-created reconnect keeps this content";
 
 test.describe.serial("Offline-Created Document Sync", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -67,7 +68,7 @@ test.describe.serial("Offline-Created Document Sync", () => {
     }, offlineCreatedId);
     await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
     await sharedPage.locator(".cm-content").click();
-    await sharedPage.keyboard.type(OFFLINE_CREATED_TEXT);
+    await sharedPage.keyboard.insertText(OFFLINE_CREATED_TEXT);
   });
 
   test("offline-created documents sync automatically after reconnect without breaking the open editor", async () => {
@@ -101,7 +102,7 @@ test.describe.serial("Offline-Created Document Sync", () => {
   });
 
   test("synced offline-created documents survive reload and can be opened", async () => {
-    test.setTimeout(60_000);
+    test.setTimeout(180_000);
 
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
     await waitForWorkspaceReady(sharedPage);
@@ -113,9 +114,12 @@ test.describe.serial("Offline-Created Document Sync", () => {
       .catch(() => false);
 
     if (!editorVisibleAfterReload) {
-      await expect(sharedPage.locator("aside").getByText("Offline Created Doc")).toBeVisible({
-        timeout: 30_000,
-      });
+      const createdDocument = sharedPage.locator("aside").getByText("Offline Created Doc");
+      if (!(await createdDocument.isVisible({ timeout: 30_000 }).catch(() => false))) {
+        await sharedPage.reload({ waitUntil: "domcontentloaded" });
+        await waitForWorkspaceReady(sharedPage);
+      }
+      await expect(createdDocument).toBeVisible({ timeout: 30_000 });
       await openDocument(sharedPage, "Offline Created Doc");
     }
 

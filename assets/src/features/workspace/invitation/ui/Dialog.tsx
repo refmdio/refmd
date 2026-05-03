@@ -21,6 +21,18 @@ interface WorkspaceInvitationDialogProps {
   state: WorkspaceInvitationManagementModel;
 }
 
+const INVITATION_EXPIRY_OPTIONS = [
+  { value: "1", label: "1 day" },
+  { value: "3", label: "3 days" },
+  { value: "7", label: "7 days" },
+  { value: "14", label: "14 days" },
+  { value: "30", label: "30 days" },
+];
+
+function expiryLabel(value: string): string {
+  return INVITATION_EXPIRY_OPTIONS.find((option) => option.value === value)?.label ?? "";
+}
+
 function RoleNameValue() {
   return (
     <SelectValue>
@@ -120,18 +132,24 @@ export function WorkspaceInvitationDialog(props: WorkspaceInvitationDialogProps)
             </Show>
             <Field>
               <FieldLabel for="invite-expiry">Expires in</FieldLabel>
-              <select
-                id="invite-expiry"
-                class="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors"
-                value={state().expiryDays()}
-                onChange={(event) => state().setExpiryDays(Number(event.currentTarget.value))}
+              <Select
+                options={INVITATION_EXPIRY_OPTIONS.map((option) => option.value)}
+                value={state().expiryDays().toString()}
+                onChange={(value: string | null) => {
+                  if (value) state().setExpiryDays(Number(value));
+                }}
+                disallowEmptySelection
+                itemComponent={(itemProps) => (
+                  <SelectItem item={itemProps.item}>
+                    {expiryLabel(itemProps.item.rawValue as string)}
+                  </SelectItem>
+                )}
               >
-                <option value={1}>1 day</option>
-                <option value={3}>3 days</option>
-                <option value={7}>7 days</option>
-                <option value={14}>14 days</option>
-                <option value={30}>30 days</option>
-              </select>
+                <SelectTrigger id="invite-expiry" class="w-full">
+                  <SelectValue>{() => expiryLabel(state().expiryDays().toString())}</SelectValue>
+                </SelectTrigger>
+                <SelectContent />
+              </Select>
             </Field>
           </div>
           <DialogFooter>

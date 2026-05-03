@@ -15,8 +15,8 @@ defmodule RefMD.Workspaces.WorkspaceRolePermission do
 
   @permissions ~w(
     document:read document:write document:delete document:archive
-    workspace:update workspace:admin workspace:delete
-    member:list member:invite member:change_role member:remove
+    workspace:update workspace:features workspace:admin workspace:delete
+    member:list member:invite guest:invite member:change_role member:remove
     role:manage
   )
 

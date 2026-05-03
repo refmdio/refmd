@@ -2,6 +2,7 @@ type DocumentSyncErrorCode =
   | "rollback_attack"
   | "unauthorized"
   | "verification_failed"
+  | "sync_gap"
   | "channel_error"
   | "server_unreachable"
   | "unknown";
@@ -14,6 +15,10 @@ export class DocumentSyncError extends Error {
     this.name = "DocumentSyncError";
     this.code = code;
   }
+}
+
+export function isRecoverableSyncGapError(error: unknown): error is DocumentSyncError {
+  return error instanceof DocumentSyncError && error.code === "sync_gap";
 }
 
 type DocumentChannelErrorCode =

@@ -15,11 +15,17 @@ export async function initializeDocumentSync(
   notifyForegroundDocumentOpen();
   try {
     const { doInitializeDocumentSync } = await import("./bootstrap/initialize");
-    await doInitializeDocumentSync(documentId, workspaceId, state, abortController.signal);
+    const { normalizeDocumentSyncError } = await import("./bootstrap/initialize");
+    try {
+      await doInitializeDocumentSync(documentId, workspaceId, state, abortController.signal);
+      return;
+    } catch (err) {
+      const normalized = normalizeDocumentSyncError(err);
+      throw normalized;
+    }
   } catch (err) {
     state.initPromise = null;
-    const { normalizeDocumentSyncError } = await import("./bootstrap/initialize");
-    throw normalizeDocumentSyncError(err);
+    throw err;
   } finally {
     if (state._initAbortController === abortController) {
       state._initAbortController = null;

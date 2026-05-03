@@ -1,4 +1,5 @@
 import { client, throwIfError } from "./core";
+import type { components } from "./schema";
 
 export const workspacesApi = {
   list: async () => throwIfError(await client.GET("/api/workspaces")),
@@ -17,12 +18,20 @@ export const workspacesApi = {
       }),
     ),
 
-  update: async (
-    workspaceId: string,
-    body: { name?: string; slug?: string; description?: string | null; icon?: string | null },
-  ) =>
+  update: async (workspaceId: string, body: components["schemas"]["UpdateWorkspaceRequest"]) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}", {
+        params: { path: { workspace_id: workspaceId } },
+        body,
+      }),
+    ),
+
+  updateFeatures: async (
+    workspaceId: string,
+    body: components["schemas"]["UpdateWorkspaceFeaturesRequest"],
+  ) =>
+    throwIfError(
+      await client.PATCH("/api/workspaces/{workspace_id}/features", {
         params: { path: { workspace_id: workspaceId } },
         body,
       }),
@@ -163,6 +172,46 @@ export const workspacesApi = {
     throwIfError(
       await client.POST("/api/workspaces/invitations/accept", {
         body: { token },
+      }),
+    ),
+
+  lookupInvitation: async (token: string) =>
+    throwIfError(
+      await client.POST("/api/workspaces/invitations/lookup", {
+        body: { token },
+      }),
+    ),
+
+  // Guest invitations
+  listGuestInvitations: async (workspaceId: string) =>
+    throwIfError(
+      await client.GET("/api/workspaces/{workspace_id}/guest-invitations", {
+        params: { path: { workspace_id: workspaceId } },
+      }),
+    ),
+
+  createGuestInvitation: async (
+    workspaceId: string,
+    body: components["schemas"]["CreateGuestInvitationRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/workspaces/{workspace_id}/guest-invitations", {
+        params: { path: { workspace_id: workspaceId } },
+        body,
+      }),
+    ),
+
+  revokeGuestInvitation: async (workspaceId: string, invitationId: string) =>
+    throwIfError(
+      await client.DELETE("/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}", {
+        params: { path: { workspace_id: workspaceId, invitation_id: invitationId } },
+      }),
+    ),
+
+  redeemGuestInvitation: async (body: components["schemas"]["RedeemGuestInvitationRequest"]) =>
+    throwIfError(
+      await client.POST("/api/workspaces/guest-invitations/redeem", {
+        body,
       }),
     ),
 };

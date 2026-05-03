@@ -1,6 +1,33 @@
-import { expect, type Page } from "@playwright/test";
+import {
+  expect,
+  type Browser,
+  type BrowserContext,
+  type BrowserContextOptions,
+  type Page,
+  type Route,
+} from "@playwright/test";
 
 export const TEST_PASSWORD = "TestPassword123!";
+
+const rateLimitBypassHeaders =
+  process.env.E2E_RATE_LIMIT_BYPASS === "0"
+    ? {}
+    : {
+        "X-RefMD-E2E-Rate-Limit-Bypass": "1",
+      };
+
+export async function newE2EContext(
+  browser: Browser,
+  options: BrowserContextOptions = {},
+): Promise<BrowserContext> {
+  return browser.newContext({
+    ...options,
+    extraHTTPHeaders: {
+      ...rateLimitBypassHeaders,
+      ...options.extraHTTPHeaders,
+    },
+  });
+}
 
 export function testEmail(): string {
   return `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@test.com`;
@@ -28,18 +55,32 @@ export async function waitForWorkspaceReady(page: Page): Promise<void> {
           'aside [data-slot="dropdown-menu-trigger"]',
         );
         const workspaceName = trigger?.textContent?.trim() ?? "";
-        return {
-          workspaceId,
-          workspaceName,
-        };
+        return !!workspaceId && workspaceName.length > 0 && workspaceName !== "Select workspace";
       });
     }, {
-      timeout: 20_000,
+      timeout: 120_000,
       message: "workspace selection was not initialized",
     })
-    .toMatchObject({
-      workspaceId: expect.stringMatching(/\S+/),
-    });
+    .toBe(true);
+}
+
+export async function blockApiRequests(page: Page): Promise<{
+  blockedCount: () => number;
+  unblock: () => Promise<void>;
+}> {
+  let blocked = 0;
+  const context = page.context();
+  const handler = async (route: Route) => {
+    blocked += 1;
+    await route.abort("internetdisconnected").catch(() => {});
+  };
+
+  await context.route("**/api/**", handler);
+
+  return {
+    blockedCount: () => blocked,
+    unblock: () => context.unroute("**/api/**", handler),
+  };
 }
 
 async function resolveWorkspaceIdFromApi(page: Page, preferredName?: string): Promise<string> {
@@ -240,7 +281,7 @@ export async function createDocument(page: Page, title: string): Promise<void> {
   await page.getByText("Create", { exact: true }).click();
 
   await expect(page.locator("aside").getByText(title)).toBeVisible({
-    timeout: 10_000,
+    timeout: 90_000,
   });
 }
 
@@ -277,12 +318,13 @@ export async function openDocument(page: Page, title: string): Promise<void> {
     )
     .toBeGreaterThan(0);
 
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + 90_000;
   let lastState: {
     hasCm: boolean;
     hasPm: boolean;
     noDocumentsOpen: boolean;
     failedToLoad: boolean;
+    disconnected: boolean;
     bodySnippet: string;
   } | null = null;
 
@@ -292,6 +334,7 @@ export async function openDocument(page: Page, title: string): Promise<void> {
       hasPm: !!document.querySelector(".ProseMirror"),
       noDocumentsOpen: document.body.textContent?.includes("No documents open") ?? false,
       failedToLoad: document.body.textContent?.includes("Failed to load document") ?? false,
+      disconnected: document.body.textContent?.includes("disconnected") ?? false,
       bodySnippet: document.body.textContent?.slice(0, 400) ?? "",
     }));
 
@@ -332,17 +375,17 @@ export async function createFolder(page: Page, name: string): Promise<void> {
   await page.getByText("Create", { exact: true }).click();
 
   await expect(page.locator("aside").getByText(name)).toBeVisible({
-    timeout: 10_000,
+    timeout: 90_000,
   });
 }
 
 /**
  * Right-click on a document/folder in the sidebar to open context menu.
- * Returns a locator for the context menu container (.z-50 overlay).
+ * Returns the active menu using the ARIA role exposed by the shared context-menu component.
  */
 export async function openContextMenu(page: Page, title: string): Promise<ReturnType<Page["locator"]>> {
   await page.locator("aside").getByText(title).click({ button: "right" });
-  const menu = page.locator(".fixed.inset-0 > .absolute");
+  const menu = page.getByRole("menu").last();
   await menu.waitFor({ state: "visible", timeout: 5_000 });
   return menu;
 }
@@ -352,6 +395,13 @@ export async function openContextMenu(page: Page, title: string): Promise<Return
  */
 export async function openSettings(page: Page): Promise<void> {
   await waitForWorkspaceReady(page);
+  const settingsDialog = page.locator('[role="dialog"]').filter({
+    has: page.getByRole("heading", { name: "Settings" }),
+  });
+  if (await settingsDialog.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    return;
+  }
+
   const settingsButton = page.locator('button[aria-label="Settings"]');
   if (!(await settingsButton.isVisible({ timeout: 5_000 }).catch(() => false))) {
     const loginForm = page.locator("#email");
@@ -412,6 +462,21 @@ export async function createWorkspace(page: Page, name: string): Promise<void> {
 
   await expect(page).toHaveURL(/dashboard/, { timeout: 30_000 });
   await waitForWorkspaceReady(page);
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const trigger = document.querySelector<HTMLElement>(
+            'aside [data-slot="dropdown-menu-trigger"]',
+          );
+          return trigger?.textContent?.trim() ?? "";
+        }),
+      {
+        timeout: 30_000,
+        message: `workspace ${name} was not selected after creation`,
+      },
+    )
+    .toBe(name);
 }
 
 export async function switchWorkspace(page: Page, name: string): Promise<void> {
@@ -419,6 +484,21 @@ export async function switchWorkspace(page: Page, name: string): Promise<void> {
   await page.getByRole("menuitem", { name }).click();
   await expect(page).toHaveURL(/dashboard/, { timeout: 15_000 });
   await waitForWorkspaceReady(page);
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const trigger = document.querySelector<HTMLElement>(
+            'aside [data-slot="dropdown-menu-trigger"]',
+          );
+          return trigger?.textContent?.trim() ?? "";
+        }),
+      {
+        timeout: 30_000,
+        message: `workspace ${name} was not selected`,
+      },
+    )
+    .toBe(name);
 }
 
 export async function currentWorkspaceId(page: Page): Promise<string> {

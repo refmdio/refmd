@@ -5,8 +5,10 @@ defmodule RefMDWeb.Plugs.CSP do
   In development (ENABLE_SWAGGER=true), a relaxed policy is applied.
   Otherwise the strict production policy is used.
 
-  A per-request nonce is generated for style-src and stored in
-  conn.private[:csp_nonce] for use in HTML templates.
+  A per-request nonce is generated and stored in conn.private[:csp_nonce]
+  for inclusion in HTML templates as `<link>` / `<style>` nonce attributes.
+  The current production CSP does not require nonces (style-src-elem uses
+  'unsafe-inline'); the nonce is preserved for forward compatibility.
 
   connect-src includes WebSocket origins derived from the configured
   endpoint URL to support Phoenix Channel connections.
@@ -23,7 +25,7 @@ defmodule RefMDWeb.Plugs.CSP do
 
     conn
     |> put_private(:csp_nonce, nonce)
-    |> put_resp_header("content-security-policy", csp_value(nonce))
+    |> put_resp_header("content-security-policy", csp_value())
     |> put_resp_header("x-content-type-options", "nosniff")
     |> put_resp_header("x-frame-options", "DENY")
     |> put_resp_header(
@@ -34,21 +36,23 @@ defmodule RefMDWeb.Plugs.CSP do
     |> put_resp_header("permissions-policy", "geolocation=(), microphone=(), camera=()")
   end
 
-  defp csp_value(nonce) do
+  defp csp_value do
     if swagger_enabled?() do
       swagger_csp()
     else
-      production_csp(nonce)
+      production_csp()
     end
   end
 
-  defp production_csp(nonce) do
+  defp production_csp do
     ws_origins = websocket_origins()
 
     directives = [
       "default-src 'self'",
       "script-src 'self'",
-      "style-src 'self' 'nonce-#{nonce}'",
+      "style-src 'self'",
+      "style-src-elem 'self' 'unsafe-inline'",
+      "style-src-attr 'unsafe-inline'",
       "img-src 'self' blob: data:",
       "media-src 'self' blob:",
       "font-src 'self'",
@@ -58,8 +62,7 @@ defmodule RefMDWeb.Plugs.CSP do
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
-      "object-src 'none'",
-      "require-trusted-types-for 'script'"
+      "object-src 'none'"
     ]
 
     Enum.join(directives, "; ")

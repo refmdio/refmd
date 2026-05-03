@@ -4,6 +4,7 @@ import {
   getOfflineCreated,
   getOfflineDocumentMeta,
 } from "@/shared/lib/offline/storage/store";
+import { shouldPreferOfflineCache } from "@/shared/lib/offline/offline-state";
 
 export interface ResolvedDocument {
   documentId: string;
@@ -25,6 +26,11 @@ async function resolveDocument(documentId: string): Promise<ResolvedDocument | n
 export async function resolveDocumentWithOfflineFallback(
   documentId: string,
 ): Promise<ResolvedDocument | null> {
+  if (shouldPreferOfflineCache()) {
+    const offline = await resolveOfflineDocument(documentId);
+    if (offline) return offline;
+  }
+
   try {
     return await resolveDocument(documentId);
   } catch (error) {

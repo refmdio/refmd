@@ -55,6 +55,7 @@ export class CryptoWorkerClient {
 
   declare generateDek: DekWorkerClientMethods["generateDek"];
   declare wrapDek: DekWorkerClientMethods["wrapDek"];
+  declare wrapDekForShare: DekWorkerClientMethods["wrapDekForShare"];
   declare unwrapDek: DekWorkerClientMethods["unwrapDek"];
   declare encryptTitle: DekWorkerClientMethods["encryptTitle"];
   declare decryptTitle: DekWorkerClientMethods["decryptTitle"];
@@ -64,6 +65,7 @@ export class CryptoWorkerClient {
   declare encryptSnapshot: DekWorkerClientMethods["encryptSnapshot"];
   declare decryptSnapshot: DekWorkerClientMethods["decryptSnapshot"];
   declare hasDek: DekWorkerClientMethods["hasDek"];
+  declare hasDekBatch: DekWorkerClientMethods["hasDekBatch"];
   declare cacheDek: DekWorkerClientMethods["cacheDek"];
   declare evictDek: DekWorkerClientMethods["evictDek"];
   declare encryptOfflineCache: DekWorkerClientMethods["encryptOfflineCache"];

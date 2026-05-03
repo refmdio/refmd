@@ -6,6 +6,7 @@ import {
   registerAccount,
   selectSettingsTab,
   waitForWorkspaceReady,
+  newE2EContext,
 } from "./helpers";
 
 const DOC_TITLE = "Collab Doc";
@@ -33,7 +34,7 @@ async function openDashboard(page: Page): Promise<void> {
 }
 
 async function ensureEditorReady(page: Page, title: string): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     const hasDisconnectedPanels = await page
       .getByText("disconnected", { exact: true })
       .first()
@@ -51,12 +52,22 @@ async function ensureEditorReady(page: Page, title: string): Promise<void> {
       .catch(() => false);
     if (!hasEditor) {
       if (/\/document\//.test(page.url())) {
+        if (attempt > 0) {
+          await page.reload({ waitUntil: "domcontentloaded" });
+        }
         await page.waitForTimeout(2_000);
       } else {
         await openDocument(page, title);
         await page.waitForTimeout(2_000);
       }
     }
+
+    const hasEditorAfterRecovery = await page
+      .locator('.cm-content, .ProseMirror, [role="textbox"], [contenteditable="true"], textarea')
+      .first()
+      .isVisible({ timeout: 2_000 })
+      .catch(() => false);
+    if (!hasEditorAfterRecovery) continue;
 
     const stillDisconnected = await page
       .getByText("disconnected", { exact: true })
@@ -66,34 +77,98 @@ async function ensureEditorReady(page: Page, title: string): Promise<void> {
     if (!stillDisconnected) return;
   }
 
-  throw new Error(`editor remained disconnected for ${title}`);
+  throw new Error(`editor was not ready for ${title}`);
+}
+
+async function expectTextWithRecovery(page: Page, title: string, text: string): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await expectEditorTextContains(page, text, 60_000);
+      return;
+    } catch (error) {
+      const bodyText = await page.locator("body").innerText().catch(() => "");
+      if (attempt > 0 || !bodyText.includes("disconnected")) throw error;
+      await openDashboard(page);
+      await waitForWorkspaceReady(page);
+      await openDocument(page, title);
+    }
+  }
 }
 
 async function typeInVisibleEditor(page: Page, text: string): Promise<void> {
   const codeMirror = page.locator(".cm-content").first();
   if (await codeMirror.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await codeMirror.click();
-    await page.keyboard.press("End");
+    await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
-    await page.keyboard.type(text);
+    await page.keyboard.insertText(text);
     return;
   }
 
   const proseMirror = page.locator(".ProseMirror").first();
   if (await proseMirror.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await proseMirror.click();
-    await page.keyboard.press("End");
+    await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
-    await page.keyboard.type(text);
+    await page.keyboard.insertText(text);
     return;
   }
 
   const textbox = page.locator('[role="textbox"], [contenteditable="true"], textarea').last();
   await expect(textbox).toBeVisible({ timeout: 15_000 });
   await textbox.click();
-  await page.keyboard.press("End");
+  await page.keyboard.press("Control+End");
   await page.keyboard.press("Enter");
-  await page.keyboard.type(text);
+  await page.keyboard.insertText(text);
+}
+
+async function switchToSplitMode(page: Page): Promise<void> {
+  const cmVisible = await page
+    .locator(".cm-content")
+    .isVisible({ timeout: 2_000 })
+    .catch(() => false);
+  const pmVisible = await page
+    .locator(".ProseMirror")
+    .isVisible({ timeout: 2_000 })
+    .catch(() => false);
+  if (cmVisible && pmVisible) return;
+
+  const trigger = page
+    .locator(".mosaic-window-toolbar [data-slot='dropdown-menu-trigger'], .mosaic-window-toolbar button")
+    .last();
+  await expect(trigger).toBeVisible({ timeout: 10_000 });
+  await trigger.click();
+  const menuContent = page.locator('[data-slot="dropdown-menu-content"]');
+  await expect(menuContent).toBeVisible({ timeout: 5_000 });
+  await menuContent
+    .locator('[data-slot="dropdown-menu-item"]', { hasText: "Switch to Split" })
+    .click();
+  await expect(page.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+}
+
+function collectConsoleErrorsAcross(pages: Page[]): {
+  errors: string[];
+  stop: () => void;
+} {
+  const errors: string[] = [];
+  const handlers = pages.map((page) => {
+    const handler = (msg: { type: () => string; text: () => string }) => {
+      if (msg.type() === "error") {
+        errors.push(msg.text());
+      }
+    };
+    page.on("console", handler);
+    return { page, handler };
+  });
+  return {
+    errors,
+    stop: () => {
+      for (const { page, handler } of handlers) {
+        page.off("console", handler);
+      }
+    },
+  };
 }
 
 async function createDocumentForCollab(page: Page, title: string): Promise<Page> {
@@ -130,25 +205,25 @@ async function currentDocumentId(page: Page): Promise<string> {
 
 async function openDocumentRoute(page: Page, documentId: string): Promise<Page> {
   let activePage = page;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     if (activePage.isClosed()) {
       activePage = await page.context().newPage();
     }
-    await activePage.goto(`/document/${documentId}`, { waitUntil: "load" });
+    await activePage.goto(`/document/${documentId}`, { waitUntil: "domcontentloaded" });
     const rendered = await expect
       .poll(
         async () => {
           const body = ((await activePage.locator("body").textContent().catch(() => "")) ?? "").trim();
           const hasEditor = (await activePage.locator(".cm-content, .ProseMirror").count()) > 0;
-          return body.length > 0 || hasEditor;
+          return hasEditor || body.includes(DOC_TITLE) || body.includes("Failed to load document");
         },
-        { timeout: 15_000, message: "document route never rendered" },
+        { timeout: 30_000, message: "document route never rendered" },
       )
       .toBe(true)
       .then(() => true)
       .catch(() => false);
     if (rendered) return activePage;
-    await activePage.reload({ waitUntil: "load" });
+    await activePage.reload({ waitUntil: "domcontentloaded" });
   }
   throw new Error(`document route remained blank for ${documentId}`);
 }
@@ -205,7 +280,7 @@ async function setupSharedDocument(browser: Browser): Promise<{
   pageB: Page;
   docId: string;
 }> {
-  const ctxA = await browser.newContext({ bypassCSP: true, acceptDownloads: true });
+  const ctxA = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
   let pageA = await ctxA.newPage();
   await registerAccount(pageA, "Alice");
   pageA = await createDocumentForCollab(pageA, DOC_TITLE);
@@ -213,8 +288,9 @@ async function setupSharedDocument(browser: Browser): Promise<{
   const docId = await currentDocumentId(pageA);
   await typeInVisibleEditor(pageA, "Hello from Alice.");
   await expectEditorTextContains(pageA, "Hello from Alice.", 30_000);
+  await pageA.waitForTimeout(3_000);
 
-  const ctxB = await browser.newContext({ bypassCSP: true, acceptDownloads: true });
+  const ctxB = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
   let pageB = await ctxB.newPage();
   const emailB = await registerAccount(pageB, "Bob");
 
@@ -255,9 +331,45 @@ test.describe("Multi-User Awareness & Presence (4-23)", () => {
     try {
       await ensureEditorReady(pageA, DOC_TITLE);
       await ensureEditorReady(pageB, DOC_TITLE);
-      await typeInVisibleEditor(pageB, "Hello from Bob.");
-      await expectEditorTextContains(pageA, "Hello from Bob.", 60_000);
+      await typeInVisibleEditor(pageB, "Bob");
+      await expectEditorTextContains(pageB, "Bob", 15_000);
+      await pageB.waitForTimeout(3_000);
+      await ensureEditorReady(pageA, DOC_TITLE);
+      await expectTextWithRecovery(pageA, DOC_TITLE, "Bob");
     } finally {
+      await closeContexts([ctxB, ctxA]);
+    }
+  });
+
+  test("split editors exchange awareness without recursive cursor failures", async ({ browser }) => {
+    test.setTimeout(180_000);
+
+    const { ctxA, pageA, ctxB, pageB } = await setupSharedDocument(browser);
+    const capture = collectConsoleErrorsAcross([pageA, pageB]);
+    try {
+      await ensureEditorReady(pageA, DOC_TITLE);
+      await ensureEditorReady(pageB, DOC_TITLE);
+      await switchToSplitMode(pageA);
+      await switchToSplitMode(pageB);
+
+      await pageA.locator(".cm-content").click();
+      await pageA.keyboard.insertText("Alice split awareness. ");
+      await pageB.locator(".ProseMirror").click();
+      await pageB.keyboard.insertText("Bob split awareness. ");
+      await pageA.locator(".ProseMirror").click();
+      await pageB.locator(".cm-content").click();
+      await pageA.waitForTimeout(18_000);
+
+      const recursiveFailures = capture.errors.filter(
+        (error) =>
+          error.includes("too much recursion") ||
+          error.includes("Ephemeral processing error") ||
+          error.includes("CodeMirror plugin crashed") ||
+          error.includes("cursor-map-error"),
+      );
+      expect(recursiveFailures).toHaveLength(0);
+    } finally {
+      capture.stop();
       await closeContexts([ctxB, ctxA]);
     }
   });

@@ -5,6 +5,7 @@ import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
 import { injectDecryptedTitle } from "@/entities/document";
 import { getDocumentEvents } from "@/shared/lib/document/manager";
+import { cacheOfflineTitle } from "@/shared/lib/offline/cache/manager/keys";
 
 class DocumentKeyPersistenceError extends Error {
   constructor() {
@@ -79,6 +80,7 @@ export async function createDocument(
     await ensureDocumentKeyPersisted(documentId, keyBody.key_version);
   }
   injectDecryptedTitle(documentId, title, base64UrlEncode(titleNonce));
+  cacheOfflineTitle(documentId, workspaceId, title).catch(() => {});
   getDocumentEvents().notifyDocumentCreate(documentId);
   return documentId;
 }

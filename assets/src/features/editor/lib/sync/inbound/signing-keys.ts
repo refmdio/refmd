@@ -2,8 +2,16 @@ import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { encryptionApi } from "@/shared/api/encryption";
 import { workspacesApi } from "@/shared/api/workspaces";
+import { sharesApi } from "@/shared/api/shares";
 import { ApiError } from "@/shared/api/core";
+import { authState } from "@/entities/session";
+import { normalizeShareVerificationDirectory } from "@/shared/lib/document/share-verification-directory";
 import type { DocumentState } from "../../../model/document-state/types";
+import type {
+  ShareVerificationDirectory,
+  SharedDocumentAccess,
+} from "../../../model/document-state/access";
+import { refreshSharedDocumentAccess } from "../share-access";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -18,6 +26,7 @@ type DeviceKeyCacheResult =
   | {
       status: "ok";
       signingKeys: Map<string, Uint8Array>;
+      historicalSigningKeys: Map<string, Uint8Array>;
       signingKeyOwners: Map<string, string>;
       memberNames: Map<string, string>;
       revokedSigningKeys: Set<string>;
@@ -37,10 +46,22 @@ export function applyDeviceKeyCache(
   cacheResult: SuccessfulDeviceKeyCacheResult,
 ): void {
   state.signingKeys = cacheResult.signingKeys;
+  state.historicalSigningKeys = cacheResult.historicalSigningKeys;
   state.signingKeyOwners = cacheResult.signingKeyOwners;
   state.memberNames = cacheResult.memberNames;
   state.revokedSigningKeys = cacheResult.revokedSigningKeys;
   state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
+}
+
+export async function buildDocumentSigningKeyCaches(
+  state: DocumentState,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
+  if (state.access.kind === "share") {
+    return buildShareDeviceKeyCaches(state.access, signal);
+  }
+
+  return buildDeviceKeyCaches(state.workspaceId, signal, state.documentId);
 }
 
 // ── Build device key caches ──────────────────────────────────
@@ -52,22 +73,95 @@ export function applyDeviceKeyCache(
 //   5. Cache verified device signing keys
 
 const pendingWorkspaceDeviceKeyCaches = new Map<string, Promise<DeviceKeyCacheResult>>();
+const workspaceDeviceKeyCacheTtlMs = 60_000;
+const workspaceDeviceKeyCaches = new Map<
+  string,
+  { result: SuccessfulDeviceKeyCacheResult; expiresAt: number }
+>();
+const shareVerificationDirectoryCacheTtlMs = 60_000;
+const shareVerificationDirectoryCache = new Map<
+  string,
+  { directory: ShareVerificationDirectory | null; expiresAt: number }
+>();
 const MEMBER_DEVICE_FETCH_CONCURRENCY = 2;
+
+function getShareTofuNamespace(access: SharedDocumentAccess): string {
+  const directoryShareId = access.verificationDirectory.share_participant_devices[0]?.share_id;
+  return `share:${directoryShareId ?? access.shareId}`;
+}
 
 export async function buildDeviceKeyCaches(
   workspaceId: string,
   signal?: AbortSignal,
+  documentId?: string,
+  forceRefresh = false,
 ): Promise<DeviceKeyCacheResult> {
-  if (signal) {
-    return doBuildDeviceKeyCaches(workspaceId, signal);
+  throwIfAborted(signal);
+
+  const baseResult = await buildWorkspaceDeviceKeyCaches(workspaceId, forceRefresh);
+  throwIfAborted(signal);
+
+  if (baseResult.status === "key_changed") {
+    return baseResult;
+  }
+
+  const result = cloneSuccessfulDeviceKeyCacheResult(baseResult);
+  if (!documentId) {
+    return result;
+  }
+
+  const directory = await fetchDocumentShareVerificationDirectory(documentId, forceRefresh);
+  throwIfAborted(signal);
+  if (!directory) {
+    return result;
+  }
+
+  const worker = getCryptoWorker();
+  const workspaceWarning = await addWorkspaceDirectoryDevicesToCache(
+    directory.workspace_devices as Parameters<typeof addWorkspaceDirectoryDevicesToCache>[0],
+    result.signingKeys,
+    result.historicalSigningKeys,
+    result.signingKeyOwners,
+    worker,
+  );
+  if (workspaceWarning) return workspaceWarning;
+
+  const warning = await addShareParticipantDevicesToCache(
+    directory.share_participant_devices as Parameters<typeof addShareParticipantDevicesToCache>[0],
+    result.signingKeys,
+    result.historicalSigningKeys,
+    result.signingKeyOwners,
+    result.memberNames,
+    worker,
+  );
+  if (warning) return warning;
+
+  return result;
+}
+
+function buildWorkspaceDeviceKeyCaches(
+  workspaceId: string,
+  forceRefresh = false,
+): Promise<DeviceKeyCacheResult> {
+  const cached = workspaceDeviceKeyCaches.get(workspaceId);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cloneSuccessfulDeviceKeyCacheResult(cached.result));
   }
 
   const pending = pendingWorkspaceDeviceKeyCaches.get(workspaceId);
   if (pending) return pending;
 
-  const refresh = doBuildDeviceKeyCaches(workspaceId, signal).then(
+  const refresh = doBuildWorkspaceDeviceKeyCaches(workspaceId).then(
     (result) => {
       pendingWorkspaceDeviceKeyCaches.delete(workspaceId);
+      if (result.status === "ok") {
+        workspaceDeviceKeyCaches.set(workspaceId, {
+          result: cloneSuccessfulDeviceKeyCacheResult(result),
+          expiresAt: Date.now() + workspaceDeviceKeyCacheTtlMs,
+        });
+      } else {
+        workspaceDeviceKeyCaches.delete(workspaceId);
+      }
       return result;
     },
     (error) => {
@@ -79,25 +173,20 @@ export async function buildDeviceKeyCaches(
   return refresh;
 }
 
-async function doBuildDeviceKeyCaches(
-  workspaceId: string,
-  signal?: AbortSignal,
-): Promise<DeviceKeyCacheResult> {
+async function doBuildWorkspaceDeviceKeyCaches(workspaceId: string): Promise<DeviceKeyCacheResult> {
   const worker = getCryptoWorker();
   const signingKeys = new Map<string, Uint8Array>();
+  const historicalSigningKeys = new Map<string, Uint8Array>();
   const revokedSigningKeys = new Set<string>();
   const rejectedSigningKeys = new Set<string>();
   const signingKeyOwners = new Map<string, string>();
 
-  // Step 1: Get workspace members and their Identity public keys
-  const [memberKeysResponse, workspaceMembersResponse] = await Promise.all([
-    encryptionApi.getWorkspaceMemberKeys(workspaceId, { signal }),
-    workspacesApi.listMembers(workspaceId, { signal }),
+  // Step 1: Get Identity public keys. Member names are UI metadata and must not
+  // fail document initialization when rate-limited.
+  const [memberKeysResponse, memberNames] = await Promise.all([
+    encryptionApi.getWorkspaceMemberKeys(workspaceId),
+    fetchWorkspaceMemberNames(workspaceId),
   ]);
-
-  const memberNames = new Map(
-    workspaceMembersResponse.members.map((member) => [member.user_id, member.name]),
-  );
 
   // Step 2: TOFU verify each member's Identity key (Worker handles IndexedDB trust store)
   for (const member of memberKeysResponse.members) {
@@ -137,9 +226,7 @@ async function doBuildDeviceKeyCaches(
     MEMBER_DEVICE_FETCH_CONCURRENCY,
     async (member) => {
       try {
-        const resp = await workspacesApi.listMemberDevices(workspaceId, member.user_id, true, {
-          signal,
-        });
+        const resp = await workspacesApi.listMemberDevices(workspaceId, member.user_id, true);
         return { userId: member.user_id, devices: resp.devices };
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
@@ -212,23 +299,210 @@ async function doBuildDeviceKeyCaches(
         },
       });
 
-      // Cache verified device signing key
-      signingKeys.set(dev.signing_public_key, deviceSigningPk);
-      signingKeyOwners.set(dev.signing_public_key, userId);
+      // Revoked workspace devices are kept only for historical payload verification.
       if (dev.revoked_at) {
+        historicalSigningKeys.set(dev.signing_public_key, deviceSigningPk);
         revokedSigningKeys.add(dev.signing_public_key);
+      } else {
+        signingKeys.set(dev.signing_public_key, deviceSigningPk);
       }
+      signingKeyOwners.set(dev.signing_public_key, userId);
     }
   }
 
   return {
     status: "ok",
     signingKeys,
+    historicalSigningKeys,
     signingKeyOwners,
     memberNames,
     revokedSigningKeys,
     rejectedSigningKeys,
   };
+}
+
+async function fetchWorkspaceMemberNames(workspaceId: string): Promise<Map<string, string>> {
+  if (authState()?.user.accountType === "guest") {
+    return new Map();
+  }
+
+  try {
+    const workspaceMembersResponse = await workspacesApi.listMembers(workspaceId);
+    return new Map(workspaceMembersResponse.members.map((member) => [member.user_id, member.name]));
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 403 || error.status === 429)) {
+      return new Map();
+    }
+    throw error;
+  }
+}
+
+async function fetchDocumentShareVerificationDirectory(
+  documentId: string,
+  forceRefresh = false,
+): Promise<ShareVerificationDirectory | null> {
+  const cached = shareVerificationDirectoryCache.get(documentId);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return cached.directory;
+  }
+
+  try {
+    const directory = normalizeShareVerificationDirectory(
+      await sharesApi.getDocumentShareVerificationDirectory(documentId),
+    );
+    shareVerificationDirectoryCache.set(documentId, {
+      directory,
+      expiresAt: Date.now() + shareVerificationDirectoryCacheTtlMs,
+    });
+    return directory;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 429) {
+      return null;
+    }
+    if (error instanceof TypeError) {
+      shareVerificationDirectoryCache.set(documentId, {
+        directory: null,
+        expiresAt: Date.now() + 5_000,
+      });
+      return null;
+    }
+    throw error;
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+}
+
+function cloneSuccessfulDeviceKeyCacheResult(
+  result: SuccessfulDeviceKeyCacheResult,
+): SuccessfulDeviceKeyCacheResult {
+  return {
+    status: "ok",
+    signingKeys: new Map(result.signingKeys),
+    historicalSigningKeys: new Map(result.historicalSigningKeys),
+    signingKeyOwners: new Map(result.signingKeyOwners),
+    memberNames: new Map(result.memberNames),
+    revokedSigningKeys: new Set(result.revokedSigningKeys),
+    rejectedSigningKeys: new Set(result.rejectedSigningKeys),
+  };
+}
+
+async function addWorkspaceDirectoryDevicesToCache(
+  devices: Array<{
+    device_id: string;
+    user_id: string;
+    signing_public_key: string;
+    encryption_public_key: string;
+    historical?: boolean;
+  }>,
+  signingKeys: Map<string, Uint8Array>,
+  historicalSigningKeys: Map<string, Uint8Array>,
+  signingKeyOwners: Map<string, string>,
+  worker: ReturnType<typeof getCryptoWorker>,
+): Promise<DeviceKeyCacheResult | null> {
+  for (const device of devices) {
+    const signingPk = base64UrlDecode(device.signing_public_key);
+    const ecdhPk = base64UrlDecode(device.encryption_public_key);
+    const tofuResult = await worker.tofuVerify({
+      userId: device.user_id,
+      deviceId: device.device_id,
+      signingPublicKey: signingPk,
+      ecdhPublicKey: ecdhPk,
+    });
+
+    if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      return {
+        status: "key_changed",
+        warning: { userId: device.user_id, deviceId: device.device_id },
+      };
+    }
+
+    await worker.tofuHandleResult({
+      status: tofuResult.status,
+      newEntry: {
+        userId: device.user_id,
+        deviceId: device.device_id,
+        signingPublicKey: signingPk,
+        ecdhPublicKey: ecdhPk,
+        firstSeenAt: Date.now(),
+        lastSeenAt: Date.now(),
+      },
+    });
+
+    if (device.historical) {
+      historicalSigningKeys.set(device.signing_public_key, signingPk);
+    } else {
+      signingKeys.set(device.signing_public_key, signingPk);
+    }
+    signingKeyOwners.set(device.signing_public_key, device.user_id);
+  }
+
+  return null;
+}
+
+async function addShareParticipantDevicesToCache(
+  devices: Array<{
+    share_id: string;
+    device_id: string;
+    principal_id: string;
+    display_name?: string | null;
+    signing_public_key: string;
+    encryption_public_key: string;
+    historical?: boolean;
+  }>,
+  signingKeys: Map<string, Uint8Array>,
+  historicalSigningKeys: Map<string, Uint8Array>,
+  signingKeyOwners: Map<string, string>,
+  memberNames: Map<string, string>,
+  worker: ReturnType<typeof getCryptoWorker>,
+): Promise<DeviceKeyCacheResult | null> {
+  for (const device of devices) {
+    const namespace = `share:${device.share_id}`;
+    const signingPk = base64UrlDecode(device.signing_public_key);
+    const ecdhPk = base64UrlDecode(device.encryption_public_key);
+    const tofuResult = await worker.tofuVerify({
+      userId: device.principal_id,
+      deviceId: device.device_id,
+      signingPublicKey: signingPk,
+      ecdhPublicKey: ecdhPk,
+      namespace,
+    });
+
+    if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      return {
+        status: "key_changed",
+        warning: { userId: device.principal_id, deviceId: device.device_id },
+      };
+    }
+
+    await worker.tofuHandleResult({
+      status: tofuResult.status,
+      namespace,
+      newEntry: {
+        userId: device.principal_id,
+        deviceId: device.device_id,
+        signingPublicKey: signingPk,
+        ecdhPublicKey: ecdhPk,
+        firstSeenAt: Date.now(),
+        lastSeenAt: Date.now(),
+      },
+    });
+
+    if (device.historical) {
+      historicalSigningKeys.set(device.signing_public_key, signingPk);
+    } else {
+      signingKeys.set(device.signing_public_key, signingPk);
+    }
+    signingKeyOwners.set(device.signing_public_key, device.principal_id);
+    if (!device.historical) {
+      memberNames.set(device.principal_id, device.display_name ?? device.principal_id);
+    }
+  }
+
+  return null;
 }
 
 async function mapWithConcurrencyLimit<T, R>(
@@ -252,6 +526,119 @@ async function mapWithConcurrencyLimit<T, R>(
   return results;
 }
 
+async function buildShareDeviceKeyCaches(
+  access: SharedDocumentAccess,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+
+  const worker = getCryptoWorker();
+  const signingKeys = new Map<string, Uint8Array>();
+  const historicalSigningKeys = new Map<string, Uint8Array>();
+  const revokedSigningKeys = new Set<string>();
+  const rejectedSigningKeys = new Set<string>();
+  const signingKeyOwners = new Map<string, string>();
+  const memberNames = new Map<string, string>();
+  const namespace = getShareTofuNamespace(access);
+
+  const processDirectoryEntry = async (
+    ownerId: string,
+    deviceId: string,
+    signingPublicKey: string,
+    encryptionPublicKey: string,
+    displayName?: string,
+    historical = false,
+  ): Promise<DeviceKeyCacheResult | null> => {
+    const signingPk = base64UrlDecode(signingPublicKey);
+    const ecdhPk = base64UrlDecode(encryptionPublicKey);
+
+    const tofuResult = await worker.tofuVerify({
+      userId: ownerId,
+      deviceId,
+      signingPublicKey: signingPk,
+      ecdhPublicKey: ecdhPk,
+      namespace,
+    });
+
+    if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      return {
+        status: "key_changed",
+        warning: { userId: ownerId, deviceId },
+      };
+    }
+
+    await worker.tofuHandleResult({
+      status: tofuResult.status,
+      namespace,
+      newEntry: {
+        userId: ownerId,
+        deviceId,
+        signingPublicKey: signingPk,
+        ecdhPublicKey: ecdhPk,
+        firstSeenAt: Date.now(),
+        lastSeenAt: Date.now(),
+      },
+    });
+
+    if (historical) {
+      historicalSigningKeys.set(signingPublicKey, signingPk);
+    } else {
+      signingKeys.set(signingPublicKey, signingPk);
+    }
+    signingKeyOwners.set(signingPublicKey, ownerId);
+    if (!historical) {
+      memberNames.set(ownerId, displayName ?? ownerId);
+    }
+
+    return null;
+  };
+
+  const processDirectory = async (directory: ShareVerificationDirectory) => {
+    for (const device of directory.workspace_devices) {
+      const warning = await processDirectoryEntry(
+        device.user_id,
+        device.device_id,
+        device.signing_public_key,
+        device.encryption_public_key,
+        undefined,
+        device.historical === true,
+      );
+
+      if (warning) return warning;
+    }
+
+    for (const device of directory.share_participant_devices) {
+      const warning = await processDirectoryEntry(
+        device.principal_id,
+        device.device_id,
+        device.signing_public_key,
+        device.encryption_public_key,
+        device.display_name ?? undefined,
+        device.historical === true,
+      );
+
+      if (warning) return warning;
+    }
+
+    return null;
+  };
+
+  const warning = await processDirectory(access.verificationDirectory);
+  if (warning) return warning;
+
+  return {
+    status: "ok",
+    signingKeys,
+    historicalSigningKeys,
+    signingKeyOwners,
+    memberNames,
+    revokedSigningKeys,
+    rejectedSigningKeys,
+  };
+}
+
 // ── Resolve signing key ──────────────────────────────────────
 // Cache lookup with re-fetch on miss (dedup concurrent re-fetches).
 
@@ -260,16 +647,27 @@ const pendingRefreshes = new Map<string, Promise<DeviceKeyCacheResult>>();
 export async function resolveSigningKey(
   pubKeyB64: string,
   state: DocumentState,
+  options: { includeHistorical?: boolean } = {},
 ): Promise<ResolveSigningKeyResult> {
   // 1. Check cache
   const cached = state.signingKeys.get(pubKeyB64);
   if (cached) return { status: "found", key: cached };
+  if (options.includeHistorical) {
+    const historical = state.historicalSigningKeys.get(pubKeyB64);
+    if (historical) return { status: "found", key: historical };
+  }
 
   // 2. Re-fetch with dedup
-  const dedupKey = state.workspaceId;
+  const dedupKey =
+    state.access.kind === "share" ? `share:${state.access.documentToken}` : state.workspaceId;
   let refresh = pendingRefreshes.get(dedupKey);
   if (!refresh) {
-    refresh = buildDeviceKeyCaches(state.workspaceId).then(
+    const nextRefresh =
+      state.access.kind === "share"
+        ? refreshSharedDocumentAccess(state).then((access) => buildShareDeviceKeyCaches(access))
+        : buildDeviceKeyCaches(state.workspaceId, undefined, state.documentId, true);
+
+    refresh = nextRefresh.then(
       (r) => {
         pendingRefreshes.delete(dedupKey);
         return r;
@@ -292,6 +690,10 @@ export async function resolveSigningKey(
   for (const [key, value] of result.signingKeys) {
     state.signingKeys.set(key, value);
   }
+  state.historicalSigningKeys.clear();
+  for (const [key, value] of result.historicalSigningKeys) {
+    state.historicalSigningKeys.set(key, value);
+  }
   state.signingKeyOwners.clear();
   for (const [key, value] of result.signingKeyOwners) {
     state.signingKeyOwners.set(key, value);
@@ -306,5 +708,9 @@ export async function resolveSigningKey(
   // 4. Re-check
   const resolved = state.signingKeys.get(pubKeyB64);
   if (resolved) return { status: "found", key: resolved };
+  if (options.includeHistorical) {
+    const historical = state.historicalSigningKeys.get(pubKeyB64);
+    if (historical) return { status: "found", key: historical };
+  }
   return { status: "not_found" };
 }

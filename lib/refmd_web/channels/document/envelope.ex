@@ -1,4 +1,4 @@
-defmodule RefMDWeb.DocumentEnvelope do
+defmodule RefMDWeb.Channels.Document.Envelope do
   @moduledoc false
 
   alias RefMD.Documents

@@ -2,7 +2,7 @@ defmodule RefMDWeb.AuthController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.{Auth, Devices, Encryption, Users, Workspaces}
+  alias RefMD.{Auth, Devices, Encryption, Sharing, Users, Workspaces}
   alias RefMD.Crypto
   alias RefMDWeb.Schemas
 
@@ -216,37 +216,43 @@ defmodule RefMDWeb.AuthController do
 
   @spec me(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def me(conn, _params) do
-    user = Users.get_user(conn.assigns.current_user_id)
-    session = conn.assigns.current_session
-    device_verified = conn.assigns.device_verified
+    if conn.assigns[:session_kind] == :share_participant do
+      conn |> put_status(:unauthorized) |> json(%{error: "unauthorized"})
+    else
+      user = Users.get_user(conn.assigns.current_user_id)
+      session = conn.assigns.current_session
+      device_verified = conn.assigns.device_verified
 
-    master_key = Encryption.get_user_encrypted_master_key(user.id)
-    identity_pub = Encryption.get_user_identity_public_key(user.id)
+      master_key = Encryption.get_user_encrypted_master_key(user.id)
+      identity_pub = Encryption.get_user_identity_public_key(user.id)
 
-    keys =
-      if device_verified and session.device_id do
-        Encryption.get_login_keys(user.id, session.device_id)
-        |> format_login_keys()
-      end
+      keys =
+        if device_verified and session.device_id do
+          Encryption.get_login_keys(user.id, session.device_id)
+          |> format_login_keys()
+        end
 
-    response = %{
-      user_id: user.id,
-      email: user.email,
-      name: user.name,
-      encryption_setup_at: user.encryption_setup_at,
-      session_id: session.id,
-      device_id: session.device_id,
-      device_verified: device_verified,
-      is_recovery: session.is_recovery,
-      remember_me: session.remember_me,
-      expires_at: session.expires_at,
-      auth_type: master_key && master_key.auth_type,
-      identity_signing_public_key: identity_pub && encode_binary(identity_pub.signing_public_key)
-    }
+      response = %{
+        user_id: user.id,
+        email: user.email,
+        name: user.name,
+        account_type: user.account_type,
+        encryption_setup_at: user.encryption_setup_at,
+        session_id: session.id,
+        device_id: session.device_id,
+        device_verified: device_verified,
+        is_recovery: session.is_recovery,
+        remember_me: session.remember_me,
+        expires_at: session.expires_at,
+        auth_type: master_key && master_key.auth_type,
+        identity_signing_public_key:
+          identity_pub && encode_binary(identity_pub.signing_public_key)
+      }
 
-    response = if keys, do: Map.put(response, :keys, keys), else: response
+      response = if keys, do: Map.put(response, :keys, keys), else: response
 
-    json(conn, response)
+      json(conn, response)
+    end
   end
 
   operation(:kdf_migration,
@@ -336,32 +342,23 @@ defmodule RefMDWeb.AuthController do
   @spec ws_token(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def ws_token(conn, _params) do
     session = conn.assigns.current_session
-    token = Auth.generate_ws_token(session.id)
+
+    token =
+      case conn.assigns[:session_kind] do
+        :share_participant -> Sharing.generate_ws_token(session.id)
+        _ -> Auth.generate_ws_token(session.id)
+      end
+
     json(conn, %{token: token})
   end
 
   @spec pop_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def pop_challenge(conn, _params) do
-    user_id = conn.assigns.current_user_id
     device_id = get_req_header(conn, "x-pop-device-id") |> List.first()
 
-    cond do
-      device_id == nil ->
-        conn |> put_status(:forbidden) |> json(%{error: "missing_device_id"})
-
-      not Devices.user_owns_active_device?(user_id, device_id) ->
-        conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
-
-      true ->
-        case Auth.create_pop_challenge(user_id, device_id) do
-          {:ok, challenge} ->
-            json(conn, %{challenge: Base.url_encode64(challenge, padding: false)})
-
-          {:error, _} ->
-            conn
-            |> put_status(:unprocessable_entity)
-            |> json(%{error: "challenge_creation_failed"})
-        end
+    case conn.assigns[:session_kind] do
+      :share_participant -> create_share_pop_challenge(conn, device_id)
+      _ -> create_user_pop_challenge(conn, device_id)
     end
   end
 
@@ -375,11 +372,32 @@ defmodule RefMDWeb.AuthController do
   @spec logout(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def logout(conn, _params) do
     session = conn.assigns.current_session
-    Auth.delete_session(session.id)
 
-    conn
-    |> delete_session_cookie()
-    |> json(%{ok: true})
+    case conn.assigns[:session_kind] do
+      :share_participant ->
+        Sharing.delete_participant_session(session.id)
+        RefMDWeb.Endpoint.broadcast("share_socket:#{session.principal_id}", "disconnect", %{})
+
+        if is_binary(session.device_id) do
+          Phoenix.PubSub.broadcast(
+            RefMD.PubSub,
+            "share_device_revocation:#{session.device_id}",
+            {:device_revoked, session.device_id}
+          )
+        end
+
+        conn
+        |> delete_share_session_cookie()
+        |> json(%{ok: true})
+
+      _ ->
+        Auth.delete_session(session.id)
+        RefMDWeb.Endpoint.broadcast("user_socket:#{session.user_id}", "disconnect", %{})
+
+        conn
+        |> delete_session_cookie()
+        |> json(%{ok: true})
+    end
   end
 
   operation(:get_recovery,
@@ -584,6 +602,53 @@ defmodule RefMDWeb.AuthController do
       })
     else
       result
+    end
+  end
+
+  defp create_user_pop_challenge(conn, device_id) do
+    user_id = conn.assigns.current_user_id
+
+    cond do
+      device_id == nil ->
+        conn |> put_status(:forbidden) |> json(%{error: "missing_device_id"})
+
+      not Devices.user_owns_active_device?(user_id, device_id) ->
+        conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
+
+      true ->
+        case Auth.create_pop_challenge(user_id, device_id) do
+          {:ok, challenge} ->
+            json(conn, %{challenge: Base.url_encode64(challenge, padding: false)})
+
+          {:error, _} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "challenge_creation_failed"})
+        end
+    end
+  end
+
+  defp create_share_pop_challenge(conn, device_id) do
+    principal_id = conn.assigns.share_participant_principal_id
+    share_id = conn.assigns.current_share_id
+
+    cond do
+      device_id == nil ->
+        conn |> put_status(:forbidden) |> json(%{error: "missing_device_id"})
+
+      not Sharing.participant_owns_device?(principal_id, device_id) ->
+        conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
+
+      true ->
+        case Sharing.create_pop_challenge(share_id, device_id) do
+          {:ok, challenge} ->
+            json(conn, %{challenge: Base.url_encode64(challenge, padding: false)})
+
+          {:error, _} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "challenge_creation_failed"})
+        end
     end
   end
 end

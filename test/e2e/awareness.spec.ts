@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, createDocument, openDocument, collectErrors } from "./helpers";
+import { registerAccount, createDocument, openDocument, collectErrors,
+  newE2EContext,
+} from "./helpers";
 
 let sharedPage: Page;
 
@@ -11,7 +13,7 @@ function panelMenuTrigger() {
 
 test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -50,7 +52,7 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
       await editor.click();
 
       for (let i = 0; i < 10; i++) {
-        await sharedPage.keyboard.type(`Awareness test line ${i}. `);
+        await sharedPage.keyboard.insertText(`Awareness test line ${i}. `);
         await sharedPage.keyboard.press("Enter");
         await sharedPage.waitForTimeout(100);
       }
@@ -105,12 +107,12 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
     const errors = await collectErrors(sharedPage, async () => {
       // Type in CodeMirror
       await sharedPage.locator(".cm-content").click();
-      await sharedPage.keyboard.type("Split CM edit. ");
+      await sharedPage.keyboard.insertText("Split CM edit. ");
       await sharedPage.waitForTimeout(2000);
 
       // Type in ProseMirror
       await sharedPage.locator(".ProseMirror").click();
-      await sharedPage.keyboard.type("Split PM edit. ");
+      await sharedPage.keyboard.insertText("Split PM edit. ");
       await sharedPage.waitForTimeout(2000);
     });
 

@@ -8,6 +8,6 @@ export {
   verifyPasswordResetToken,
 } from "./password-reset";
 export { AuthError } from "./lib/auth-error";
-export { restoreSession, restoreOfflineSession } from "./lib/session";
+export { applyRestoredSessionState, restoreSession, restoreOfflineSession } from "./lib/session";
 export type { SessionRestoreResult, OfflineSessionResult } from "./lib/session";
 export { performLogout } from "./lib/logout";

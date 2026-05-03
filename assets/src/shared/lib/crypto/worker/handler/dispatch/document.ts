@@ -12,9 +12,11 @@ import {
   handleEvictDek,
   handleGenerateDek,
   handleHasDek,
+  handleHasDekBatch,
   handleUnwrapDek,
   handleUnwrapDekFromOffline,
   handleWrapDek,
+  handleWrapDekForShare,
   handleWrapDekForOffline,
 } from "../dek";
 import { withCryptoOperationError } from "../utils";
@@ -44,10 +46,12 @@ export const documentRequestHandlers = {
   "evict-dek": (state, payload) => handleEvictDek(state, payload),
   "generate-dek": (state, payload) => handleGenerateDek(state, payload),
   "has-dek": (state, payload) => handleHasDek(state, payload),
+  "has-dek-batch": (state, payload) => handleHasDekBatch(state, payload),
   "unwrap-dek": (state, payload) =>
     withCryptoOperationError("decryption_failed", () => handleUnwrapDek(state, payload)),
   "unwrap-dek-from-offline": (state, payload) =>
     withCryptoOperationError("decryption_failed", () => handleUnwrapDekFromOffline(state, payload)),
   "wrap-dek": (state, payload) => handleWrapDek(state, payload),
+  "wrap-dek-for-share": (state, payload) => handleWrapDekForShare(state, payload),
   "wrap-dek-for-offline": (state, payload) => handleWrapDekForOffline(state, payload),
 } satisfies RequestHandlerTable;

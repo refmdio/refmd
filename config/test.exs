@@ -23,6 +23,12 @@ config :refmd, RefMDWeb.Endpoint,
 # Dummy salt secret for consistent fake salts (non-existent users)
 config :refmd, dummy_salt_secret: "test-dummy-salt-secret"
 
+config :refmd,
+  share_server_key_id: "test-share-key",
+  share_server_keys: %{
+    "test-share-key" => Base.url_encode64(:binary.copy(<<1>>, 32), padding: false)
+  }
+
 # Use Swoosh test adapter for in-process assertions
 config :refmd, RefMD.Mailer, adapter: Swoosh.Adapters.Test
 

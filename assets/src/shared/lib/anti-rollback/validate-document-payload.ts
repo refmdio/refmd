@@ -2,6 +2,7 @@ import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import {
   getDocumentStatePin,
+  hasCompleteSnapshotPin,
   putDocumentStatePin,
   updatePinFromState,
   type DocumentStatePin,
@@ -36,6 +37,37 @@ interface ValidationResult {
   snapshotProofHash: string;
   snapshotCiphertextHash: string;
 }
+
+function collectClockContiguityWarnings(
+  updates: DocumentPayloadForValidation["updates"],
+  baselineClocks: Record<string, number>,
+): string[] {
+  const warnings: string[] = [];
+  const observations = collectClockObservations(updates);
+
+  for (const [deviceKey, observed] of observations) {
+    const baselineClock = baselineClocks[deviceKey] ?? -1;
+    if (observed.max < baselineClock) {
+      warnings.push(
+        `Clock rollback: device=${deviceKey} clock=${observed.max} < pin=${baselineClock}`,
+      );
+      continue;
+    }
+
+    let expected = baselineClock + 1;
+    for (const clock of [...observed.seen].sort((a, b) => a - b)) {
+      if (clock <= baselineClock) continue;
+      if (clock > expected) {
+        warnings.push(`Clock gap: device=${deviceKey} expected=${expected} got=${clock}`);
+        break;
+      }
+      expected = clock + 1;
+    }
+  }
+
+  return warnings;
+}
+
 export async function validateDocumentPayloadAgainstPin(
   documentId: string,
   payload: DocumentPayloadForValidation,
@@ -61,27 +93,30 @@ export async function validateDocumentPayloadAgainstPin(
       ? payload.snapshot.publicData.snapshotId === pin.latestSnapshotId
       : true;
     if (sameSnapshot && payload.updates) {
-      const clockObservations = collectClockObservations(payload.updates);
-      for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
-        const observed = clockObservations.get(deviceKey);
-        if (!observed) continue;
-        if (observed.max < pinnedClock) {
-          rollbackWarnings.push(
-            `Clock rollback: device=${deviceKey} clock=${observed.max} < pin=${pinnedClock}`,
-          );
-        } else if (observed.max > pinnedClock + 1 && !observed.seen.has(pinnedClock + 1)) {
-          rollbackWarnings.push(
-            `Clock gap: device=${deviceKey} expected=${pinnedClock + 1} got=${observed.max}`,
-          );
-        }
-      }
+      rollbackWarnings.push(
+        ...collectClockContiguityWarnings(payload.updates, pin.perDeviceMaxClocks),
+      );
+    } else if (!sameSnapshot && payload.updates) {
+      rollbackWarnings.push(
+        ...collectClockContiguityWarnings(
+          payload.updates,
+          payload.snapshot?.publicData.parentSnapshotUpdateClocks ?? {},
+        ),
+      );
     }
+  } else if (payload.updates) {
+    rollbackWarnings.push(
+      ...collectClockContiguityWarnings(
+        payload.updates,
+        payload.snapshot?.publicData.parentSnapshotUpdateClocks ?? {},
+      ),
+    );
   }
   // Proof chain verification
-  const anchorSnapshotId = pin?.latestSnapshotId ?? null;
-  const anchorProofHash = pin?.latestSnapshotProofHash ?? "";
+  const anchorSnapshotId = hasCompleteSnapshotPin(pin) ? pin.latestSnapshotId : null;
+  const anchorProofHash = hasCompleteSnapshotPin(pin) ? pin.latestSnapshotProofHash : "";
   let snapshotProofHash = anchorProofHash;
-  let snapshotCiphertextHash = pin?.latestSnapshotCiphertextHash ?? "";
+  let snapshotCiphertextHash = hasCompleteSnapshotPin(pin) ? pin.latestSnapshotCiphertextHash : "";
   if (payload.snapshot && anchorSnapshotId) {
     const snapshotChanged = payload.snapshot.publicData.snapshotId !== anchorSnapshotId;
     if (snapshotChanged) {
@@ -112,6 +147,9 @@ export async function validateDocumentPayloadAgainstPin(
       if (lastChainEntry.snapshotId !== payload.snapshot!.publicData.snapshotId) {
         throw new Error("Proof chain does not terminate at active snapshot");
       }
+      if (lastChainEntry.parentSnapshotProof !== payload.snapshot!.publicData.parentSnapshotProof) {
+        throw new Error("Proof chain tail parent proof does not match active snapshot");
+      }
       // Verify chain tail's ciphertextHash matches the actual snapshot content
       const actualHash = base64UrlEncode(
         await worker.blake3Hash(base64UrlDecode(payload.snapshot!.ciphertext)),
@@ -134,13 +172,13 @@ export async function validateDocumentPayloadAgainstPin(
     });
   }
   // Build confirmed clocks
-  const confirmedClocks: Record<string, number> = {};
+  const observedUpdateClocks: Record<string, number> = {};
   if (payload.updates) {
     for (const update of payload.updates) {
       const key = update.publicData.signingPubKey;
       const clock = update.publicData.clock;
-      if (clock > (confirmedClocks[key] ?? -1)) {
-        confirmedClocks[key] = clock;
+      if (clock > (observedUpdateClocks[key] ?? -1)) {
+        observedUpdateClocks[key] = clock;
       }
     }
   }
@@ -152,11 +190,15 @@ export async function validateDocumentPayloadAgainstPin(
     snapshotId,
     snapshotProofHash,
     snapshotCiphertextHash,
-    confirmedClocks,
+    observedUpdateClocks,
     incomingVersion,
   );
   return { rollbackWarnings, newPin, snapshotProofHash, snapshotCiphertextHash };
 }
 export async function persistPin(pin: DocumentStatePin): Promise<void> {
-  await putDocumentStatePin(pin).catch(() => {});
+  const existing = await getDocumentStatePin(pin.documentId).catch(() => null);
+  await putDocumentStatePin(pin, {
+    expectedPreviousSnapshotId: existing?.latestSnapshotId ?? null,
+    allowSnapshotChangeAtSameVersion: true,
+  }).catch(() => {});
 }

@@ -281,11 +281,20 @@ export async function getOfflineDocumentIndex(
   const db = await openOfflineDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_OFFLINE_DOCUMENT_INDEX, "readonly");
-    const index = tx.objectStore(STORE_OFFLINE_DOCUMENT_INDEX).index("by-workspaceId");
-    const req = index.getAll(workspaceId);
+    const store = tx.objectStore(STORE_OFFLINE_DOCUMENT_INDEX);
+    let req: IDBRequest<OfflineDocumentIndexEntry[]>;
+    try {
+      req = store.index("by-workspaceId").getAll(workspaceId);
+    } catch {
+      req = store.getAll();
+    }
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => {
-      resolve(req.result as OfflineDocumentIndexEntry[]);
+      resolve(
+        (req.result as OfflineDocumentIndexEntry[]).filter(
+          (entry) => entry.workspaceId === workspaceId,
+        ),
+      );
       db.close();
     };
     tx.onerror = () => reject(tx.error);

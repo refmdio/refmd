@@ -6,6 +6,8 @@ defmodule RefMD.Documents.Snapshots do
   alias RefMD.Crypto.Blake3
   alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate}
   alias RefMD.Repo
+  alias RefMD.Sharing
+  alias RefMD.Workspaces
 
   # Clocks are snapshot-scoped: each new snapshot starts with no accumulated
   # per-device clocks. Pre-snapshot clocks are captured in parent_snapshot_update_clocks.
@@ -76,12 +78,12 @@ defmodule RefMD.Documents.Snapshots do
 
   @spec save_update(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, map()} | {:error, atom()}
-  def save_update(document_id, user_id, attrs) do
+  def save_update(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
       validate_not_archived!(document)
-      validate_write_permission!(document.workspace_id, user_id)
-      validate_device_not_revoked!(attrs.device_id)
+      validate_write_permission!(document, actor_id, attrs)
+      validate_device_active!(actor_id, attrs)
 
       ref_snapshot_id = attrs.ref_snapshot_id
 
@@ -97,7 +99,14 @@ defmodule RefMD.Documents.Snapshots do
         Repo.rollback(:key_version_too_old)
       end
 
-      insert_update_atomic(document_id, ref_snapshot_id, attrs)
+      case insert_update_atomic(document_id, ref_snapshot_id, attrs) do
+        %{duplicate: true} = result ->
+          result
+
+        result ->
+          record_document_signer!(document_id, actor_id, attrs)
+          result
+      end
     end)
     |> case do
       {:ok, result} -> {:ok, result}
@@ -109,18 +118,19 @@ defmodule RefMD.Documents.Snapshots do
 
   @spec save_snapshot(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, map()} | {:error, atom(), map() | nil}
-  def save_snapshot(document_id, user_id, attrs) do
+  def save_snapshot(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
       validate_not_archived!(document)
-      validate_write_permission!(document.workspace_id, user_id)
-      validate_device_not_revoked!(attrs.device_id)
+      validate_write_permission!(document, actor_id, attrs)
+      validate_device_active!(actor_id, attrs)
 
       latest_version = validate_snapshot_preconditions!(document, attrs)
 
       snapshot_id = attrs.snapshot_id
 
       insert_snapshot!(document_id, snapshot_id, latest_version, attrs)
+      record_document_signer!(document_id, actor_id, attrs)
 
       cas_result =
         cas_update_active_snapshot(document_id, snapshot_id, attrs.parent_snapshot_id)
@@ -131,7 +141,7 @@ defmodule RefMD.Documents.Snapshots do
 
       maybe_clear_rotation_snapshot(document, document_id, attrs.key_version)
 
-      %{snapshot_id: snapshot_id}
+      %{snapshot_id: snapshot_id, latest_version: latest_version}
     end)
     |> case do
       {:ok, result} ->
@@ -194,7 +204,12 @@ defmodule RefMD.Documents.Snapshots do
           version
         )
 
-        %{snapshot_id: ref_snapshot_id, clock: attrs.clock, version: version}
+        %{
+          snapshot_id: ref_snapshot_id,
+          clock: attrs.clock,
+          update_hash: attrs.update_hash,
+          version: version
+        }
 
       [] ->
         case get_existing_by_hash(document_id, attrs.update_hash) do
@@ -205,6 +220,7 @@ defmodule RefMD.Documents.Snapshots do
             %{
               snapshot_id: existing.snapshot_id,
               clock: existing.clock,
+              update_hash: existing.update_hash,
               version: existing.version,
               duplicate: true
             }
@@ -358,11 +374,50 @@ defmodule RefMD.Documents.Snapshots do
   defp validate_not_archived!(%{archived_at: nil}), do: :ok
   defp validate_not_archived!(%{archived_at: _}), do: Repo.rollback(:document_archived)
 
-  defp validate_device_not_revoked!(device_id) do
+  defp validate_device_active!(_actor_id, %{session_kind: :share_participant} = attrs) do
+    principal_id = Map.fetch!(attrs, :principal_id)
+    validate_share_device_active!(principal_id, attrs.device_id)
+  end
+
+  defp validate_device_active!(actor_id, %{session_kind: :mounted_share} = attrs) do
+    validate_member_device_active!(actor_id, attrs.device_id)
+  end
+
+  defp validate_device_active!(_actor_id, attrs) do
+    validate_member_device_not_revoked!(attrs.device_id)
+  end
+
+  defp validate_member_device_active!(actor_id, device_id) do
+    result =
+      Repo.query(
+        "SELECT 1 FROM devices WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL FOR SHARE",
+        [Ecto.UUID.dump!(device_id), Ecto.UUID.dump!(actor_id)]
+      )
+
+    case result do
+      {:ok, %{num_rows: 1}} -> :ok
+      _ -> Repo.rollback(:device_revoked)
+    end
+  end
+
+  defp validate_member_device_not_revoked!(device_id) do
     result =
       Repo.query(
         "SELECT 1 FROM devices WHERE id = $1 AND revoked_at IS NULL FOR SHARE",
         [Ecto.UUID.dump!(device_id)]
+      )
+
+    case result do
+      {:ok, %{num_rows: 1}} -> :ok
+      _ -> Repo.rollback(:device_revoked)
+    end
+  end
+
+  defp validate_share_device_active!(principal_id, device_id) do
+    result =
+      Repo.query(
+        "SELECT 1 FROM share_participant_devices WHERE id = $1 AND principal_id = $2 FOR SHARE",
+        [Ecto.UUID.dump!(device_id), Ecto.UUID.dump!(principal_id)]
       )
 
     case result do
@@ -404,23 +459,206 @@ defmodule RefMD.Documents.Snapshots do
   )
   """
 
-  defp validate_write_permission!(workspace_id, user_id) do
-    {:ok, result} =
-      Repo.query(@rbac_write_check_sql, [
-        Ecto.UUID.dump!(workspace_id),
-        Ecto.UUID.dump!(user_id)
-      ])
-
-    unless result.rows == [[true]] do
+  defp validate_write_permission!(
+         document,
+         _actor_id,
+         %{session_kind: :share_participant} = attrs
+       ) do
+    if Map.fetch!(attrs, :grant) == "edit" and
+         Sharing.can_write_document?(Map.fetch!(attrs, :share_id), document.id) do
+      :ok
+    else
       Repo.rollback(:permission_denied)
     end
   end
 
+  defp validate_write_permission!(
+         document,
+         _actor_id,
+         %{session_kind: :mounted_share} = attrs
+       ) do
+    if Map.fetch!(attrs, :grant) == "edit" and
+         Sharing.can_write_document?(Map.fetch!(attrs, :share_id), document.id) do
+      :ok
+    else
+      Repo.rollback(:permission_denied)
+    end
+  end
+
+  defp validate_write_permission!(
+         %{id: document_id, workspace_id: workspace_id},
+         actor_id,
+         _attrs
+       ) do
+    document = %Document{id: document_id, workspace_id: workspace_id}
+
+    case Workspaces.authorize_guest_permission(
+           workspace_id,
+           actor_id,
+           "document:write",
+           document
+         ) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        {:ok, result} =
+          Repo.query(@rbac_write_check_sql, [
+            Ecto.UUID.dump!(workspace_id),
+            Ecto.UUID.dump!(actor_id)
+          ])
+
+        unless result.rows == [[true]] do
+          Repo.rollback(:permission_denied)
+        end
+    end
+  end
+
+  defp record_document_signer!(
+         document_id,
+         _actor_id,
+         %{session_kind: :share_participant} = attrs
+       ) do
+    principal_id = Map.fetch!(attrs, :principal_id)
+    share_id = Map.fetch!(attrs, :share_id)
+
+    signer =
+      Repo.query!(
+        """
+        SELECT d.id, d.signing_public_key, d.encryption_public_key
+        FROM share_participant_devices d
+        WHERE d.id = $1 AND d.principal_id = $2 AND d.share_id = $3
+        """,
+        [
+          Ecto.UUID.dump!(attrs.device_id),
+          Ecto.UUID.dump!(principal_id),
+          Ecto.UUID.dump!(share_id)
+        ]
+      )
+
+    case signer.rows do
+      [[device_id, signing_public_key, encryption_public_key]] ->
+        upsert_document_signer!(%{
+          document_id: document_id,
+          signer_kind: "share_participant",
+          share_id: share_id,
+          principal_id: principal_id,
+          user_id: nil,
+          device_id: Ecto.UUID.load!(device_id),
+          signing_public_key: signing_public_key,
+          encryption_public_key: encryption_public_key
+        })
+
+      _ ->
+        Repo.rollback(:device_revoked)
+    end
+  end
+
+  defp record_document_signer!(document_id, actor_id, %{session_kind: :mounted_share} = attrs) do
+    share_id = Map.fetch!(attrs, :share_id)
+
+    record_member_document_signer!(
+      document_id,
+      actor_id,
+      attrs.device_id,
+      "mounted_share",
+      share_id
+    )
+  end
+
+  defp record_document_signer!(document_id, actor_id, attrs) do
+    record_member_document_signer!(document_id, actor_id, attrs.device_id, "workspace", nil)
+  end
+
+  defp record_member_document_signer!(document_id, user_id, device_id, signer_kind, share_id) do
+    signer =
+      Repo.query!(
+        """
+        SELECT d.id, d.signing_public_key, d.ecdh_public_key
+        FROM devices d
+        WHERE d.id = $1 AND d.user_id = $2
+        """,
+        [Ecto.UUID.dump!(device_id), Ecto.UUID.dump!(user_id)]
+      )
+
+    case signer.rows do
+      [[device_id, signing_public_key, encryption_public_key]] ->
+        upsert_document_signer!(%{
+          document_id: document_id,
+          signer_kind: signer_kind,
+          share_id: share_id,
+          principal_id: if(signer_kind == "mounted_share", do: user_id),
+          user_id: user_id,
+          device_id: Ecto.UUID.load!(device_id),
+          signing_public_key: signing_public_key,
+          encryption_public_key: encryption_public_key
+        })
+
+      _ ->
+        Repo.rollback(:device_revoked)
+    end
+  end
+
+  defp upsert_document_signer!(attrs) do
+    context_key = document_signer_context_key(attrs)
+
+    Repo.query!(
+      """
+      INSERT INTO document_signer_keys (
+        document_id, signer_kind, share_id, principal_id, user_id, device_id, context_key,
+        signing_public_key, encryption_public_key, first_seen_at, last_seen_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      ON CONFLICT (document_id, signing_public_key, context_key)
+      DO UPDATE SET
+        last_seen_at = NOW(),
+        encryption_public_key = EXCLUDED.encryption_public_key
+      """,
+      [
+        Ecto.UUID.dump!(attrs.document_id),
+        attrs.signer_kind,
+        dump_optional_uuid(attrs.share_id),
+        dump_optional_uuid(attrs.principal_id),
+        dump_optional_uuid(attrs.user_id),
+        Ecto.UUID.dump!(attrs.device_id),
+        context_key,
+        attrs.signing_public_key,
+        attrs.encryption_public_key
+      ]
+    )
+  end
+
+  defp document_signer_context_key(attrs) do
+    [
+      attrs.signer_kind,
+      attrs.share_id || "-",
+      attrs.principal_id || "-",
+      attrs.user_id || "-",
+      attrs.device_id
+    ]
+    |> Enum.join(":")
+  end
+
+  defp dump_optional_uuid(nil), do: nil
+  defp dump_optional_uuid(value), do: Ecto.UUID.dump!(value)
+
   defp update_snapshot_metadata(snapshot_id, device_signing_pub_key, clock, version) do
     Repo.query!(
-      "UPDATE document_snapshots SET clocks = jsonb_set(COALESCE(clocks, '{}'::jsonb), $1, to_jsonb($2::integer)), latest_version = $3 WHERE id = $4",
+      """
+      UPDATE document_snapshots
+      SET
+        clocks = jsonb_set(
+          COALESCE(clocks, '{}'::jsonb),
+          $1,
+          to_jsonb(GREATEST(COALESCE((clocks ->> $2)::integer, -1), $3::integer)),
+          true
+        ),
+        latest_version = GREATEST(COALESCE(latest_version, 0), $4::integer)
+      WHERE id = $5
+      """,
       [
         [device_signing_pub_key],
+        device_signing_pub_key,
         clock,
         version,
         Ecto.UUID.dump!(snapshot_id)
@@ -496,7 +734,13 @@ defmodule RefMD.Documents.Snapshots do
   rescue
     e in Postgrex.Error ->
       serializable_error? =
-        e.postgres != nil and e.postgres.code in ["40001", "40P01"]
+        e.postgres != nil and
+          e.postgres.code in [
+            "40001",
+            "40P01",
+            :serialization_failure,
+            :deadlock_detected
+          ]
 
       if serializable_error? and attempt < @serializable_max_retries do
         Process.sleep(Enum.random(5..25))

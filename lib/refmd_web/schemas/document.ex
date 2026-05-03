@@ -21,6 +21,8 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       needs_dek_rotation: %Schema{type: :boolean},
       needs_rotation_snapshot: %Schema{type: :boolean},
       min_dek_version: %Schema{type: :integer},
+      is_published: %Schema{type: :boolean},
+      can_sync_publication: %Schema{type: :boolean},
       created_by: %Schema{type: :string, format: :uuid, nullable: true},
       archived_at: %Schema{type: :string, format: :"date-time", nullable: true},
       created_at: %Schema{type: :string, format: :"date-time"},
@@ -36,6 +38,8 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       :is_encrypted,
       :needs_dek_rotation,
       :min_dek_version,
+      :is_published,
+      :can_sync_publication,
       :created_at,
       :updated_at
     ]

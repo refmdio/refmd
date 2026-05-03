@@ -492,16 +492,19 @@ defmodule RefMD.Workspaces.Invitations do
   defp resolve_invitation_role(%{role_id: nil, workspace_id: workspace_id}) do
     case WRoles.get_default_role_with_permissions(workspace_id) do
       nil -> {:error, :no_default_role}
-      role -> {:ok, role}
+      role -> validate_member_invitation_role(role)
     end
   end
 
   defp resolve_invitation_role(%{role_id: role_id, workspace_id: workspace_id}) do
     case WRoles.get_role_with_permissions(workspace_id, role_id) do
       nil -> {:error, :invalid_role}
-      role -> {:ok, role}
+      role -> validate_member_invitation_role(role)
     end
   end
+
+  defp validate_member_invitation_role(%{base_role: "guest"}), do: {:error, :invalid_role}
+  defp validate_member_invitation_role(role), do: {:ok, role}
 
   defp validate_escalation(actor_role, target_role) do
     alias RefMDWeb.Plugs.RequireRBAC

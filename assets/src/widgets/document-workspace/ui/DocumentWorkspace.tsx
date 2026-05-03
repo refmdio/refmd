@@ -19,9 +19,20 @@ export function getStatusBarEl(): HTMLDivElement | null {
   return statusBarEl();
 }
 
-export function DocumentWorkspace() {
+interface DocumentWorkspaceProps {
+  workspaceId?: string | null;
+  useCurrentWorkspaceId?: boolean;
+}
+
+export function DocumentWorkspace(props: DocumentWorkspaceProps = {}) {
   const workspace = usePanelWorkspace();
-  const workspaceId = () => currentWorkspaceId();
+  const workspaceId = () => {
+    if (props.useCurrentWorkspaceId === false) {
+      return props.workspaceId ?? null;
+    }
+
+    return props.workspaceId ?? currentWorkspaceId();
+  };
   const { flatDocuments } = useDocuments(workspaceId);
   const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
 
@@ -44,8 +55,9 @@ export function DocumentWorkspace() {
       return <div />;
     }
 
+    const target = workspace.openDocuments().get(panel.targetKey);
     const doc = flatDocuments().find((d) => d.id === panel.documentId);
-    const title = doc ? getTitleFromDoc(doc) : "Untitled";
+    const title = doc ? getTitleFromDoc(doc) : (target?.title ?? "Untitled");
 
     return (
       <DocumentTile
@@ -55,6 +67,7 @@ export function DocumentWorkspace() {
         title={title}
         archivedAt={doc?.archived_at}
         workspace={workspace}
+        workspaceId={target?.workspaceId}
       />
     );
   };

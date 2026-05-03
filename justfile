@@ -55,6 +55,9 @@ test:
 test-verbose:
     mix test --trace
 
+test-e2e args="":
+    cd assets && vp exec playwright test -c ../test/e2e/playwright.config.ts {{args}}
+
 # Full verification (compile + typecheck + lint + test + dialyzer)
 check:
     mix compile --warnings-as-errors
@@ -94,6 +97,12 @@ web-install:
 
 web-build:
     cd assets && vp build
+
+# Production-equivalent local run (vite build + Phoenix prod)
+preview:
+    cd assets && vp build
+    MIX_ENV=prod mix compile
+    MIX_ENV=prod mix phx.server
 
 # Generate OpenAPI types (schema.d.ts)
 web-gen:

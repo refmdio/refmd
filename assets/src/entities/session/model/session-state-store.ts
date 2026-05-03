@@ -4,6 +4,7 @@ interface AuthUser {
   id: string;
   email: string;
   name: string;
+  accountType?: string | null;
 }
 
 export interface AuthState {

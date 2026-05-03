@@ -1,5 +1,4 @@
 import type {
-  BlockContent,
   Content,
   Delete,
   Emphasis,
@@ -10,18 +9,11 @@ import type {
   List,
   ListItem,
   PhrasingContent,
-  Root,
   Strong,
   Text,
 } from "mdast";
 import type { Mark, Node as ProseMirrorNode, Schema } from "prosemirror-model";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
-import { normalizeMarkdown } from "./normalize";
-
-const markdownParser = unified().use(remarkParse).use(remarkGfm).use(remarkBreaks);
+import { parseMarkdownRoot } from "@/shared/lib/markdown/parse";
 
 function appendMark(marks: Mark[], nextMark: Mark): Mark[] {
   if (marks.some((mark) => mark.type === nextMark.type)) return marks;
@@ -204,84 +196,20 @@ function blockChildrenToProseMirror(children: Content[], schema: Schema): ProseM
   return blockNodes;
 }
 
-function insertEmptyParagraphsForGaps(children: Content[]): Content[] {
-  const result: Content[] = [];
-
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
-
-    if (child.type === "blockquote") {
-      child.children = insertEmptyParagraphsForGaps(child.children) as BlockContent[];
-    } else if (child.type === "list") {
-      for (const item of child.children) {
-        item.children = insertEmptyParagraphsForGaps(item.children) as BlockContent[];
-      }
-    }
-
-    if (i > 0) {
-      const prev = children[i - 1];
-      if (prev.position && child.position) {
-        const gap = child.position.start.line - prev.position.end.line - 1;
-        for (let j = 0; j < gap; j++) {
-          result.push({ type: "paragraph", children: [] });
-        }
-      }
-    }
-
-    result.push(child);
-  }
-
-  return result;
-}
-
-function splitBreakParagraphs(children: Content[]): Content[] {
-  const result: Content[] = [];
-
-  for (const child of children) {
-    if (child.type === "blockquote") {
-      child.children = splitBreakParagraphs(child.children) as BlockContent[];
-    } else if (child.type === "list") {
-      for (const item of child.children) {
-        item.children = splitBreakParagraphs(item.children) as BlockContent[];
-      }
-    }
-
-    if (child.type !== "paragraph") {
-      result.push(child);
-      continue;
-    }
-
-    if (!child.children.some((c) => c.type === "break")) {
-      result.push(child);
-      continue;
-    }
-
-    let current: PhrasingContent[] = [];
-    for (const inline of child.children) {
-      if (inline.type === "break") {
-        result.push({ type: "paragraph", children: current });
-        current = [];
-      } else {
-        current.push(inline);
-      }
-    }
-    result.push({ type: "paragraph", children: current });
-  }
-
-  return result;
-}
-
 export function markdownToProseMirrorDoc(markdown: string, schema: Schema): ProseMirrorNode {
   try {
-    const parsedTree = markdownParser.runSync(
-      markdownParser.parse(normalizeMarkdown(markdown)),
-    ) as Root;
-    parsedTree.children = insertEmptyParagraphsForGaps(parsedTree.children) as Root["children"];
-    parsedTree.children = splitBreakParagraphs(parsedTree.children) as Root["children"];
-    const blockNodes = blockChildrenToProseMirror(parsedTree.children, schema);
+    const { root, trailingNewlines } = parseMarkdownRoot(markdown);
+    const blockNodes = blockChildrenToProseMirror(root.children, schema);
 
     if (blockNodes.length === 0) {
-      return schema.node("doc", null, [schema.nodes.paragraph.create()]);
+      const emptyParagraphs = Array.from({ length: trailingNewlines + 1 }, () =>
+        schema.nodes.paragraph.create(),
+      );
+      return schema.node("doc", null, emptyParagraphs);
+    }
+
+    for (let i = 0; i < trailingNewlines; i++) {
+      blockNodes.push(schema.nodes.paragraph.create());
     }
 
     return schema.node("doc", null, blockNodes);

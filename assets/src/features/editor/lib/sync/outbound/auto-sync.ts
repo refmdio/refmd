@@ -1,17 +1,38 @@
 import * as Y from "yjs";
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { deviceState } from "@/entities/session";
 import { getChannelState, pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
 import type { AutoSyncHandle, DocumentState } from "../../../model/document-state/types";
-import { offlineMode, onOfflineModeChange } from "@/shared/lib/offline/offline-state";
+import {
+  offlineMode,
+  offlineReason,
+  onOfflineModeChange,
+} from "@/shared/lib/offline/offline-state";
+import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
 import { cachePendingChanges } from "@/shared/lib/offline/cache/manager/write";
+import { getLocalDeviceId, getLocalSigningPubKeyB64 } from "../share-identity";
+import { getDocumentDekCacheKey } from "../share-access";
+import { getDocumentCryptoWorker } from "../crypto-worker";
+import { canBufferDisconnectedChanges } from "../readiness";
+import { hasUnsavedCanonicalText, refreshSavedBaselineToCurrent } from "./canonical";
+import { armSaveAckWatchdog, clearSaveAckWatchdog } from "./save-watchdog";
+import { createSyncGapError } from "../inbound/verify-decrypt";
 
 const THROTTLE_MS = 25;
+const BLOCKED_RETRY_MS = 1_000;
 const SNAPSHOT_UPDATE_THRESHOLD = 100;
 const SNAPSHOT_RETRY_DELAY_MS = 5_000;
 
-export function startAutoSync(documentId: string, state: DocumentState): AutoSyncHandle {
+interface AutoSyncOptions {
+  onSaveAckTimeout?: (kind: "update" | "snapshot") => void;
+}
+
+export function startAutoSync(
+  documentId: string,
+  state: DocumentState,
+  options: AutoSyncOptions = {},
+): AutoSyncHandle {
+  const sharedText = state.yDoc.getText("content");
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -24,27 +45,64 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
       if (dirty) {
         // Offline mode: skip server sends, flush pending changes to IndexedDB
         if (offlineMode()) {
+          const reason = offlineReason();
+          if (reason === "auth_backoff") {
+            scheduleBlockedRetry();
+            return;
+          }
+          if (
+            (reason === "ws_disconnect" || reason === "server_unreachable") &&
+            !canBufferDisconnectedChanges(state)
+          ) {
+            scheduleBlockedRetry();
+            return;
+          }
           if (state.initialized && state.keyVersion > 0) {
             dirty = false;
             cachePendingChanges(documentId, state).catch(() => {});
           }
           return;
         }
-        if (!state.initialized || !state.channel || state.sending || state.error) return;
+        if (state.error || state.readOnly) {
+          return;
+        }
+        if (
+          !state.initialized ||
+          !state.channel ||
+          getChannelState(state.channel) !== "joined" ||
+          state.sending ||
+          state._reconnecting
+        ) {
+          scheduleBlockedRetry();
+          return;
+        }
         dirty = false;
-        await sendPendingChanges(documentId, state).catch((err) => {
+        await sendPendingChanges(documentId, state, options).catch((err) => {
+          dirty = true;
+          scheduleBlockedRetry();
           console.error("[auto-sync] send failed:", err);
         });
       }
     }, THROTTLE_MS);
   }
 
-  const observer = (_update: Uint8Array, origin: unknown) => {
-    if (origin === "remote") return;
+  function scheduleBlockedRetry(): void {
+    if (timer || disposed) return;
+    const delay = Math.max(BLOCKED_RETRY_MS, getAuthTransportBackoffMs());
+    timer = setTimeout(() => {
+      timer = null;
+      if (!disposed && dirty) {
+        scheduleSend();
+      }
+    }, delay);
+  }
+
+  const observer = () => {
+    if (state._applyingRemote) return;
     dirty = true;
     scheduleSend();
   };
-  state.yDoc.on("update", observer);
+  sharedText.observe(observer);
 
   // If DEK rotation was completed during init, trigger immediate snapshot
   if (state.pendingRotationSnapshot) {
@@ -68,8 +126,9 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
   return {
     dispose() {
       disposed = true;
+      clearSaveAckWatchdog(state);
       cleanupOfflineWatch();
-      state.yDoc.off("update", observer);
+      sharedText.unobserve(observer);
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -80,6 +139,7 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
       scheduleSend();
     },
     flush() {
+      dirty = true;
       scheduleSend();
     },
   };
@@ -87,11 +147,33 @@ export function startAutoSync(documentId: string, state: DocumentState): AutoSyn
 
 // ── Send pending changes ─────────────────────────────────────
 
-async function sendPendingChanges(documentId: string, state: DocumentState): Promise<void> {
-  if (!state.initialized || !state.channel || state.sending || state.error) return;
+function isChannelJoined(state: DocumentState): boolean {
+  return !!state.channel && getChannelState(state.channel) === "joined";
+}
+
+function retryAfterDisconnectedSend(documentId: string, state: DocumentState): void {
+  state.sending = false;
+  if (canBufferDisconnectedChanges(state)) {
+    cachePendingChanges(documentId, state).catch(() => {});
+    return;
+  }
+  state.autoSync?.notifyLocalEdit();
+}
+
+async function sendPendingChanges(
+  documentId: string,
+  state: DocumentState,
+  options: AutoSyncOptions,
+): Promise<void> {
+  if (!state.initialized || !isChannelJoined(state) || state.sending || state.error) {
+    return;
+  }
 
   const device = deviceState();
-  if (!device?.deviceSigningPublic) return;
+  const deviceSigningPubKey =
+    getLocalSigningPubKeyB64(state) ??
+    (device?.deviceSigningPublic ? base64UrlEncode(device.deviceSigningPublic) : undefined);
+  if (!deviceSigningPubKey) return;
 
   state.sending = true;
   try {
@@ -101,7 +183,7 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
         state.sending = false;
         return;
       }
-      await createAndSendGenesisSnapshot(documentId, state);
+      await createAndSendGenesisSnapshot(documentId, state, options);
       return;
     }
 
@@ -111,10 +193,18 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
       return;
     }
 
+    const hasCanonicalChanges = hasUnsavedCanonicalText(state);
+
     // Check if we should create a snapshot first
     // Triggers: update count threshold OR pending DEK rotation
     if (state.snapshotUpdatesCount >= SNAPSHOT_UPDATE_THRESHOLD || state.pendingRotationSnapshot) {
-      await createAndSendSnapshot(documentId, state);
+      await createAndSendSnapshot(documentId, state, options);
+      return;
+    }
+
+    if (!hasCanonicalChanges) {
+      refreshSavedBaselineToCurrent(state);
+      state.sending = false;
       return;
     }
 
@@ -139,15 +229,15 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
       }
     }
 
-    const worker = getCryptoWorker();
-    const deviceSigningPubKey = base64UrlEncode(device.deviceSigningPublic);
-    const deviceId = await worker.getDeviceId();
+    const worker = getDocumentCryptoWorker(state);
+    const deviceId = getLocalDeviceId(state) ?? (await worker.getDeviceId());
 
     // 1. Encrypt
     const { ciphertext, nonce } = await worker.encryptContent({
       plaintext: updateBytes,
       documentId,
       keyVersion: state.keyVersion,
+      cacheKey: getDocumentDekCacheKey(state, documentId),
     });
     const ciphertextB64 = base64UrlEncode(ciphertext);
     const nonceB64 = base64UrlEncode(nonce);
@@ -194,23 +284,43 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
       signature: base64UrlEncode(signature),
       publicData,
     };
-    pushUpdate(documentId, envelope, (resp: unknown) => {
-      // Only reset on actual server error (not timeout — timeout fires
-      // even on success because server uses {:noreply} + separate event)
-      if (resp !== "timeout" && state.pendingUpdateBytes) {
-        state.sending = false;
-        state.pendingUpdateBytes = null;
-        state.pendingUpdateEnvelope = null;
-        state.localClock = state.preSendLocalClock;
-        if (state.autoSync) state.autoSync.notifyLocalEdit();
-      }
-    });
-
-    // Save pending state for update-saved handling and reconnect replay
     state.pendingUpdateBytes = updateBytes;
     state.pendingUpdateEnvelope = envelope;
     state.preSendLocalClock = state.localClock;
     state.localClock++;
+
+    if (!isChannelJoined(state)) {
+      state.pendingUpdateBytes = null;
+      state.pendingUpdateEnvelope = null;
+      state.localClock = state.preSendLocalClock;
+      retryAfterDisconnectedSend(documentId, state);
+      return;
+    }
+
+    const pushed = pushUpdate(
+      documentId,
+      envelope,
+      (resp: unknown) => {
+        // Only reset on actual server error (not timeout — timeout fires
+        // even on success because server uses {:noreply} + separate event)
+        if (resp !== "timeout" && state.pendingUpdateBytes) {
+          state.sending = false;
+          state.pendingUpdateBytes = null;
+          state.pendingUpdateEnvelope = null;
+          state.localClock = state.preSendLocalClock;
+          if (state.autoSync) state.autoSync.notifyLocalEdit();
+        }
+      },
+      state.stateKey,
+    );
+    if (!pushed) {
+      state.pendingUpdateBytes = null;
+      state.pendingUpdateEnvelope = null;
+      state.localClock = state.preSendLocalClock;
+      retryAfterDisconnectedSend(documentId, state);
+      return;
+    }
+    armSaveAckWatchdog(state, options.onSaveAckTimeout ?? (() => {}), "update");
   } catch (err) {
     state.sending = false;
     throw err;
@@ -222,13 +332,15 @@ async function sendPendingChanges(documentId: string, state: DocumentState): Pro
 async function createAndSendGenesisSnapshot(
   documentId: string,
   state: DocumentState,
+  options: AutoSyncOptions,
 ): Promise<void> {
-  const worker = getCryptoWorker();
+  const worker = getDocumentCryptoWorker(state);
   const device = deviceState();
-  if (!device?.deviceSigningPublic) return;
-
-  const deviceSigningPubKey = base64UrlEncode(device.deviceSigningPublic);
-  const deviceId = await worker.getDeviceId();
+  const deviceSigningPubKey =
+    getLocalSigningPubKeyB64(state) ??
+    (device?.deviceSigningPublic ? base64UrlEncode(device.deviceSigningPublic) : undefined);
+  if (!deviceSigningPubKey) return;
+  const deviceId = getLocalDeviceId(state) ?? (await worker.getDeviceId());
 
   // Encode full Y.Doc state (V2 format)
   const yjsState = Y.encodeStateAsUpdateV2(state.yDoc);
@@ -242,6 +354,7 @@ async function createAndSendGenesisSnapshot(
     plaintext: yjsState,
     documentId,
     keyVersion: state.keyVersion,
+    cacheKey: getDocumentDekCacheKey(state, documentId),
   });
   const ciphertextB64 = base64UrlEncode(ciphertext);
   const nonceB64 = base64UrlEncode(nonce);
@@ -273,6 +386,7 @@ async function createAndSendGenesisSnapshot(
   // Track pending snapshot
   state.pendingSnapshot = {
     snapshotId,
+    parentSnapshotId: null,
     ciphertextHash,
     parentSnapshotProof: "",
     snapshotYjsState: yjsState,
@@ -289,33 +403,63 @@ async function createAndSendGenesisSnapshot(
     publicData,
   };
   state.pendingSnapshotEnvelope = snapshotEnvelope;
-  pushSnapshot(documentId, snapshotEnvelope, (resp: unknown) => {
-    if (resp === "timeout") return;
+  if (!isChannelJoined(state)) {
     state.pendingSnapshot = null;
     state.pendingSnapshotEnvelope = null;
-    state.sending = false;
-    if (isPermanentPushFailure(resp)) {
-      state.pendingRotationSnapshot = false;
-    } else {
-      scheduleSnapshotRetryIfNeeded(state);
-    }
-  });
+    retryAfterDisconnectedSend(documentId, state);
+    return;
+  }
+
+  const pushed = pushSnapshot(
+    documentId,
+    snapshotEnvelope,
+    (resp: unknown) => {
+      if (resp === "timeout") return;
+      state.pendingSnapshot = null;
+      state.pendingSnapshotEnvelope = null;
+      state.sending = false;
+      if (isPermanentPushFailure(resp)) {
+        state.pendingRotationSnapshot = false;
+      } else {
+        scheduleSnapshotRetryIfNeeded(state);
+      }
+    },
+    state.stateKey,
+  );
+  if (!pushed) {
+    state.pendingSnapshot = null;
+    state.pendingSnapshotEnvelope = null;
+    retryAfterDisconnectedSend(documentId, state);
+    return;
+  }
+  armSaveAckWatchdog(state, options.onSaveAckTimeout ?? (() => {}), "snapshot");
 }
 
 // ── Threshold snapshot ───────────────────────────────────────
 
-async function createAndSendSnapshot(documentId: string, state: DocumentState): Promise<void> {
+async function createAndSendSnapshot(
+  documentId: string,
+  state: DocumentState,
+  options: AutoSyncOptions,
+): Promise<void> {
   if (!state.activeSnapshotId) {
     state.sending = false;
     return;
   }
+  if (!state.snapshotProofHash || !state.snapshotCiphertextHash) {
+    state.sending = false;
+    state._forceCompleteReconnect = true;
+    state._onRecoverableSyncGap?.(createSyncGapError("snapshot_baseline_missing"));
+    return;
+  }
 
-  const worker = getCryptoWorker();
+  const worker = getDocumentCryptoWorker(state);
   const device = deviceState();
-  if (!device?.deviceSigningPublic) return;
-
-  const deviceSigningPubKey = base64UrlEncode(device.deviceSigningPublic);
-  const deviceId = await worker.getDeviceId();
+  const deviceSigningPubKey =
+    getLocalSigningPubKeyB64(state) ??
+    (device?.deviceSigningPublic ? base64UrlEncode(device.deviceSigningPublic) : undefined);
+  if (!deviceSigningPubKey) return;
+  const deviceId = getLocalDeviceId(state) ?? (await worker.getDeviceId());
 
   // Encode full Y.Doc state (V2 format)
   const yjsState = Y.encodeStateAsUpdateV2(state.yDoc);
@@ -328,6 +472,7 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
     plaintext: yjsState,
     documentId,
     keyVersion: snapshotKeyVersion,
+    cacheKey: getDocumentDekCacheKey(state, documentId),
   });
   const ciphertextB64 = base64UrlEncode(ciphertext);
   const nonceB64 = base64UrlEncode(nonce);
@@ -362,6 +507,7 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
   // Track pending snapshot
   state.pendingSnapshot = {
     snapshotId,
+    parentSnapshotId: state.activeSnapshotId,
     ciphertextHash,
     parentSnapshotProof,
     snapshotYjsState: yjsState,
@@ -376,17 +522,36 @@ async function createAndSendSnapshot(documentId: string, state: DocumentState): 
     publicData,
   };
   state.pendingSnapshotEnvelope = snapshotEnvelope;
-  pushSnapshot(documentId, snapshotEnvelope, (resp: unknown) => {
-    if (resp === "timeout") return;
+  if (!isChannelJoined(state)) {
     state.pendingSnapshot = null;
     state.pendingSnapshotEnvelope = null;
-    state.sending = false;
-    if (isPermanentPushFailure(resp)) {
-      state.pendingRotationSnapshot = false;
-    } else {
-      scheduleSnapshotRetryIfNeeded(state);
-    }
-  });
+    retryAfterDisconnectedSend(documentId, state);
+    return;
+  }
+
+  const pushed = pushSnapshot(
+    documentId,
+    snapshotEnvelope,
+    (resp: unknown) => {
+      if (resp === "timeout") return;
+      state.pendingSnapshot = null;
+      state.pendingSnapshotEnvelope = null;
+      state.sending = false;
+      if (isPermanentPushFailure(resp)) {
+        state.pendingRotationSnapshot = false;
+      } else {
+        scheduleSnapshotRetryIfNeeded(state);
+      }
+    },
+    state.stateKey,
+  );
+  if (!pushed) {
+    state.pendingSnapshot = null;
+    state.pendingSnapshotEnvelope = null;
+    retryAfterDisconnectedSend(documentId, state);
+    return;
+  }
+  armSaveAckWatchdog(state, options.onSaveAckTimeout ?? (() => {}), "snapshot");
 }
 
 // ── Snapshot push failure handling ───────────────────────────

@@ -3,9 +3,11 @@ import type { Awareness } from "y-protocols/awareness";
 import type { Channel } from "phoenix";
 import type { RemoteSnapshotPayload, UpdatePayload } from "@/shared/lib/ws/document-payloads";
 import type { EphemeralSession } from "../../lib/sync/ephemeral/session";
+import type { DocumentAccess } from "./access";
 
 interface PendingSnapshot {
   snapshotId: string;
+  parentSnapshotId: string | null;
   ciphertextHash: string;
   parentSnapshotProof: string;
   snapshotYjsState: Uint8Array;
@@ -18,7 +20,15 @@ export interface AutoSyncHandle {
   flush: () => void;
 }
 
+export interface PublicationState {
+  isPublished: boolean;
+  updatedAt: string | null;
+}
+
 export interface DocumentState {
+  stateKey: string;
+  documentId: string;
+  access: DocumentAccess;
   yDoc: Y.Doc;
   awareness: Awareness;
   refCount: number;
@@ -36,6 +46,7 @@ export interface DocumentState {
   localClock: number;
   knownClocks: Record<string, number>;
   confirmedClocks: Record<string, number>;
+  snapshotBaseClocks: Record<string, number>;
   lastSavedState: Uint8Array | null;
   snapshotUpdatesCount: number;
   snapshotProofHash: string;
@@ -44,6 +55,7 @@ export interface DocumentState {
   latestVersion: number;
   autoSync: AutoSyncHandle | null;
   signingKeys: Map<string, Uint8Array>;
+  historicalSigningKeys: Map<string, Uint8Array>;
   signingKeyOwners: Map<string, string>;
   memberNames: Map<string, string>;
   revokedSigningKeys: Set<string>;
@@ -59,6 +71,8 @@ export interface DocumentState {
   ephemeralSession: EphemeralSession | null;
   awarenessRelayCleanup: (() => void) | null;
   _reconnecting: boolean;
+  _reconnectTimer: ReturnType<typeof setTimeout> | null;
+  _syncPaused: boolean;
   _pendingRemoteEvents: Array<
     | {
         type: "update";
@@ -69,15 +83,27 @@ export interface DocumentState {
         payload: RemoteSnapshotPayload;
       }
   >;
+  _pendingOutOfOrderUpdates: UpdatePayload[];
+  _drainingOutOfOrderUpdates: boolean;
+  _syncGapTimer: ReturnType<typeof setTimeout> | null;
+  _onRecoverableSyncGap: ((err: unknown) => void) | null;
   _lastJoinMode: "complete" | "delta";
+  _forceCompleteReconnect: boolean;
   offlineFlushCleanup: (() => void) | null;
   offlineResumeCleanup: (() => void) | null;
   loadedFromOfflineCache: boolean;
   _reauthResolvers: Array<() => void>;
   _rollbackResolvers: Array<() => void>;
+  _replaceRollbackPinOnNextPersist: boolean;
   _headlessSync: boolean;
   readOnly: boolean;
+  writerLockCleanup: (() => void) | null;
+  pendingSaveTimeout: ReturnType<typeof setTimeout> | null;
+  publicationState: PublicationState;
+  canSyncPublication: boolean;
+  lastPublicationContentHash: string | null;
   _cachedConfirmedStateVector: Uint8Array | null;
+  _applyingRemote: boolean;
 }
 
 export interface TeardownOptions {

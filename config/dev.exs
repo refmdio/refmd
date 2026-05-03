@@ -55,6 +55,12 @@ config :refmd, RefMDWeb.Endpoint,
 # Dummy salt secret for consistent fake salts (non-existent users)
 config :refmd, dummy_salt_secret: "dev-dummy-salt-secret-do-not-use-in-production"
 
+config :refmd,
+  share_server_key_id: "dev-share-key",
+  share_server_keys: %{
+    "dev-share-key" => Base.url_encode64(:binary.copy(<<2>>, 32), padding: false)
+  }
+
 # CORS origins for VerifyOrigin plug (same-origin in dev)
 config :refmd,
   cors_origins:

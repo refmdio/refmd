@@ -52,7 +52,12 @@ export function useDocumentTitles(
       const titles: Record<string, string> = {};
       for (const doc of docs) {
         const cached = titleCache.get(doc.id);
-        if (cached) titles[doc.id] = cached.title;
+        if (cached) {
+          titles[doc.id] = cached.title;
+          if (doc.is_encrypted) {
+            cacheOfflineTitle(doc.id, wsId, cached.title).catch(() => {});
+          }
+        }
       }
       setDecryptedTitles(titles);
       return;
@@ -119,9 +124,29 @@ async function decryptBatch(
     await recoverKekFromCache(workspaceId).catch(() => {});
   }
 
-  // Ensure DEKs are cached for each document (resolves version-specific KEK if needed)
+  // Pre-check DEK cache state for all documents in a single batch request
+  const checkItems = docs
+    .filter((d) => d.encrypted_title_key_version != null)
+    .map((d) => ({
+      requestId: d.id,
+      documentId: d.id,
+      keyVersion: d.encrypted_title_key_version!,
+    }));
+  const cachedMap = new Map<string, boolean>();
+  if (checkItems.length > 0) {
+    try {
+      const checkResults = await worker.hasDekBatch(checkItems);
+      for (const r of checkResults) cachedMap.set(r.requestId, r.hasDek);
+    } catch {
+      // If batch check fails, fall back to per-doc unwrap (cachedMap stays empty)
+    }
+  }
+
+  // Resolve DEK only for documents that are not yet cached
   for (const doc of docs) {
-    await ensureDekForTitleDecryption(worker, doc, workspaceId);
+    if (doc.encrypted_title_key_version == null) continue;
+    if (cachedMap.get(doc.id)) continue;
+    await fetchAndUnwrapDekForTitle(worker, doc, workspaceId);
   }
 
   const items: TitleDecryptItem[] = docs.map((doc) => ({
@@ -144,16 +169,13 @@ async function decryptBatch(
   }
 }
 
-async function ensureDekForTitleDecryption(
+async function fetchAndUnwrapDekForTitle(
   worker: ReturnType<typeof getCryptoWorker>,
   doc: DocumentResponse,
   workspaceId: string,
 ): Promise<void> {
   const titleKeyVersion = doc.encrypted_title_key_version;
   if (titleKeyVersion == null) return;
-
-  const hasDek = await worker.hasDek(doc.id, titleKeyVersion);
-  if (hasDek) return;
 
   try {
     const dekResponse = await encryptionApi.getDocumentKeys(doc.id);

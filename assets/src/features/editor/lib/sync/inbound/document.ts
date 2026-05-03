@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { deviceState } from "@/entities/session";
 import { getNextClockForDevice } from "@/shared/lib/anti-rollback/clock-observations";
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { hasCompleteSnapshotPin } from "@/shared/lib/anti-rollback/document-state-pins";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import type {
   DocumentPayload,
@@ -11,9 +11,15 @@ import type {
 import { resolveSigningKey } from "./signing-keys";
 import type { DocumentState } from "../../../model/document-state/types";
 import { detectDocumentRollback, persistDocumentRollbackPin } from "./rollback";
+import { isRecoverableSyncGapError } from "../error";
+import { getDocumentDekCacheKey } from "../share-access";
+import { getLocalSigningPubKeyB64, getLocalSigningPublicKeyBytes } from "../share-identity";
+import { getDocumentCryptoWorker } from "../crypto-worker";
+import { applyInitialPublicationState, queuePublicationAutoSync } from "../outbound/publication";
 import {
   checkRotationSnapshot,
   createRollbackAttackError,
+  createSyncGapError,
   createVerificationFailedError,
   ensureDekCached,
   throwIfDocumentProcessingCancelled,
@@ -30,8 +36,9 @@ export async function handleDocumentMessage(
   state: DocumentState,
   documentId: string,
 ): Promise<void> {
-  throwIfDocumentProcessingCancelled(documentId, state);
-  const worker = getCryptoWorker();
+  throwIfDocumentProcessingCancelled(state);
+  applyInitialPublicationState(documentId, state, payload.publicState);
+  const worker = getDocumentCryptoWorker(state);
   const pin = await detectDocumentRollback(payload, state, documentId);
 
   // Phase 1: Decrypt snapshot (async, before transact)
@@ -45,10 +52,12 @@ export async function handleDocumentMessage(
 
   if (payload.snapshot) {
     const snap = payload.snapshot;
-    throwIfDocumentProcessingCancelled(documentId, state);
+    throwIfDocumentProcessingCancelled(state);
 
     // Step 3a: signingPubKey membership confirmation
-    const keyResult = await resolveSigningKey(snap.publicData.signingPubKey, state);
+    const keyResult = await resolveSigningKey(snap.publicData.signingPubKey, state, {
+      includeHistorical: true,
+    });
     if (keyResult.status === "key_changed") {
       throw createVerificationFailedError(`TOFU key change: device ${keyResult.warning.deviceId}`);
     }
@@ -60,7 +69,12 @@ export async function handleDocumentMessage(
         `Snapshot: rejected signing key (cross-sign failed) ${snap.publicData.signingPubKey}`,
       );
     }
-    // Signature verification (skip if signer is unknown former member)
+    if (keyResult.status === "not_found") {
+      throw createVerificationFailedError(
+        `Snapshot: unknown signing key ${snap.publicData.signingPubKey}`,
+      );
+    }
+    // Signature verification is mandatory once the signing key is resolved.
     if (keyResult.status === "found") {
       const valid = await worker.verifyWsSignature({
         prefix: "refmd_snapshot",
@@ -76,14 +90,20 @@ export async function handleDocumentMessage(
     }
 
     // Step 3c: parentSnapshotProof verification via snapshotProofChain
-    // Use persisted pin as anchor when in-memory state is empty (cold join after restart)
-    const anchorSnapshotId = state.activeSnapshotId ?? pin?.latestSnapshotId ?? null;
-    const anchorProofHash = state.snapshotProofHash || pin?.latestSnapshotProofHash || "";
-    if (anchorSnapshotId) {
-      const snapshotChanged = snap.publicData.snapshotId !== anchorSnapshotId;
+    // Snapshot ID and proof must come from the same baseline.
+    const stateAnchor =
+      state.activeSnapshotId && state.snapshotProofHash && state.snapshotCiphertextHash
+        ? { snapshotId: state.activeSnapshotId, proofHash: state.snapshotProofHash }
+        : null;
+    const pinAnchor = hasCompleteSnapshotPin(pin)
+      ? { snapshotId: pin.latestSnapshotId, proofHash: pin.latestSnapshotProofHash }
+      : null;
+    const anchor = pinAnchor ?? stateAnchor;
+    if (anchor) {
+      const snapshotChanged = snap.publicData.snapshotId !== anchor.snapshotId;
 
       if (snapshotChanged && payload.snapshotProofChain.length === 0) {
-        // Fail-closed: pin exists, snapshot changed, but no proof chain
+        // Fail-closed: pin exists, snapshot changed, but no proof chain.
         throw createRollbackAttackError(
           "Snapshot changed but no proof chain provided (rollback attack)",
         );
@@ -92,7 +112,6 @@ export async function handleDocumentMessage(
       if (snapshotChanged && payload.snapshotProofChain.length > 0) {
         // anchorProofHash IS the computed proof for the anchor snapshot.
         // Chain head's parentSnapshotProof should match this directly.
-        const pinnedProof = anchorProofHash;
         const incomingCiphertextHash = base64UrlEncode(
           await worker.blake3Hash(base64UrlDecode(snap.ciphertext)),
         );
@@ -100,7 +119,7 @@ export async function handleDocumentMessage(
           worker,
           payload.snapshotProofChain,
           snap.publicData.parentSnapshotProof,
-          pinnedProof,
+          anchor.proofHash,
           snap.publicData.snapshotId,
           incomingCiphertextHash,
         );
@@ -108,13 +127,14 @@ export async function handleDocumentMessage(
     }
 
     // Step 3d: AEAD decryption
-    throwIfDocumentProcessingCancelled(documentId, state);
-    await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion);
+    throwIfDocumentProcessingCancelled(state);
+    await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion, state);
     decryptedSnapshot = await worker.decryptSnapshot({
       ciphertext: base64UrlDecode(snap.ciphertext),
       nonce: base64UrlDecode(snap.nonce),
       documentId,
       keyVersion: snap.publicData.keyVersion,
+      cacheKey: getDocumentDekCacheKey(state, documentId),
     });
 
     snapshotMeta = {
@@ -129,23 +149,33 @@ export async function handleDocumentMessage(
   const prevActiveSnapshotId = state.activeSnapshotId;
   const prevKnownClocks = { ...state.knownClocks };
   const prevConfirmedClocks = { ...state.confirmedClocks };
+  const prevSnapshotBaseClocks = { ...state.snapshotBaseClocks };
 
   if (snapshotMeta) {
     state.activeSnapshotId = snapshotMeta.snapshotId;
-    const parentSnapshotClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
-    state.knownClocks = parentSnapshotClocks;
-    state.confirmedClocks = { ...parentSnapshotClocks };
+    state.snapshotBaseClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
+    state.knownClocks = {};
+    state.confirmedClocks = {};
+    state._pendingOutOfOrderUpdates = [];
+    clearOutOfOrderGapTimeout(state);
   }
 
   // Phase 2: Verify and decrypt all updates (async, before transact)
   let decryptedUpdates: Awaited<ReturnType<typeof verifyAndDecryptUpdates>>;
   try {
-    decryptedUpdates = await verifyAndDecryptUpdates(payload.updates, state, documentId, true);
+    decryptedUpdates = await verifyAndDecryptUpdates(
+      payload.updates,
+      state,
+      documentId,
+      false,
+      true,
+    );
   } catch (err) {
     // Rollback temporary state on verification failure
     state.activeSnapshotId = prevActiveSnapshotId;
     state.knownClocks = prevKnownClocks;
     state.confirmedClocks = prevConfirmedClocks;
+    state.snapshotBaseClocks = prevSnapshotBaseClocks;
     throw err;
   }
 
@@ -158,18 +188,24 @@ export async function handleDocumentMessage(
     state.activeSnapshotId = prevActiveSnapshotId;
     state.knownClocks = prevKnownClocks;
     state.confirmedClocks = prevConfirmedClocks;
+    state.snapshotBaseClocks = prevSnapshotBaseClocks;
     throw createRollbackAttackError("Version regression detected");
   }
 
   // Phase 3: Apply atomically inside transact (sync, no awaits)
-  state.yDoc.transact(() => {
-    if (decryptedSnapshot) {
-      Y.applyUpdateV2(state.yDoc, decryptedSnapshot, "remote");
-    }
-    for (const { decrypted } of decryptedUpdates) {
-      Y.applyUpdate(state.yDoc, decrypted, "remote");
-    }
-  }, "remote");
+  state._applyingRemote = true;
+  try {
+    state.yDoc.transact(() => {
+      if (decryptedSnapshot) {
+        Y.applyUpdateV2(state.yDoc, decryptedSnapshot, "remote");
+      }
+      for (const { decrypted } of decryptedUpdates) {
+        Y.applyUpdate(state.yDoc, decrypted, "remote");
+      }
+    }, "remote");
+  } finally {
+    state._applyingRemote = false;
+  }
 
   // Commit snapshot metadata after successful verification + application.
   // Compute the proof hash for the active snapshot (not its parent's proof).
@@ -227,6 +263,7 @@ export async function handleDocumentMessage(
   persistDocumentRollbackPin(documentId, state);
 
   state.initialized = true;
+  queuePublicationAutoSync(documentId, state);
 }
 
 // ── Remote update ────────────────────────────────────────────
@@ -248,11 +285,24 @@ export async function handleRemoteUpdate(
   }
 
   // Verify and decrypt (single decryption — includes refSnapshotId + TOFU + signature)
-  const result = await verifyAndDecryptSingleUpdate(payload, state, documentId);
+  let result: Awaited<ReturnType<typeof verifyAndDecryptSingleUpdate>>;
+  try {
+    result = await verifyAndDecryptSingleUpdate(payload, state, documentId);
+  } catch (err) {
+    if (isRecoverableSyncGapError(err)) {
+      enqueueOutOfOrderUpdate(state, payload);
+      return;
+    }
+    throw err;
+  }
   if (!result) return; // stale/duplicate
 
-  // Apply to live Y.Doc
-  Y.applyUpdate(state.yDoc, result.decrypted, "remote");
+  state._applyingRemote = true;
+  try {
+    Y.applyUpdate(state.yDoc, result.decrypted, "remote");
+  } finally {
+    state._applyingRemote = false;
+  }
 
   // Update clocks
   state.knownClocks[result.deviceKey] = result.clock;
@@ -283,6 +333,82 @@ export async function handleRemoteUpdate(
       state.localClock = payload.publicData.clock + 1;
     }
   }
+
+  await drainOutOfOrderUpdates(state, documentId, localDeviceSigningPubKey);
+}
+
+function enqueueOutOfOrderUpdate(state: DocumentState, payload: UpdatePayload): void {
+  const exists = state._pendingOutOfOrderUpdates.some(
+    (queued) =>
+      queued.publicData.refSnapshotId === payload.publicData.refSnapshotId &&
+      queued.publicData.signingPubKey === payload.publicData.signingPubKey &&
+      queued.publicData.clock === payload.publicData.clock,
+  );
+  if (!exists) {
+    state._pendingOutOfOrderUpdates.push(payload);
+  }
+  scheduleOutOfOrderGapTimeout(state);
+}
+
+function scheduleOutOfOrderGapTimeout(state: DocumentState): void {
+  if (state._syncGapTimer) return;
+  state._syncGapTimer = setTimeout(() => {
+    state._syncGapTimer = null;
+    if (state._pendingOutOfOrderUpdates.length === 0) return;
+
+    const first = state._pendingOutOfOrderUpdates[0]!;
+    state._onRecoverableSyncGap?.(
+      createSyncGapError(
+        `Out-of-order update did not resolve: device=${first.publicData.signingPubKey} clock=${first.publicData.clock}`,
+      ),
+    );
+  }, 2_000);
+}
+
+function clearOutOfOrderGapTimeout(state: DocumentState): void {
+  if (!state._syncGapTimer) return;
+  clearTimeout(state._syncGapTimer);
+  state._syncGapTimer = null;
+}
+
+async function drainOutOfOrderUpdates(
+  state: DocumentState,
+  documentId: string,
+  localDeviceSigningPubKey?: string,
+): Promise<void> {
+  if (state._drainingOutOfOrderUpdates) return;
+  state._drainingOutOfOrderUpdates = true;
+  try {
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      state._pendingOutOfOrderUpdates.sort(
+        (a, b) =>
+          a.publicData.signingPubKey.localeCompare(b.publicData.signingPubKey) ||
+          a.publicData.clock - b.publicData.clock,
+      );
+
+      for (let index = 0; index < state._pendingOutOfOrderUpdates.length; index += 1) {
+        const queued = state._pendingOutOfOrderUpdates[index]!;
+        const lastClock = state.knownClocks[queued.publicData.signingPubKey];
+        const expectedClock = lastClock === undefined ? 0 : lastClock + 1;
+        if (
+          queued.publicData.refSnapshotId === state.activeSnapshotId &&
+          queued.publicData.clock === expectedClock
+        ) {
+          state._pendingOutOfOrderUpdates.splice(index, 1);
+          await handleRemoteUpdate(queued, state, documentId, localDeviceSigningPubKey);
+          progressed = true;
+          break;
+        }
+      }
+    }
+    if (state._pendingOutOfOrderUpdates.length === 0) {
+      clearOutOfOrderGapTimeout(state);
+    }
+  } finally {
+    state._drainingOutOfOrderUpdates = false;
+  }
 }
 
 // ── Remote snapshot ──────────────────────────────────────────
@@ -303,8 +429,11 @@ export async function handleRemoteSnapshot(
     );
   }
 
-  const worker = getCryptoWorker();
+  const worker = getDocumentCryptoWorker(state);
   const snap = payload.snapshot;
+  if (snap.publicData.snapshotId === state.activeSnapshotId) {
+    return;
+  }
 
   // Resolve and verify signing key membership + TOFU
   const keyResult = await resolveSigningKey(snap.publicData.signingPubKey, state);
@@ -322,7 +451,7 @@ export async function handleRemoteSnapshot(
     state.activeSnapshotId !== null &&
     snap.publicData.parentSnapshotId !== state.activeSnapshotId
   ) {
-    throw createVerificationFailedError(
+    throw createSyncGapError(
       `Remote snapshot: parentSnapshotId mismatch (expected=${state.activeSnapshotId}, got=${snap.publicData.parentSnapshotId})`,
     );
   }
@@ -330,7 +459,7 @@ export async function handleRemoteSnapshot(
   // Verify parentSnapshotProof matches the current active snapshot's proof hash.
   // state.snapshotProofHash IS the computed proof for the current active snapshot.
   // The new snapshot's parentSnapshotProof should match it directly.
-  if (state.activeSnapshotId !== null && state.snapshotProofHash) {
+  if (state.activeSnapshotId !== null && state.snapshotProofHash && state.snapshotCiphertextHash) {
     if (snap.publicData.parentSnapshotProof !== state.snapshotProofHash) {
       throw createVerificationFailedError(
         "Remote snapshot: parentSnapshotProof verification failed",
@@ -350,15 +479,21 @@ export async function handleRemoteSnapshot(
     throw createVerificationFailedError("Remote snapshot signature verification failed");
   }
 
-  await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion);
+  await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion, state);
   const decrypted = await worker.decryptSnapshot({
     ciphertext: base64UrlDecode(snap.ciphertext),
     nonce: base64UrlDecode(snap.nonce),
     documentId,
     keyVersion: snap.publicData.keyVersion,
+    cacheKey: getDocumentDekCacheKey(state, documentId),
   });
 
-  Y.applyUpdateV2(state.yDoc, decrypted, "remote");
+  state._applyingRemote = true;
+  try {
+    Y.applyUpdateV2(state.yDoc, decrypted, "remote");
+  } finally {
+    state._applyingRemote = false;
+  }
 
   // Advance local keyVersion if remote uses a newer DEK
   if (snap.publicData.keyVersion > state.keyVersion) {
@@ -377,14 +512,17 @@ export async function handleRemoteSnapshot(
     snapshotId: snap.publicData.snapshotId,
   });
 
-  const parentSnapshotClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
-  const localDeviceSigningPublic = deviceState()?.deviceSigningPublic;
-  state.knownClocks = parentSnapshotClocks;
-  state.confirmedClocks = { ...parentSnapshotClocks };
+  const localDeviceSigningPublic =
+    getLocalSigningPublicKeyBytes(state) ?? deviceState()?.deviceSigningPublic;
+  state.snapshotBaseClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
+  state.knownClocks = {};
+  state.confirmedClocks = {};
+  state._pendingOutOfOrderUpdates = [];
   state.snapshotUpdatesCount = 0;
   state.localClock = getNextClockForDevice(
-    parentSnapshotClocks,
-    localDeviceSigningPublic ? base64UrlEncode(localDeviceSigningPublic) : undefined,
+    state.knownClocks,
+    getLocalSigningPubKeyB64(state) ??
+      (localDeviceSigningPublic ? base64UrlEncode(localDeviceSigningPublic) : undefined),
   );
 
   // Build lastSavedState from server data only (not live Y.Doc which may have local edits)

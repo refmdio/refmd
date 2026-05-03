@@ -1,11 +1,11 @@
 import { Show, createSignal, createEffect, onCleanup, type ParentProps } from "solid-js";
 import { Spinner } from "@/shared/ui/spinner";
-import { AlertCircleIcon, WifiOffIcon } from "lucide-solid";
+import { AlertCircleIcon } from "lucide-solid";
 import { currentWorkspaceId } from "@/entities/workspace";
 import {
   getDocumentError,
-  needsReauth,
   completeReauth,
+  needsReauth,
   getRollbackWarning,
   approveRollback,
   initializeDocumentPanel,
@@ -20,9 +20,13 @@ import {
 } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
 import { PasswordReentryDialog } from "@/features/auth";
+import { offlineMode } from "@/shared/lib/offline/offline-state";
 
 interface DocumentPanelShellProps {
   documentId: string;
+  showDialogs?: boolean;
+  stateKey: string;
+  workspaceId?: string | null;
 }
 
 const EXPORTABLE_ERROR_MESSAGES = new Set([
@@ -34,39 +38,46 @@ const EXPORTABLE_ERROR_MESSAGES = new Set([
 export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) {
   const [isLoading, setIsLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
-  const [isOfflineCached, setIsOfflineCached] = createSignal(false);
+  const [_isOfflineCached, setIsOfflineCached] = createSignal(false);
   const [isAccessRevoked, setIsAccessRevoked] = createSignal(false);
   const [isDocumentDeleted, setIsDocumentDeleted] = createSignal(false);
   const [hasWarmCachePreview, setHasWarmCachePreview] = createSignal(false);
 
   createEffect(() => {
-    const cleanup = initializeDocumentPanel(props.documentId, currentWorkspaceId(), {
-      setError,
-      setHasWarmCachePreview,
-      setIsAccessRevoked,
-      setIsDocumentDeleted,
-      setIsLoading,
-      setIsOfflineCached,
-    });
+    const cleanup = initializeDocumentPanel(
+      props.documentId,
+      props.workspaceId ?? currentWorkspaceId(),
+      {
+        setError,
+        setHasWarmCachePreview,
+        setIsAccessRevoked,
+        setIsDocumentDeleted,
+        setIsLoading,
+        setIsOfflineCached,
+      },
+      props.stateKey,
+    );
 
     onCleanup(cleanup);
   });
 
-  const runtimeError = () => getDocumentError(props.documentId);
+  const runtimeError = () => getDocumentError(props.stateKey);
   const displayError = () => error() || runtimeError();
   const canExportCachedContent = () =>
     isAccessRevoked() || isDocumentDeleted() || EXPORTABLE_ERROR_MESSAGES.has(displayError() ?? "");
 
-  const showReauth = () => needsReauth(props.documentId);
-  const rollbackWarning = () => getRollbackWarning(props.documentId);
+  const showReauth = () => needsReauth(props.stateKey);
+  const rollbackWarning = () => getRollbackWarning(props.stateKey);
+  const showDialogs = () => props.showDialogs ?? true;
+  const showWarmCacheLoadingOverlay = () => isLoading() && hasWarmCachePreview() && !offlineMode();
 
   return (
     <>
       <PasswordReentryDialog
-        open={showReauth()}
-        onComplete={() => completeReauth(props.documentId)}
+        open={showDialogs() && showReauth()}
+        onComplete={() => completeReauth(props.stateKey)}
       />
-      <Dialog open={!!rollbackWarning()}>
+      <Dialog open={showDialogs() && !!rollbackWarning()}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>State Inconsistency Detected</DialogTitle>
@@ -77,7 +88,7 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
           </DialogHeader>
           <p class="text-sm text-muted-foreground">{rollbackWarning()}</p>
           <DialogFooter>
-            <Button onClick={() => approveRollback(props.documentId)}>Continue</Button>
+            <Button onClick={() => approveRollback(props.stateKey)}>Continue</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -128,34 +139,22 @@ export function DocumentPanelShell(props: ParentProps<DocumentPanelShellProps>) 
             </div>
           }
         >
-          <div class="relative flex h-full flex-col">
-            <Show when={isOfflineCached()}>
-              <div class="flex items-center gap-1.5 px-3 py-1 text-xs bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300 border-b border-yellow-200 dark:border-yellow-800">
-                <WifiOffIcon class="size-3" />
-                <span>
-                  {isAccessRevoked()
-                    ? "Read-only — workspace access revoked"
-                    : "Editing offline — changes will sync when reconnected"}
-                </span>
+          <div class="relative h-full">
+            <div
+              class="h-full"
+              inert={showWarmCacheLoadingOverlay()}
+              aria-busy={showWarmCacheLoadingOverlay() ? "true" : "false"}
+            >
+              {props.children}
+            </div>
+            <Show when={showWarmCacheLoadingOverlay()}>
+              <div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/55 backdrop-blur-[1px]">
+                <Spinner class="size-5" />
+                <p class="text-xs text-muted-foreground">
+                  Showing cached content while loading the latest version...
+                </p>
               </div>
             </Show>
-            <div class="relative min-h-0 flex-1">
-              <div
-                class="h-full"
-                inert={isLoading() && hasWarmCachePreview()}
-                aria-busy={isLoading() && hasWarmCachePreview() ? "true" : "false"}
-              >
-                {props.children}
-              </div>
-              <Show when={isLoading() && hasWarmCachePreview()}>
-                <div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/55 backdrop-blur-[1px]">
-                  <Spinner class="size-5" />
-                  <p class="text-xs text-muted-foreground">
-                    Showing cached content while loading the latest version...
-                  </p>
-                </div>
-              </Show>
-            </div>
           </div>
         </Show>
       </Show>

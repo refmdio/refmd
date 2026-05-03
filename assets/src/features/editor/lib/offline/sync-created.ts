@@ -23,6 +23,7 @@ import {
   joinTemporaryDocument,
   type DocumentChannelCallbacks,
 } from "@/shared/lib/ws/phoenix-channel";
+import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
 
 interface ErrorWithStatusBody {
   status?: number;
@@ -188,6 +189,7 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
       }
     }
 
+    await ensurePhoenixWsToken("user");
     const popHeaders = await getPopHeaders();
     const { channel, dispose } = await joinTemporaryDocument(
       entry.documentId,
@@ -197,6 +199,7 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
         mode: "complete",
       },
       makeNoopCallbacks(),
+      "user",
     );
     disposeChannel = dispose;
 
@@ -343,6 +346,7 @@ function makeNoopCallbacks(): DocumentChannelCallbacks {
     onSnapshotSaveFailed: () => {},
     onEphemeralMessage: () => {},
     onPeerLeft: () => {},
+    onPublicStatusChanged: () => {},
     onUnauthorized: () => {},
     onError: () => {},
     onClose: () => {},

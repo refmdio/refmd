@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authState: vi.fn(),
   clearAllPersistedKeys: vi.fn(),
+  deleteStoredShareParticipantSessionsForDevice: vi.fn(),
   clearDocumentKeyCache: vi.fn(),
   clearSession: vi.fn(),
   clearSessionData: vi.fn(),
   getCryptoWorker: vi.fn(),
+  getDeviceId: vi.fn(),
   lock: vi.fn(),
   logout: vi.fn(),
   resetPhoenixConnection: vi.fn(),
+  restoreSessionContext: vi.fn(),
   setCurrentWorkspaceId: vi.fn(),
+  getPreferredSessionScope: vi.fn(),
+  setPreferredSessionScope: vi.fn(),
   terminateCryptoWorker: vi.fn(),
 }));
 
@@ -28,8 +34,15 @@ vi.mock("@/shared/lib/auth/key-persistence", () => ({
   clearSessionData: mocks.clearSessionData,
 }));
 
+vi.mock("@/shared/lib/auth/share-participant-session-store", () => ({
+  deleteStoredShareParticipantSessionsForDevice:
+    mocks.deleteStoredShareParticipantSessionsForDevice,
+}));
+
 vi.mock("@/entities/session", () => ({
+  authState: mocks.authState,
   clearSession: mocks.clearSession,
+  restoreSessionContext: mocks.restoreSessionContext,
 }));
 
 vi.mock("@/entities/workspace", () => ({
@@ -45,16 +58,30 @@ vi.mock("@/shared/lib/ws/phoenix-channel", () => ({
   resetPhoenixConnection: mocks.resetPhoenixConnection,
 }));
 
+vi.mock("@/shared/lib/auth/session-scope", () => ({
+  getPreferredSessionScope: mocks.getPreferredSessionScope,
+  setPreferredSessionScope: mocks.setPreferredSessionScope,
+}));
+
 import { performLogout } from "./logout";
 
 describe("logout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getCryptoWorker.mockReturnValue({ lock: mocks.lock });
+    mocks.getCryptoWorker.mockReturnValue({
+      getDeviceId: mocks.getDeviceId,
+      lock: mocks.lock,
+    });
+    mocks.getDeviceId.mockResolvedValue("share-device-id");
     mocks.lock.mockResolvedValue(undefined);
     mocks.logout.mockResolvedValue(undefined);
+    mocks.getPreferredSessionScope.mockReturnValue(null);
+    mocks.authState.mockReturnValue({ user: { id: "user-id" } });
+    mocks.restoreSessionContext.mockResolvedValue(undefined);
     mocks.clearSessionData.mockResolvedValue(undefined);
     mocks.clearAllPersistedKeys.mockResolvedValue(undefined);
+    mocks.deleteStoredShareParticipantSessionsForDevice.mockResolvedValue(undefined);
+    window.history.replaceState({}, "", "/dashboard");
   });
 
   it("clears session state without deleting persisted credentials when requested", async () => {
@@ -68,10 +95,31 @@ describe("logout", () => {
     expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
+    expect(mocks.deleteStoredShareParticipantSessionsForDevice).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).toHaveBeenCalledTimes(1);
     expect(mocks.clearDocumentKeyCache).toHaveBeenCalledTimes(1);
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
     expect(mocks.setCurrentWorkspaceId).toHaveBeenCalledWith(null);
+  });
+
+  it("uses the share session selector when logging out from a share-scoped route", async () => {
+    mocks.getPreferredSessionScope.mockReturnValue("share");
+
+    await expect(performLogout(true)).resolves.toEqual({
+      logoutIncomplete: false,
+      redirectPath: "/dashboard",
+    });
+
+    expect(mocks.logout).toHaveBeenCalledWith({ sessionScope: "share" });
+    expect(mocks.deleteStoredShareParticipantSessionsForDevice).toHaveBeenCalledWith(
+      "share-device-id",
+    );
+    expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
+    expect(mocks.clearSessionData).not.toHaveBeenCalled();
+    expect(mocks.clearSession).not.toHaveBeenCalled();
+    expect(mocks.setCurrentWorkspaceId).not.toHaveBeenCalled();
+    expect(mocks.setPreferredSessionScope).toHaveBeenCalledWith(null);
+    expect(mocks.restoreSessionContext).toHaveBeenCalledTimes(1);
   });
 
   it("reports an incomplete logout when persisted key cleanup fails", async () => {
@@ -118,6 +166,21 @@ describe("logout", () => {
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
     expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.setCurrentWorkspaceId).toHaveBeenCalledWith(null);
+  });
+
+  it("keeps the user session alive but marks logout incomplete when share context restore fails", async () => {
+    mocks.getPreferredSessionScope.mockReturnValue("share");
+    mocks.restoreSessionContext.mockRejectedValueOnce(new Error("restore failed"));
+    window.history.replaceState({}, "", "/share/d/token-123");
+
+    await expect(performLogout(true)).resolves.toEqual({
+      logoutIncomplete: true,
+      redirectPath: "/share/d/token-123?logout_incomplete=true",
+    });
+
+    expect(mocks.clearSessionData).not.toHaveBeenCalled();
+    expect(mocks.clearSession).not.toHaveBeenCalled();
+    expect(mocks.setCurrentWorkspaceId).not.toHaveBeenCalled();
   });
 
   it("still resets documents and socket when worker lock fails", async () => {

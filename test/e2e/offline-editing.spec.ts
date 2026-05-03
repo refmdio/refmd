@@ -1,11 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, createDocument, openDocument, expectEditorTextContains } from "./helpers";
+import {
+  blockApiRequests,
+  createDocument,
+  expectEditorTextContains,
+  openDocument,
+  registerAccount,
+  newE2EContext,
+} from "./helpers";
 
 let sharedPage: Page;
 
 test.describe.serial("Offline Editing", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -20,7 +27,7 @@ test.describe.serial("Offline Editing", () => {
 
     const editor = sharedPage.locator(".cm-content");
     await editor.click();
-    await sharedPage.keyboard.type("Hello online content");
+    await sharedPage.keyboard.insertText("Hello online content");
     await sharedPage.waitForTimeout(5000);
   });
 
@@ -57,7 +64,7 @@ test.describe.serial("Offline Editing", () => {
     await editor.click();
     await sharedPage.keyboard.press("End");
     await sharedPage.keyboard.press("Enter");
-    await sharedPage.keyboard.type("Offline edit line 1");
+    await sharedPage.keyboard.insertText("Offline edit line 1");
     await sharedPage.waitForTimeout(3000);
 
     const hasPending = await sharedPage.evaluate(async () => {
@@ -88,7 +95,7 @@ test.describe.serial("Offline Editing", () => {
     await editor.click();
     await sharedPage.keyboard.press("End");
     await sharedPage.keyboard.press("Enter");
-    await sharedPage.keyboard.type("Offline edit line 2");
+    await sharedPage.keyboard.insertText("Offline edit line 2");
     await sharedPage.waitForTimeout(2000);
 
     await sharedPage.context().setOffline(false);
@@ -124,7 +131,7 @@ test.describe.serial("Offline Editing", () => {
     await editor.click();
     await sharedPage.keyboard.press("End");
     await sharedPage.keyboard.press("Enter");
-    await sharedPage.keyboard.type("Cycle 1 offline");
+    await sharedPage.keyboard.insertText("Cycle 1 offline");
     await sharedPage.waitForTimeout(3000);
     await sharedPage.context().setOffline(false);
     await sharedPage.waitForTimeout(10000);
@@ -134,7 +141,7 @@ test.describe.serial("Offline Editing", () => {
     await editor.click();
     await sharedPage.keyboard.press("End");
     await sharedPage.keyboard.press("Enter");
-    await sharedPage.keyboard.type("Cycle 2 offline");
+    await sharedPage.keyboard.insertText("Cycle 2 offline");
     await sharedPage.waitForTimeout(3000);
     await sharedPage.context().setOffline(false);
     await sharedPage.waitForTimeout(10000);
@@ -179,7 +186,7 @@ test.describe.serial("Offline Editing", () => {
     await editor.click();
     await sharedPage.keyboard.press("End");
     await sharedPage.keyboard.press("Enter");
-    await sharedPage.keyboard.type("Server unreachable edit");
+    await sharedPage.keyboard.insertText("Server unreachable edit");
     await sharedPage.waitForTimeout(5000);
     await sharedPage.context().setOffline(false);
     await sharedPage.waitForTimeout(10000);
@@ -188,50 +195,31 @@ test.describe.serial("Offline Editing", () => {
     await sharedPage.reload({ waitUntil: "load" });
     await sharedPage.waitForTimeout(3000);
 
-    // NOW block all /api/ endpoints via CDP (SPA is already loaded, only API calls fail)
-    const cdp = await sharedPage.context().newCDPSession(sharedPage);
-    await cdp.send("Fetch.enable", {
-      patterns: [
-        { urlPattern: "http://localhost:*/api/auth/*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/documents*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/workspaces*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/encryption/*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/settings*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/socket/*", requestStage: "Request" },
-      ],
-    });
-    cdp.on("Fetch.requestPaused", async (event) => {
-      try {
-        await cdp.send("Fetch.failRequest", {
-          requestId: event.requestId,
-          errorReason: "InternetDisconnected",
-        });
-      } catch {
-        // CDP session may be detached
-      }
-    });
+    const apiBlock = await blockApiRequests(sharedPage);
+    try {
+      // Navigate to dashboard (SPA client-side navigation, no HTML fetch needed)
+      await sharedPage.evaluate(() => {
+        window.location.hash = "";
+        window.dispatchEvent(new Event("popstate"));
+      });
+      await sharedPage.waitForTimeout(5000);
 
-    // Navigate to dashboard (SPA client-side navigation, no HTML fetch needed)
-    await sharedPage.evaluate(() => {
-      window.location.hash = "";
-      window.dispatchEvent(new Event("popstate"));
-    });
-    await sharedPage.waitForTimeout(5000);
+      // The sidebar should show documents from offline cache
+      const sidebar = sharedPage.locator("aside");
+      const docLink = sidebar
+        .getByText("Offline Test Doc")
+        .or(sidebar.getByText("Untitled").first());
+      await expect(docLink.first()).toBeVisible({ timeout: 60_000 });
 
-    // The sidebar should show documents from offline cache
-    const sidebar = sharedPage.locator("aside");
-    const docLink = sidebar.getByText("Offline Test Doc").or(sidebar.getByText("Untitled").first());
-    await expect(docLink.first()).toBeVisible({ timeout: 60_000 });
+      // Click document — should load from offline cache
+      await docLink.first().click();
+      await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 60_000 });
 
-    // Click document — should load from offline cache
-    await docLink.first().click();
-    await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 60_000 });
-
-    const textOffline = await sharedPage.locator(".cm-content").textContent();
-    expect(textOffline).toContain("Server unreachable edit");
-
-    // Restore network
-    await cdp.send("Fetch.disable");
-    await cdp.detach();
+      const textOffline = await sharedPage.locator(".cm-content").textContent();
+      expect(textOffline).toContain("Server unreachable edit");
+      expect(apiBlock.blockedCount()).toBeGreaterThan(0);
+    } finally {
+      await apiBlock.unblock();
+    }
   });
 });

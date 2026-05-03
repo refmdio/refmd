@@ -4,6 +4,13 @@ import { loadDskInitData, storeAuthBootstrap, loadAuthBootstrap } from "@/shared
 import { getCryptoWorker, isTofuHardFail } from "@/shared/lib/crypto/worker/client";
 import { hasPdkData, getPersistedDeviceId } from "@/shared/lib/auth/key-persistence";
 import {
+  setAuthState,
+  setCryptoWorkerReady,
+  setDeviceState,
+  setFullSession,
+  setTofuErrors,
+} from "@/entities/session";
+import {
   getAllOfflineDocumentMetas,
   ensureOfflineDbReady,
 } from "@/shared/lib/offline/storage/store";
@@ -12,6 +19,7 @@ export interface SessionRestoreResult {
   userId: string;
   email: string;
   name: string;
+  accountType?: string | null;
   sessionId: string;
   deviceId: string | null;
   deviceVerified: boolean;
@@ -25,6 +33,45 @@ export interface SessionRestoreResult {
   workerReady: boolean;
 }
 type SessionRestoreError = "rate_limited" | "transient_error";
+
+export function applyRestoredSessionState(result: SessionRestoreResult): void {
+  const auth = {
+    user: {
+      id: result.userId,
+      email: result.email,
+      name: result.name,
+      accountType: result.accountType,
+    },
+    sessionId: result.sessionId,
+    identitySigningPublic: result.identitySigningPublic,
+    identityEcdhPublic: result.identityEcdhPublic,
+    expiresAt: result.expiresAt,
+    needsPasswordReentry: result.needsPasswordReentry,
+  };
+
+  if (result.deviceId && result.deviceSigningPublic) {
+    setFullSession(auth, {
+      deviceId: result.deviceId,
+      deviceSigningPublic: result.deviceSigningPublic,
+      deviceEcdhPublic: result.deviceEcdhPublic,
+    });
+  } else {
+    setAuthState(auth);
+    if (result.deviceId) {
+      setDeviceState({
+        deviceId: result.deviceId,
+        deviceSigningPublic: null,
+        deviceEcdhPublic: null,
+      });
+    }
+  }
+
+  if (result.workerReady) {
+    setCryptoWorkerReady(true);
+  }
+
+  setTofuErrors(result.tofuWarnings);
+}
 export async function restoreSession(): Promise<SessionRestoreResult | SessionRestoreError | null> {
   try {
     const me = await authApi.me();
@@ -158,6 +205,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       userId: me.user_id,
       email: me.email,
       name: me.name,
+      accountType: me.account_type,
       sessionId: me.session_id,
       deviceId: deviceId ?? null,
       deviceVerified: me.device_verified,
@@ -179,6 +227,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
     return "transient_error";
   }
 }
+
 export interface OfflineSessionResult {
   userId: string;
   email: string;

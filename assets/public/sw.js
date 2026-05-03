@@ -1,5 +1,5 @@
 const CACHE_NAME = "app-shell-v1";
-const MAX_CACHE_ENTRIES = 50;
+const MAX_CACHE_ENTRIES = 200;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

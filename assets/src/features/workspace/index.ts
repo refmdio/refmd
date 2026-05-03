@@ -5,6 +5,11 @@ export {
   WorkspaceInvitationFlow,
 } from "./invitation";
 export {
+  GuestInvitationDialog,
+  GuestInvitationsSection,
+  useGuestInvitationManagement,
+} from "./guest-invitations";
+export {
   useWorkspaceMemberManagement,
   WorkspaceMemberManagementDialogs,
   WorkspaceMembersSection,
@@ -16,6 +21,8 @@ export {
 } from "./roles";
 export {
   createWorkspaceWithInitialKek,
+  useDocumentSharePermissions,
+  updateWorkspaceFeatures,
   updateWorkspace,
   useWorkspaceDangerZone,
   useWorkspacePermissions,

@@ -13,6 +13,7 @@ import {
   openDocument,
   registerAccount,
   waitForWorkspaceReady,
+  newE2EContext,
 } from "./helpers";
 
 async function typeInVisibleEditor(page: Page, text: string): Promise<void> {
@@ -21,7 +22,7 @@ async function typeInVisibleEditor(page: Page, text: string): Promise<void> {
     await codeMirror.click();
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
-    await page.keyboard.type(text);
+    await page.keyboard.insertText(text);
     return;
   }
 
@@ -30,7 +31,68 @@ async function typeInVisibleEditor(page: Page, text: string): Promise<void> {
   await proseMirror.click();
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
-  await page.keyboard.type(text);
+  await page.keyboard.insertText(text);
+}
+
+async function typeLineBurst(page: Page, prefix: string, count: number): Promise<void> {
+  await focusVisibleEditor(page);
+  await page.keyboard.press("Control+End");
+
+  for (let i = 0; i < count; i += 1) {
+    await page.keyboard.press("Enter");
+    await page.keyboard.insertText(`${prefix}-${i}`);
+    await page.waitForTimeout(45);
+  }
+}
+
+function collectSyncDiagnostics(pages: Page[]): {
+  messages: string[];
+  stop: () => void;
+} {
+  const messages: string[] = [];
+  const handlers = pages.map((page) => {
+    const handler = (msg: { type: () => string; text: () => string }) => {
+      const text = msg.text();
+      if (
+        msg.type() === "error" ||
+        text.includes("[anti-rollback]") ||
+        text.includes("[ws]") ||
+        text.includes("DocumentSyncError")
+      ) {
+        messages.push(text);
+      }
+    };
+    page.on("console", handler);
+    return { page, handler };
+  });
+
+  return {
+    messages,
+    stop: () => {
+      for (const { page, handler } of handlers) {
+        page.off("console", handler);
+      }
+    },
+  };
+}
+
+function criticalSyncMessages(messages: string[]): string[] {
+  return messages.filter((message) =>
+    [
+      "Clock gap",
+      "State Inconsistency",
+      "Snapshot changed but no proof chain",
+      "Version regression",
+      "rollback attack",
+      "verification_failed",
+      "initial_load_failed",
+      "reconnect_failed",
+      "connection_error",
+      "sync gap detected",
+      "too much recursion",
+      "CodeMirror plugin crashed",
+    ].some((needle) => message.includes(needle)),
+  );
 }
 
 async function focusVisibleEditor(page: Page): Promise<void> {
@@ -87,8 +149,8 @@ let email: string;
 
 test.describe.serial("Single-User Multi-Device Sync", () => {
   test.beforeAll(async ({ browser }) => {
-    ctxA = await browser.newContext({ bypassCSP: true, acceptDownloads: true });
-    ctxB = await browser.newContext({ bypassCSP: true, acceptDownloads: true });
+    ctxA = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
+    ctxB = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
     pageA = await ctxA.newPage();
     pageB = await ctxB.newPage();
   });
@@ -106,7 +168,7 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
     await pageA.waitForTimeout(5000);
 
     await pageA.locator(".cm-content").click();
-    await pageA.keyboard.type("From device A. ");
+    await pageA.keyboard.insertText("From device A. ");
     await pageA.waitForTimeout(5000);
   });
 
@@ -151,5 +213,29 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
     await ensureEditorReady(pageB, "Multi Device Doc");
     await expectEditorTextContains(pageA, "From device B.", 15_000);
     await expectEditorTextContains(pageB, "From device B.", 15_000);
+  });
+
+  test("same-user approved device burst edits remain synchronized", async () => {
+    test.setTimeout(180_000);
+
+    const diagnostics = collectSyncDiagnostics([pageA, pageB]);
+    try {
+      await ensureEditorReady(pageA, "Multi Device Doc");
+      await ensureEditorReady(pageB, "Multi Device Doc");
+
+      await typeLineBurst(pageB, "device-b-burst", 80);
+      await expectEditorTextContains(pageA, "device-b-burst-79", 90_000);
+
+      await pageB.reload({ waitUntil: "domcontentloaded" });
+      await ensureEditorReady(pageB, "Multi Device Doc");
+      await expectEditorTextContains(pageB, "device-b-burst-79", 60_000);
+
+      await typeInVisibleEditor(pageA, "owner-after-device-burst");
+      await expectEditorTextContains(pageB, "owner-after-device-burst", 90_000);
+
+      expect(criticalSyncMessages(diagnostics.messages)).toEqual([]);
+    } finally {
+      diagnostics.stop();
+    }
   });
 });

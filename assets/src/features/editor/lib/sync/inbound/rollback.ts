@@ -1,6 +1,8 @@
 import {
+  buildDocumentStatePinKey,
   getDocumentStatePin,
   putDocumentStatePin,
+  replaceDocumentStatePin,
   updatePinFromState,
   type DocumentStatePin,
 } from "@/shared/lib/anti-rollback/document-state-pins";
@@ -45,45 +47,42 @@ function collectRollbackWarnings(
   if (state._lastJoinMode === "complete") {
     const clockObservations = collectClockObservations(payload.updates);
     for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
-      const observed = clockObservations.get(deviceKey);
-      if (!observed) continue;
-
-      if (observed.max < pinnedClock) {
-        rollbackWarnings.push(
-          `Clock rollback: device=${deviceKey} clock=${observed.max} < pin=${pinnedClock}`,
-        );
-      } else if (observed.max > pinnedClock + 1 && !observed.seen.has(pinnedClock + 1)) {
-        rollbackWarnings.push(
-          `Clock gap: device=${deviceKey} expected=${pinnedClock + 1} got=${observed.max}`,
-        );
-      }
+      const warning = summarizeClockWarning(deviceKey, pinnedClock, clockObservations);
+      if (warning) rollbackWarnings.push(warning);
     }
 
     return rollbackWarnings;
   }
 
-  const lastObservedClocks: Record<string, number> = { ...pin.perDeviceMaxClocks };
-  for (const update of payload.updates) {
-    const deviceKey = update.publicData.signingPubKey;
-    const pinnedClock = lastObservedClocks[deviceKey];
-    if (pinnedClock === undefined) continue;
-
-    if (update.publicData.clock < pinnedClock) {
-      rollbackWarnings.push(
-        `Clock rollback: device=${deviceKey} clock=${update.publicData.clock} < pin=${pinnedClock}`,
-      );
-    } else if (update.publicData.clock > pinnedClock + 1) {
-      rollbackWarnings.push(
-        `Clock gap: device=${deviceKey} expected=${pinnedClock + 1} got=${update.publicData.clock}`,
-      );
-    }
-
-    if (update.publicData.clock > pinnedClock) {
-      lastObservedClocks[deviceKey] = update.publicData.clock;
-    }
+  const clockObservations = collectClockObservations(payload.updates);
+  for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
+    const warning = summarizeClockWarning(deviceKey, pinnedClock, clockObservations);
+    if (warning) rollbackWarnings.push(warning);
   }
 
   return rollbackWarnings;
+}
+
+function summarizeClockWarning(
+  deviceKey: string,
+  pinnedClock: number,
+  clockObservations: Map<string, { max: number; seen: Set<number> }>,
+): string | null {
+  const observed = clockObservations.get(deviceKey);
+  if (!observed) return null;
+  if (observed.max < pinnedClock) {
+    return `Clock rollback: device=${deviceKey} clock=${observed.max} < pin=${pinnedClock}`;
+  }
+
+  let expected = pinnedClock + 1;
+  for (const clock of [...observed.seen].sort((a, b) => a - b)) {
+    if (clock <= pinnedClock) continue;
+    if (clock > expected) {
+      return `Clock gap: device=${deviceKey} expected=${expected} got=${clock}`;
+    }
+    expected = clock + 1;
+  }
+  return null;
 }
 
 export async function detectDocumentRollback(
@@ -91,7 +90,11 @@ export async function detectDocumentRollback(
   state: DocumentState,
   documentId: string,
 ): Promise<DocumentStatePin | null> {
-  const pin = await getDocumentStatePin(documentId).catch(() => null);
+  const pinKey =
+    state.access.kind === "share"
+      ? buildDocumentStatePinKey(documentId, state.access.shareId)
+      : buildDocumentStatePinKey(documentId);
+  const pin = await getDocumentStatePin(pinKey).catch(() => null);
   if (!pin) return null;
 
   const rollbackWarnings = collectRollbackWarnings(payload, state, pin);
@@ -104,24 +107,34 @@ export async function detectDocumentRollback(
   }
 
   const { requestRollbackApproval } = await import("../../../model/document-state/signals");
-  await requestRollbackApproval(documentId, rollbackWarnings.join("; "));
+  await requestRollbackApproval(state.stateKey, rollbackWarnings.join("; "));
 
-  // User approved: reset in-memory version to avoid subsequent regression check failure.
+  // User approved: accept the server state as the new local baseline.
   state.latestVersion = 0;
+  state._replaceRollbackPinOnNextPersist = true;
   return pin;
 }
 
 export function persistDocumentRollbackPin(documentId: string, state: DocumentState): void {
-  getDocumentStatePin(documentId).then((existing) => {
+  const pinKey =
+    state.access.kind === "share"
+      ? buildDocumentStatePinKey(documentId, state.access.shareId)
+      : buildDocumentStatePinKey(documentId);
+
+  getDocumentStatePin(pinKey).then((existing) => {
+    const shouldReplacePin = state._replaceRollbackPinOnNextPersist;
     const pin = updatePinFromState(
-      existing,
-      documentId,
+      shouldReplacePin ? null : existing,
+      pinKey,
       state.activeSnapshotId,
       state.snapshotProofHash,
       state.snapshotCiphertextHash,
       state.confirmedClocks,
       state.latestVersion,
+      documentId,
     );
-    putDocumentStatePin(pin).catch(() => {});
+    const write = shouldReplacePin ? replaceDocumentStatePin(pin) : putDocumentStatePin(pin);
+    state._replaceRollbackPinOnNextPersist = false;
+    write.catch(() => {});
   });
 }

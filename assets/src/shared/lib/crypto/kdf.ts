@@ -12,6 +12,8 @@ interface KdfParams {
 }
 interface DerivedKeys {
   authKeyBase64: string;
+  shareAuthKeyBase64: string;
+  shareDekEncryptionKeyBase64: string;
   puk: Uint8Array;
   pdk: Uint8Array;
 }
@@ -75,11 +77,21 @@ export async function deriveAuthKeys(
   }
   const enc = new TextEncoder();
   const authKey = hkdf(sha256, masterKey, HKDF_ZERO_SALT, enc.encode("password_auth"), 32);
+  const shareAuthKey = hkdf(sha256, masterKey, HKDF_ZERO_SALT, enc.encode("share_auth"), 32);
+  const shareDekEncryptionKey = hkdf(
+    sha256,
+    masterKey,
+    HKDF_ZERO_SALT,
+    enc.encode("share_dek_encryption"),
+    32,
+  );
   const puk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, enc.encode("password_unlock"), 32);
   const pdk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, enc.encode("password_device_key"), 32);
   masterKey.fill(0);
   return {
     authKeyBase64: base64UrlEncode(authKey),
+    shareAuthKeyBase64: base64UrlEncode(shareAuthKey),
+    shareDekEncryptionKeyBase64: base64UrlEncode(shareDekEncryptionKey),
     puk,
     pdk,
   };

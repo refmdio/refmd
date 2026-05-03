@@ -7,7 +7,10 @@ export const documentStateEvictionDelayMs = 200;
 
 export const errorSignals = new Map<string, ReturnType<typeof createSignal<string | null>>>();
 export const reauthSignals = new Map<string, ReturnType<typeof createSignal<boolean>>>();
+export const shareReentrySignals = new Map<string, ReturnType<typeof createSignal<boolean>>>();
 export const rollbackSignals = new Map<string, ReturnType<typeof createSignal<string | null>>>();
+export const readOnlySignals = new Map<string, ReturnType<typeof createSignal<boolean>>>();
+export const syncPausedSignals = new Map<string, ReturnType<typeof createSignal<boolean>>>();
 export const awarenessSignals = new Map<
   string,
   ReturnType<typeof createSignal<Awareness | null>>

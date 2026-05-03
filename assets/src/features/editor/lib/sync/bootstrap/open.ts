@@ -1,9 +1,13 @@
 import { removeAwarenessStates } from "y-protocols/awareness";
-import { leaveDocument, joinDocument } from "@/shared/lib/ws/phoenix-channel";
+import {
+  leaveDocument,
+  joinDocument,
+  PhoenixChannelTransportError,
+} from "@/shared/lib/ws/phoenix-channel";
 import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import { createDocumentSyncFailure, DocumentSyncError } from "../error";
 import { triggerReconnect } from "../reconnect/reconnect";
-import { setDocumentError } from "../../../model/document-state/signals";
+import { setDocumentError, setDocumentSyncPaused } from "../../../model/document-state/signals";
 import type { DocumentState } from "../../../model/document-state/types";
 import { buildDocumentChannelCallbacks } from "./callbacks";
 import { createInitCancelledError } from "./cancel";
@@ -17,6 +21,23 @@ export type FailClosedHandler = (reason: string, err?: unknown) => void;
 
 type AssertInitializationActive = () => void;
 
+const INITIAL_DOCUMENT_EVENT_TIMEOUT_MS = 8_000;
+
+function clearPendingDocumentPromise(pendingState: PendingDocumentPromiseState): void {
+  if (pendingState.documentTimeout) clearTimeout(pendingState.documentTimeout);
+  pendingState.documentTimeout = null;
+  pendingState.rejectDocumentPromise = null;
+}
+
+function rejectPendingDocumentPromise(
+  pendingState: PendingDocumentPromiseState,
+  error: Error,
+): void {
+  const reject = pendingState.rejectDocumentPromise;
+  clearPendingDocumentPromise(pendingState);
+  reject?.(error);
+}
+
 function createDocumentPromise(
   state: DocumentState,
   pendingState: PendingDocumentPromiseState,
@@ -24,12 +45,11 @@ function createDocumentPromise(
   return new Promise<DocumentPayload>((resolve, reject) => {
     pendingState.rejectDocumentPromise = reject;
     pendingState.documentTimeout = setTimeout(() => {
+      clearPendingDocumentPromise(pendingState);
       reject(new DocumentSyncError("server_unreachable", "Timeout waiting for document event"));
-    }, 30000);
+    }, INITIAL_DOCUMENT_EVENT_TIMEOUT_MS);
     state._onDocumentMessage = (payload: unknown) => {
-      clearTimeout(pendingState.documentTimeout!);
-      pendingState.documentTimeout = null;
-      pendingState.rejectDocumentPromise = null;
+      clearPendingDocumentPromise(pendingState);
       resolve(payload as DocumentPayload);
     };
   });
@@ -44,10 +64,8 @@ export function createFailClosedHandler(
 ): FailClosedHandler {
   return (reason: string, err?: unknown) => {
     if (signal.aborted) {
-      if (pendingState.documentTimeout) clearTimeout(pendingState.documentTimeout);
-      if (pendingState.rejectDocumentPromise) {
-        pendingState.rejectDocumentPromise(createInitCancelledError());
-      }
+      state._onDocumentMessage = null;
+      rejectPendingDocumentPromise(pendingState, createInitCancelledError());
       return;
     }
     if (state.error) return;
@@ -62,11 +80,10 @@ export function createFailClosedHandler(
     state.initialized = false;
     state.initPromise = null;
     state.channel = null;
-    setDocumentError(documentId, reason);
-    if (pendingState.documentTimeout) clearTimeout(pendingState.documentTimeout);
-    if (pendingState.rejectDocumentPromise) {
-      pendingState.rejectDocumentPromise(failure);
-    }
+    state._onDocumentMessage = null;
+    setDocumentError(state.stateKey, reason);
+    setDocumentSyncPaused(state.stateKey, false);
+    rejectPendingDocumentPromise(pendingState, failure);
     if (state.autoSync) {
       state.autoSync.dispose();
       state.autoSync = null;
@@ -86,7 +103,7 @@ export function createFailClosedHandler(
     state.pendingSnapshotEnvelope = null;
     state.pendingUpdateBytes = null;
     state.pendingUpdateEnvelope = null;
-    leaveDocument(documentId);
+    leaveDocument(documentId, state.stateKey);
   };
 }
 
@@ -114,6 +131,7 @@ export async function openInitialDocumentChannel(params: {
     rejectDocumentPromise: null,
   };
   const documentPromise = createDocumentPromise(state, pendingState);
+  void documentPromise.catch(() => {});
   const failClosed = createFailClosedHandler(documentId, workspaceId, state, signal, pendingState);
   const callbacks = buildDocumentChannelCallbacks(
     state,
@@ -132,8 +150,14 @@ export async function openInitialDocumentChannel(params: {
       },
       onUpdateSaveFailed: (payload) => {
         if (!payload.requiresNewSnapshot) {
+          state._forceCompleteReconnect = true;
           triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
         }
+      },
+      onSyncGap: (err) => {
+        void err;
+        state._forceCompleteReconnect = true;
+        triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
       },
       onError: (reason) => {
         if (
@@ -145,14 +169,26 @@ export async function openInitialDocumentChannel(params: {
         } else if (state.initialized) {
           triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
         } else {
-          failClosed(String(reason) || "connection_error");
+          rejectPendingDocumentPromise(
+            pendingState,
+            new PhoenixChannelTransportError(
+              "disconnected_before_document",
+              "Channel errored before document received",
+            ),
+          );
         }
       },
       onClose: () => {
         if (state.initialized) {
           triggerReconnect(state, documentId, workspaceId, localDeviceSigningPubKey, failClosed);
         } else {
-          failClosed("disconnected");
+          rejectPendingDocumentPromise(
+            pendingState,
+            new PhoenixChannelTransportError(
+              "disconnected_before_document",
+              "Channel closed before document received",
+            ),
+          );
         }
       },
     },
@@ -161,9 +197,9 @@ export async function openInitialDocumentChannel(params: {
   let channel;
   try {
     assertActive();
-    channel = await joinDocument(documentId, joinParams, callbacks);
+    channel = await joinDocument(documentId, joinParams, callbacks, state.stateKey);
   } catch (err) {
-    if (pendingState.documentTimeout) clearTimeout(pendingState.documentTimeout);
+    clearPendingDocumentPromise(pendingState);
     state._onDocumentMessage = null;
     throw err;
   }
@@ -171,7 +207,16 @@ export async function openInitialDocumentChannel(params: {
   state.channel = channel;
   assertActive();
 
-  const documentPayload = await documentPromise;
+  let documentPayload;
+  try {
+    documentPayload = await documentPromise;
+  } catch (err) {
+    clearPendingDocumentPromise(pendingState);
+    state._onDocumentMessage = null;
+    state.channel = null;
+    leaveDocument(documentId, state.stateKey);
+    throw err;
+  }
   assertActive();
 
   return { documentPayload, failClosed };

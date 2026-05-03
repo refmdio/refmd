@@ -33,11 +33,13 @@ interface RateLimitRule {
 
 const RATE_LIMITS: { exact: Record<string, RateLimitRule>; prefix: [string, RateLimitRule][] } = {
   exact: {
+    "compute-update-hash": { tokensPerSec: 2_000, burst: 5_000 },
     "derive-auth-keys": { tokensPerSec: 0.1, burst: 2 },
   },
   prefix: [
     ["decrypt-", { tokensPerSec: 100, burst: 500 }],
     ["sign-", { tokensPerSec: 50, burst: 100 }],
+    ["verify-", { tokensPerSec: 500, burst: 1000 }],
   ],
 };
 const DEFAULT_RULE: RateLimitRule = { tokensPerSec: 200, burst: 400 };

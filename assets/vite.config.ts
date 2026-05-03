@@ -5,6 +5,8 @@ import { sri } from "vite-plugin-sri3";
 import path from "node:path";
 
 const __dirname = import.meta.dirname;
+const appBuildId =
+  process.env.VITE_APP_BUILD_ID ?? process.env.SOURCE_VERSION ?? Date.now().toString(36);
 
 function matchesAny(id: string, patterns: string[]): boolean {
   return patterns.some((pattern) => id.includes(pattern));
@@ -93,8 +95,6 @@ export default defineConfig({
               "src/app/!(*App).{ts,tsx}": "keep only App.tsx at src/app root",
               "src/app/!(bootstrap|layout|router|workspace)/**/*.{ts,tsx}":
                 "use src/app/{bootstrap,layout,router,workspace}/**",
-              "src/routes/*/*/**/*.{ts,tsx}":
-                "keep routes at src/routes/*.ts[x] or src/routes/<group>/*.ts[x]",
               "src/widgets/*/!(*index).{ts,tsx}":
                 "move non-index files under src/widgets/<slice>/{ui,model,lib}/",
               "src/widgets/*/!(ui|model|lib)/**/*.{ts,tsx}":
@@ -178,6 +178,9 @@ export default defineConfig({
     semi: true,
     singleQuote: false,
     ignorePatterns: ["src/shared/api/schema.d.ts", "openapi.json"],
+  },
+  define: {
+    "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(appBuildId),
   },
   plugins: [solid(), tailwindcss(), sri()],
   resolve: {

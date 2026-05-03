@@ -71,10 +71,10 @@ export function setActiveKekVersion(
 
 export function getCachedDek(
   state: WorkerKeyState,
-  documentId: string,
+  cacheKey: string,
   keyVersion?: number,
 ): { dek: Uint8Array; keyVersion: number } | null {
-  const versionMap = state.dekCache.get(documentId);
+  const versionMap = state.dekCache.get(cacheKey);
   if (!versionMap) return null;
 
   if (keyVersion !== undefined) {
@@ -83,7 +83,7 @@ export function getCachedDek(
     return { dek, keyVersion };
   }
 
-  const activeVersion = state.activeDekVersions.get(documentId);
+  const activeVersion = state.activeDekVersions.get(cacheKey);
   if (activeVersion !== undefined) {
     const dek = versionMap.get(activeVersion);
     if (dek) return { dek, keyVersion: activeVersion };
@@ -94,14 +94,14 @@ export function getCachedDek(
 
 export function setCachedDek(
   state: WorkerKeyState,
-  documentId: string,
+  cacheKey: string,
   dek: Uint8Array,
   keyVersion: number,
 ): void {
-  let versionMap = state.dekCache.get(documentId);
+  let versionMap = state.dekCache.get(cacheKey);
   if (!versionMap) {
     versionMap = new Map();
-    state.dekCache.set(documentId, versionMap);
+    state.dekCache.set(cacheKey, versionMap);
   }
 
   const existing = versionMap.get(keyVersion);
@@ -111,12 +111,8 @@ export function setCachedDek(
   versionMap.set(keyVersion, dek);
 }
 
-export function evictCachedDek(
-  state: WorkerKeyState,
-  documentId: string,
-  keyVersion: number,
-): void {
-  const versionMap = state.dekCache.get(documentId);
+export function evictCachedDek(state: WorkerKeyState, cacheKey: string, keyVersion: number): void {
+  const versionMap = state.dekCache.get(cacheKey);
   if (!versionMap) return;
 
   const existing = versionMap.get(keyVersion);
@@ -128,8 +124,8 @@ export function evictCachedDek(
 
 export function setActiveDekVersion(
   state: WorkerKeyState,
-  documentId: string,
+  cacheKey: string,
   keyVersion: number,
 ): void {
-  state.activeDekVersions.set(documentId, keyVersion);
+  state.activeDekVersions.set(cacheKey, keyVersion);
 }

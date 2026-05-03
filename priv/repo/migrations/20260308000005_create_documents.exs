@@ -89,14 +89,18 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
     create unique_index(:document_updates, [:document_id, :version])
     create unique_index(:document_updates, [:document_id, :update_hash])
 
-    # CHECK: member update (signature + clock + device) XOR share update (mac + share_id)
+    # CHECK: all persisted updates use the signed device-authenticated shape.
     execute(
       """
       ALTER TABLE document_updates
       ADD CONSTRAINT document_updates_auth_check
       CHECK (
-        (signature IS NOT NULL AND mac IS NULL AND clock IS NOT NULL AND device_signing_pub_key IS NOT NULL AND device_id IS NOT NULL AND share_id IS NULL) OR
-        (signature IS NULL AND mac IS NOT NULL AND clock IS NULL AND device_signing_pub_key IS NULL AND device_id IS NULL AND share_id IS NOT NULL)
+        signature IS NOT NULL AND
+        mac IS NULL AND
+        clock IS NOT NULL AND
+        device_signing_pub_key IS NOT NULL AND
+        device_id IS NOT NULL AND
+        share_id IS NULL
       )
       """,
       """

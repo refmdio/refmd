@@ -14,6 +14,7 @@ defmodule RefMD.Workspaces.Members do
     WorkspaceRolePermission
   }
 
+  alias RefMD.Workspaces.Guests, as: WGuests
   alias RefMD.Workspaces.Invitations, as: WInvitations
 
   @spec list_workspace_member_user_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
@@ -130,6 +131,7 @@ defmodule RefMD.Workspaces.Members do
   def remove_member(workspace_id, target_user_id, actor_user_id) do
     result =
       Repo.transaction(fn ->
+        lock_workspace_row(workspace_id)
         owner_rows = lock_owner_rows(workspace_id)
         target_role = fetch_role_for_user(workspace_id, target_user_id)
 
@@ -175,23 +177,44 @@ defmodule RefMD.Workspaces.Members do
   defp validate_role_change(%{new_role: nil}, _workspace_id), do: {:error, :invalid_role}
 
   defp validate_role_change(ctx, workspace_id) do
-    cond do
-      ctx.new_role.workspace_id != workspace_id ->
-        {:error, :invalid_role}
+    validate_role_change_rules(ctx, workspace_id) ||
+      check_effective_permissions_subset(ctx.new_role, ctx.actor_role)
+  end
 
-      ctx.target_role.base_role == "owner" and ctx.actor_role.base_role != "owner" ->
-        {:error, :cannot_modify_owner}
+  defp validate_role_change_rules(ctx, workspace_id) do
+    [
+      validate_role_workspace(ctx, workspace_id),
+      validate_guest_role_change(ctx),
+      validate_owner_role_change(ctx),
+      validate_role_power(ctx),
+      validate_last_owner_role_change(ctx)
+    ]
+    |> Enum.find(& &1)
+  end
 
-      role_power(ctx.new_role.base_role) > role_power(ctx.actor_role.base_role) ->
-        {:error, :role_escalation}
+  defp validate_role_workspace(ctx, workspace_id) do
+    if ctx.new_role.workspace_id != workspace_id, do: {:error, :invalid_role}
+  end
 
-      ctx.target_role.base_role == "owner" and ctx.new_role.base_role != "owner" and
-          ctx.owner_count <= 1 ->
-        {:error, :last_owner}
+  defp validate_guest_role_change(ctx) do
+    if ctx.target_role.base_role == "guest" or ctx.new_role.base_role == "guest",
+      do: {:error, :guest_role_immutable}
+  end
 
-      true ->
-        check_effective_permissions_subset(ctx.new_role, ctx.actor_role)
-    end
+  defp validate_owner_role_change(ctx) do
+    if ctx.target_role.base_role == "owner" and ctx.actor_role.base_role != "owner",
+      do: {:error, :cannot_modify_owner}
+  end
+
+  defp validate_role_power(ctx) do
+    if role_power(ctx.new_role.base_role) > role_power(ctx.actor_role.base_role),
+      do: {:error, :role_escalation}
+  end
+
+  defp validate_last_owner_role_change(ctx) do
+    if ctx.target_role.base_role == "owner" and ctx.new_role.base_role != "owner" and
+         ctx.owner_count <= 1,
+       do: {:error, :last_owner}
   end
 
   defp check_effective_permissions_subset(new_role, actor_role) do
@@ -243,6 +266,8 @@ defmodule RefMD.Workspaces.Members do
   end
 
   defp revoke_removed_member_invitations(workspace_id, target_user_id) do
+    WGuests.revoke_guest_grants(workspace_id, target_user_id)
+
     case get_user_email(target_user_id) do
       nil -> :ok
       email -> WInvitations.revoke_invitations_for_email(workspace_id, email)
@@ -307,6 +332,15 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.all()
   end
 
+  defp lock_workspace_row(workspace_id) do
+    from(w in Workspace,
+      where: w.id == ^workspace_id,
+      lock: "FOR UPDATE",
+      select: w.id
+    )
+    |> Repo.one!()
+  end
+
   defp fetch_role_for_user(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       join: r in WorkspaceRole,
@@ -327,6 +361,7 @@ defmodule RefMD.Workspaces.Members do
   defp role_power("admin"), do: 3
   defp role_power("editor"), do: 2
   defp role_power("viewer"), do: 1
+  defp role_power("guest"), do: 0
 
   defp do_change_role(workspace_id, user_id, new_role_id) do
     {1, _} =

@@ -8,8 +8,8 @@ defmodule RefMD.Documents.DocumentUpdate do
   schema "document_updates" do
     belongs_to :document, RefMD.Documents.Document
     belongs_to :snapshot, RefMD.Documents.DocumentSnapshot
-    belongs_to :device, RefMD.Devices.Device
 
+    field :device_id, Ecto.UUID
     field :clock, :integer
     field :version, :integer
     field :device_signing_pub_key, :string
@@ -55,7 +55,7 @@ defmodule RefMD.Documents.DocumentUpdate do
       :update_hash,
       :timestamp
     ])
-    |> validate_signature_mac_exclusivity()
+    |> validate_update_auth_fields()
     |> unique_constraint([:document_id, :version],
       name: :document_updates_document_id_version_index
     )
@@ -64,42 +64,11 @@ defmodule RefMD.Documents.DocumentUpdate do
     )
   end
 
-  defp validate_signature_mac_exclusivity(changeset) do
-    sig = get_field(changeset, :signature)
-    mac = get_field(changeset, :mac)
-
-    case {sig, mac} do
-      {nil, nil} ->
-        add_error(changeset, :signature, "either signature or mac is required")
-
-      {_, nil} when not is_nil(sig) ->
-        changeset
-        |> validate_required([:clock, :device_signing_pub_key, :device_id])
-        |> reject_share_fields()
-
-      {nil, _} when not is_nil(mac) ->
-        changeset
-        |> validate_required([:share_id])
-        |> reject_member_fields()
-
-      {_, _} ->
-        add_error(changeset, :signature, "signature and mac are mutually exclusive")
-    end
-  end
-
-  defp reject_share_fields(changeset) do
-    if get_field(changeset, :share_id) do
-      add_error(changeset, :share_id, "must not be set for member updates")
-    else
-      changeset
-    end
-  end
-
-  defp reject_member_fields(changeset) do
+  defp validate_update_auth_fields(changeset) do
     changeset
-    |> reject_field(:clock, "must not be set for share updates")
-    |> reject_field(:device_signing_pub_key, "must not be set for share updates")
-    |> reject_field(:device_id, "must not be set for share updates")
+    |> validate_required([:signature, :clock, :device_signing_pub_key, :device_id])
+    |> reject_field(:mac, "must not be set")
+    |> reject_field(:share_id, "must not be set")
   end
 
   defp reject_field(changeset, field, msg) do

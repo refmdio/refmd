@@ -65,11 +65,23 @@ export interface DocumentPayload {
   updates: UpdatePayload[];
   snapshotProofChain: SnapshotProofChainEntry[];
   latestVersion: number;
+  archived?: boolean;
+  publicState?: {
+    is_published: boolean;
+    updated_at: string | null;
+    can_sync: boolean;
+  };
+}
+export interface PublicStatusChangedPayload {
+  [key: string]: unknown;
+  is_published: boolean;
+  updated_at: string | null;
 }
 export interface UpdateSavedPayload {
   [key: string]: unknown;
   snapshotId: string;
   clock: number;
+  updateHash: string;
   version: number;
 }
 export interface UpdateSaveFailedPayload {
@@ -81,6 +93,7 @@ export interface UpdateSaveFailedPayload {
 export interface SnapshotSavedPayload {
   [key: string]: unknown;
   snapshotId: string;
+  latestVersion?: number;
 }
 export interface SnapshotSaveFailedPayload {
   [key: string]: unknown;

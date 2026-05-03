@@ -12,6 +12,12 @@ export interface DekWorkerClientMethods {
     documentId: string;
     workspaceId: string;
   }): Promise<{ encryptedDek: Uint8Array; nonce: Uint8Array }>;
+  wrapDekForShare(params: {
+    documentId: string;
+    shareId: string;
+    keyVersion?: number;
+    shareDekEncryptionKey?: Uint8Array;
+  }): Promise<{ encryptedDek: Uint8Array; nonce: Uint8Array | null }>;
   unwrapDek(params: {
     encryptedDek: Uint8Array;
     nonce: Uint8Array;
@@ -20,6 +26,7 @@ export interface DekWorkerClientMethods {
     keyVersion: number;
     isActive?: boolean;
     kekVersion?: number;
+    cacheKey?: string;
   }): Promise<void>;
   encryptTitle(params: {
     title: string;
@@ -31,33 +38,51 @@ export interface DekWorkerClientMethods {
     nonce: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<string>;
   decryptTitleBatch(items: TitleDecryptItem[]): Promise<TitleDecryptResult[]>;
   encryptContent(params: {
     plaintext: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }>;
   decryptContent(params: {
     ciphertext: Uint8Array;
     nonce: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<Uint8Array>;
   encryptSnapshot(params: {
     plaintext: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }>;
   decryptSnapshot(params: {
     ciphertext: Uint8Array;
     nonce: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<Uint8Array>;
-  hasDek(documentId: string, keyVersion?: number): Promise<boolean>;
-  cacheDek(params: { documentId: string; dek: Uint8Array; keyVersion: number }): Promise<void>;
-  evictDek(documentId: string, keyVersion: number): Promise<void>;
+  hasDek(documentId: string, keyVersion: number, cacheKey?: string): Promise<boolean>;
+  hasDekBatch(
+    items: Array<{
+      requestId: string;
+      documentId: string;
+      keyVersion: number;
+      cacheKey?: string;
+    }>,
+  ): Promise<Array<{ requestId: string; hasDek: boolean }>>;
+  cacheDek(params: {
+    documentId: string;
+    dek: Uint8Array;
+    keyVersion: number;
+    cacheKey?: string;
+  }): Promise<void>;
+  evictDek(documentId: string, keyVersion: number, cacheKey?: string): Promise<void>;
   encryptOfflineCache(params: {
     plaintext: Uint8Array;
     documentId: string;
@@ -115,6 +140,13 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
     };
   },
 
+  async wrapDekForShare(params) {
+    return (await this.send("wrap-dek-for-share", params)) as {
+      encryptedDek: Uint8Array;
+      nonce: Uint8Array | null;
+    };
+  },
+
   async unwrapDek(params) {
     await this.send("unwrap-dek", params);
   },
@@ -159,19 +191,34 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
     return result.plaintext;
   },
 
-  async hasDek(documentId, keyVersion) {
-    const result = (await this.send("has-dek", { documentId, keyVersion })) as {
-      hasDek: boolean;
-    };
-    return result.hasDek;
+  async hasDek(documentId, keyVersion, cacheKey) {
+    const requestId = crypto.randomUUID();
+    const response = (await this.send("has-dek-batch", {
+      items: [{ requestId, documentId, keyVersion, cacheKey }],
+    })) as { results: Array<{ requestId: string; hasDek: boolean }> };
+    return response.results[0]?.hasDek ?? false;
+  },
+
+  async hasDekBatch(items) {
+    if (items.length === 0) return [];
+    const HAS_DEK_BATCH_MAX_SIZE = 500;
+    const results: Array<{ requestId: string; hasDek: boolean }> = [];
+    for (let i = 0; i < items.length; i += HAS_DEK_BATCH_MAX_SIZE) {
+      const chunk = items.slice(i, i + HAS_DEK_BATCH_MAX_SIZE);
+      const response = (await this.send("has-dek-batch", { items: chunk })) as {
+        results: Array<{ requestId: string; hasDek: boolean }>;
+      };
+      results.push(...response.results);
+    }
+    return results;
   },
 
   async cacheDek(params) {
     await this.send("cache-dek", params);
   },
 
-  async evictDek(documentId, keyVersion) {
-    await this.send("evict-dek", { documentId, keyVersion });
+  async evictDek(documentId, keyVersion, cacheKey) {
+    await this.send("evict-dek", { documentId, keyVersion, cacheKey });
   },
 
   async encryptOfflineCache(params) {

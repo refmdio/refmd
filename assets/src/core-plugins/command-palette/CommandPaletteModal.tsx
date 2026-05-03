@@ -1,9 +1,17 @@
-import { createSignal, createEffect, createMemo, For, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createSignal, createMemo, For, Show } from "solid-js";
 import { workspaceManager } from "@/features/panel";
 import { getActiveEditor } from "@/features/editor";
 import { getApp } from "@/shared/lib/workspace/app";
 import type { Command } from "@/shared/lib/workspace/app";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/shared/ui/command";
 
 const [commandPaletteOpen, setCommandPaletteOpen] = createSignal(false);
 
@@ -45,8 +53,6 @@ export function CommandPaletteModal() {
 function CommandPaletteInner() {
   const { documents } = getApp();
   const [query, setQuery] = createSignal("");
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
-  const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
 
   const getActiveCommandContext = () => {
     const editor = getActiveEditor();
@@ -105,103 +111,32 @@ function CommandPaletteInner() {
       .map((x) => x.cmd);
   });
 
-  createEffect(() => {
-    filteredCommands();
-    setSelectedIndex(0);
-  });
-
   const close = () => setCommandPaletteOpen(false);
 
-  const execute = (idx: number) => {
-    const cmds = filteredCommands();
-    const cmd = cmds[idx];
-    if (!cmd) return;
-    runCommand(cmd);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    const cmds = filteredCommands();
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, cmds.length - 1));
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
-        break;
-      case "Enter":
-        e.preventDefault();
-        execute(selectedIndex());
-        break;
-      case "Escape":
-        e.preventDefault();
-        close();
-        break;
-    }
-  };
-
-  const handleBackdropClick = (e: MouseEvent) => {
-    if ((e.target as HTMLElement).dataset.backdrop) {
-      close();
-    }
-  };
-
-  createEffect(() => {
-    inputRef()?.focus();
-  });
-
   return (
-    <Portal>
-      <div
-        data-backdrop="true"
-        class="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-[15vh]"
-        onClick={handleBackdropClick}
-      >
-        <div class="bg-popover border border-border rounded-lg shadow-lg w-full max-w-md overflow-hidden">
-          <div class="p-2 border-b border-border">
-            <input
-              ref={setInputRef}
-              type="text"
-              class="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="Type a command..."
-              value={query()}
-              onInput={(e) => setQuery(e.currentTarget.value)}
-              onKeyDown={handleKeyDown}
-            />
-          </div>
-          <div class="max-h-64 overflow-y-auto">
-            <Show
-              when={filteredCommands().length > 0}
-              fallback={
-                <div class="p-3 text-sm text-muted-foreground text-center">
-                  No matching commands
-                </div>
-              }
-            >
-              <For each={filteredCommands()}>
-                {(cmd, idx) => (
-                  <button
-                    class={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-accent ${
-                      idx() === selectedIndex() ? "bg-accent" : ""
-                    }`}
-                    onMouseEnter={() => setSelectedIndex(idx())}
-                    onClick={() => execute(idx())}
-                  >
-                    <span>{cmd.name}</span>
-                    <Show when={cmd.hotkeys && cmd.hotkeys.length > 0}>
-                      <kbd class="text-xs text-muted-foreground ml-2">
-                        {formatHotkey(cmd.hotkeys![0])}
-                      </kbd>
-                    </Show>
-                  </button>
-                )}
-              </For>
-            </Show>
-          </div>
-        </div>
-      </div>
-    </Portal>
+    <CommandDialog
+      open={commandPaletteOpen()}
+      onOpenChange={(open: boolean) => setCommandPaletteOpen(open)}
+      title="Command Palette"
+      description="Search for a command to run."
+    >
+      <CommandInput placeholder="Type a command..." value={query()} onValueChange={setQuery} />
+      <CommandList>
+        <CommandEmpty>No matching commands</CommandEmpty>
+        <CommandGroup value="commands">
+          <For each={filteredCommands()}>
+            {(cmd) => (
+              <CommandItem value={cmd.id} keywords={[cmd.name]} onSelect={() => runCommand(cmd)}>
+                <span>{cmd.name}</span>
+                <Show when={cmd.hotkeys && cmd.hotkeys.length > 0}>
+                  <CommandShortcut>{formatHotkey(cmd.hotkeys![0])}</CommandShortcut>
+                </Show>
+              </CommandItem>
+            )}
+          </For>
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
   );
 }
 

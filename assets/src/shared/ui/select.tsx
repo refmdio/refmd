@@ -1,4 +1,16 @@
-import { splitProps, type ComponentProps, type JSX, type ParentProps } from "solid-js";
+import {
+  createContext,
+  createEffect,
+  createSignal,
+  onCleanup,
+  Show,
+  splitProps,
+  useContext,
+  type Accessor,
+  type ComponentProps,
+  type JSX,
+  type ParentProps,
+} from "solid-js";
 import * as SelectPrimitive from "@kobalte/core/select";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-solid";
 
@@ -6,10 +18,50 @@ import { glassSurfaceSubtleClass } from "@/shared/lib/glass";
 import { useOptionalFormControlProps } from "@/shared/lib/form-control";
 import { cn } from "@/shared/lib/utils";
 
+type SelectContentPosition = "popper" | "item-aligned";
+type SelectContentAlign = "start" | "center" | "end";
+
+type SelectLayoutContextValue = {
+  align: Accessor<SelectContentAlign>;
+  position: Accessor<SelectContentPosition>;
+  setAlign: (align: SelectContentAlign) => void;
+  setPosition: (position: SelectContentPosition) => void;
+};
+
+const SelectLayoutContext = createContext<SelectLayoutContextValue>();
+
+function getPlacementFromAlign(align: SelectContentAlign) {
+  switch (align) {
+    case "start":
+      return "bottom-start" as const;
+    case "end":
+      return "bottom-end" as const;
+    default:
+      return "bottom" as const;
+  }
+}
+
 function Select<Option, OptGroup = never>(
   props: SelectPrimitive.SelectRootProps<Option, OptGroup> & { children?: JSX.Element },
 ) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />;
+  const [local, rest] = splitProps(props, ["children", "placement", "sameWidth"]);
+  const [position, setPosition] = createSignal<SelectContentPosition>("popper");
+  const [align, setAlign] = createSignal<SelectContentAlign>("center");
+
+  return (
+    <SelectLayoutContext.Provider value={{ align, position, setAlign, setPosition }}>
+      <SelectPrimitive.Root
+        // Kobalte controls placement on the root, so content alignment is mirrored
+        // through this local context to keep the public API close to the React variant.
+        data-slot="select"
+        placement={local.placement ?? getPlacementFromAlign(align())}
+        sameWidth={local.sameWidth ?? position() === "popper"}
+        {...rest}
+      >
+        {local.children}
+      </SelectPrimitive.Root>
+    </SelectLayoutContext.Provider>
+  );
 }
 
 function SelectValue(
@@ -71,7 +123,53 @@ function SelectContent(
   },
 ) {
   const [local, rest] = splitProps(props, ["class", "children", "position", "align"]);
+  const layout = useContext(SelectLayoutContext);
   const position = () => local.position ?? "popper";
+  const align = () => local.align ?? "center";
+  const [listboxRef, setListboxRef] = createSignal<HTMLElement>();
+  const [canScrollUp, setCanScrollUp] = createSignal(false);
+  const [canScrollDown, setCanScrollDown] = createSignal(false);
+
+  const updateScrollButtons = () => {
+    const listbox = listboxRef();
+    if (!listbox) return;
+
+    const hasOverflow = listbox.scrollHeight - listbox.clientHeight > 1;
+    setCanScrollUp(hasOverflow && listbox.scrollTop > 1);
+    setCanScrollDown(
+      hasOverflow && listbox.scrollTop + listbox.clientHeight < listbox.scrollHeight - 1,
+    );
+  };
+
+  createEffect(() => {
+    layout?.setPosition(position());
+    layout?.setAlign(align());
+  });
+
+  createEffect(() => {
+    const listbox = listboxRef();
+    if (!listbox) return;
+
+    updateScrollButtons();
+
+    const resizeObserver = new ResizeObserver(() => updateScrollButtons());
+    resizeObserver.observe(listbox);
+    listbox.addEventListener("scroll", updateScrollButtons, { passive: true });
+
+    const frame = requestAnimationFrame(updateScrollButtons);
+
+    onCleanup(() => {
+      cancelAnimationFrame(frame);
+      listbox.removeEventListener("scroll", updateScrollButtons);
+      resizeObserver.disconnect();
+    });
+  });
+
+  onCleanup(() => {
+    layout?.setPosition("popper");
+    layout?.setAlign("center");
+  });
+
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -86,8 +184,11 @@ function SelectContent(
         )}
         {...rest}
       >
-        <SelectScrollUpButton />
+        <Show when={canScrollUp()}>
+          <SelectScrollUpButton onClick={() => scrollSelectList(listboxRef() ?? null, "up")} />
+        </Show>
         <SelectPrimitive.Listbox
+          ref={setListboxRef}
           class={cn(
             "p-1",
             position() === "popper" && "w-full min-w-[var(--kb-select-trigger-width)] scroll-my-1",
@@ -95,15 +196,21 @@ function SelectContent(
         >
           {local.children}
         </SelectPrimitive.Listbox>
-        <SelectScrollDownButton />
+        <Show when={canScrollDown()}>
+          <SelectScrollDownButton onClick={() => scrollSelectList(listboxRef() ?? null, "down")} />
+        </Show>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );
 }
 
-function SelectGroup(props: ParentProps<{ class?: string } & JSX.HTMLAttributes<HTMLDivElement>>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return <div data-slot="select-group" role="group" class={local.class} {...rest} />;
+function SelectGroup(props: ComponentProps<typeof SelectPrimitive.Section>) {
+  const [local, rest] = splitProps(props, ["class", "children"]);
+  return (
+    <SelectPrimitive.Section data-slot="select-group" class={local.class} {...rest}>
+      {local.children}
+    </SelectPrimitive.Section>
+  );
 }
 
 function SelectLabel(props: ParentProps<{ class?: string } & JSX.HTMLAttributes<HTMLDivElement>>) {
@@ -122,11 +229,7 @@ function SelectLabel(props: ParentProps<{ class?: string } & JSX.HTMLAttributes<
 
 function scrollSelectList(target: EventTarget | null, direction: "up" | "down") {
   if (!(target instanceof HTMLElement)) return;
-  const content = target.closest("[data-slot='select-content']");
-  const listbox = content?.querySelector("[role='listbox']");
-  if (!(listbox instanceof HTMLElement)) return;
-
-  listbox.scrollBy({
+  target.scrollBy({
     top: direction === "up" ? -40 : 40,
   });
 }
@@ -183,7 +286,6 @@ function SelectScrollUpButton(
       data-slot="select-scroll-up-button"
       class={cn("flex cursor-default items-center justify-center py-1", local.class)}
       onMouseDown={(event: MouseEvent) => event.preventDefault()}
-      onClick={(event: MouseEvent) => scrollSelectList(event.currentTarget as HTMLDivElement, "up")}
       {...rest}
     >
       {local.children ?? <ChevronUpIcon class="size-4" />}
@@ -200,9 +302,6 @@ function SelectScrollDownButton(
       data-slot="select-scroll-down-button"
       class={cn("flex cursor-default items-center justify-center py-1", local.class)}
       onMouseDown={(event: MouseEvent) => event.preventDefault()}
-      onClick={(event: MouseEvent) =>
-        scrollSelectList(event.currentTarget as HTMLDivElement, "down")
-      }
       {...rest}
     >
       {local.children ?? <ChevronDownIcon class="size-4" />}

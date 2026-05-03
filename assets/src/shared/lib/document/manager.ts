@@ -20,9 +20,11 @@ export interface DocumentContent {
 export interface DocumentInfo {
   id: string;
   title: string;
+  workspaceId: string;
   parentId: string | null;
   docType: "document" | "folder";
   archivedAt: string | null;
+  canSyncPublication: boolean;
 }
 
 export interface PanelWorkspaceOps {
@@ -73,7 +75,10 @@ interface DocumentEventSource {
   on(event: "document-change", cb: (doc: DocumentView) => void): EventRef;
   on(event: "document-create", cb: (docId: string) => void): EventRef;
   on(event: "document-delete", cb: (docId: string) => void): EventRef;
-  on(event: "document-rename", cb: (docId: string, oldTitle: string) => void): EventRef;
+  on(
+    event: "document-rename",
+    cb: (docId: string, oldTitle: string, newTitle: string, isPublished: boolean) => void,
+  ): EventRef;
   on(event: string, cb: (...data: unknown[]) => unknown, ctx?: unknown): EventRef;
   offref(ref: EventRef): void;
 }
@@ -85,7 +90,12 @@ export interface DocumentEventDispatcher extends DocumentEventSource {
   notifyDocumentChangeFor(docId: string, editor: EditorLike | null): void;
   notifyDocumentCreate(docId: string): void;
   notifyDocumentDelete(docId: string): void;
-  notifyDocumentRename(docId: string, oldTitle: string): void;
+  notifyDocumentRename(
+    docId: string,
+    oldTitle: string,
+    newTitle: string,
+    isPublished: boolean,
+  ): void;
 }
 
 export interface DocumentRuntime {
@@ -107,8 +117,30 @@ export interface DocumentRuntime {
 
 export type AppDocuments = DocumentQueries & DocumentCommandService & DocumentEventSource;
 
-let documentEventsRef: DocumentEventDispatcher | null = null;
-let documentRuntimeRef: DocumentRuntime | null = null;
+const noopEventRef = {} as EventRef;
+
+const fallbackDocumentEvents: DocumentEventDispatcher = {
+  on: () => noopEventRef,
+  offref: () => {},
+  flushPendingOpens: () => {},
+  notifyDocumentOpen: () => {},
+  notifyDocumentClose: () => {},
+  notifyDocumentChangeFor: () => {},
+  notifyDocumentCreate: () => {},
+  notifyDocumentDelete: () => {},
+  notifyDocumentRename: () => {},
+};
+
+const fallbackDocumentRuntime: DocumentRuntime = {
+  setTitleResolver: () => {},
+  setDocTextResolver: () => {},
+  setOpenDocumentFn: () => {},
+  setCreateDocumentFn: () => {},
+  init: () => {},
+};
+
+let documentEventsRef: DocumentEventDispatcher = fallbackDocumentEvents;
+let documentRuntimeRef: DocumentRuntime = fallbackDocumentRuntime;
 
 export function registerDocumentInternals(services: {
   documentEvents: DocumentEventDispatcher;
@@ -119,11 +151,9 @@ export function registerDocumentInternals(services: {
 }
 
 export function getDocumentEvents(): DocumentEventDispatcher {
-  if (!documentEventsRef) throw new Error("Document events not initialized");
   return documentEventsRef;
 }
 
 export function getDocumentRuntime(): DocumentRuntime {
-  if (!documentRuntimeRef) throw new Error("Document runtime not initialized");
   return documentRuntimeRef;
 }

@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import {
   PendingWorkspaceInvitationList,
+  GuestInvitationsSection,
   WorkspaceMembersSection,
   WorkspaceRolesSection,
 } from "@/features/workspace";
@@ -8,6 +9,7 @@ import { Button } from "@/shared/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
+import { Switch } from "@/shared/ui/switch";
 import type { WorkspaceSectionModel } from "../../model/workspace-section/useSection";
 
 interface WorkspaceSectionContentProps {
@@ -208,6 +210,103 @@ export function WorkspaceSectionContent(props: WorkspaceSectionContentProps) {
       <div class="border-t border-border/40" />
 
       <PendingWorkspaceInvitationList state={state().invitationManagement} />
+
+      <GuestInvitationsSection state={state().guestInvitationManagement} />
+
+      <div class="border-t border-border/40" />
+
+      <section>
+        <h4 class="text-sm font-medium mb-3">Share</h4>
+        <div class="p-4 border border-border/60 bg-card space-y-3">
+          <Field>
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <FieldLabel>Share Links</FieldLabel>
+                <FieldDescription>
+                  Allow members to create and open share links for this workspace.
+                </FieldDescription>
+              </div>
+              <Switch
+                checked={state().workspace.data?.share_links_enabled ?? true}
+                onChange={(value) => state().handleUpdateFeatures({ share_links_enabled: value })}
+                disabled={!state().canManageFeatures() || state().updatingFeatures()}
+              />
+            </div>
+          </Field>
+        </div>
+      </section>
+
+      <div class="border-t border-border/40" />
+
+      <section>
+        <h4 class="text-sm font-medium mb-3">Public</h4>
+        <div class="p-4 border border-border/60 bg-card space-y-4">
+          <Field>
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <FieldLabel>Public Publishing</FieldLabel>
+                <FieldDescription>
+                  Allow public plaintext publishing under the configured author profile.
+                </FieldDescription>
+              </div>
+              <Switch
+                checked={state().workspace.data?.public_publishing_enabled ?? false}
+                onChange={(value) =>
+                  state().handleUpdateFeatures({ public_publishing_enabled: value })
+                }
+                disabled={!state().canManageFeatures() || state().updatingFeatures()}
+              />
+            </div>
+          </Field>
+
+          <div class="border-t border-border/40" />
+
+          <div class="grid gap-3 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>Public Author</FieldLabel>
+              <Input
+                value={state().publicAuthorName()}
+                onInput={(event) => state().setPublicAuthorName(event.currentTarget.value)}
+                disabled={!state().canManageFeatures() || state().updatingFeatures()}
+                placeholder="Author name"
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Author Slug Base</FieldLabel>
+              <Input
+                value={state().publicAuthorSlug()}
+                onInput={(event) => state().setPublicAuthorSlug(event.currentTarget.value)}
+                disabled={!state().canManageFeatures() || state().updatingFeatures()}
+                placeholder="author-slug-base"
+              />
+            </Field>
+          </div>
+          <Field>
+            <FieldLabel>Public Bio</FieldLabel>
+            <Input
+              value={state().publicAuthorBio()}
+              onInput={(event) => state().setPublicAuthorBio(event.currentTarget.value)}
+              disabled={!state().canManageFeatures() || state().updatingFeatures()}
+              placeholder="Optional public profile description"
+            />
+          </Field>
+          <Show when={state().canManageFeatures()}>
+            <Button
+              size="sm"
+              onClick={state().handleUpdatePublicAuthor}
+              disabled={
+                state().updatingFeatures() ||
+                !state().publicAuthorName().trim() ||
+                !state().publicAuthorSlug().trim()
+              }
+            >
+              Save
+            </Button>
+          </Show>
+        </div>
+      </section>
+
+      <div class="border-t border-border/40" />
 
       <section class="space-y-3">
         <h4 class="text-sm font-medium">Danger Zone</h4>

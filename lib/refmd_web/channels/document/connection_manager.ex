@@ -1,12 +1,13 @@
-defmodule RefMDWeb.DocumentConnectionManager do
+defmodule RefMDWeb.Channels.Document.ConnectionManager do
   @moduledoc """
   Manages document channel connection tracking, eviction, and peer-left broadcasting.
   Uses Phoenix Presence (cluster-aware) for counting and node-local ETS for PID resolution.
   """
 
-  alias RefMDWeb.DocumentPresence
+  alias RefMDWeb.Channels.Document.Presence
 
   @max_connections_per_user 3
+  @max_connections_per_share 50
   @max_silent_per_user 50
 
   # ── Silent join management ──────────────────────────
@@ -14,14 +15,14 @@ defmodule RefMDWeb.DocumentConnectionManager do
   @spec check_and_increment_silent(String.t()) :: :ok | {:error, map()}
   def check_and_increment_silent(user_id) do
     silent_topic = "silent:#{user_id}"
-    presences = DocumentPresence.list(silent_topic)
+    presences = Presence.list(silent_topic)
     user_metas = get_in(presences, [user_id, :metas]) || []
 
     if length(user_metas) >= @max_silent_per_user do
       {:error, %{reason: "silent_limit_exceeded"}}
     else
       {:ok, _} =
-        DocumentPresence.track(self(), silent_topic, user_id, %{
+        Presence.track(self(), silent_topic, user_id, %{
           joined_at: System.monotonic_time(:millisecond)
         })
 
@@ -39,13 +40,53 @@ defmodule RefMDWeb.DocumentConnectionManager do
     Phoenix.PubSub.subscribe(RefMD.PubSub, evict_topic(topic, user_id))
 
     {:ok, _} =
-      DocumentPresence.track(self(), topic, user_id, %{
+      Presence.track(self(), topic, user_id, %{
         join_ref: join_ref,
         signing_pub_key: signing_pub_key
       })
 
     :ets.insert(:refmd_presence_pids, {{topic, user_id, join_ref}, {self(), signing_pub_key}})
     {:ok, join_ref}
+  end
+
+  @spec track_share_connection(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, map()}
+  def track_share_connection(document_id, share_id, principal_id, signing_pub_key) do
+    lock_id = {{__MODULE__, :share_connection_cap, share_id}, :share_connection_cap}
+
+    case :global.set_lock(lock_id) do
+      true ->
+        try do
+          share_topic = share_topic(share_id)
+
+          if total_connections(share_topic) >= @max_connections_per_share do
+            {:error, %{reason: "share_connection_limit_exceeded"}}
+          else
+            topic = "document:#{document_id}"
+            join_ref = inspect(make_ref())
+
+            {:ok, _} = track_share_presence(share_topic, principal_id, join_ref)
+
+            {:ok, _} =
+              Presence.track(self(), topic, principal_id, %{
+                join_ref: join_ref,
+                signing_pub_key: signing_pub_key
+              })
+
+            :ets.insert(
+              :refmd_presence_pids,
+              {{topic, principal_id, join_ref}, {self(), signing_pub_key}}
+            )
+
+            {:ok, join_ref}
+          end
+        after
+          :global.del_lock(lock_id)
+        end
+
+      false ->
+        {:error, %{reason: "share_connection_limit_exceeded"}}
+    end
   end
 
   @spec cleanup_connection(String.t()) :: :ok
@@ -66,7 +107,7 @@ defmodule RefMDWeb.DocumentConnectionManager do
   @spec evict_excess(String.t(), String.t()) :: :ok
   def evict_excess(document_id, user_id) do
     topic = "document:#{document_id}"
-    presences = DocumentPresence.list(topic)
+    presences = Presence.list(topic)
     user_metas = get_in(presences, [user_id, :metas]) || []
 
     if length(user_metas) >= @max_connections_per_user do
@@ -102,6 +143,22 @@ defmodule RefMDWeb.DocumentConnectionManager do
 
   @spec evict_topic(String.t(), String.t()) :: String.t()
   def evict_topic(topic, user_id), do: "connection_evict:#{topic}:#{user_id}"
+
+  defp share_topic(share_id), do: "share_connection:#{share_id}"
+
+  defp track_share_presence(share_topic, principal_id, join_ref) do
+    Presence.track(self(), share_topic, principal_id, %{
+      join_ref: join_ref,
+      joined_at: System.monotonic_time(:millisecond)
+    })
+  end
+
+  defp total_connections(topic) do
+    topic
+    |> Presence.list()
+    |> Map.values()
+    |> Enum.reduce(0, fn presence, acc -> acc + length(presence.metas || []) end)
+  end
 
   # ── Peer-left broadcast ─────────────────────────────
 
@@ -140,7 +197,7 @@ defmodule RefMDWeb.DocumentConnectionManager do
   end
 
   defp check_device_presence(topic, user_id, signing_pub_key) do
-    presences = DocumentPresence.list(topic)
+    presences = Presence.list(topic)
     user_metas = get_in(presences, [user_id, :metas]) || []
     count = Enum.count(user_metas, fn meta -> meta[:signing_pub_key] == signing_pub_key end)
     if count == 0, do: :gone, else: :present

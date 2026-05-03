@@ -35,11 +35,19 @@ export interface DropTarget {
   documentId: string;
   position: DropPosition;
 }
+
+export type DragSibling = {
+  key: string;
+  documentId?: string;
+  position: number;
+};
+
 export function useDocumentDrag(
   flatDocuments: () => DocumentResponse[],
   onDrop: (draggedId: string, targetParentId: string | null, position: number) => void,
   expandFolder: (folderId: string) => void,
   onExternalDrop?: (docId: string) => void,
+  getSiblings?: (parentId: string | null, excludedDocumentId: string) => DragSibling[],
 ) {
   const [draggedId, setDraggedId] = createSignal<string | null>(null);
   const [dropTarget, setDropTarget] = createSignal<DropTarget | null>(null);
@@ -138,14 +146,12 @@ export function useDocumentDrag(
     let position: number;
     if (target.position === "inside") {
       parentId = targetDoc.id;
-      const siblings = docs.filter((d) => d.parent_id === parentId && d.id !== dragId);
+      const siblings = getOrderedSiblings(parentId, dragId);
       position = siblings.length;
     } else {
       parentId = targetDoc.parent_id ?? null;
-      const siblings = docs
-        .filter((d) => (d.parent_id ?? null) === parentId && d.id !== dragId)
-        .sort((a, b) => a.position - b.position);
-      const targetIndex = siblings.findIndex((d) => d.id === targetDoc.id);
+      const siblings = getOrderedSiblings(parentId, dragId);
+      const targetIndex = siblings.findIndex((sibling) => sibling.documentId === targetDoc.id);
       if (target.position === "before") {
         position = targetIndex >= 0 ? targetIndex : 0;
       } else {
@@ -175,10 +181,27 @@ export function useDocumentDrag(
       reset();
       return;
     }
-    const docs = flatDocuments();
-    const siblings = docs.filter((d) => !d.parent_id && d.id !== dragId);
+    const siblings = getOrderedSiblings(null, dragId);
     onDrop(dragId, null, siblings.length);
     reset();
+  }
+
+  function getOrderedSiblings(parentId: string | null, excludedDocumentId: string): DragSibling[] {
+    const siblings =
+      getSiblings?.(parentId, excludedDocumentId) ??
+      flatDocuments()
+        .filter((doc) => (doc.parent_id ?? null) === parentId && doc.id !== excludedDocumentId)
+        .map((doc) => ({
+          key: doc.id,
+          documentId: doc.id,
+          position: doc.position,
+        }));
+
+    return [...siblings].sort((a, b) => {
+      const positionDiff = a.position - b.position;
+      if (positionDiff !== 0) return positionDiff;
+      return a.key.localeCompare(b.key);
+    });
   }
   function startAutoExpand(folderId: string) {
     if (autoExpandTargetId === folderId) return;

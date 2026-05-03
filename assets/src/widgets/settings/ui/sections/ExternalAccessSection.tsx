@@ -1,0 +1,397 @@
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
+import { CopyIcon, ExternalLinkIcon, Globe2Icon, LinkIcon, SettingsIcon } from "lucide-solid";
+import { useDocuments, useDocumentTitles, type DocumentResponse } from "@/entities/document";
+import { currentWorkspaceId } from "@/entities/workspace";
+import { PublishDialog } from "@/features/publication";
+import { ShareManagementDialog } from "@/features/share";
+import { useDocumentSharePermissions } from "@/features/workspace";
+import { publicApi, sharesApi, type components } from "@/shared/api";
+import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
+import { Spinner } from "@/shared/ui/spinner";
+
+type Publication = components["schemas"]["PublicationResponse"];
+type ShareListItem = components["schemas"]["ShareListItem"];
+
+interface SharedPage {
+  document: DocumentResponse;
+  shares: ShareListItem[];
+}
+
+interface SharedLink {
+  document: DocumentResponse;
+  share: ShareListItem;
+}
+
+interface PublishedPage {
+  document: DocumentResponse;
+  publication: Publication | null;
+}
+
+function absoluteUrl(url: string): string {
+  if (/^https?:\/\//.test(url)) return url;
+  return `${window.location.origin}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+function shareUrl(share: ShareListItem): string {
+  return `${window.location.origin}/share/${share.share_slug}`;
+}
+
+function pageLabel(document: DocumentResponse): string {
+  return document.doc_type === "folder" ? "Folder" : "Document";
+}
+
+async function copyText(value: string): Promise<void> {
+  await navigator.clipboard.writeText(value);
+}
+
+function EmptyState(props: { children: string }) {
+  return <p class="py-6 text-center text-sm text-muted-foreground">{props.children}</p>;
+}
+
+function ExternalAccessRow(props: {
+  kind: string;
+  title: string;
+  url: string | null;
+  meta: string;
+  copied: boolean;
+  onCopy?: () => void;
+  onOpen?: () => void;
+  onManage?: () => void;
+}) {
+  return (
+    <div class="flex items-start justify-between gap-3 p-4">
+      <div class="min-w-0 flex-1">
+        <p class="text-xs text-muted-foreground">{props.kind}</p>
+        <h5 class="mt-1 truncate text-sm font-medium">{props.title}</h5>
+        <Show
+          when={props.url}
+          fallback={<p class="mt-2 text-xs text-muted-foreground">URL is unavailable.</p>}
+        >
+          {(url) => <p class="mt-2 truncate font-mono text-xs">{url()}</p>}
+        </Show>
+        <p class="mt-1 text-xs text-muted-foreground">{props.meta}</p>
+        <Show when={props.copied}>
+          <p class="mt-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Copied</p>
+        </Show>
+      </div>
+      <div class="flex shrink-0 items-center gap-1">
+        <Show when={props.url && props.onCopy}>
+          <Button size="icon-sm" variant="ghost" title="Copy URL" onClick={props.onCopy}>
+            <CopyIcon class="size-3.5" />
+          </Button>
+        </Show>
+        <Show when={props.url && props.onOpen}>
+          <Button size="icon-sm" variant="ghost" title="Open URL" onClick={props.onOpen}>
+            <ExternalLinkIcon class="size-3.5" />
+          </Button>
+        </Show>
+        <Show when={props.onManage}>
+          <Button size="sm" variant="outline" onClick={props.onManage}>
+            <SettingsIcon class="size-3.5" />
+            Manage
+          </Button>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+export function ExternalAccessSection() {
+  const workspaceId = () => currentWorkspaceId();
+  const { flatDocuments, query: documentsQuery } = useDocuments(workspaceId);
+  const { getTitle } = useDocumentTitles(flatDocuments, workspaceId);
+  const permissions = useDocumentSharePermissions(workspaceId);
+  const queryClient = useQueryClient();
+  const [error, setError] = createSignal<string | null>(null);
+  const [copiedShareId, setCopiedShareId] = createSignal<string | null>(null);
+  const [copiedDocumentId, setCopiedDocumentId] = createSignal<string | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = createSignal(false);
+  const [publishDialogOpen, setPublishDialogOpen] = createSignal(false);
+  const [selectedShareDocument, setSelectedShareDocument] = createSignal<DocumentResponse | null>(
+    null,
+  );
+  const [selectedPublishedDocument, setSelectedPublishedDocument] =
+    createSignal<DocumentResponse | null>(null);
+
+  const activeDocuments = createMemo(() =>
+    flatDocuments()
+      .filter((document) => !document.archived_at)
+      .slice()
+      .sort((a, b) => a.position - b.position),
+  );
+
+  const publishedDocuments = createMemo(() =>
+    activeDocuments()
+      .filter((document) => document.doc_type === "document" && document.is_published)
+      .slice()
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
+  );
+
+  const sharedPages = createQuery(() => ({
+    queryKey: [
+      "settings-external-shared-pages",
+      workspaceId(),
+      activeDocuments()
+        .map((document) => document.id)
+        .join(","),
+    ],
+    queryFn: async (): Promise<SharedPage[]> => {
+      const results = await Promise.all(
+        activeDocuments().map(async (document) => {
+          const response = await sharesApi.listDocumentShares(document.id);
+          return { document, shares: response.shares };
+        }),
+      );
+      return results.filter((entry) => entry.shares.length > 0);
+    },
+    enabled:
+      Boolean(workspaceId()) && permissions.canManageShares() && activeDocuments().length > 0,
+  }));
+
+  const publishedPages = createQuery(() => ({
+    queryKey: [
+      "settings-external-public-pages",
+      workspaceId(),
+      publishedDocuments()
+        .map((document) => document.id)
+        .join(","),
+    ],
+    queryFn: async (): Promise<PublishedPage[]> => {
+      return Promise.all(
+        publishedDocuments().map(async (document) => {
+          try {
+            const publication = await publicApi.getPublication(document.id);
+            return { document, publication };
+          } catch {
+            return { document, publication: null };
+          }
+        }),
+      );
+    },
+    enabled: Boolean(workspaceId()) && publishedDocuments().length > 0,
+  }));
+
+  const sharedLinks = createMemo<SharedLink[]>(() =>
+    (sharedPages.data ?? []).flatMap((entry) =>
+      entry.shares.map((share) => ({ document: entry.document, share })),
+    ),
+  );
+
+  const refetchExternalAccess = () => {
+    const id = workspaceId();
+    void sharedPages.refetch();
+    void publishedPages.refetch();
+    if (id) {
+      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+    }
+  };
+
+  const openShareDialog = (document: DocumentResponse) => {
+    setSelectedShareDocument(document);
+    setShareDialogOpen(true);
+  };
+
+  const openPublishDialog = (document: DocumentResponse) => {
+    setSelectedPublishedDocument(document);
+    setPublishDialogOpen(true);
+  };
+
+  return (
+    <div class="p-6 space-y-6">
+      <div>
+        <h3 class="text-lg font-semibold mb-1">External Access</h3>
+        <p class="text-sm text-muted-foreground">
+          Review pages that are accessible outside the workspace.
+        </p>
+      </div>
+
+      <Show when={error()}>
+        {(message) => (
+          <Alert variant="destructive">
+            <AlertDescription>{message()}</AlertDescription>
+          </Alert>
+        )}
+      </Show>
+
+      <Show
+        when={!documentsQuery.isLoading}
+        fallback={
+          <div class="flex justify-center py-8">
+            <Spinner class="size-6" />
+          </div>
+        }
+      >
+        <section>
+          <h4 class="mb-3 flex items-center gap-2 text-sm font-medium">
+            <LinkIcon class="size-4" />
+            Share Links
+          </h4>
+          <div class="border border-border/60 bg-card">
+            <Show
+              when={permissions.canManageShares()}
+              fallback={
+                <div class="p-4">
+                  <Alert>
+                    <AlertDescription>
+                      You need document write permission to list share links.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              }
+            >
+              <Show
+                when={!sharedPages.isLoading}
+                fallback={
+                  <div class="flex justify-center py-8">
+                    <Spinner class="size-5" />
+                  </div>
+                }
+              >
+                <Show
+                  when={!sharedPages.isError}
+                  fallback={
+                    <div class="p-4">
+                      <Alert variant="destructive">
+                        <AlertDescription>Failed to load share links.</AlertDescription>
+                      </Alert>
+                    </div>
+                  }
+                >
+                  <Show
+                    when={sharedLinks().length > 0}
+                    fallback={<EmptyState>No pages have share links.</EmptyState>}
+                  >
+                    <div class="divide-y divide-border/60">
+                      <For each={sharedLinks()}>
+                        {(entry) => (
+                          <ExternalAccessRow
+                            kind={pageLabel(entry.document)}
+                            title={getTitle(entry.document)}
+                            url={shareUrl(entry.share)}
+                            meta={`${entry.share.permission} / ${entry.share.scope} · ${
+                              entry.share.access_count
+                            }${
+                              entry.share.access_limit == null ? "" : `/${entry.share.access_limit}`
+                            } uses${
+                              entry.share.expires_at
+                                ? ` · Expires ${new Date(
+                                    entry.share.expires_at,
+                                  ).toLocaleDateString()}`
+                                : ""
+                            }`}
+                            copied={copiedShareId() === entry.share.id}
+                            onCopy={() => {
+                              copyText(shareUrl(entry.share))
+                                .then(() => setCopiedShareId(entry.share.id))
+                                .catch(() => setError("Failed to copy share link."));
+                            }}
+                            onOpen={() => window.open(shareUrl(entry.share), "_blank", "noopener")}
+                            onManage={() => openShareDialog(entry.document)}
+                          />
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </Show>
+              </Show>
+            </Show>
+          </div>
+        </section>
+
+        <div class="border-t border-border/40" />
+
+        <section>
+          <h4 class="mb-3 flex items-center gap-2 text-sm font-medium">
+            <Globe2Icon class="size-4" />
+            Public Pages
+          </h4>
+          <div class="border border-border/60 bg-card">
+            <Show
+              when={!publishedPages.isLoading}
+              fallback={
+                <div class="flex justify-center py-8">
+                  <Spinner class="size-5" />
+                </div>
+              }
+            >
+              <Show
+                when={(publishedPages.data?.length ?? 0) > 0}
+                fallback={<EmptyState>No documents are published.</EmptyState>}
+              >
+                <div class="divide-y divide-border/60">
+                  <For each={publishedPages.data}>
+                    {(entry) => (
+                      <ExternalAccessRow
+                        kind="Document"
+                        title={getTitle(entry.document)}
+                        url={entry.publication ? absoluteUrl(entry.publication.url) : null}
+                        meta={
+                          entry.publication
+                            ? `${entry.publication.noindex ? "Noindex" : "Indexable"} · Updated ${new Date(entry.publication.updated_at).toLocaleDateString()}`
+                            : "Publication settings could not be loaded."
+                        }
+                        copied={copiedDocumentId() === entry.document.id}
+                        onCopy={
+                          entry.publication
+                            ? () => {
+                                copyText(absoluteUrl(entry.publication!.url))
+                                  .then(() => setCopiedDocumentId(entry.document.id))
+                                  .catch(() => setError("Failed to copy public URL."));
+                              }
+                            : undefined
+                        }
+                        onOpen={
+                          entry.publication
+                            ? () =>
+                                window.open(
+                                  absoluteUrl(entry.publication!.url),
+                                  "_blank",
+                                  "noopener",
+                                )
+                            : undefined
+                        }
+                        onManage={
+                          permissions.canPublishPublic()
+                            ? () => openPublishDialog(entry.document)
+                            : undefined
+                        }
+                      />
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </Show>
+          </div>
+        </section>
+      </Show>
+
+      <ShareManagementDialog
+        open={shareDialogOpen()}
+        onOpenChange={(open) => {
+          setShareDialogOpen(open);
+          if (!open) refetchExternalAccess();
+        }}
+        document={selectedShareDocument()}
+        documents={flatDocuments()}
+        canDeleteShares={permissions.canDeleteShares()}
+        getTitle={getTitle}
+        title={selectedShareDocument() ? getTitle(selectedShareDocument()!) : ""}
+        setError={setError}
+      />
+
+      <PublishDialog
+        open={publishDialogOpen()}
+        onOpenChange={(open) => {
+          setPublishDialogOpen(open);
+          if (!open) refetchExternalAccess();
+        }}
+        document={selectedPublishedDocument()}
+        title={selectedPublishedDocument() ? getTitle(selectedPublishedDocument()!) : ""}
+        canPublishPublic={permissions.canPublishPublic()}
+        setError={setError}
+      />
+    </div>
+  );
+}

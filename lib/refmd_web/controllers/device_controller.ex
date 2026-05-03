@@ -4,7 +4,7 @@ defmodule RefMDWeb.DeviceController do
 
   alias RefMD.Crypto
   alias RefMD.Devices
-  alias RefMDWeb.{DeviceEventsController, Schemas}
+  alias RefMDWeb.Schemas
 
   operation(:bootstrap,
     summary: "Bootstrap first device (first device only)",
@@ -177,10 +177,10 @@ defmodule RefMDWeb.DeviceController do
          }) do
       {:ok, %{removed_ids: removed_ids, pending: device_registration}} ->
         for removed_id <- removed_ids do
-          DeviceEventsController.broadcast_device_registration_removed(user_id, removed_id)
+          Devices.broadcast_device_registration_removed(user_id, removed_id)
         end
 
-        DeviceEventsController.broadcast_device_registration_created(user_id, device_registration)
+        Devices.broadcast_device_registration_created(user_id, device_registration)
 
         conn
         |> put_status(:created)
@@ -241,8 +241,8 @@ defmodule RefMDWeb.DeviceController do
     case Devices.get_valid_device_registration(id) do
       %{user_id: ^user_id} ->
         Devices.delete_device_registration(id)
-        DeviceEventsController.broadcast_device_registration_removed(user_id, id)
-        DeviceEventsController.broadcast_registration_rejected(user_id, id)
+        Devices.broadcast_device_registration_removed(user_id, id)
+        Devices.broadcast_registration_rejected(user_id, id)
         json(conn, %{ok: true})
 
       _ ->
@@ -251,7 +251,7 @@ defmodule RefMDWeb.DeviceController do
   end
 
   operation(:get_registration_sas,
-    summary: "Get device registration status (polling fallback for SSE)",
+    summary: "Get device registration status (polling fallback for realtime events)",
     parameters: [
       id: [in: :path, type: :string, required: true]
     ],

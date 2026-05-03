@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import type { DocumentState } from "../../model/document-state/types";
 import { initializeDocumentSync } from "../sync/initialize";
 import { startAutoSync } from "../sync/outbound/auto-sync";
+import { setDocumentSyncPaused } from "../../model/document-state/signals";
 import { recoverDocumentFromCache } from "@/shared/lib/offline/cache/manager/recover";
 import { startPeriodicFlush } from "@/shared/lib/offline/cache/manager/write";
 import { onOfflineModeChange, setWsConnected } from "@/shared/lib/offline/offline-state";
@@ -44,7 +45,7 @@ async function resumeDocumentFromServer(
 
     if (err instanceof DocumentSyncError && err.code === "unauthorized") {
       const { requestReauth } = await import("../../model/document-state/signals");
-      await requestReauth(documentId);
+      await requestReauth(state.stateKey);
 
       try {
         state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
@@ -105,6 +106,7 @@ function activateOfflineEditingSession(
       });
   };
   state.initialized = true;
+  setDocumentSyncPaused(state.stateKey, false);
   state.loadedFromOfflineCache = true;
   state.error = null;
 
@@ -131,6 +133,8 @@ export async function restoreDocumentStateFromCache(
   workspaceId: string,
   state: DocumentState,
 ): Promise<boolean> {
+  if (state.access.kind === "share") return false;
+
   const recovered = await recoverDocumentFromCache(documentId);
   if (!recovered) return false;
 
@@ -155,11 +159,15 @@ export async function restoreDocumentStateFromCache(
   state._cachedConfirmedStateVector = recovered.confirmedStateVector ?? null;
 
   // Restore proof chain state from persisted pin for reconnect validation
-  const { getDocumentStatePin } = await import("@/shared/lib/anti-rollback/document-state-pins");
+  const { getDocumentStatePin, hasCompleteSnapshotPin } =
+    await import("@/shared/lib/anti-rollback/document-state-pins");
   const pin = await getDocumentStatePin(documentId).catch(() => null);
-  if (pin) {
+  if (hasCompleteSnapshotPin(pin) && pin.latestSnapshotId === state.activeSnapshotId) {
     state.snapshotProofHash = pin.latestSnapshotProofHash;
     state.snapshotCiphertextHash = pin.latestSnapshotCiphertextHash;
+  } else {
+    state.snapshotProofHash = "";
+    state.snapshotCiphertextHash = "";
   }
 
   return true;

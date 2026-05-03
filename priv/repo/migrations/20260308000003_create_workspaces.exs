@@ -8,7 +8,18 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
       add :slug, :text, null: false
       add :description, :text
       add :icon, :text
+      add :encrypted_name, :bytea
+      add :encrypted_name_nonce, :bytea
+      add :encrypted_name_key_version, :integer
+      add :encrypted_description, :bytea
+      add :encrypted_description_nonce, :bytea
+      add :encrypted_description_key_version, :integer
+      add :encrypted_icon, :bytea
+      add :encrypted_icon_nonce, :bytea
+      add :encrypted_icon_key_version, :integer
       add :owner_id, references(:users, type: :binary_id), null: false
+      add :share_links_enabled, :boolean, null: false, default: true
+      add :public_publishing_enabled, :boolean, null: false, default: false
       add :current_kek_version, :integer, null: false, default: 0
       add :min_kek_version, :integer, null: false, default: 0
       add :needs_kek_rotation, :boolean, null: false, default: false

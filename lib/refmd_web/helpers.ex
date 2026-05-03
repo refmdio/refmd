@@ -62,8 +62,20 @@ defmodule RefMDWeb.Helpers do
 
   # --- Session cookie helpers ---
 
+  @user_session_cookie "_refmd_session"
+  @share_session_cookie "_refmd_share_session"
+
   @spec set_session_cookie(Plug.Conn.t(), binary(), boolean()) :: Plug.Conn.t()
   def set_session_cookie(conn, token, remember_me) do
+    put_session_cookie(conn, @user_session_cookie, token, remember_me)
+  end
+
+  @spec set_share_session_cookie(Plug.Conn.t(), binary(), boolean()) :: Plug.Conn.t()
+  def set_share_session_cookie(conn, token, remember_me) do
+    put_session_cookie(conn, @share_session_cookie, token, remember_me)
+  end
+
+  defp put_session_cookie(conn, cookie_name, token, remember_me) do
     token_base64 = Base.url_encode64(token, padding: false)
     max_age = if remember_me, do: 30 * 24 * 60 * 60, else: 24 * 60 * 60
 
@@ -81,11 +93,16 @@ defmodule RefMDWeb.Helpers do
       same_site: same_site
     ]
 
-    Plug.Conn.put_resp_cookie(conn, "_refmd_session", token_base64, [{:max_age, max_age} | opts])
+    Plug.Conn.put_resp_cookie(conn, cookie_name, token_base64, [{:max_age, max_age} | opts])
   end
 
   @spec delete_session_cookie(Plug.Conn.t()) :: Plug.Conn.t()
   def delete_session_cookie(conn) do
-    Plug.Conn.delete_resp_cookie(conn, "_refmd_session", path: "/api")
+    Plug.Conn.delete_resp_cookie(conn, @user_session_cookie, path: "/api")
+  end
+
+  @spec delete_share_session_cookie(Plug.Conn.t()) :: Plug.Conn.t()
+  def delete_share_session_cookie(conn) do
+    Plug.Conn.delete_resp_cookie(conn, @share_session_cookie, path: "/api")
   end
 end

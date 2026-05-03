@@ -8,8 +8,22 @@ defmodule RefMD.Devices do
   alias RefMD.Devices.{Device, DeviceEncryptedUMK}
   alias RefMD.Repo
 
+  alias RefMD.Devices.Events, as: WEvents
   alias RefMD.Devices.Registrations, as: WRegistrations
   alias RefMD.Devices.Revocations, as: WRevocations
+
+  # ── Events (delegated to RefMD.Devices.Events) ──
+
+  defdelegate subscribe_user(user_id), to: WEvents
+  defdelegate subscribe_pending(user_id, device_id), to: WEvents
+  defdelegate broadcast_device_registration_created(user_id, device_registration), to: WEvents
+  defdelegate broadcast_registration_approved(user_id, device_id), to: WEvents
+  defdelegate broadcast_device_registration_removed(user_id, device_id), to: WEvents
+  defdelegate broadcast_registration_rejected(user_id, device_id), to: WEvents
+  defdelegate broadcast_trust_transfer_nonce_ready(user_id, new_device_id, nonce), to: WEvents
+
+  defdelegate broadcast_kek_rotation_needed(user_id, workspace_id, current_kek_version),
+    to: WEvents
 
   # ── Registrations (delegated to RefMD.Devices.Registrations) ──
 

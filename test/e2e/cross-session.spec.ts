@@ -7,6 +7,7 @@ import {
   openDocument,
   collectErrors,
   expectEditorTextContains,
+  newE2EContext,
 } from "./helpers";
 
 let sharedPage: Page;
@@ -14,7 +15,7 @@ let email: string;
 
 test.describe.serial("Cross-Session Persistence", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -30,7 +31,7 @@ test.describe.serial("Cross-Session Persistence", () => {
 
     const editor = sharedPage.locator(".cm-content");
     await editor.click();
-    await sharedPage.keyboard.type("Cross-session content");
+    await sharedPage.keyboard.insertText("Cross-session content");
     await sharedPage.waitForTimeout(10000);
   });
 
@@ -74,7 +75,7 @@ test.describe.serial("Cross-Session Persistence", () => {
       await editor.click();
       await sharedPage.keyboard.press("End");
       await sharedPage.keyboard.press("Enter");
-      await sharedPage.keyboard.type("Post-login edit");
+      await sharedPage.keyboard.insertText("Post-login edit");
       await sharedPage.waitForTimeout(10000);
     });
 

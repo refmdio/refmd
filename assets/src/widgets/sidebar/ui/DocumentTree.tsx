@@ -2,17 +2,20 @@ import { Show, For } from "solid-js";
 import { Spinner } from "@/shared/ui/spinner";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
-import type { DocumentTreeNode, DocumentResponse, DropTarget } from "@/entities/document";
+import type { DocumentResponse, DropTarget } from "@/entities/document";
+import type { MountedShareTreeEntry, ShareMount, ShareTreeEntry } from "@/entities/mount";
+import type { SidebarTreeNode } from "../model/rows";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 
 interface DocumentTreeProps {
-  tree: DocumentTreeNode[];
+  tree: SidebarTreeNode[];
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
   isExpanded: (id: string) => boolean;
   onToggle: (id: string) => void;
   selectedId: string | null;
+  selectedMountKey: string | null;
   onSelect: (id: string) => void;
   getTitle: (doc: DocumentResponse) => string;
   isTitleReady: (doc: DocumentResponse) => boolean;
@@ -26,6 +29,16 @@ interface DocumentTreeProps {
   onDragEnd: () => void;
   onRootDragOver: (e: DragEvent) => void;
   onRootDrop: (e: DragEvent) => void;
+  isMountExpanded: (key: string) => boolean;
+  isMountLoading: (key: string) => boolean;
+  getMountEntries: (key: string) => MountedShareTreeEntry[];
+  onMountToggle: (mount: ShareMount) => void;
+  onMountEntryToggle: (mount: ShareMount, entry: ShareTreeEntry) => void;
+  onMountOpen: (mount: ShareMount) => void;
+  onMountAddToTile: (mount: ShareMount) => void;
+  onMountEntryOpen: (mount: ShareMount, entry: ShareTreeEntry) => void;
+  onMountEntryAddToTile: (mount: ShareMount, entry: ShareTreeEntry) => void;
+  onMountUnmount: (mount: ShareMount) => void;
 }
 
 export function DocumentTree(props: DocumentTreeProps) {
@@ -74,6 +87,7 @@ export function DocumentTree(props: DocumentTreeProps) {
                     isExpanded={props.isExpanded}
                     onToggle={props.onToggle}
                     selectedId={props.selectedId}
+                    selectedMountKey={props.selectedMountKey}
                     onSelect={props.onSelect}
                     getTitle={props.getTitle}
                     isTitleReady={props.isTitleReady}
@@ -85,6 +99,16 @@ export function DocumentTree(props: DocumentTreeProps) {
                     onDragLeave={props.onDragLeave}
                     onDrop={props.onDrop}
                     onDragEnd={props.onDragEnd}
+                    isMountExpanded={props.isMountExpanded}
+                    isMountLoading={props.isMountLoading}
+                    getMountEntries={props.getMountEntries}
+                    onMountToggle={props.onMountToggle}
+                    onMountEntryToggle={props.onMountEntryToggle}
+                    onMountOpen={props.onMountOpen}
+                    onMountAddToTile={props.onMountAddToTile}
+                    onMountEntryOpen={props.onMountEntryOpen}
+                    onMountEntryAddToTile={props.onMountEntryAddToTile}
+                    onMountUnmount={props.onMountUnmount}
                   />
                 )}
               </For>

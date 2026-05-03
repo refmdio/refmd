@@ -3,6 +3,8 @@ import { ApiError } from "@/shared/api/core";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
+import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
+import { joinRegistrationDeviceEvents } from "@/features/devices/lib/device-events-channel";
 import { requestTrustTransferNonce } from "./support";
 import type { DeviceRegistrationPublicKeys } from "../../model/types";
 
@@ -49,9 +51,11 @@ export async function startRegistrationApproval(
   }
 
   let pollTimer: ReturnType<typeof setInterval> | undefined;
-  let eventSource: EventSource | undefined;
+  let deviceEvents: { dispose: () => void } | undefined;
   let nonceRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
+  let connectionGeneration = 0;
 
   const clearPolling = () => {
     if (pollTimer) {
@@ -60,16 +64,20 @@ export async function startRegistrationApproval(
     }
   };
 
-  const clearEventSource = () => {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = undefined;
-    }
+  const clearDeviceEvents = () => {
+    connectionGeneration += 1;
+    const activeEvents = deviceEvents;
+    deviceEvents = undefined;
+    activeEvents?.dispose();
   };
 
   const dispose = () => {
     clearPolling();
-    clearEventSource();
+    clearDeviceEvents();
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
+    }
     if (nonceRefreshTimer) {
       clearInterval(nonceRefreshTimer);
       nonceRefreshTimer = undefined;
@@ -124,39 +132,60 @@ export async function startRegistrationApproval(
     }, 5000);
   };
 
-  const connectSse = () => {
-    if (settled) return;
+  const scheduleEventReconnect = (generation: number) => {
+    if (generation !== connectionGeneration || reconnectTimer) return;
 
-    try {
-      eventSource = new EventSource(`/api/devices/registrations/${registration.device_id}/events`);
-
-      eventSource.addEventListener("pending_approved", () => {
-        void approve();
-      });
-      eventSource.addEventListener("expired", () => {
-        expire();
-      });
-      eventSource.addEventListener("pending_rejected", () => {
-        reject();
-      });
-      eventSource.onopen = () => {
-        clearPolling();
-      };
-      eventSource.onerror = () => {
-        clearEventSource();
-        startPollingFallback();
-        setTimeout(() => {
-          if (!settled && params.shouldKeepWaiting() && !eventSource) {
-            connectSse();
-          }
-        }, 5000);
-      };
-    } catch {
-      startPollingFallback();
-    }
+    const delay = Math.max(5000, getAuthTransportBackoffMs());
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = undefined;
+      if (!settled && params.shouldKeepWaiting() && generation === connectionGeneration) {
+        connectDeviceEvents();
+      }
+    }, delay);
   };
 
-  connectSse();
+  const handleEventConnectionLoss = (generation: number) => {
+    if (settled || generation !== connectionGeneration) return;
+
+    clearDeviceEvents();
+    startPollingFallback();
+    scheduleEventReconnect(connectionGeneration);
+  };
+
+  const connectDeviceEvents = () => {
+    if (settled) return;
+    const generation = connectionGeneration;
+
+    joinRegistrationDeviceEvents(registration.device_id, {
+      onApproved: () => {
+        void approve();
+      },
+      onExpired: () => {
+        expire();
+      },
+      onRejected: () => {
+        reject();
+      },
+      onClose: () => {
+        handleEventConnectionLoss(generation);
+      },
+      onError: () => handleEventConnectionLoss(generation),
+    })
+      .then((handle) => {
+        if (generation !== connectionGeneration) {
+          handle.dispose();
+          return;
+        }
+        deviceEvents = handle;
+        clearPolling();
+      })
+      .catch(() => {
+        startPollingFallback();
+        scheduleEventReconnect(generation);
+      });
+  };
+
+  connectDeviceEvents();
 
   return {
     status: "waiting",

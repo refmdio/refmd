@@ -85,6 +85,15 @@ export class WorkerTransport {
     if (type.startsWith("decrypt-")) {
       return { maxRetries: 12, baseDelayMs: 100, maxDelayMs: 1_000 };
     }
+    if (type.startsWith("verify-")) {
+      return { maxRetries: 12, baseDelayMs: 100, maxDelayMs: 1_000 };
+    }
+    if (type === "compute-update-hash") {
+      return { maxRetries: 12, baseDelayMs: 50, maxDelayMs: 500 };
+    }
+    if (type === "has-dek" || type === "has-dek-batch") {
+      return { maxRetries: 3, baseDelayMs: 50, maxDelayMs: 300 };
+    }
     return null;
   }
 

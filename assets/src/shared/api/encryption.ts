@@ -1,5 +1,13 @@
-import { client, throwIfError } from "./core";
+import { client, POP_DEVICE_OVERRIDE_HEADER, throwIfError } from "./core";
 import type { components } from "./schema";
+
+type PopOverrideOptions = {
+  popDeviceId?: string;
+};
+
+function popOverrideHeaders(options?: PopOverrideOptions): Record<string, string> | undefined {
+  return options?.popDeviceId ? { [POP_DEVICE_OVERRIDE_HEADER]: options.popDeviceId } : undefined;
+}
 
 export const encryptionApi = {
   getWorkspaceIds: async () => throwIfError(await client.GET("/api/workspaces/ids")),
@@ -32,11 +40,13 @@ export const encryptionApi = {
   createWorkspaceKeyWithPop: async (
     workspaceId: string,
     body: components["schemas"]["CreateWorkspaceKeyRequest"],
+    options?: PopOverrideOptions,
   ) => {
     throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/keys", {
         params: { path: { workspace_id: workspaceId } },
         body,
+        headers: popOverrideHeaders(options),
       }),
     );
   },
@@ -44,11 +54,13 @@ export const encryptionApi = {
   createKekBackupWithPop: async (
     workspaceId: string,
     body: components["schemas"]["CreateKekBackupRequest"],
+    options?: PopOverrideOptions,
   ) => {
     throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/kek-backup", {
         params: { path: { workspace_id: workspaceId } },
         body,
+        headers: popOverrideHeaders(options),
       }),
     );
   },

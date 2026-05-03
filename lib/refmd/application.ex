@@ -19,7 +19,7 @@ defmodule RefMD.Application do
       {Phoenix.PubSub, name: RefMD.PubSub},
       {Oban, Application.fetch_env!(:refmd, Oban)},
       {Registry, keys: :unique, name: RefMD.Documents.Registry},
-      RefMDWeb.DocumentPresence,
+      RefMDWeb.Channels.Document.Presence,
       RefMD.Documents.Supervisor,
       # Start to serve requests, typically the last entry
       RefMDWeb.Endpoint

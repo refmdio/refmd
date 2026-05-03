@@ -4,32 +4,37 @@ export const ALL_PERMISSIONS = [
   "document:delete",
   "document:archive",
   "workspace:update",
+  "workspace:features",
   "workspace:admin",
   "workspace:delete",
   "member:list",
   "member:invite",
+  "guest:invite",
   "member:change_role",
   "member:remove",
   "role:manage",
 ] as const;
 type Permission = (typeof ALL_PERMISSIONS)[number];
-export type BaseRole = "owner" | "admin" | "editor" | "viewer";
+export type BaseRole = "owner" | "admin" | "editor" | "viewer" | "guest";
 export const PERMISSION_LABELS: Record<Permission, string> = {
   "document:read": "Read documents",
   "document:write": "Write documents",
   "document:delete": "Delete documents",
   "document:archive": "Archive documents",
   "workspace:update": "Update workspace",
+  "workspace:features": "Manage workspace features",
   "workspace:admin": "Admin workspace",
   "workspace:delete": "Delete workspace",
   "member:list": "List members",
   "member:invite": "Invite members",
+  "guest:invite": "Invite guests",
   "member:change_role": "Change member roles",
   "member:remove": "Remove members",
   "role:manage": "Manage roles",
 };
 export const PRIVILEGE_LEVEL: Record<BaseRole, number> = {
   viewer: 0,
+  guest: 0,
   editor: 1,
   admin: 2,
   owner: 3,
@@ -40,10 +45,12 @@ const SINCE_VERSION: Record<Permission, number> = {
   "document:delete": 1,
   "document:archive": 1,
   "workspace:update": 1,
+  "workspace:features": 1,
   "workspace:admin": 1,
   "workspace:delete": 1,
   "member:list": 1,
   "member:invite": 1,
+  "guest:invite": 1,
   "member:change_role": 1,
   "member:remove": 1,
   "role:manage": 1,
@@ -54,10 +61,12 @@ export const CEILING: Record<Permission, BaseRole> = {
   "document:delete": "admin",
   "document:archive": "editor",
   "workspace:update": "admin",
+  "workspace:features": "admin",
   "workspace:admin": "admin",
   "workspace:delete": "owner",
   "member:list": "viewer",
   "member:invite": "admin",
+  "guest:invite": "admin",
   "member:change_role": "admin",
   "member:remove": "admin",
   "role:manage": "admin",
@@ -68,15 +77,18 @@ export function isAtOrAbove(role: BaseRole, ceilingRole: BaseRole): boolean {
 function defaultGrant(baseRole: BaseRole, perm: Permission): boolean {
   switch (perm) {
     case "document:read":
-    case "member:list":
       return true;
+    case "member:list":
+      return baseRole !== "guest";
     case "document:write":
     case "document:archive":
-      return (["owner", "admin", "editor"] as string[]).includes(baseRole);
+      return (["owner", "admin", "editor", "guest"] as string[]).includes(baseRole);
     case "document:delete":
     case "workspace:update":
+    case "workspace:features":
     case "workspace:admin":
     case "member:invite":
+    case "guest:invite":
     case "member:change_role":
     case "member:remove":
     case "role:manage":
@@ -106,8 +118,14 @@ export function checkEffectivePermission(
   const perm = permission as Permission;
   if (!(ALL_PERMISSIONS as readonly string[]).includes(perm)) return false;
   if (baseRole === "owner") return true;
+  if (
+    baseRole === "guest" &&
+    !["document:read", "document:write", "document:archive"].includes(perm)
+  ) {
+    return false;
+  }
   const ceiling = CEILING[perm];
-  if (ceiling && !isAtOrAbove(baseRole, ceiling)) return false;
+  if (baseRole !== "guest" && ceiling && !isAtOrAbove(baseRole, ceiling)) return false;
   const override = role.permissions?.find((o) => o.permission === permission);
   if (override !== undefined) return override.granted;
   if (role.catalog_version != null && SINCE_VERSION[perm] > role.catalog_version) {

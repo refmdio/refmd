@@ -2,6 +2,134 @@
   "components": {
     "responses": {},
     "schemas": {
+      "CreatePublicationRequest": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "noindex": {
+            "type": "boolean"
+          },
+          "slug": {
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content",
+          "content_hash"
+        ],
+        "title": "CreatePublicationRequest",
+        "type": "object"
+      },
+      "SharePasswordChallengeResponse": {
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "kdf_params": {
+            "$ref": "#/components/schemas/KdfParams"
+          },
+          "salt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge",
+          "salt",
+          "kdf_params"
+        ],
+        "title": "SharePasswordChallengeResponse",
+        "type": "object"
+      },
+      "ShareMountResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "share": {
+            "$ref": "#/components/schemas/ShareMountShareSummary"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "expired",
+              "access_limit_reached"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ShareMountTarget"
+          },
+          "target_document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "target_kind": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "target_token": {
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "title_state": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "share_id",
+          "target_kind",
+          "target_token",
+          "target_document_id",
+          "parent_id",
+          "position",
+          "status",
+          "password_protected",
+          "share",
+          "target",
+          "title",
+          "title_state"
+        ],
+        "title": "ShareMountResponse",
+        "type": "object"
+      },
       "DeviceInfo": {
         "properties": {
           "device_type": {
@@ -163,6 +291,117 @@
         "title": "CreateWorkspaceKeyRequest",
         "type": "object"
       },
+      "ShareLandingResponse": {
+        "properties": {
+          "root": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DocumentShareRoot"
+              },
+              {
+                "$ref": "#/components/schemas/FolderShareRoot"
+              }
+            ]
+          },
+          "share": {
+            "$ref": "#/components/schemas/ShareMetadata"
+          }
+        },
+        "required": [
+          "share",
+          "root"
+        ],
+        "title": "ShareLandingResponse",
+        "type": "object"
+      },
+      "ShareMountFolderChallengeResponse": {
+        "properties": {
+          "child_shares": {
+            "items": {
+              "$ref": "#/components/schemas/ShareMountChildShare"
+            },
+            "type": "array"
+          },
+          "folder_tree": {
+            "properties": {
+              "entries": {
+                "items": {
+                  "$ref": "#/components/schemas/ShareTreeEntry"
+                },
+                "type": "array"
+              },
+              "folder": {
+                "$ref": "#/components/schemas/ShareTreeEntry"
+              }
+            },
+            "required": [
+              "folder",
+              "entries"
+            ],
+            "type": "object"
+          },
+          "mount": {
+            "$ref": "#/components/schemas/ShareMountResponse"
+          }
+        },
+        "required": [
+          "mount",
+          "folder_tree",
+          "child_shares"
+        ],
+        "title": "ShareMountFolderChallengeResponse",
+        "type": "object"
+      },
+      "UpdateShareExclusionsRequest": {
+        "anyOf": [
+          {
+            "properties": {
+              "add": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remove": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "add"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "add": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remove": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "remove"
+            ],
+            "type": "object"
+          }
+        ],
+        "title": "UpdateShareExclusionsRequest",
+        "type": "object"
+      },
       "RoleDeleteResponse": {
         "properties": {
           "invalidated_invitation_count": {
@@ -207,6 +446,97 @@
           "members"
         ],
         "title": "MembersListResponse",
+        "type": "object"
+      },
+      "ShareMountListResponse": {
+        "properties": {
+          "mounts": {
+            "items": {
+              "$ref": "#/components/schemas/ShareMountResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "mounts"
+        ],
+        "title": "ShareMountListResponse",
+        "type": "object"
+      },
+      "ShareDocumentBootstrapResponse": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "encrypted_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "share_slug": {
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "verification_directory": {
+            "$ref": "#/components/schemas/ShareVerificationDirectory"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_slug",
+          "share_id",
+          "document_id",
+          "workspace_id",
+          "title",
+          "encrypted_title",
+          "encrypted_title_nonce",
+          "encrypted_title_key_version",
+          "key_version",
+          "permission",
+          "password_protected",
+          "encrypted_dek",
+          "nonce",
+          "verification_directory"
+        ],
+        "title": "ShareDocumentBootstrapResponse",
         "type": "object"
       },
       "AcceptInvitationRequest": {
@@ -286,6 +616,75 @@
         "title": "TrustTransferNonceRequest",
         "type": "object"
       },
+      "ShareMountChallengeRequest": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "response"
+        ],
+        "title": "ShareMountChallengeRequest",
+        "type": "object"
+      },
+      "ShareMountLookupItem": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "target_kind": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "target_token": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "share_id",
+          "target_kind",
+          "target_token"
+        ],
+        "title": "ShareMountLookupItem",
+        "type": "object"
+      },
+      "InvitationLookupRequest": {
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "InvitationLookupRequest",
+        "type": "object"
+      },
       "RoleResponse": {
         "properties": {
           "base_role": {
@@ -293,7 +692,8 @@
               "owner",
               "admin",
               "editor",
-              "viewer"
+              "viewer",
+              "guest"
             ],
             "type": "string"
           },
@@ -539,6 +939,22 @@
         "title": "DocumentKeysResponse",
         "type": "object"
       },
+      "InvitationLookupResponse": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "member",
+              "guest"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "InvitationLookupResponse",
+        "type": "object"
+      },
       "UpdateRoleRequest": {
         "properties": {
           "is_default": {
@@ -557,6 +973,25 @@
           }
         },
         "title": "UpdateRoleRequest",
+        "type": "object"
+      },
+      "DocumentShareRoot": {
+        "properties": {
+          "document_token": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "document_token"
+        ],
+        "title": "DocumentShareRoot",
         "type": "object"
       },
       "LoginRequest": {
@@ -621,6 +1056,10 @@
       },
       "MeResponse": {
         "properties": {
+          "account_type": {
+            "nullable": true,
+            "type": "string"
+          },
           "auth_type": {
             "nullable": true,
             "type": "string"
@@ -694,6 +1133,63 @@
         "title": "WsTokenResponse",
         "type": "object"
       },
+      "UpdateWorkspaceFeaturesRequest": {
+        "properties": {
+          "guest_invites_enabled": {
+            "type": "boolean"
+          },
+          "guest_member_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "public_author_bio": {
+            "nullable": true,
+            "type": "string"
+          },
+          "public_author_display_name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "public_author_slug": {
+            "nullable": true,
+            "type": "string"
+          },
+          "public_publishing_enabled": {
+            "type": "boolean"
+          },
+          "share_links_enabled": {
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateWorkspaceFeaturesRequest",
+        "type": "object"
+      },
+      "ShareParticipantInfo": {
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "grant": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "principal_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal_id",
+          "device_id",
+          "grant"
+        ],
+        "title": "ShareParticipantInfo",
+        "type": "object"
+      },
       "MemberInfo": {
         "properties": {
           "base_role": {
@@ -701,7 +1197,8 @@
               "owner",
               "admin",
               "editor",
-              "viewer"
+              "viewer",
+              "guest"
             ],
             "type": "string"
           },
@@ -741,6 +1238,89 @@
           "joined_at"
         ],
         "title": "MemberInfo",
+        "type": "object"
+      },
+      "ShareMountDetailResponse": {
+        "properties": {
+          "admission": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MountedShareAdmission"
+              }
+            ],
+            "nullable": true
+          },
+          "child_shares": {
+            "items": {
+              "$ref": "#/components/schemas/ShareMountChildShare"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "folder_tree": {
+            "nullable": true,
+            "properties": {
+              "entries": {
+                "items": {
+                  "$ref": "#/components/schemas/ShareTreeEntry"
+                },
+                "type": "array"
+              },
+              "folder": {
+                "$ref": "#/components/schemas/ShareTreeEntry"
+              }
+            },
+            "type": "object"
+          },
+          "mount": {
+            "$ref": "#/components/schemas/ShareMountResponse"
+          }
+        },
+        "required": [
+          "mount",
+          "admission",
+          "folder_tree",
+          "child_shares"
+        ],
+        "title": "ShareMountDetailResponse",
+        "type": "object"
+      },
+      "ShareMetadata": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "document_id",
+          "scope",
+          "permission",
+          "password_protected"
+        ],
+        "title": "ShareMetadata",
         "type": "object"
       },
       "RemoveMemberResponse": {
@@ -806,6 +1386,235 @@
         "title": "DeviceRegistrationsResponse",
         "type": "object"
       },
+      "ShareMountCreateResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ShareMountResponse"
+          }
+        ],
+        "title": "ShareMountCreateResponse"
+      },
+      "ShareVerificationDirectory": {
+        "properties": {
+          "share_participant_devices": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "workspace_devices": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "workspace_devices",
+          "share_participant_devices"
+        ],
+        "title": "ShareVerificationDirectory",
+        "type": "object"
+      },
+      "GuestInvitationResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "max_redemptions": {
+            "type": "integer"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "redemption_count": {
+            "type": "integer"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "target_document_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "target_scope": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "workspace_id",
+          "token_prefix",
+          "target_scope",
+          "permission",
+          "invited_by",
+          "kek_version",
+          "max_redemptions",
+          "redemption_count",
+          "expires_at",
+          "created_at",
+          "revoked_at"
+        ],
+        "title": "GuestInvitationResponse",
+        "type": "object"
+      },
+      "ShareMountChildShare": {
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "document_token": {
+            "nullable": true,
+            "type": "string"
+          },
+          "folder_token": {
+            "nullable": true,
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "document_id",
+          "doc_type",
+          "document_token",
+          "folder_token"
+        ],
+        "title": "ShareMountChildShare",
+        "type": "object"
+      },
+      "ShareTreeEntry": {
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "document_token": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "encrypted_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "folder_token": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "position": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "share_id",
+          "doc_type",
+          "parent_id",
+          "position",
+          "title",
+          "encrypted_title",
+          "encrypted_title_nonce",
+          "encrypted_title_key_version",
+          "key_version",
+          "encrypted_dek",
+          "nonce",
+          "document_token",
+          "folder_token"
+        ],
+        "title": "ShareTreeEntry",
+        "type": "object"
+      },
+      "GuestInvitationsListResponse": {
+        "properties": {
+          "invitations": {
+            "items": {
+              "$ref": "#/components/schemas/GuestInvitationResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invitations"
+        ],
+        "title": "GuestInvitationsListResponse",
+        "type": "object"
+      },
       "CreateInvitationRequest": {
         "properties": {
           "encrypted_kek": {
@@ -861,6 +1670,9 @@
             "nullable": true,
             "type": "string"
           },
+          "can_sync_publication": {
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -894,6 +1706,9 @@
             "type": "string"
           },
           "is_encrypted": {
+            "type": "boolean"
+          },
+          "is_published": {
             "type": "boolean"
           },
           "min_dek_version": {
@@ -942,6 +1757,8 @@
           "is_encrypted",
           "needs_dek_rotation",
           "min_dek_version",
+          "is_published",
+          "can_sync_publication",
           "created_at",
           "updated_at"
         ],
@@ -1003,6 +1820,78 @@
         "title": "UpdateDocumentRequest",
         "type": "object"
       },
+      "MountedShareAdmission": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "encrypted_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "verification_directory": {
+            "$ref": "#/components/schemas/ShareVerificationDirectory"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "document_id",
+          "workspace_id",
+          "title",
+          "encrypted_title",
+          "encrypted_title_nonce",
+          "encrypted_title_key_version",
+          "key_version",
+          "permission",
+          "password_protected",
+          "encrypted_dek",
+          "nonce",
+          "verification_directory"
+        ],
+        "title": "MountedShareAdmission",
+        "type": "object"
+      },
       "WorkspacesListResponse": {
         "properties": {
           "workspaces": {
@@ -1016,6 +1905,32 @@
           "workspaces"
         ],
         "title": "WorkspacesListResponse",
+        "type": "object"
+      },
+      "ShareUpdateResponse": {
+        "properties": {
+          "access_count": {
+            "type": "integer"
+          },
+          "access_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "access_count"
+        ],
+        "title": "ShareUpdateResponse",
         "type": "object"
       },
       "UpdateSettingsRequest": {
@@ -1084,6 +1999,263 @@
         "title": "ApproveDeviceResponse",
         "type": "object"
       },
+      "ShareChildListItem": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "document_id"
+        ],
+        "title": "ShareChildListItem",
+        "type": "object"
+      },
+      "ShareBootstrapResponse": {
+        "properties": {
+          "participant": {
+            "$ref": "#/components/schemas/ShareParticipantInfo"
+          },
+          "root": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DocumentShareRoot"
+              },
+              {
+                "$ref": "#/components/schemas/FolderShareRoot"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "participant"
+        ],
+        "title": "ShareBootstrapResponse",
+        "type": "object"
+      },
+      "PublicAuthorResponse": {
+        "properties": {
+          "author_description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "author_name": {
+            "type": "string"
+          },
+          "author_slug": {
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/PublicAuthorDocument"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "author_slug",
+          "author_name",
+          "author_description",
+          "documents"
+        ],
+        "title": "PublicAuthorResponse",
+        "type": "object"
+      },
+      "ShareMountConflictResponse": {
+        "properties": {
+          "mount": {
+            "$ref": "#/components/schemas/ShareMountResponse"
+          }
+        },
+        "required": [
+          "mount"
+        ],
+        "title": "ShareMountConflictResponse",
+        "type": "object"
+      },
+      "ShareFolderBootstrapResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ShareTreeEntry"
+            },
+            "type": "array"
+          },
+          "folder": {
+            "$ref": "#/components/schemas/ShareTreeEntry"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "share_slug": {
+            "type": "string"
+          },
+          "verification_directory": {
+            "$ref": "#/components/schemas/ShareVerificationDirectory"
+          }
+        },
+        "required": [
+          "share_slug",
+          "share_id",
+          "password_protected",
+          "verification_directory",
+          "folder",
+          "entries"
+        ],
+        "title": "ShareFolderBootstrapResponse",
+        "type": "object"
+      },
+      "CreateGuestInvitationRequest": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kek_nonce": {
+            "type": "string"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "max_redemptions": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "target_document_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "target_scope": {
+            "enum": [
+              "workspace",
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "token_hash": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "token_hash",
+          "token_prefix",
+          "target_scope",
+          "permission",
+          "encrypted_kek",
+          "kek_nonce",
+          "kek_version"
+        ],
+        "title": "CreateGuestInvitationRequest",
+        "type": "object"
+      },
+      "ShareMountLookupResponse": {
+        "properties": {
+          "mounts": {
+            "items": {
+              "$ref": "#/components/schemas/ShareMountLookupItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "mounts"
+        ],
+        "title": "ShareMountLookupResponse",
+        "type": "object"
+      },
+      "ReplaceFolderShareKeyItem": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "share_id": {
+            "description": "Existing child share ID whose key will be replaced",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "document_id",
+          "encrypted_dek"
+        ],
+        "title": "ReplaceFolderShareKeyItem",
+        "type": "object"
+      },
+      "CreateShareMountRequest": {
+        "properties": {
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "share_slug": {
+            "type": "string"
+          },
+          "target_kind": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "target_token": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "share_slug",
+          "target_kind",
+          "target_token"
+        ],
+        "title": "CreateShareMountRequest",
+        "type": "object"
+      },
       "SaltResponse": {
         "properties": {
           "kdf_params": {
@@ -1098,6 +2270,74 @@
           "kdf_params"
         ],
         "title": "SaltResponse",
+        "type": "object"
+      },
+      "ShareMountDocumentChallengeResponse": {
+        "properties": {
+          "admission": {
+            "$ref": "#/components/schemas/MountedShareAdmission"
+          }
+        },
+        "required": [
+          "admission"
+        ],
+        "title": "ShareMountDocumentChallengeResponse",
+        "type": "object"
+      },
+      "PublicationConflictResponse": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "suggested_slug": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "PublicationConflictResponse",
+        "type": "object"
+      },
+      "ShareMountFolderMountSummary": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "share_id",
+          "status"
+        ],
+        "title": "ShareMountFolderMountSummary",
+        "type": "object"
+      },
+      "UpdateShareRequest": {
+        "properties": {
+          "access_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "title": "UpdateShareRequest",
         "type": "object"
       },
       "CreateDocumentRequest": {
@@ -1202,6 +2442,83 @@
         "title": "RenameDeviceRequest",
         "type": "object"
       },
+      "UpdatePublicationContentRequest": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content",
+          "content_hash"
+        ],
+        "title": "UpdatePublicationContentRequest",
+        "type": "object"
+      },
+      "RedeemGuestInvitationResponse": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "guest_device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "guest_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kek_nonce": {
+            "type": "string"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "permission": {
+            "type": "string"
+          },
+          "target_document_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "target_scope": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "workspace_name",
+          "invitation_id",
+          "target_scope",
+          "permission",
+          "guest_user_id",
+          "guest_device_id",
+          "encrypted_kek",
+          "kek_nonce",
+          "kek_version"
+        ],
+        "title": "RedeemGuestInvitationResponse",
+        "type": "object"
+      },
       "DistributeUmkRequest": {
         "properties": {
           "encrypted_umk": {
@@ -1223,6 +2540,105 @@
         "title": "DistributeUmkRequest",
         "type": "object"
       },
+      "CreateFolderShareKeyItem": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "document_id",
+          "encrypted_dek"
+        ],
+        "title": "CreateFolderShareKeyItem",
+        "type": "object"
+      },
+      "CreateDocumentShareRequest": {
+        "properties": {
+          "access_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "auth_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kdf_params": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KdfParams"
+              }
+            ],
+            "nullable": true
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "salt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "document"
+            ],
+            "type": "string"
+          },
+          "share_slug": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "share_slug",
+          "token_prefix",
+          "permission",
+          "password_protected",
+          "encrypted_dek"
+        ],
+        "title": "CreateDocumentShareRequest",
+        "type": "object"
+      },
       "DocumentsListResponse": {
         "properties": {
           "documents": {
@@ -1238,6 +2654,43 @@
         "title": "DocumentsListResponse",
         "type": "object"
       },
+      "ShareCreateResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "share_manage_token": {
+            "type": "string"
+          },
+          "share_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "share_slug",
+          "share_manage_token"
+        ],
+        "title": "ShareCreateResponse",
+        "type": "object"
+      },
+      "ShareDocumentBootstrapRequiredResponse": {
+        "properties": {
+          "bootstrap_required": {
+            "type": "boolean"
+          },
+          "share_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_slug",
+          "bootstrap_required"
+        ],
+        "title": "ShareDocumentBootstrapRequiredResponse",
+        "type": "object"
+      },
       "SaveMemberEnvelopesRequest": {
         "properties": {
           "envelopes": {
@@ -1251,6 +2704,149 @@
           "envelopes"
         ],
         "title": "SaveMemberEnvelopesRequest",
+        "type": "object"
+      },
+      "PublicationResponse": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "noindex": {
+            "type": "boolean"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "slug",
+          "url",
+          "noindex",
+          "published_at",
+          "updated_at"
+        ],
+        "title": "PublicationResponse",
+        "type": "object"
+      },
+      "ShareListItem": {
+        "properties": {
+          "access_count": {
+            "type": "integer"
+          },
+          "access_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "child_shares": {
+            "items": {
+              "$ref": "#/components/schemas/ShareChildListItem"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "exclusions": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kdf_params": {
+            "$ref": "#/components/schemas/KdfParams"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "salt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "share_slug": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "permission",
+          "password_protected",
+          "share_slug",
+          "token_prefix",
+          "access_count",
+          "created_at",
+          "child_shares",
+          "exclusions"
+        ],
+        "title": "ShareListItem",
+        "type": "object"
+      },
+      "AddFolderShareKeyItem": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "share_id": {
+            "description": "New child share ID generated before encryption",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "document_id",
+          "encrypted_dek"
+        ],
+        "title": "AddFolderShareKeyItem",
         "type": "object"
       },
       "PasswordSetResponse": {
@@ -1325,6 +2921,29 @@
         "title": "RevokeDeviceResponse",
         "type": "object"
       },
+      "ShareMountFolderResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ShareTreeEntry"
+            },
+            "type": "array"
+          },
+          "folder": {
+            "$ref": "#/components/schemas/ShareTreeEntry"
+          },
+          "mount": {
+            "$ref": "#/components/schemas/ShareMountFolderMountSummary"
+          }
+        },
+        "required": [
+          "mount",
+          "folder",
+          "entries"
+        ],
+        "title": "ShareMountFolderResponse",
+        "type": "object"
+      },
       "WorkspaceIdsResponse": {
         "properties": {
           "workspace_ids": {
@@ -1382,6 +3001,45 @@
         "title": "PasswordResetVerifyResponse",
         "type": "object"
       },
+      "FolderShareRoot": {
+        "properties": {
+          "folder_token": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "folder"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "folder_token"
+        ],
+        "title": "FolderShareRoot",
+        "type": "object"
+      },
+      "ShareBootstrapRequest": {
+        "properties": {
+          "device_encryption_pub_key": {
+            "type": "string"
+          },
+          "device_signing_pub_key": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "device_signing_pub_key",
+          "device_encryption_pub_key"
+        ],
+        "title": "ShareBootstrapRequest",
+        "type": "object"
+      },
       "VerifyKeyRequest": {
         "properties": {
           "auth_key": {
@@ -1392,6 +3050,52 @@
           "auth_key"
         ],
         "title": "VerifyKeyRequest",
+        "type": "object"
+      },
+      "UpdateShareKeysRequest": {
+        "anyOf": [
+          {
+            "properties": {
+              "add_keys": {
+                "items": {
+                  "$ref": "#/components/schemas/AddFolderShareKeyItem"
+                },
+                "type": "array"
+              },
+              "replace_keys": {
+                "items": {
+                  "$ref": "#/components/schemas/ReplaceFolderShareKeyItem"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "add_keys"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "add_keys": {
+                "items": {
+                  "$ref": "#/components/schemas/AddFolderShareKeyItem"
+                },
+                "type": "array"
+              },
+              "replace_keys": {
+                "items": {
+                  "$ref": "#/components/schemas/ReplaceFolderShareKeyItem"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "replace_keys"
+            ],
+            "type": "object"
+          }
+        ],
+        "title": "UpdateShareKeysRequest",
         "type": "object"
       },
       "MemberDeviceInfo": {
@@ -1459,6 +3163,49 @@
             "maxLength": 500,
             "nullable": true,
             "type": "string"
+          },
+          "encrypted_description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_description_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_description_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_icon": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_icon_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_icon_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_name_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_name_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "guest_invites_enabled": {
+            "type": "boolean"
+          },
+          "guest_member_limit": {
+            "nullable": true,
+            "type": "integer"
           },
           "icon": {
             "nullable": true,
@@ -1717,6 +3464,27 @@
         "title": "InvitationListItem",
         "type": "object"
       },
+      "ShareExclusionsResponse": {
+        "properties": {
+          "exclusions": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "exclusions"
+        ],
+        "title": "ShareExclusionsResponse",
+        "type": "object"
+      },
       "DeviceRegistrationInfo": {
         "properties": {
           "client_nonce": {
@@ -1791,6 +3559,30 @@
           "sender_signing_public_key"
         ],
         "title": "GetUmkResponse",
+        "type": "object"
+      },
+      "SharePasswordChallengeRequest": {
+        "properties": {
+          "device_encryption_pub_key": {
+            "type": "string"
+          },
+          "device_signing_pub_key": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "response",
+          "display_name",
+          "device_signing_pub_key",
+          "device_encryption_pub_key"
+        ],
+        "title": "SharePasswordChallengeRequest",
         "type": "object"
       },
       "KdfMigrationRequest": {
@@ -1964,6 +3756,60 @@
         "title": "InvitationResponse",
         "type": "object"
       },
+      "ShareMountTarget": {
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_title_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_title_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "doc_type",
+          "title",
+          "encrypted_title",
+          "encrypted_title_nonce",
+          "encrypted_title_key_version"
+        ],
+        "title": "ShareMountTarget",
+        "type": "object"
+      },
+      "PublicationContentResponse": {
+        "properties": {
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "updated_at"
+        ],
+        "title": "PublicationContentResponse",
+        "type": "object"
+      },
       "KekRotationCompleteRequest": {
         "properties": {
           "new_kek_version": {
@@ -1988,6 +3834,134 @@
         "title": "PasswordResetVerifyBody",
         "type": "object"
       },
+      "RedeemGuestInvitationRequest": {
+        "properties": {
+          "client_nonce": {
+            "type": "string"
+          },
+          "device_encryption_pub_key": {
+            "type": "string"
+          },
+          "device_name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "device_signing_pub_key": {
+            "type": "string"
+          },
+          "device_type": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_identity_encryption_private": {
+            "type": "string"
+          },
+          "encrypted_identity_encryption_private_nonce": {
+            "type": "string"
+          },
+          "encrypted_identity_signing_private": {
+            "type": "string"
+          },
+          "encrypted_identity_signing_private_nonce": {
+            "type": "string"
+          },
+          "guest_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "identity_encryption_pub_key": {
+            "type": "string"
+          },
+          "identity_signature": {
+            "type": "string"
+          },
+          "identity_signing_pub_key": {
+            "type": "string"
+          },
+          "recovery_encrypted_umk": {
+            "type": "string"
+          },
+          "recovery_nonce": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "guest_user_id",
+          "device_signing_pub_key",
+          "device_encryption_pub_key",
+          "identity_signing_pub_key",
+          "identity_encryption_pub_key",
+          "identity_signature",
+          "client_nonce",
+          "recovery_encrypted_umk",
+          "recovery_nonce",
+          "encrypted_identity_encryption_private",
+          "encrypted_identity_encryption_private_nonce",
+          "encrypted_identity_signing_private",
+          "encrypted_identity_signing_private_nonce"
+        ],
+        "title": "RedeemGuestInvitationRequest",
+        "type": "object"
+      },
+      "ShareMountShareSummary": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "document",
+              "folder"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "permission",
+          "document_id"
+        ],
+        "title": "ShareMountShareSummary",
+        "type": "object"
+      },
+      "ShareListResponse": {
+        "properties": {
+          "shares": {
+            "items": {
+              "$ref": "#/components/schemas/ShareListItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "shares"
+        ],
+        "title": "ShareListResponse",
+        "type": "object"
+      },
+      "CreateShareRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CreateDocumentShareRequest"
+          },
+          {
+            "$ref": "#/components/schemas/CreateFolderShareRequest"
+          }
+        ],
+        "title": "CreateShareRequest"
+      },
       "ErrorResponse": {
         "properties": {
           "details": {
@@ -2002,6 +3976,57 @@
           "error"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "PublicAuthorDocument": {
+        "properties": {
+          "excerpt": {
+            "type": "string"
+          },
+          "noindex": {
+            "type": "boolean"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "excerpt",
+          "noindex",
+          "published_at",
+          "updated_at"
+        ],
+        "title": "PublicAuthorDocument",
+        "type": "object"
+      },
+      "UpdateShareMountRequest": {
+        "properties": {
+          "parent_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "UpdateShareMountRequest",
         "type": "object"
       },
       "ReorderDocumentRequest": {
@@ -2055,6 +4080,49 @@
             "nullable": true,
             "type": "string"
           },
+          "encrypted_description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_description_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_description_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_icon": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_icon_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_icon_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_name_key_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "encrypted_name_nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "guest_invites_enabled": {
+            "type": "boolean"
+          },
+          "guest_member_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
           "icon": {
             "nullable": true,
             "type": "string"
@@ -2082,6 +4150,15 @@
             "format": "uuid",
             "type": "string"
           },
+          "public_author_profile": {
+            "$ref": "#/components/schemas/PublicAuthorProfile"
+          },
+          "public_publishing_enabled": {
+            "type": "boolean"
+          },
+          "share_links_enabled": {
+            "type": "boolean"
+          },
           "slug": {
             "type": "string"
           },
@@ -2095,6 +4172,9 @@
           "name",
           "slug",
           "owner_id",
+          "share_links_enabled",
+          "public_publishing_enabled",
+          "guest_invites_enabled",
           "current_kek_version",
           "needs_kek_rotation",
           "created_at",
@@ -2165,6 +4245,114 @@
         "title": "CreateDocumentKeyRequest",
         "type": "object"
       },
+      "CreateFolderShareRequest": {
+        "properties": {
+          "access_limit": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "auth_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "encrypted_dek": {
+            "type": "string"
+          },
+          "exclusions": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kdf_params": {
+            "nullable": true,
+            "properties": {
+              "algorithm": {
+                "type": "string"
+              },
+              "hash_length": {
+                "type": "integer"
+              },
+              "iterations": {
+                "type": "integer"
+              },
+              "memory": {
+                "type": "integer"
+              },
+              "parallelism": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "algorithm",
+              "memory",
+              "iterations",
+              "parallelism",
+              "hash_length"
+            ],
+            "type": "object"
+          },
+          "nonce": {
+            "nullable": true,
+            "type": "string"
+          },
+          "password_protected": {
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "salt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "folder"
+            ],
+            "type": "string"
+          },
+          "share_keys": {
+            "items": {
+              "$ref": "#/components/schemas/CreateFolderShareKeyItem"
+            },
+            "type": "array"
+          },
+          "share_slug": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "share_slug",
+          "token_prefix",
+          "permission",
+          "password_protected",
+          "encrypted_dek",
+          "share_keys"
+        ],
+        "title": "CreateFolderShareRequest",
+        "type": "object"
+      },
       "ApproveDeviceRequest": {
         "properties": {
           "identity_signature": {
@@ -2175,6 +4363,55 @@
           "identity_signature"
         ],
         "title": "ApproveDeviceRequest",
+        "type": "object"
+      },
+      "ShareKeysUpdateResponse": {
+        "properties": {
+          "added": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "replaced": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "share_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_id",
+          "added",
+          "replaced"
+        ],
+        "title": "ShareKeysUpdateResponse",
+        "type": "object"
+      },
+      "PublicAuthorProfile": {
+        "properties": {
+          "bio": {
+            "nullable": true,
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "display_name"
+        ],
+        "title": "PublicAuthorProfile",
         "type": "object"
       },
       "DocumentKeyResponse": {
@@ -2213,6 +4450,61 @@
           "created_at"
         ],
         "title": "DocumentKeyResponse",
+        "type": "object"
+      },
+      "PublicDocumentResponse": {
+        "properties": {
+          "author_description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "author_name": {
+            "type": "string"
+          },
+          "author_slug": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "noindex": {
+            "type": "boolean"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content",
+          "author_slug",
+          "author_name",
+          "author_description",
+          "noindex",
+          "published_at",
+          "updated_at"
+        ],
+        "title": "PublicDocumentResponse",
+        "type": "object"
+      },
+      "UpdatePublicationRequest": {
+        "properties": {
+          "noindex": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "title": "UpdatePublicationRequest",
         "type": "object"
       },
       "MemberEnvelopeResponse": {
@@ -2669,6 +4961,199 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/guest-invitations": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.GuestInvitationController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestInvitationsListResponse"
+                }
+              }
+            },
+            "description": "Guest invitation list"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List guest invitations",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.GuestInvitationController.create",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGuestInvitationRequest"
+              }
+            }
+          },
+          "description": "Guest invitation params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestInvitationResponse"
+                }
+              }
+            },
+            "description": "Created guest invitation"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a guest invitation",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/features": {
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.WorkspaceController.update_features",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceFeaturesRequest"
+              }
+            }
+          },
+          "description": "Feature params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Updated workspace"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update workspace feature settings",
+        "tags": []
+      }
+    },
     "/api/auth/recovery-key": {
       "put": {
         "callbacks": {},
@@ -2711,6 +5196,58 @@
         "tags": []
       }
     },
+    "/api/workspaces/invitations/lookup": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.InvitationController.lookup",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationLookupRequest"
+              }
+            }
+          },
+          "description": "Lookup params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationLookupResponse"
+                }
+              }
+            },
+            "description": "Invitation kind"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Lookup invitation kind",
+        "tags": []
+      }
+    },
     "/api/auth/ws-token": {
       "post": {
         "callbacks": {},
@@ -2739,6 +5276,57 @@
           }
         },
         "summary": "Generate a short-lived WebSocket authentication token",
+        "tags": []
+      }
+    },
+    "/api/shares/{share_slug}/mounts": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.share_mounts",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountLookupResponse"
+                }
+              }
+            },
+            "description": "Share mounts"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List saved mounts for a share",
         "tags": []
       }
     },
@@ -3046,6 +5634,47 @@
         "tags": []
       }
     },
+    "/api/documents/{document_id}/share-verification-directory": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.verification_directory",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareVerificationDirectory"
+                }
+              }
+            },
+            "description": "Verification directory"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Get share participant verification directory for a document",
+        "tags": []
+      }
+    },
     "/api/settings": {
       "get": {
         "callbacks": {},
@@ -3262,6 +5891,97 @@
         "tags": []
       }
     },
+    "/api/shares/{share_slug}/challenge": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareController.challenge",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharePasswordChallengeResponse"
+                }
+              }
+            },
+            "description": "Password challenge"
+          }
+        },
+        "summary": "Get a password challenge for a share",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareController.respond_challenge",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharePasswordChallengeRequest"
+              }
+            }
+          },
+          "description": "Challenge response",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareBootstrapResponse"
+                }
+              }
+            },
+            "description": "Bootstrap result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Respond to a password challenge for a share",
+        "tags": []
+      }
+    },
     "/api/auth/password-set": {
       "post": {
         "callbacks": {},
@@ -3356,6 +6076,86 @@
         "tags": []
       }
     },
+    "/api/mounts/{mount_id}/folders/{folder_token}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.folder",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "mount_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "folder_token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountFolderResponse"
+                }
+              }
+            },
+            "description": "Mounted folder subtree"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a mounted folder subtree",
+        "tags": []
+      }
+    },
     "/api/devices/registrations/{id}": {
       "delete": {
         "callbacks": {},
@@ -3394,6 +6194,305 @@
           }
         },
         "summary": "Reject (delete) a device registration",
+        "tags": []
+      }
+    },
+    "/api/mounts": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "query",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountListResponse"
+                }
+              }
+            },
+            "description": "Share mount list"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List share mounts for a workspace",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShareMountRequest"
+              }
+            }
+          },
+          "description": "Share mount params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountCreateResponse"
+                }
+              }
+            },
+            "description": "Created mount"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountConflictResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a share mount",
+        "tags": []
+      }
+    },
+    "/api/mounts/{mount_id}/challenge": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.challenge",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "mount_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharePasswordChallengeResponse"
+                }
+              }
+            },
+            "description": "Password challenge"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a password challenge for a mounted share",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.respond_challenge",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "mount_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareMountChallengeRequest"
+              }
+            }
+          },
+          "description": "Challenge response",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ShareMountDocumentChallengeResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ShareMountFolderChallengeResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Challenge result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Respond to a password challenge for a mounted share",
         "tags": []
       }
     },
@@ -3650,6 +6749,47 @@
         "tags": []
       }
     },
+    "/api/public/authors/{author_slug}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.show_author",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "author_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAuthorResponse"
+                }
+              }
+            },
+            "description": "Public author"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a public author page",
+        "tags": []
+      }
+    },
     "/api/documents/{document_id}/archive": {
       "post": {
         "callbacks": {},
@@ -3750,6 +6890,129 @@
           }
         },
         "summary": "Register a new user",
+        "tags": []
+      }
+    },
+    "/api/shares/{share_slug}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLandingResponse"
+                }
+              }
+            },
+            "description": "Share landing"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get share landing metadata",
+        "tags": []
+      }
+    },
+    "/api/workspaces/guest-invitations/redeem": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.GuestInvitationController.redeem",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemGuestInvitationRequest"
+              }
+            }
+          },
+          "description": "Redeem guest invitation params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedeemGuestInvitationResponse"
+                }
+              }
+            },
+            "description": "Redeemed guest invitation"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          }
+        },
+        "summary": "Redeem a guest invitation",
         "tags": []
       }
     },
@@ -4005,6 +7268,196 @@
         "tags": []
       }
     },
+    "/api/shares/f/{folder_token}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareController.folder",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "folder_token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ShareFolderBootstrapResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ShareDocumentBootstrapRequiredResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Folder bootstrap"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get canonical folder bootstrap for a share",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.GuestInvitationController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Revoked"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid ID format"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Guest invites disabled"
+          }
+        },
+        "summary": "Revoke a guest invitation",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/shares/{share_id}/admin": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.admin_delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Deleted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete a share as workspace admin",
+        "tags": []
+      }
+    },
     "/api/encryption/workspaces/{workspace_id}/kek-backup": {
       "get": {
         "callbacks": {},
@@ -4248,6 +7701,472 @@
         "tags": []
       }
     },
+    "/api/documents/{document_id}/shares/{share_id}/exclusions": {
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.update_exclusions",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "header",
+            "name": "authorization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShareExclusionsRequest"
+              }
+            }
+          },
+          "description": "Share exclusion update params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareExclusionsResponse"
+                }
+              }
+            },
+            "description": "Updated exclusions"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update folder share exclusions",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/publication": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Deleted"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Unpublish a document",
+        "tags": []
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationResponse"
+                }
+              }
+            },
+            "description": "Publication"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get publication settings",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePublicationRequest"
+              }
+            }
+          },
+          "description": "Publication settings",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationResponse"
+                }
+              }
+            },
+            "description": "Publication"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationConflictResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update publication settings",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.create",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePublicationRequest"
+              }
+            }
+          },
+          "description": "Publication params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationResponse"
+                }
+              }
+            },
+            "description": "Publication"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationConflictResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Publish a document",
+        "tags": []
+      }
+    },
+    "/api/shares/d/{document_token}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareController.document",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ShareDocumentBootstrapResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ShareDocumentBootstrapRequiredResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Document bootstrap"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get canonical document bootstrap for a share",
+        "tags": []
+      }
+    },
+    "/api/shares/{share_slug}/bootstrap": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareController.bootstrap",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareBootstrapRequest"
+              }
+            }
+          },
+          "description": "Bootstrap params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareBootstrapResponse"
+                }
+              }
+            },
+            "description": "Bootstrap result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Bootstrap a share participant session",
+        "tags": []
+      }
+    },
     "/api/encryption/setup-complete": {
       "post": {
         "callbacks": {},
@@ -4266,6 +8185,96 @@
           }
         },
         "summary": "Mark encryption setup as complete",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/shares/{share_id}/keys": {
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.update_keys",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "header",
+            "name": "authorization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShareKeysRequest"
+              }
+            }
+          },
+          "description": "Share key update params",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareKeysUpdateResponse"
+                }
+              }
+            },
+            "description": "Updated share keys"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update folder share keys",
         "tags": []
       }
     },
@@ -4677,6 +8686,251 @@
         "tags": []
       }
     },
+    "/api/documents/{document_id}/shares/{share_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Deleted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete a share",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "header",
+            "name": "authorization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShareRequest"
+              }
+            }
+          },
+          "description": "Share update params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareUpdateResponse"
+                }
+              }
+            },
+            "description": "Updated share"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update share settings",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/publication/content": {
+      "put": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.update_content",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePublicationContentRequest"
+              }
+            }
+          },
+          "description": "Publication content",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationContentResponse"
+                }
+              }
+            },
+            "description": "Content sync result"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Sync publication content",
+        "tags": []
+      }
+    },
     "/api/devices": {
       "get": {
         "callbacks": {},
@@ -4735,7 +8989,7 @@
             "description": "Not found"
           }
         },
-        "summary": "Get device registration status (polling fallback for SSE)",
+        "summary": "Get device registration status (polling fallback for realtime events)",
         "tags": []
       }
     },
@@ -5293,6 +9547,250 @@
         "tags": []
       }
     },
+    "/api/mounts/{mount_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "mount_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Deleted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete a share mount",
+        "tags": []
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "mount_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "share",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountDetailResponse"
+                }
+              }
+            },
+            "description": "Share mount"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a share mount",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.ShareMountController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "mount_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShareMountRequest"
+              }
+            }
+          },
+          "description": "Share mount update params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareMountResponse"
+                }
+              }
+            },
+            "description": "Updated mount"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update a share mount position",
+        "tags": []
+      }
+    },
     "/api/auth/kdf-migration": {
       "post": {
         "callbacks": {},
@@ -5604,6 +10102,66 @@
         "tags": []
       }
     },
+    "/api/public/authors/{author_slug}/documents/{document_slug}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.PublicDocumentController.show_public",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "author_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDocumentResponse"
+                }
+              }
+            },
+            "description": "Public document"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          }
+        },
+        "summary": "Get a public document",
+        "tags": []
+      }
+    },
     "/api/auth/recovery/challenge": {
       "post": {
         "callbacks": {},
@@ -5715,6 +10273,127 @@
           }
         },
         "summary": "Get Identity ECDH public keys for all workspace members",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/shares": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareListResponse"
+                }
+              }
+            },
+            "description": "Share list"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List shares for a document",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DocumentShareController.create",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShareRequest"
+              }
+            }
+          },
+          "description": "Share params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareCreateResponse"
+                }
+              }
+            },
+            "description": "Created share"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a share for a document",
         "tags": []
       }
     },

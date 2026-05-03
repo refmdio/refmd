@@ -3,7 +3,7 @@ defmodule RefMDWeb.UmkController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Devices
-  alias RefMDWeb.{DeviceEventsController, Schemas}
+  alias RefMDWeb.Schemas
 
   operation(:distribute_umk,
     summary: "Distribute UMK to a device (existing device sends)",
@@ -92,7 +92,7 @@ defmodule RefMDWeb.UmkController do
            nonce: decode_binary!(params["nonce"])
          }) do
       {:ok, _} ->
-        DeviceEventsController.broadcast_registration_approved(user_id, target_device_id)
+        Devices.broadcast_registration_approved(user_id, target_device_id)
         conn |> put_status(:created) |> json(%{ok: true})
 
       {:error, %Ecto.Changeset{} = changeset} when changeset.errors != [] ->

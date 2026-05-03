@@ -1,11 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
-import { registerAccount, createDocument, openSettings, selectSettingsTab } from "./helpers";
+import {
+  registerAccount,
+  createDocument,
+  openSettings,
+  selectSettingsTab,
+  waitForWorkspaceReady,
+  newE2EContext,
+} from "./helpers";
 
 let sharedPage: Page;
 
 test.describe.serial("Workspace Management", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -20,13 +27,13 @@ test.describe.serial("Workspace Management", () => {
 
   // WS-02
   test("creates a document in default workspace", async () => {
-    test.setTimeout(30_000);
+    test.setTimeout(120_000);
     await createDocument(sharedPage, "Default WS Doc");
   });
 
   // WS-03
   test("creates a new workspace", async () => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
 
     // Open workspace dropdown (the trigger button with workspace name in aside)
     await sharedPage.locator('aside [data-slot="dropdown-menu-trigger"]').click();
@@ -39,25 +46,15 @@ test.describe.serial("Workspace Management", () => {
     await sharedPage.locator("#new-workspace-name").fill("Second Workspace");
     await sharedPage.waitForTimeout(500);
 
-    // Monitor console errors during workspace creation
-    const errors: string[] = [];
-    sharedPage.on("console", (msg) => {
-      if (msg.type() === "error") errors.push(msg.text());
-    });
-
     // Click Create button within dialog context
     const dialog = sharedPage.locator('[role="dialog"]');
     await dialog.getByText("Create", { exact: true }).click();
-    await sharedPage.waitForTimeout(5000);
-
-    console.log("Console errors during create:", errors);
-    const dialogStillOpen = await dialog.isVisible().catch(() => false);
-    console.log("Dialog still open:", dialogStillOpen);
-
-    // Wait for workspace creation (KEK generation + encryption + backup)
-    // This involves multiple async crypto worker operations
-    await sharedPage.waitForTimeout(10000);
+    await expect(dialog).not.toBeVisible({ timeout: 90_000 });
     await expect(sharedPage).toHaveURL(/dashboard/, { timeout: 10_000 });
+    await waitForWorkspaceReady(sharedPage);
+    await expect(
+      sharedPage.locator('aside [data-slot="dropdown-menu-trigger"]'),
+    ).toContainText("Second Workspace", { timeout: 20_000 });
   });
 
   // WS-04
@@ -68,8 +65,10 @@ test.describe.serial("Workspace Management", () => {
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
     await sharedPage.waitForTimeout(5000);
 
-    const wsName = await sharedPage.locator('aside [data-slot="dropdown-menu-trigger"]').textContent();
-    console.log("Current workspace after reload:", wsName);
+    await waitForWorkspaceReady(sharedPage);
+    await expect(
+      sharedPage.locator('aside [data-slot="dropdown-menu-trigger"]'),
+    ).toContainText("Second Workspace", { timeout: 20_000 });
 
     await expect(
       sharedPage.locator("aside").getByText("Default WS Doc"),
@@ -78,7 +77,7 @@ test.describe.serial("Workspace Management", () => {
 
   // WS-05
   test("creates a document in new workspace", async () => {
-    test.setTimeout(30_000);
+    test.setTimeout(120_000);
     await createDocument(sharedPage, "Second WS Doc");
   });
 

@@ -1,16 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  blockApiRequests,
   createDocument,
   indexedDbKeys,
   openDocument,
   registerAccount,
+  newE2EContext,
 } from "./helpers";
 
 let sharedPage: Page;
 
 test.describe.serial("Background Cache Prefetch", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {
@@ -44,27 +46,7 @@ test.describe.serial("Background Cache Prefetch", () => {
     await sharedPage.reload({ waitUntil: "load" });
     await sharedPage.waitForTimeout(3_000);
 
-    const cdp = await sharedPage.context().newCDPSession(sharedPage);
-    await cdp.send("Fetch.enable", {
-      patterns: [
-        { urlPattern: "http://localhost:*/api/auth/*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/documents*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/workspaces*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/encryption/*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/settings*", requestStage: "Request" },
-        { urlPattern: "http://localhost:*/api/socket/*", requestStage: "Request" },
-      ],
-    });
-    cdp.on("Fetch.requestPaused", async (event) => {
-      try {
-        await cdp.send("Fetch.failRequest", {
-          requestId: event.requestId,
-          errorReason: "InternetDisconnected",
-        });
-      } catch {
-        // Ignore detached-session races during teardown.
-      }
-    });
+    const apiBlock = await blockApiRequests(sharedPage);
 
     try {
       await sharedPage.evaluate(() => {
@@ -79,9 +61,9 @@ test.describe.serial("Background Cache Prefetch", () => {
 
       await sharedPage.locator("aside").getByText("Background Cached Doc B").click();
       await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 30_000 });
+      expect(apiBlock.blockedCount()).toBeGreaterThan(0);
     } finally {
-      await cdp.send("Fetch.disable").catch(() => {});
-      await cdp.detach().catch(() => {});
+      await apiBlock.unblock();
     }
   });
 });

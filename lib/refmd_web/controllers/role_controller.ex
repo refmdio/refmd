@@ -238,6 +238,11 @@ defmodule RefMDWeb.RoleController do
             |> put_status(:unprocessable_entity)
             |> json(%{error: "cannot_unset_default_role"})
 
+          {:error, :guest_role_default_not_allowed} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "guest_role_default_not_allowed"})
+
           {:error, changeset} ->
             conn
             |> put_status(:unprocessable_entity)

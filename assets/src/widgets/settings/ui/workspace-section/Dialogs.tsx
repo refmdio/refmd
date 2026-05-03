@@ -1,5 +1,6 @@
 import {
   WorkspaceInvitationDialog,
+  GuestInvitationDialog,
   WorkspaceMemberManagementDialogs,
   WorkspaceRoleManagementDialogs,
 } from "@/features/workspace";
@@ -24,6 +25,7 @@ export function WorkspaceSectionDialogs(props: WorkspaceSectionDialogsProps) {
   return (
     <>
       <WorkspaceInvitationDialog state={state().invitationManagement} />
+      <GuestInvitationDialog state={state().guestInvitationManagement} />
       <WorkspaceMemberManagementDialogs
         state={state().memberManagement}
         assignableRoles={state().assignableRoles()}

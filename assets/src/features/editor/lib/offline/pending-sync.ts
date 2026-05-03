@@ -8,6 +8,7 @@ import { ApiError, getRateLimitRetryMs } from "@/shared/api";
 import { offlineMode } from "@/shared/lib/offline/offline-state";
 import {
   blockPendingChangesSync,
+  deletePendingChanges,
   getAllPendingChanges,
   getDocumentCache,
   getOfflineCreated,
@@ -28,6 +29,11 @@ interface PendingSyncTarget {
 function isAccessDeniedReason(value: unknown): value is PendingSyncBlockReason {
   return value === "not_a_member" || value === "permission_denied";
 }
+
+function isDocumentGoneReason(value: unknown): boolean {
+  return value === "document_not_found";
+}
+
 export async function syncPendingDocuments(workspaceId?: string): Promise<void> {
   if (offlineMode()) return;
   const pendingEntries = await getAllPendingChanges();
@@ -53,6 +59,14 @@ export async function syncPendingDocuments(workspaceId?: string): Promise<void> 
           "[offline-sync] Paused automatic sync for locally cached changes after access was denied:",
           target.documentId,
           blockedReason,
+        );
+        continue;
+      }
+      if (isDocumentGoneError(error)) {
+        await deletePendingChanges(target.documentId);
+        console.warn(
+          "[offline-sync] Dropped locally cached changes for a missing document:",
+          target.documentId,
         );
         continue;
       }
@@ -161,4 +175,17 @@ function getAccessDeniedReason(error: unknown): PendingSyncBlockReason | null {
     }
   }
   return null;
+}
+
+function isDocumentGoneError(error: unknown): boolean {
+  if (error instanceof DocumentChannelError && isDocumentGoneReason(error.code)) {
+    return true;
+  }
+  if (error instanceof ApiError && error.status === 404) {
+    return isDocumentGoneReason(error.body?.error) || isDocumentGoneReason(error.code);
+  }
+  if (isPhoenixJoinError(error)) {
+    return isDocumentGoneReason(error.joinErrorResp?.reason);
+  }
+  return false;
 }

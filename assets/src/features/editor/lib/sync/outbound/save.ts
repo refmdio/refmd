@@ -6,6 +6,7 @@ import { cacheDocumentState } from "@/shared/lib/offline/cache/manager/write";
 import { deletePendingChanges } from "@/shared/lib/offline/storage/store";
 import { deviceState } from "@/entities/session";
 import {
+  buildDocumentStatePinKey,
   getDocumentStatePin,
   putDocumentStatePin,
   updatePinFromState,
@@ -16,23 +17,56 @@ import type {
   UpdateSaveFailedPayload,
   UpdateSavedPayload,
 } from "@/shared/lib/ws/document-payloads";
+import { DocumentSyncError, isRecoverableSyncGapError } from "../error";
 import { getDocumentState } from "../../../model/document-state/store";
 import type { DocumentState } from "../../../model/document-state/types";
 import { handleDocumentMessage } from "../inbound/document";
+import { getLocalSigningPubKeyB64, getLocalSigningPublicKeyBytes } from "../share-identity";
+import { hasUnsavedCanonicalText, refreshSavedBaselineToCurrent } from "./canonical";
+import { queuePublicationSaveSync } from "./publication";
+import { clearSaveAckWatchdog } from "./save-watchdog";
+
+function getPinKey(state: DocumentState, documentId: string): string {
+  return state.access.kind === "share"
+    ? buildDocumentStatePinKey(documentId, state.access.shareId)
+    : buildDocumentStatePinKey(documentId);
+}
 
 function hasUnsavedLocalChanges(state: DocumentState): boolean {
-  if (!state.lastSavedState) {
-    return Y.encodeStateAsUpdate(state.yDoc).length > 2;
-  }
+  return hasUnsavedCanonicalText(state);
+}
 
-  const savedDoc = new Y.Doc();
-  try {
-    Y.applyUpdate(savedDoc, state.lastSavedState, "remote");
-    const savedVector = Y.encodeStateVector(savedDoc);
-    return Y.encodeStateAsUpdate(state.yDoc, savedVector).length > 2;
-  } finally {
-    savedDoc.destroy();
+function pendingUpdatePublicData(
+  state: DocumentState,
+): { refSnapshotId: string; clock: number; updateHash: string } | null {
+  const publicData = state.pendingUpdateEnvelope?.publicData;
+  if (!publicData || typeof publicData !== "object") return null;
+  const typed = publicData as Record<string, unknown>;
+  if (
+    typeof typed.refSnapshotId !== "string" ||
+    typeof typed.clock !== "number" ||
+    typeof typed.updateHash !== "string"
+  ) {
+    return null;
   }
+  return {
+    refSnapshotId: typed.refSnapshotId,
+    clock: typed.clock,
+    updateHash: typed.updateHash,
+  };
+}
+
+function rejectInvalidAck(state: DocumentState): void {
+  if (state.pendingUpdateEnvelope) {
+    state.localClock = state.preSendLocalClock;
+  }
+  state.pendingUpdateBytes = null;
+  state.pendingUpdateEnvelope = null;
+  state.pendingSnapshot = null;
+  state.pendingSnapshotEnvelope = null;
+  state.sending = false;
+  state._forceCompleteReconnect = true;
+  if (state.autoSync) state.autoSync.notifyLocalEdit();
 }
 
 export function handleUpdateSaved(
@@ -40,7 +74,29 @@ export function handleUpdateSaved(
   state: DocumentState,
   documentId?: string,
 ): void {
-  const deviceKey = deviceState()?.deviceSigningPublic;
+  clearSaveAckWatchdog(state);
+  const pending = pendingUpdatePublicData(state);
+  if (
+    !pending ||
+    payload.snapshotId !== pending.refSnapshotId ||
+    payload.clock !== pending.clock ||
+    payload.updateHash !== pending.updateHash
+  ) {
+    rejectInvalidAck(state);
+    return;
+  }
+
+  if (state.activeSnapshotId && payload.snapshotId !== state.activeSnapshotId) {
+    state.pendingUpdateBytes = null;
+    state.pendingUpdateEnvelope = null;
+    state.sending = false;
+    if (state.autoSync && hasUnsavedLocalChanges(state)) {
+      state.autoSync.notifyLocalEdit();
+    }
+    return;
+  }
+
+  const deviceKey = getLocalSigningPublicKeyBytes(state) ?? deviceState()?.deviceSigningPublic;
   if (deviceKey) {
     const key = base64UrlEncode(deviceKey);
     state.knownClocks[key] = payload.clock;
@@ -67,27 +123,36 @@ export function handleUpdateSaved(
   state.snapshotUpdatesCount++;
 
   if (documentId) {
-    getDocumentStatePin(documentId).then((existing) => {
+    const pinKey = getPinKey(state, documentId);
+    getDocumentStatePin(pinKey).then((existing) => {
       const pin = updatePinFromState(
         existing,
-        documentId,
+        pinKey,
         state.activeSnapshotId,
         state.snapshotProofHash,
         state.snapshotCiphertextHash,
         state.confirmedClocks,
         state.latestVersion,
+        documentId,
       );
       putDocumentStatePin(pin).catch(() => {});
     });
   }
 
-  if (documentId && state.workspaceId && state.keyVersion > 0) {
+  if (documentId && state.workspaceId && state.keyVersion > 0 && state.access.kind !== "share") {
     cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
     deletePendingChanges(documentId).catch(() => {});
   }
 
-  if (state.autoSync && hasUnsavedLocalChanges(state)) {
+  if (documentId) {
+    queuePublicationSaveSync(documentId, state);
+  }
+
+  const hasUnsavedChanges = hasUnsavedLocalChanges(state);
+  if (state.autoSync && hasUnsavedChanges) {
     state.autoSync.notifyLocalEdit();
+  } else if (!hasUnsavedChanges) {
+    refreshSavedBaselineToCurrent(state);
   }
 }
 
@@ -95,6 +160,7 @@ export function handleUpdateSaveFailed(
   payload: UpdateSaveFailedPayload,
   state: DocumentState,
 ): void {
+  clearSaveAckWatchdog(state);
   const sentClock = state.preSendLocalClock;
   if (state.localClock === sentClock + 1) {
     state.localClock = sentClock;
@@ -114,15 +180,20 @@ export async function handleSnapshotSaved(
   state: DocumentState,
   documentId?: string,
 ): Promise<void> {
+  clearSaveAckWatchdog(state);
   const pendingSnapshot = state.pendingSnapshot;
   if (!pendingSnapshot) return;
+  if (payload.snapshotId !== pendingSnapshot.snapshotId) {
+    rejectInvalidAck(state);
+    return;
+  }
 
-  state.activeSnapshotId = payload.snapshotId;
+  state.activeSnapshotId = pendingSnapshot.snapshotId;
   state.snapshotCiphertextHash = pendingSnapshot.ciphertextHash;
   state.snapshotProofHash = await getCryptoWorker().computeSnapshotProof({
     ciphertextHash: pendingSnapshot.ciphertextHash,
     parentProof: pendingSnapshot.parentSnapshotProof,
-    snapshotId: payload.snapshotId,
+    snapshotId: pendingSnapshot.snapshotId,
   });
 
   const serverDoc = new Y.Doc();
@@ -130,6 +201,10 @@ export async function handleSnapshotSaved(
   state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
   serverDoc.destroy();
   state.snapshotUpdatesCount = 0;
+  state.snapshotBaseClocks = { ...pendingSnapshot.knownClocksAtSend };
+  if (typeof payload.latestVersion === "number") {
+    state.latestVersion = payload.latestVersion;
+  }
 
   state.pendingSnapshot = null;
   state.pendingSnapshotEnvelope = null;
@@ -139,35 +214,49 @@ export async function handleSnapshotSaved(
     state.pendingRotationKeyVersion = null;
   }
   state.pendingRotationSnapshot = false;
-  const localDeviceSigningPublic = deviceState()?.deviceSigningPublic;
-  state.knownClocks = { ...pendingSnapshot.knownClocksAtSend };
-  state.confirmedClocks = { ...pendingSnapshot.knownClocksAtSend };
+  const localDeviceSigningPublic =
+    getLocalSigningPublicKeyBytes(state) ?? deviceState()?.deviceSigningPublic;
+  state.knownClocks = {};
+  state.confirmedClocks = {};
   state.localClock = getNextClockForDevice(
     state.knownClocks,
-    localDeviceSigningPublic ? base64UrlEncode(localDeviceSigningPublic) : undefined,
+    getLocalSigningPubKeyB64(state) ??
+      (localDeviceSigningPublic ? base64UrlEncode(localDeviceSigningPublic) : undefined),
   );
 
-  if (documentId && state.workspaceId && state.keyVersion > 0) {
+  if (documentId && state.workspaceId && state.keyVersion > 0 && state.access.kind !== "share") {
     cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
     deletePendingChanges(documentId).catch(() => {});
   }
 
   if (documentId) {
-    getDocumentStatePin(documentId).then((existing) => {
+    const pinKey = getPinKey(state, documentId);
+    getDocumentStatePin(pinKey).then((existing) => {
       const pin = updatePinFromState(
         existing,
-        documentId,
+        pinKey,
         state.activeSnapshotId,
         state.snapshotProofHash,
         state.snapshotCiphertextHash,
         state.confirmedClocks,
         state.latestVersion,
+        documentId,
       );
-      putDocumentStatePin(pin).catch(() => {});
+      putDocumentStatePin(pin, {
+        expectedPreviousSnapshotId: pendingSnapshot.parentSnapshotId,
+        allowSnapshotChangeAtSameVersion: true,
+      }).catch(() => {});
     });
+
+    queuePublicationSaveSync(documentId, state);
   }
 
-  if (state.autoSync) state.autoSync.notifyLocalEdit();
+  const hasUnsavedChanges = hasUnsavedLocalChanges(state);
+  if (state.autoSync && hasUnsavedChanges) {
+    state.autoSync.notifyLocalEdit();
+  } else if (!hasUnsavedChanges) {
+    refreshSavedBaselineToCurrent(state);
+  }
 }
 
 export async function handleSnapshotSaveFailed(
@@ -175,7 +264,8 @@ export async function handleSnapshotSaveFailed(
   state: DocumentState,
   documentId: string,
 ): Promise<void> {
-  if (getDocumentState(documentId) !== state || state.refCount <= 0) {
+  clearSaveAckWatchdog(state);
+  if (getDocumentState(state.stateKey) !== state || state.refCount <= 0) {
     state.snapshotUpdatesCount = 0;
     return;
   }
@@ -209,6 +299,14 @@ export async function handleSnapshotSaveFailed(
       }
       if (err instanceof Error && err.message === "Worker terminated") {
         state.snapshotUpdatesCount = 0;
+        return;
+      }
+      if (
+        isRecoverableSyncGapError(err) ||
+        (err instanceof DocumentSyncError && err.code === "rollback_attack")
+      ) {
+        state.snapshotUpdatesCount = Infinity;
+        if (state.autoSync) state.autoSync.notifyLocalEdit();
         return;
       }
       console.error("[ws] snapshot recovery failed (non-fatal):", err);

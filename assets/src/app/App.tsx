@@ -2,9 +2,10 @@ import { QueryClientProvider } from "@tanstack/solid-query";
 import { For, Show } from "solid-js";
 import { PasswordReentryDialog } from "@/features/auth";
 import { PendingDeviceMonitor } from "@/features/devices";
-import { deviceState, tofuErrors } from "@/entities/session";
+import { authState, clearSession, deviceState, tofuErrors } from "@/entities/session";
 import { initializeApiClient } from "@/shared/api";
 import { queryClient } from "@/shared/lib/query/client";
+import { resetPhoenixSocketState } from "@/shared/lib/ws/socket";
 import { Spinner } from "@/shared/ui/spinner";
 import { ThemeProvider } from "@/shared/ui/theme-provider";
 import { isPublicPath, useSessionBootstrap } from "@/app/bootstrap/session";
@@ -14,6 +15,17 @@ import "@/app.css";
 export default function App() {
   initializeApiClient({
     getDeviceId: () => deviceState()?.deviceId ?? null,
+    onUnauthorized: (scope) => {
+      if (scope !== "user") {
+        resetPhoenixSocketState();
+        return;
+      }
+
+      if (!authState()) return;
+      clearSession();
+      resetPhoenixSocketState();
+      queryClient.clear();
+    },
   });
 
   const { ready, showPasswordReentry, transientError, retryRestore, closePasswordReentry } =

@@ -6,6 +6,7 @@ import {
   openDocument,
   registerAccount,
   switchWorkspace,
+  newE2EContext,
 } from "./helpers";
 
 let sharedPage: Page;
@@ -29,7 +30,7 @@ async function selectedDocumentId(page: Page): Promise<string> {
 
 test.describe.serial("Document Routing Edge Cases", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await browser.newContext({ bypassCSP: true })).newPage();
+    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
   });
 
   test.afterAll(async () => {

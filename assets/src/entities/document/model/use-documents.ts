@@ -7,14 +7,83 @@ import {
   getOfflineDocumentIndex,
   getOfflineDocumentMeta,
 } from "@/shared/lib/offline/storage/store";
+import { shouldPreferOfflineCache } from "@/shared/lib/offline/offline-state";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { buildOfflineDocumentCacheAad } from "@/shared/lib/crypto/aad";
+
+async function loadOfflineDocuments(wsId: string) {
+  let cached: Awaited<ReturnType<typeof getOfflineDocumentIndex>> | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    cached = await getOfflineDocumentIndex(wsId).catch(() => null);
+    if (cached !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (cached === null) return null;
+
+  // Attempt to decrypt titles from offline-documents DSK-encrypted metadata.
+  const titleMap = new Map<string, string>();
+  try {
+    const worker = getCryptoWorker();
+    for (const entry of cached) {
+      if (entry.isEncrypted) {
+        try {
+          const meta = await getOfflineDocumentMeta(entry.documentId);
+          if (meta?.encryptedTitle && meta.encryptedTitleNonce) {
+            const aad = buildOfflineDocumentCacheAad(entry.documentId, 0);
+            const plaintext = await worker.unwrapWithDsk({
+              ciphertext: meta.encryptedTitle.buffer as ArrayBuffer,
+              iv: meta.encryptedTitleNonce.buffer as ArrayBuffer,
+              aad,
+            });
+            titleMap.set(entry.documentId, new TextDecoder().decode(plaintext));
+          }
+        } catch {
+          // DSK not available or decryption failed.
+        }
+      }
+    }
+  } catch {
+    // Offline listing should remain available even if title recovery fails.
+  }
+
+  return {
+    documents: cached.map((entry) => ({
+      id: entry.documentId,
+      workspace_id: entry.workspaceId,
+      parent_id: entry.parentId,
+      position: entry.position,
+      doc_type: entry.docType,
+      title: titleMap.get(entry.documentId) ?? entry.folderTitle ?? "Untitled",
+      archived_at: entry.archivedAt,
+      is_encrypted: entry.isEncrypted,
+      is_published: false,
+      can_sync_publication: false,
+      updated_at: entry.updatedAt,
+      created_at: entry.updatedAt,
+      created_by: null,
+      encrypted_title: null,
+      encrypted_title_nonce: null,
+      encrypted_title_key_version: null,
+      active_snapshot_id: null,
+      latest_snapshot_at: null,
+      latest_update_at: null,
+      min_dek_version: 0,
+      needs_dek_rotation: false,
+      needs_rotation_snapshot: false,
+      slug: "",
+    })),
+  };
+}
 
 export function useDocuments(workspaceId: Accessor<string | null>) {
   const query = createQuery(() => ({
     queryKey: ["documents", workspaceId()],
     queryFn: async () => {
       const wsId = workspaceId()!;
+      if (shouldPreferOfflineCache()) {
+        const cached = await loadOfflineDocuments(wsId);
+        if (cached !== null) return cached;
+      }
       try {
         const result = await documentsApi.list(wsId);
         putOfflineDocumentIndex(
@@ -33,59 +102,13 @@ export function useDocuments(workspaceId: Accessor<string | null>) {
         ).catch(() => {});
         return result;
       } catch (err) {
-        const cached = await getOfflineDocumentIndex(wsId).catch(() => null);
-        if (cached !== null) {
-          // Attempt to decrypt titles from offline-documents DSK-encrypted metadata
-          const worker = getCryptoWorker();
-          const titleMap = new Map<string, string>();
-          for (const entry of cached) {
-            if (entry.isEncrypted) {
-              try {
-                const meta = await getOfflineDocumentMeta(entry.documentId);
-                if (meta?.encryptedTitle && meta.encryptedTitleNonce) {
-                  const aad = buildOfflineDocumentCacheAad(entry.documentId, 0);
-                  const plaintext = await worker.unwrapWithDsk({
-                    ciphertext: meta.encryptedTitle.buffer as ArrayBuffer,
-                    iv: meta.encryptedTitleNonce.buffer as ArrayBuffer,
-                    aad,
-                  });
-                  titleMap.set(entry.documentId, new TextDecoder().decode(plaintext));
-                }
-              } catch {
-                // DSK not available or decryption failed
-              }
-            }
-          }
-
-          return {
-            documents: cached.map((entry) => ({
-              id: entry.documentId,
-              workspace_id: entry.workspaceId,
-              parent_id: entry.parentId,
-              position: entry.position,
-              doc_type: entry.docType,
-              title: titleMap.get(entry.documentId) ?? entry.folderTitle ?? "Untitled",
-              archived_at: entry.archivedAt,
-              is_encrypted: entry.isEncrypted,
-              updated_at: entry.updatedAt,
-              created_at: entry.updatedAt,
-              created_by: null,
-              encrypted_title: null,
-              encrypted_title_nonce: null,
-              encrypted_title_key_version: null,
-              active_snapshot_id: null,
-              latest_snapshot_at: null,
-              latest_update_at: null,
-              min_dek_version: 0,
-              needs_dek_rotation: false,
-              slug: "",
-            })),
-          };
-        }
+        const cached = await loadOfflineDocuments(wsId);
+        if (cached !== null) return cached;
         throw err;
       }
     },
-    enabled: !!authState() && cryptoWorkerReady() && !!workspaceId(),
+    enabled:
+      !!authState() && !!workspaceId() && (cryptoWorkerReady() || shouldPreferOfflineCache()),
   }));
 
   const flatDocuments = () => query.data?.documents ?? [];

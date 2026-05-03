@@ -8,8 +8,8 @@ defmodule RefMD.Documents.DocumentSnapshot do
   schema "document_snapshots" do
     belongs_to :document, RefMD.Documents.Document
     belongs_to :parent_snapshot, RefMD.Documents.DocumentSnapshot
-    belongs_to :device, RefMD.Devices.Device
 
+    field :device_id, Ecto.UUID
     field :latest_version, :integer
     field :data, :binary
     field :nonce, :binary

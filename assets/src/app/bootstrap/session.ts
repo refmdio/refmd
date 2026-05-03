@@ -1,15 +1,15 @@
 import { createSignal, onMount } from "solid-js";
 import {
+  applyRestoredSessionState,
   restoreOfflineSession,
   restoreSession,
   type OfflineSessionResult,
-  type SessionRestoreResult,
 } from "@/features/auth";
 import {
   setAuthState,
   setCryptoWorkerReady,
   setDeviceState,
-  setFullSession,
+  setSessionContextRestorer,
   setTofuErrors,
 } from "@/entities/session";
 import { isTofuHardFail } from "@/shared/lib/crypto/worker/client";
@@ -18,7 +18,8 @@ export function isPublicPath(pathname = window.location.pathname): boolean {
   return (
     pathname.startsWith("/auth/") ||
     pathname === "/devices/register" ||
-    pathname.startsWith("/invite")
+    pathname.startsWith("/invite") ||
+    pathname.startsWith("/share/")
   );
 }
 
@@ -42,42 +43,6 @@ function applyOfflineSession(offlineResult: OfflineSessionResult) {
   // DSK is set even if !workerReady (no UMK). Offline operations
   // (unwrapDekFromOffline, decryptOfflineCache) only need DSK.
   setCryptoWorkerReady(true);
-}
-
-function applyRestoredSession(result: SessionRestoreResult): void {
-  const auth = {
-    user: { id: result.userId, email: result.email, name: result.name },
-    sessionId: result.sessionId,
-    identitySigningPublic: result.identitySigningPublic,
-    identityEcdhPublic: result.identityEcdhPublic,
-    expiresAt: result.expiresAt,
-    needsPasswordReentry: result.needsPasswordReentry,
-  };
-
-  if (result.deviceId && result.deviceSigningPublic) {
-    setFullSession(auth, {
-      deviceId: result.deviceId,
-      deviceSigningPublic: result.deviceSigningPublic,
-      deviceEcdhPublic: result.deviceEcdhPublic,
-    });
-  } else {
-    setAuthState(auth);
-    if (result.deviceId) {
-      setDeviceState({
-        deviceId: result.deviceId,
-        deviceSigningPublic: null,
-        deviceEcdhPublic: null,
-      });
-    }
-  }
-
-  if (result.workerReady) {
-    setCryptoWorkerReady(true);
-  }
-
-  if (result.tofuWarnings.length > 0) {
-    setTofuErrors(result.tofuWarnings);
-  }
 }
 
 export function useSessionBootstrap() {
@@ -118,7 +83,7 @@ export function useSessionBootstrap() {
         return;
       }
 
-      applyRestoredSession(result);
+      applyRestoredSessionState(result);
 
       if (result.needsPasswordReentry) {
         setShowPasswordReentry(true);
@@ -138,6 +103,15 @@ export function useSessionBootstrap() {
       setReady(true);
     }
   };
+
+  setSessionContextRestorer(async () => {
+    const result = await restoreSession();
+    if (!result || result === "rate_limited" || result === "transient_error") {
+      return;
+    }
+
+    applyRestoredSessionState(result);
+  });
 
   onMount(() => {
     void attemptRestore();

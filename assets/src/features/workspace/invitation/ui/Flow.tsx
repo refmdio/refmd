@@ -3,7 +3,7 @@ import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
-import { ApiError } from "@/shared/api";
+import { workspacesApi } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Spinner } from "@/shared/ui/spinner";
@@ -11,13 +11,18 @@ import {
   acceptInvitationWithKekPersistence,
   type AcceptedWorkspaceMembership,
 } from "../lib/accept";
+import { hasGuestRedeemMaterial } from "../lib/guest-material";
+import { redeemGuestInvitation } from "../lib/guest-redeem";
+import { isRetryableInvitationError } from "../lib/retry";
 import { clearInvitationToken, getStoredInvitationToken, readInvitationToken } from "../lib/token";
 
 type InvitationStatus =
   | "loading"
   | "need_auth"
+  | "guest_confirm"
   | "confirm"
   | "accepting"
+  | "guest_accepting"
   | "success"
   | "partial"
   | "error";
@@ -25,8 +30,10 @@ type InvitationStatus =
 export function WorkspaceInvitationFlow() {
   const navigate = useNavigate();
   const [status, setStatus] = createSignal<InvitationStatus>("loading");
+  const [invitationKind, setInvitationKind] = createSignal<"member" | "guest" | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [retryable, setRetryable] = createSignal(false);
+  const [retryMode, setRetryMode] = createSignal<"accept" | "guest" | null>(null);
   const [kekWarning, setKekWarning] = createSignal<string | null>(null);
   const [membership, setMembership] = createSignal<AcceptedWorkspaceMembership | null>(null);
   let redirectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -41,6 +48,36 @@ export function WorkspaceInvitationFlow() {
     navigate("/dashboard");
   };
 
+  const runGuestRedeem = async (): Promise<void> => {
+    const token = getStoredInvitationToken();
+    if (!token) {
+      setError("No invitation token found.");
+      setStatus("error");
+      return;
+    }
+
+    setError(null);
+    setRetryable(false);
+    setRetryMode("guest");
+    setKekWarning(null);
+    setStatus("guest_accepting");
+
+    try {
+      const result = await redeemGuestInvitation(token);
+      setMembership({
+        workspaceId: result.workspace_id,
+        workspaceName: result.workspace_name,
+        roleName: "Guest",
+      });
+      clearInvitationToken();
+      setStatus("success");
+    } catch (guestError) {
+      setError(guestError instanceof Error ? guestError.message : "Failed to join as guest");
+      setRetryable(isRetryableInvitationError(guestError));
+      setStatus("error");
+    }
+  };
+
   const runAcceptance = async (retryErrorLabel: string): Promise<void> => {
     const token = getStoredInvitationToken();
     const auth = authState();
@@ -53,6 +90,7 @@ export function WorkspaceInvitationFlow() {
 
     setError(null);
     setRetryable(false);
+    setRetryMode("accept");
     setKekWarning(null);
     setStatus("accepting");
 
@@ -70,16 +108,16 @@ export function WorkspaceInvitationFlow() {
       setStatus("partial");
     } catch (acceptError) {
       setError(acceptError instanceof Error ? acceptError.message : retryErrorLabel);
-      if (acceptError instanceof ApiError) {
-        setRetryable(acceptError.status >= 500);
-      } else {
-        setRetryable(true);
-      }
+      setRetryable(isRetryableInvitationError(acceptError));
       setStatus("error");
     }
   };
 
   onMount(() => {
+    void initializeInvitation();
+  });
+
+  const initializeInvitation = async (): Promise<void> => {
     const token = readInvitationToken();
     if (!token) {
       setError("No invitation token found.");
@@ -87,9 +125,54 @@ export function WorkspaceInvitationFlow() {
       return;
     }
 
+    let kind: "member" | "guest";
+    try {
+      kind = (await workspacesApi.lookupInvitation(token)).kind;
+      setInvitationKind(kind);
+    } catch (lookupError) {
+      setError(lookupError instanceof Error ? lookupError.message : "Invitation not found.");
+      setStatus("error");
+      return;
+    }
+
     const auth = authState();
     if (!auth) {
-      setStatus("need_auth");
+      setStatus(kind === "guest" ? "guest_confirm" : "need_auth");
+      return;
+    }
+
+    if (auth.user.accountType === "guest") {
+      if (kind !== "guest") {
+        setError("Sign in with an account to accept this invitation.");
+        setStatus("error");
+        return;
+      }
+
+      void (async () => {
+        try {
+          const hasMaterial = await hasGuestRedeemMaterial(token);
+          if (hasMaterial) {
+            void runGuestRedeem();
+            return;
+          }
+          setError("Guest access is not available on this device.");
+          setStatus("error");
+        } catch (materialError) {
+          setError(
+            materialError instanceof Error
+              ? materialError.message
+              : "Failed to read guest access material.",
+          );
+          setRetryable(true);
+          setStatus("error");
+        }
+      })();
+      return;
+    }
+
+    if (kind === "guest") {
+      setError("Sign out before joining as a guest.");
+      setStatus("error");
       return;
     }
 
@@ -106,7 +189,7 @@ export function WorkspaceInvitationFlow() {
     }
 
     setStatus("confirm");
-  });
+  };
 
   onCleanup(() => {
     if (redirectTimer) clearTimeout(redirectTimer);
@@ -118,7 +201,9 @@ export function WorkspaceInvitationFlow() {
 
     const auth = authState();
     const device = deviceState();
+    if (invitationKind() !== "member") return;
     if (!auth || !device || !cryptoWorkerReady()) return;
+    if (auth.user.accountType === "guest") return;
 
     setStatus("confirm");
   });
@@ -135,8 +220,8 @@ export function WorkspaceInvitationFlow() {
           <CardHeader class="space-y-1 text-center">
             <CardTitle class="text-2xl font-bold">You've been invited</CardTitle>
             <CardDescription>
-              Someone invited you to collaborate on a workspace. Create an account or sign in to
-              accept.
+              Someone invited your account to collaborate on a workspace. Create an account or sign
+              in to accept.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
@@ -145,6 +230,22 @@ export function WorkspaceInvitationFlow() {
             </Button>
             <Button variant="outline" class="w-full" onClick={() => navigate("/auth/login")}>
               Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </Show>
+
+      <Show when={status() === "guest_confirm"}>
+        <Card class="w-full max-w-md">
+          <CardHeader class="space-y-1 text-center">
+            <CardTitle class="text-2xl font-bold">Join as Guest</CardTitle>
+            <CardDescription>
+              This invitation lets you join the workspace as an account-less guest on this device.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-3">
+            <Button class="w-full" onClick={() => void runGuestRedeem()}>
+              Continue as Guest
             </Button>
           </CardContent>
         </Card>
@@ -180,11 +281,17 @@ export function WorkspaceInvitationFlow() {
         </Card>
       </Show>
 
-      <Show when={status() === "loading" || status() === "accepting"}>
+      <Show
+        when={status() === "loading" || status() === "accepting" || status() === "guest_accepting"}
+      >
         <div class="w-full max-w-sm space-y-4 text-center">
           <Spinner class="size-8 mx-auto" />
           <p class="text-muted-foreground">
-            {status() === "loading" ? "Processing invitation..." : "Accepting invitation..."}
+            {status() === "loading"
+              ? "Processing invitation..."
+              : status() === "guest_accepting"
+                ? "Joining as guest..."
+                : "Accepting invitation..."}
           </p>
         </div>
       </Show>
@@ -234,7 +341,15 @@ export function WorkspaceInvitationFlow() {
           <p class="text-destructive font-medium">{error()}</p>
           <div class="flex gap-2 justify-center">
             <Show when={retryable()}>
-              <Button onClick={() => void runAcceptance("Retry failed")}>Retry</Button>
+              <Button
+                onClick={() =>
+                  retryMode() === "guest"
+                    ? void runGuestRedeem()
+                    : void runAcceptance("Retry failed")
+                }
+              >
+                Retry
+              </Button>
             </Show>
             <Button
               variant="outline"
