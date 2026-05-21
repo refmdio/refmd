@@ -32,9 +32,9 @@ defmodule RefMD.Encryption.Documents do
 
   @spec create_with_rotation(map()) :: {:ok, DocumentEncryptedKey.t()} | {:error, term()}
   def create_with_rotation(attrs) do
-    document_id = attrs[:document_id] || attrs["document_id"]
-    key_version = attrs[:key_version] || attrs["key_version"]
-    kek_version = attrs[:kek_version] || attrs["kek_version"]
+    document_id = dual_key_get(attrs, :document_id)
+    key_version = dual_key_get(attrs, :key_version)
+    kek_version = dual_key_get(attrs, :kek_version)
 
     Repo.transaction(fn ->
       document = lock_and_validate_document!(document_id, key_version)
@@ -42,6 +42,13 @@ defmodule RefMD.Encryption.Documents do
       validate_consecutive_key_version!(document_id, key_version)
       insert_dek_with_rotation!(document, attrs, key_version)
     end)
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
+    end
   end
 
   defp validate_consecutive_key_version!(document_id, key_version) do

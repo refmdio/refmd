@@ -6,7 +6,7 @@ defmodule RefMD.TestCrypto do
   alias RefMD.Crypto.{Blake3, Encoding, Hash, HybridEncryptionMaterial, JCS, Signature}
   alias RefMD.Documents.Document
   alias RefMD.Encryption.KeyDirectory
-  alias RefMD.Encryption.KeyDirectory.PinBootstrap
+  alias RefMD.Encryption.KeyDirectory.{Payload, PinBootstrap}
   alias RefMD.Encryption.Wraps.SignedPQ
   alias RefMD.Repo
   alias RefMD.Sharing.Capability
@@ -14,7 +14,6 @@ defmodule RefMD.TestCrypto do
   alias RefMD.Workspaces.KekRotation.DeletionProofs
   alias RefMDWeb.Http.PopSessionBinding
   alias RefMDWeb.Http.PopTranscript
-  alias RefMDWeb.Plugs.RequireRBAC
 
   @protocol_version 1
   @suite_rank 1000
@@ -1457,21 +1456,21 @@ defmodule RefMD.TestCrypto do
           test_key_directory_checkpoint_authority_boundary(%{"sequence" => 1}),
         "covered_event_head" => event_head(user_device_event),
         "identity_keys" => [
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             identity_public_material,
             event_ref("user", user_id, user_identity_event)
           ),
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             identity_hybrid_encryption_public_key_material,
             event_ref("user", user_id, user_identity_event)
           )
         ],
         "device_keys" => [
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             device_public_material,
             event_ref("user", user_id, user_device_event)
           ),
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             device_hybrid_encryption_public_key_material,
             event_ref("user", user_id, user_device_event)
           )
@@ -1521,11 +1520,11 @@ defmodule RefMD.TestCrypto do
           test_key_directory_checkpoint_authority_boundary(%{"sequence" => 1}),
         "covered_event_head" => event_head(workspace_member_event),
         "device_keys" => [
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             device_public_material,
             event_ref("workspace", workspace_id, workspace_device_event)
           ),
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             device_hybrid_encryption_public_key_material,
             event_ref("workspace", workspace_id, workspace_device_event)
           )
@@ -1758,7 +1757,7 @@ defmodule RefMD.TestCrypto do
       permissions =
         role_by_id
         |> Map.fetch!(role_id)
-        |> RequireRBAC.effective_permissions()
+        |> RefMD.Workspaces.effective_permissions()
 
       MapSet.member?(checkpoint_device_key_ids, device.encryption_key_id) and
         (MapSet.member?(permissions, "document:manage_share") or
@@ -2214,11 +2213,11 @@ defmodule RefMD.TestCrypto do
         |> Map.put("previous_checkpoint_hash", checkpoint.checkpoint_hash)
         |> Map.put("covered_event_head", event_head(member_event))
         |> Map.put("device_keys", [
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             material.signing_public,
             event_ref("workspace", workspace_id, device_event)
           ),
-          KeyDirectory.key_entry!(
+          Payload.key_entry!(
             material.encryption_public,
             event_ref("workspace", workspace_id, device_event)
           )

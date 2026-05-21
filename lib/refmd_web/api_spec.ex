@@ -393,18 +393,34 @@ defmodule RefMDWeb.ApiSpec do
   defp strict_pop_security?(_), do: false
 
   defp reject_parameter(parameters, name, location) do
-    atom_name = String.to_atom(name)
-
     Enum.reject(parameters, fn
-      %Parameter{name: ^name, in: ^location} -> true
-      %Parameter{name: ^atom_name, in: ^location} -> true
-      %{name: ^name, in: ^location} -> true
-      %{name: ^atom_name, in: ^location} -> true
-      {^name, opts} when is_list(opts) -> Keyword.get(opts, :in) == location
-      {^atom_name, opts} when is_list(opts) -> Keyword.get(opts, :in) == location
-      _ -> false
+      %Parameter{name: ^name, in: ^location} ->
+        true
+
+      %{name: ^name, in: ^location} ->
+        true
+
+      {^name, opts} when is_list(opts) ->
+        Keyword.get(opts, :in) == location
+
+      %Parameter{name: parameter_name, in: ^location} ->
+        parameter_name_matches?(parameter_name, name)
+
+      %{name: parameter_name, in: ^location} ->
+        parameter_name_matches?(parameter_name, name)
+
+      {parameter_name, opts} when is_list(opts) ->
+        Keyword.get(opts, :in) == location and parameter_name_matches?(parameter_name, name)
+
+      _parameter ->
+        false
     end)
   end
+
+  defp parameter_name_matches?(parameter_name, expected) when is_atom(parameter_name),
+    do: Atom.to_string(parameter_name) == expected
+
+  defp parameter_name_matches?(parameter_name, expected), do: parameter_name == expected
 
   defp sanitize_operation_ids(%OpenApi{paths: paths} = spec) when is_map(paths) do
     sanitized_paths =

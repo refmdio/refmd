@@ -947,7 +947,7 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
   end
 
   defp required_context_map!(context, key, message) when is_map(context) do
-    case Map.get(context, key) || Map.get(context, to_string(key)) do
+    case context_value(context, key) do
       value when is_map(value) -> value
       _ -> raise ArgumentError, message
     end
@@ -957,7 +957,10 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
   defp required_map!(_value, message), do: raise(ArgumentError, message)
 
   defp context_value(map, key) when is_map(map) do
-    if Map.has_key?(map, key), do: Map.get(map, key), else: Map.get(map, to_string(key))
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, to_string(key))
+    end
   end
 
   defp assert_literal!(actual, expected, _message) when actual == expected, do: :ok

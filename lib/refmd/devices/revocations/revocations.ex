@@ -399,7 +399,15 @@ defmodule RefMD.Devices.Revocations do
   end
 
   defp disconnect_ws(user_id, _device_id, "security") do
-    RefMDWeb.Endpoint.broadcast("user_socket:#{user_id}", "disconnect", %{})
+    Phoenix.PubSub.broadcast(
+      RefMD.PubSub,
+      "user_socket:#{user_id}",
+      %Phoenix.Socket.Broadcast{
+        topic: "user_socket:#{user_id}",
+        event: "disconnect",
+        payload: %{}
+      }
+    )
   end
 
   defp disconnect_ws(user_id, device_id, _mode) do

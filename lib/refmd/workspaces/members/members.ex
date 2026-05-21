@@ -181,7 +181,7 @@ defmodule RefMD.Workspaces.Members do
 
   defp validate_role_change(ctx, workspace_id) do
     validate_role_change_rules(ctx, workspace_id) ||
-      check_effective_permissions_subset(ctx.new_role, ctx.actor_role)
+      RefMD.Workspaces.validate_role_assignment(ctx.actor_role, ctx.new_role)
   end
 
   defp validate_role_change_rules(ctx, workspace_id) do
@@ -189,7 +189,6 @@ defmodule RefMD.Workspaces.Members do
       validate_role_workspace(ctx, workspace_id),
       validate_guest_role_change(ctx),
       validate_owner_role_change(ctx),
-      validate_role_power(ctx),
       validate_last_owner_role_change(ctx)
     ]
     |> Enum.find(& &1)
@@ -209,28 +208,10 @@ defmodule RefMD.Workspaces.Members do
       do: {:error, :cannot_modify_owner}
   end
 
-  defp validate_role_power(ctx) do
-    if role_power(ctx.new_role.base_role) > role_power(ctx.actor_role.base_role),
-      do: {:error, :role_escalation}
-  end
-
   defp validate_last_owner_role_change(ctx) do
     if ctx.target_role.base_role == "owner" and ctx.new_role.base_role != "owner" and
          ctx.owner_count <= 1,
        do: {:error, :last_owner}
-  end
-
-  defp check_effective_permissions_subset(new_role, actor_role) do
-    alias RefMDWeb.Plugs.RequireRBAC
-
-    new_perms = RequireRBAC.effective_permissions(new_role)
-    actor_perms = RequireRBAC.effective_permissions(actor_role)
-
-    if MapSet.subset?(new_perms, actor_perms) do
-      :ok
-    else
-      {:error, :permission_escalation}
-    end
   end
 
   defp validate_removal(_ws_id, _target, _actor, nil, _owners), do: {:error, :target_not_member}
@@ -318,9 +299,7 @@ defmodule RefMD.Workspaces.Members do
   defp check_rbac_permission(nil, _permission), do: {:error, :actor_not_member}
 
   defp check_rbac_permission(role, permission) do
-    alias RefMDWeb.Plugs.RequireRBAC
-
-    perms = RequireRBAC.effective_permissions(role)
+    perms = RefMD.Workspaces.effective_permissions(role)
     if MapSet.member?(perms, permission), do: :ok, else: {:error, :permission_denied}
   end
 
@@ -359,12 +338,6 @@ defmodule RefMD.Workspaces.Members do
   defp maybe_preload_permissions(role), do: Repo.preload(role, :permissions)
 
   defp count_owners(owner_user_ids), do: length(owner_user_ids)
-
-  defp role_power("owner"), do: 4
-  defp role_power("admin"), do: 3
-  defp role_power("editor"), do: 2
-  defp role_power("viewer"), do: 1
-  defp role_power("guest"), do: 0
 
   defp append_member_removal_key_directory!(
          workspace_id,

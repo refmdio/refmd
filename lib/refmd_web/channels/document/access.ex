@@ -4,7 +4,6 @@ defmodule RefMDWeb.Channels.Document.Access do
   alias RefMD.Devices
   alias RefMD.Sharing
   alias RefMD.Workspaces
-  alias RefMDWeb.Plugs.RequireRBAC
 
   @spec check_ephemeral(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def check_ephemeral(socket) do
@@ -311,13 +310,13 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   defp role_allows_document_read?(role) do
     role
-    |> RequireRBAC.effective_permissions()
+    |> Workspaces.effective_permissions()
     |> MapSet.member?("document:read")
   end
 
   defp role_allows_document_write?(role) do
     role
-    |> RequireRBAC.effective_permissions()
+    |> Workspaces.effective_permissions()
     |> MapSet.member?("document:write")
   end
 

@@ -9,7 +9,7 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     Assertions,
     Envelope,
     Event,
-    Protocol,
+    Payload,
     Replay,
     SignatureEnvelope
   }
@@ -190,7 +190,7 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     invitation_id = invitation_redeem_invitation_id!(payload)
 
     Assertions.assert_literal!(
-      Protocol.key_id!(key_material),
+      Payload.key_id!(key_material),
       authority["signing_key_id"],
       "invitation_redeem_authority_key_mismatch"
     )

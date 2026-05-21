@@ -149,7 +149,7 @@ defmodule RefMD.Sharing.Shares do
         key_directory_events: key_directory_events,
         key_directory_checkpoint: key_directory_checkpoint,
         created_by: user_id,
-        actor_device_id: Map.get(attrs, "actor_device_id") || Map.get(attrs, :actor_device_id),
+        actor_device_id: dual_key_get(attrs, :actor_device_id),
         share_link_secret_backup_wraps: share_link_secret_backup_wraps
       }
 
@@ -270,9 +270,7 @@ defmodule RefMD.Sharing.Shares do
   end
 
   defp fetch_share_link_secret_backup_wraps(attrs) do
-    wraps =
-      Map.get(attrs, :share_link_secret_backup_wraps) ||
-        Map.get(attrs, "share_link_secret_backup_wraps")
+    wraps = dual_key_get(attrs, :share_link_secret_backup_wraps)
 
     if is_list(wraps) and wraps != [],
       do: {:ok, wraps},
@@ -977,4 +975,11 @@ defmodule RefMD.Sharing.Shares do
 
   defp normalize_transaction_result({:ok, result}), do: {:ok, result}
   defp normalize_transaction_result({:error, reason}), do: {:error, reason}
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
+    end
+  end
 end

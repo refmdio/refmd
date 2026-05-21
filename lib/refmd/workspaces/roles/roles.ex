@@ -10,6 +10,8 @@ defmodule RefMD.Workspaces.Roles do
     WorkspaceRolePermission
   }
 
+  alias RefMD.Workspaces.Roles.Authorization
+
   @current_catalog_version 1
 
   @spec list_workspace_roles(Ecto.UUID.t()) :: [WorkspaceRole.t()]
@@ -24,39 +26,27 @@ defmodule RefMD.Workspaces.Roles do
 
   @spec create_custom_role(Ecto.UUID.t(), String.t(), String.t(), list() | nil) ::
           {:ok, WorkspaceRole.t()} | {:error, term()}
-  def create_custom_role(workspace_id, name, base_role, permissions \\ nil)
-      when base_role in ~w(admin editor viewer) do
-    Repo.transaction(fn ->
-      case %WorkspaceRole{created_at: DateTime.utc_now()}
-           |> WorkspaceRole.changeset(%{
-             workspace_id: workspace_id,
-             name: name,
-             base_role: base_role,
-             catalog_version: @current_catalog_version
-           })
-           |> Repo.insert() do
-        {:ok, role} ->
-          save_permission_overrides(role.id, permissions || [])
-          Repo.preload(role, :permissions)
-
-        {:error, changeset} ->
-          Repo.rollback(changeset)
-      end
-    end)
+  def create_custom_role(workspace_id, name, base_role, permissions \\ nil) do
+    with :ok <- validate_custom_base_role(base_role),
+         {:ok, resolved_permissions} <-
+           Authorization.validate_create_permissions(permissions, base_role) do
+      Repo.transaction(fn ->
+        create_custom_role_transaction(workspace_id, name, base_role, resolved_permissions)
+      end)
+    end
   end
 
   @spec update_role(WorkspaceRole.t(), map(), keyword()) ::
           {:ok, WorkspaceRole.t()} | {:error, term()}
   def update_role(role, attrs, opts \\ []) do
     permissions = Keyword.get(opts, :permissions)
-    submitted_keys = Keyword.get(opts, :submitted_keys)
 
-    Repo.transaction(fn ->
-      role_attrs = Map.reject(attrs, fn {_k, v} -> is_nil(v) end)
-      updated = apply_role_attrs(role, role_attrs)
-      merge_permissions_if_present(role.id, permissions, submitted_keys)
-      Repo.preload(updated, :permissions, force: true)
-    end)
+    with {:ok, {resolved_permissions, submitted_keys}} <-
+           Authorization.validate_update_permissions(permissions, role) do
+      Repo.transaction(fn ->
+        update_role_transaction(role, attrs, resolved_permissions, submitted_keys)
+      end)
+    end
   end
 
   @spec delete_role(WorkspaceRole.t()) ::
@@ -129,6 +119,35 @@ defmodule RefMD.Workspaces.Roles do
   end
 
   # ── Private Helpers ─────────────────────────────
+
+  defp create_custom_role_transaction(workspace_id, name, base_role, resolved_permissions) do
+    role =
+      %WorkspaceRole{created_at: DateTime.utc_now()}
+      |> WorkspaceRole.changeset(%{
+        workspace_id: workspace_id,
+        name: name,
+        base_role: base_role,
+        catalog_version: @current_catalog_version
+      })
+      |> insert_role_or_rollback()
+
+    save_permission_overrides(role.id, resolved_permissions || [])
+    Repo.preload(role, :permissions)
+  end
+
+  defp insert_role_or_rollback(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, role} -> role
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp update_role_transaction(role, attrs, resolved_permissions, submitted_keys) do
+    role_attrs = Map.reject(attrs, fn {_k, v} -> is_nil(v) end)
+    updated = apply_role_attrs(role, role_attrs)
+    merge_permissions_if_present(role.id, resolved_permissions, submitted_keys)
+    Repo.preload(updated, :permissions, force: true)
+  end
 
   defp apply_role_attrs(role, role_attrs) do
     cond do
@@ -220,4 +239,8 @@ defmodule RefMD.Workspaces.Roles do
   end
 
   defp count_role_invitations(_role_id), do: 0
+
+  defp validate_custom_base_role("owner"), do: {:error, :owner_role_not_allowed}
+  defp validate_custom_base_role(base_role) when base_role in ~w(admin editor viewer), do: :ok
+  defp validate_custom_base_role(_base_role), do: {:error, :invalid_base_role}
 end

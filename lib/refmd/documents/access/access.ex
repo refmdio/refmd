@@ -2,7 +2,6 @@ defmodule RefMD.Documents.Access do
   @moduledoc false
 
   alias RefMD.Workspaces
-  alias RefMDWeb.Plugs.RequireRBAC
 
   @spec publication_sync_allowed?(
           map(),
@@ -34,7 +33,7 @@ defmodule RefMD.Documents.Access do
 
   defp role_allows_document_write?(role) do
     role
-    |> RequireRBAC.effective_permissions()
+    |> Workspaces.effective_permissions()
     |> MapSet.member?("document:write")
   end
 end

@@ -4,7 +4,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature, Suite}
   alias RefMD.Encryption.KeyDirectory
   alias RefMD.Encryption.KeyDirectory.Authority, as: Authority
-  alias RefMD.Encryption.KeyDirectory.{Checkpoint, Signatures}
+  alias RefMD.Encryption.KeyDirectory.{Checkpoint, Payload, Signatures}
   alias RefMD.Repo
 
   import Ecto.Query
@@ -805,7 +805,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         "identity_keys" =>
           checkpoint.payload["identity_keys"] ++
             [
-              KeyDirectory.key_entry!(
+              Payload.key_entry!(
                 new_identity_public,
                 key_directory_event_ref("user", user_id, event)
               )

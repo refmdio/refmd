@@ -57,6 +57,20 @@ defmodule RefMD.Workspaces do
 
   # ── Roles (delegated to RefMD.Workspaces.Roles) ──
 
+  @spec permission_defined?(String.t()) :: boolean()
+  defdelegate permission_defined?(permission), to: RefMD.Workspaces.Roles.Authorization
+
+  @spec effective_permissions(WorkspaceRole.t() | map()) :: MapSet.t(String.t())
+  defdelegate effective_permissions(role), to: RefMD.Workspaces.Roles.Authorization
+
+  @spec permission_granted?(WorkspaceRole.t() | map(), String.t()) :: boolean()
+  defdelegate permission_granted?(role, permission), to: RefMD.Workspaces.Roles.Authorization
+
+  @spec validate_role_assignment(WorkspaceRole.t() | map(), WorkspaceRole.t() | map()) ::
+          :ok | {:error, :role_escalation | :permission_escalation}
+  defdelegate validate_role_assignment(actor_role, target_role),
+    to: RefMD.Workspaces.Roles.Authorization
+
   defdelegate list_workspace_roles(workspace_id), to: RefMD.Workspaces.Roles
 
   @spec create_custom_role(Ecto.UUID.t(), String.t(), String.t(), list() | nil) ::

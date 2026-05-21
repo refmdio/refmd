@@ -180,17 +180,13 @@ defmodule RefMD.Workspaces.Guests.Invitations do
   end
 
   defp validate_guest_role(role) do
-    alias RefMDWeb.Plugs.RequireRBAC
-
-    if role |> RequireRBAC.effective_permissions() |> MapSet.member?("guest:invite"),
+    if role |> RefMD.Workspaces.effective_permissions() |> MapSet.member?("guest:invite"),
       do: :ok,
       else: {:error, :permission_denied}
   end
 
   defp validate_guest_role_escalation(actor_role, target_role, invitation_permission) do
-    alias RefMDWeb.Plugs.RequireRBAC
-
-    actor_permissions = RequireRBAC.effective_permissions(actor_role)
+    actor_permissions = RefMD.Workspaces.effective_permissions(actor_role)
 
     target_permissions =
       effective_guest_invitation_permissions(target_role, invitation_permission)
@@ -209,10 +205,8 @@ defmodule RefMD.Workspaces.Guests.Invitations do
   end
 
   defp effective_guest_invitation_permissions(target_role, "edit") do
-    alias RefMDWeb.Plugs.RequireRBAC
-
     target_role
-    |> RequireRBAC.effective_permissions()
+    |> RefMD.Workspaces.effective_permissions()
     |> MapSet.intersection(MapSet.new(["document:read", "document:write", "document:archive"]))
   end
 

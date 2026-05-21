@@ -28,24 +28,21 @@ defmodule RefMD.Encryption.KeyDirectory do
   @checkpoint_protocol "refmd.key-directory-checkpoint"
   @valid_scope_kinds ["user", "workspace"]
 
+  @doc "Key-directory package boundary for supported event type literals."
   @spec event_types() :: [binary()]
   def event_types, do: Payload.event_types()
 
+  @doc "Key-directory package boundary for canonical event payload hashing."
   @spec event_hash(map()) :: binary()
   def event_hash(payload), do: Protocol.event_hash(payload)
 
+  @doc "Key-directory package boundary for canonical event body hashing."
   @spec event_body_hash(map()) :: binary()
   def event_body_hash(body), do: Protocol.event_body_hash(body)
 
+  @doc "Key-directory package boundary for canonical checkpoint payload hashing."
   @spec checkpoint_hash(map()) :: binary()
   def checkpoint_hash(payload), do: Protocol.checkpoint_hash(payload)
-
-  @spec key_id!(map()) :: binary()
-  def key_id!(material), do: Protocol.key_id!(material)
-
-  @spec key_entry!(map(), map(), map() | nil) :: map()
-  def key_entry!(key_material, valid_from, revoked_at \\ nil),
-    do: Protocol.key_entry!(key_material, valid_from, revoked_at)
 
   @spec build_event_payload!(map()) :: map()
   def build_event_payload!(attrs) when is_map(attrs) do
@@ -62,7 +59,7 @@ defmodule RefMD.Encryption.KeyDirectory do
       }
       |> Assertions.maybe_put("previous_event_hash", Map.get(attrs, "previous_event_hash"))
 
-    assert_event_payload!(payload)
+    Payload.assert_event_payload!(payload)
     payload
   end
 
@@ -94,7 +91,7 @@ defmodule RefMD.Encryption.KeyDirectory do
         Map.get(attrs, "previous_checkpoint_hash")
       )
 
-    assert_checkpoint_payload!(payload)
+    Payload.assert_checkpoint_payload!(payload)
     payload
   end
 
@@ -147,9 +144,10 @@ defmodule RefMD.Encryption.KeyDirectory do
         Signatures.verify_event_signatures!(payload, signatures, checkpoint_envelope)
         event = Store.insert_event!(payload, signatures)
 
-        {events ++ [event], event.event_hash}
+        {[event | events], event.event_hash}
       end)
 
+    events = Enum.reverse(events)
     checkpoint_payload = Envelope.payload!(checkpoint_envelope, :checkpoint)
     checkpoint_signatures = Envelope.signatures!(checkpoint_envelope)
     event_head = Envelope.event_head!(events)
@@ -278,13 +276,15 @@ defmodule RefMD.Encryption.KeyDirectory do
       })
 
     event_payloads = Enum.map(event_envelopes, &Envelope.payload!(&1, :event))
+    next_payloads = Enum.drop(event_payloads, 1) ++ [nil]
 
     {events, _previous_event_hash, replay_payload, _authority_state} =
       event_envelopes
+      |> Enum.zip(next_payloads)
       |> Enum.with_index(previous_pin.event_head_sequence + 1)
       |> Enum.reduce(
         {[], previous_pin.event_head_hash, previous_checkpoint.payload, initial_authority_state},
-        fn {envelope, expected_sequence},
+        fn {{envelope, next_payload}, expected_sequence},
            {events, previous_event_hash, replay_payload, authority_state} ->
           payload = Envelope.payload!(envelope, :event)
           signatures = Envelope.signatures!(envelope)
@@ -298,9 +298,6 @@ defmodule RefMD.Encryption.KeyDirectory do
           Assertions.assert_literal!(payload["scope_id"], scope_id, "event_scope_id_mismatch")
           Assertions.assert_literal!(payload["sequence"], expected_sequence, "event_sequence_gap")
           Envelope.assert_event_chain_link!(payload, previous_event_hash)
-
-          next_payload =
-            Enum.at(event_payloads, expected_sequence - previous_pin.event_head_sequence)
 
           admission_wrap? = Signatures.invitation_admission_wrap_event?(payload, next_payload)
 
@@ -358,9 +355,11 @@ defmodule RefMD.Encryption.KeyDirectory do
               )
             end
 
-          {events ++ [event], event.event_hash, next_replay_payload, authority_state}
+          {[event | events], event.event_hash, next_replay_payload, authority_state}
         end
       )
+
+    events = Enum.reverse(events)
 
     Assertions.assert_literal!(
       checkpoint_payload["covered_event_head"],
@@ -469,11 +468,12 @@ defmodule RefMD.Encryption.KeyDirectory do
 
           event_hash = event_hash(payload)
 
-          {events ++ [%{payload: payload, event_hash: event_hash, sequence: payload["sequence"]}],
+          {[%{payload: payload, event_hash: event_hash, sequence: payload["sequence"]} | events],
            event_hash, authority_state, replay_payload}
         end
       )
 
+    verified_events = Enum.reverse(verified_events)
     checkpoint_signatures = Envelope.signatures!(checkpoint_envelope)
     event_head = Envelope.verified_event_head!(verified_events)
 
@@ -557,23 +557,29 @@ defmodule RefMD.Encryption.KeyDirectory do
     )
   end
 
+  @doc "Key-directory package boundary for current checkpoint lookup."
   @spec current_checkpoint(binary(), Ecto.UUID.t()) :: Checkpoint.t() | nil
   def current_checkpoint(scope_kind, scope_id), do: Store.current_checkpoint(scope_kind, scope_id)
 
+  @doc "Key-directory package boundary for current pin lookup."
   @spec current_pin(binary(), Ecto.UUID.t()) :: Pin.t() | nil
   def current_pin(scope_kind, scope_id), do: Store.current_pin(scope_kind, scope_id)
 
+  @doc "Key-directory package boundary for stored checkpoint assertions."
   @spec assert_stored_checkpoint!(Checkpoint.t()) :: :ok
   def assert_stored_checkpoint!(checkpoint), do: Store.assert_stored_checkpoint!(checkpoint)
 
+  @doc "Key-directory package boundary for stored event assertions."
   @spec assert_stored_event!(Event.t()) :: :ok
   def assert_stored_event!(event), do: Store.assert_stored_event!(event)
 
+  @doc "Key-directory package boundary for active key lookup at the current checkpoint."
   @spec active_key_material_in_current_checkpoint(binary(), Ecto.UUID.t(), binary()) ::
           {:ok, map()} | {:error, :not_found}
   def active_key_material_in_current_checkpoint(scope_kind, scope_id, key_id),
     do: Store.active_key_material_in_current_checkpoint(scope_kind, scope_id, key_id)
 
+  @doc "Key-directory package boundary for active owner signing material lookup."
   @spec active_owner_signing_material_in_current_checkpoint(
           binary(),
           Ecto.UUID.t(),
@@ -594,6 +600,7 @@ defmodule RefMD.Encryption.KeyDirectory do
           owner_id
         )
 
+  @doc "Key-directory package boundary for active owner encryption material lookup."
   @spec active_owner_encryption_material_in_current_checkpoint(
           binary(),
           Ecto.UUID.t(),
@@ -614,6 +621,7 @@ defmodule RefMD.Encryption.KeyDirectory do
           owner_id
         )
 
+  @doc "Key-directory package boundary for historical key material lookup at a checkpoint."
   @spec active_key_material_at_checkpoint(
           binary(),
           Ecto.UUID.t(),
@@ -638,16 +646,19 @@ defmodule RefMD.Encryption.KeyDirectory do
           checkpoint_hash
         )
 
+  @doc "Key-directory package boundary for ordered event history lookup."
   @spec events_up_to(binary(), Ecto.UUID.t(), pos_integer()) :: [Event.t()]
   def events_up_to(scope_kind, scope_id, head_sequence),
     do: Store.events_up_to(scope_kind, scope_id, head_sequence)
 
+  @doc "Key-directory package boundary for ordered event range lookup."
   @spec events_after_until(binary(), Ecto.UUID.t(), non_neg_integer(), pos_integer()) :: [
           Event.t()
         ]
   def events_after_until(scope_kind, scope_id, after_sequence, head_sequence),
     do: Store.events_after_until(scope_kind, scope_id, after_sequence, head_sequence)
 
+  @doc "Key-directory package boundary for ordered checkpoint range lookup."
   @spec checkpoints_between(binary(), Ecto.UUID.t(), pos_integer(), pos_integer()) :: [
           Checkpoint.t()
         ]
@@ -693,10 +704,4 @@ defmodule RefMD.Encryption.KeyDirectory do
       )
     )
   end
-
-  @spec assert_event_payload!(map()) :: :ok
-  def assert_event_payload!(payload), do: Payload.assert_event_payload!(payload)
-
-  @spec assert_checkpoint_payload!(map()) :: :ok
-  def assert_checkpoint_payload!(payload), do: Payload.assert_checkpoint_payload!(payload)
 end

@@ -26,14 +26,6 @@ defmodule RefMDWeb.RoleController do
     end
   end
 
-  # ── Permission dependency rules ───────────────────────
-
-  @permission_dependencies [
-    {"document:write", "document:read"},
-    {"document:manage_share", "document:read"},
-    {"document:read", "member:list"}
-  ]
-
   # ── GET /api/workspaces/:workspace_id/roles ───────────
 
   operation(:index,
@@ -69,18 +61,7 @@ defmodule RefMDWeb.RoleController do
     workspace_id = conn.assigns.workspace_id
     permissions = params["permissions"]
 
-    cond do
-      base_role == "owner" ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "owner_role_not_allowed"})
-
-      base_role not in ~w(admin editor viewer) ->
-        conn |> put_status(:bad_request) |> json(%{error: "invalid_base_role"})
-
-      true ->
-        create_role_with_permissions(conn, workspace_id, name, base_role, permissions)
-    end
+    create_role_with_permissions(conn, workspace_id, name, base_role, permissions)
   end
 
   def create(conn, _params) do
@@ -169,20 +150,12 @@ defmodule RefMDWeb.RoleController do
   # ── Helpers ───────────────────────────────────────────
 
   defp create_role_with_permissions(conn, workspace_id, name, base_role, permissions) do
-    case validate_permissions_for_create(permissions, base_role) do
+    case Workspaces.create_custom_role(workspace_id, name, base_role, permissions) do
+      {:ok, role} ->
+        conn |> put_status(:created) |> json(serialize_role(role))
+
       {:error, error} ->
-        handle_permission_error(conn, error)
-
-      {:ok, resolved_permissions} ->
-        case Workspaces.create_custom_role(workspace_id, name, base_role, resolved_permissions) do
-          {:ok, role} ->
-            conn |> put_status(:created) |> json(serialize_role(role))
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:unprocessable_entity)
-            |> json(%{error: "validation_error", details: format_errors(changeset)})
-        end
+        handle_role_error(conn, error)
     end
   end
 
@@ -217,168 +190,59 @@ defmodule RefMDWeb.RoleController do
     name = params["name"]
     is_default = params["is_default"]
 
-    submitted_keys =
-      if permissions,
-        do: Enum.map(permissions, fn %{"permission" => p} -> p end),
-        else: nil
+    case Workspaces.update_role(role, %{name: name, is_default: is_default},
+           permissions: permissions
+         ) do
+      {:ok, updated_role} ->
+        json(conn, serialize_role(updated_role))
 
-    case validate_permissions_if_present(permissions, role.base_role, role) do
       {:error, error} ->
-        handle_permission_error(conn, error)
-
-      {:ok, resolved_permissions} ->
-        case Workspaces.update_role(role, %{name: name, is_default: is_default},
-               permissions: resolved_permissions,
-               submitted_keys: submitted_keys
-             ) do
-          {:ok, updated_role} ->
-            json(conn, serialize_role(updated_role))
-
-          {:error, :cannot_unset_default_role} ->
-            conn
-            |> put_status(:unprocessable_entity)
-            |> json(%{error: "cannot_unset_default_role"})
-
-          {:error, :guest_role_default_not_allowed} ->
-            conn
-            |> put_status(:unprocessable_entity)
-            |> json(%{error: "guest_role_default_not_allowed"})
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:unprocessable_entity)
-            |> json(%{error: "validation_error", details: format_errors(changeset)})
-        end
+        handle_role_error(conn, error)
     end
   end
 
-  defp validate_permissions_for_create(nil, _base_role), do: {:ok, nil}
-
-  defp validate_permissions_for_create(permissions, base_role) do
-    catalog = RequireRBAC.permission_catalog()
-    power = RequireRBAC.role_power()
-    role_power_val = power[base_role]
-
-    with :ok <- validate_permission_keys(permissions, catalog),
-         :ok <- validate_permission_ceilings(permissions, catalog, power, role_power_val) do
-      case validate_permission_dependencies(permissions, base_role, nil) do
-        :ok -> {:ok, filter_default_matching_overrides(permissions, base_role, nil)}
-        error -> error
-      end
-    end
+  defp handle_role_error(conn, :owner_role_not_allowed) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "owner_role_not_allowed"})
   end
 
-  defp validate_permissions_if_present(nil, _base_role, _role), do: {:ok, nil}
-
-  defp validate_permissions_if_present(permissions, base_role, role) do
-    catalog = RequireRBAC.permission_catalog()
-    power = RequireRBAC.role_power()
-    role_power_val = power[base_role]
-    cv = role.catalog_version
-
-    with :ok <- validate_permission_keys(permissions, catalog),
-         :ok <- validate_permission_ceilings(permissions, catalog, power, role_power_val) do
-      merged = merge_with_existing_overrides(permissions, role)
-
-      case validate_permission_dependencies(merged, base_role, cv) do
-        :ok -> {:ok, filter_default_matching_overrides(merged, base_role, cv)}
-        error -> error
-      end
-    end
+  defp handle_role_error(conn, :invalid_base_role) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_base_role"})
   end
 
-  defp merge_with_existing_overrides(submitted, role) do
-    existing_map =
-      Map.new(role.permissions, fn p ->
-        {p.permission, %{"permission" => p.permission, "granted" => p.granted}}
-      end)
-
-    submitted_map =
-      Map.new(submitted, fn %{"permission" => p, "granted" => g} ->
-        {p, %{"permission" => p, "granted" => g}}
-      end)
-
-    Map.merge(existing_map, submitted_map)
-    |> Map.values()
-  end
-
-  defp validate_permission_keys(permissions, catalog) do
-    invalid =
-      Enum.find(permissions, fn entry ->
-        not is_map_key(entry, "permission") or not is_map_key(entry, "granted") or
-          not is_binary(entry["permission"]) or not is_boolean(entry["granted"]) or
-          not Map.has_key?(catalog, entry["permission"])
-      end)
-
-    if invalid, do: {:error, {:invalid_permission, invalid["permission"]}}, else: :ok
-  end
-
-  defp validate_permission_ceilings(permissions, catalog, power, role_power_val) do
-    violation =
-      Enum.find(permissions, fn %{"permission" => perm} ->
-        power[catalog[perm].base_role_ceiling] > role_power_val
-      end)
-
-    if violation,
-      do: {:error, {:permission_exceeds_base_role, violation["permission"]}},
-      else: :ok
-  end
-
-  defp validate_permission_dependencies(permissions, base_role, catalog_version) do
-    overrides = Map.new(permissions, fn %{"permission" => p, "granted" => g} -> {p, g} end)
-
-    resolved = fn perm ->
-      case Map.get(overrides, perm) do
-        nil -> effective_default?(perm, base_role, catalog_version)
-        val -> val
-      end
-    end
-
-    violation =
-      Enum.find(@permission_dependencies, fn {requires, required_by} ->
-        resolved.(requires) and not resolved.(required_by)
-      end)
-
-    if violation do
-      {requires, _} = violation
-      {:error, {:invalid_permission_dependency, requires}}
-    else
-      :ok
-    end
-  end
-
-  defp filter_default_matching_overrides(permissions, base_role, catalog_version) do
-    Enum.filter(permissions, fn %{"permission" => perm, "granted" => granted} ->
-      granted != effective_default?(perm, base_role, catalog_version)
-    end)
-  end
-
-  defp effective_default?(perm, base_role, catalog_version) do
-    catalog = RequireRBAC.permission_catalog()
-    defaults = RequireRBAC.base_role_defaults()[base_role]
-
-    if catalog_version != nil and catalog[perm] != nil and
-         catalog[perm].since_version > catalog_version do
-      false
-    else
-      MapSet.member?(defaults, perm)
-    end
-  end
-
-  defp handle_permission_error(conn, {:invalid_permission, perm}) do
+  defp handle_role_error(conn, {:invalid_permission, perm}) do
     conn |> put_status(:bad_request) |> json(%{error: "invalid_permission", permission: perm})
   end
 
-  defp handle_permission_error(conn, {:permission_exceeds_base_role, perm}) do
+  defp handle_role_error(conn, {:permission_exceeds_base_role, perm}) do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: "permission_exceeds_base_role", permission: perm})
   end
 
-  defp handle_permission_error(conn, {:invalid_permission_dependency, perm}) do
+  defp handle_role_error(conn, {:invalid_permission_dependency, perm}) do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: "invalid_permission_dependency", permission: perm})
+  end
+
+  defp handle_role_error(conn, :cannot_unset_default_role) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "cannot_unset_default_role"})
+  end
+
+  defp handle_role_error(conn, :guest_role_default_not_allowed) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "guest_role_default_not_allowed"})
+  end
+
+  defp handle_role_error(conn, %Ecto.Changeset{} = changeset) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "validation_error", details: format_errors(changeset)})
   end
 
   defp serialize_role(role) do

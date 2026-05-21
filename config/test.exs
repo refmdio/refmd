@@ -1,5 +1,7 @@
 import Config
 
+secret_key_base = "lrXu5GPXHMgzLRwuC3D3u3iHadwMAj/HWA+fUidwaDuBTvvAM05SdxFROCo4zZNb"
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
@@ -17,8 +19,10 @@ config :refmd, RefMD.Repo,
 # you can enable the server option below.
 config :refmd, RefMDWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "lrXu5GPXHMgzLRwuC3D3u3iHadwMAj/HWA+fUidwaDuBTvvAM05SdxFROCo4zZNb",
+  secret_key_base: secret_key_base,
   server: false
+
+config :refmd, token_secret_key_base: secret_key_base
 
 # Dummy salt secret for consistent fake salts (non-existent users)
 config :refmd, dummy_salt_secret: "test-dummy-salt-secret"

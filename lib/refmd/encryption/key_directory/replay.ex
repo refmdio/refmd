@@ -4,7 +4,7 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
   import RefMD.Encryption.KeyDirectory.State
 
   alias RefMD.Crypto.Suite
-  alias RefMD.Encryption.KeyDirectory.{Assertions, Envelope, Protocol}
+  alias RefMD.Encryption.KeyDirectory.{Assertions, Envelope, Payload}
   alias RefMD.Encryption.KeyDirectory.Semantics, as: Semantics
 
   @checkpoint_noop_event_types [
@@ -142,7 +142,7 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     key_material = payload["body"]["redeem_authority"]["hybrid_signing_public_key_material"]
 
     Assertions.assert_literal!(
-      Protocol.key_id!(key_material),
+      Payload.key_id!(key_material),
       signing_key_id,
       "invitation_redeem_authority_key_mismatch"
     )

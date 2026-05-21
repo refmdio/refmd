@@ -10,7 +10,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_uuid(map(), atom()) :: {:ok, Ecto.UUID.t()} | {:error, term()}
   def fetch_uuid(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) -> parse_uuid_value(value, key)
       _ -> {:error, {:missing_field, key}}
     end
@@ -18,7 +18,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_enum(map(), atom(), [String.t()]) :: {:ok, String.t()} | {:error, term()}
   def fetch_enum(attrs, key, allowed) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) ->
         if value in allowed, do: {:ok, value}, else: {:error, {:invalid_value, key}}
 
@@ -32,7 +32,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_boolean(map(), atom()) :: {:ok, boolean()} | {:error, term()}
   def fetch_boolean(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_boolean(value) -> {:ok, value}
       nil -> {:error, {:missing_field, key}}
       _ -> {:error, {:invalid_value, key}}
@@ -41,7 +41,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_binary(map(), atom()) :: {:ok, binary()} | {:error, term()}
   def fetch_binary(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) -> {:ok, value}
       _ -> {:error, {:missing_field, key}}
     end
@@ -49,7 +49,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_optional_binary(map(), atom()) :: {:ok, binary() | nil} | {:error, term()}
   def fetch_optional_binary(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
       value when is_binary(value) -> {:ok, value}
       _ -> {:error, {:invalid_value, key}}
@@ -58,9 +58,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_authorization_public_key_material(map()) :: fetch_result()
   def fetch_authorization_public_key_material(attrs) do
-    material =
-      Map.get(attrs, :authorization_public_key_material) ||
-        Map.get(attrs, "authorization_public_key_material")
+    material = dual_key_get(attrs, :authorization_public_key_material)
 
     Signature.assert_public_key_material!(material)
 
@@ -85,7 +83,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_required_base64url_hash(map(), atom()) :: {:ok, String.t()} | {:error, term()}
   def fetch_required_base64url_hash(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) ->
         if String.match?(value, ~r/^[A-Za-z0-9\-_]{43}$/),
           do: {:ok, value},
@@ -102,9 +100,7 @@ defmodule RefMD.Sharing.Input do
   @spec fetch_password_capability_secret_commitment(map(), boolean()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_password_capability_secret_commitment(attrs, password_protected) do
-    value =
-      Map.get(attrs, :password_capability_secret_commitment) ||
-        Map.get(attrs, "password_capability_secret_commitment")
+    value = dual_key_get(attrs, :password_capability_secret_commitment)
 
     normalize_password_capability_secret_commitment(value, password_protected)
   end
@@ -129,7 +125,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_optional_map(map(), atom()) :: {:ok, map() | nil} | {:error, term()}
   def fetch_optional_map(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
       value when is_map(value) -> {:ok, value}
       _ -> {:error, {:invalid_value, key}}
@@ -138,7 +134,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_required_map(map(), atom()) :: {:ok, map()} | {:error, term()}
   def fetch_required_map(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_map(value) -> {:ok, value}
       nil -> {:error, {:missing_field, key}}
       _ -> {:error, {:invalid_value, key}}
@@ -147,7 +143,7 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_optional_datetime(map(), atom()) :: {:ok, DateTime.t() | nil} | {:error, term()}
   def fetch_optional_datetime(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       nil ->
         {:ok, nil}
 
@@ -165,7 +161,7 @@ defmodule RefMD.Sharing.Input do
   @spec fetch_optional_positive_integer(map(), atom()) ::
           {:ok, pos_integer() | nil} | {:error, term()}
   def fetch_optional_positive_integer(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
       value when is_integer(value) and value > 0 -> {:ok, value}
       _ -> {:error, {:invalid_integer, key}}
@@ -182,14 +178,14 @@ defmodule RefMD.Sharing.Input do
 
   @spec fetch_folder_share_keys(map(), String.t(), boolean()) :: {:ok, [map()]} | {:error, term()}
   def fetch_folder_share_keys(attrs, "document", _password_protected) do
-    case Map.get(attrs, :share_keys) || Map.get(attrs, "share_keys") do
+    case dual_key_get(attrs, :share_keys) do
       nil -> {:ok, []}
       _ -> {:error, {:invalid_value, :share_keys}}
     end
   end
 
   def fetch_folder_share_keys(attrs, "folder", password_protected) do
-    case Map.get(attrs, :share_keys) || Map.get(attrs, "share_keys") do
+    case dual_key_get(attrs, :share_keys) do
       nil ->
         {:error, {:missing_field, :share_keys}}
 
@@ -207,14 +203,14 @@ defmodule RefMD.Sharing.Input do
   @spec fetch_folder_share_exclusions(map(), String.t()) ::
           {:ok, [Ecto.UUID.t()]} | {:error, term()}
   def fetch_folder_share_exclusions(attrs, "document") do
-    case Map.get(attrs, :exclusions) || Map.get(attrs, "exclusions") do
+    case dual_key_get(attrs, :exclusions) do
       nil -> {:ok, []}
       _ -> {:error, {:invalid_value, :exclusions}}
     end
   end
 
   def fetch_folder_share_exclusions(attrs, "folder") do
-    case Map.get(attrs, :exclusions) || Map.get(attrs, "exclusions") do
+    case dual_key_get(attrs, :exclusions) do
       nil -> {:ok, []}
       exclusions when is_list(exclusions) -> parse_uuid_list(exclusions, :exclusions)
       _ -> {:error, {:invalid_value, :exclusions}}
@@ -234,7 +230,7 @@ defmodule RefMD.Sharing.Input do
   def fetch_token_prefix(attrs, share_slug) do
     expected = String.slice(share_slug, 0, 4)
 
-    case Map.get(attrs, :token_prefix) || Map.get(attrs, "token_prefix") do
+    case dual_key_get(attrs, :token_prefix) do
       ^expected -> {:ok, expected}
       _ -> {:error, :invalid_token_prefix}
     end
@@ -260,7 +256,7 @@ defmodule RefMD.Sharing.Input do
   def fetch_password_auth_key(_attrs, false), do: {:ok, nil}
 
   def fetch_password_auth_key(attrs, true) do
-    case Map.get(attrs, :auth_key) || Map.get(attrs, "auth_key") do
+    case dual_key_get(attrs, :auth_key) do
       value when is_binary(value) and byte_size(value) == 32 ->
         {:ok, value}
 
@@ -275,6 +271,13 @@ defmodule RefMD.Sharing.Input do
 
       _ ->
         {:error, {:invalid_value, :auth_key}}
+    end
+  end
+
+  defp dual_key_get(attrs, key) when is_atom(key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
     end
   end
 

@@ -484,10 +484,18 @@ defmodule RefMD.Public do
   end
 
   defp broadcast_public_state(document_id, is_published, updated_at) do
-    RefMDWeb.Endpoint.broadcast("document:#{document_id}", "public-status-changed", %{
-      is_published: is_published,
-      updated_at: updated_at
-    })
+    Phoenix.PubSub.broadcast(
+      RefMD.PubSub,
+      "document:#{document_id}",
+      %Phoenix.Socket.Broadcast{
+        topic: "document:#{document_id}",
+        event: "public-status-changed",
+        payload: %{
+          is_published: is_published,
+          updated_at: updated_at
+        }
+      }
+    )
   end
 
   defp serialize_author_profile(profile) do

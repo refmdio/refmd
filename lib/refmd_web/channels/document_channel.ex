@@ -16,7 +16,7 @@ defmodule RefMDWeb.DocumentChannel do
   @ephemeral_burst 20.0
   @share_access_revalidation_ms 60_000
 
-  intercept ["update", "snapshot", "ephemeral-message", "peer-left"]
+  intercept ["update", "snapshot", "ephemeral-message", "peer-left", "public-status-changed"]
 
   @impl true
   @spec join(String.t(), map(), Phoenix.Socket.t()) ::
@@ -308,12 +308,24 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   def handle_out(event, payload, socket)
-      when event in ["update", "snapshot", "ephemeral-message", "peer-left"] do
+      when event in [
+             "update",
+             "snapshot",
+             "ephemeral-message",
+             "peer-left",
+             "public-status-changed"
+           ] do
     deliver_broadcast_event(event, payload, socket)
   end
 
   defp deliver_broadcast_event(event, payload, socket)
-       when event in ["update", "snapshot", "ephemeral-message", "peer-left"] do
+       when event in [
+              "update",
+              "snapshot",
+              "ephemeral-message",
+              "peer-left",
+              "public-status-changed"
+            ] do
     case Access.check_broadcast(socket) do
       :ok ->
         push(socket, event, payload)

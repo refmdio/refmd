@@ -1,6 +1,7 @@
 import Config
 
 dev_port = String.to_integer(System.get_env("PORT") || "4000")
+secret_key_base = "oCPZPJlBPGtaKBilrRvqy6+nknJNajIhmtJTTMJYq8DxuNPnWN3xvwrYXNuUAKu2"
 
 # Configure your database
 config :refmd, RefMD.Repo,
@@ -26,8 +27,10 @@ config :refmd, RefMDWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "oCPZPJlBPGtaKBilrRvqy6+nknJNajIhmtJTTMJYq8DxuNPnWN3xvwrYXNuUAKu2",
+  secret_key_base: secret_key_base,
   watchers: []
+
+config :refmd, token_secret_key_base: secret_key_base
 
 # ## SSL Support
 #

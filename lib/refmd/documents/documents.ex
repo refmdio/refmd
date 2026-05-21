@@ -921,7 +921,9 @@ defmodule RefMD.Documents do
     "#{base}-#{suffix}"
   end
 
-  defp get_attr(attrs, key) when is_atom(key) do
+  defp get_attr(attrs, key) when is_atom(key), do: dual_key_get(attrs, key)
+
+  defp dual_key_get(attrs, key) do
     case Map.fetch(attrs, key) do
       {:ok, val} -> val
       :error -> Map.get(attrs, Atom.to_string(key))

@@ -587,7 +587,7 @@ defmodule RefMD.Sharing.Management do
   defp reverse_parsed_list(error), do: error
 
   defp fetch_uuid(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) ->
         parse_uuid_value(value, key)
 
@@ -604,7 +604,7 @@ defmodule RefMD.Sharing.Management do
   end
 
   defp fetch_binary(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) -> {:ok, value}
       _ -> {:error, {:missing_field, key}}
     end
@@ -612,6 +612,13 @@ defmodule RefMD.Sharing.Management do
 
   defp validate_share_key_nonce(nonce) when byte_size(nonce) == 24, do: :ok
   defp validate_share_key_nonce(_nonce), do: {:error, :invalid_nonce}
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
+    end
+  end
 
   defp parse_share_update_integer(attrs, key) do
     case fetch_present_attr(attrs, key) do
@@ -746,7 +753,15 @@ defmodule RefMD.Sharing.Management do
       |> Enum.uniq()
 
     Enum.each(principal_ids, fn principal_id ->
-      RefMDWeb.Endpoint.broadcast("share_socket:#{principal_id}", "disconnect", %{})
+      Phoenix.PubSub.broadcast(
+        RefMD.PubSub,
+        "share_socket:#{principal_id}",
+        %Phoenix.Socket.Broadcast{
+          topic: "share_socket:#{principal_id}",
+          event: "disconnect",
+          payload: %{}
+        }
+      )
     end)
 
     Enum.each(device_ids, fn device_id ->

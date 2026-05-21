@@ -10,7 +10,7 @@ defmodule RefMD.Encryption.Workspaces do
   alias RefMD.Repo
 
   defp create(attrs) do
-    sender_device_id = attrs[:sender_device_id] || attrs["sender_device_id"]
+    sender_device_id = dual_key_get(attrs, :sender_device_id)
 
     if sender_device_id != nil and not active_device?(sender_device_id) do
       {:error, :invalid_sender_device}
@@ -290,9 +290,6 @@ defmodule RefMD.Encryption.Workspaces do
     end
   end
 
-  @spec device_key_response_fields(WorkspaceEncryptedKey.t()) :: map()
-  def device_key_response_fields(key), do: SignedPQ.response_fields(key)
-
   @spec operation_checkpoint_envelope(WorkspaceEncryptedKey.t()) :: map() | nil
   def operation_checkpoint_envelope(%{operation_checkpoint_sequence: sequence} = key)
       when is_integer(sequence) do
@@ -349,13 +346,11 @@ defmodule RefMD.Encryption.Workspaces do
 
   @spec operation_checkpoint_sequence(map()) :: integer() | nil
   def operation_checkpoint_sequence(attrs),
-    do:
-      Map.get(attrs, :operation_checkpoint_sequence) ||
-        Map.get(attrs, "operation_checkpoint_sequence")
+    do: dual_key_get(attrs, :operation_checkpoint_sequence)
 
   @spec operation_checkpoint_hash(map()) :: String.t() | nil
   def operation_checkpoint_hash(attrs) do
-    case Map.get(attrs, :operation_checkpoint_hash) || Map.get(attrs, "operation_checkpoint_hash") do
+    case dual_key_get(attrs, :operation_checkpoint_hash) do
       value when is_binary(value) -> Encoding.encode_base64url(value)
       _ -> nil
     end
@@ -363,16 +358,21 @@ defmodule RefMD.Encryption.Workspaces do
 
   @spec operation_checkpoint_covered_head_sequence(map()) :: integer() | nil
   def operation_checkpoint_covered_head_sequence(attrs) do
-    Map.get(attrs, :operation_checkpoint_covered_head_sequence) ||
-      Map.get(attrs, "operation_checkpoint_covered_head_sequence")
+    dual_key_get(attrs, :operation_checkpoint_covered_head_sequence)
   end
 
   @spec operation_checkpoint_covered_head_hash(map()) :: String.t() | nil
   def operation_checkpoint_covered_head_hash(attrs) do
-    case Map.get(attrs, :operation_checkpoint_covered_head_hash) ||
-           Map.get(attrs, "operation_checkpoint_covered_head_hash") do
+    case dual_key_get(attrs, :operation_checkpoint_covered_head_hash) do
       value when is_binary(value) -> Encoding.encode_base64url(value)
       _ -> nil
+    end
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
     end
   end
 

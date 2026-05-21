@@ -200,8 +200,17 @@ defmodule RefMD.Sharing.Lookup do
     end
   end
 
-  defp map_field(%{} = map, key), do: Map.get(map, key) || Map.get(map, atom_key(key))
+  defp map_field(%{} = map, key), do: dual_key_get(map, key)
   defp map_field(_, _), do: nil
+
+  defp dual_key_get(map, key) do
+    atom_key = atom_key(key)
+
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, atom_key)
+    end
+  end
 
   defp atom_key("payload"), do: :payload
   defp atom_key("event_head_sequence"), do: :event_head_sequence

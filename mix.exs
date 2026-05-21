@@ -69,7 +69,8 @@ defmodule RefMD.MixProject do
 
       # Dev/test tools
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:reach, "~> 2.5", only: [:dev, :test], runtime: false}
     ]
   end
 

@@ -17,7 +17,7 @@ defmodule RefMD.Encryption do
     Workspaces
   }
 
-  alias RefMD.Encryption.Wraps.ShareAuth
+  alias RefMD.Encryption.Wraps.{ShareAuth, SignedPQ}
 
   # ── User Keys ──────────────────────────────────
 
@@ -446,8 +446,8 @@ defmodule RefMD.Encryption do
 
   @spec workspace_device_key_response_fields(WorkspaceEncryptedKey.t()) :: map()
   defdelegate workspace_device_key_response_fields(key),
-    to: Workspaces,
-    as: :device_key_response_fields
+    to: SignedPQ,
+    as: :response_fields
 
   @spec encrypt_share_auth_key(binary(), Ecto.UUID.t()) ::
           {:ok, %{ciphertext: binary(), nonce: binary(), key_id: String.t()}} | {:error, term()}
@@ -488,7 +488,7 @@ defmodule RefMD.Encryption do
 
   @spec member_envelope_response_fields(WorkspaceMemberEnvelope.t()) :: map()
   defdelegate member_envelope_response_fields(envelope),
-    to: Members,
+    to: SignedPQ,
     as: :response_fields
 
   @spec member_envelope_operation_checkpoint_envelope(WorkspaceMemberEnvelope.t()) :: map() | nil

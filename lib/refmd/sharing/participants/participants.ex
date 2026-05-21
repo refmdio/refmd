@@ -5,7 +5,7 @@ defmodule RefMD.Sharing.Participants do
 
   import Ecto.Query
 
-  alias RefMD.Crypto.{Hash, Signature}
+  alias RefMD.Crypto.{Hash, Signature, TokenSigning}
   alias RefMD.Repo
 
   alias RefMD.Sharing.{
@@ -370,16 +370,14 @@ defmodule RefMD.Sharing.Participants do
 
   @spec generate_ws_token(Ecto.UUID.t()) :: String.t()
   def generate_ws_token(session_id) do
-    Phoenix.Token.sign(RefMDWeb.Endpoint, @ws_token_salt, session_id)
+    TokenSigning.sign(@ws_token_salt, session_id)
   end
 
   @spec verify_ws_token(String.t()) ::
           {:ok, Ecto.UUID.t(), ShareParticipantSession.t()} | {:error, atom()}
   def verify_ws_token(token) do
     with {:ok, session_id} <-
-           Phoenix.Token.verify(RefMDWeb.Endpoint, @ws_token_salt, token,
-             max_age: @ws_token_max_age
-           ),
+           TokenSigning.verify(@ws_token_salt, token, max_age: @ws_token_max_age),
          %ShareParticipantSession{} = session <- Repo.get(ShareParticipantSession, session_id),
          {:ok, valid_session} <- get_valid_participant_session_by_id(session.id) do
       {:ok, valid_session.principal_id, valid_session}

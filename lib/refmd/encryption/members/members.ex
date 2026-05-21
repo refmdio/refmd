@@ -430,9 +430,6 @@ defmodule RefMD.Encryption.Members do
   defp envelope_payload!(%{payload: payload}) when is_map(payload), do: payload
   defp envelope_payload!(_), do: throw(:invalid_invitation_member_envelope)
 
-  @spec response_fields(WorkspaceMemberEnvelope.t()) :: map()
-  def response_fields(envelope), do: SignedPQ.response_fields(envelope)
-
   @spec operation_checkpoint_envelope(WorkspaceMemberEnvelope.t()) :: map() | nil
   def operation_checkpoint_envelope(%{operation_checkpoint_sequence: sequence} = envelope)
       when is_integer(sequence) do

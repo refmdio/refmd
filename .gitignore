@@ -24,6 +24,7 @@ refmd-*.tar
 /.fetch
 /cover/
 /doc/
+/reach_report/
 
 # IDE
 .idea/

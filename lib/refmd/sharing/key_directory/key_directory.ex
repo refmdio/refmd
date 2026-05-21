@@ -32,14 +32,19 @@ defmodule RefMD.Sharing.KeyDirectory do
 
   @spec fetch_append(map()) :: {:ok, [map()], map()} | {:error, term()}
   def fetch_append(attrs) do
-    events = attrs[:workspace_key_directory_events] || attrs["workspace_key_directory_events"]
-
-    checkpoint =
-      attrs[:workspace_key_directory_checkpoint] || attrs["workspace_key_directory_checkpoint"]
+    events = dual_key_get(attrs, :workspace_key_directory_events)
+    checkpoint = dual_key_get(attrs, :workspace_key_directory_checkpoint)
 
     if is_list(events) and events != [] and is_map(checkpoint),
       do: {:ok, events, checkpoint},
       else: {:error, :missing_key_directory}
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
+    end
   end
 
   @spec share_created_event_ref(term()) ::

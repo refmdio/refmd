@@ -236,7 +236,7 @@ defmodule RefMDWeb.MemberController do
   end
 
   defp has_permission?(role, permission) do
-    perms = RequireRBAC.effective_permissions(role)
+    perms = Workspaces.effective_permissions(role)
     MapSet.member?(perms, permission)
   end
 

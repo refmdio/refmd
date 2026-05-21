@@ -533,12 +533,133 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
     required: [:signer, :signature]
   }
 
+  body_field_atoms =
+    Map.new(
+      [
+        :actor_hash,
+        :added_at_event_sequence,
+        :added_scope_hashes,
+        :admission_nonce,
+        :allowed_share_ids_hash,
+        :allowed_suite_ids,
+        :authorization_hash,
+        :authorization_id,
+        :authorization_public_key_material,
+        :authorization_public_key_material_hash,
+        :base_role,
+        :bootstrap_key_commitment,
+        :bootstrap_package_hash,
+        :bootstrap_package_key_maintenance_wrap_hash,
+        :bootstrap_suite_id,
+        :capability_context_hash,
+        :changed_at_event_sequence,
+        :completed_at_event_sequence,
+        :completion_manifest_hash,
+        :context_id,
+        :context_kind,
+        :dek_version,
+        :deleted_at_event_sequence,
+        :deletion_manifest_hash,
+        :device_id,
+        :document_id,
+        :document_permission_proof_hash,
+        :document_scope_hash,
+        :encryption_key_id,
+        :event_type,
+        :exclusion_change_nonce,
+        :expires_event_sequence,
+        :guest_device_id,
+        :guest_encryption_key_id,
+        :guest_grant_id,
+        :guest_grant_template_hash,
+        :guest_invitation_id,
+        :guest_signing_key_id,
+        :guest_user_id,
+        :invitation_id,
+        :invitee_binding,
+        :kek_version,
+        :key_id,
+        :key_material_hash,
+        :key_version_context,
+        :live_redeem_challenge_hash,
+        :max_views,
+        :member_envelope_hash,
+        :member_envelope_key_version,
+        :metadata_update_nonce,
+        :min_dek_version,
+        :min_suite_rank,
+        :new_key_version,
+        :not_before_event_sequence,
+        :old_key_version,
+        :operation_hash,
+        :operation_signature_hash,
+        :parent_share_id,
+        :password_auth_metadata_hash,
+        :password_capability_secret_commitment,
+        :password_protected,
+        :permission,
+        :previous_bootstrap_package_hash,
+        :previous_share_key_version,
+        :previous_share_scope_event_hash,
+        :previous_workspace_event_hash,
+        :previous_workspace_event_sequence,
+        :purpose,
+        :reason,
+        :recipient,
+        :recipient_device_id,
+        :recipient_hash,
+        :recipient_nonce_state_hash,
+        :redeem_attempt_id,
+        :redeem_authority,
+        :redeem_authority_policy,
+        :redeem_freshness_proof_hash,
+        :redeemed_at_event_sequence,
+        :redeemed_device_id,
+        :redeemed_encryption_key_id,
+        :redeemed_user_id,
+        :removed_at_event_sequence,
+        :removed_reason,
+        :removed_scope_hashes,
+        :replaced_at_event_sequence,
+        :resource,
+        :resource_hash,
+        :revoked_at_event_sequence,
+        :role_id,
+        :rotation_kind,
+        :scope_id,
+        :scope_kind,
+        :sender,
+        :share_capability_secret_commitment,
+        :share_id,
+        :share_key_version,
+        :share_metadata_hash,
+        :share_session_binding_hash,
+        :share_session_id,
+        :signing_key_id,
+        :suite_policy_version,
+        :update_reason,
+        :updated_at_event_sequence,
+        :user_id,
+        :workspace_id,
+        :wrap_body_hash,
+        :wrap_protocol,
+        :wrap_suite_id,
+        :wrap_suite_rank,
+        :wrap_version
+      ],
+      &{Atom.to_string(&1), &1}
+    )
+
+  body_field_atom = fn field -> Map.fetch!(body_field_atoms, field) end
+
   body_schema = fn fields ->
     properties =
       fields
       |> Map.new(fn field ->
-        {String.to_atom(field),
-         Map.get(@extension_object_schema.properties, String.to_atom(field), %Schema{
+        atom_field = body_field_atom.(field)
+
+        {atom_field,
+         Map.get(@extension_object_schema.properties, atom_field, %Schema{
            type: :string
          })}
       end)
@@ -547,7 +668,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       type: :object,
       additionalProperties: false,
       properties: properties,
-      required: Enum.map(fields, &String.to_atom/1)
+      required: Enum.map(fields, body_field_atom)
     }
   end
 

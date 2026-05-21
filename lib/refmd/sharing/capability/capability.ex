@@ -66,6 +66,16 @@ defmodule RefMD.Sharing.Capability do
   end
 
   defp optional_attr(attrs, key, default) do
-    Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key)) || default
+    case dual_key_get(attrs, key) do
+      nil -> default
+      value -> value
+    end
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
+    end
   end
 end

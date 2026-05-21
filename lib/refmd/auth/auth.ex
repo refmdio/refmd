@@ -6,7 +6,7 @@ defmodule RefMD.Auth do
   import Ecto.Query
 
   alias RefMD.Auth.{PopChallenge, RecoveryChallenge, Session}
-  alias RefMD.Crypto.{Hash, JCS, Signature}
+  alias RefMD.Crypto.{Hash, JCS, Signature, TokenSigning}
   alias RefMD.Devices.DeviceRegistration
   alias RefMD.Encryption
   alias RefMD.Repo
@@ -598,15 +598,13 @@ defmodule RefMD.Auth do
 
   @spec generate_ws_token(Ecto.UUID.t()) :: String.t()
   def generate_ws_token(session_id) do
-    Phoenix.Token.sign(RefMDWeb.Endpoint, @ws_token_salt, session_id)
+    TokenSigning.sign(@ws_token_salt, session_id)
   end
 
   @spec verify_ws_token(String.t()) :: {:ok, Ecto.UUID.t(), Session.t()} | {:error, atom()}
   def verify_ws_token(token) do
     with {:ok, session_id} <-
-           Phoenix.Token.verify(RefMDWeb.Endpoint, @ws_token_salt, token,
-             max_age: @ws_token_max_age
-           ),
+           TokenSigning.verify(@ws_token_salt, token, max_age: @ws_token_max_age),
          {:ok, session} <- get_valid_session(session_id) do
       {:ok, session.user_id, session}
     end

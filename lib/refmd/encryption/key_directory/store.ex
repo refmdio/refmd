@@ -4,14 +4,14 @@ defmodule RefMD.Encryption.KeyDirectory.Store do
   import Ecto.Query
 
   alias RefMD.Crypto.Suite
-  alias RefMD.Encryption.KeyDirectory.{Checkpoint, Event, Pin, Protocol}
+  alias RefMD.Encryption.KeyDirectory.{Checkpoint, Event, Payload, Pin, Protocol}
   alias RefMD.Repo
 
   @valid_scope_kinds ["user", "workspace"]
 
   @spec insert_event!(map(), [map()]) :: Event.t()
   def insert_event!(payload, signatures) when is_list(signatures) and signatures != [] do
-    Protocol.assert_event_payload!(payload)
+    Payload.assert_event_payload!(payload)
 
     %Event{}
     |> Event.changeset(%{
@@ -32,7 +32,7 @@ defmodule RefMD.Encryption.KeyDirectory.Store do
 
   @spec insert_checkpoint!(map(), [map()]) :: Checkpoint.t()
   def insert_checkpoint!(payload, signatures) when is_list(signatures) and signatures != [] do
-    Protocol.assert_checkpoint_payload!(payload)
+    Payload.assert_checkpoint_payload!(payload)
     allowed_suite_ids_hash = Suite.canonical_allowed_suite_ids_hash(payload)
 
     %Checkpoint{}

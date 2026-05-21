@@ -26,6 +26,18 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     "ed25519_signature",
     "mldsa65_signature"
   ]
+  @binary_field_atoms %{
+    "wrap_event_hash" => :wrap_event_hash,
+    "wrap_event_body_hash" => :wrap_event_body_hash,
+    "operation_checkpoint_hash" => :operation_checkpoint_hash,
+    "operation_checkpoint_covered_head_hash" => :operation_checkpoint_covered_head_hash,
+    "wrap_body_hash" => :wrap_body_hash,
+    "recipient_key_id" => :recipient_key_id,
+    "sender_signing_key_id" => :sender_signing_key_id,
+    "transcript_hash" => :transcript_hash,
+    "ed25519_signature" => :ed25519_signature,
+    "mldsa65_signature" => :mldsa65_signature
+  }
 
   @string_fields [
     :wrap_protocol,
@@ -611,7 +623,11 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
 
   defp decoded_binary_attrs!(params) do
     Enum.reduce(@binary_fields, %{}, fn field, acc ->
-      Map.put(acc, String.to_atom(field), Encoding.decode_base64url!(Map.fetch!(params, field)))
+      Map.put(
+        acc,
+        Map.fetch!(@binary_field_atoms, field),
+        Encoding.decode_base64url!(Map.fetch!(params, field))
+      )
     end)
   end
 

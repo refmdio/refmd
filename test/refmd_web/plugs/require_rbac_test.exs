@@ -319,7 +319,7 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
   describe "effective_permissions/1" do
     test "returns all permissions for owner role" do
       role = %WorkspaceRole{base_role: "owner", permissions: []}
-      perms = RequireRBAC.effective_permissions(role)
+      perms = Workspaces.effective_permissions(role)
 
       assert MapSet.size(perms) == 15
       assert MapSet.member?(perms, "guest:invite")
@@ -327,9 +327,15 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
       assert MapSet.member?(perms, "workspace:delete")
     end
 
+    test "permission_granted?/2 rejects unknown permissions for owner role" do
+      role = %WorkspaceRole{base_role: "owner", permissions: []}
+
+      refute Workspaces.permission_granted?(role, "unknown:permission")
+    end
+
     test "returns correct defaults for viewer" do
       role = %WorkspaceRole{base_role: "viewer", catalog_version: nil, permissions: []}
-      perms = RequireRBAC.effective_permissions(role)
+      perms = Workspaces.effective_permissions(role)
 
       assert perms == MapSet.new(~w(document:read member:list))
     end
@@ -343,7 +349,7 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
         ]
       }
 
-      perms = RequireRBAC.effective_permissions(role)
+      perms = Workspaces.effective_permissions(role)
 
       assert perms == MapSet.new(~w(document:read document:write document:archive))
     end
@@ -357,7 +363,7 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
         ]
       }
 
-      perms = RequireRBAC.effective_permissions(role)
+      perms = Workspaces.effective_permissions(role)
 
       assert MapSet.member?(perms, "document:read")
       refute MapSet.member?(perms, "document:write")

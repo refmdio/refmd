@@ -679,24 +679,7 @@ defmodule RefMD.Workspaces.Invitations do
   defp validate_member_invitation_role(role), do: {:ok, role}
 
   defp validate_escalation(actor_role, target_role) do
-    alias RefMDWeb.Plugs.RequireRBAC
-
-    actor_power = RequireRBAC.role_power()[actor_role.base_role]
-    target_power = RequireRBAC.role_power()[target_role.base_role]
-
-    cond do
-      target_power > actor_power ->
-        {:error, :role_escalation}
-
-      not MapSet.subset?(
-        RequireRBAC.effective_permissions(target_role),
-        RequireRBAC.effective_permissions(actor_role)
-      ) ->
-        {:error, :permission_escalation}
-
-      true ->
-        :ok
-    end
+    RefMD.Workspaces.validate_role_assignment(actor_role, target_role)
   end
 
   defp insert_invitation(attrs, target_role) do
@@ -804,9 +787,7 @@ defmodule RefMD.Workspaces.Invitations do
   end
 
   defp check_rbac_permission(role, permission) do
-    alias RefMDWeb.Plugs.RequireRBAC
-
-    perms = RequireRBAC.effective_permissions(role)
+    perms = RefMD.Workspaces.effective_permissions(role)
     if MapSet.member?(perms, permission), do: :ok, else: {:error, :permission_denied}
   end
 

@@ -7,7 +7,6 @@ defmodule RefMD.Sharing.Shares.LinkSecretBackupWraps do
   alias RefMD.Encryption
   alias RefMD.Repo
   alias RefMD.Workspaces
-  alias RefMDWeb.Plugs.RequireRBAC
 
   alias RefMD.Sharing.ShareLinkSecretBackupWrap
 
@@ -89,7 +88,7 @@ defmodule RefMD.Sharing.Shares.LinkSecretBackupWraps do
     |> Repo.all()
     |> Enum.filter(fn recipient ->
       role = Map.fetch!(role_by_id, recipient.role_id)
-      permissions = RequireRBAC.effective_permissions(role)
+      permissions = Workspaces.effective_permissions(role)
 
       MapSet.member?(permissions, "document:manage_share") or
         MapSet.member?(permissions, "workspace:admin")

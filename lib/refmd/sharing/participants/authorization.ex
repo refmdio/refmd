@@ -50,7 +50,7 @@ defmodule RefMD.Sharing.Participants.Authorization do
   end
 
   defp fetch_uuid(attrs, field) do
-    value = Map.get(attrs, field) || Map.get(attrs, to_string(field))
+    value = dual_key_get(attrs, field)
 
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> {:ok, uuid}
@@ -59,9 +59,16 @@ defmodule RefMD.Sharing.Participants.Authorization do
   end
 
   defp fetch_authorization_artifact(attrs, field) do
-    case Map.get(attrs, field) || Map.get(attrs, to_string(field)) do
+    case dual_key_get(attrs, field) do
       artifact when is_map(artifact) -> {:ok, artifact}
       _ -> {:error, {:missing_field, field}}
+    end
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
     end
   end
 
@@ -126,8 +133,8 @@ defmodule RefMD.Sharing.Participants.Authorization do
          invalid_reason,
          semantic_context
        ) do
-    signature = Map.get(artifact, "signature") || Map.get(artifact, :signature)
-    provided_transcript = Map.get(artifact, "transcript") || Map.get(artifact, :transcript)
+    signature = dual_key_get(artifact, :signature)
+    provided_transcript = dual_key_get(artifact, :transcript)
 
     cond do
       not is_map(signature) ->

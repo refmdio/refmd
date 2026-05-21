@@ -146,7 +146,8 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
 
   config :refmd,
-    expected_cluster_size: System.get_env("EXPECTED_CLUSTER_SIZE", "1") |> String.to_integer()
+    expected_cluster_size: System.get_env("EXPECTED_CLUSTER_SIZE", "1") |> String.to_integer(),
+    token_secret_key_base: secret_key_base
 
   if cluster_service = System.get_env("CLUSTER_SERVICE_NAME") do
     config :libcluster,

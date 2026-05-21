@@ -461,14 +461,14 @@ defmodule RefMD.Sharing.PasswordChallenges do
   end
 
   defp fetch_binary(attrs, key) do
-    case Map.get(attrs, key) || Map.get(attrs, to_string(key)) do
+    case dual_key_get(attrs, key) do
       value when is_binary(value) -> {:ok, value}
       _ -> {:error, {:missing_field, key}}
     end
   end
 
   defp fetch_display_name(attrs) do
-    case Map.get(attrs, :display_name) || Map.get(attrs, "display_name") do
+    case dual_key_get(attrs, :display_name) do
       value when is_binary(value) ->
         trimmed = String.trim(value)
         if trimmed == "", do: {:error, :invalid_display_name}, else: {:ok, trimmed}
@@ -482,9 +482,7 @@ defmodule RefMD.Sharing.PasswordChallenges do
   defp validate_hmac_response(_response), do: {:error, :invalid_response}
 
   defp fetch_device_id(attrs) do
-    value =
-      Map.get(attrs, :share_participant_device_id) ||
-        Map.get(attrs, "share_participant_device_id")
+    value = dual_key_get(attrs, :share_participant_device_id)
 
     case Ecto.UUID.cast(value) do
       {:ok, device_id} -> {:ok, device_id}
@@ -493,7 +491,7 @@ defmodule RefMD.Sharing.PasswordChallenges do
   end
 
   defp fetch_uuid(attrs, field) do
-    value = Map.get(attrs, field) || Map.get(attrs, to_string(field))
+    value = dual_key_get(attrs, field)
 
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> {:ok, uuid}
@@ -502,25 +500,21 @@ defmodule RefMD.Sharing.PasswordChallenges do
   end
 
   defp fetch_share_participant_device_authorization(attrs) do
-    case Map.get(attrs, :share_participant_device_authorization) ||
-           Map.get(attrs, "share_participant_device_authorization") do
+    case dual_key_get(attrs, :share_participant_device_authorization) do
       artifact when is_map(artifact) -> {:ok, artifact}
       _ -> {:error, {:missing_field, :share_participant_device_authorization}}
     end
   end
 
   defp fetch_share_capability_authorization(attrs) do
-    case Map.get(attrs, :share_capability_authorization) ||
-           Map.get(attrs, "share_capability_authorization") do
+    case dual_key_get(attrs, :share_capability_authorization) do
       artifact when is_map(artifact) -> {:ok, artifact}
       _ -> {:error, {:missing_field, :share_capability_authorization}}
     end
   end
 
   defp fetch_hybrid_signing_public_key_material(attrs, device_id) do
-    material =
-      Map.get(attrs, :hybrid_signing_public_key_material) ||
-        Map.get(attrs, "hybrid_signing_public_key_material")
+    material = dual_key_get(attrs, :hybrid_signing_public_key_material)
 
     Signature.assert_public_key_material!(material)
 
@@ -539,9 +533,7 @@ defmodule RefMD.Sharing.PasswordChallenges do
   end
 
   defp fetch_hybrid_encryption_public_key_material(attrs, device_id) do
-    material =
-      Map.get(attrs, :hybrid_encryption_public_key_material) ||
-        Map.get(attrs, "hybrid_encryption_public_key_material")
+    material = dual_key_get(attrs, :hybrid_encryption_public_key_material)
 
     HybridEncryptionMaterial.assert_public_key_material!(material)
 
@@ -580,6 +572,13 @@ defmodule RefMD.Sharing.PasswordChallenges do
     case Base.url_decode64(token, padding: false) do
       {:ok, bytes} when byte_size(bytes) == 16 -> {:ok, token, bytes}
       _ -> {:error, :invalid_token}
+    end
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
     end
   end
 

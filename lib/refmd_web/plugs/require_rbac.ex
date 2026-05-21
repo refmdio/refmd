@@ -24,56 +24,6 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
   import Plug.Conn
   alias RefMD.Workspaces
 
-  @permission_catalog %{
-    "document:read" => %{base_role_ceiling: "viewer", since_version: 1},
-    "document:write" => %{base_role_ceiling: "editor", since_version: 1},
-    "document:manage_share" => %{base_role_ceiling: "editor", since_version: 1},
-    "document:delete" => %{base_role_ceiling: "admin", since_version: 1},
-    "document:archive" => %{base_role_ceiling: "editor", since_version: 1},
-    "workspace:update" => %{base_role_ceiling: "admin", since_version: 1},
-    "workspace:features" => %{base_role_ceiling: "admin", since_version: 1},
-    "workspace:admin" => %{base_role_ceiling: "admin", since_version: 1},
-    "workspace:delete" => %{base_role_ceiling: "owner", since_version: 1},
-    "member:list" => %{base_role_ceiling: "viewer", since_version: 1},
-    "member:invite" => %{base_role_ceiling: "admin", since_version: 1},
-    "guest:invite" => %{base_role_ceiling: "admin", since_version: 1},
-    "member:change_role" => %{base_role_ceiling: "admin", since_version: 1},
-    "member:remove" => %{base_role_ceiling: "admin", since_version: 1},
-    "role:manage" => %{base_role_ceiling: "admin", since_version: 1}
-  }
-
-  @base_role_defaults %{
-    "owner" => MapSet.new(~w(
-        document:read document:write document:manage_share document:delete document:archive
-        workspace:update workspace:features workspace:admin workspace:delete
-        member:list member:invite guest:invite member:change_role member:remove
-        role:manage
-      )),
-    "admin" => MapSet.new(~w(
-        document:read document:write document:manage_share document:delete document:archive
-        workspace:update workspace:features workspace:admin
-        member:list member:invite guest:invite member:change_role member:remove
-        role:manage
-      )),
-    "editor" =>
-      MapSet.new(
-        ~w(document:read document:write document:manage_share document:archive member:list)
-      ),
-    "viewer" => MapSet.new(~w(document:read member:list)),
-    "guest" => MapSet.new(~w(document:read document:write document:archive))
-  }
-
-  @role_power %{"owner" => 4, "admin" => 3, "editor" => 2, "viewer" => 1, "guest" => 2}
-
-  @spec permission_catalog() :: map()
-  def permission_catalog, do: @permission_catalog
-
-  @spec base_role_defaults() :: map()
-  def base_role_defaults, do: @base_role_defaults
-
-  @spec role_power() :: map()
-  def role_power, do: @role_power
-
   @spec init(keyword()) :: map()
   def init(opts) do
     permission = Keyword.fetch!(opts, :permission)
@@ -85,7 +35,7 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
     end
 
     if permission != :membership do
-      unless Map.has_key?(@permission_catalog, permission) do
+      unless Workspaces.permission_defined?(permission) do
         raise ArgumentError, "Unknown permission: #{inspect(permission)}"
       end
     end
@@ -174,87 +124,11 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
     end
   end
 
-  @spec effective_permissions(Workspaces.WorkspaceRole.t()) :: MapSet.t(String.t())
-  def effective_permissions(%{base_role: "owner"}), do: @base_role_defaults["owner"]
-
-  def effective_permissions(role) do
-    defaults = @base_role_defaults[role.base_role]
-    overrides = role.permissions
-
-    Enum.reduce(@permission_catalog, MapSet.new(), fn {perm_key, perm_info}, acc ->
-      if permission_granted?(perm_key, perm_info, role, defaults, overrides) do
-        MapSet.put(acc, perm_key)
-      else
-        acc
-      end
-    end)
-  end
-
-  defp permission_granted?(perm_key, perm_info, role, defaults, overrides) do
-    if role.base_role == "guest" and not MapSet.member?(defaults, perm_key) do
-      false
-    else
-      ceiling_power = @role_power[perm_info.base_role_ceiling]
-      role_power_val = @role_power[role.base_role]
-
-      role_power_val >= ceiling_power and
-        resolve_grant(perm_key, perm_info, role, defaults, overrides)
-    end
-  end
-
-  defp resolve_grant(perm_key, perm_info, role, defaults, overrides) do
-    override = Enum.find(overrides, &(&1.permission == perm_key))
-
-    cond do
-      override != nil ->
-        override.granted
-
-      role.catalog_version != nil and perm_info.since_version > role.catalog_version ->
-        false
-
-      true ->
-        MapSet.member?(defaults, perm_key)
-    end
-  end
-
   defp check_permission(conn, permission, role) do
-    if role.base_role == "owner" do
+    if Workspaces.permission_granted?(role, permission) do
       maybe_enforce_guest_scope(conn, permission)
     else
-      defaults = @base_role_defaults[role.base_role]
-      perm_info = @permission_catalog[permission]
-      ceiling_power = @role_power[perm_info.base_role_ceiling]
-      role_power_val = @role_power[role.base_role]
-
-      cond do
-        role.base_role == "guest" and not MapSet.member?(defaults, permission) ->
-          deny(conn)
-
-        role_power_val < ceiling_power ->
-          deny(conn)
-
-        true ->
-          check_db_permission(conn, permission, role, perm_info)
-      end
-    end
-  end
-
-  defp check_db_permission(conn, permission, role, perm_info) do
-    override = Enum.find(role.permissions, &(&1.permission == permission))
-
-    cond do
-      override != nil ->
-        if override.granted, do: maybe_enforce_guest_scope(conn, permission), else: deny(conn)
-
-      role.catalog_version != nil and perm_info.since_version > role.catalog_version ->
-        deny(conn)
-
-      true ->
-        defaults = @base_role_defaults[role.base_role]
-
-        if MapSet.member?(defaults, permission),
-          do: maybe_enforce_guest_scope(conn, permission),
-          else: deny(conn)
+      deny(conn)
     end
   end
 

@@ -9,17 +9,19 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
 
   @spec parse_append(map()) :: {:ok, %{events: [map()], checkpoint: map()}} | {:error, term()}
   def parse_append(attrs) do
-    events =
-      Map.get(attrs, :workspace_key_directory_events) ||
-        Map.get(attrs, "workspace_key_directory_events")
-
-    checkpoint =
-      Map.get(attrs, :workspace_key_directory_checkpoint) ||
-        Map.get(attrs, "workspace_key_directory_checkpoint")
+    events = dual_key_get(attrs, :workspace_key_directory_events)
+    checkpoint = dual_key_get(attrs, :workspace_key_directory_checkpoint)
 
     if is_list(events) and is_map(checkpoint),
       do: {:ok, %{events: events, checkpoint: checkpoint}},
       else: {:error, :invalid_key_directory}
+  end
+
+  defp dual_key_get(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> Map.get(attrs, Atom.to_string(key))
+    end
   end
 
   @spec append_management!(Share.t(), map(), String.t(), map() | nil) :: map() | no_return()

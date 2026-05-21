@@ -101,6 +101,27 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
              )
   end
 
+  test "classifies signature validator ArgumentError reasons as dedicated errors" do
+    reasons =
+      "lib/refmd/crypto/signature/**/*.ex"
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        ~r/raise(?:\(| )ArgumentError, "([a-z0-9_]+)"/
+        |> Regex.scan(File.read!(path), capture: :all_but_first)
+        |> List.flatten()
+      end)
+      |> Enum.uniq()
+
+    assert reasons != []
+
+    generic_reasons =
+      Enum.filter(reasons, fn reason ->
+        Signature.__test_semantic_error_reason__(reason) == :invalid_signature_semantics
+      end)
+
+    assert generic_reasons == []
+  end
+
   test "rejects component-specific corruption" do
     refute Signature.verify_hybrid_signature(
              "pop_request",

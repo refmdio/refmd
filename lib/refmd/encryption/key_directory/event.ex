@@ -1,7 +1,7 @@
 defmodule RefMD.Encryption.KeyDirectory.Event do
   use Ecto.Schema
   import Ecto.Changeset
-  alias RefMD.Encryption.KeyDirectory.Protocol
+  alias RefMD.Encryption.KeyDirectory.{Payload, Protocol}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -56,7 +56,7 @@ defmodule RefMD.Encryption.KeyDirectory.Event do
   end
 
   defp validate_payload(:payload, payload) do
-    Protocol.assert_event_payload!(payload)
+    Payload.assert_event_payload!(payload)
     []
   rescue
     ArgumentError -> [payload: "is invalid"]
