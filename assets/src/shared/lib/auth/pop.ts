@@ -1,4 +1,6 @@
-import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import { encodeHybridSignatureForTransport } from "@/shared/lib/crypto/signature";
 import { getCryptoWorker, type CryptoWorkerClient } from "@/shared/lib/crypto/worker/client";
 import {
   clearAuthTransportNetworkFailure,
@@ -11,9 +13,40 @@ import { AuthUnauthorizedError } from "./unauthorized";
 
 interface PopHeaders {
   "X-PoP-Device-Id": string;
+  "X-PoP-Actor-Variant": "user_device" | "share_participant_device";
   "X-PoP-Challenge": string;
-  "X-PoP-Signature": string;
+  "X-PoP-Signature-Transport": string;
 }
+
+export interface ChannelPopParams {
+  pop_device_id: string;
+  pop_actor_variant: "user_device" | "share_participant_device";
+  pop_challenge: string;
+  pop_signature: StrictJsonValue;
+}
+
+type PopScope = "user" | "share";
+type PopTransport = "http" | "phoenix_channel";
+interface HttpPopResource extends Record<string, string> {
+  canonical_query: string;
+  method: string;
+  path: string;
+  query_hash: string;
+}
+
+interface ChannelPopResource extends Record<string, string> {
+  channel_event: "phx_join";
+  document_id: string;
+  event_name: "phx_join";
+  join_push_kind: "join";
+  payload_hash: string;
+  scope_kind: "user" | "share";
+  share_id: string;
+  topic: string;
+}
+
+type PopResource = HttpPopResource | ChannelPopResource;
+type PopTranscriptObject = Record<string, StrictJsonValue>;
 
 let popRateLimitedUntil = 0;
 let popChallengeQueue: Promise<void> = Promise.resolve();
@@ -83,10 +116,12 @@ async function enqueuePopChallenge<T>(fn: () => Promise<T>): Promise<T> {
 
 async function popChallenge(
   deviceId: string,
-  scope: "user" | "share",
+  scope: PopScope,
   signal?: AbortSignal,
 ): Promise<{
+  actor: PopTranscriptObject;
   challenge: string;
+  session: PopTranscriptObject;
 }> {
   const response = await fetch("/api/auth/pop-challenge", {
     method: "POST",
@@ -100,7 +135,9 @@ async function popChallenge(
   if (response.ok) {
     clearAuthTransportNetworkFailure();
     return (await response.json()) as {
+      actor: PopTranscriptObject;
       challenge: string;
+      session: PopTranscriptObject;
     };
   }
   const retryAfterHeader = response.headers.get("retry-after");
@@ -132,20 +169,107 @@ async function popChallenge(
 export async function getPopHeaders(
   deviceIdOverride?: string,
   signal?: AbortSignal,
-  scope: "user" | "share" = getPreferredSessionScope() === "share" ? "share" : "user",
+  scope: PopScope = getPreferredSessionScope() === "share" ? "share" : "user",
   workerOverride?: CryptoWorkerClient,
+  resource?: HttpPopResource,
 ): Promise<PopHeaders> {
+  const proof = await getPopProof(
+    deviceIdOverride,
+    signal,
+    scope,
+    "http",
+    workerOverride,
+    resource,
+  );
+  return {
+    "X-PoP-Device-Id": proof.deviceId,
+    "X-PoP-Actor-Variant": proof.actorVariant,
+    "X-PoP-Challenge": proof.challenge,
+    "X-PoP-Signature-Transport": proof.signatureTransport,
+  };
+}
+
+export async function getChannelPopParams(
+  deviceIdOverride?: string,
+  signal?: AbortSignal,
+  scope: PopScope = getPreferredSessionScope() === "share" ? "share" : "user",
+  workerOverride?: CryptoWorkerClient,
+  resource?: ChannelPopResource,
+): Promise<ChannelPopParams> {
+  const proof = await getPopProof(
+    deviceIdOverride,
+    signal,
+    scope,
+    "phoenix_channel",
+    workerOverride,
+    resource,
+  );
+  return {
+    pop_device_id: proof.deviceId,
+    pop_actor_variant: proof.actorVariant,
+    pop_challenge: proof.challenge,
+    pop_signature: proof.signature,
+  };
+}
+
+export function buildChannelPopResource(
+  documentId: string,
+  scope: PopScope,
+  shareId?: string | null,
+  joinPayload: Record<string, unknown> = {},
+): ChannelPopResource {
+  return {
+    channel_event: "phx_join",
+    document_id: documentId,
+    event_name: "phx_join",
+    join_push_kind: "join",
+    payload_hash: blake3Base64Url(canonicalizeStrictBytes(joinPayload as StrictJsonValue)),
+    scope_kind: scope,
+    share_id: scope === "share" ? (shareId ?? "") : "none",
+    topic: `document:${documentId}`,
+  };
+}
+
+async function getPopProof(
+  deviceIdOverride: string | undefined,
+  signal: AbortSignal | undefined,
+  scope: PopScope,
+  transport: PopTransport,
+  workerOverride?: CryptoWorkerClient,
+  resource?: PopResource,
+): Promise<{
+  actorVariant: "user_device" | "share_participant_device";
+  challenge: string;
+  deviceId: string;
+  signature: StrictJsonValue;
+  signatureTransport: string;
+}> {
   return enqueuePopChallenge(async () => {
     const worker = workerOverride ?? getCryptoWorker();
     const deviceId = deviceIdOverride ?? (await worker.getDeviceId());
     await waitForPopRateLimit(signal);
     try {
-      const { challenge } = await popChallenge(deviceId, scope, signal);
-      const { signature } = await worker.signPop({ challenge, deviceId });
+      const { actor, challenge, session } = await popChallenge(deviceId, scope, signal);
+      if (!resource) {
+        throw new Error(
+          transport === "http" ? "pop_http_resource_required" : "pop_channel_resource_required",
+        );
+      }
+      const { signature } = await worker.createPopSignature({
+        challenge,
+        deviceId,
+        scope,
+        transport,
+        actor,
+        session,
+        resource,
+      });
       return {
-        "X-PoP-Device-Id": deviceId,
-        "X-PoP-Challenge": challenge,
-        "X-PoP-Signature": base64UrlEncode(signature),
+        actorVariant: scope === "share" ? "share_participant_device" : "user_device",
+        challenge,
+        deviceId,
+        signature: signature as unknown as StrictJsonValue,
+        signatureTransport: encodeHybridSignatureForTransport(signature),
       };
     } catch (error) {
       if (error instanceof TypeError) {

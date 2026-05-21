@@ -1,12 +1,4 @@
 import {
-  handleEcdhDecrypt,
-  handleEcdhDecryptUmk,
-  handleEcdhEncrypt,
-  handleEcdhEncryptUmk,
-} from "../ecdh";
-import {
-  handleDecryptTrustState,
-  handleEncryptTrustState,
   handleTofuGetAllEntries,
   handleTofuHandleResult,
   handleTofuImportEntries,
@@ -19,15 +11,6 @@ import { withCryptoOperationError } from "../utils";
 import type { RequestHandlerTable } from "./shared";
 
 export const trustRequestHandlers = {
-  "decrypt-trust-state": (state, payload) =>
-    withCryptoOperationError("decryption_failed", () => handleDecryptTrustState(state, payload)),
-  "ecdh-decrypt": (state, payload) =>
-    withCryptoOperationError("decryption_failed", () => handleEcdhDecrypt(state, payload)),
-  "ecdh-decrypt-umk": (state, payload) =>
-    withCryptoOperationError("decryption_failed", () => handleEcdhDecryptUmk(state, payload)),
-  "ecdh-encrypt": (state, payload) => handleEcdhEncrypt(state, payload),
-  "ecdh-encrypt-umk": (state, payload) => handleEcdhEncryptUmk(state, payload),
-  "encrypt-trust-state": (state, payload) => handleEncryptTrustState(state, payload),
   "tofu-get-all-entries": (_, payload) => handleTofuGetAllEntries(payload),
   "tofu-handle-result": (_, payload) =>
     withCryptoOperationError("tofu_hard_fail", () => handleTofuHandleResult(payload)),

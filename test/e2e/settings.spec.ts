@@ -99,17 +99,29 @@ test.describe.serial("Settings Dialog", () => {
         .isVisible()
         .catch(() => false))
     ) {
+      const updateResponse = sharedPage.waitForResponse(
+        (response) =>
+          response.request().method() === "PATCH" &&
+          response.url().includes("/api/workspaces/") &&
+          !response.url().endsWith("/features"),
+      );
       await guestInvitesSection.getByRole("group", { name: "Allow guest invites" }).click();
+      await expect(guestInvitesSection.getByRole("switch").first()).toBeChecked({
+        timeout: 10_000,
+      });
       await guestInvitesSection.getByRole("button", { name: "Save" }).click();
+      await updateResponse;
       await expect(guestInvitesSection.getByRole("button", { name: "Invite Guest" })).toBeVisible({
         timeout: 30_000,
       });
     }
 
-    const createRequest = sharedPage.waitForRequest((request) => {
+    const createResponse = sharedPage.waitForResponse((response) => {
+      const request = response.request();
       return (
         request.method() === "POST" &&
-        /\/api\/workspaces\/[^/]+\/guest-invitations$/.test(request.url())
+        response.status() === 201 &&
+        /\/api\/workspaces\/[^/]+\/guest-invitations$/.test(response.url())
       );
     });
 
@@ -124,20 +136,20 @@ test.describe.serial("Settings Dialog", () => {
     await expect(dialog.getByText("Target", { exact: true })).toHaveCount(0);
     await dialog.getByRole("button", { name: "Create Invitation" }).click();
 
-    const request = await createRequest;
-    const payload = request.postDataJSON() as {
+    const response = await createResponse;
+    const payload = (await response.json()) as {
       invitation_id?: string;
       token_prefix?: string;
-      target_scope?: string;
-      target_document_id?: string | null;
+      scope_kind?: string;
+      scope_id?: string | null;
     };
     expect(payload.invitation_id).toBeTruthy();
     expect(payload.token_prefix).toBeTruthy();
-    expect(payload.target_scope).toBe("workspace");
-    expect(payload.target_document_id).toBeNull();
+    expect(payload.scope_kind).toBe("workspace");
+    expect(payload.scope_id).toBeNull();
 
     const inviteLinkInput = dialog.locator("input[readonly]").first();
-    await expect(inviteLinkInput).toHaveValue(/\/invite#token=/, {
+    await expect(inviteLinkInput).toHaveValue(/\/invite#it=.+&ib=.+/, {
       timeout: 60_000,
     });
     const inviteLink = await inviteLinkInput.inputValue();

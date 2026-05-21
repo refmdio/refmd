@@ -1,132 +1,47 @@
-import {
-  clearAuthBootstrap,
-  clearWrappedUmk,
-  storeWrappedDeviceKeysRaw,
-  storeWrappedUmkRaw,
-} from "@/shared/lib/crypto/dsk";
+import { clearAuthBootstrap } from "@/shared/lib/crypto/dsk";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
 const DEVICE_ID_KEY_PREFIX = "refmd-device-id:";
-const LEGACY_DEVICE_ID_KEY = "refmd-device-id";
+const OBSOLETE_CRYPTO_CACHE_PREFIXES = [
+  "refmd-pdk",
+  "refmd-pdk:",
+  "refmd-umk-cache",
+  "refmd-device-key-cache",
+];
 
 export function persistDeviceId(deviceId: string, userId: string): void {
   localStorage.setItem(`${DEVICE_ID_KEY_PREFIX}${userId}`, deviceId);
-  localStorage.setItem(LEGACY_DEVICE_ID_KEY, deviceId);
 }
 
 export function getPersistedDeviceId(userId?: string): string | null {
-  if (userId) {
-    return localStorage.getItem(`${DEVICE_ID_KEY_PREFIX}${userId}`);
-  }
-  return localStorage.getItem(LEGACY_DEVICE_ID_KEY);
+  if (!userId) return null;
+  return localStorage.getItem(`${DEVICE_ID_KEY_PREFIX}${userId}`);
 }
 
-const PDK_UMK_KEY = "refmd-pdk-umk";
-const PDK_ECDH_KEY = "refmd-pdk-device-ecdh";
-const PDK_SIGNING_KEY = "refmd-pdk-device-signing";
-
-export function hasPdkData(): boolean {
-  return (
-    localStorage.getItem(PDK_UMK_KEY) !== null &&
-    localStorage.getItem(PDK_ECDH_KEY) !== null &&
-    localStorage.getItem(PDK_SIGNING_KEY) !== null
-  );
+export async function persistCurrentKeysWithDsk(
+  userId: string,
+  options?: { persistUmk?: boolean },
+): Promise<void> {
+  clearLegacyCryptoCaches();
+  await getCryptoWorker().persistCurrentKeysWithDsk(userId, options);
 }
 
-interface PdkWrappedBlobs {
-  ciphertext: string;
-  nonce: string;
-}
-
-interface PdkWrappedKeySet {
-  wrappedUmk?: PdkWrappedBlobs | null;
-  wrappedDeviceKeys?: {
-    ecdh: PdkWrappedBlobs;
-    signing: PdkWrappedBlobs;
-  } | null;
-}
-
-export function readPdkBlobs(): {
-  pdkWrappedUmk: PdkWrappedBlobs | null;
-  pdkWrappedDeviceEcdh: PdkWrappedBlobs | null;
-  pdkWrappedDeviceSigning: PdkWrappedBlobs | null;
-} {
-  const parse = (raw: string | null): PdkWrappedBlobs | null => {
-    if (!raw) return null;
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "ciphertext" in parsed &&
-        "nonce" in parsed
-      ) {
-        return parsed as PdkWrappedBlobs;
-      }
-    } catch {
-      // Corrupted data
-    }
-    return null;
-  };
-
-  const umk = parse(localStorage.getItem(PDK_UMK_KEY));
-  const ecdh = parse(localStorage.getItem(PDK_ECDH_KEY));
-  const signing = parse(localStorage.getItem(PDK_SIGNING_KEY));
-  if (!umk || !ecdh || !signing) {
-    return { pdkWrappedUmk: null, pdkWrappedDeviceEcdh: null, pdkWrappedDeviceSigning: null };
-  }
-  return { pdkWrappedUmk: umk, pdkWrappedDeviceEcdh: ecdh, pdkWrappedDeviceSigning: signing };
-}
-
-export function persistPdkWrappedKeys(keys: PdkWrappedKeySet): void {
-  if (keys.wrappedUmk) {
-    localStorage.setItem(PDK_UMK_KEY, JSON.stringify(keys.wrappedUmk));
-  }
-  if (keys.wrappedDeviceKeys) {
-    localStorage.setItem(PDK_ECDH_KEY, JSON.stringify(keys.wrappedDeviceKeys.ecdh));
-    localStorage.setItem(PDK_SIGNING_KEY, JSON.stringify(keys.wrappedDeviceKeys.signing));
-  }
-}
-
-export async function persistWrappedDeviceKeys(wrapped: {
-  wrappedEcdh: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
-  wrappedSigning: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
-}): Promise<void> {
-  await storeWrappedDeviceKeysRaw(wrapped.wrappedEcdh, wrapped.wrappedSigning);
-}
-
-export async function persistWrappedUmk(params: {
-  wrappedUmk: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
-  pdk?: Uint8Array;
-  kmsi: boolean;
-  userId: string;
-}): Promise<void> {
-  const { wrappedUmk, kmsi } = params;
-  if (kmsi) {
-    await storeWrappedUmkRaw(wrappedUmk);
-  } else {
-    sessionStorage.setItem(
-      "refmd-session-umk-wrapped",
-      JSON.stringify({
-        ciphertext: Array.from(new Uint8Array(wrappedUmk.ciphertext)),
-        iv: Array.from(new Uint8Array(wrappedUmk.iv)),
-      }),
-    );
-    await clearWrappedUmk();
-  }
-}
-
-export async function clearSessionData(): Promise<void> {
+export async function clearSessionData(
+  options: { preserveAuthBootstrap?: boolean } = {},
+): Promise<void> {
   sessionStorage.clear();
-  await clearAuthBootstrap().catch(() => {});
+  clearLegacyCryptoCaches();
+  if (!options.preserveAuthBootstrap) {
+    await clearAuthBootstrap().catch(() => {});
+  }
+}
+
+function clearLegacyCryptoCaches(): void {
+  for (const key of Object.keys(localStorage)) {
+    if (OBSOLETE_CRYPTO_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      localStorage.removeItem(key);
+    }
+  }
 }
 
 export async function clearAllPersistedKeys(): Promise<void> {
@@ -145,7 +60,8 @@ export async function clearAllPersistedKeys(): Promise<void> {
     "device-keys",
     "wrapped-umk",
     "wrapped-device-ecdh",
-    "wrapped-device-signing",
+    "wrapped-device-mlkem768-material",
+    "wrapped-device-hybrid-signing",
     "auth-bootstrap",
   ]);
   await overwriteDbEntries("refmd-trust", []);
@@ -173,7 +89,13 @@ export async function clearAllPersistedKeys(): Promise<void> {
         resolve({ name, deleted: false });
       }
     });
-  const dbNames = ["refmd-keys", "refmd-trust", "refmd-offline", "refmd-security"];
+  const dbNames = [
+    "refmd-keys",
+    "refmd-trust",
+    "refmd-offline",
+    "refmd-security",
+    "refmd-share-sessions",
+  ];
   const dbResults = await Promise.all(dbNames.map((name) => deleteDb(name)));
   const failedDbs = dbResults.filter((result) => !result.deleted);
   if (failedDbs.length > 0) {

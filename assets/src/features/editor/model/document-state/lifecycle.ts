@@ -45,8 +45,6 @@ function teardownState(
   state._onRecoverableSyncGap = null;
   for (const resolve of state._reauthResolvers) resolve();
   state._reauthResolvers = [];
-  for (const resolve of state._rollbackResolvers) resolve();
-  state._rollbackResolvers = [];
   documentStates.delete(stateKey);
   clearDocumentSignals(stateKey);
   removeAwarenessStates(state.awareness, [state.awareness.clientID], "local");

@@ -8,7 +8,7 @@ defmodule RefMDWeb.UserSocket do
 
   alias RefMD.Auth
   alias RefMD.Sharing
-  alias RefMDWeb.SocketAuth
+  alias RefMDWeb.Channels.SocketAuth
 
   channel "document:*", RefMDWeb.DocumentChannel
   channel "devices:*", RefMDWeb.DeviceEventsChannel

@@ -33,7 +33,7 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
   # ── Connection tracking ─────────────────────────────
 
   @spec track_and_subscribe(String.t(), String.t(), String.t()) :: {:ok, String.t()}
-  def track_and_subscribe(document_id, user_id, signing_pub_key) do
+  def track_and_subscribe(document_id, user_id, signing_key_id) do
     topic = "document:#{document_id}"
     join_ref = inspect(make_ref())
 
@@ -42,16 +42,16 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
     {:ok, _} =
       Presence.track(self(), topic, user_id, %{
         join_ref: join_ref,
-        signing_pub_key: signing_pub_key
+        signing_key_id: signing_key_id
       })
 
-    :ets.insert(:refmd_presence_pids, {{topic, user_id, join_ref}, {self(), signing_pub_key}})
+    :ets.insert(:refmd_presence_pids, {{topic, user_id, join_ref}, {self(), signing_key_id}})
     {:ok, join_ref}
   end
 
   @spec track_share_connection(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, String.t()} | {:error, map()}
-  def track_share_connection(document_id, share_id, principal_id, signing_pub_key) do
+  def track_share_connection(document_id, share_id, principal_id, signing_key_id) do
     lock_id = {{__MODULE__, :share_connection_cap, share_id}, :share_connection_cap}
 
     case :global.set_lock(lock_id) do
@@ -70,12 +70,12 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
             {:ok, _} =
               Presence.track(self(), topic, principal_id, %{
                 join_ref: join_ref,
-                signing_pub_key: signing_pub_key
+                signing_key_id: signing_key_id
               })
 
             :ets.insert(
               :refmd_presence_pids,
-              {{topic, principal_id, join_ref}, {self(), signing_pub_key}}
+              {{topic, principal_id, join_ref}, {self(), signing_key_id}}
             )
 
             {:ok, join_ref}
@@ -165,47 +165,47 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
   @spec broadcast_peer_left(String.t(), String.t() | nil, String.t(), String.t() | nil) :: :ok
   def broadcast_peer_left(_document_id, nil, _user_id, _connection_id), do: :ok
 
-  def broadcast_peer_left(document_id, signing_pub_key, user_id, connection_id) do
+  def broadcast_peer_left(document_id, signing_key_id, user_id, connection_id) do
     # Always use delayed check to let Presence converge across nodes.
     # Avoids false peer-left when a same-device tab on another node hasn't
     # propagated yet. handlePeerLeft on clients is idempotent.
     schedule_delayed_peer_left_check(
       "document:#{document_id}",
-      signing_pub_key,
+      signing_key_id,
       user_id,
       connection_id
     )
   end
 
   @peer_left_delays_ms [500, 2_000]
-  defp schedule_delayed_peer_left_check(topic, signing_pub_key, user_id, connection_id) do
+  defp schedule_delayed_peer_left_check(topic, signing_key_id, user_id, connection_id) do
     Task.start(fn ->
-      poll_peer_left(@peer_left_delays_ms, topic, signing_pub_key, user_id, connection_id)
+      poll_peer_left(@peer_left_delays_ms, topic, signing_key_id, user_id, connection_id)
     end)
   end
 
-  defp poll_peer_left([], _topic, _signing_pub_key, _user_id, _connection_id), do: :ok
+  defp poll_peer_left([], _topic, _signing_key_id, _user_id, _connection_id), do: :ok
 
-  defp poll_peer_left([delay | rest], topic, signing_pub_key, user_id, connection_id) do
+  defp poll_peer_left([delay | rest], topic, signing_key_id, user_id, connection_id) do
     Process.sleep(delay)
 
-    case check_device_presence(topic, user_id, signing_pub_key) do
-      :gone -> do_broadcast_peer_left(topic, signing_pub_key, connection_id)
+    case check_device_presence(topic, user_id, signing_key_id) do
+      :gone -> do_broadcast_peer_left(topic, signing_key_id, connection_id)
       :present when rest == [] -> :ok
-      :present -> poll_peer_left(rest, topic, signing_pub_key, user_id, connection_id)
+      :present -> poll_peer_left(rest, topic, signing_key_id, user_id, connection_id)
     end
   end
 
-  defp check_device_presence(topic, user_id, signing_pub_key) do
+  defp check_device_presence(topic, user_id, signing_key_id) do
     presences = Presence.list(topic)
     user_metas = get_in(presences, [user_id, :metas]) || []
-    count = Enum.count(user_metas, fn meta -> meta[:signing_pub_key] == signing_pub_key end)
+    count = Enum.count(user_metas, fn meta -> meta[:signing_key_id] == signing_key_id end)
     if count == 0, do: :gone, else: :present
   end
 
-  defp do_broadcast_peer_left(topic, signing_pub_key, connection_id) do
+  defp do_broadcast_peer_left(topic, signing_key_id, connection_id) do
     RefMDWeb.Endpoint.broadcast(topic, "peer-left", %{
-      signingPubKey: signing_pub_key,
+      signingKeyId: signing_key_id,
       connectionId: connection_id
     })
   end

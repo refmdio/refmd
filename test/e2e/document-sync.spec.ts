@@ -20,7 +20,10 @@ async function getCurrentDocumentId(page: Page): Promise<string> {
   return page.url().match(/\/document\/([^/?#]+)/)![1];
 }
 
-async function corruptDocumentClockPin(page: Page, documentId: string): Promise<number> {
+async function corruptDocumentClockPin(
+  page: Page,
+  documentId: string,
+): Promise<number> {
   return page.evaluate(async (id) => {
     const openRequest = indexedDB.open("refmd-security");
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -53,7 +56,10 @@ async function corruptDocumentClockPin(page: Page, documentId: string): Promise<
   }, documentId);
 }
 
-async function readPinnedClockMax(page: Page, documentId: string): Promise<number> {
+async function readPinnedClockMax(
+  page: Page,
+  documentId: string,
+): Promise<number> {
   return page.evaluate(async (id) => {
     const openRequest = indexedDB.open("refmd-security");
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -78,9 +84,43 @@ async function readPinnedClockMax(page: Page, documentId: string): Promise<numbe
   }, documentId);
 }
 
+async function focusMarkdownEditor(page: Page) {
+  await page.bringToFront();
+  const editor = page.locator(".cm-content").first();
+  await expect(editor).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => document.querySelector(".cm-content")?.getAttribute("contenteditable") ?? null,
+        ),
+      {
+        timeout: 15_000,
+        message: "CodeMirror editor did not become editable after reload",
+      },
+    )
+    .toBe("true");
+
+  await editor.click({ position: { x: 12, y: 12 } });
+  await page.getByRole("textbox").first().click({ position: { x: 12, y: 12 } });
+  await editor.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) return;
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    element.focus({ preventScroll: true });
+  });
+  return editor;
+}
+
 test.describe.serial("Document E2EE Sync", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
+    sharedPage = await (
+      await newE2EContext(browser, { bypassCSP: true })
+    ).newPage();
   });
 
   test.afterAll(async () => {
@@ -112,7 +152,9 @@ test.describe.serial("Document E2EE Sync", () => {
     });
 
     const syncErrors = errors.filter(
-      (e) => e.includes("verification_failed") || e.includes("snapshot recovery failed"),
+      (e) =>
+        e.includes("verification_failed") ||
+        e.includes("snapshot recovery failed"),
     );
     expect(syncErrors).toHaveLength(0);
   });
@@ -131,17 +173,21 @@ test.describe.serial("Document E2EE Sync", () => {
 
     await sharedPage.waitForTimeout(5000);
 
-    const sendCount = await sharedPage.evaluate(() => (window as any).__wsUpdateCount);
+    const sendCount = await sharedPage.evaluate(
+      () => (window as any).__wsUpdateCount,
+    );
     expect(sendCount).toBeLessThan(20);
   });
 
   test("content persists after reload", async () => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
 
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
     await sharedPage.waitForTimeout(3000);
 
-    await expect(sharedPage.locator("aside").getByText("Sync Test Doc")).toBeVisible({
+    await expect(
+      sharedPage.locator("aside").getByText("Sync Test Doc"),
+    ).toBeVisible({
       timeout: 30_000,
     });
     await openDocument(sharedPage, "Sync Test Doc");
@@ -154,8 +200,7 @@ test.describe.serial("Document E2EE Sync", () => {
     test.setTimeout(60_000);
 
     const errors = await collectErrors(sharedPage, async () => {
-      const editor = sharedPage.locator(".cm-content");
-      await editor.click();
+      await focusMarkdownEditor(sharedPage);
       await sharedPage.keyboard.press("Control+End");
       await sharedPage.keyboard.press("Enter");
 
@@ -170,13 +215,15 @@ test.describe.serial("Document E2EE Sync", () => {
     });
 
     const syncErrors = errors.filter(
-      (e) => e.includes("verification_failed") || e.includes("snapshot recovery failed"),
+      (e) =>
+        e.includes("verification_failed") ||
+        e.includes("snapshot recovery failed"),
     );
     expect(syncErrors).toHaveLength(0);
   });
 
   test("post-reload edits persist after second reload", async () => {
-    test.setTimeout(60_000);
+    test.setTimeout(180_000);
 
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
     await sharedPage.waitForTimeout(3000);
@@ -186,31 +233,25 @@ test.describe.serial("Document E2EE Sync", () => {
     await expectEditorTextContains(sharedPage, "After reload 9.");
   });
 
-  test("approved clock rollback replaces stale local pin", async () => {
+  test("clock rollback fails closed without replacing the local pin", async () => {
     test.setTimeout(90_000);
 
     const documentId = await getCurrentDocumentId(sharedPage);
-    const corruptedClock = await corruptDocumentClockPin(sharedPage, documentId);
+    const corruptedClock = await corruptDocumentClockPin(
+      sharedPage,
+      documentId,
+    );
 
     await sharedPage.reload({ waitUntil: "domcontentloaded" });
-    await expect(sharedPage.getByText("State Inconsistency Detected")).toBeVisible({
+    await expect(sharedPage.getByText("Clock rollback").first()).toBeVisible({
       timeout: 30_000,
     });
-    await expect(sharedPage.getByText("Clock rollback")).toBeVisible({ timeout: 10_000 });
-    await sharedPage.getByRole("button", { name: "Continue" }).click();
-    await expectEditorTextContains(sharedPage, "Line 0 test.", 30_000);
 
     await expect
       .poll(() => readPinnedClockMax(sharedPage, documentId), {
         timeout: 15_000,
-        message: "approved rollback did not replace the stale pin",
+        message: "rollback failure replaced the stale pin",
       })
-      .toBeLessThan(corruptedClock);
-
-    await sharedPage.reload({ waitUntil: "domcontentloaded" });
-    await expect(sharedPage.getByText("State Inconsistency Detected")).not.toBeVisible({
-      timeout: 10_000,
-    });
-    await expectEditorTextContains(sharedPage, "After reload 9.", 30_000);
+      .toBe(corruptedClock);
   });
 });

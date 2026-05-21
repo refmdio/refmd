@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request, type Response } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   createDocument,
   createFolder,
@@ -8,7 +8,14 @@ import {
   waitForWorkspaceReady,
 } from "./helpers";
 
-async function createShareLinkFromUi(page: Page, title: string): Promise<string> {
+const SHARE_FOLDER_ROUTE_RE = /\/share\/f\/[^/#]+(?:#s=[A-Za-z0-9_-]{22})?$/;
+const MOUNT_CHILD_RENDER_TIMEOUT_MS = 60_000;
+
+async function createShareLinkFromUi(
+  page: Page,
+  title: string,
+  permission: "view" | "edit" = "view",
+): Promise<string> {
   await page.locator("aside").getByRole("button", { name: title }).first().click({
     button: "right",
   });
@@ -21,10 +28,21 @@ async function createShareLinkFromUi(page: Page, title: string): Promise<string>
     timeout: 10_000,
   });
   await dialog.getByRole("button", { name: "Create new link" }).click();
+  if (permission === "edit") {
+    await dialog.locator("#share-permission").click();
+    const option = page
+      .locator('[data-slot="select-content"] [data-slot="select-item"]')
+      .filter({ hasText: "Edit" })
+      .last();
+    await expect(option).toBeVisible({ timeout: 5_000 });
+    await option.click();
+  }
   await dialog.getByRole("button", { name: "Create Link" }).click();
 
   const input = dialog.locator("input[readonly]");
-  await expect(input).toHaveValue(/\/share\/[^/]+$/, { timeout: 60_000 });
+  await expect(input).toHaveValue(/\/share\/[^/#]+#cap=[A-Za-z0-9_-]{43}&wpb=[A-Za-z0-9_-]{43}$/, {
+    timeout: 60_000,
+  });
   const link = await input.inputValue();
   await page.keyboard.press("Escape");
 
@@ -102,70 +120,16 @@ async function waitForMountedEditor(page: Page, message: string): Promise<void> 
     });
 }
 
-function collectPageDiagnostics(page: Page): {
-  messages: string[];
-  stop: () => void;
-} {
-  const messages: string[] = [];
-  const consoleHandler = (msg: { type: () => string; text: () => string }) => {
-    const text = msg.text();
-    if (
-      msg.type() === "error" ||
-      text.includes("[ws]") ||
-      text.includes("[PoP]") ||
-      text.includes("DocumentSyncError")
-    ) {
-      messages.push(`console:${msg.type()}: ${text}`);
-    }
-  };
-  const requestFailedHandler = (request: Request) => {
-    const url = request.url();
-    if (url.includes("/api/") || url.includes("/socket/")) {
-      messages.push(`requestfailed: ${request.method()} ${url} ${request.failure()?.errorText}`);
-    }
-  };
-  const responseHandler = (response: Response) => {
-    const url = response.url();
-    if ((url.includes("/api/") || url.includes("/socket/")) && response.status() >= 400) {
-      messages.push(`response:${response.status()}: ${response.request().method()} ${url}`);
-    }
-  };
-
-  page.on("console", consoleHandler);
-  page.on("requestfailed", requestFailedHandler);
-  page.on("response", responseHandler);
-
-  return {
-    messages,
-    stop: () => {
-      page.off("console", consoleHandler);
-      page.off("requestfailed", requestFailedHandler);
-      page.off("response", responseHandler);
-    },
-  };
-}
-
-async function createFolderMount(page: Page, args: {
-  workspaceId: string;
-  shareSlug: string;
-  folderToken: string;
-}): Promise<void> {
-  await page.evaluate(async ({ workspaceId, shareSlug, folderToken }) => {
-    const response = await fetch("/api/mounts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        share_slug: shareSlug,
-        target_kind: "folder",
-        target_token: folderToken,
-        parent_id: null,
-      }),
-    });
-    if (!response.ok && response.status !== 409) {
-      throw new Error(`failed to create mount: ${response.status} ${await response.text()}`);
-    }
-  }, args);
+async function typeInVisibleMountedEditor(page: Page, text: string): Promise<void> {
+  const editor = page.locator(".cm-content, .ProseMirror").first();
+  await expect(editor).toBeVisible({ timeout: 30_000 });
+  await editor.click({ force: true });
+  await editor.evaluate((element) => {
+    if (element instanceof HTMLElement) element.focus();
+  });
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.insertText(text);
 }
 
 test("shared folder sidebar keeps the root while expanding nested folders", async ({ page }) => {
@@ -182,7 +146,9 @@ test("shared folder sidebar keeps the root while expanding nested folders", asyn
   const shareLink = await createShareLinkFromUi(page, "Shared Root");
 
   await page.goto(shareLink, { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/\/share\/f\/[^/]+$/, { timeout: 30_000 });
+  await expect(page).toHaveURL(SHARE_FOLDER_ROUTE_RE, {
+    timeout: 30_000,
+  });
   const rootFolderUrl = page.url();
 
   await selectSidebarRow(page, "Nested Shared Folder");
@@ -198,114 +164,135 @@ test("shared folder sidebar keeps the root while expanding nested folders", asyn
 
 test("saved folder share mount opens a nested child document from the sidebar", async ({ page }) => {
   test.setTimeout(180_000);
-  const diagnostics = collectPageDiagnostics(page);
 
-  try {
-    await registerAccount(page);
+  await registerAccount(page);
 
-    await createFolder(page, "Source Bundle");
-    await selectSidebarRow(page, "Source Bundle");
-    await createFolder(page, "Nested Folder");
-    await selectSidebarRow(page, "Nested Folder");
-    await createDocument(page, "Nested Mounted Doc");
+  await createFolder(page, "Source Bundle");
+  await selectSidebarRow(page, "Source Bundle");
+  await createFolder(page, "Nested Folder");
+  await selectSidebarRow(page, "Nested Folder");
+  await createDocument(page, "Nested Mounted Doc");
 
-    const shareLink = await createShareLinkFromUi(page, "Source Bundle");
+  const shareLink = await createShareLinkFromUi(page, "Source Bundle", "edit");
 
-    await createWorkspace(page, "Mount Target");
-    const mountWorkspaceId = await currentWorkspaceId(page);
-    await page.goto(shareLink, { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/share\/f\/[^/]+$/, { timeout: 30_000 });
-    const shareUrl = new URL(shareLink);
-    const shareSlug = shareUrl.pathname.split("/").at(-1);
-    const folderToken = new URL(page.url()).pathname.split("/").at(-1);
-    if (!shareSlug || !folderToken) {
-      throw new Error(`failed to resolve share mount tokens from ${shareLink} / ${page.url()}`);
-    }
-    await createFolderMount(page, {
-      workspaceId: mountWorkspaceId,
-      shareSlug,
-      folderToken,
-    });
+  const mountWorkspaceName = `Mount Target ${Date.now()}`;
+  await createWorkspace(page, mountWorkspaceName);
+  await currentWorkspaceId(page);
+  await page.goto(shareLink, { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(SHARE_FOLDER_ROUTE_RE, {
+    timeout: 30_000,
+  });
+  await page.getByRole("button", { name: "Choose workspace" }).first().click();
+  await expect(page.getByRole("heading", { name: "Save to Workspace" })).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByRole("button", { name: mountWorkspaceName }).click();
+  await expect(page.getByRole("button", { name: "Already saved" }).first()).toBeVisible({
+    timeout: 20_000,
+  });
 
-    await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
-    await waitForWorkspaceReady(page);
+  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  await waitForWorkspaceReady(page);
 
-    await expect(page.getByRole("button", { name: "Source Bundle view" })).toBeVisible({
+  const savedRootButton = page
+    .getByRole("button", { name: "Source Bundle edit" })
+    .or(page.getByRole("button", { name: "Shared folder edit" }));
+  await expect(savedRootButton).toBeVisible({
+    timeout: 20_000,
+  });
+  const rootBootstrapResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/mounts\/[^/]+\/folders\/[^/]+\/bootstrap$/.test(new URL(response.url()).pathname),
+  );
+  await savedRootButton.click();
+  const rootBootstrap = await rootBootstrapResponse;
+  const rootBootstrapBody = (await rootBootstrap.json()) as { entries?: unknown[]; error?: string };
+  expect(rootBootstrap.ok(), JSON.stringify(rootBootstrapBody)).toBe(true);
+  expect(
+    Array.isArray(rootBootstrapBody.entries) ? rootBootstrapBody.entries.length : 0,
+    JSON.stringify(rootBootstrapBody),
+  ).toBeGreaterThan(0);
+  await expect
+    .poll(
+      async () => page.locator("aside").getByText("Nested Folder", { exact: true }).count(),
+      {
+        timeout: MOUNT_CHILD_RENDER_TIMEOUT_MS,
+        message: "mounted folder children did not render in the sidebar",
+      },
+    )
+    .toBeGreaterThan(0);
+
+  await selectLastSidebarRow(page, "Nested Folder");
+  await expect
+    .poll(
+      async () => page.locator("aside").getByText("Nested Mounted Doc", { exact: true }).count(),
+      {
+        timeout: MOUNT_CHILD_RENDER_TIMEOUT_MS,
+        message: "mounted nested document did not render in the sidebar",
+      },
+    )
+    .toBeGreaterThan(0);
+
+  await selectLastSidebarRow(page, "Nested Mounted Doc");
+  await expect(page).toHaveURL(/\/mounts\/[^?]+\?share=[^&]+$/, { timeout: 20_000 });
+  await expect(savedRootButton).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect
+    .poll(
+      async () => page.locator("aside").getByText("Nested Folder", { exact: true }).count(),
+      {
+        timeout: MOUNT_CHILD_RENDER_TIMEOUT_MS,
+        message: "mounted folder expansion was reset after opening a child document",
+      },
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(
+      async () => page.locator("aside").getByText("Nested Mounted Doc", { exact: true }).count(),
+      {
+        timeout: MOUNT_CHILD_RENDER_TIMEOUT_MS,
+        message: "mounted nested document row disappeared after opening",
+      },
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () => page.evaluate(() => document.querySelectorAll("[data-panel-id]").length), {
       timeout: 20_000,
-    });
-    await page.getByRole("button", { name: "Source Bundle view" }).click();
-    await expect
-      .poll(
-        async () => page.locator("aside").getByText("Nested Folder", { exact: true }).count(),
-        {
-          timeout: 20_000,
-          message: "mounted folder children did not render in the sidebar",
-        },
-      )
-      .toBeGreaterThan(0);
+      message: "mounted child document did not open in the workspace",
+    })
+    .toBeGreaterThan(0);
+  await waitForMountedEditor(page, "mounted child document editor did not finish loading");
 
+  const durableText = `Mounted durable edit ${Date.now()}`;
+  await typeInVisibleMountedEditor(page, durableText);
+  await expect(page.locator(".cm-content, .ProseMirror").first()).toContainText(durableText, {
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(3_000);
+  await expect(page).toHaveURL(/\/mounts\/[^?]+\?share=[^&]+$/, { timeout: 20_000 });
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForWorkspaceReady(page);
+  await expect(page).toHaveURL(/\/mounts\/[^?]+\?share=[^&]+$/, { timeout: 20_000 });
+  await waitForMountedEditor(page, "mounted child document did not reopen after reload");
+  await expect(page.locator(".cm-content, .ProseMirror").first()).toContainText(durableText, {
+    timeout: 30_000,
+  });
+  if ((await page.locator("aside").getByText("Nested Mounted Doc", { exact: true }).count()) === 0) {
+    await savedRootButton.click();
     await selectLastSidebarRow(page, "Nested Folder");
-    await expect
-      .poll(
-        async () => page.locator("aside").getByText("Nested Mounted Doc", { exact: true }).count(),
-        {
-          timeout: 20_000,
-          message: "mounted nested document did not render in the sidebar",
-        },
-      )
-      .toBeGreaterThan(0);
-
-    await selectLastSidebarRow(page, "Nested Mounted Doc");
-    await expect(page).toHaveURL(/\/mounts\/[^?]+\?share=[^&]+$/, { timeout: 20_000 });
-    await expect(page.getByRole("button", { name: "Source Bundle view" })).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect
-      .poll(
-        async () => page.locator("aside").getByText("Nested Folder", { exact: true }).count(),
-        {
-          timeout: 20_000,
-          message: "mounted folder expansion was reset after opening a child document",
-        },
-      )
-      .toBeGreaterThan(0);
-    await expect
-      .poll(
-        async () => page.locator("aside").getByText("Nested Mounted Doc", { exact: true }).count(),
-        {
-          timeout: 20_000,
-          message: "mounted nested document row disappeared after opening",
-        },
-      )
-      .toBeGreaterThan(0);
-    await expect
-      .poll(
-        async () => page.evaluate(() => document.querySelectorAll("[data-panel-id]").length),
-        {
-          timeout: 20_000,
-          message: "mounted child document did not open in the workspace",
-        },
-      )
-      .toBeGreaterThan(0);
-    await waitForMountedEditor(page, "mounted child document editor did not finish loading");
-
-    const panelCountBeforeTile = await page.evaluate(
-      () => document.querySelectorAll("[data-panel-id]").length,
-    );
-    await clickLastSidebarContextMenuItem(page, "Nested Mounted Doc", "Add to Tile");
-    await expect
-      .poll(
-        async () => page.evaluate(() => document.querySelectorAll("[data-panel-id]").length),
-        {
-          timeout: 20_000,
-          message: "mounted child document was not added as a tile",
-        },
-      )
-      .toBeGreaterThan(panelCountBeforeTile);
-  } catch (err) {
-    console.log(["share mount diagnostics:", ...diagnostics.messages].join("\n"));
-    throw err;
-  } finally {
-    diagnostics.stop();
   }
+
+  const panelCountBeforeTile = await page.evaluate(
+    () => document.querySelectorAll("[data-panel-id]").length,
+  );
+  await clickLastSidebarContextMenuItem(page, "Nested Mounted Doc", "Add to Tile");
+  await expect
+    .poll(async () => page.evaluate(() => document.querySelectorAll("[data-panel-id]").length), {
+      timeout: 20_000,
+      message: "mounted child document was not added as a tile",
+    })
+    .toBeGreaterThan(panelCountBeforeTile);
 });

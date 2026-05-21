@@ -1,4 +1,4 @@
-export { ShareWorkspaceShell } from "./ui/ShareWorkspaceShell";
-export { MountedShareWorkspace } from "./ui/MountedShareWorkspace";
-export { ShareDocumentWorkspace } from "./ui/ShareDocumentWorkspace";
-export { ShareFolderWorkspace } from "./ui/ShareFolderWorkspace";
+export { ShareWorkspaceShell } from "./ui/workspace/ShareWorkspaceShell";
+export { MountedShareWorkspace } from "./ui/workspace/MountedShareWorkspace";
+export { ShareDocumentWorkspace } from "./ui/workspace/ShareDocumentWorkspace";
+export { ShareFolderWorkspace } from "./ui/workspace/ShareFolderWorkspace";

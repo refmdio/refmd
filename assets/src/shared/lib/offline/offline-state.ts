@@ -60,13 +60,16 @@ type OfflineChangeCallback = (isOffline: boolean) => void;
 const listeners = new Set<OfflineChangeCallback>();
 
 let prevOffline = false;
+let prevReason: OfflineReason | null = null;
 
 function notifyOfflineListeners(): void {
-  const current = offlineMode();
-  if (current !== prevOffline) {
-    prevOffline = current;
+  const reason = offlineReason();
+  const currentOffline = reason !== null;
+  if (currentOffline !== prevOffline || reason !== prevReason) {
+    prevOffline = currentOffline;
+    prevReason = reason;
     for (const cb of listeners) {
-      cb(current);
+      cb(currentOffline);
     }
   }
 }

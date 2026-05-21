@@ -3,6 +3,7 @@ defmodule RefMDWeb.UmkController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Devices
+  alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Schemas
 
   operation(:distribute_umk,
@@ -25,7 +26,7 @@ defmodule RefMDWeb.UmkController do
     sender_device_id = conn.assigns.pop_device_id
 
     with :ok <- validate_sender_device_match(sender_device_id, params["sender_device_id"]),
-         :ok <- validate_device_ownership(user_id, target_device_id) do
+         :ok <- validate_distribution_target(user_id, target_device_id) do
       execute_distribute_umk(conn, user_id, target_device_id, sender_device_id, params)
     else
       {:error, status, error} ->
@@ -75,28 +76,59 @@ defmodule RefMDWeb.UmkController do
     end
   end
 
-  defp validate_device_ownership(user_id, device_id) do
-    if Devices.user_owns_active_device?(user_id, device_id) do
-      :ok
-    else
-      {:error, :forbidden, "invalid_device"}
+  defp validate_distribution_target(user_id, device_id) do
+    cond do
+      Devices.user_owns_active_device?(user_id, device_id) ->
+        :ok
+
+      match?(%{user_id: ^user_id}, Devices.get_valid_device_registration(device_id)) ->
+        :ok
+
+      true ->
+        {:error, :forbidden, "invalid_device"}
     end
   end
 
   defp execute_distribute_umk(conn, user_id, target_device_id, sender_device_id, params) do
-    case Devices.create_device_encrypted_umk(%{
-           user_id: user_id,
-           device_id: target_device_id,
-           sender_device_id: sender_device_id,
-           encrypted_umk: decode_binary!(params["encrypted_umk"]),
-           nonce: decode_binary!(params["nonce"])
-         }) do
+    with {:ok, sender_device} <- fetch_active_device(user_id, sender_device_id),
+         {:ok, target_device} <- fetch_pending_delivery_target(user_id, target_device_id) do
+      Devices.finalize_pending_delivery_from_params(
+        user_id,
+        target_device_id,
+        sender_device,
+        target_device,
+        params
+      )
+    end
+    |> case do
       {:ok, _} ->
         Devices.broadcast_registration_approved(user_id, target_device_id)
         conn |> put_status(:created) |> json(%{ok: true})
 
       {:error, %Ecto.Changeset{} = changeset} when changeset.errors != [] ->
         handle_umk_changeset_error(conn, changeset)
+
+      {:error, :invalid_key_directory} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
+
+      {:error, :missing_key_directory} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_key_directory"})
+
+      {:error, :invalid_initial_key_delivery} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_initial_key_delivery"})
+
+      {:error, :invalid_initial_ake_prekey} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_initial_ake_prekey"})
+
+      {:error, :initial_ake_prekey_reused} ->
+        conn |> put_status(:conflict) |> json(%{error: "initial_ake_prekey_reused"})
+
+      {:error, :invalid_device} ->
+        conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
     end
   end
 
@@ -126,13 +158,37 @@ defmodule RefMDWeb.UmkController do
         conn |> put_status(:not_found) |> json(%{error: "sender_device_not_found"})
 
       sender ->
-        json(conn, %{
-          encrypted_umk: encode_binary(umk_data.encrypted_umk),
-          nonce: encode_binary(umk_data.nonce),
-          sender_device_id: umk_data.sender_device_id,
-          sender_ecdh_public_key: encode_binary(sender.ecdh_public_key),
-          sender_signing_public_key: encode_binary(sender.signing_public_key)
-        })
+        json(
+          conn,
+          %{
+            sender_device_id: umk_data.sender_device_id,
+            initial_ake: umk_data.initial_ake,
+            initial_key_delivery: umk_data.initial_key_delivery,
+            initial_kek_deliveries: umk_data.initial_kek_deliveries,
+            device_state_delivery: umk_data.device_state_delivery
+          }
+          |> Map.merge(DeviceIdentity.sender_fields(sender))
+        )
+    end
+  end
+
+  defp fetch_active_device(user_id, device_id) when is_binary(device_id) do
+    case Devices.get_device(device_id) do
+      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
+      _ -> {:error, :invalid_device}
+    end
+  end
+
+  defp fetch_active_device(_user_id, _device_id), do: {:error, :invalid_device}
+
+  defp fetch_pending_delivery_target(user_id, device_id) when is_binary(device_id) do
+    case Devices.get_valid_device_registration(device_id) do
+      %{user_id: ^user_id, approval_signature: signature} = registration
+      when is_map(signature) ->
+        {:ok, registration}
+
+      _ ->
+        {:error, :invalid_device}
     end
   end
 end

@@ -21,9 +21,7 @@ export async function recoverDocumentFromCache(
     if (!created) return null;
 
     const worker = getCryptoWorker();
-    await worker.unwrapDekFromOffline({
-      ciphertext: dekEntry.wrappedDek,
-      iv: dekEntry.wrappedDekNonce,
+    await worker.restoreDekFromOffline({
       documentId,
       keyVersion: dekEntry.keyVersion,
       isActive: true,
@@ -48,9 +46,10 @@ export async function recoverDocumentFromCache(
       });
       Y.applyUpdate(yDoc, decryptedDiff);
     }
+    const confirmedBaseState = Y.encodeStateAsUpdate(yDoc);
     return {
       yDoc,
-      confirmedBaseState: new Uint8Array(0),
+      confirmedBaseState,
       confirmedStateVector: null,
       confirmedSnapshotId: "",
       confirmedClocks: {},
@@ -64,17 +63,13 @@ export async function recoverDocumentFromCache(
   const worker = getCryptoWorker();
   const kekEntry = await getOfflineKek(cacheEntry.workspaceId);
   if (kekEntry) {
-    await worker.unwrapKekFromOffline({
-      ciphertext: kekEntry.wrappedKek,
-      iv: kekEntry.wrappedKekNonce,
+    await worker.restoreKekFromOffline({
       workspaceId: kekEntry.workspaceId,
       keyVersion: kekEntry.keyVersion,
       isActive: true,
     });
   }
-  await worker.unwrapDekFromOffline({
-    ciphertext: dekEntry.wrappedDek,
-    iv: dekEntry.wrappedDekNonce,
+  await worker.restoreDekFromOffline({
     documentId,
     keyVersion: dekEntry.keyVersion,
     isActive: true,

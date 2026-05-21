@@ -3,16 +3,27 @@ import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { CopyIcon, ExternalLinkIcon, Globe2Icon, LinkIcon, SettingsIcon } from "lucide-solid";
 import { useDocuments, useDocumentTitles, type DocumentResponse } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
-import { PublishDialog } from "@/features/publication";
-import { ShareManagementDialog } from "@/features/share";
+import { getPublication, PublishDialog, type Publication } from "@/features/publication";
+import {
+  listDocumentShares,
+  readShareUrl,
+  ShareManagementDialog,
+  type ShareListItem,
+} from "@/features/share";
 import { useDocumentSharePermissions } from "@/features/workspace";
-import { publicApi, sharesApi, type components } from "@/shared/api";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
 
-type Publication = components["schemas"]["PublicationResponse"];
-type ShareListItem = components["schemas"]["ShareListItem"];
+const UNBOUNDED_SHARE_VIEWS = Number.MAX_SAFE_INTEGER;
+
+function shareMaxViews(share: ShareListItem): number {
+  return share.max_views ?? UNBOUNDED_SHARE_VIEWS;
+}
+
+function shareExpiresEventSequence(share: ShareListItem): number {
+  return share.expires_event_sequence ?? UNBOUNDED_SHARE_VIEWS;
+}
 
 interface SharedPage {
   document: DocumentResponse;
@@ -34,8 +45,8 @@ function absoluteUrl(url: string): string {
   return `${window.location.origin}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
-function shareUrl(share: ShareListItem): string {
-  return `${window.location.origin}/share/${share.share_slug}`;
+function shareUrl(documentId: string, share: ShareListItem): string {
+  return readShareUrl(documentId, share.id) ?? "";
 }
 
 function pageLabel(document: DocumentResponse): string {
@@ -140,8 +151,8 @@ export function ExternalAccessSection() {
     queryFn: async (): Promise<SharedPage[]> => {
       const results = await Promise.all(
         activeDocuments().map(async (document) => {
-          const response = await sharesApi.listDocumentShares(document.id);
-          return { document, shares: response.shares };
+          const shares = await listDocumentShares(document.id);
+          return { document, shares };
         }),
       );
       return results.filter((entry) => entry.shares.length > 0);
@@ -162,7 +173,7 @@ export function ExternalAccessSection() {
       return Promise.all(
         publishedDocuments().map(async (document) => {
           try {
-            const publication = await publicApi.getPublication(document.id);
+            const publication = await getPublication(document.id);
             return { document, publication };
           } catch {
             return { document, publication: null };
@@ -269,25 +280,31 @@ export function ExternalAccessSection() {
                           <ExternalAccessRow
                             kind={pageLabel(entry.document)}
                             title={getTitle(entry.document)}
-                            url={shareUrl(entry.share)}
+                            url={shareUrl(entry.document.id, entry.share)}
                             meta={`${entry.share.permission} / ${entry.share.scope} · ${
-                              entry.share.access_count
+                              entry.share.view_count
                             }${
-                              entry.share.access_limit == null ? "" : `/${entry.share.access_limit}`
+                              shareMaxViews(entry.share) === UNBOUNDED_SHARE_VIEWS
+                                ? ""
+                                : `/${shareMaxViews(entry.share)}`
                             } uses${
-                              entry.share.expires_at
-                                ? ` · Expires ${new Date(
-                                    entry.share.expires_at,
-                                  ).toLocaleDateString()}`
+                              shareExpiresEventSequence(entry.share) !== UNBOUNDED_SHARE_VIEWS
+                                ? ` · Expires at event ${shareExpiresEventSequence(entry.share)}`
                                 : ""
                             }`}
                             copied={copiedShareId() === entry.share.id}
                             onCopy={() => {
-                              copyText(shareUrl(entry.share))
+                              copyText(shareUrl(entry.document.id, entry.share))
                                 .then(() => setCopiedShareId(entry.share.id))
                                 .catch(() => setError("Failed to copy share link."));
                             }}
-                            onOpen={() => window.open(shareUrl(entry.share), "_blank", "noopener")}
+                            onOpen={() =>
+                              window.open(
+                                shareUrl(entry.document.id, entry.share),
+                                "_blank",
+                                "noopener",
+                              )
+                            }
                             onManage={() => openShareDialog(entry.document)}
                           />
                         )}

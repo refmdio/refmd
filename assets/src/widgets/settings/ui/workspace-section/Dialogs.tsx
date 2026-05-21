@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import type { WorkspaceSectionModel } from "../../model/workspace-section/useSection";
+import type { WorkspaceSectionModel } from "../../model/workspace-section/use-section";
 
 interface WorkspaceSectionDialogsProps {
   state: WorkspaceSectionModel;

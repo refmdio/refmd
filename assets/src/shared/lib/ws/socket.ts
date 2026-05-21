@@ -46,11 +46,27 @@ function disconnectSocketsForPageUnload(): void {
   }
 }
 
+function reconnectSocketsAfterNetworkOnline(): void {
+  if (pageUnloading) return;
+  clearAuthTransportNetworkFailure();
+  for (const [scope, scopeState] of scopeStates.entries()) {
+    clearScheduledWsTokenRefresh(scopeState);
+    if (scopeState.cachedWsToken && scopeState.socket && !scopeState.socket.isConnected()) {
+      scopeState.socket.connect();
+      continue;
+    }
+    refreshPhoenixWsToken(scope).catch(() => {
+      schedulePhoenixWsTokenRefresh(scope);
+    });
+  }
+}
+
 function ensureLifecycleHandlersInstalled(): void {
   if (lifecycleHandlersInstalled || typeof window === "undefined") return;
   lifecycleHandlersInstalled = true;
   window.addEventListener("pagehide", disconnectSocketsForPageUnload, { once: true });
   window.addEventListener("beforeunload", disconnectSocketsForPageUnload, { once: true });
+  window.addEventListener("online", reconnectSocketsAfterNetworkOnline);
 }
 
 function resolveSocketScope(scope?: SocketScope): SocketScope {

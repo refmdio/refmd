@@ -4,7 +4,7 @@ defmodule RefMDWeb.Plugs.VerifyOrigin do
 
   In SameSite=Lax deployments, the cookie attribute itself prevents CSRF.
   In SameSite=None deployments, this plug enforces Origin verification
-  on POST/PATCH/DELETE requests as required by the design (web-security.md).
+  on POST/PATCH/DELETE requests.
 
   PoP-required endpoints are already protected by device signature verification
   (PoP acts as a CSRF token equivalent).

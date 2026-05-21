@@ -54,6 +54,7 @@ config :refmd, RefMDWeb.Endpoint,
 
 # Dummy salt secret for consistent fake salts (non-existent users)
 config :refmd, dummy_salt_secret: "dev-dummy-salt-secret-do-not-use-in-production"
+config :refmd, e2e_rate_limit_bypass: true
 
 config :refmd,
   share_server_key_id: "dev-share-key",

@@ -18,9 +18,9 @@ defmodule RefMD.Application do
       {Cluster.Supervisor, [topologies, [name: RefMD.ClusterSupervisor]]},
       {Phoenix.PubSub, name: RefMD.PubSub},
       {Oban, Application.fetch_env!(:refmd, Oban)},
-      {Registry, keys: :unique, name: RefMD.Documents.Registry},
+      {Registry, keys: :unique, name: RefMD.Documents.Runtime.Registry},
       RefMDWeb.Channels.Document.Presence,
-      RefMD.Documents.Supervisor,
+      RefMD.Documents.Runtime.Supervisor,
       # Start to serve requests, typically the last entry
       RefMDWeb.Endpoint
     ]

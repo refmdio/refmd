@@ -1,6 +1,6 @@
 defmodule RefMD.Sharing do
   @moduledoc """
-  Public facade for the Sharing context.
+  Public API for the Sharing context.
   """
 
   alias RefMD.Documents.Document
@@ -13,7 +13,7 @@ defmodule RefMD.Sharing do
   alias RefMD.Sharing.ShareParticipantDevice
   alias RefMD.Sharing.ShareParticipantSession
   alias RefMD.Sharing.Shares
-  alias RefMD.Sharing.VerificationDirectories
+  alias RefMD.Sharing.Verification.Directory
 
   @type create_share_result :: Shares.create_share_result()
 
@@ -23,57 +23,85 @@ defmodule RefMD.Sharing do
   @spec list_document_shares(Document.t(), Ecto.UUID.t(), %{base_role: String.t()}) :: [map()]
   defdelegate list_document_shares(document, actor_user_id, role), to: Management
 
-  @spec update_share_settings(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), map()) ::
+  @spec update_share_settings(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok,
            %{
              id: Ecto.UUID.t(),
-             expires_at: DateTime.t() | nil,
-             access_limit: pos_integer() | nil,
-             access_count: non_neg_integer()
+             expires_event_sequence: pos_integer(),
+             max_views: pos_integer(),
+             view_count: non_neg_integer()
            }}
           | {:error, term()}
-  defdelegate update_share_settings(document_id, share_id, manage_token, attrs), to: Management
-
-  @spec delete_share(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) :: :ok | {:error, term()}
-  defdelegate delete_share(document_id, share_id, manage_token), to: Management
+  defdelegate update_share_settings(document_id, share_id, attrs), to: Management
 
   @spec delete_share(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
   defdelegate delete_share(document_id, share_id), to: Management
 
-  @spec update_share_exclusions(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), map()) ::
-          {:ok, %{share_id: Ecto.UUID.t(), exclusions: [Ecto.UUID.t()]}} | {:error, term()}
-  defdelegate update_share_exclusions(document_id, share_id, manage_token, attrs), to: Management
+  @spec delete_share(Ecto.UUID.t(), Ecto.UUID.t(), map()) :: :ok | {:error, term()}
+  defdelegate delete_share(document_id, share_id, attrs), to: Management
 
-  @spec update_share_keys(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), map()) ::
+  @spec update_share_exclusions(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
+          {:ok, %{share_id: Ecto.UUID.t(), exclusions: [Ecto.UUID.t()]}} | {:error, term()}
+  defdelegate update_share_exclusions(document_id, share_id, attrs), to: Management
+
+  @spec update_share_keys(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, %{share_id: Ecto.UUID.t(), added: [Ecto.UUID.t()], replaced: [Ecto.UUID.t()]}}
           | {:error, term()}
-  defdelegate update_share_keys(document_id, share_id, manage_token, attrs), to: Management
+  defdelegate update_share_keys(document_id, share_id, attrs), to: Management
 
   @spec create_share_mount(Ecto.UUID.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate create_share_mount(user_id, attrs), to: Mounts
-
-  @spec list_share_mounts_for_share(Ecto.UUID.t(), String.t()) ::
-          {:ok, %{mounts: [map()]}} | {:error, term()}
-  defdelegate list_share_mounts_for_share(user_id, share_slug), to: Mounts
 
   @spec list_share_mounts(Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, %{mounts: [map()]}} | {:error, term()}
   defdelegate list_share_mounts(user_id, workspace_id), to: Mounts
 
+  @spec list_share_mounts_for_share(Ecto.UUID.t(), String.t()) ::
+          {:ok, %{mounts: [map()]}} | {:error, term()}
+  defdelegate list_share_mounts_for_share(user_id, share_slug), to: Mounts
+
   @spec get_share_mount(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
   defdelegate get_share_mount(user_id, mount_id), to: Mounts
 
-  @spec get_share_mount_document(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate get_share_mount_document(user_id, mount_id, document_id), to: Mounts
+  defdelegate get_share_mount_document_by_token(
+                user_id,
+                mount_id,
+                document_token,
+                current_pop_device_id,
+                pin_hash
+              ),
+              to: Mounts
 
-  @spec get_share_mount_share(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate get_share_mount_share(user_id, mount_id, share_id), to: Mounts
+  defdelegate get_share_mount_document_by_token(
+                user_id,
+                mount_id,
+                document_token,
+                current_pop_device_id,
+                pin_hash,
+                session_token,
+                mount_password_session
+              ),
+              to: Mounts
 
-  @spec resolve_mounted_document_share(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, Ecto.UUID.t()} | {:error, term()}
-  defdelegate resolve_mounted_document_share(user_id, mount_id, document_id), to: Mounts
+  defdelegate resolve_mounted_document_share_for_session(share_id, mount_id, document_id),
+    to: Mounts
+
+  defdelegate resolve_mounted_document_share_for_session(
+                share_id,
+                mount_id,
+                document_id,
+                requested_share_id
+              ),
+              to: Mounts
+
+  defdelegate resolve_mounted_document_share_for_session(
+                share_id,
+                mount_id,
+                document_id,
+                requested_share_id,
+                pin_hash
+              ),
+              to: Mounts
 
   @spec update_share_mount(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, map()} | {:error, term()}
@@ -82,27 +110,54 @@ defmodule RefMD.Sharing do
   @spec delete_share_mount(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
   defdelegate delete_share_mount(user_id, mount_id), to: Mounts
 
-  @spec get_share_mount_folder(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate get_share_mount_folder(user_id, mount_id, folder_token), to: Mounts
+  defdelegate get_share_mount_folder(
+                user_id,
+                mount_id,
+                folder_token,
+                current_pop_device_id,
+                pin_hash
+              ),
+              to: Mounts
+
+  defdelegate get_share_mount_folder(
+                user_id,
+                mount_id,
+                folder_token,
+                current_pop_device_id,
+                pin_hash,
+                session_token,
+                mount_password_session
+              ),
+              to: Mounts
 
   @spec get_share_mount_challenge(Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, %{challenge: binary(), salt: binary(), kdf_params: map()}} | {:error, term()}
   defdelegate get_share_mount_challenge(user_id, mount_id), to: Mounts
 
-  @spec respond_share_mount_challenge(Ecto.UUID.t(), Ecto.UUID.t(), binary()) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate respond_share_mount_challenge(user_id, mount_id, response), to: Mounts
+  @spec respond_share_mount_challenge(
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          binary(),
+          Ecto.UUID.t() | nil,
+          String.t(),
+          String.t() | nil
+        ) :: {:ok, map()} | {:error, term()}
+  defdelegate respond_share_mount_challenge(
+                user_id,
+                mount_id,
+                current_pop_device_id,
+                response,
+                target_id,
+                password_challenge_hash,
+                session_token_base64 \\ nil
+              ),
+              to: Mounts
 
-  @spec respond_share_mount_challenge(Ecto.UUID.t(), Ecto.UUID.t(), binary(), Ecto.UUID.t() | nil) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate respond_share_mount_challenge(user_id, mount_id, response, target_id),
-    to: Mounts
-
-  @spec get_share_landing(String.t()) ::
+  @spec get_share_landing(String.t(), String.t() | nil) ::
           {:ok, %{share: RefMD.Sharing.Share.t(), root: map()}}
           | {:error, :not_found | :invalid_slug}
-  defdelegate get_share_landing(share_slug), to: Bootstrap
+  defdelegate get_share_landing(share_slug, session_token_base64 \\ nil), to: Bootstrap
 
   @spec bootstrap_participant(String.t(), map()) ::
           {:ok,
@@ -122,6 +177,15 @@ defmodule RefMD.Sharing do
           {:ok, %{challenge: binary(), salt: binary(), kdf_params: map()}} | {:error, term()}
   defdelegate get_password_challenge(share_slug), to: PasswordChallenges
 
+  @spec password_challenge_rate_limit_share_id(String.t()) :: Ecto.UUID.t() | nil
+  defdelegate password_challenge_rate_limit_share_id(share_slug), to: PasswordChallenges
+
+  @spec mount_challenge_rate_limit_share_id(Ecto.UUID.t()) :: Ecto.UUID.t() | nil
+  defdelegate mount_challenge_rate_limit_share_id(mount_id), to: Mounts
+
+  @spec share_mount_children?(Ecto.UUID.t()) :: boolean()
+  defdelegate share_mount_children?(document_id), to: Mounts
+
   @spec delete_expired_password_challenges() :: {non_neg_integer(), nil}
   defdelegate delete_expired_password_challenges(), to: PasswordChallenges
 
@@ -139,12 +203,31 @@ defmodule RefMD.Sharing do
           | {:error, term()}
   defdelegate respond_password_challenge(share_slug, attrs), to: PasswordChallenges
 
-  @spec get_document_bootstrap(String.t(), String.t() | nil) ::
+  @spec get_document_bootstrap(
+          String.t(),
+          String.t() | nil,
+          Bootstrap.authenticated_pin_hash()
+        ) ::
           {:ok, map()} | {:error, :not_found}
-  defdelegate get_document_bootstrap(document_token, session_token_base64), to: Bootstrap
+  defdelegate get_document_bootstrap(
+                document_token,
+                session_token_base64,
+                pin_hash
+              ),
+              to: Bootstrap
 
-  @spec get_folder_bootstrap(String.t(), String.t() | nil) :: {:ok, map()} | {:error, :not_found}
-  defdelegate get_folder_bootstrap(folder_token, session_token_base64), to: Bootstrap
+  @spec get_folder_bootstrap(
+          String.t(),
+          String.t() | nil,
+          Bootstrap.authenticated_pin_hash()
+        ) ::
+          {:ok, map()} | {:error, :not_found}
+  defdelegate get_folder_bootstrap(
+                folder_token,
+                session_token_base64,
+                pin_hash
+              ),
+              to: Bootstrap
 
   @spec get_valid_participant_session_by_token_base64(String.t() | nil) ::
           {:ok, ShareParticipantSession.t()} | {:error, :invalid_session | :invalid_token}
@@ -163,6 +246,12 @@ defmodule RefMD.Sharing do
           {:ok, String.t()} | {:error, :not_found}
   defdelegate get_share_permission(share_id, document_id), to: Access
 
+  @spec get_share_permission_version(Ecto.UUID.t()) :: pos_integer()
+  defdelegate get_share_permission_version(share_id), to: Shares
+
+  @spec share_workspace_id!(Ecto.UUID.t()) :: Ecto.UUID.t()
+  defdelegate share_workspace_id!(share_id), to: Shares
+
   @spec can_read_document?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   defdelegate can_read_document?(share_id, document_id), to: Access
 
@@ -175,26 +264,55 @@ defmodule RefMD.Sharing do
   @spec can_join_document_session?(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   defdelegate can_join_document_session?(share_id, document_id, session_id), to: Access
 
+  @spec share_session_workspace_access?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
+  defdelegate share_session_workspace_access?(share_id, workspace_id), to: Access
+
   @spec verification_directory(Ecto.UUID.t(), Ecto.UUID.t()) :: map()
-  defdelegate verification_directory(share_id, document_id), to: VerificationDirectories
+  defdelegate verification_directory(share_id, document_id), to: Directory
 
   @spec document_share_participant_verification_directory(Ecto.UUID.t()) :: map()
   defdelegate document_share_participant_verification_directory(document_id),
-    to: VerificationDirectories
+    to: Directory
 
   @spec participant_owns_device?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   defdelegate participant_owns_device?(principal_id, device_id), to: Participants
 
-  @spec get_participant_device(Ecto.UUID.t()) :: ShareParticipantDevice.t() | nil
-  defdelegate get_participant_device(device_id), to: Participants
+  @spec lock_participant_device_active(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          :ok | {:error, :not_found}
+  defdelegate lock_participant_device_active(principal_id, device_id), to: Participants
 
-  @spec create_pop_challenge(Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec participant_signing_public_material(Ecto.UUID.t()) :: {:ok, map()} | {:error, :not_found}
+  defdelegate participant_signing_public_material(device_id), to: Participants
+
+  @spec share_participant_signer(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, %{device_id: Ecto.UUID.t(), hybrid_signing_public_key_material: map()}}
+          | {:error, :not_found}
+  defdelegate share_participant_signer(share_id, principal_id, device_id), to: Participants
+
+  @spec get_participant_device(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          ShareParticipantDevice.t() | nil
+  defdelegate get_participant_device(share_id, principal_id, device_id), to: Participants
+
+  @spec validate_share_participant_writer_admission(map()) ::
+          {:ok, %{hybrid_signing_public_key_material: map()}}
+          | {:error, :invalid_share_participant_writer}
+  defdelegate validate_share_participant_writer_admission(attrs), to: Participants
+
+  @spec create_pop_challenge(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, binary()} | {:error, Ecto.Changeset.t()}
-  defdelegate create_pop_challenge(share_id, device_id), to: Participants
+  defdelegate create_pop_challenge(share_id, principal_id, device_id, session_id),
+    to: Participants
 
-  @spec consume_pop_challenge(binary(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec consume_pop_challenge(
+          binary(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t()
+        ) ::
           :ok | {:error, :invalid_challenge}
-  defdelegate consume_pop_challenge(challenge, share_id, device_id), to: Participants
+  defdelegate consume_pop_challenge(challenge, share_id, principal_id, device_id, session_id),
+    to: Participants
 
   @spec generate_ws_token(Ecto.UUID.t()) :: String.t()
   defdelegate generate_ws_token(session_id), to: Participants

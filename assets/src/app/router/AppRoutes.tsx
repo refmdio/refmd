@@ -1,33 +1,68 @@
 import { lazy, type ParentProps } from "solid-js";
-import { Navigate, Route, Router, type MatchFilters } from "@solidjs/router";
+import { Navigate, Route, Router, useLocation, type MatchFilters } from "@solidjs/router";
+import { Show } from "solid-js";
+import { isPublicPath } from "@/app/bootstrap/session";
 import { WorkspaceRoot } from "@/app/workspace/WorkspaceRoot";
 import { RequireAuth, RequireGuest } from "@/app/router/AuthGuard";
 
-const LoginPage = lazy(() => import("@/routes/auth/login"));
-const RegisterPage = lazy(() => import("@/routes/auth/register"));
-const DeviceRegisterPage = lazy(() => import("@/routes/devices/register"));
-const RecoveryPage = lazy(() => import("@/routes/auth/recovery"));
-const PasswordResetPage = lazy(() => import("@/routes/auth/password-reset"));
-const DocumentPage = lazy(() => import("@/routes/document/[documentId]"));
-const ShareLandingPage = lazy(() => import("@/routes/share/[shareSlug]"));
-const ShareDocumentPage = lazy(() => import("@/routes/share/d/[documentToken]"));
-const ShareFolderPage = lazy(() => import("@/routes/share/f/[folderToken]"));
-const MountPage = lazy(() => import("@/routes/mounts/[mountId]"));
-const PublicAuthorPage = lazy(() => import("@/routes/public/[authorSlug]"));
-const PublicDocumentPage = lazy(() => import("@/routes/public/[authorSlug]/[documentSlug]"));
-const InvitePage = lazy(() => import("@/routes/invite"));
-const DashboardPage = lazy(() => import("@/routes/dashboard"));
+const LoginPage = lazy(() => import("@/pages/auth/login"));
+const RegisterPage = lazy(() => import("@/pages/auth/register"));
+const DeviceRegisterPage = lazy(() => import("@/pages/devices/register"));
+const RecoveryPage = lazy(() => import("@/pages/auth/recovery"));
+const PasswordResetPage = lazy(() => import("@/pages/auth/password-reset"));
+const DocumentPage = lazy(() => import("@/pages/document/[documentId]"));
+const MountPage = lazy(() => import("@/pages/mounts/[mountId]"));
+const PublicAuthorPage = lazy(() => import("@/pages/public/[authorSlug]"));
+const PublicDocumentPage = lazy(() => import("@/pages/public/[authorSlug]/[documentSlug]"));
+const InvitePage = lazy(() => import("@/pages/invite"));
+const DashboardPage = lazy(() => import("@/pages/dashboard"));
+const ShareLandingPage = lazy(() => import("@/pages/share/[shareSlug]"));
+const ShareDocumentPage = lazy(() => import("@/pages/share/d/[documentToken]"));
+const ShareFolderPage = lazy(() => import("@/pages/share/f/[folderToken]"));
 
 const publicAuthorRouteFilters: MatchFilters = {
   authorHandle: /^@[A-Za-z0-9][A-Za-z0-9-]*$/,
 };
 
 function WorkspaceRoute(props: ParentProps) {
+  const location = useLocation();
+
   return (
-    <RequireAuth>
-      <WorkspaceRoot>{props.children}</WorkspaceRoot>
-    </RequireAuth>
+    <Show when={!isPublicPath(location.pathname)}>
+      <RequireAuth>
+        <WorkspaceRoot>{props.children}</WorkspaceRoot>
+      </RequireAuth>
+    </Show>
   );
+}
+
+function DashboardWorkspaceRoute() {
+  return (
+    <WorkspaceRoute>
+      <DashboardPage />
+    </WorkspaceRoute>
+  );
+}
+
+function DocumentWorkspaceRoute() {
+  return (
+    <WorkspaceRoute>
+      <DocumentPage />
+    </WorkspaceRoute>
+  );
+}
+
+function MountWorkspaceRoute() {
+  return (
+    <WorkspaceRoute>
+      <MountPage />
+    </WorkspaceRoute>
+  );
+}
+
+function RootRedirect() {
+  const location = useLocation();
+  return location.pathname === "/" ? <Navigate href="/dashboard" /> : null;
 }
 
 export function AppRoutes() {
@@ -56,12 +91,10 @@ export function AppRoutes() {
         matchFilters={publicAuthorRouteFilters}
       />
 
-      <Route path="/" component={WorkspaceRoute}>
-        <Route path="/" component={() => <Navigate href="/dashboard" />} />
-        <Route path="/dashboard" component={DashboardPage} />
-        <Route path="/document/:documentId" component={DocumentPage} />
-        <Route path="/mounts/:mountId" component={MountPage} />
-      </Route>
+      <Route path="/dashboard" component={DashboardWorkspaceRoute} />
+      <Route path="/document/:documentId" component={DocumentWorkspaceRoute} />
+      <Route path="/mounts/:mountId" component={MountWorkspaceRoute} />
+      <Route path="/" component={RootRedirect} />
     </Router>
   );
 }

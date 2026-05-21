@@ -1,9 +1,9 @@
 defmodule RefMD.Crypto do
   @moduledoc """
-  Cryptographic utilities: key validation, JCS signature protocol, Ed25519 verification.
+  Cryptographic utilities: key validation, JCS signature protocol, and update hashes.
   """
 
-  alias RefMD.Crypto.Blake3
+  alias RefMD.Crypto.{Blake3, JCS}
 
   # ── Key Validation ─────────────────────────────
 
@@ -31,38 +31,6 @@ defmodule RefMD.Crypto do
       0xFF, 0xFF>>
   ]
 
-  # Ed25519 small-order points (10 points, 32 bytes each, little-endian)
-  @ed25519_small_order_points [
-    <<0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00>>,
-    <<0xEC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0xFF, 0x7F>>,
-    <<0::256>>,
-    <<0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x80>>,
-    <<0xC7, 0x17, 0x6A, 0x70, 0x3D, 0x4D, 0xD8, 0x4F, 0xBA, 0x3C, 0x0B, 0x76, 0x0D, 0x10, 0x67,
-      0x0F, 0x2A, 0x20, 0x53, 0xFA, 0x2C, 0x39, 0xCC, 0xC6, 0x4E, 0xC7, 0xFD, 0x77, 0x92, 0xAC,
-      0x03, 0x7A>>,
-    <<0xC7, 0x17, 0x6A, 0x70, 0x3D, 0x4D, 0xD8, 0x4F, 0xBA, 0x3C, 0x0B, 0x76, 0x0D, 0x10, 0x67,
-      0x0F, 0x2A, 0x20, 0x53, 0xFA, 0x2C, 0x39, 0xCC, 0xC6, 0x4E, 0xC7, 0xFD, 0x77, 0x92, 0xAC,
-      0x03, 0xFA>>,
-    <<0x26, 0xE8, 0x95, 0x8F, 0xC2, 0xB2, 0x27, 0xB0, 0x45, 0xC3, 0xF4, 0x89, 0xF2, 0xEF, 0x98,
-      0xF0, 0xD5, 0xDF, 0xAC, 0x05, 0xD3, 0xC6, 0x33, 0x39, 0xB1, 0x38, 0x02, 0x88, 0x6D, 0x53,
-      0xFC, 0x05>>,
-    <<0x26, 0xE8, 0x95, 0x8F, 0xC2, 0xB2, 0x27, 0xB0, 0x45, 0xC3, 0xF4, 0x89, 0xF2, 0xEF, 0x98,
-      0xF0, 0xD5, 0xDF, 0xAC, 0x05, 0xD3, 0xC6, 0x33, 0x39, 0xB1, 0x38, 0x02, 0x88, 0x6D, 0x53,
-      0xFC, 0x85>>,
-    <<0xED, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0xFF, 0x7F>>,
-    <<0xED, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0xFF, 0xFF>>
-  ]
-
   @spec valid_x25519_public_key?(binary()) :: boolean()
   def valid_x25519_public_key?(key) when byte_size(key) == 32 do
     key not in @x25519_low_order_points
@@ -70,53 +38,12 @@ defmodule RefMD.Crypto do
 
   def valid_x25519_public_key?(_), do: false
 
-  @spec valid_ed25519_public_key?(binary()) :: boolean()
-  def valid_ed25519_public_key?(key) when byte_size(key) == 32 do
-    key not in @ed25519_small_order_points
-  end
-
-  def valid_ed25519_public_key?(_), do: false
-
-  # ── JCS Signature Protocol ─────────────────────
-
-  @spec build_signature_message(String.t(), map()) :: String.t()
-  def build_signature_message(action, fields) do
-    fields
-    |> Map.merge(%{"action" => action, "protocol" => "refmd", "version" => 1})
-    |> Enum.sort_by(fn {k, _} -> k end)
-    |> Enum.map(fn {k, v} -> Jason.encode!(k) <> ":" <> encode_jcs_value(v) end)
-    |> then(fn pairs -> "{" <> Enum.join(pairs, ",") <> "}" end)
-  end
-
-  @spec encode_jcs_value(term()) :: String.t()
-  def encode_jcs_value(nil), do: "null"
-  def encode_jcs_value(v) when is_boolean(v), do: Atom.to_string(v)
-  def encode_jcs_value(v) when is_binary(v), do: Jason.encode!(v)
-  def encode_jcs_value(v) when is_integer(v), do: Integer.to_string(v)
-  def encode_jcs_value(v) when is_map(v), do: jcs_canonicalize(v)
-
-  def encode_jcs_value(v) when is_list(v),
-    do: "[" <> Enum.map_join(v, ",", &encode_jcs_value/1) <> "]"
-
-  def encode_jcs_value(v) when is_float(v),
-    do: raise(ArgumentError, "floats are not allowed in JCS")
-
-  # ── JCS Canonicalization (RFC 8785) ────────────
-
-  @spec jcs_canonicalize(map()) :: String.t()
-  def jcs_canonicalize(map) when is_map(map) do
-    map
-    |> Enum.sort_by(fn {k, _} -> k end)
-    |> Enum.map(fn {k, v} -> Jason.encode!(k) <> ":" <> encode_jcs_value(v) end)
-    |> then(fn pairs -> "{" <> Enum.join(pairs, ",") <> "}" end)
-  end
-
   # ── Update Hash ──────────────────────────────
 
   @spec compute_update_hash(map()) :: String.t()
   def compute_update_hash(params) do
     params
-    |> jcs_canonicalize()
+    |> JCS.canonical_bytes!()
     |> Blake3.hash_base64url()
   end
 
@@ -127,48 +54,4 @@ defmodule RefMD.Crypto do
   end
 
   def verify_update_hash(_, _), do: false
-
-  # ── WS Envelope Signature ─────────────────────
-
-  @spec build_ws_signature_message(String.t(), String.t(), String.t(), map()) :: binary()
-  def build_ws_signature_message(prefix, ciphertext_b64, nonce_b64, public_data) do
-    public_data_jcs = jcs_canonicalize(public_data)
-    public_data_b64 = Base.url_encode64(public_data_jcs, padding: false)
-
-    envelope = %{
-      "ciphertext" => ciphertext_b64,
-      "nonce" => nonce_b64,
-      "publicData" => public_data_b64
-    }
-
-    prefix <> jcs_canonicalize(envelope)
-  end
-
-  @spec verify_ws_envelope_signature(
-          String.t(),
-          String.t(),
-          String.t(),
-          map(),
-          binary(),
-          binary()
-        ) ::
-          boolean()
-  def verify_ws_envelope_signature(
-        prefix,
-        ciphertext_b64,
-        nonce_b64,
-        public_data,
-        signature_raw,
-        public_key_raw
-      ) do
-    message = build_ws_signature_message(prefix, ciphertext_b64, nonce_b64, public_data)
-    verify_ed25519_signature(message, signature_raw, public_key_raw)
-  end
-
-  # ── Ed25519 Signature Verification ─────────────
-
-  @spec verify_ed25519_signature(binary(), binary(), binary()) :: boolean()
-  def verify_ed25519_signature(message, signature, public_key) do
-    :crypto.verify(:eddsa, :none, message, signature, [public_key, :ed25519])
-  end
 end

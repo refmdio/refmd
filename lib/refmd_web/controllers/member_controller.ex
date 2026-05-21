@@ -83,9 +83,14 @@ defmodule RefMDWeb.MemberController do
           Enum.map(devices, fn d ->
             %{
               device_id: d.id,
-              signing_public_key: Base.url_encode64(d.signing_public_key, padding: false),
-              ecdh_public_key: Base.url_encode64(d.ecdh_public_key, padding: false),
-              identity_signature: Base.url_encode64(d.identity_signature, padding: false),
+              hybrid_signing_public_key_material: d.hybrid_signing_public_key_material,
+              signing_key_id: d.signing_key_id,
+              hybrid_encryption_public_key_material: d.hybrid_encryption_public_key_material,
+              encryption_key_id: d.encryption_key_id,
+              approval_signature: d.approval_signature,
+              approval_signature_surface: d.approval_signature_surface,
+              approval_proof: d.approval_proof,
+              approval_delivery_commitments: d.approval_delivery_commitments,
               client_nonce: Base.url_encode64(d.client_nonce, padding: false),
               revoked_at: d.revoked_at,
               created_at: d.created_at
@@ -144,6 +149,7 @@ defmodule RefMDWeb.MemberController do
       workspace_id: [in: :path, type: :string, required: true],
       user_id: [in: :path, type: :string, required: true]
     ],
+    request_body: {"Remove member params", "application/json", Schemas.RemoveMemberRequest},
     responses: [
       ok: {"Removed", "application/json", Schemas.RemoveMemberResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
@@ -152,18 +158,18 @@ defmodule RefMDWeb.MemberController do
   )
 
   @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def delete(conn, %{"user_id" => target_user_id}) do
+  def delete(conn, %{"user_id" => target_user_id} = params) do
     workspace_id = conn.assigns.workspace_id
     actor_user_id = conn.assigns.current_user_id
 
     cond do
       # Self-removal: PoP required, RBAC bypassed
       target_user_id == actor_user_id ->
-        do_remove(conn, workspace_id, target_user_id, actor_user_id)
+        do_remove(conn, workspace_id, target_user_id, actor_user_id, params)
 
       # Other removal: requires member:remove permission
       has_permission?(conn.assigns.workspace_role, "member:remove") ->
-        do_remove(conn, workspace_id, target_user_id, actor_user_id)
+        do_remove(conn, workspace_id, target_user_id, actor_user_id, params)
 
       true ->
         conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
@@ -185,24 +191,35 @@ defmodule RefMDWeb.MemberController do
 
   @spec identity_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def identity_keys(conn, _params) do
-    members = Encryption.get_workspace_member_identity_keys(conn.assigns.workspace_id)
+    members =
+      conn.assigns.workspace_id
+      |> Workspaces.list_workspace_members()
+      |> Enum.reject(&(&1.base_role == "guest"))
 
     json(conn, %{
       members:
-        Enum.map(members, fn m ->
+        Enum.map(members, fn member ->
+          identity = Encryption.get_user_identity_public_key(member.user_id)
+
           %{
-            user_id: m.user_id,
-            ecdh_public_key: Base.url_encode64(m.ecdh_public_key, padding: false),
-            signing_public_key: Base.url_encode64(m.signing_public_key, padding: false)
+            user_id: member.user_id,
+            hybrid_encryption_public_key_material:
+              identity && identity.hybrid_encryption_public_key_material,
+            hybrid_signing_public_key_material:
+              identity && identity.hybrid_signing_public_key_material
           }
         end)
+        |> Enum.reject(&is_nil(&1.hybrid_encryption_public_key_material))
     })
   end
 
-  defp do_remove(conn, workspace_id, target_user_id, actor_user_id) do
-    case Workspaces.remove_member(workspace_id, target_user_id, actor_user_id) do
+  defp do_remove(conn, workspace_id, target_user_id, actor_user_id, params) do
+    case Workspaces.remove_member(workspace_id, target_user_id, actor_user_id, %{
+           workspace_events: params["workspace_key_directory_events"],
+           workspace_checkpoint: params["workspace_key_directory_checkpoint"]
+         }) do
       {:ok, _member} ->
-        workspace = RefMD.Repo.get(RefMD.Workspaces.Workspace, workspace_id)
+        workspace = Workspaces.get_workspace(workspace_id)
 
         rotation_info =
           if workspace && workspace.needs_kek_rotation do

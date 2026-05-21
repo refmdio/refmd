@@ -77,6 +77,27 @@ test.describe.serial("Login, Logout & Session", () => {
     await waitForWorkspaceReady(sharedPage);
   });
 
+  test("session persists after closing a tab without keep-me-signed-in", async () => {
+    test.setTimeout(180_000);
+    if (!sharedPage.isClosed()) {
+      await sharedPage.close();
+    }
+    sharedPage = await sharedContext.newPage();
+    await login(sharedPage, email, { rememberMe: false });
+    await waitForWorkspaceReady(sharedPage);
+    await sharedPage.close();
+
+    sharedPage = await sharedContext.newPage();
+    await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
+
+    await expect(sharedPage).toHaveURL(/dashboard/, { timeout: 120_000 });
+    await expect(sharedPage.getByText("Password Required")).not.toBeVisible({ timeout: 5_000 });
+    await expect(sharedPage.getByText("Recovery Key", { exact: true })).not.toBeVisible({
+      timeout: 5_000,
+    });
+    await waitForWorkspaceReady(sharedPage);
+  });
+
   // SESSION-02
   test("session persists after logout-login-reload cycle", async () => {
     test.setTimeout(180_000);

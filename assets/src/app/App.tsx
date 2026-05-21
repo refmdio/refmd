@@ -30,6 +30,7 @@ export default function App() {
 
   const { ready, showPasswordReentry, transientError, retryRestore, closePasswordReentry } =
     useSessionBootstrap();
+  const shouldBlockForPasswordReentry = () => showPasswordReentry() && !isPublicPath();
 
   return (
     <ThemeProvider defaultTheme="system" enableSystem attribute="class">
@@ -75,9 +76,11 @@ export default function App() {
         <Show when={tofuErrors().length === 0 && (!transientError() || isPublicPath())}>
           <QueryClientProvider client={queryClient}>
             <PendingDeviceMonitor>
-              <AppRoutes />
+              <Show when={!shouldBlockForPasswordReentry()}>
+                <AppRoutes />
+              </Show>
               <PasswordReentryDialog
-                open={showPasswordReentry()}
+                open={shouldBlockForPasswordReentry()}
                 onComplete={closePasswordReentry}
               />
             </PendingDeviceMonitor>

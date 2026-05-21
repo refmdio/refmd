@@ -2,6 +2,9 @@ defmodule RefMDWeb.InvitationController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Crypto.Encoding
+  alias RefMD.Encryption
+  alias RefMD.Users
   alias RefMD.Workspaces
   alias RefMDWeb.Plugs.RequireRBAC
   alias RefMDWeb.Schemas
@@ -37,7 +40,10 @@ defmodule RefMDWeb.InvitationController do
     actor_role = conn.assigns.workspace_role
 
     with {:ok, validated} <- validate_create_params(params, workspace_id, user_id),
-         validated = Map.put(validated, :actor_role, actor_role),
+         validated =
+           validated
+           |> Map.put(:actor_role, actor_role)
+           |> Map.put(:actor_device_id, conn.assigns[:pop_device_id]),
          {:ok, invitation} <- Workspaces.create_invitation(validated) do
       conn
       |> put_status(:created)
@@ -72,6 +78,7 @@ defmodule RefMDWeb.InvitationController do
       workspace_id: [in: :path, type: :string, required: true],
       invitation_id: [in: :path, type: :string, required: true]
     ],
+    request_body: {"Revocation params", "application/json", Schemas.RevokeInvitationRequest},
     responses: [
       no_content: {"Revoked", "application/json", nil},
       bad_request: {"Invalid ID format", "application/json", Schemas.ErrorResponse},
@@ -83,31 +90,44 @@ defmodule RefMDWeb.InvitationController do
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
 
   @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def delete(conn, %{"invitation_id" => invitation_id}) do
+  def delete(conn, %{"invitation_id" => invitation_id} = params) do
     if Regex.match?(@uuid_regex, invitation_id) do
-      do_delete(conn, invitation_id)
+      case require_workspace_key_directory(params) do
+        {:ok, key_directory} -> do_delete(conn, invitation_id, key_directory)
+        {:error, reason} -> handle_create_error(conn, reason)
+      end
     else
       conn |> put_status(:bad_request) |> json(%{error: "invalid_invitation_id_format"})
     end
   end
 
-  defp do_delete(conn, invitation_id) do
+  defp do_delete(conn, invitation_id, key_directory) do
     workspace_id = conn.assigns.workspace_id
 
-    case Workspaces.revoke_invitation(workspace_id, invitation_id) do
+    key_directory = put_actor_device_id(key_directory, conn.assigns[:pop_device_id])
+
+    case Workspaces.revoke_invitation(
+           workspace_id,
+           invitation_id,
+           conn.assigns.current_user_id,
+           key_directory
+         ) do
       {:ok, _} ->
         send_resp(conn, :no_content, "")
 
       {:error, :not_found} ->
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
+
+      {:error, :invalid_key_directory} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
     end
   end
 
-  # ── POST /api/workspaces/invitations/accept ─────────
+  # ── GET /api/invitations/lookup ─────────────────────
 
   operation(:lookup,
     summary: "Lookup invitation kind",
-    request_body: {"Lookup params", "application/json", Schemas.InvitationLookupRequest},
+    parameters: [token: [in: :query, type: :string, required: true]],
     responses: [
       ok: {"Invitation kind", "application/json", Schemas.InvitationLookupResponse},
       bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
@@ -119,8 +139,8 @@ defmodule RefMDWeb.InvitationController do
   def lookup(conn, %{"token" => token}) do
     with {:ok, token_bytes} <- decode_token(token),
          {:ok, token_hash} <- compute_token_hash(token_bytes),
-         {:ok, kind} <- Workspaces.lookup_invitation_kind(token_hash) do
-      json(conn, %{kind: Atom.to_string(kind)})
+         {:ok, invitation} <- Workspaces.lookup_invitation(token_hash) do
+      json(conn, serialize_lookup(invitation))
     else
       {:error, reason} -> handle_lookup_error(conn, reason)
     end
@@ -145,12 +165,20 @@ defmodule RefMDWeb.InvitationController do
 
   @spec accept(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def accept(conn, %{"token" => token}) do
-    with {:ok, token_bytes} <- decode_token(token),
+    with {:ok, requester_device_id} <- require_pop_device_id(conn),
+         {:ok, admission} <- require_acceptance_admission(conn.body_params),
+         {:ok, token_bytes} <- decode_token(token),
          {:ok, token_hash} <- compute_token_hash(token_bytes) do
       user_id = conn.assigns.current_user_id
-      user = RefMD.Repo.get!(RefMD.Users.User, user_id)
+      user = Users.get_user(user_id)
 
-      case Workspaces.accept_invitation(token_hash, user_id, user.email) do
+      case Workspaces.accept_invitation(
+             token_hash,
+             user_id,
+             user.email,
+             requester_device_id,
+             admission
+           ) do
         {:ok, result} ->
           json(conn, serialize_acceptance(result))
 
@@ -168,49 +196,122 @@ defmodule RefMDWeb.InvitationController do
 
   # ── Helpers ─────────────────────────────────────────
 
+  @create_request_keys ~w(
+    bootstrap_key_commitment
+    bootstrap_package_hash
+    bootstrap_package_key_maintenance_wrap
+    bootstrap_package_key_recipient_wrap
+    bootstrap_suite_id
+    capability_context_hash
+    encrypted_bootstrap_package
+    expires_at
+    invitation_id
+    invited_email
+    kek_version
+    role_id
+    token_hash
+    token_prefix
+    workspace_key_directory_checkpoint
+    workspace_key_directory_events
+  )
+
   defp validate_create_params(params, workspace_id, user_id) do
-    with {:ok, encrypted_kek} <- decode_base64url(params["encrypted_kek"], :encrypted_kek),
-         {:ok, kek_nonce} <- decode_base64url(params["kek_nonce"], :kek_nonce),
-         :ok <- validate_byte_length(encrypted_kek, 48, :invalid_encrypted_kek_length),
-         :ok <- validate_byte_length(kek_nonce, 24, :invalid_nonce_length),
-         :ok <- validate_token_hash(params["token_hash"]),
-         :ok <- validate_token_prefix(params["token_prefix"]),
-         :ok <- validate_invitation_id(params["invitation_id"]),
-         :ok <- validate_role_id(workspace_id, params["role_id"]),
-         :ok <- validate_email(params["invited_email"]),
-         :ok <- validate_expires_at(params["expires_at"]) do
+    body_params = Map.drop(params, ["workspace_id"])
+
+    with :ok <-
+           validate_exact_keys(body_params, @create_request_keys, :unexpected_invitation_keys),
+         :ok <- validate_token_hash(body_params["token_hash"]),
+         :ok <- validate_token_prefix(body_params["token_prefix"]),
+         :ok <- validate_invitation_id(body_params["invitation_id"]),
+         :ok <- validate_role_id(workspace_id, body_params["role_id"]),
+         :ok <- validate_email(body_params["invited_email"]),
+         :ok <- validate_expires_at(body_params["expires_at"]),
+         :ok <- validate_commitment(body_params["bootstrap_key_commitment"]),
+         :ok <-
+           validate_hash(body_params["bootstrap_package_hash"], :invalid_bootstrap_package_hash),
+         :ok <-
+           validate_map(
+             body_params["bootstrap_package_key_recipient_wrap"],
+             :invalid_bootstrap_package_key_recipient_wrap
+           ),
+         :ok <-
+           validate_map(
+             body_params["bootstrap_package_key_maintenance_wrap"],
+             :invalid_bootstrap_package_key_maintenance_wrap
+           ),
+         :ok <- validate_bootstrap_suite_id(body_params["bootstrap_suite_id"]),
+         :ok <-
+           validate_hash(body_params["capability_context_hash"], :invalid_capability_context_hash),
+         :ok <-
+           Workspaces.validate_invitation_encrypted_bootstrap_package(
+             body_params["encrypted_bootstrap_package"],
+             workspace_id,
+             body_params["kek_version"]
+           ),
+         {:ok, key_directory} <- require_workspace_key_directory(body_params) do
       {:ok,
        %{
          workspace_id: workspace_id,
-         invitation_id: params["invitation_id"],
-         token_hash: params["token_hash"],
-         token_prefix: params["token_prefix"],
-         encrypted_kek: encrypted_kek,
-         kek_nonce: kek_nonce,
-         kek_version: params["kek_version"],
-         role_id: params["role_id"],
+         invitation_id: body_params["invitation_id"],
+         token_hash: body_params["token_hash"],
+         token_prefix: body_params["token_prefix"],
+         kek_version: body_params["kek_version"],
+         role_id: body_params["role_id"],
          invited_by: user_id,
-         invited_email: params["invited_email"],
-         expires_at: parse_expires_at(params["expires_at"])
+         invited_email: body_params["invited_email"],
+         expires_at: parse_expires_at(body_params["expires_at"]),
+         bootstrap_key_commitment: body_params["bootstrap_key_commitment"],
+         encrypted_bootstrap_package: body_params["encrypted_bootstrap_package"],
+         bootstrap_package_hash: body_params["bootstrap_package_hash"],
+         bootstrap_package_key_recipient_wrap:
+           body_params["bootstrap_package_key_recipient_wrap"],
+         bootstrap_package_key_maintenance_wrap:
+           body_params["bootstrap_package_key_maintenance_wrap"],
+         bootstrap_suite_id: body_params["bootstrap_suite_id"],
+         capability_context_hash: body_params["capability_context_hash"],
+         key_directory: key_directory
        }}
     end
   end
 
-  defp decode_base64url(nil, field), do: {:error, {:invalid_format, field}}
+  defp require_workspace_key_directory(params) do
+    events = params["workspace_key_directory_events"]
 
-  defp decode_base64url(value, field) when not is_binary(value),
-    do: {:error, {:invalid_format, field}}
+    checkpoint = params["workspace_key_directory_checkpoint"]
 
-  defp decode_base64url(value, field) when is_binary(value) do
-    case Base.url_decode64(value, padding: false) do
-      {:ok, bytes} -> {:ok, bytes}
-      :error -> {:error, {:invalid_format, field}}
+    cond do
+      is_nil(events) and is_nil(checkpoint) ->
+        {:error, :missing_key_directory}
+
+      is_list(events) and is_map(checkpoint) ->
+        {:ok, %{events: events, checkpoint: checkpoint}}
+
+      true ->
+        {:error, :invalid_key_directory}
     end
   end
 
-  defp validate_byte_length(bytes, expected, error_atom) do
-    if byte_size(bytes) == expected, do: :ok, else: {:error, error_atom}
+  defp validate_exact_keys(params, keys, reason) when is_map(params) do
+    extras = Map.keys(params) -- keys
+    if extras == [], do: :ok, else: {:error, reason}
   end
+
+  defp require_acceptance_admission(params) do
+    with {:ok, key_directory} <- require_workspace_key_directory(params),
+         member_envelope when is_map(member_envelope) <- params["member_envelope"] do
+      {:ok, %{key_directory: key_directory, member_envelope: member_envelope}}
+    else
+      _ -> {:error, :missing_key_directory}
+    end
+  end
+
+  defp put_actor_device_id(key_directory, actor_device_id),
+    do: Map.put(key_directory, :actor_device_id, actor_device_id)
+
+  defp require_pop_device_id(%{assigns: %{pop_device_id: device_id}}) when is_binary(device_id),
+    do: {:ok, device_id}
+
+  defp require_pop_device_id(_conn), do: {:error, :missing_device}
 
   defp validate_token_hash(nil), do: {:error, :invalid_token_hash_format}
 
@@ -219,14 +320,34 @@ defmodule RefMDWeb.InvitationController do
 
   defp validate_token_hash(hash) do
     if Regex.match?(~r/^[A-Za-z0-9\-_]{43}$/, hash) do
-      case Base.url_decode64(hash, padding: false) do
-        {:ok, bytes} when byte_size(bytes) == 32 -> :ok
-        _ -> {:error, :invalid_token_hash_format}
-      end
+      Encoding.decode_base64url!(hash, 32)
+      :ok
     else
       {:error, :invalid_token_hash_format}
     end
+  rescue
+    ArgumentError -> {:error, :invalid_token_hash_format}
   end
+
+  defp validate_commitment(value) when is_binary(value) do
+    if Regex.match?(~r/^[A-Za-z0-9\-_]{43}$/, value),
+      do: :ok,
+      else: {:error, :invalid_bootstrap_key_commitment}
+  end
+
+  defp validate_commitment(_), do: {:error, :invalid_bootstrap_key_commitment}
+
+  defp validate_hash(value, reason) when is_binary(value) do
+    if Regex.match?(~r/^[A-Za-z0-9\-_]{43}$/, value), do: :ok, else: {:error, reason}
+  end
+
+  defp validate_hash(_value, reason), do: {:error, reason}
+
+  defp validate_map(value, _reason) when is_map(value), do: :ok
+  defp validate_map(_value, reason), do: {:error, reason}
+
+  defp validate_bootstrap_suite_id("refmd-v2-invitation-bootstrap-xchacha20poly1305"), do: :ok
+  defp validate_bootstrap_suite_id(_), do: {:error, :invalid_bootstrap_suite_id}
 
   defp validate_token_prefix(nil), do: {:error, :invalid_token_prefix}
 
@@ -306,11 +427,10 @@ defmodule RefMDWeb.InvitationController do
   end
 
   defp decode_token(token) when is_binary(token) do
-    case Base.url_decode64(token, padding: false) do
-      {:ok, bytes} when byte_size(bytes) == 32 -> {:ok, bytes}
-      {:ok, _} -> {:error, :invalid_token_length}
-      :error -> {:error, :invalid_token_format}
-    end
+    bytes = Encoding.decode_base64url!(token)
+    if byte_size(bytes) == 32, do: {:ok, bytes}, else: {:error, :invalid_token_length}
+  rescue
+    ArgumentError -> {:error, :invalid_token_format}
   end
 
   defp decode_token(_), do: {:error, :invalid_token_format}
@@ -334,36 +454,139 @@ defmodule RefMDWeb.InvitationController do
     }
   end
 
+  defp serialize_lookup(%RefMD.Workspaces.WorkspaceInvitation{} = invitation) do
+    current_checkpoint =
+      Encryption.current_workspace_key_directory_checkpoint(invitation.workspace_id)
+
+    ancestry =
+      invitation_lookup_ancestry(
+        invitation.workspace_id,
+        "workspace_invitation_created",
+        "invitation_id",
+        invitation.id,
+        current_checkpoint
+      )
+
+    %{
+      kind: "workspace",
+      invitation_id: invitation.id,
+      kek_version: invitation.kek_version,
+      encrypted_bootstrap_package: invitation.encrypted_bootstrap_package,
+      workspace_key_directory_checkpoint: serialize_checkpoint(current_checkpoint),
+      workspace_key_directory_checkpoint_ancestry: ancestry.checkpoints,
+      workspace_key_directory_event_ancestry: ancestry.events
+    }
+  end
+
+  defp serialize_lookup(%RefMD.Workspaces.GuestInvitation{} = invitation) do
+    {scope_kind, scope_id} =
+      case invitation.scope_kind do
+        "workspace" -> {"workspace", "none"}
+        scope -> {scope, invitation.scope_id}
+      end
+
+    current_checkpoint =
+      Encryption.current_workspace_key_directory_checkpoint(invitation.workspace_id)
+
+    ancestry =
+      invitation_lookup_ancestry(
+        invitation.workspace_id,
+        "guest_invitation_created",
+        "guest_invitation_id",
+        invitation.id,
+        current_checkpoint
+      )
+
+    %{
+      kind: "guest",
+      invitation_id: invitation.id,
+      workspace_id: invitation.workspace_id,
+      scope_kind: scope_kind,
+      scope_id: scope_id,
+      permission: invitation.permission,
+      kek_version: invitation.kek_version,
+      encrypted_bootstrap_package: invitation.encrypted_bootstrap_package,
+      workspace_key_directory_checkpoint: serialize_checkpoint(current_checkpoint),
+      workspace_key_directory_checkpoint_ancestry: ancestry.checkpoints,
+      workspace_key_directory_event_ancestry: ancestry.events
+    }
+  end
+
+  defp invitation_lookup_ancestry(
+         workspace_id,
+         created_event_type,
+         invitation_body_key,
+         invitation_id,
+         current_checkpoint
+       ) do
+    ancestry =
+      Workspaces.invitation_lookup_ancestry(
+        workspace_id,
+        created_event_type,
+        invitation_body_key,
+        invitation_id,
+        current_checkpoint
+      )
+
+    %{
+      checkpoints: Enum.map(ancestry.checkpoints, &serialize_checkpoint/1),
+      events: Enum.map(ancestry.events, &serialize_event/1)
+    }
+  end
+
+  defp serialize_checkpoint(nil), do: nil
+
+  defp serialize_checkpoint(checkpoint) do
+    %{payload: checkpoint.payload, signatures: checkpoint.signatures}
+  end
+
+  defp serialize_event(event) do
+    %{payload: event.payload, signatures: event.signatures}
+  end
+
   defp serialize_acceptance(result) do
     %{
+      status: result[:status] || "accepted",
       workspace_id: result.workspace_id,
       workspace_name: result.workspace_name,
       role_name: result.role_name,
       invitation_id: result.invitation_id,
-      encrypted_kek: Base.url_encode64(result.encrypted_kek, padding: false),
-      kek_nonce: Base.url_encode64(result.kek_nonce, padding: false),
-      kek_version: result.kek_version
+      kek_version: result.kek_version,
+      encrypted_bootstrap_package: result[:encrypted_bootstrap_package],
+      workspace_key_directory_checkpoint: result[:workspace_key_directory_checkpoint]
     }
-  end
-
-  defp handle_create_error(conn, {:invalid_format, _field}) do
-    conn |> put_status(:bad_request) |> json(%{error: "invalid_format"})
-  end
-
-  defp handle_create_error(conn, :invalid_encrypted_kek_length) do
-    conn |> put_status(:bad_request) |> json(%{error: "invalid_encrypted_kek_length"})
-  end
-
-  defp handle_create_error(conn, :invalid_nonce_length) do
-    conn |> put_status(:bad_request) |> json(%{error: "invalid_nonce_length"})
   end
 
   defp handle_create_error(conn, :invalid_token_hash_format) do
     conn |> put_status(:bad_request) |> json(%{error: "invalid_token_hash_format"})
   end
 
+  defp handle_create_error(conn, :unexpected_invitation_keys) do
+    conn |> put_status(:bad_request) |> json(%{error: "unexpected_invitation_keys"})
+  end
+
   defp handle_create_error(conn, :invalid_token_prefix) do
     conn |> put_status(:bad_request) |> json(%{error: "invalid_token_prefix"})
+  end
+
+  defp handle_create_error(conn, :invalid_encrypted_bootstrap_package) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_encrypted_bootstrap_package"})
+  end
+
+  defp handle_create_error(conn, :invalid_bootstrap_package_key_recipient_wrap) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_bootstrap_package_key_recipient_wrap"})
+  end
+
+  defp handle_create_error(conn, :invalid_bootstrap_package_key_maintenance_wrap) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_bootstrap_package_key_maintenance_wrap"})
+  end
+
+  defp handle_create_error(conn, :invalid_bootstrap_key_commitment) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_bootstrap_key_commitment"})
   end
 
   defp handle_create_error(conn, :invalid_invitation_id_format) do
@@ -414,6 +637,14 @@ defmodule RefMDWeb.InvitationController do
     conn |> put_status(:forbidden) |> json(%{error: "permission_denied"})
   end
 
+  defp handle_create_error(conn, :invalid_key_directory) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
+  end
+
+  defp handle_create_error(conn, :missing_key_directory) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_key_directory"})
+  end
+
   defp handle_create_error(conn, :not_a_member) do
     conn |> put_status(:not_found) |> json(%{error: "not_found"})
   end
@@ -452,6 +683,18 @@ defmodule RefMDWeb.InvitationController do
 
   defp handle_accept_error(conn, :kek_rotation_in_progress) do
     conn |> put_status(:conflict) |> json(%{error: "kek_rotation_in_progress"})
+  end
+
+  defp handle_accept_error(conn, :missing_device) do
+    conn |> put_status(:forbidden) |> json(%{error: "missing_device"})
+  end
+
+  defp handle_accept_error(conn, :invalid_key_directory) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
+  end
+
+  defp handle_accept_error(conn, :missing_key_directory) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_key_directory"})
   end
 
   defp handle_accept_error(conn, {:invitation_kek_outdated, workspace_id}) do

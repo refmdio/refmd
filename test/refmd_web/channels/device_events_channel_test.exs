@@ -4,6 +4,7 @@ defmodule RefMDWeb.DeviceEventsChannelTest do
   import Phoenix.ChannelTest
 
   alias RefMD.Auth
+  alias RefMD.Crypto.{Hash, Signature}
   alias RefMD.Devices
   alias RefMD.Devices.{Device, DeviceRegistration}
   alias RefMD.Repo
@@ -115,15 +116,35 @@ defmodule RefMDWeb.DeviceEventsChannelTest do
 
   defp create_device(user_id) do
     now = DateTime.utc_now()
+    id = Ecto.UUID.generate()
+    material = hybrid_material("device", id)
+    ecdh_public_key = :crypto.strong_rand_bytes(32)
+    encryption = hybrid_encryption_public_key_material("device", id, ecdh_public_key)
+    client_nonce = :crypto.strong_rand_bytes(16)
 
     Repo.insert!(%Device{
+      id: id,
       user_id: user_id,
       name: "Existing browser",
       device_type: "browser",
-      ecdh_public_key: :crypto.strong_rand_bytes(32),
-      signing_public_key: :crypto.strong_rand_bytes(32),
-      identity_signature: :crypto.strong_rand_bytes(64),
-      client_nonce: :crypto.strong_rand_bytes(16),
+      hybrid_encryption_public_key_material: encryption.public,
+      encryption_key_id: encryption.encryption_key_id,
+      hybrid_signing_public_key_material: material,
+      signing_key_id: Signature.compute_signing_key_id!(material),
+      approval_signature: %{},
+      approval_signature_surface: "genesis_device_bootstrap",
+      key_checkpoint_sequence: 1,
+      key_checkpoint_hash: Hash.blake3_base64url("checkpoint:" <> id),
+      approval_proof:
+        genesis_device_approval_proof(
+          user_id,
+          id,
+          material,
+          ecdh_public_key,
+          encryption.public,
+          client_nonce
+        ),
+      client_nonce: client_nonce,
       last_seen_at: now,
       created_at: now
     })
@@ -131,17 +152,38 @@ defmodule RefMDWeb.DeviceEventsChannelTest do
 
   defp create_registration(user_id) do
     now = DateTime.utc_now()
+    id = Ecto.UUID.generate()
+    material = hybrid_material("device", id)
+    ecdh_public_key = :crypto.strong_rand_bytes(32)
+    encryption = hybrid_encryption_public_key_material("device", id, ecdh_public_key)
 
     Repo.insert!(%DeviceRegistration{
+      id: id,
       user_id: user_id,
       name: "New browser",
       device_type: "browser",
-      ecdh_public_key: :crypto.strong_rand_bytes(32),
-      signing_public_key: :crypto.strong_rand_bytes(32),
+      hybrid_encryption_public_key_material: encryption.public,
+      encryption_key_id: encryption.encryption_key_id,
+      hybrid_signing_public_key_material: material,
+      signing_key_id: Signature.compute_signing_key_id!(material),
+      pending_registration_challenge_hash: Hash.blake3_base64url("registration:" <> id),
       client_nonce: :crypto.strong_rand_bytes(16),
       ip_address: "127.0.0.1",
       created_at: now,
       expires_at: DateTime.add(now, 300, :second)
     })
+  end
+
+  defp hybrid_material(owner_kind, owner_id) do
+    %{
+      "protocol" => "refmd.hybrid-signing-key-material",
+      "version" => 1,
+      "owner_kind" => owner_kind,
+      "owner_id" => owner_id,
+      "ed25519_public" => Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
+      "mldsa65_public" => Base.url_encode64(:crypto.strong_rand_bytes(1952), padding: false),
+      "suite_id" => "refmd-v2-hybrid-signature-ed25519-mldsa65",
+      "suite_rank" => 1000
+    }
   end
 end

@@ -3,27 +3,16 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { argon2id } from "hash-wasm";
 import { HKDF_ZERO_SALT } from "./constants";
 import { base64UrlDecode, base64UrlEncode } from "./encoding";
-interface KdfParams {
-  algorithm: string;
-  memory: number;
-  iterations: number;
-  parallelism: number;
-  hash_length: number;
-}
+import type { KdfParams } from "./kdf-params";
+
 interface DerivedKeys {
   authKeyBase64: string;
   shareAuthKeyBase64: string;
   shareDekEncryptionKeyBase64: string;
+  passwordCapabilitySecretBase64: string;
   puk: Uint8Array;
-  pdk: Uint8Array;
 }
-export const TARGET_KDF_PARAMS: KdfParams = {
-  algorithm: "argon2id",
-  memory: 65536,
-  iterations: 3,
-  parallelism: 4,
-  hash_length: 32,
-};
+
 const KDF_BOUNDS = {
   memory: { min: 16384, max: 262144 },
   iterations: { min: 2, max: 10 },
@@ -85,14 +74,20 @@ export async function deriveAuthKeys(
     enc.encode("share_dek_encryption"),
     32,
   );
+  const passwordCapabilitySecret = hkdf(
+    sha256,
+    masterKey,
+    HKDF_ZERO_SALT,
+    enc.encode("share_capability"),
+    32,
+  );
   const puk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, enc.encode("password_unlock"), 32);
-  const pdk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, enc.encode("password_device_key"), 32);
   masterKey.fill(0);
   return {
     authKeyBase64: base64UrlEncode(authKey),
     shareAuthKeyBase64: base64UrlEncode(shareAuthKey),
     shareDekEncryptionKeyBase64: base64UrlEncode(shareDekEncryptionKey),
+    passwordCapabilitySecretBase64: base64UrlEncode(passwordCapabilitySecret),
     puk,
-    pdk,
   };
 }

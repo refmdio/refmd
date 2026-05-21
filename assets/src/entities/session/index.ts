@@ -1,4 +1,4 @@
-export type { AuthState, DeviceState } from "./model/auth-state";
+export type { AuthState, DeviceState } from "./model/auth/state";
 export {
   authState,
   deviceState,
@@ -11,5 +11,5 @@ export {
   setDeviceState,
   setFullSession,
   clearSession,
-} from "./model/auth-state";
-export { restoreSessionContext, setSessionContextRestorer } from "./model/session-context-restorer";
+} from "./model/auth/state";
+export { restoreSessionContext, setSessionContextRestorer } from "./model/session/context-restorer";

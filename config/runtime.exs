@@ -7,6 +7,11 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
+pop_http_header_options = [
+  http_1_options: [max_header_length: 16_384],
+  http_2_options: [max_header_block_size: 16_384]
+]
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server
@@ -20,7 +25,8 @@ if System.get_env("PHX_SERVER") do
   config :refmd, RefMDWeb.Endpoint, server: true
 end
 
-config :refmd, RefMDWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+config :refmd, RefMDWeb.Endpoint,
+  http: [port: String.to_integer(System.get_env("PORT", "4000"))] ++ pop_http_header_options
 
 if config_env() == :prod do
   dummy_salt_secret =
@@ -157,23 +163,25 @@ if config_env() == :prod do
 
   config :refmd, RefMDWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
-    http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
-    ],
+    http:
+      [
+        # Enable IPv6 and bind on all interfaces.
+        # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
+        # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
+        # for details about using IPv6 vs IPv4 and loopback vs public addresses.
+        ip: {0, 0, 0, 0, 0, 0, 0, 0}
+      ] ++ pop_http_header_options,
     secret_key_base: secret_key_base
 
   if https_key = System.get_env("HTTPS_KEY_PATH") do
     config :refmd, RefMDWeb.Endpoint,
-      https: [
-        port: String.to_integer(System.get_env("HTTPS_PORT", "4443")),
-        cipher_suite: :compatible,
-        keyfile: https_key,
-        certfile: System.get_env("HTTPS_CERT_PATH")
-      ]
+      https:
+        [
+          port: String.to_integer(System.get_env("HTTPS_PORT", "4443")),
+          cipher_suite: :compatible,
+          keyfile: https_key,
+          certfile: System.get_env("HTTPS_CERT_PATH")
+        ] ++ pop_http_header_options
   end
 
   # ## SSL Support

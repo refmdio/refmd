@@ -27,6 +27,7 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
   @permission_catalog %{
     "document:read" => %{base_role_ceiling: "viewer", since_version: 1},
     "document:write" => %{base_role_ceiling: "editor", since_version: 1},
+    "document:manage_share" => %{base_role_ceiling: "editor", since_version: 1},
     "document:delete" => %{base_role_ceiling: "admin", since_version: 1},
     "document:archive" => %{base_role_ceiling: "editor", since_version: 1},
     "workspace:update" => %{base_role_ceiling: "admin", since_version: 1},
@@ -43,18 +44,21 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
 
   @base_role_defaults %{
     "owner" => MapSet.new(~w(
-        document:read document:write document:delete document:archive
+        document:read document:write document:manage_share document:delete document:archive
         workspace:update workspace:features workspace:admin workspace:delete
         member:list member:invite guest:invite member:change_role member:remove
         role:manage
       )),
     "admin" => MapSet.new(~w(
-        document:read document:write document:delete document:archive
+        document:read document:write document:manage_share document:delete document:archive
         workspace:update workspace:features workspace:admin
         member:list member:invite guest:invite member:change_role member:remove
         role:manage
       )),
-    "editor" => MapSet.new(~w(document:read document:write document:archive member:list)),
+    "editor" =>
+      MapSet.new(
+        ~w(document:read document:write document:manage_share document:archive member:list)
+      ),
     "viewer" => MapSet.new(~w(document:read member:list)),
     "guest" => MapSet.new(~w(document:read document:write document:archive))
   }
@@ -112,7 +116,13 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
 
     case Workspaces.get_member_with_role(workspace_id, user_id) do
       nil ->
-        deny_not_member(conn, not_member_status)
+        maybe_authorize_guest_without_membership(
+          conn,
+          workspace_id,
+          user_id,
+          permission,
+          not_member_status
+        )
 
       {member, role} ->
         conn = assign_workspace_context(conn, workspace_id, member, role)
@@ -122,6 +132,45 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
         else
           check_permission(conn, permission, role)
         end
+    end
+  end
+
+  defp maybe_authorize_guest_without_membership(
+         conn,
+         workspace_id,
+         user_id,
+         permission,
+         not_member_status
+       ) do
+    with true <- Workspaces.guest_user?(user_id),
+         {:ok, role} <- fetch_guest_role_for_active_grants(workspace_id, user_id) do
+      authorize_guest_without_membership(conn, workspace_id, user_id, permission, role)
+    else
+      _ -> deny_not_member(conn, not_member_status)
+    end
+  end
+
+  defp fetch_guest_role_for_active_grants(workspace_id, user_id) do
+    case Workspaces.guest_role_for_active_grants(workspace_id, user_id) do
+      nil -> :error
+      role -> {:ok, role}
+    end
+  end
+
+  defp authorize_guest_without_membership(conn, workspace_id, user_id, permission, role) do
+    member = %{
+      workspace_id: workspace_id,
+      user_id: user_id,
+      role_id: role.id,
+      is_default: false
+    }
+
+    conn = assign_workspace_context(conn, workspace_id, member, role)
+
+    if permission == :membership do
+      maybe_enforce_guest_scope(conn, :membership)
+    else
+      check_permission(conn, permission, role)
     end
   end
 

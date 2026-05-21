@@ -1,1 +1,1 @@
-export { readFromLocalStorage, useSettings, useUpdateSettings } from "./model/use-settings";
+export { useSettings, useUpdateSettings } from "./model/settings/use-settings";

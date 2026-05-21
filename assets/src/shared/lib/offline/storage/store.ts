@@ -2,16 +2,17 @@ import type { OfflineDocumentMeta } from "./meta";
 import {
   openOfflineDb,
   STORE_DOCUMENT_CACHE,
-  STORE_OFFLINE_DEK,
   STORE_OFFLINE_DOCUMENTS,
   STORE_PENDING_CHANGES,
 } from "./db";
 import { getAllOfflineDocumentMetas } from "./meta";
+import { deleteOfflineDek } from "./keys";
 export { ensureOfflineDbReady } from "./db";
 export type { DocumentCacheEntry } from "./document-cache";
 export { getDocumentCache, putDocumentCache } from "./document-cache";
 export {
   deleteOfflineKek,
+  deleteOfflineDek,
   deleteOrphanedKeks,
   getOfflineDek,
   getOfflineKek,
@@ -79,19 +80,16 @@ export async function getEvictionCandidates(count: number): Promise<string[]> {
 }
 export async function deleteDocumentOfflineData(documentId: string): Promise<void> {
   const db = await openOfflineDb();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     // Eviction removes cached content but keeps lightweight metadata for listing.
-    const tx = db.transaction(
-      [STORE_DOCUMENT_CACHE, STORE_PENDING_CHANGES, STORE_OFFLINE_DEK],
-      "readwrite",
-    );
+    const tx = db.transaction([STORE_DOCUMENT_CACHE, STORE_PENDING_CHANGES], "readwrite");
     tx.objectStore(STORE_DOCUMENT_CACHE).delete(documentId);
     tx.objectStore(STORE_PENDING_CHANGES).delete(documentId);
-    tx.objectStore(STORE_OFFLINE_DEK).delete(documentId);
     tx.oncomplete = () => {
       resolve();
       db.close();
     };
     tx.onerror = () => reject(tx.error);
   });
+  await deleteOfflineDek(documentId);
 }

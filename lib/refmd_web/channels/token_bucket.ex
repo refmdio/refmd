@@ -1,4 +1,4 @@
-defmodule RefMDWeb.TokenBucket do
+defmodule RefMDWeb.Channels.TokenBucket do
   @moduledoc """
   Per-connection token bucket rate limiter for ephemeral messages.
   State is stored in socket assigns and updated on each check.

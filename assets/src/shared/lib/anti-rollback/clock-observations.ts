@@ -1,8 +1,18 @@
 interface ClockedUpdateLike {
   publicData: {
-    signingPubKey: string;
+    signingKeyId: string;
+    authorityContextKey?: string;
     clock: number;
   };
+}
+
+export function documentClockKey(publicData: {
+  signingKeyId: string;
+  authorityContextKey?: string;
+}): string {
+  return publicData.authorityContextKey
+    ? `${publicData.authorityContextKey}:${publicData.signingKeyId}`
+    : publicData.signingKeyId;
 }
 
 export function collectClockObservations<T extends ClockedUpdateLike>(
@@ -11,7 +21,7 @@ export function collectClockObservations<T extends ClockedUpdateLike>(
   const observations = new Map<string, { max: number; seen: Set<number> }>();
 
   for (const update of updates) {
-    const deviceKey = update.publicData.signingPubKey;
+    const deviceKey = documentClockKey(update.publicData);
     const clock = update.publicData.clock;
     const existing = observations.get(deviceKey);
     if (existing) {
@@ -27,10 +37,14 @@ export function collectClockObservations<T extends ClockedUpdateLike>(
 
 export function getNextClockForDevice(
   clocks: Record<string, number>,
-  deviceSigningPubKey?: string | null,
+  deviceSigningKeyId?: string | null,
+  authorityContextKey?: string | null,
 ): number {
-  if (!deviceSigningPubKey) {
+  if (!deviceSigningKeyId) {
     return 0;
   }
-  return (clocks[deviceSigningPubKey] ?? -1) + 1;
+  const clockKey = authorityContextKey
+    ? `${authorityContextKey}:${deviceSigningKeyId}`
+    : deviceSigningKeyId;
+  return (clocks[clockKey] ?? -1) + 1;
 }

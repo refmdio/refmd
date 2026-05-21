@@ -21,15 +21,16 @@ describe("shouldUseShareSessionScopeHeader", () => {
     expect(shouldUseShareSessionScopeHeader("/api/shares/f/folder-token")).toBe(true);
   });
 
-  it("does not mark user-owned routes under /api/shares as share scoped", () => {
+  it("does not mark user-owned routes as share scoped", () => {
     expect(shouldUseShareSessionScopeHeader("/api/shares/share-slug/mounts")).toBe(false);
+    expect(shouldUseShareSessionScopeHeader("/api/mounts?workspace_id=workspace-id")).toBe(false);
     expect(shouldUseShareSessionScopeHeader("/api/auth/logout")).toBe(false);
     expect(shouldUseShareSessionScopeHeader("/api/documents/doc-id")).toBe(false);
   });
 });
 
 describe("isPasswordChallengeEndpoint", () => {
-  it("matches raw share and mounted share challenge endpoints", () => {
+  it("matches share link and mounted share challenge endpoints", () => {
     expect(isPasswordChallengeEndpoint("/api/shares/share-slug/challenge")).toBe(true);
     expect(isPasswordChallengeEndpoint("/api/mounts/mount-id/challenge")).toBe(true);
     expect(isPasswordChallengeEndpoint("/api/shares/share-slug/bootstrap")).toBe(false);

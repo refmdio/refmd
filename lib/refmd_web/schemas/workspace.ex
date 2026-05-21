@@ -73,10 +73,23 @@ defmodule RefMDWeb.Schemas.CreateWorkspaceRequest do
     type: :object,
     properties: %{
       name: %Schema{type: :string, minLength: 1, maxLength: 100},
+      workspace_id: %Schema{type: :string, format: :uuid},
+      workspace_owner_role_id: %Schema{type: :string, format: :uuid},
       description: %Schema{type: :string, maxLength: 500, nullable: true},
-      icon: %Schema{type: :string, nullable: true}
+      icon: %Schema{type: :string, nullable: true},
+      workspace_key_directory_events: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
     },
-    required: [:name]
+    required: [
+      :name,
+      :workspace_id,
+      :workspace_owner_role_id,
+      :workspace_key_directory_events,
+      :workspace_key_directory_checkpoint
+    ]
   })
 end
 

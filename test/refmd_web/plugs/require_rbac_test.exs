@@ -106,7 +106,7 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
   describe "call/2 - owner permissions" do
     test "owner has all permissions", %{workspace: ws, user_id: uid} do
       permissions = ~w(
-        document:read document:write document:delete document:archive
+        document:read document:write document:manage_share document:delete document:archive
         workspace:update workspace:admin workspace:delete
         member:list member:invite member:change_role member:remove
         role:manage
@@ -199,8 +199,9 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
       %{editor_id: editor_id}
     end
 
-    test "editor can read and write documents", %{workspace: ws, editor_id: eid} do
-      for perm <- ~w(document:read document:write document:archive member:list) do
+    test "editor can read, write, and manage document shares", %{workspace: ws, editor_id: eid} do
+      for perm <-
+            ~w(document:read document:write document:manage_share document:archive member:list) do
         conn =
           build_conn(ws.id, eid)
           |> RequireRBAC.call(%{permission: perm, not_member_status: :forbidden})
@@ -320,8 +321,9 @@ defmodule RefMDWeb.Plugs.RequireRBACTest do
       role = %WorkspaceRole{base_role: "owner", permissions: []}
       perms = RequireRBAC.effective_permissions(role)
 
-      assert MapSet.size(perms) == 14
+      assert MapSet.size(perms) == 15
       assert MapSet.member?(perms, "guest:invite")
+      assert MapSet.member?(perms, "document:manage_share")
       assert MapSet.member?(perms, "workspace:delete")
     end
 

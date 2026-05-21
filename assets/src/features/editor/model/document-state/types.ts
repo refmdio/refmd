@@ -2,14 +2,15 @@ import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type { Channel } from "phoenix";
 import type { RemoteSnapshotPayload, UpdatePayload } from "@/shared/lib/ws/document-payloads";
-import type { EphemeralSession } from "../../lib/sync/ephemeral/session";
+import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
+import type { EphemeralSession } from "../../lib/sync/ephemeral-session";
 import type { DocumentAccess } from "./access";
 
 interface PendingSnapshot {
   snapshotId: string;
-  parentSnapshotId: string | null;
+  parentSnapshotId: string;
   ciphertextHash: string;
-  parentSnapshotProof: string;
+  parentProofHash: string;
   snapshotYjsState: Uint8Array;
   knownClocksAtSend: Record<string, number>;
 }
@@ -18,6 +19,7 @@ export interface AutoSyncHandle {
   dispose: () => void;
   notifyLocalEdit: () => void;
   flush: () => void;
+  flushNow: () => Promise<void>;
 }
 
 export interface PublicationState {
@@ -53,9 +55,10 @@ export interface DocumentState {
   snapshotCiphertextHash: string;
   pendingSnapshot: PendingSnapshot | null;
   latestVersion: number;
+  authorityPermissionVersion: number;
   autoSync: AutoSyncHandle | null;
-  signingKeys: Map<string, Uint8Array>;
-  historicalSigningKeys: Map<string, Uint8Array>;
+  signingKeys: Map<string, HybridSigningPublicKeyMaterial>;
+  historicalSigningKeys: Map<string, HybridSigningPublicKeyMaterial>;
   signingKeyOwners: Map<string, string>;
   memberNames: Map<string, string>;
   revokedSigningKeys: Set<string>;
@@ -93,8 +96,6 @@ export interface DocumentState {
   offlineResumeCleanup: (() => void) | null;
   loadedFromOfflineCache: boolean;
   _reauthResolvers: Array<() => void>;
-  _rollbackResolvers: Array<() => void>;
-  _replaceRollbackPinOnNextPersist: boolean;
   _headlessSync: boolean;
   readOnly: boolean;
   writerLockCleanup: (() => void) | null;

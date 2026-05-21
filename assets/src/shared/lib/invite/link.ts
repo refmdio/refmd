@@ -3,5 +3,7 @@ export function buildInvitationExpiryIso(expiryDays: number, nowMs = Date.now())
 }
 
 export function buildInvitationLink(origin: string, token: string): string {
-  return `${origin}/invite#token=${token}`;
+  const [lookupToken, bootstrapSecret] = token.split(".");
+  const params = new URLSearchParams({ it: lookupToken, ib: bootstrapSecret });
+  return `${origin}/invite#${params.toString()}`;
 }

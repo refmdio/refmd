@@ -246,9 +246,8 @@ class DocumentManagerImpl
     event: "document-rename",
     cb: (docId: string, oldTitle: string, newTitle: string, isPublished: boolean) => void,
   ): EventRef;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on(event: string, cb: (...data: any[]) => any, ctx?: any): EventRef {
-    return super.on(event, cb, ctx);
+  on(event: string, cb: (...data: never[]) => unknown, ctx?: unknown): EventRef {
+    return super.on(event, cb as (...data: unknown[]) => unknown, ctx);
   }
 }
 

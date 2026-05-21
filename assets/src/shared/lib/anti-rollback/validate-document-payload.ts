@@ -1,5 +1,6 @@
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { computeSnapshotProofLinkHash } from "./snapshot-proof";
 import {
   getDocumentStatePin,
   hasCompleteSnapshotPin,
@@ -8,24 +9,31 @@ import {
   type DocumentStatePin,
 } from "./document-state-pins";
 import { collectClockObservations } from "./clock-observations";
+import { documentClockKey } from "./clock-observations";
 export interface DocumentPayloadForValidation {
   snapshot?: {
     ciphertext: string;
     publicData: {
       snapshotId: string;
-      parentSnapshotProof: string;
+      parentProofHash: string;
       parentSnapshotUpdateClocks: Record<string, number>;
     };
   };
   snapshotProofChain?: Array<{
-    snapshotId: string;
-    ciphertextHash: string;
-    parentSnapshotProof: string;
+    document_id: string;
+    snapshot_id: string;
+    parent_snapshot_id: string;
+    parent_proof_hash: string;
+    ciphertext_hash: string;
+    snapshot_signature_hash: string;
+    snapshot_admission_event_hash: string;
+    proof_chain_hash: string;
   }>;
   updates: Array<{
     version: number;
     publicData: {
-      signingPubKey: string;
+      signingKeyId: string;
+      authorityContextKey?: string;
       clock: number;
     };
   }>;
@@ -125,38 +133,46 @@ export async function validateDocumentPayloadAgainstPin(
         throw new Error("Snapshot changed but no proof chain provided (rollback attack)");
       }
       // Verify chain head matches anchor
-      if (chain[0].parentSnapshotProof !== anchorProofHash) {
+      if (chain[0].parent_proof_hash !== anchorProofHash) {
         throw new Error("Proof chain head does not match pinned proof hash");
       }
       // Verify each intermediate link and chain terminus
       for (let i = 0; i < chain.length; i++) {
         const chainEntry = chain[i];
-        const computedProof = await worker.computeSnapshotProof({
-          ciphertextHash: chainEntry.ciphertextHash,
-          parentProof: chainEntry.parentSnapshotProof,
-          snapshotId: chainEntry.snapshotId,
+        const computedProof = computeSnapshotProofLinkHash({
+          documentId: chainEntry.document_id,
+          snapshotId: chainEntry.snapshot_id,
+          parentSnapshotId: chainEntry.parent_snapshot_id,
+          parentProofHash: chainEntry.parent_proof_hash,
+          ciphertextHash: chainEntry.ciphertext_hash,
+          snapshotSignatureHash: chainEntry.snapshot_signature_hash,
+          snapshotAdmissionEventHash: chainEntry.snapshot_admission_event_hash,
         });
+        if (computedProof !== chainEntry.proof_chain_hash) {
+          throw new Error(`Proof chain link ${i} proof hash verification failed`);
+        }
         if (i < chain.length - 1) {
-          if (computedProof !== chain[i + 1].parentSnapshotProof) {
+          if (computedProof !== chain[i + 1].parent_proof_hash) {
             throw new Error(`Proof chain link ${i} verification failed`);
           }
         }
       }
       // Chain tail must be the active snapshot
       const lastChainEntry = chain[chain.length - 1];
-      if (lastChainEntry.snapshotId !== payload.snapshot!.publicData.snapshotId) {
+      if (lastChainEntry.snapshot_id !== payload.snapshot!.publicData.snapshotId) {
         throw new Error("Proof chain does not terminate at active snapshot");
       }
-      if (lastChainEntry.parentSnapshotProof !== payload.snapshot!.publicData.parentSnapshotProof) {
+      if (lastChainEntry.parent_proof_hash !== payload.snapshot!.publicData.parentProofHash) {
         throw new Error("Proof chain tail parent proof does not match active snapshot");
       }
       // Verify chain tail's ciphertextHash matches the actual snapshot content
       const actualHash = base64UrlEncode(
         await worker.blake3Hash(base64UrlDecode(payload.snapshot!.ciphertext)),
       );
-      if (lastChainEntry.ciphertextHash !== actualHash) {
+      if (lastChainEntry.ciphertext_hash !== actualHash) {
         throw new Error("Proof chain tail ciphertextHash does not match actual snapshot");
       }
+      snapshotProofHash = lastChainEntry.proof_chain_hash;
     }
   }
   // Compute new proof hash for active snapshot
@@ -165,17 +181,12 @@ export async function validateDocumentPayloadAgainstPin(
       await worker.blake3Hash(base64UrlDecode(payload.snapshot.ciphertext)),
     );
     snapshotCiphertextHash = ciphertextHash;
-    snapshotProofHash = await worker.computeSnapshotProof({
-      ciphertextHash,
-      parentProof: payload.snapshot.publicData.parentSnapshotProof,
-      snapshotId: payload.snapshot.publicData.snapshotId,
-    });
   }
   // Build confirmed clocks
   const observedUpdateClocks: Record<string, number> = {};
   if (payload.updates) {
     for (const update of payload.updates) {
-      const key = update.publicData.signingPubKey;
+      const key = documentClockKey(update.publicData);
       const clock = update.publicData.clock;
       if (clock > (observedUpdateClocks[key] ?? -1)) {
         observedUpdateClocks[key] = clock;

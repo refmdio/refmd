@@ -30,6 +30,7 @@ defmodule RefMDWeb.RoleController do
 
   @permission_dependencies [
     {"document:write", "document:read"},
+    {"document:manage_share", "document:read"},
     {"document:read", "member:list"}
   ]
 

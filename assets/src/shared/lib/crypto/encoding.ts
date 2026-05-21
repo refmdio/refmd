@@ -6,6 +6,34 @@ export function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+const BASE64URL_RE = /^[A-Za-z0-9_-]*$/;
+
+export function encodeBase64Url(bytes: Uint8Array): string {
+  return base64UrlEncode(bytes);
+}
+
+export function assertBase64Url(value: string, expectedBytes?: number): void {
+  decodeBase64UrlStrict(value, expectedBytes);
+}
+
+export function decodeBase64UrlStrict(value: string, expectedBytes?: number): Uint8Array {
+  if (!BASE64URL_RE.test(value)) {
+    throw new Error("invalid_base64url_alphabet");
+  }
+  if (value.length % 4 === 1) {
+    throw new Error("invalid_base64url_length");
+  }
+
+  const bytes = base64UrlDecode(value);
+  if (encodeBase64Url(bytes) !== value) {
+    throw new Error("non_canonical_base64url");
+  }
+  if (expectedBytes !== undefined && bytes.length !== expectedBytes) {
+    throw new Error("invalid_base64url_decoded_length");
+  }
+  return bytes;
+}
+
 export function base64UrlDecode(str: string): Uint8Array {
   if (/[+/=\s]/.test(str)) {
     throw new Error("Invalid base64url: contains standard base64 characters");

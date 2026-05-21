@@ -7,8 +7,7 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
-    "test": "vp test run",
-    "api:generate": "cd .. && mix openapi.gen && cd assets && openapi-typescript openapi.json -o src/shared/api/schema.d.ts"
+    "test": "vp test run"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -22,6 +21,7 @@
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
+    "@noble/post-quantum": "0.6.1",
     "@pm-cm/core": "^0.0.13",
     "@pm-cm/yjs": "^0.0.13",
     "@scure/bip39": "^2.0.1",

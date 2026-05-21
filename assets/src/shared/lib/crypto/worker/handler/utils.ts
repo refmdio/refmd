@@ -1,9 +1,24 @@
-import { x25519, ed25519 } from "@noble/curves/ed25519.js";
+import { x25519 } from "@noble/curves/ed25519.js";
 import type { CryptoErrorCode } from "../types";
-import type { WorkerKeyState } from "../state";
+import type { HybridSigningState, WorkerKeyState } from "../state";
+import {
+  computeSigningKeyId,
+  publicKeyMaterialFromPrivate,
+  type HybridSigningPrivateKeyMaterial,
+} from "../../signature";
+import {
+  publicHybridEncryptionMaterialFromPrivate,
+  type HybridEncryptionPrivateKeyMaterial,
+} from "../../hybrid-encryption";
+import { base64UrlEncode } from "../../encoding";
 import { CryptoOperationError } from "../operation-error";
 import { getCachedDek, getCachedKek } from "../state";
 export type HandlerPayload = Record<string, unknown>;
+
+const DSK_DERIVATION_SALT = new TextEncoder().encode("refmd-v2-dsk-hkdf-salt");
+const DSK_AES_GCM_INFO = new TextEncoder().encode("refmd-v2-dsk-aes-gcm");
+const DSK_XCHACHA20_POLY1305_INFO = new TextEncoder().encode("refmd-v2-dsk-xchacha20poly1305");
+
 function wrapCryptoOperationError(code: CryptoErrorCode, error: unknown): CryptoOperationError {
   if (error instanceof CryptoOperationError) return error;
   const message = error instanceof Error ? error.message : "Unknown error";
@@ -29,17 +44,77 @@ export function requireDeviceEcdhPrivate(state: WorkerKeyState): Uint8Array {
   }
   return state.deviceEcdhPrivate;
 }
-export function requireDeviceSigningPrivate(state: WorkerKeyState): Uint8Array {
-  if (!state.deviceSigningPrivate) {
-    throw new CryptoOperationError("not_initialized", "Device signing private key not available");
+export function requireDeviceHybridSigningPrivateKeyMaterial(
+  state: WorkerKeyState,
+): HybridSigningPrivateKeyMaterial {
+  const signingState = currentDeviceHybridSigningState(state);
+  if (!signingState) {
+    throw new CryptoOperationError(
+      "not_initialized",
+      "Device hybrid signing private key material not available",
+    );
   }
-  return state.deviceSigningPrivate;
+  return signingState.privateKeyMaterial;
 }
-export function requireIdentitySigningPrivate(state: WorkerKeyState): Uint8Array {
-  if (!state.identitySigningPrivate) {
-    throw new CryptoOperationError("not_initialized", "Identity signing private key not available");
+export function requireShareParticipantHybridSigningPrivateKeyMaterial(
+  state: WorkerKeyState,
+): HybridSigningPrivateKeyMaterial {
+  const signingState = state.shareParticipantHybridSigningState;
+  if (!signingState) {
+    throw new CryptoOperationError(
+      "not_initialized",
+      "Share participant hybrid signing private key material not available",
+    );
   }
-  return state.identitySigningPrivate;
+  return signingState.privateKeyMaterial;
+}
+export function currentDeviceHybridSigningState(state: WorkerKeyState): HybridSigningState | null {
+  return state.deviceHybridSigningState;
+}
+export function requireDeviceHybridSigningPublicKeyMaterial(
+  state: WorkerKeyState,
+): HybridSigningState["publicKeyMaterial"] {
+  const signingState = currentDeviceHybridSigningState(state);
+  if (!signingState) {
+    throw new CryptoOperationError(
+      "not_initialized",
+      "Device hybrid signing public key material not available",
+    );
+  }
+  return signingState.publicKeyMaterial;
+}
+export function requireDeviceHybridEncryptionPrivateKeyMaterial(
+  state: WorkerKeyState,
+): HybridEncryptionPrivateKeyMaterial {
+  if (!state.deviceHybridEncryptionPrivateKeyMaterial) {
+    throw new CryptoOperationError(
+      "not_initialized",
+      "Device hybrid encryption private key material not available",
+    );
+  }
+  return state.deviceHybridEncryptionPrivateKeyMaterial;
+}
+export function requireIdentityHybridSigningPrivateKeyMaterial(
+  state: WorkerKeyState,
+): HybridSigningPrivateKeyMaterial {
+  if (!state.identityHybridSigningState) {
+    throw new CryptoOperationError(
+      "not_initialized",
+      "Identity hybrid signing private key material not available",
+    );
+  }
+  return state.identityHybridSigningState.privateKeyMaterial;
+}
+export function requireIdentityHybridEncryptionPrivateKeyMaterial(
+  state: WorkerKeyState,
+): HybridEncryptionPrivateKeyMaterial {
+  if (!state.identityHybridEncryptionPrivateKeyMaterial) {
+    throw new CryptoOperationError(
+      "not_initialized",
+      "Identity hybrid encryption private key material not available",
+    );
+  }
+  return state.identityHybridEncryptionPrivateKeyMaterial;
 }
 export function requireIdentityEcdhPrivate(state: WorkerKeyState): Uint8Array {
   if (!state.identityEcdhPrivate) {
@@ -103,9 +178,10 @@ export async function dskEncrypt(
   iv: ArrayBuffer;
 }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aesKey = await deriveDskAesGcmKey(dsk);
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv, additionalData: new Uint8Array(aad).buffer },
-    dsk,
+    aesKey,
     new Uint8Array(plaintext),
   );
   return { ciphertext, iv: iv.buffer };
@@ -116,34 +192,107 @@ export async function dskDecrypt(
   iv: ArrayBuffer,
   aad: Uint8Array,
 ): Promise<Uint8Array> {
+  const aesKey = await deriveDskAesGcmKey(dsk);
   const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv, additionalData: new Uint8Array(aad).buffer },
-    dsk,
+    aesKey,
     ciphertext,
   );
   return new Uint8Array(plaintext);
 }
+
+async function deriveDskAesGcmKey(dsk: CryptoKey): Promise<CryptoKey> {
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: DSK_DERIVATION_SALT,
+      info: DSK_AES_GCM_INFO,
+    },
+    dsk,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+export async function deriveDskXChaCha20Poly1305KeyBytes(dsk: CryptoKey): Promise<Uint8Array> {
+  return new Uint8Array(
+    await crypto.subtle.deriveBits(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: DSK_DERIVATION_SALT,
+        info: DSK_XCHACHA20_POLY1305_INFO,
+      },
+      dsk,
+      256,
+    ),
+  );
+}
+
 export function setIdentityFromDecrypted(
   state: WorkerKeyState,
   identity: {
     ecdhPrivate: Uint8Array;
     ecdhPublic: Uint8Array;
-    signingPrivate: Uint8Array;
-    signingPublic: Uint8Array;
+    hybridEncryptionPrivateKeyMaterial: WorkerKeyState["identityHybridEncryptionPrivateKeyMaterial"];
+    hybridEncryptionPublicKeyMaterial: WorkerKeyState["identityHybridEncryptionPublicKeyMaterial"];
+    hybridSigningPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
   },
 ): void {
+  const publicKeyMaterial = publicKeyMaterialFromPrivate(identity.hybridSigningPrivateKeyMaterial);
+  const signingKeyId = computeSigningKeyId(publicKeyMaterial);
+
   state.identityEcdhPrivate = identity.ecdhPrivate;
   state.identityEcdhPublic = identity.ecdhPublic;
-  state.identitySigningPrivate = identity.signingPrivate;
-  state.identitySigningPublic = identity.signingPublic;
+  state.identityHybridEncryptionPrivateKeyMaterial = identity.hybridEncryptionPrivateKeyMaterial;
+  state.identityHybridEncryptionPublicKeyMaterial = identity.hybridEncryptionPublicKeyMaterial;
+  state.identityHybridSigningState = {
+    privateKeyMaterial: identity.hybridSigningPrivateKeyMaterial,
+    publicKeyMaterial,
+    signingKeyId,
+  };
 }
 export function setDeviceFromPrivateKeys(
   state: WorkerKeyState,
   ecdhPrivate: Uint8Array,
-  signingPrivate: Uint8Array,
+  hybridEncryptionPrivateKeyMaterial: HybridEncryptionPrivateKeyMaterial,
+  hybridSigningPrivateKeyMaterial: HybridSigningPrivateKeyMaterial,
+  expectedOwnerKind: "device" | "share_participant_device",
+  expectedOwnerId: string,
 ): void {
+  if (
+    hybridEncryptionPrivateKeyMaterial.owner_kind !== expectedOwnerKind ||
+    hybridEncryptionPrivateKeyMaterial.owner_id !== expectedOwnerId ||
+    hybridSigningPrivateKeyMaterial.owner_kind !== expectedOwnerKind ||
+    hybridSigningPrivateKeyMaterial.owner_id !== expectedOwnerId
+  ) {
+    throw new Error("device_key_owner_mismatch");
+  }
+  const ecdhPublic = x25519.getPublicKey(ecdhPrivate);
+  if (base64UrlEncode(ecdhPublic) !== hybridEncryptionPrivateKeyMaterial.x25519_public) {
+    throw new Error("device_ecdh_public_mismatch");
+  }
+  const hybridEncryptionPublicKeyMaterial = publicHybridEncryptionMaterialFromPrivate(
+    hybridEncryptionPrivateKeyMaterial,
+  );
+  const publicKeyMaterial = publicKeyMaterialFromPrivate(hybridSigningPrivateKeyMaterial);
+  const signingState = {
+    privateKeyMaterial: hybridSigningPrivateKeyMaterial,
+    publicKeyMaterial,
+    signingKeyId: computeSigningKeyId(publicKeyMaterial),
+  };
+
   state.deviceEcdhPrivate = ecdhPrivate;
-  state.deviceEcdhPublic = x25519.getPublicKey(ecdhPrivate);
-  state.deviceSigningPrivate = signingPrivate;
-  state.deviceSigningPublic = ed25519.getPublicKey(signingPrivate);
+  state.deviceEcdhPublic = ecdhPublic;
+  state.deviceHybridEncryptionPrivateKeyMaterial = hybridEncryptionPrivateKeyMaterial;
+  state.deviceHybridEncryptionPublicKeyMaterial = hybridEncryptionPublicKeyMaterial;
+  if (publicKeyMaterial.owner_kind === "share_participant_device") {
+    state.shareParticipantHybridSigningState = signingState;
+    state.deviceHybridSigningState = null;
+  } else {
+    state.deviceHybridSigningState = signingState;
+    state.shareParticipantHybridSigningState = null;
+  }
 }

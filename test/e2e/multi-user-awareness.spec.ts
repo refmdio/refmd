@@ -11,6 +11,52 @@ import {
 
 const DOC_TITLE = "Collab Doc";
 
+async function installClientDiagnostics(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    type ClientLogDetail = {
+      level?: string;
+      message?: string;
+      context?: unknown;
+      at?: string;
+    };
+    const normalize = (value: unknown): unknown => {
+      if (value instanceof Error) {
+        return {
+          name: value.name,
+          message: value.message,
+          stack: value.stack,
+          code: (value as Error & { code?: string }).code,
+        };
+      }
+      if (Array.isArray(value)) return value.map(normalize);
+      if (value && typeof value === "object") {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+            key,
+            normalize(nested),
+          ]),
+        );
+      }
+      return value;
+    };
+    const w = window as Window & { __refmdE2EClientLogs?: ClientLogDetail[] };
+    w.__refmdE2EClientLogs = [];
+    window.addEventListener("refmd:client-log", (event) => {
+      const detail = (event as CustomEvent<ClientLogDetail>).detail;
+      w.__refmdE2EClientLogs?.push(normalize(detail) as ClientLogDetail);
+    });
+  });
+}
+
+async function clientDiagnostics(page: Page): Promise<unknown> {
+  return page
+    .evaluate(() => {
+      const w = window as Window & { __refmdE2EClientLogs?: unknown[] };
+      return (w.__refmdE2EClientLogs ?? []).slice(-10);
+    })
+    .catch(() => []);
+}
+
 async function openDashboard(page: Page): Promise<void> {
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
   await expect
@@ -22,7 +68,12 @@ async function openDashboard(page: Page): Promise<void> {
           .catch(() => false);
         if (newDocumentVisible) return true;
 
-        const bodyText = ((await page.locator("body").innerText().catch(() => "")) ?? "").trim();
+        const bodyText = (
+          (await page
+            .locator("body")
+            .innerText()
+            .catch(() => "")) ?? ""
+        ).trim();
         return bodyText.length > 0;
       },
       {
@@ -34,40 +85,31 @@ async function openDashboard(page: Page): Promise<void> {
 }
 
 async function ensureEditorReady(page: Page, title: string): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const hasDisconnectedPanels = await page
-      .getByText("disconnected", { exact: true })
-      .first()
-      .isVisible({ timeout: 1_000 })
-      .catch(() => false);
-    if (hasDisconnectedPanels) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    const needsRecovery =
+      bodyText.includes("disconnected") ||
+      bodyText.includes("Failed to load document") ||
+      bodyText.includes("initial_load_failed");
+    if (needsRecovery || (attempt > 0 && /\/document\//.test(page.url()))) {
       await openDashboard(page);
       await waitForWorkspaceReady(page);
+      await openDocument(page, title);
+      await page.waitForTimeout(1_000);
+    } else if (!/\/document\//.test(page.url())) {
+      await openDocument(page, title);
+      await page.waitForTimeout(1_000);
     }
 
-    const hasEditor = await page
+    const editorReady = await page
       .locator('.cm-content, .ProseMirror, [role="textbox"], [contenteditable="true"], textarea')
       .first()
-      .isVisible({ timeout: 2_000 })
+      .isVisible({ timeout: 5_000 })
       .catch(() => false);
-    if (!hasEditor) {
-      if (/\/document\//.test(page.url())) {
-        if (attempt > 0) {
-          await page.reload({ waitUntil: "domcontentloaded" });
-        }
-        await page.waitForTimeout(2_000);
-      } else {
-        await openDocument(page, title);
-        await page.waitForTimeout(2_000);
-      }
-    }
-
-    const hasEditorAfterRecovery = await page
-      .locator('.cm-content, .ProseMirror, [role="textbox"], [contenteditable="true"], textarea')
-      .first()
-      .isVisible({ timeout: 2_000 })
-      .catch(() => false);
-    if (!hasEditorAfterRecovery) continue;
+    if (!editorReady) continue;
 
     const stillDisconnected = await page
       .getByText("disconnected", { exact: true })
@@ -77,7 +119,17 @@ async function ensureEditorReady(page: Page, title: string): Promise<void> {
     if (!stillDisconnected) return;
   }
 
-  throw new Error(`editor was not ready for ${title}`);
+  const bodyText = await page
+    .locator("body")
+    .innerText()
+    .catch(() => "");
+  throw new Error(
+    `editor was not ready for ${title}: ${JSON.stringify({
+      url: page.url(),
+      bodyText: bodyText.slice(0, 500),
+      clientLogs: await clientDiagnostics(page),
+    })}`,
+  );
 }
 
 async function expectTextWithRecovery(page: Page, title: string, text: string): Promise<void> {
@@ -86,8 +138,22 @@ async function expectTextWithRecovery(page: Page, title: string, text: string): 
       await expectEditorTextContains(page, text, 60_000);
       return;
     } catch (error) {
-      const bodyText = await page.locator("body").innerText().catch(() => "");
-      if (attempt > 0 || !bodyText.includes("disconnected")) throw error;
+      const bodyText = await page
+        .locator("body")
+        .innerText()
+        .catch(() => "");
+      const needsRecovery =
+        bodyText.includes("disconnected") ||
+        bodyText.includes("Failed to load document") ||
+        bodyText.includes("initial_load_failed");
+      if (attempt > 0 || !needsRecovery) {
+        const diagnostics = await clientDiagnostics(page);
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)} ${JSON.stringify({
+            clientLogs: diagnostics,
+          })}`,
+        );
+      }
       await openDashboard(page);
       await waitForWorkspaceReady(page);
       await openDocument(page, title);
@@ -96,30 +162,34 @@ async function expectTextWithRecovery(page: Page, title: string, text: string): 
 }
 
 async function typeInVisibleEditor(page: Page, text: string): Promise<void> {
-  const codeMirror = page.locator(".cm-content").first();
-  if (await codeMirror.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await codeMirror.click();
-    await page.keyboard.press("Control+End");
-    await page.keyboard.press("Enter");
-    await page.keyboard.insertText(text);
-    return;
+  const candidates = [
+    page.locator('.cm-content[contenteditable="true"]:visible').first(),
+    page.locator('.ProseMirror[contenteditable="true"]:visible').first(),
+    page.locator('[role="textbox"]:visible, [contenteditable="true"]:visible, textarea:visible').last(),
+  ];
+
+  for (const editor of candidates) {
+    if (!(await editor.isVisible({ timeout: 2_000 }).catch(() => false))) continue;
+    for (const input of [
+      () => page.keyboard.insertText(text),
+      () => editor.pressSequentially(text, { delay: 10 }),
+    ]) {
+      await editor.click({ force: true });
+      await editor.evaluate((el) => (el as HTMLElement).focus());
+      await page.keyboard.press("End");
+      await page.keyboard.press("Enter");
+      await input();
+      if (
+        await expectEditorTextContains(page, text, 5_000)
+          .then(() => true)
+          .catch(() => false)
+      ) {
+        return;
+      }
+    }
   }
 
-  const proseMirror = page.locator(".ProseMirror").first();
-  if (await proseMirror.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await proseMirror.click();
-    await page.keyboard.press("Control+End");
-    await page.keyboard.press("Enter");
-    await page.keyboard.insertText(text);
-    return;
-  }
-
-  const textbox = page.locator('[role="textbox"], [contenteditable="true"], textarea').last();
-  await expect(textbox).toBeVisible({ timeout: 15_000 });
-  await textbox.click();
-  await page.keyboard.press("Control+End");
-  await page.keyboard.press("Enter");
-  await page.keyboard.insertText(text);
+  throw new Error(`failed to type into visible editor: ${text}`);
 }
 
 async function switchToSplitMode(page: Page): Promise<void> {
@@ -134,7 +204,9 @@ async function switchToSplitMode(page: Page): Promise<void> {
   if (cmVisible && pmVisible) return;
 
   const trigger = page
-    .locator(".mosaic-window-toolbar [data-slot='dropdown-menu-trigger'], .mosaic-window-toolbar button")
+    .locator(
+      ".mosaic-window-toolbar [data-slot='dropdown-menu-trigger'], .mosaic-window-toolbar button",
+    )
     .last();
   await expect(trigger).toBeVisible({ timeout: 10_000 });
   await trigger.click();
@@ -191,13 +263,16 @@ async function createDocumentForCollab(page: Page, title: string): Promise<Page>
 
 async function currentDocumentId(page: Page): Promise<string> {
   await expect
-    .poll(() => {
-      const match = page.url().match(/\/document\/([^/?#]+)/);
-      return match?.[1] ?? "";
-    }, {
-      timeout: 15_000,
-      message: "document route was not established",
-    })
+    .poll(
+      () => {
+        const match = page.url().match(/\/document\/([^/?#]+)/);
+        return match?.[1] ?? "";
+      },
+      {
+        timeout: 15_000,
+        message: "document route was not established",
+      },
+    )
     .not.toBe("");
   const match = page.url().match(/\/document\/([^/?#]+)/);
   return match![1];
@@ -213,9 +288,14 @@ async function openDocumentRoute(page: Page, documentId: string): Promise<Page> 
     const rendered = await expect
       .poll(
         async () => {
-          const body = ((await activePage.locator("body").textContent().catch(() => "")) ?? "").trim();
+          const body = (
+            (await activePage
+              .locator("body")
+              .textContent()
+              .catch(() => "")) ?? ""
+          ).trim();
           const hasEditor = (await activePage.locator(".cm-content, .ProseMirror").count()) > 0;
-          return hasEditor || body.includes(DOC_TITLE) || body.includes("Failed to load document");
+          return hasEditor || body.includes("Failed to load document");
         },
         { timeout: 30_000, message: "document route never rendered" },
       )
@@ -223,7 +303,18 @@ async function openDocumentRoute(page: Page, documentId: string): Promise<Page> 
       .then(() => true)
       .catch(() => false);
     if (rendered) return activePage;
-    await activePage.reload({ waitUntil: "domcontentloaded" });
+    try {
+      await openDashboard(activePage);
+      await waitForWorkspaceReady(activePage);
+      await openDocument(activePage, DOC_TITLE);
+      return activePage;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt === 2 || !message.includes("key_directory_fetch_failed")) {
+        throw error;
+      }
+      await activePage.reload({ waitUntil: "domcontentloaded" });
+    }
   }
   throw new Error(`document route remained blank for ${documentId}`);
 }
@@ -245,8 +336,8 @@ async function acceptInvitation(page: Page, link: string): Promise<Page> {
   await page.goto(link, { waitUntil: "domcontentloaded" });
 
   // Wait for the Accept button - crypto worker must be ready for it to appear
-  const acceptButton = page.getByRole("button", { name: "Accept Invitation" });
-  await expect(acceptButton).toBeVisible({ timeout: 30_000 });
+  const acceptButton = page.getByRole("button", { name: /accept invitation/i });
+  await acceptButton.waitFor({ state: "visible", timeout: 30_000 });
   await acceptButton.click();
 
   // After acceptance: wait for success or dashboard redirect.
@@ -254,13 +345,18 @@ async function acceptInvitation(page: Page, link: string): Promise<Page> {
   await expect
     .poll(
       async () => {
-        if (/\/dashboard/.test(page.url())) return true;
-        const text = await page.locator("body").innerText().catch(() => "");
-        return text.includes("joined the workspace");
+        if (/\/dashboard/.test(page.url())) return "accepted";
+        const text = await page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        return text.includes("joined the workspace")
+          ? "accepted"
+          : JSON.stringify({ url: page.url(), bodyText: text.slice(0, 240) });
       },
       { timeout: 60_000, message: "invitation acceptance did not succeed" },
     )
-    .toBe(true);
+    .toBe("accepted");
 
   // Click "Go to Workspace" if still visible, otherwise wait for auto-redirect
   const goToWorkspace = page.getByRole("button", { name: "Go to Workspace" });
@@ -281,6 +377,7 @@ async function setupSharedDocument(browser: Browser): Promise<{
   docId: string;
 }> {
   const ctxA = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
+  await installClientDiagnostics(ctxA);
   let pageA = await ctxA.newPage();
   await registerAccount(pageA, "Alice");
   pageA = await createDocumentForCollab(pageA, DOC_TITLE);
@@ -291,11 +388,12 @@ async function setupSharedDocument(browser: Browser): Promise<{
   await pageA.waitForTimeout(3_000);
 
   const ctxB = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
+  await installClientDiagnostics(ctxB);
   let pageB = await ctxB.newPage();
   const emailB = await registerAccount(pageB, "Bob");
 
   const inviteLink = await inviteUser(pageA, emailB);
-  expect(inviteLink).toContain("/invite#token=");
+  expect(inviteLink).toMatch(/\/invite#it=.+&ib=.+/);
   pageB = await acceptInvitation(pageB, inviteLink);
   pageB = await openDocumentRoute(pageB, docId);
 
@@ -341,7 +439,9 @@ test.describe("Multi-User Awareness & Presence (4-23)", () => {
     }
   });
 
-  test("split editors exchange awareness without recursive cursor failures", async ({ browser }) => {
+  test("split editors exchange awareness without recursive cursor failures", async ({
+    browser,
+  }) => {
     test.setTimeout(180_000);
 
     const { ctxA, pageA, ctxB, pageB } = await setupSharedDocument(browser);

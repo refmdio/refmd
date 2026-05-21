@@ -2,8 +2,7 @@ defmodule RefMDWeb.PublicDocumentController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.Public
-  alias RefMDWeb.Channels.Document.Access
+  alias RefMD.{Documents, Public}
   alias RefMDWeb.Schemas
 
   plug RefMDWeb.Plugs.ResolveDocumentWorkspace when action not in [:show_public, :show_author]
@@ -120,7 +119,7 @@ defmodule RefMDWeb.PublicDocumentController do
   def update_content(conn, %{"document_id" => document_id} = params) do
     attrs = Map.take(params, ["title", "content", "content_hash"])
 
-    if Access.publication_sync_allowed?(
+    if Documents.publication_sync_allowed?(
          conn.assigns.document,
          conn.assigns.current_user_id,
          nil,

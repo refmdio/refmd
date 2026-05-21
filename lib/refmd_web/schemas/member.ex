@@ -41,18 +41,33 @@ defmodule RefMDWeb.Schemas.MemberDeviceInfo do
     type: :object,
     properties: %{
       device_id: %Schema{type: :string, format: :uuid},
-      signing_public_key: %Schema{type: :string},
-      ecdh_public_key: %Schema{type: :string},
-      identity_signature: %Schema{type: :string},
+      hybrid_signing_public_key_material: RefMDWeb.Schemas.HybridSigningPublicKeyMaterial,
+      signing_key_id: RefMDWeb.Schemas.Blake3Base64Url,
+      hybrid_encryption_public_key_material: RefMDWeb.Schemas.HybridEncryptionPublicKeyMaterial,
+      encryption_key_id: %Schema{type: :string},
+      approval_signature: RefMDWeb.Schemas.HybridSignature,
+      approval_signature_surface: %Schema{
+        type: :string,
+        enum: ["genesis_device_bootstrap", "device_approval", "recovery_device_approval"]
+      },
+      approval_proof: RefMDWeb.Schemas.DeviceApprovalProof,
+      approval_delivery_commitments: %Schema{
+        allOf: [RefMDWeb.Schemas.ApprovalDeliveryCommitments],
+        nullable: true
+      },
       client_nonce: %Schema{type: :string},
       revoked_at: %Schema{type: :string, format: :"date-time", nullable: true},
       created_at: %Schema{type: :string, format: :"date-time"}
     },
     required: [
       :device_id,
-      :signing_public_key,
-      :ecdh_public_key,
-      :identity_signature,
+      :hybrid_signing_public_key_material,
+      :signing_key_id,
+      :hybrid_encryption_public_key_material,
+      :encryption_key_id,
+      :approval_signature,
+      :approval_signature_surface,
+      :approval_proof,
       :client_nonce,
       :created_at
     ]
@@ -83,5 +98,23 @@ defmodule RefMDWeb.Schemas.ChangeMemberRoleRequest do
       role_id: %Schema{type: :string, format: :uuid}
     },
     required: [:role_id]
+  })
+end
+
+defmodule RefMDWeb.Schemas.RemoveMemberRequest do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "RemoveMemberRequest",
+    type: :object,
+    properties: %{
+      workspace_key_directory_events: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
+    },
+    required: [:workspace_key_directory_events, :workspace_key_directory_checkpoint]
   })
 end

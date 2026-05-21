@@ -2,7 +2,6 @@ import { createRoot, createSignal } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { MosaicNode } from "solid-mosaic-component";
 import { createBalancedTreeFromLeaves } from "solid-mosaic-component";
-import { readFromLocalStorage } from "@/entities/settings";
 import { authState } from "@/entities/session";
 import type { SettingsResponse } from "@/shared/api";
 import {
@@ -26,9 +25,6 @@ import {
 
 type EditorMode = "markdown" | "wysiwyg" | "split";
 type QueryClient = ReturnType<typeof useQueryClient>;
-function getCachedSettings(): SettingsResponse | null {
-  return readFromLocalStorage()?.data ?? null;
-}
 function getPrimaryPanelId(node: MosaicNode<string>): string {
   return typeof node === "string" ? node : getPrimaryPanelId(node.first);
 }
@@ -52,14 +48,14 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
   function getDefaultEditorMode(): EditorMode {
     const userId = authState()?.user?.id;
     const settings = queryClient.getQueryData<SettingsResponse>(["settings", userId ?? "anon"]);
-    const mode = settings?.editor_default_mode ?? getCachedSettings()?.editor_default_mode;
+    const mode = settings?.editor_default_mode;
     if (mode === "markdown" || mode === "wysiwyg" || mode === "split") return mode;
     return "split";
   }
   function getLayoutMode(): "tiling" | "horizontal" | "vertical" {
     const userId = authState()?.user?.id;
     const settings = queryClient.getQueryData<SettingsResponse>(["settings", userId ?? "anon"]);
-    const mode = settings?.editor_layout_mode ?? getCachedSettings()?.editor_layout_mode;
+    const mode = settings?.editor_layout_mode;
     if (mode === "horizontal" || mode === "vertical") return mode;
     return "tiling";
   }

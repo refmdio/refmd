@@ -59,28 +59,49 @@ async function waitForOfflineDocumentCache(page: Parameters<typeof registerAccou
     .poll(
       () =>
         page.evaluate(async () => {
-          const db = await new Promise<IDBDatabase>((resolve, reject) => {
-            const request = indexedDB.open("refmd-offline");
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
+          const openDb = (name: string) =>
+            new Promise<IDBDatabase>((resolve, reject) => {
+              const request = indexedDB.open(name);
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
 
-          const count = (storeName: string) =>
+          const offlineDb = await openDb("refmd-offline");
+          const keyDb = await openDb("refmd-keys");
+
+          const count = (db: IDBDatabase, storeName: string) =>
             new Promise<number>((resolve, reject) => {
+              if (!db.objectStoreNames.contains(storeName)) {
+                resolve(0);
+                return;
+              }
               const tx = db.transaction(storeName, "readonly");
               const request = tx.objectStore(storeName).count();
               request.onsuccess = () => resolve(request.result);
               request.onerror = () => reject(request.error);
             });
 
+          const countKeysWithPrefix = (db: IDBDatabase, storeName: string, prefix: string) =>
+            new Promise<number>((resolve, reject) => {
+              if (!db.objectStoreNames.contains(storeName)) {
+                resolve(0);
+                return;
+              }
+              const tx = db.transaction(storeName, "readonly");
+              const request = tx.objectStore(storeName).getAllKeys();
+              request.onsuccess = () =>
+                resolve(request.result.filter((key) => String(key).startsWith(prefix)).length);
+              request.onerror = () => reject(request.error);
+            });
+
           try {
             const [workspaces, documentIndex, documents, documentCache, dekCache] =
               await Promise.all([
-                count("offline-workspaces"),
-                count("offline-document-index"),
-                count("offline-documents"),
-                count("document-cache"),
-                count("offline-dek-cache"),
+                count(offlineDb, "offline-workspaces"),
+                count(offlineDb, "offline-document-index"),
+                count(offlineDb, "offline-documents"),
+                count(offlineDb, "document-cache"),
+                countKeysWithPrefix(keyDb, "keystore", "refmd-offline-key:dek:"),
               ]);
             return (
               workspaces > 0 &&
@@ -90,7 +111,8 @@ async function waitForOfflineDocumentCache(page: Parameters<typeof registerAccou
               dekCache > 0
             );
           } finally {
-            db.close();
+            offlineDb.close();
+            keyDb.close();
           }
         }),
       {

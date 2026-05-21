@@ -16,6 +16,7 @@ interface CorePluginPreferenceState {
 
 let registeredPlugins: CorePluginEntry[] = [];
 const loadedPlugins = new Set<string>();
+const runtimePreferences = new Map<string, CorePluginPreferenceState>();
 
 export function registerCorePlugins(plugins: CorePluginEntry[]): void {
   registeredPlugins = plugins;
@@ -25,53 +26,20 @@ export function getCorePlugins(): CorePluginEntry[] {
   return registeredPlugins;
 }
 
-function getStorageKey(workspaceId: string): string {
-  return `refmd-core-plugins:${workspaceId}`;
-}
-
-function readPreferenceState(workspaceId: string): CorePluginPreferenceState {
-  try {
-    const raw = localStorage.getItem(getStorageKey(workspaceId));
-    if (!raw) {
-      return {
-        disabled: new Set(),
-        enabled: new Set(),
-      };
-    }
-
-    const parsed = JSON.parse(raw) as {
-      disabled?: string[];
-      enabled?: string[];
-    };
-
-    return {
-      disabled: new Set(parsed.disabled ?? []),
-      enabled: new Set(parsed.enabled ?? []),
-    };
-  } catch {
-    return {
+function preferenceState(workspaceId: string): CorePluginPreferenceState {
+  let state = runtimePreferences.get(workspaceId);
+  if (!state) {
+    state = {
       disabled: new Set(),
       enabled: new Set(),
     };
+    runtimePreferences.set(workspaceId, state);
   }
-}
-
-function savePreferenceState(workspaceId: string, state: CorePluginPreferenceState): void {
-  try {
-    localStorage.setItem(
-      getStorageKey(workspaceId),
-      JSON.stringify({
-        disabled: [...state.disabled],
-        enabled: [...state.enabled],
-      }),
-    );
-  } catch {
-    // localStorage unavailable
-  }
+  return state;
 }
 
 export function isCorePluginEnabled(id: string, workspaceId: string): boolean {
-  const { disabled, enabled } = readPreferenceState(workspaceId);
+  const { disabled, enabled } = preferenceState(workspaceId);
   const plugin = registeredPlugins.find((p) => p.id === id);
   if (!plugin) return false;
   if (disabled.has(id)) return false;
@@ -85,33 +53,32 @@ export function setCorePluginEnabled(
   enabled: boolean,
   app: App,
 ): void {
-  const preferenceState = readPreferenceState(workspaceId);
+  const state = preferenceState(workspaceId);
   const plugin = registeredPlugins.find((p) => p.id === id);
   const isDefault = plugin?.defaultEnabled ?? true;
   if (enabled) {
-    preferenceState.disabled.delete(id);
+    state.disabled.delete(id);
     if (!isDefault) {
-      preferenceState.enabled.add(id);
+      state.enabled.add(id);
     } else {
-      preferenceState.enabled.delete(id);
+      state.enabled.delete(id);
     }
     if (plugin && !loadedPlugins.has(id)) {
       plugin.load(app);
       loadedPlugins.add(id);
     }
   } else {
-    preferenceState.enabled.delete(id);
+    state.enabled.delete(id);
     if (isDefault) {
-      preferenceState.disabled.add(id);
+      state.disabled.add(id);
     } else {
-      preferenceState.disabled.delete(id);
+      state.disabled.delete(id);
     }
     if (plugin && loadedPlugins.has(id)) {
       plugin.unload();
       loadedPlugins.delete(id);
     }
   }
-  savePreferenceState(workspaceId, preferenceState);
 }
 
 export function loadCorePlugins(app: App, workspaceId: string): void {

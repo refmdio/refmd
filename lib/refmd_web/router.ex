@@ -4,7 +4,9 @@ defmodule RefMDWeb.Router do
   pipeline :api do
     plug :accepts, ["json"]
     plug RefMDWeb.Plugs.RateLimit
+    plug RefMDWeb.Plugs.StrictSecurityJson
     plug OpenApiSpex.Plug.PutApiSpec, module: RefMDWeb.ApiSpec
+    plug RefMDWeb.Plugs.OpenApiRequestValidation
   end
 
   pipeline :authenticated do
@@ -18,6 +20,11 @@ defmodule RefMDWeb.Router do
   pipeline :require_pop do
     plug RefMDWeb.Plugs.RequireAuth
     plug RefMDWeb.Plugs.RequirePoP
+  end
+
+  pipeline :session_require_pop do
+    plug RefMDWeb.Plugs.RequireAuth, allow_share_participant: true
+    plug RefMDWeb.Plugs.RequirePoP, allow_share_participant: true
   end
 
   pipeline :verify_origin do
@@ -48,12 +55,6 @@ defmodule RefMDWeb.Router do
   end
 
   scope "/api/shares", RefMDWeb do
-    pipe_through [:api, :authenticated]
-
-    get "/:share_slug/mounts", ShareMountController, :share_mounts
-  end
-
-  scope "/api/shares", RefMDWeb do
     pipe_through [:api]
 
     get "/:share_slug", ShareController, :show
@@ -74,34 +75,20 @@ defmodule RefMDWeb.Router do
 
     post "/:share_slug/bootstrap", ShareController, :bootstrap
     post "/:share_slug/challenge", ShareController, :respond_challenge
+    post "/d/:document_token/bootstrap", ShareController, :document_bootstrap
+    post "/f/:folder_token/bootstrap", ShareController, :folder_bootstrap
   end
 
-  scope "/api", RefMDWeb do
-    pipe_through [:api, :verify_origin]
-
-    patch "/documents/:document_id/shares/:share_id", DocumentShareController, :update
-
-    patch "/documents/:document_id/shares/:share_id/exclusions",
-          DocumentShareController,
-          :update_exclusions
-
-    patch "/documents/:document_id/shares/:share_id/keys",
-          DocumentShareController,
-          :update_keys
-
-    delete "/documents/:document_id/shares/:share_id", DocumentShareController, :delete
-  end
-
-  scope "/api/workspaces/guest-invitations", RefMDWeb do
+  scope "/api/guest", RefMDWeb do
     pipe_through [:api, :verify_origin]
 
     post "/redeem", GuestInvitationController, :redeem
   end
 
-  scope "/api/workspaces/invitations", RefMDWeb do
+  scope "/api/invitations", RefMDWeb do
     pipe_through [:api, :verify_origin]
 
-    post "/lookup", InvitationController, :lookup
+    get "/lookup", InvitationController, :lookup
   end
 
   # Session-only endpoints (no PoP required, Origin-verified for CSRF defense)
@@ -110,30 +97,31 @@ defmodule RefMDWeb.Router do
 
     # Auth
     get "/auth/me", AuthController, :me
+    get "/auth/key-restore", AuthController, :key_restore
     post "/auth/verify-key", AuthController, :verify_key
     post "/auth/kdf-migration", AuthController, :kdf_migration
     get "/auth/recovery", AuthController, :get_recovery
     post "/auth/password-set", PasswordController, :password_set
 
     # Device (bootstrap, registration, listing, status polling)
+    post "/devices/bootstrap/challenge", DeviceController, :bootstrap_challenge
     post "/devices/bootstrap", DeviceController, :bootstrap
+    post "/devices/registrations/challenge", DeviceController, :registration_challenge
     post "/devices/registrations", DeviceController, :create_registration
     get "/devices/registrations", DeviceController, :list_registrations
-    get "/devices/registrations/:id/sas", DeviceController, :get_registration_sas
-    delete "/devices/registrations/:id", DeviceController, :reject_registration
-
-    # Trust transfer (session-only: nonce request, state retrieval)
-    post "/trust-transfer/nonce", TrustTransferController, :create_nonce
-    get "/trust-transfer/state", TrustTransferController, :get_state
+    get "/devices/registrations/:device_id/sas", DeviceController, :get_registration_sas
+    delete "/devices/registrations/:device_id", DeviceController, :reject_registration
+    get "/workspaces/ids", EncryptionController, :workspace_ids
 
     # Encryption setup (initial, before PoP is possible)
     post "/encryption/setup-complete", EncryptionController, :setup_complete
 
-    # Workspace creation (session only, no PoP)
+    # Workspace creation is session-authenticated; the request carries the signed initial directory.
     post "/workspaces", WorkspaceController, :create
 
     # Share mounts
     post "/mounts", ShareMountController, :create
+    get "/shares/:share_slug/mounts", ShareMountController, :share_mounts_for_share
 
     # Settings (read: session only, no PoP needed for startup)
     get "/settings", SettingsController, :show
@@ -147,11 +135,21 @@ defmodule RefMDWeb.Router do
     post "/auth/ws-token", AuthController, :ws_token
   end
 
+  scope "/api", RefMDWeb do
+    pipe_through [:api, :session_require_pop, :verify_origin]
+
+    get "/users/:user_id/key-directory/latest", KeyDirectoryController, :latest_user
+
+    get "/workspaces/:workspace_id/key-directory/latest",
+        KeyDirectoryController,
+        :latest_workspace
+  end
+
   # Recovery-or-PoP endpoints
   scope "/api", RefMDWeb do
     pipe_through [:api, :require_recovery_or_pop, :verify_origin]
 
-    post "/devices/registrations/:id/approve", DeviceController, :approve
+    post "/devices/registrations/:device_id/approve", DeviceController, :approve
   end
 
   # PoP-required endpoints
@@ -162,11 +160,22 @@ defmodule RefMDWeb.Router do
     patch "/auth/password", PasswordController, :change_password
     put "/auth/recovery-key", PasswordController, :regenerate_recovery_key
 
-    # Trust transfer (PoP required: state sending)
-    post "/trust-transfer/state", TrustTransferController, :send_state
-
     # Settings (write: PoP required)
     patch "/settings", SettingsController, :update
+
+    # Invitation mutations and member admission require the current device proof.
+    post "/workspaces/invitations/accept", InvitationController, :accept
+    post "/workspaces/:workspace_id/invitations", InvitationController, :create
+    delete "/workspaces/:workspace_id/invitations/:invitation_id", InvitationController, :delete
+
+    post "/workspaces/:workspace_id/guest-invitations", GuestInvitationController, :create
+
+    delete "/workspaces/:workspace_id/guest-invitations/:invitation_id",
+           GuestInvitationController,
+           :delete
+
+    # Key directory
+    post "/workspaces/:workspace_id/key-directory/append", KeyDirectoryController, :append
 
     # Documents
     get "/documents", DocumentController, :index
@@ -179,6 +188,17 @@ defmodule RefMDWeb.Router do
     post "/documents/:document_id/unarchive", DocumentController, :unarchive
     get "/documents/:document_id/shares", DocumentShareController, :index
     post "/documents/:document_id/shares", DocumentShareController, :create
+    patch "/documents/:document_id/shares/:share_id", DocumentShareController, :update
+
+    patch "/documents/:document_id/shares/:share_id/exclusions",
+          DocumentShareController,
+          :update_exclusions
+
+    patch "/documents/:document_id/shares/:share_id/keys",
+          DocumentShareController,
+          :update_keys
+
+    delete "/documents/:document_id/shares/:share_id", DocumentShareController, :delete
 
     get "/documents/:document_id/share-verification-directory",
         DocumentShareController,
@@ -195,11 +215,18 @@ defmodule RefMDWeb.Router do
     put "/documents/:document_id/publication/content", PublicDocumentController, :update_content
     get "/mounts", ShareMountController, :index
     get "/mounts/:mount_id", ShareMountController, :show
-    get "/mounts/:mount_id/folders/:folder_token", ShareMountController, :folder
+
+    post "/mounts/:mount_id/documents/:document_token/bootstrap",
+         ShareMountController,
+         :document_bootstrap
+
+    post "/mounts/:mount_id/folders/:folder_token/bootstrap",
+         ShareMountController,
+         :folder_bootstrap
+
     get "/mounts/:mount_id/challenge", ShareMountController, :challenge
 
     # Workspaces
-    get "/workspaces/ids", EncryptionController, :workspace_ids
     get "/workspaces", WorkspaceController, :index
     get "/workspaces/:workspace_id", WorkspaceController, :show
     patch "/workspaces/:workspace_id", WorkspaceController, :update
@@ -214,16 +241,8 @@ defmodule RefMDWeb.Router do
     delete "/workspaces/:workspace_id/members/:user_id", MemberController, :delete
 
     # Invitations
-    post "/workspaces/invitations/accept", InvitationController, :accept
     get "/workspaces/:workspace_id/invitations", InvitationController, :index
-    post "/workspaces/:workspace_id/invitations", InvitationController, :create
-    delete "/workspaces/:workspace_id/invitations/:invitation_id", InvitationController, :delete
     get "/workspaces/:workspace_id/guest-invitations", GuestInvitationController, :index
-    post "/workspaces/:workspace_id/guest-invitations", GuestInvitationController, :create
-
-    delete "/workspaces/:workspace_id/guest-invitations/:invitation_id",
-           GuestInvitationController,
-           :delete
 
     # Roles
     get "/workspaces/:workspace_id/roles", RoleController, :index
@@ -253,16 +272,14 @@ defmodule RefMDWeb.Router do
     post "/encryption/workspaces/:workspace_id/keys", EncryptionController, :create_workspace_key
     get "/encryption/workspaces/:workspace_id/keys", EncryptionController, :get_workspace_keys
 
-    post "/encryption/workspaces/:workspace_id/kek-backup",
-         EncryptionController,
-         :create_kek_backup
-
-    get "/encryption/workspaces/:workspace_id/kek-backup", EncryptionController, :get_kek_backup
-
     # KEK Rotation
     post "/encryption/workspaces/:workspace_id/kek-rotation",
          KekRotationController,
          :start_kek_rotation
+
+    get "/encryption/workspaces/:workspace_id/kek-rotation/completion-manifest",
+        KekRotationController,
+        :prepare_kek_rotation_completion
 
     post "/encryption/workspaces/:workspace_id/kek-rotation/complete",
          KekRotationController,

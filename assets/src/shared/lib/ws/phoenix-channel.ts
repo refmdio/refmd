@@ -14,6 +14,8 @@ import {
   resetPhoenixSocketState,
 } from "./socket";
 import { getPreferredSessionScope } from "@/shared/lib/auth/session-scope";
+import { canonicalizeStrict, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import { clientWarn } from "@/shared/lib/logger";
 import { recordAuthTransportNetworkFailure } from "./transport-coordinator";
 import type {
   DocumentPayload,
@@ -34,6 +36,11 @@ const channels = new Map<string, Channel>();
 const channelDocumentIds = new Map<string, string>();
 const channelScopes = new Map<string, "user" | "share">();
 const channelJoinPromises = new Map<string, Promise<Channel>>();
+
+export function strictChannelPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  canonicalizeStrict(payload as StrictJsonValue);
+  return payload;
+}
 
 function resolveChannelScope(scope?: "user" | "share"): "user" | "share" {
   return scope ?? (getPreferredSessionScope() === "share" ? "share" : "user");
@@ -86,25 +93,29 @@ function configureDocumentChannel(
 
   notifyChannelClosedOnSocketClose(sock, channel, callbacks.onClose);
 
-  channel.on<DocumentPayload>("document", (payload) => callbacks.onDocument(payload));
-  channel.on<UpdatePayload>("update", (payload) => callbacks.onUpdate(payload));
-  channel.on<RemoteSnapshotPayload>("snapshot", (payload) => callbacks.onSnapshot(payload));
-  channel.on<UpdateSavedPayload>("update-saved", (payload) => callbacks.onUpdateSaved(payload));
-  channel.on<UpdateSaveFailedPayload>("update-save-failed", (payload) =>
-    callbacks.onUpdateSaveFailed(payload),
+  channel.on("document", (payload) => callbacks.onDocument(payload as unknown as DocumentPayload));
+  channel.on("update", (payload) => callbacks.onUpdate(payload as unknown as UpdatePayload));
+  channel.on("snapshot", (payload) =>
+    callbacks.onSnapshot(payload as unknown as RemoteSnapshotPayload),
   );
-  channel.on<SnapshotSavedPayload>("snapshot-saved", (payload) =>
-    callbacks.onSnapshotSaved(payload),
+  channel.on("update-saved", (payload) =>
+    callbacks.onUpdateSaved(payload as unknown as UpdateSavedPayload),
   );
-  channel.on<SnapshotSaveFailedPayload>("snapshot-save-failed", (payload) =>
-    callbacks.onSnapshotSaveFailed(payload),
+  channel.on("update-save-failed", (payload) =>
+    callbacks.onUpdateSaveFailed(payload as unknown as UpdateSaveFailedPayload),
   );
-  channel.on<EphemeralPayload>("ephemeral-message", (payload) =>
-    callbacks.onEphemeralMessage(payload),
+  channel.on("snapshot-saved", (payload) =>
+    callbacks.onSnapshotSaved(payload as unknown as SnapshotSavedPayload),
   );
-  channel.on<PeerLeftPayload>("peer-left", (payload) => callbacks.onPeerLeft(payload));
-  channel.on<PublicStatusChangedPayload>("public-status-changed", (payload) =>
-    callbacks.onPublicStatusChanged(payload),
+  channel.on("snapshot-save-failed", (payload) =>
+    callbacks.onSnapshotSaveFailed(payload as unknown as SnapshotSaveFailedPayload),
+  );
+  channel.on("ephemeral-message", (payload) =>
+    callbacks.onEphemeralMessage(payload as unknown as EphemeralPayload),
+  );
+  channel.on("peer-left", (payload) => callbacks.onPeerLeft(payload as unknown as PeerLeftPayload));
+  channel.on("public-status-changed", (payload) =>
+    callbacks.onPublicStatusChanged(payload as unknown as PublicStatusChangedPayload),
   );
   channel.on("connection-cap-evict", () => callbacks.onError("connection_cap_evict"));
   channel.on("unauthorized", () => callbacks.onUnauthorized());
@@ -141,7 +152,7 @@ export async function joinDocument(
     channelScopes.delete(channelKey);
     channelJoinPromises.delete(channelKey);
   }
-  const channel = sock.channel(topic, params);
+  const channel = sock.channel(topic, strictChannelPayload(params));
   configureDocumentChannel(sock, channel, callbacks);
   channels.set(channelKey, channel);
   channelDocumentIds.set(channelKey, documentId);
@@ -191,7 +202,7 @@ export async function joinTemporaryDocument(
 
   const tempSocket = createTemporaryPhoenixSocket(scope);
 
-  const channel = tempSocket.channel(`document:${documentId}`, params);
+  const channel = tempSocket.channel(`document:${documentId}`, strictChannelPayload(params));
   configureDocumentChannel(tempSocket, channel, callbacks);
 
   let disposed = false;
@@ -229,10 +240,10 @@ export function pushUpdate(
   const channel = channels.get(channelKey);
   const channelState = channel ? getChannelState(channel) : "missing";
   if (!channel || channelState !== "joined") {
-    console.warn(`[ws] pushUpdate dropped: channel=${channelState}`);
+    clientWarn("ws_push_update_dropped", { channelState });
     return false;
   }
-  const push = channel.push("update", payload);
+  const push = channel.push("update", strictChannelPayload(payload));
   if (onReject) {
     push.receive("error", onReject).receive("timeout", () => onReject("timeout"));
   }
@@ -246,7 +257,7 @@ export function pushSnapshot(
 ): boolean {
   const channel = channels.get(channelKey);
   if (!channel || getChannelState(channel) !== "joined") return false;
-  const push = channel.push("snapshot", payload);
+  const push = channel.push("snapshot", strictChannelPayload(payload));
   if (onReject) {
     push.receive("error", onReject).receive("timeout", () => onReject("timeout"));
   }
@@ -259,7 +270,7 @@ export function pushEphemeral(
 ): boolean {
   const channel = channels.get(channelKey);
   if (!channel || getChannelState(channel) !== "joined") return false;
-  channel.push("ephemeral", payload);
+  channel.push("ephemeral", strictChannelPayload(payload));
   return true;
 }
 export async function rejoinDocument(

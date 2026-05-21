@@ -5,6 +5,7 @@ import { initializeDocumentSync } from "../sync/initialize";
 import { restoreDocumentStateFromCache } from "./restore";
 import { DocumentChannelError } from "../sync/error";
 import { ApiError, getRateLimitRetryMs } from "@/shared/api";
+import { clientWarn } from "@/shared/lib/logger";
 import { offlineMode } from "@/shared/lib/offline/offline-state";
 import {
   blockPendingChangesSync,
@@ -17,7 +18,7 @@ import {
   type PendingSyncBlockReason,
 } from "@/shared/lib/offline/storage/store";
 import { isPhoenixJoinError } from "@/shared/lib/ws/phoenix-channel";
-import { isInitCancelledError as isCancelledSyncError } from "../sync/bootstrap/cancel";
+import { isInitCancelledError as isCancelledSyncError } from "../sync/bootstrap-cancel";
 const PENDING_SYNC_TIMEOUT_MS = 20000;
 const PENDING_SYNC_POLL_MS = 200;
 const inFlightSyncs = new Map<string, Promise<void>>();
@@ -55,22 +56,21 @@ export async function syncPendingDocuments(workspaceId?: string): Promise<void> 
       const blockedReason = getAccessDeniedReason(error);
       if (blockedReason) {
         await blockPendingChangesSync(target.documentId, blockedReason);
-        console.warn(
-          "[offline-sync] Paused automatic sync for locally cached changes after access was denied:",
-          target.documentId,
+        clientWarn("offline_sync_paused_after_access_denied", {
+          documentId: target.documentId,
           blockedReason,
-        );
+        });
         continue;
       }
       if (isDocumentGoneError(error)) {
         await deletePendingChanges(target.documentId);
-        console.warn(
-          "[offline-sync] Dropped locally cached changes for a missing document:",
-          target.documentId,
-        );
+        clientWarn("offline_sync_dropped_missing_document", { documentId: target.documentId });
         continue;
       }
-      console.warn("[offline-sync] Failed to sync pending document:", target.documentId, error);
+      clientWarn("offline_sync_pending_document_failed", {
+        documentId: target.documentId,
+        error,
+      });
     }
   }
 }

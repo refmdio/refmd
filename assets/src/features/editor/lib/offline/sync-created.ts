@@ -1,14 +1,16 @@
 import * as Y from "yjs";
 import { getKekResolverSession } from "@/entities/session";
-import { getDocumentState } from "../../model/document-state/store";
+import { acquireDocumentState, getDocumentState } from "../../model/document-state/store";
+import { releaseDocumentState } from "../../model/document-state/lifecycle";
 import { ApiError } from "@/shared/api";
 import { documentsApi } from "@/shared/api/documents";
 import { encryptionApi } from "@/shared/api/encryption";
-import { getPopHeaders } from "@/shared/lib/auth/pop";
+import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
-import { KekResolutionError } from "@/shared/lib/crypto/kek-resolver-error";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { clientWarn } from "@/shared/lib/logger";
 import {
   blockOfflineCreatedSync,
   deleteOfflineCreated,
@@ -21,15 +23,23 @@ import {
 import type { SnapshotSaveFailedPayload } from "@/shared/lib/ws/document-payloads";
 import {
   joinTemporaryDocument,
+  strictChannelPayload,
   type DocumentChannelCallbacks,
 } from "@/shared/lib/ws/phoenix-channel";
 import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
+import {
+  buildDocumentOperationAdmission,
+  hashSnapshotOperation,
+  prepareDocumentOperationAdmissionAuthority,
+} from "../sync/outbound-admission";
 
 interface ErrorWithStatusBody {
   status?: number;
   body?: Record<string, unknown>;
   data?: Record<string, unknown>;
 }
+
+const syncingOfflineCreatedDocuments = new Set<string>();
 
 function getErrorWithStatusBody(error: unknown): ErrorWithStatusBody | null {
   if (error instanceof ApiError) {
@@ -41,12 +51,22 @@ function getErrorWithStatusBody(error: unknown): ErrorWithStatusBody | null {
   return typeof error === "object" && error !== null ? (error as ErrorWithStatusBody) : null;
 }
 
+function serializeClientError(error: unknown): unknown {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  return error;
+}
+
 function isOfflineCreatedBlockedReason(value: unknown): value is OfflineCreatedSyncBlockReason {
   return value === "not_a_member" || value === "permission_denied";
 }
 
 function resolveOfflineCreatedBlockReason(error: unknown): OfflineCreatedSyncBlockReason | null {
-  if (error instanceof KekResolutionError) return "workspace_unavailable";
   const errorWithStatus = getErrorWithStatusBody(error);
   const bodyError = errorWithStatus?.body?.error ?? errorWithStatus?.data?.error;
   if (isOfflineCreatedBlockedReason(bodyError)) return bodyError;
@@ -55,7 +75,7 @@ function resolveOfflineCreatedBlockReason(error: unknown): OfflineCreatedSyncBlo
   return null;
 }
 
-export async function syncOfflineCreatedDocuments(workspaceId?: string): Promise<void> {
+export async function syncOfflineCreatedDocuments(workspaceId?: string): Promise<number> {
   const entries = await getAllOfflineCreated();
   const targetEntries = workspaceId
     ? entries.filter((entry) => entry.workspaceId === workspaceId)
@@ -63,6 +83,8 @@ export async function syncOfflineCreatedDocuments(workspaceId?: string): Promise
 
   for (const entry of targetEntries) {
     if (entry.syncBlockedReason) continue;
+    if (syncingOfflineCreatedDocuments.has(entry.documentId)) continue;
+    syncingOfflineCreatedDocuments.add(entry.documentId);
     try {
       await syncSingleDocument(entry);
     } catch (err) {
@@ -73,71 +95,30 @@ export async function syncOfflineCreatedDocuments(workspaceId?: string): Promise
       const message = blockedReason
         ? "Offline document could not be synced — workspace access may have been revoked. Local copy preserved."
         : "Failed to sync offline document. It will be retried on next connection.";
-      console.warn("[offline-create]", message, entry.documentId, err);
+      clientWarn("offline_created_sync_failed", {
+        message,
+        documentId: entry.documentId,
+        error: serializeClientError(err),
+      });
       import("@/shared/lib/notice").then(({ Notice }) => new Notice(message)).catch(() => {});
+    } finally {
+      syncingOfflineCreatedDocuments.delete(entry.documentId);
     }
   }
+
+  const remainingEntries = await getAllOfflineCreated();
+  return remainingEntries.filter(
+    (entry) => (!workspaceId || entry.workspaceId === workspaceId) && !entry.syncBlockedReason,
+  ).length;
 }
 
 async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> {
   const worker = getCryptoWorker();
-  try {
-    await documentsApi.create({
-      workspace_id: entry.workspaceId,
-      doc_type: "document",
-      id: entry.documentId,
-      title: "Untitled",
-      parent_id: entry.parentId,
-      encrypted_title: base64UrlEncode(entry.encryptedTitle),
-      encrypted_title_nonce: base64UrlEncode(entry.encryptedTitleNonce),
-      encrypted_title_key_version: entry.encryptedTitleKeyVersion,
-    });
-  } catch (err) {
-    const errorWithStatus = getErrorWithStatusBody(err);
-    if (errorWithStatus?.status === 409) {
-      const { recoverDocumentFromCache } =
-        await import("@/shared/lib/offline/cache/manager/recover");
-      const recovered = await recoverDocumentFromCache(entry.documentId).catch(() => null);
-      let yjsState: Uint8Array | null = null;
-      if (recovered) {
-        yjsState = Y.encodeStateAsUpdate(recovered.yDoc);
-        recovered.yDoc.destroy();
-      }
-      const { deleteDocumentOfflineData } = await import("@/shared/lib/offline/storage/store");
-      await deleteOfflineCreated(entry.documentId);
-      await deleteDocumentOfflineData(entry.documentId).catch(() => {});
-      const { createDocumentOffline } = await import("./create");
-      const newId = await createDocumentOffline(entry.workspaceId, entry.parentId);
-      if (yjsState && yjsState.length > 2) {
-        const { getDocumentCache: getCache, putDocumentCache } =
-          await import("@/shared/lib/offline/storage/store");
-        const newCache = await getCache(newId);
-        if (newCache) {
-          const encrypted = await worker.encryptOfflineCache({
-            plaintext: yjsState,
-            documentId: newId,
-            keyVersion: 1,
-          });
-          newCache.encryptedState = encrypted.ciphertext;
-          newCache.stateNonce = encrypted.nonce;
-          await putDocumentCache(newCache);
-        }
-      }
-      const { getOfflineCreated } = await import("@/shared/lib/offline/storage/store");
-      const newEntry = await getOfflineCreated(newId);
-      if (newEntry) await syncSingleDocument(newEntry);
-      return;
-    }
-    throw err;
-  }
+  let releaseAdmissionState = false;
+  if (await createDocumentRecordIfMissing(entry)) return;
 
   try {
-    await encryptionApi.createDocumentKey(entry.documentId, {
-      encrypted_dek: base64UrlEncode(entry.kekWrappedDek),
-      nonce: base64UrlEncode(entry.kekWrappedDekNonce),
-      key_version: entry.dekKeyVersion,
-      kek_version: entry.kekVersion,
-    });
+    await createDocumentKeyIfMissing(entry);
   } catch (err) {
     const errorWithStatus = getErrorWithStatusBody(err);
     if (errorWithStatus?.status === 422) {
@@ -152,9 +133,7 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
     }
   }
 
-  await worker.unwrapDekFromOffline({
-    ciphertext: entry.wrappedDek,
-    iv: entry.wrappedDekNonce,
+  await worker.restoreDekFromOffline({
     documentId: entry.documentId,
     keyVersion: entry.dekKeyVersion,
     isActive: true,
@@ -176,6 +155,14 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
           keyVersion: cacheEntry.keyVersion,
         });
         Y.applyUpdate(yDoc, decrypted);
+      } else if (entry.encryptedState.length > 0) {
+        const decrypted = await worker.decryptOfflineCache({
+          ciphertext: entry.encryptedState,
+          nonce: entry.stateNonce,
+          documentId: entry.documentId,
+          keyVersion: entry.dekKeyVersion,
+        });
+        if (decrypted.length > 0) Y.applyUpdate(yDoc, decrypted);
       }
       const pendingEntry = await getPendingChanges(entry.documentId);
       if (pendingEntry) {
@@ -190,13 +177,19 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
     }
 
     await ensurePhoenixWsToken("user");
-    const popHeaders = await getPopHeaders();
+    const joinPayload = { mode: "complete" };
+    const popParams = await getChannelPopParams(
+      undefined,
+      undefined,
+      "user",
+      undefined,
+      buildChannelPopResource(entry.documentId, "user", undefined, joinPayload),
+    );
     const { channel, dispose } = await joinTemporaryDocument(
       entry.documentId,
       {
-        pop_challenge: popHeaders["X-PoP-Challenge"],
-        pop_signature: popHeaders["X-PoP-Signature"],
-        mode: "complete",
+        ...popParams,
+        ...joinPayload,
       },
       makeNoopCallbacks(),
       "user",
@@ -213,47 +206,135 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
     const ciphertextB64 = base64UrlEncode(ciphertext);
     const nonceB64 = base64UrlEncode(nonce);
     const ciphertextHash = base64UrlEncode(await worker.blake3Hash(ciphertext));
-    const deviceId = await worker.getDeviceId();
     const pubKeys = await worker.getPublicKeys();
-    const signingPubKey = pubKeys.deviceSigningPublic
-      ? base64UrlEncode(pubKeys.deviceSigningPublic)
-      : "";
+    const signingKeyId = pubKeys.deviceSigningKeyId ?? "";
+    let admissionState = getDocumentState(entry.documentId);
+    if (!admissionState) {
+      await acquireDocumentState(entry.documentId, entry.workspaceId);
+      releaseAdmissionState = true;
+      admissionState = getDocumentState(entry.documentId);
+    }
+    if (!admissionState) {
+      throw new Error("offline_created_document_state_unavailable");
+    }
+    const admissionAuthority = await prepareDocumentOperationAdmissionAuthority(
+      admissionState,
+      entry.documentId,
+      signingKeyId,
+      "document_snapshot_accepted",
+      entry.dekKeyVersion,
+    );
     const publicData: Record<string, unknown> = {
       docId: entry.documentId,
       snapshotId,
-      deviceId,
-      signingPubKey,
+      signingKeyId,
       keyVersion: entry.dekKeyVersion,
-      parentSnapshotId: null,
-      parentSnapshotProof: "",
+      parentSnapshotId: "GENESIS",
+      parentProofHash: "GENESIS",
       parentSnapshotUpdateClocks: {},
+      ...admissionAuthority.publicDataFields,
     };
-    const { signature } = await worker.signWsEnvelope({
-      prefix: "refmd_snapshot",
+    const { signature } = await worker.signDocumentSnapshot({
       ciphertext: ciphertextB64,
       nonce: nonceB64,
+      workspaceId: admissionState.workspaceId,
       publicData,
+      authorityBoundary: admissionAuthority.authorityBoundary,
+    });
+    const { admission, keyDirectoryAdvance } = await buildDocumentOperationAdmission({
+      documentId: entry.documentId,
+      state: admissionState,
+      eventType: "document_snapshot_accepted",
+      operationHash: hashSnapshotOperation(ciphertext),
+      signature,
+      keyVersion: entry.dekKeyVersion,
+      authority: admissionAuthority,
     });
     const envelope = {
       ciphertext: ciphertextB64,
       nonce: nonceB64,
-      signature: base64UrlEncode(signature),
+      signature,
+      admission,
       publicData,
-      ciphertextHash,
     };
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Snapshot save timeout")), 30000);
-      channel.on("snapshot-saved", () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-      channel.on<SnapshotSaveFailedPayload>("snapshot-save-failed", (payload) => {
-        clearTimeout(timeout);
-        reject(new Error(`Snapshot save failed: ${JSON.stringify(payload)}`));
-      });
-      channel.push("snapshot", envelope);
-    });
+    const saved = await new Promise<{ proofChainHash: string; ciphertextHash: string }>(
+      (resolve, reject) => {
+        let settled = false;
+        const settle = (callback: () => void, timeout: ReturnType<typeof setTimeout>): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          callback();
+        };
+        const timeout = setTimeout(() => {
+          settle(() => reject(new Error("Snapshot save timeout")), timeout);
+        }, 30000);
+        channel.on<{ proofChainHash: string; ciphertextHash: string }>(
+          "snapshot-saved",
+          (payload) => {
+            settle(() => resolve(payload), timeout);
+          },
+        );
+        channel.on("snapshot-save-failed", (payload) => {
+          settle(
+            () =>
+              reject(
+                new Error(
+                  `Snapshot save failed: ${JSON.stringify(payload as unknown as SnapshotSaveFailedPayload)}`,
+                ),
+              ),
+            timeout,
+          );
+        });
+        channel
+          .push("snapshot", strictChannelPayload(envelope))
+          .receive("ok", (payload) => {
+            settle(
+              () => resolve(payload as { proofChainHash: string; ciphertextHash: string }),
+              timeout,
+            );
+          })
+          .receive("error", (payload) => {
+            settle(
+              () =>
+                reject(
+                  new Error(
+                    `Snapshot save failed: ${JSON.stringify(payload as unknown as SnapshotSaveFailedPayload)}`,
+                  ),
+                ),
+              timeout,
+            );
+          })
+          .receive("timeout", () => {
+            settle(() => reject(new Error("Snapshot save timeout")), timeout);
+          });
+      },
+    );
+    if (saved.ciphertextHash !== ciphertextHash) {
+      throw new Error("Snapshot save ack ciphertext hash mismatch");
+    }
+    await deleteOfflineCreated(entry.documentId);
+    await persistConfirmedOfflineCreatedState(entry, yDoc, snapshotId, saved, keyDirectoryAdvance);
+  } finally {
+    yDoc.destroy();
+    disposeChannel?.();
+    if (releaseAdmissionState) releaseDocumentState(entry.documentId);
+  }
+}
 
+async function persistConfirmedOfflineCreatedState(
+  entry: OfflineCreatedDocument,
+  yDoc: Y.Doc,
+  snapshotId: string,
+  saved: { proofChainHash: string; ciphertextHash: string },
+  keyDirectoryAdvance: Awaited<
+    ReturnType<typeof buildDocumentOperationAdmission>
+  >["keyDirectoryAdvance"],
+): Promise<void> {
+  try {
+    await advanceKeyDirectoryPinWithProof(keyDirectoryAdvance);
+
+    const worker = getCryptoWorker();
     const confirmedState = Y.encodeStateAsUpdate(yDoc);
     const { ciphertext: cachedCt, nonce: cachedNonce } = await worker.encryptOfflineCache({
       plaintext: confirmedState,
@@ -280,33 +361,117 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
     const { getDocumentStatePin, putDocumentStatePin, updatePinFromState } =
       await import("@/shared/lib/anti-rollback/document-state-pins");
     const existingPin = await getDocumentStatePin(entry.documentId).catch(() => null);
-    const proofHash = await worker.computeSnapshotProof({
-      ciphertextHash,
-      parentProof: "",
-      snapshotId,
-    });
     const newPin = updatePinFromState(
       existingPin,
       entry.documentId,
       snapshotId,
-      proofHash,
-      ciphertextHash,
+      saved.proofChainHash,
+      saved.ciphertextHash,
       {},
       0,
     );
     await putDocumentStatePin(newPin).catch(() => {});
-    await deleteOfflineCreated(entry.documentId);
-  } finally {
-    yDoc.destroy();
-    disposeChannel?.();
+  } catch (err) {
+    clientWarn("offline_created_confirmed_state_persist_failed", {
+      documentId: entry.documentId,
+      error: serializeClientError(err),
+    });
+  }
+}
+
+async function fetchExistingDocument(
+  entry: OfflineCreatedDocument,
+): Promise<Awaited<ReturnType<typeof documentsApi.get>> | null> {
+  try {
+    const document = await documentsApi.get(entry.documentId);
+    return document;
+  } catch (err) {
+    const errorWithStatus = getErrorWithStatusBody(err);
+    if (errorWithStatus?.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function createDocumentRecordIfMissing(entry: OfflineCreatedDocument): Promise<boolean> {
+  const existingDocument = await fetchExistingDocument(entry);
+  if (existingDocument) {
+    assertOfflineCreatedDocumentMatches(entry, existingDocument);
+    if (existingDocument.active_snapshot_id) {
+      await deleteOfflineCreated(entry.documentId);
+      return true;
+    }
+    return false;
+  }
+
+  try {
+    await documentsApi.create({
+      workspace_id: entry.workspaceId,
+      doc_type: "document",
+      id: entry.documentId,
+      title: "Untitled",
+      ...(entry.parentId ? { parent_id: entry.parentId } : {}),
+      encrypted_title: base64UrlEncode(entry.encryptedTitle),
+      encrypted_title_nonce: base64UrlEncode(entry.encryptedTitleNonce),
+      encrypted_title_key_version: entry.encryptedTitleKeyVersion,
+    });
+  } catch (err) {
+    const errorWithStatus = getErrorWithStatusBody(err);
+    if (errorWithStatus?.status === 409) {
+      const persistedDocument = await fetchExistingDocument(entry);
+      if (persistedDocument) {
+        assertOfflineCreatedDocumentMatches(entry, persistedDocument);
+        if (persistedDocument.active_snapshot_id) {
+          await deleteOfflineCreated(entry.documentId);
+          return true;
+        }
+        return false;
+      }
+    }
+    throw err;
+  }
+  return false;
+}
+
+function assertOfflineCreatedDocumentMatches(
+  entry: OfflineCreatedDocument,
+  document: Awaited<ReturnType<typeof documentsApi.get>>,
+): void {
+  if (document.workspace_id !== entry.workspaceId || document.doc_type !== "document") {
+    throw new Error("offline_created_document_id_conflict");
+  }
+}
+
+async function createDocumentKeyIfMissing(entry: OfflineCreatedDocument): Promise<void> {
+  try {
+    await encryptionApi.createDocumentKey(entry.documentId, {
+      encrypted_dek: base64UrlEncode(entry.kekWrappedDek),
+      nonce: base64UrlEncode(entry.kekWrappedDekNonce),
+      key_version: entry.dekKeyVersion,
+      kek_version: entry.kekVersion,
+    });
+  } catch (err) {
+    const errorWithStatus = getErrorWithStatusBody(err);
+    if (errorWithStatus?.status === 409) {
+      const keys = await encryptionApi.getDocumentKeys(entry.documentId);
+      const existing = keys.keys.find((key) => key.key_version === entry.dekKeyVersion);
+      if (
+        existing &&
+        existing.kek_version === entry.kekVersion &&
+        existing.encrypted_dek === base64UrlEncode(entry.kekWrappedDek) &&
+        existing.nonce === base64UrlEncode(entry.kekWrappedDekNonce)
+      ) {
+        return;
+      }
+    }
+    throw err;
   }
 }
 
 async function handleKekVersionMismatch(entry: OfflineCreatedDocument): Promise<void> {
   const worker = getCryptoWorker();
-  await worker.unwrapDekFromOffline({
-    ciphertext: entry.wrappedDek,
-    iv: entry.wrappedDekNonce,
+  await worker.restoreDekFromOffline({
     documentId: entry.documentId,
     keyVersion: entry.dekKeyVersion,
     isActive: true,

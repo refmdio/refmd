@@ -3,9 +3,16 @@ import { Navigate } from "@solidjs/router";
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
 
 export function RequireAuth(props: ParentProps) {
+  const canEnterProtectedRoute = () => {
+    const auth = authState();
+    if (!auth) return false;
+    if (auth.needsPasswordReentry) return true;
+    return !!deviceState() && cryptoWorkerReady();
+  };
+
   return (
     <Show
-      when={authState() && deviceState() && cryptoWorkerReady()}
+      when={canEnterProtectedRoute()}
       fallback={
         <Show when={authState()} fallback={<Navigate href="/auth/login" />}>
           <Navigate href="/devices/register" />

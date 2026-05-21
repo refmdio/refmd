@@ -1,25 +1,47 @@
+import type { HybridSignature } from "@/shared/lib/crypto/signature-types";
+
 export interface SnapshotProofChainEntry {
-  [key: string]: unknown;
-  snapshotId: string;
-  ciphertextHash: string;
-  parentSnapshotProof: string;
+  protocol: "refmd.snapshot-proof-link";
+  version: 1;
+  document_id: string;
+  snapshot_id: string;
+  parent_snapshot_id: string;
+  parent_proof_hash: string;
+  ciphertext_hash: string;
+  snapshot_signature_hash: string;
+  snapshot_admission_event_hash: string;
+  proof_chain_hash: string;
 }
 interface SnapshotPublicData {
-  [key: string]: unknown;
   docId: string;
   snapshotId: string;
-  deviceId: string;
-  signingPubKey: string;
+  signingKeyId: string;
+  ownerKind: "device" | "share_participant_device";
+  ownerId: string;
+  authorityKind: "workspace_device" | "share_participant_device";
+  authorityId: string;
+  authorityContextKey: string;
+  authorityScopeId: string;
+  authorityPermissionVersion: number;
+  keyCheckpointSequence: number;
+  keyCheckpointHash: string;
   keyVersion: number;
-  parentSnapshotId: string | null;
-  parentSnapshotProof: string;
+  parentSnapshotId: string;
+  parentProofHash: string;
   parentSnapshotUpdateClocks: Record<string, number>;
 }
 interface UpdatePublicData {
-  [key: string]: unknown;
   docId: string;
-  deviceId: string;
-  signingPubKey: string;
+  signingKeyId: string;
+  ownerKind: "device" | "share_participant_device";
+  ownerId: string;
+  authorityKind: "workspace_device" | "share_participant_device";
+  authorityId: string;
+  authorityContextKey: string;
+  authorityScopeId: string;
+  authorityPermissionVersion: number;
+  keyCheckpointSequence: number;
+  keyCheckpointHash: string;
   keyVersion: number;
   refSnapshotId: string;
   clock: number;
@@ -27,44 +49,58 @@ interface UpdatePublicData {
   updateHash: string;
 }
 interface EphemeralPublicData {
-  [key: string]: unknown;
   docId: string;
-  deviceId: string;
-  signingPubKey: string;
+  ownerKind: "device" | "share_participant_device";
+  ownerId: string;
+  authorityKind: "workspace_device" | "share_participant_device";
+  authorityId: string;
+  authorityContextKey: string;
+  authorityScopeId: string;
+  authorityPermissionVersion: number;
+  keyCheckpointSequence: number;
+  keyCheckpointHash: string;
+  workspaceEventHeadSequence: number;
+  workspaceEventHeadHash: string;
+  signingKeyId: string;
 }
 interface SnapshotPayload {
-  [key: string]: unknown;
   ciphertext: string;
   nonce: string;
-  signature: string;
+  signature: HybridSignature;
+  admission: DocumentOperationAdmission;
   publicData: SnapshotPublicData;
 }
 export interface UpdatePayload {
-  [key: string]: unknown;
   ciphertext: string;
   nonce: string;
-  signature: string;
+  signature: HybridSignature;
+  admission: DocumentOperationAdmission;
   version: number;
   publicData: UpdatePublicData;
 }
 export interface EphemeralPayload {
-  [key: string]: unknown;
   ciphertext: string;
   nonce: string;
-  signature: string;
+  signature: HybridSignature;
   publicData: EphemeralPublicData;
 }
 export interface RemoteSnapshotPayload {
-  [key: string]: unknown;
   snapshotId: string;
   snapshot: SnapshotPayload;
+  proofChainHash?: string;
+  ciphertextHash?: string;
+  snapshotAdmissionEventHash?: string;
 }
 export interface DocumentPayload {
-  [key: string]: unknown;
   snapshot: SnapshotPayload | null;
   updates: UpdatePayload[];
   snapshotProofChain: SnapshotProofChainEntry[];
+  proofChainHash?: string;
+  ciphertextHash?: string;
+  snapshotAdmissionEventHash?: string;
   latestVersion: number;
+  authorityPermissionVersion?: number;
+  readOnly?: boolean;
   archived?: boolean;
   publicState?: {
     is_published: boolean;
@@ -73,35 +109,39 @@ export interface DocumentPayload {
   };
 }
 export interface PublicStatusChangedPayload {
-  [key: string]: unknown;
   is_published: boolean;
   updated_at: string | null;
 }
 export interface UpdateSavedPayload {
-  [key: string]: unknown;
   snapshotId: string;
   clock: number;
   updateHash: string;
   version: number;
 }
 export interface UpdateSaveFailedPayload {
-  [key: string]: unknown;
   snapshotId: string;
   clock: number;
   requiresNewSnapshot: boolean;
 }
 export interface SnapshotSavedPayload {
-  [key: string]: unknown;
   snapshotId: string;
   latestVersion?: number;
+  proofChainHash: string;
+  ciphertextHash: string;
+  snapshotAdmissionEventHash: string;
 }
 export interface SnapshotSaveFailedPayload {
-  [key: string]: unknown;
   snapshot: SnapshotPayload | null;
   updates: UpdatePayload[];
   snapshotProofChain: SnapshotProofChainEntry[];
 }
 export interface PeerLeftPayload {
-  [key: string]: unknown;
-  signingPubKey: string;
+  signingKeyId: string;
+}
+
+export interface DocumentOperationAdmission {
+  workspaceKeyDirectoryEvents: Record<string, unknown>[];
+  workspaceKeyDirectoryCheckpoint: Record<string, unknown>;
+  workspaceKeyDirectoryCheckpointAncestry?: Record<string, unknown>[];
+  workspaceKeyDirectoryEventAncestry?: Record<string, unknown>[];
 }

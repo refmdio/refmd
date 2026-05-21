@@ -1,28 +1,36 @@
-export { CodeMirrorEditor } from "./ui/editors/CodeMirrorEditor";
-export { ProseMirrorEditor } from "./ui/editors/ProseMirrorEditor";
-export { PresenceAvatars } from "./ui/PresenceAvatars";
+export { PresenceAvatars } from "./ui/presence/PresenceAvatars";
 export {
   getEditor,
   getActiveEditor,
   getEditorForDocument,
+  registerEditor,
   setFocusedPanelIdAccessor,
   setOnEditorRegistered,
-} from "./model/editor-api";
+  unregisterEditor,
+} from "./model/editor/editor-api";
+export type {
+  EditorLike,
+  EditorPosition,
+  EditorRange,
+  EditorSelection,
+  EditorTransaction,
+} from "./model/editor/editor-api";
 export { acquireDocumentState, getDocumentState, getDocText } from "./model/document-state/store";
 export {
+  acquireYDoc,
   clearAllDocumentStates,
   releaseDocumentState,
+  releaseYDoc,
   resetDocumentState,
 } from "./model/document-state/lifecycle";
+export { emitScrollSync, onScrollSync } from "./model/document-state/scroll";
 export {
-  approveRollback,
   clearShareReentry,
   completeReauth,
   getDocumentAwareness,
   getDocumentError,
   getDocumentReadOnly,
   getDocumentSyncPaused,
-  getRollbackWarning,
   needsShareReentry,
   needsReauth,
   requestShareReentry,
@@ -30,15 +38,15 @@ export {
   setDocumentSyncPaused,
 } from "./model/document-state/signals";
 export { initializeDocumentSync } from "./lib/sync/initialize";
-export { initializeDocumentPanel } from "./lib/sync/bootstrap/panel-lifecycle";
+export { initializeDocumentPanel } from "./lib/sync/bootstrap-panel-lifecycle";
 export { canBufferDisconnectedChanges, isDocumentSyncReady } from "./lib/sync/readiness";
 export { retainUxLimitNotice } from "./lib/sync/ux-limit-notice";
-export { installPublicationRenameAutoSync } from "./lib/sync/outbound/publication";
-export { buildDeviceKeyCaches } from "./lib/sync/inbound/signing-keys";
+export { installPublicationRenameAutoSync } from "./lib/sync/outbound-publication";
+export { buildDeviceKeyCaches } from "./lib/sync/inbound-signing-keys";
 export { createDocumentOffline } from "./lib/offline/create";
 export { syncOfflineCreatedDocuments } from "./lib/offline/sync-created";
 export { syncPendingDocuments } from "./lib/offline/pending-sync";
-export { OfflineIndicator } from "./ui/OfflineIndicator";
+export { OfflineIndicator } from "./ui/status/OfflineIndicator";
 export { setupFlushHooks } from "./lib/offline/flush-hooks";
 export {
   clearRegisteredDocumentAccess,

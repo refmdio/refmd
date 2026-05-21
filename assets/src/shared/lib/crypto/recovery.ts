@@ -1,19 +1,38 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
 import { generateMnemonic, mnemonicToSeed, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
-import { randomBytes } from "./encoding";
+import { encodeBase64Url, randomBytes } from "./encoding";
 import { HKDF_ZERO_SALT } from "./constants";
 import { buildRecoveryUmkWrapAad } from "./aad";
+import {
+  computeSigningKeyId,
+  publicKeyMaterialFromPrivate,
+  SIGNING_PRIVATE_KEY_MATERIAL_PROTOCOL,
+  type HybridSigningPrivateKeyMaterial,
+  type HybridSigningPublicKeyMaterial,
+} from "./signature";
+import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "./suite";
 interface RecoveryKeyData {
   mnemonic: string;
   ruk: Uint8Array;
+  recoveryAuthorizationPublicKey: HybridSigningPublicKeyMaterial;
+  recoveryAuthorizationKeyId: string;
 }
-export async function generateRecoveryKey(): Promise<RecoveryKeyData> {
+export async function generateRecoveryKey(userId: string): Promise<RecoveryKeyData> {
   const mnemonic = generateMnemonic(wordlist, 256);
   const ruk = await deriveRukFromMnemonic(mnemonic);
-  return { mnemonic, ruk };
+  const authorization = deriveRecoveryAuthorizationKey(ruk, userId);
+  const publicMaterial = publicKeyMaterialFromPrivate(authorization.privateKeyMaterial);
+  return {
+    mnemonic,
+    ruk,
+    recoveryAuthorizationPublicKey: publicMaterial,
+    recoveryAuthorizationKeyId: authorization.keyId,
+  };
 }
 export async function deriveRukFromMnemonic(mnemonic: string): Promise<Uint8Array> {
   if (!validateMnemonic(mnemonic, wordlist)) {
@@ -35,6 +54,50 @@ export function wrapUmkWithRuk(
   const cipher = xchacha20poly1305(ruk, nonce, aad);
   return { encryptedUmk: cipher.encrypt(umk), nonce };
 }
+export function deriveRecoveryAuthorizationKey(
+  ruk: Uint8Array,
+  userId: string,
+): {
+  privateKeyMaterial: HybridSigningPrivateKeyMaterial;
+  publicKeyMaterial: HybridSigningPublicKeyMaterial;
+  keyId: string;
+} {
+  const ed25519Private = hkdf(
+    sha256,
+    ruk,
+    HKDF_ZERO_SALT,
+    new TextEncoder().encode("recovery-authorization-ed25519"),
+    32,
+  );
+  const mldsa65Seed = hkdf(
+    sha256,
+    ruk,
+    HKDF_ZERO_SALT,
+    new TextEncoder().encode("recovery-authorization-mldsa65"),
+    32,
+  );
+  const ed25519Public = ed25519.getPublicKey(ed25519Private);
+  const mldsa65Keys = ml_dsa65.keygen(mldsa65Seed);
+  const privateKeyMaterial: HybridSigningPrivateKeyMaterial = {
+    protocol: SIGNING_PRIVATE_KEY_MATERIAL_PROTOCOL,
+    version: CURRENT_PROTOCOL_VERSION,
+    owner_kind: "identity",
+    owner_id: userId,
+    ed25519_private: encodeBase64Url(ed25519Private),
+    ed25519_public: encodeBase64Url(ed25519Public),
+    mldsa65_private: encodeBase64Url(mldsa65Keys.secretKey),
+    mldsa65_public: encodeBase64Url(mldsa65Keys.publicKey),
+    suite_id: SUITE_IDS.HYBRID_SIGNATURE,
+    suite_rank: CURRENT_SUITE_RANK,
+  };
+  const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+  return {
+    privateKeyMaterial,
+    publicKeyMaterial,
+    keyId: computeSigningKeyId(publicKeyMaterial),
+  };
+}
+
 export function isValidMnemonic(mnemonic: string): boolean {
   return validateMnemonic(mnemonic, wordlist);
 }

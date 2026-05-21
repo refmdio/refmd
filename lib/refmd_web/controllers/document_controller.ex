@@ -2,8 +2,8 @@ defmodule RefMDWeb.DocumentController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Crypto.Encoding
   alias RefMD.Documents
-  alias RefMDWeb.Channels.Document.Access
   alias RefMDWeb.Schemas
 
   plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:read"] when action in [:index]
@@ -57,6 +57,7 @@ defmodule RefMDWeb.DocumentController do
     responses: [
       created: {"Created document", "application/json", Schemas.DocumentResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      conflict: {"Document id already exists", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
   )
@@ -79,17 +80,7 @@ defmodule RefMDWeb.DocumentController do
 
     case decode_binary_fields(attrs) do
       {:ok, decoded_attrs} ->
-        case Documents.create_document(decoded_attrs) do
-          {:ok, document} ->
-            conn
-            |> put_status(:created)
-            |> json(serialize_document(conn, document))
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:unprocessable_entity)
-            |> json(%{error: "validation_error", details: format_errors(changeset)})
-        end
+        handle_create_result(conn, Documents.create_document(decoded_attrs))
 
       {:error, field} ->
         conn
@@ -102,6 +93,22 @@ defmodule RefMDWeb.DocumentController do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: "validation_error", details: %{base: ["missing required fields"]}})
+  end
+
+  defp handle_create_result(conn, {:ok, document}) do
+    conn
+    |> put_status(:created)
+    |> json(serialize_document(conn, document))
+  end
+
+  defp handle_create_result(conn, {:error, changeset}) do
+    if has_constraint_error?(changeset, :id) do
+      conn |> put_status(:conflict) |> json(%{error: "document_id_already_exists"})
+    else
+      conn
+      |> put_status(:unprocessable_entity)
+      |> json(%{error: "validation_error", details: format_errors(changeset)})
+    end
   end
 
   # ── GET /api/documents/:document_id ─────────────
@@ -320,6 +327,7 @@ defmodule RefMDWeb.DocumentController do
       id: document.id,
       workspace_id: document.workspace_id,
       parent_id: document.parent_id,
+      active_snapshot_id: document.active_snapshot_id,
       position: document.position,
       title: document.title,
       encrypted_title: encode_binary(document.encrypted_title),
@@ -334,7 +342,7 @@ defmodule RefMDWeb.DocumentController do
       min_dek_version: document.min_dek_version,
       is_published: RefMD.Public.published?(document.id),
       can_sync_publication:
-        Access.publication_sync_allowed?(document, conn.assigns.current_user_id, nil, nil),
+        Documents.publication_sync_allowed?(document, conn.assigns.current_user_id, nil, nil),
       created_by: document.created_by,
       archived_at: document.archived_at,
       created_at: document.created_at,
@@ -354,11 +362,10 @@ defmodule RefMDWeb.DocumentController do
         {:ok, attrs}
 
       value when is_binary(value) ->
-        case Base.url_decode64(value, padding: false) do
-          {:ok, decoded} -> {:ok, Map.put(attrs, key, decoded)}
-          :error -> {:error, key}
-        end
+        {:ok, Map.put(attrs, key, Encoding.decode_base64url!(value))}
     end
+  rescue
+    ArgumentError -> {:error, key}
   end
 
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
@@ -403,5 +410,12 @@ defmodule RefMDWeb.DocumentController do
       {:ok, _} -> {:error, key}
       :error -> {:error, key}
     end
+  end
+
+  defp has_constraint_error?(changeset, field) do
+    Enum.any?(changeset.errors, fn
+      {^field, {_message, opts}} -> opts[:constraint] == :unique
+      _ -> false
+    end)
   end
 end

@@ -1,11 +1,15 @@
 import * as Y from "yjs";
 import type { DocumentState } from "../../model/document-state/types";
 import { initializeDocumentSync } from "../sync/initialize";
-import { startAutoSync } from "../sync/outbound/auto-sync";
+import { startAutoSync } from "../sync/outbound-auto-sync";
 import { setDocumentSyncPaused } from "../../model/document-state/signals";
 import { recoverDocumentFromCache } from "@/shared/lib/offline/cache/manager/recover";
 import { startPeriodicFlush } from "@/shared/lib/offline/cache/manager/write";
-import { onOfflineModeChange, setWsConnected } from "@/shared/lib/offline/offline-state";
+import {
+  isNetworkOnline,
+  onOfflineModeChange,
+  setWsConnected,
+} from "@/shared/lib/offline/offline-state";
 import { getOfflineCreated } from "@/shared/lib/offline/storage/store";
 import { isSocketConnected } from "@/shared/lib/ws/phoenix-channel";
 import { DocumentSyncError } from "../sync/error";
@@ -95,7 +99,14 @@ function activateOfflineEditingSession(
           return;
         }
         if (offlineCreated) {
-          resumeWaitTimer = setTimeout(resumeWhenServerReady, 1_000);
+          void import("./sync-created")
+            .then(({ syncOfflineCreatedDocuments }) => syncOfflineCreatedDocuments(workspaceId))
+            .catch(() => {})
+            .finally(() => {
+              if (!resumeDisposed && state.loadedFromOfflineCache) {
+                resumeWaitTimer = setTimeout(resumeWhenServerReady, 1_000);
+              }
+            });
           return;
         }
         void resumeDocumentFromServer(documentId, workspaceId, state);
@@ -121,6 +132,9 @@ function activateOfflineEditingSession(
       resumeWhenServerReady();
     }
   });
+  if (!forceOfflineMode && isNetworkOnline()) {
+    resumeWhenServerReady();
+  }
   state.offlineResumeCleanup = () => {
     resumeDisposed = true;
     clearResumeWaitTimer();

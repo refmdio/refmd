@@ -26,6 +26,7 @@ defmodule RefMD.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import RefMD.DataCase
+      import RefMD.TestCrypto
     end
   end
 

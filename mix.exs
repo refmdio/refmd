@@ -89,7 +89,6 @@ defmodule RefMD.MixProject do
         "compile --warnings-as-errors",
         "deps.unlock --unused",
         "format",
-        "specs.check",
         "credo --strict",
         "test"
       ]

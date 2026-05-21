@@ -4,6 +4,7 @@ import { SHARE_SESSION_SCOPE_HEADER } from "@/shared/lib/auth/session-scope";
 
 type RegisterRequest = components["schemas"]["RegisterRequest"];
 type LoginRequest = components["schemas"]["LoginRequest"];
+type RecoverySessionRequest = components["schemas"]["RecoverySessionRequest"];
 
 export const authApi = {
   getSalt: async (email: string) =>
@@ -20,9 +21,10 @@ export const authApi = {
 
   me: async () => throwIfError(await client.GET("/api/auth/me")),
 
-  logout: async (options?: { sessionScope?: "share" }) =>
+  logout: async (options?: { clearMountSession?: boolean; sessionScope?: "share" }) =>
     throwIfError(
       await client.POST("/api/auth/logout", {
+        body: { clear_mount_session: options?.clearMountSession === true },
         headers:
           options?.sessionScope === "share" ? { [SHARE_SESSION_SCOPE_HEADER]: "share" } : undefined,
       }),
@@ -40,12 +42,12 @@ export const authApi = {
       }),
     ),
 
-  recoverySession: async (body: {
-    email: string;
-    challenge: string;
-    signature: string;
-    timestamp: number;
-  }) => throwIfError(await client.POST("/api/auth/recovery/session", { body })),
+  recoverySession: async (body: RecoverySessionRequest) =>
+    throwIfError(
+      await client.POST("/api/auth/recovery/session", {
+        body,
+      }),
+    ),
 
   passwordSet: async (body: {
     new_auth_key: string;
@@ -79,9 +81,8 @@ export const authApi = {
   wsToken: async (options?: { sessionScope?: "user" | "share" }): Promise<{ token: string }> =>
     throwIfError(
       await client.POST("/api/auth/ws-token", {
-        headers: options?.sessionScope
-          ? { [SHARE_SESSION_SCOPE_HEADER]: options.sessionScope }
-          : undefined,
+        headers:
+          options?.sessionScope === "share" ? { [SHARE_SESSION_SCOPE_HEADER]: "share" } : undefined,
       }),
     ),
 };

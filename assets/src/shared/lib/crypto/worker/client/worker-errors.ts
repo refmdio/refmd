@@ -2,11 +2,13 @@ import type { CryptoErrorCode } from "../types";
 
 export class CryptoWorkerError extends Error {
   readonly code: CryptoErrorCode;
+  readonly requestType?: string;
 
-  constructor(code: CryptoErrorCode, message: string) {
+  constructor(code: CryptoErrorCode, message: string, requestType?: string) {
     super(message);
     this.name = "CryptoWorkerError";
     this.code = code;
+    this.requestType = requestType;
   }
 }
 

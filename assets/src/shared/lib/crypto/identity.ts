@@ -1,87 +1,163 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
-import { x25519, ed25519 } from "@noble/curves/ed25519.js";
-import { randomBytes } from "./encoding";
-import { buildIdentityEcdhAad, buildIdentitySigningAad } from "./aad";
-import { isValidX25519PublicKey } from "./key-validation";
-interface IdentityKeyPair {
+import { x25519 } from "@noble/curves/ed25519.js";
+import { decodeBase64UrlStrict, randomBytes } from "./encoding";
+import { buildIdentityHybridEncryptionPrivateKeyMaterialAad, buildIdentitySigningAad } from "./aad";
+import {
+  assertHybridSigningPrivateKeyMaterial,
+  computeSigningKeyId,
+  generateHybridSigningPrivateKeyMaterial,
+  publicKeyMaterialFromPrivate,
+  type HybridSigningPrivateKeyMaterial,
+  type HybridSigningPublicKeyMaterial,
+} from "./signature";
+import { canonicalizeStrictBytes, parseJsonStrictBytes, type StrictJsonValue } from "./jcs";
+import {
+  assertHybridEncryptionPrivateKeyMaterial,
+  computeHybridEncryptionKeyId,
+  generateHybridEncryptionPrivateKeyMaterial,
+  publicHybridEncryptionMaterialFromPrivate,
+  type HybridEncryptionPrivateKeyMaterial,
+  type HybridEncryptionPublicKeyMaterial,
+} from "./hybrid-encryption";
+
+export interface IdentityKeyPair {
   ecdhPrivate: Uint8Array;
   ecdhPublic: Uint8Array;
-  signingPrivate: Uint8Array;
-  signingPublic: Uint8Array;
+  hybridEncryptionPrivateKeyMaterial: HybridEncryptionPrivateKeyMaterial;
+  hybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  encryptionKeyId: string;
+  hybridSigningPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
+  hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
 }
-interface EncryptedIdentityKeys {
-  encryptedEcdhPrivate: Uint8Array;
-  ecdhPrivateNonce: Uint8Array;
-  encryptedSigningPrivate: Uint8Array;
-  signingPrivateNonce: Uint8Array;
+
+export interface EncryptedIdentityKeys {
+  encryptedHybridEncryptionPrivateKeyMaterial: Uint8Array;
+  hybridEncryptionPrivateKeyMaterialNonce: Uint8Array;
+  encryptionKeyId: string;
+  encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
+  hybridSigningPrivateKeyMaterialNonce: Uint8Array;
+  signingKeyId: string;
 }
-export function generateIdentityKeyPair(): IdentityKeyPair {
-  const ecdhPrivate = randomBytes(32);
-  const signingPrivate = randomBytes(32);
+
+export function generateIdentityKeyPair(userId: string): IdentityKeyPair {
+  const hybridEncryptionPrivateKeyMaterial = generateHybridEncryptionPrivateKeyMaterial(
+    "identity",
+    userId,
+  );
+  const hybridEncryptionPublicKeyMaterial = publicHybridEncryptionMaterialFromPrivate(
+    hybridEncryptionPrivateKeyMaterial,
+  );
+  const ecdhPrivate = decodeBase64UrlStrict(hybridEncryptionPrivateKeyMaterial.x25519_private, 32);
+  const hybridSigningPrivateKeyMaterial = generateHybridSigningPrivateKeyMaterial(
+    "identity",
+    userId,
+  );
   return {
     ecdhPrivate,
     ecdhPublic: x25519.getPublicKey(ecdhPrivate),
-    signingPrivate,
-    signingPublic: ed25519.getPublicKey(signingPrivate),
+    hybridEncryptionPrivateKeyMaterial,
+    hybridEncryptionPublicKeyMaterial,
+    encryptionKeyId: computeHybridEncryptionKeyId(hybridEncryptionPublicKeyMaterial),
+    hybridSigningPrivateKeyMaterial,
+    hybridSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(hybridSigningPrivateKeyMaterial),
   };
 }
+
 export function encryptIdentityKeys(
   keyPair: IdentityKeyPair,
   umk: Uint8Array,
   userId: string,
 ): EncryptedIdentityKeys {
-  const ecdhNonce = randomBytes(24);
+  const encryptionNonce = randomBytes(24);
   const signingNonce = randomBytes(24);
-  const ecdhCipher = xchacha20poly1305(umk, ecdhNonce, buildIdentityEcdhAad(userId));
-  const signingCipher = xchacha20poly1305(umk, signingNonce, buildIdentitySigningAad(userId));
+  const encryptionKeyId = computeHybridEncryptionKeyId(keyPair.hybridEncryptionPublicKeyMaterial);
+  const signingKeyId = computeSigningKeyId(keyPair.hybridSigningPublicKeyMaterial);
+  const encryptionCipher = xchacha20poly1305(
+    umk,
+    encryptionNonce,
+    buildIdentityHybridEncryptionPrivateKeyMaterialAad(userId, encryptionKeyId),
+  );
+  const signingCipher = xchacha20poly1305(
+    umk,
+    signingNonce,
+    buildIdentitySigningAad(userId, signingKeyId),
+  );
   return {
-    encryptedEcdhPrivate: ecdhCipher.encrypt(keyPair.ecdhPrivate),
-    ecdhPrivateNonce: ecdhNonce,
-    encryptedSigningPrivate: signingCipher.encrypt(keyPair.signingPrivate),
-    signingPrivateNonce: signingNonce,
+    encryptedHybridEncryptionPrivateKeyMaterial: encryptionCipher.encrypt(
+      canonicalizeStrictBytes(
+        keyPair.hybridEncryptionPrivateKeyMaterial as unknown as StrictJsonValue,
+      ),
+    ),
+    hybridEncryptionPrivateKeyMaterialNonce: encryptionNonce,
+    encryptionKeyId,
+    encryptedHybridSigningPrivateKeyMaterial: signingCipher.encrypt(
+      canonicalizeStrictBytes(
+        keyPair.hybridSigningPrivateKeyMaterial as unknown as StrictJsonValue,
+      ),
+    ),
+    hybridSigningPrivateKeyMaterialNonce: signingNonce,
+    signingKeyId,
   };
 }
+
 export function decryptIdentityPrivateKeys(
   encrypted: EncryptedIdentityKeys,
   umk: Uint8Array,
   userId: string,
 ): IdentityKeyPair {
-  const ecdhCipher = xchacha20poly1305(
+  const encryptionCipher = xchacha20poly1305(
     umk,
-    encrypted.ecdhPrivateNonce,
-    buildIdentityEcdhAad(userId),
+    encrypted.hybridEncryptionPrivateKeyMaterialNonce,
+    buildIdentityHybridEncryptionPrivateKeyMaterialAad(userId, encrypted.encryptionKeyId),
   );
   const signingCipher = xchacha20poly1305(
     umk,
-    encrypted.signingPrivateNonce,
-    buildIdentitySigningAad(userId),
+    encrypted.hybridSigningPrivateKeyMaterialNonce,
+    buildIdentitySigningAad(userId, encrypted.signingKeyId),
   );
-  const ecdhPrivate = ecdhCipher.decrypt(encrypted.encryptedEcdhPrivate);
-  const signingPrivate = signingCipher.decrypt(encrypted.encryptedSigningPrivate);
+  const decodedEncryptionPrivateMaterial = parseJsonStrictBytes(
+    encryptionCipher.decrypt(encrypted.encryptedHybridEncryptionPrivateKeyMaterial),
+  );
+  assertHybridEncryptionPrivateKeyMaterial(decodedEncryptionPrivateMaterial);
+  if (
+    decodedEncryptionPrivateMaterial.owner_kind !== "identity" ||
+    decodedEncryptionPrivateMaterial.owner_id !== userId
+  ) {
+    throw new Error("identity_hybrid_encryption_private_key_material_owner_mismatch");
+  }
+  const hybridEncryptionPublicKeyMaterial = publicHybridEncryptionMaterialFromPrivate(
+    decodedEncryptionPrivateMaterial,
+  );
+  if (
+    computeHybridEncryptionKeyId(hybridEncryptionPublicKeyMaterial) !== encrypted.encryptionKeyId
+  ) {
+    throw new Error("identity_hybrid_encryption_private_key_material_key_id_mismatch");
+  }
+  const decodedPrivateMaterial = parseJsonStrictBytes(
+    signingCipher.decrypt(encrypted.encryptedHybridSigningPrivateKeyMaterial),
+  );
+  assertHybridSigningPrivateKeyMaterial(decodedPrivateMaterial);
+  if (
+    decodedPrivateMaterial.owner_kind !== "identity" ||
+    decodedPrivateMaterial.owner_id !== userId
+  ) {
+    throw new Error("identity_hybrid_signing_private_key_material_owner_mismatch");
+  }
+  if (
+    computeSigningKeyId(publicKeyMaterialFromPrivate(decodedPrivateMaterial)) !==
+    encrypted.signingKeyId
+  ) {
+    throw new Error("identity_hybrid_signing_private_key_material_key_id_mismatch");
+  }
+  const ecdhPrivate = decodeBase64UrlStrict(decodedEncryptionPrivateMaterial.x25519_private, 32);
+  const x25519Public = x25519.getPublicKey(ecdhPrivate);
   return {
     ecdhPrivate,
-    ecdhPublic: x25519.getPublicKey(ecdhPrivate),
-    signingPrivate,
-    signingPublic: ed25519.getPublicKey(signingPrivate),
+    ecdhPublic: x25519Public,
+    hybridEncryptionPrivateKeyMaterial: decodedEncryptionPrivateMaterial,
+    hybridEncryptionPublicKeyMaterial,
+    encryptionKeyId: computeHybridEncryptionKeyId(hybridEncryptionPublicKeyMaterial),
+    hybridSigningPrivateKeyMaterial: decodedPrivateMaterial,
+    hybridSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(decodedPrivateMaterial),
   };
-}
-export function sign(message: Uint8Array, signingPrivate: Uint8Array): Uint8Array {
-  return ed25519.sign(message, signingPrivate);
-}
-export function verify(
-  message: Uint8Array,
-  signature: Uint8Array,
-  signingPublic: Uint8Array,
-): boolean {
-  return ed25519.verify(signature, message, signingPublic);
-}
-export function ecdhSharedSecret(myPrivate: Uint8Array, theirPublic: Uint8Array): Uint8Array {
-  if (!isValidX25519PublicKey(theirPublic)) {
-    throw new Error("Invalid X25519 public key: low-order point");
-  }
-  const shared = x25519.getSharedSecret(myPrivate, theirPublic);
-  if (shared.every((b) => b === 0)) {
-    throw new Error("Invalid ECDH: all-zero shared secret");
-  }
-  return shared;
 }

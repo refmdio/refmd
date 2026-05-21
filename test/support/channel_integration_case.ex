@@ -15,6 +15,7 @@ defmodule RefMDWeb.ChannelIntegrationCase do
       import Ecto.Changeset
       import Ecto.Query
       import Phoenix.ChannelTest
+      import RefMD.TestCrypto
       import RefMDWeb.ChannelIntegrationCase
     end
   end

@@ -1,5 +1,5 @@
-const INVITE_TOKEN_KEY = "refmd_invite_token";
+const INVITE_LOOKUP_TOKEN_KEY = "refmd_invite_lookup_token";
 
 export function resolvePostAuthRedirect(fallback: string): string {
-  return sessionStorage.getItem(INVITE_TOKEN_KEY) ? "/invite" : fallback;
+  return sessionStorage.getItem(INVITE_LOOKUP_TOKEN_KEY) ? "/invite" : fallback;
 }

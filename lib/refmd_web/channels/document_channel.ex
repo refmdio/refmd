@@ -6,11 +6,11 @@ defmodule RefMDWeb.DocumentChannel do
 
   use Phoenix.Channel
 
+  alias RefMD.Crypto.JCS
   alias RefMD.Documents
-  alias RefMD.Documents.Server, as: DocumentServer
   alias RefMD.Sharing
   alias RefMDWeb.Channels.Document.{Access, Bootstrap, ConnectionManager, Envelope, Pop}
-  alias RefMDWeb.TokenBucket
+  alias RefMDWeb.Channels.TokenBucket
 
   @ephemeral_rate 10.0
   @ephemeral_burst 20.0
@@ -21,24 +21,30 @@ defmodule RefMDWeb.DocumentChannel do
   @impl true
   @spec join(String.t(), map(), Phoenix.Socket.t()) ::
           {:ok, map(), Phoenix.Socket.t()} | {:error, map()}
-  def join("document:" <> document_id, params, socket) do
+  def join("document:" <> document_id, raw_params, socket) do
     user_id = socket.assigns.current_user_id
-    silent = silent_join?(params)
     share_session? = socket.assigns[:session_kind] == :share_participant
 
-    with {:ok, document_id} <- cast_uuid(document_id),
-         {:ok, device} <- Pop.verify(params, user_id, socket),
-         :ok <- Access.subscribe_device_revocation(socket),
+    with {:ok, params} <- strict_join_params(raw_params),
+         silent <- silent_join?(params),
+         {:ok, document_id} <- cast_uuid(document_id),
          {:ok, document} <- fetch_document(document_id),
-         {:ok, mounted_share_id} <- Access.resolve_mounted_share_id(params, user_id, document.id),
+         {:ok, mounted_share_id} <-
+           Access.resolve_mounted_share_id(params, user_id, document.id, socket),
+         {:ok, device} <- Pop.verify(params, user_id, socket, document_id, mounted_share_id),
+         :ok <- Access.subscribe_device_revocation(socket),
          :ok <- Access.check_join(document, user_id, socket, mounted_share_id),
          :ok <-
            Access.maybe_subscribe_share_document_revocation(
              socket.assigns[:current_share_id] || mounted_share_id,
              document.id
            ),
+         :ok <-
+           Access.maybe_subscribe_share_revocation(
+             socket.assigns[:current_share_id] || mounted_share_id
+           ),
          :ok <- Bootstrap.validate_join_params(params),
-         {:ok, server_pid} <- DocumentServer.get_or_start(document.id),
+         {:ok, server_pid} <- Documents.get_or_start_server(document.id),
          :ok <- enforce_connection_cap(silent, share_session?, document.id, user_id),
          {:ok, track_join_ref} <-
            track_document_join(
@@ -47,7 +53,7 @@ defmodule RefMDWeb.DocumentChannel do
              document.id,
              user_id,
              socket.assigns[:current_share_id],
-             device.signing_public_key
+             Map.get(device, :signing_key_id)
            ),
          {:ok, initial_data} <-
            Bootstrap.load_for_join(
@@ -60,7 +66,7 @@ defmodule RefMDWeb.DocumentChannel do
       Process.monitor(server_pid)
 
       if !silent do
-        DocumentServer.register_connection(document.id, self())
+        Documents.register_connection(document.id, self())
       end
 
       socket =
@@ -69,13 +75,24 @@ defmodule RefMDWeb.DocumentChannel do
         |> assign(:document, document)
         |> assign(:device_id, device.id)
         |> assign(:current_share_id, socket.assigns[:current_share_id] || mounted_share_id)
+        |> assign(
+          :authority_permission_version,
+          Map.get(initial_data, :authorityPermissionVersion, 1)
+        )
         |> assign(:mount_id, params["mount_id"])
         |> assign(:mounted_share_id, mounted_share_id)
-        |> assign(:device_signing_pub_key_raw, device.signing_public_key)
         |> assign(
-          :device_signing_pub_key,
-          Base.url_encode64(device.signing_public_key, padding: false)
+          :mounted_trust_anchor,
+          %{
+            authenticated_workspace_pin_bootstrap_hash:
+              params["authenticated_workspace_pin_bootstrap_hash"]
+          }
         )
+        |> assign(
+          :device_hybrid_signing_public_key_material,
+          Map.get(device, :hybrid_signing_public_key_material)
+        )
+        |> assign(:device_signing_key_id, Map.get(device, :signing_key_id))
         |> assign(:ephemeral_bucket, TokenBucket.new(@ephemeral_burst))
         |> assign(:silent, silent)
         |> assign(:track_join_ref, track_join_ref)
@@ -91,7 +108,8 @@ defmodule RefMDWeb.DocumentChannel do
       {:ok, %{connectionId: connection_id}, socket}
     else
       {:error, _reason} = err ->
-        if !silent, do: ConnectionManager.cleanup_connection_on_join_failure(document_id)
+        if !strict_join_silent?(raw_params),
+          do: ConnectionManager.cleanup_connection_on_join_failure(document_id)
 
         err
     end
@@ -141,6 +159,15 @@ defmodule RefMDWeb.DocumentChannel do
     end
   end
 
+  def handle_info({:share_revoked, share_id}, socket) do
+    if socket.assigns.current_share_id == share_id do
+      push(socket, "unauthorized", %{})
+      {:stop, :normal, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info(
         :share_access_revalidation,
         %{assigns: %{mounted_share_id: mounted_share_id}} = socket
@@ -176,7 +203,8 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   def handle_in("update", payload, socket) do
-    with {:ok, parsed} <- Envelope.parse_update_envelope(payload, socket),
+    with {:ok, payload} <- strict_channel_payload(payload),
+         {:ok, parsed} <- Envelope.parse_update_envelope(payload, socket),
          :ok <-
            Envelope.verify_envelope_signature("refmd_update", payload, parsed, socket),
          :ok <- Envelope.verify_update_hash(parsed, socket),
@@ -197,7 +225,8 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   def handle_in("snapshot", payload, socket) do
-    with {:ok, parsed} <- Envelope.parse_snapshot_envelope(payload, socket),
+    with {:ok, payload} <- strict_channel_payload(payload),
+         {:ok, parsed} <- Envelope.parse_snapshot_envelope(payload, socket),
          :ok <-
            Envelope.verify_envelope_signature("refmd_snapshot", payload, parsed, socket),
          :ok <- Access.validate_write(socket),
@@ -209,61 +238,7 @@ defmodule RefMDWeb.DocumentChannel do
           snapshot_attrs(socket, parsed)
         )
 
-      case result do
-        {:ok, saved} ->
-          DocumentServer.set_active_snapshot(
-            socket.assigns.document_id,
-            saved.snapshot_id,
-            %{}
-          )
-
-          push(socket, "snapshot-saved", %{
-            snapshotId: saved.snapshot_id,
-            latestVersion: saved.latest_version
-          })
-
-          broadcast_from(socket, "snapshot", %{
-            snapshotId: saved.snapshot_id,
-            snapshot: payload
-          })
-
-          {:noreply, socket}
-
-        {:error, reason, recovery}
-        when reason in [:parent_mismatch, :clocks_mismatch, :key_version_too_old] ->
-          failure_data =
-            Envelope.build_snapshot_failure(
-              recovery,
-              socket.assigns.document_id,
-              parsed.public_data["parentSnapshotId"]
-            )
-
-          push(socket, "snapshot-save-failed", failure_data)
-          {:noreply, socket}
-
-        {:error, :serialization_conflict, recovery} ->
-          failure_data =
-            Envelope.build_snapshot_failure(
-              recovery,
-              socket.assigns.document_id,
-              parsed.public_data["parentSnapshotId"]
-            )
-
-          push(socket, "snapshot-save-failed", failure_data)
-          {:noreply, socket}
-
-        {:error, :document_archived, _} ->
-          {:reply, {:error, %{reason: "document_archived"}}, socket}
-
-        {:error, :permission_denied, _} ->
-          {:reply, {:error, %{reason: "permission_denied"}}, socket}
-
-        {:error, :device_revoked, _} ->
-          {:reply, {:error, %{reason: "device_revoked"}}, socket}
-
-        {:error, _reason, _} ->
-          {:reply, {:error, %{reason: "error"}}, socket}
-      end
+      handle_snapshot_result(result, parsed, socket)
     else
       {:error, reason} ->
         {:reply, {:error, %{reason: reason}}, socket}
@@ -278,7 +253,9 @@ defmodule RefMDWeb.DocumentChannel do
       {:ok, bucket} ->
         socket = assign(socket, :ephemeral_bucket, bucket)
 
-        with {:ok, parsed} <- Envelope.parse_ephemeral_envelope(payload, socket),
+        with {:ok, payload} <- strict_channel_payload(payload),
+             {:ok, parsed} <- Envelope.parse_ephemeral_envelope(payload, socket),
+             :ok <- Access.check_ephemeral(socket),
              :ok <-
                Envelope.verify_envelope_signature(
                  "refmd_ephemeral",
@@ -286,8 +263,7 @@ defmodule RefMDWeb.DocumentChannel do
                  parsed,
                  socket
                ),
-             :ok <- Access.validate_device_active(socket),
-             :ok <- Access.check_ephemeral(socket) do
+             :ok <- Access.validate_device_active(socket) do
           broadcast_from(socket, "ephemeral-message", payload)
           {:noreply, socket}
         else
@@ -297,6 +273,35 @@ defmodule RefMDWeb.DocumentChannel do
     end
   end
 
+  defp strict_join_params(%{"_jcs_payload" => _}), do: {:error, %{reason: "invalid_json"}}
+
+  defp strict_join_params(%{} = params) do
+    JCS.canonical_bytes!(params)
+    {:ok, params}
+  rescue
+    _ -> {:error, %{reason: "invalid_json"}}
+  end
+
+  defp strict_join_params(_), do: {:error, %{reason: "invalid_json"}}
+
+  defp strict_join_silent?(raw_params) do
+    case strict_join_params(raw_params) do
+      {:ok, params} -> silent_join?(params)
+      _ -> false
+    end
+  end
+
+  defp strict_channel_payload(%{"_jcs_payload" => _}), do: {:error, "invalid_strict_json"}
+
+  defp strict_channel_payload(%{} = payload) do
+    JCS.canonical_bytes!(payload)
+    {:ok, payload}
+  rescue
+    ArgumentError -> {:error, "invalid_strict_json"}
+  end
+
+  defp strict_channel_payload(_), do: {:error, "invalid_strict_json"}
+
   @impl true
   def handle_out(_event, _payload, %{assigns: %{silent: true}} = socket) do
     {:noreply, socket}
@@ -304,6 +309,11 @@ defmodule RefMDWeb.DocumentChannel do
 
   def handle_out(event, payload, socket)
       when event in ["update", "snapshot", "ephemeral-message", "peer-left"] do
+    deliver_broadcast_event(event, payload, socket)
+  end
+
+  defp deliver_broadcast_event(event, payload, socket)
+       when event in ["update", "snapshot", "ephemeral-message", "peer-left"] do
     case Access.check_broadcast(socket) do
       :ok ->
         push(socket, event, payload)
@@ -331,12 +341,12 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   defp cleanup_on_terminate(%{assigns: %{document_id: document_id}} = socket) do
-    DocumentServer.unregister_connection(document_id, self())
+    Documents.unregister_connection(document_id, self())
     ConnectionManager.cleanup_connection(document_id)
 
     ConnectionManager.broadcast_peer_left(
       document_id,
-      socket.assigns[:device_signing_pub_key],
+      socket.assigns[:device_signing_key_id],
       socket.assigns[:current_user_id],
       socket.assigns[:connection_id]
     )
@@ -368,7 +378,7 @@ defmodule RefMDWeb.DocumentChannel do
          _document_id,
          _user_id,
          _share_id,
-         _signing_public_key
+         _signing_key_id
        ),
        do: {:ok, nil}
 
@@ -378,22 +388,22 @@ defmodule RefMDWeb.DocumentChannel do
          document_id,
          principal_id,
          share_id,
-         signing_public_key
+         signing_key_id
        )
        when is_binary(share_id) do
     ConnectionManager.track_share_connection(
       document_id,
       share_id,
       principal_id,
-      Base.url_encode64(signing_public_key, padding: false)
+      signing_key_id
     )
   end
 
-  defp track_document_join(false, false, document_id, user_id, _share_id, signing_public_key) do
+  defp track_document_join(false, false, document_id, user_id, _share_id, signing_key_id) do
     ConnectionManager.track_and_subscribe(
       document_id,
       user_id,
-      Base.url_encode64(signing_public_key, padding: false)
+      signing_key_id
     )
   end
 
@@ -420,55 +430,111 @@ defmodule RefMDWeb.DocumentChannel do
   defp update_attrs(socket, parsed) do
     %{
       ref_snapshot_id: parsed.public_data["refSnapshotId"],
-      device_id: socket.assigns.device_id,
+      workspace_id: socket.assigns.document.workspace_id,
       clock: parsed.public_data["clock"],
-      device_signing_pub_key: socket.assigns.device_signing_pub_key,
+      signing_key_id: socket.assigns.device_signing_key_id,
       update_data: parsed.ciphertext_raw,
       nonce: parsed.nonce_raw,
       key_version: parsed.public_data["keyVersion"],
       update_hash: parsed.public_data["updateHash"],
-      signature: parsed.signature_raw,
+      hybrid_signature: parsed.signature,
+      public_data: parsed.public_data,
+      owner_kind: parsed.public_data["ownerKind"],
+      owner_id: parsed.public_data["ownerId"],
+      authority_kind: parsed.public_data["authorityKind"],
+      authority_id: parsed.public_data["authorityId"],
+      authority_context_key: parsed.public_data["authorityContextKey"],
+      authority_scope_id: parsed.public_data["authorityScopeId"],
+      authority_permission_version: parsed.public_data["authorityPermissionVersion"],
+      key_checkpoint_sequence: key_checkpoint_sequence(parsed),
+      key_checkpoint_hash: key_checkpoint_hash(parsed),
       timestamp: parsed.public_data["timestamp"]
     }
+    |> Map.put(:admission, parsed.admission)
+    |> Map.put(:admission_actor, admission_actor(socket, parsed))
     |> maybe_put_share_context(socket)
   end
 
   defp snapshot_attrs(socket, parsed) do
     %{
       snapshot_id: parsed.public_data["snapshotId"],
-      parent_snapshot_id: parsed.public_data["parentSnapshotId"],
-      device_id: socket.assigns.device_id,
+      parent_snapshot_id: parent_snapshot_id(parsed.public_data["parentSnapshotId"]),
+      workspace_id: socket.assigns.document.workspace_id,
       data: parsed.ciphertext_raw,
       nonce: parsed.nonce_raw,
       key_version: parsed.public_data["keyVersion"],
-      signature: parsed.signature_raw,
-      parent_snapshot_proof: parsed.public_data["parentSnapshotProof"],
+      hybrid_signature: parsed.signature,
+      public_data: parsed.public_data,
+      parent_proof_hash: parsed.public_data["parentProofHash"],
       parent_snapshot_update_clocks: parsed.public_data["parentSnapshotUpdateClocks"],
-      created_by_device: socket.assigns.device_signing_pub_key
+      created_by_signing_key_id: socket.assigns.device_signing_key_id,
+      owner_kind: parsed.public_data["ownerKind"],
+      owner_id: parsed.public_data["ownerId"],
+      authority_kind: parsed.public_data["authorityKind"],
+      authority_id: parsed.public_data["authorityId"],
+      authority_context_key: parsed.public_data["authorityContextKey"],
+      authority_scope_id: parsed.public_data["authorityScopeId"],
+      authority_permission_version: parsed.public_data["authorityPermissionVersion"],
+      key_checkpoint_sequence: key_checkpoint_sequence(parsed),
+      key_checkpoint_hash: key_checkpoint_hash(parsed)
     }
+    |> Map.put(:admission, parsed.admission)
+    |> Map.put(:admission_actor, admission_actor(socket, parsed))
     |> maybe_put_share_context(socket)
   end
 
+  defp admission_actor(%{assigns: %{session_kind: :share_participant}} = socket, parsed) do
+    %{
+      "signer_kind" => "share_participant_device",
+      "share_id" => socket.assigns.current_share_id,
+      "share_participant_principal_id" => socket.assigns.share_participant_principal_id,
+      "share_participant_device_id" => socket.assigns.device_id,
+      "signing_key_id" => socket.assigns.device_signing_key_id
+    }
+    |> Map.merge(checkpoint_authority(socket, parsed))
+  end
+
+  defp admission_actor(socket, parsed) do
+    %{
+      "signer_kind" => "device",
+      "user_id" => socket.assigns.current_user_id,
+      "device_id" => socket.assigns.device_id,
+      "signing_key_id" => socket.assigns.device_signing_key_id
+    }
+    |> Map.merge(checkpoint_authority(socket, parsed))
+  end
+
+  defp checkpoint_authority(socket, parsed) do
+    %{
+      "key_scope_kind" => "workspace",
+      "key_scope_id" => socket.assigns.document.workspace_id,
+      "key_checkpoint_sequence" => key_checkpoint_sequence(parsed),
+      "key_checkpoint_hash" => key_checkpoint_hash(parsed)
+    }
+  end
+
+  defp parent_snapshot_id("GENESIS"), do: nil
+  defp parent_snapshot_id(value), do: value
+
+  defp key_checkpoint_sequence(%{public_data: public_data}) do
+    public_data["keyCheckpointSequence"]
+  end
+
+  defp key_checkpoint_hash(%{public_data: public_data}) do
+    public_data["keyCheckpointHash"]
+  end
+
   defp maybe_put_share_context(attrs, socket) do
-    cond do
-      socket.assigns[:session_kind] == :share_participant ->
-        Map.merge(attrs, %{
-          session_kind: :share_participant,
-          share_id: socket.assigns.current_share_id,
-          grant: socket.assigns.share_participant_grant,
-          principal_id: socket.assigns.share_participant_principal_id
-        })
-
-      is_binary(socket.assigns[:mounted_share_id]) ->
-        Map.merge(attrs, %{
-          session_kind: :mounted_share,
-          share_id: socket.assigns.current_share_id,
-          grant: "edit",
-          principal_id: socket.assigns.current_user_id
-        })
-
-      true ->
-        attrs
+    if socket.assigns[:session_kind] == :share_participant do
+      Map.merge(attrs, %{
+        session_kind: :share_participant,
+        session_id: socket.assigns.current_session.id,
+        share_id: socket.assigns.current_share_id,
+        grant: socket.assigns.share_participant_grant,
+        principal_id: socket.assigns.share_participant_principal_id
+      })
+    else
+      attrs
     end
   end
 
@@ -496,7 +562,13 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   defp handle_update_result({:error, reason}, parsed, _payload, socket)
-       when reason in [:key_version_too_old, :clock_mismatch, :serialization_conflict] do
+       when reason in [
+              :key_version_too_old,
+              :clock_mismatch,
+              :serialization_conflict,
+              :key_rotation_required,
+              :rotation_snapshot_required
+            ] do
     push(socket, "update-save-failed", %{
       snapshotId: parsed.public_data["refSnapshotId"],
       clock: parsed.public_data["clock"],
@@ -507,24 +579,100 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   defp handle_update_result({:error, reason}, _parsed, _payload, socket)
-       when reason in [:document_archived, :permission_denied, :device_revoked] do
+       when reason in [
+              :document_archived,
+              :permission_denied,
+              :device_revoked,
+              :admission_invalid
+            ] do
     {:reply, {:error, %{reason: to_string(reason)}}, socket}
   end
 
-  defp handle_update_result({:error, _reason}, _parsed, _payload, socket) do
-    {:reply, {:error, %{reason: "error"}}, socket}
+  defp handle_update_result({:error, reason}, _parsed, _payload, socket) do
+    {:reply, {:error, %{reason: to_string(reason)}}, socket}
+  end
+
+  defp handle_snapshot_result({:ok, saved}, _parsed, socket) do
+    Documents.set_active_snapshot(
+      socket.assigns.document_id,
+      saved.snapshot_id,
+      %{}
+    )
+
+    saved_payload = %{
+      snapshotId: saved.snapshot_id,
+      latestVersion: saved.latest_version,
+      proofChainHash: saved.proof_chain_hash,
+      ciphertextHash: saved.ciphertext_hash,
+      snapshotAdmissionEventHash: saved.snapshot_admission_event_hash
+    }
+
+    push(socket, "snapshot-saved", saved_payload)
+
+    snapshot_payload =
+      saved.snapshot_id
+      |> Documents.get_snapshot()
+      |> Envelope.format_snapshot()
+
+    broadcast_from(socket, "snapshot", %{
+      snapshotId: saved.snapshot_id,
+      snapshot: snapshot_payload,
+      proofChainHash: saved.proof_chain_hash,
+      ciphertextHash: saved.ciphertext_hash,
+      snapshotAdmissionEventHash: saved.snapshot_admission_event_hash
+    })
+
+    {:reply, {:ok, saved_payload}, socket}
+  end
+
+  defp handle_snapshot_result({:error, reason, recovery}, parsed, socket)
+       when reason in [
+              :parent_mismatch,
+              :clocks_mismatch,
+              :key_version_too_old,
+              :rotation_snapshot_required,
+              :serialization_conflict
+            ] do
+    failure_data =
+      Envelope.build_snapshot_failure(
+        recovery,
+        socket.assigns.document_id,
+        parsed.public_data["parentSnapshotId"]
+      )
+
+    push(socket, "snapshot-save-failed", failure_data)
+    {:reply, {:error, failure_data}, socket}
+  end
+
+  defp handle_snapshot_result({:error, reason, _recovery}, _parsed, socket)
+       when reason in [
+              :document_archived,
+              :permission_denied,
+              :device_revoked,
+              :admission_invalid
+            ] do
+    {:reply, {:error, %{reason: to_string(reason)}}, socket}
+  end
+
+  defp handle_snapshot_result({:error, reason, _}, _parsed, socket) do
+    {:reply, {:error, %{reason: to_string(reason)}}, socket}
   end
 
   defp maybe_broadcast_update(%{duplicate: true}, _payload, _socket), do: :ok
 
   defp maybe_broadcast_update(saved, payload, socket) do
-    DocumentServer.update_clocks(
+    Documents.update_clocks(
       socket.assigns.document_id,
-      socket.assigns.device_signing_pub_key,
+      payload["publicData"]["authorityContextKey"],
+      socket.assigns.device_signing_key_id,
       saved.clock
     )
 
-    broadcast_envelope = Map.put(payload, "version", saved.version)
+    broadcast_envelope =
+      socket.assigns.document_id
+      |> Documents.get_update_by_hash(saved.update_hash)
+      |> Envelope.format_update()
+
     broadcast_from(socket, "update", broadcast_envelope)
   end
 end

@@ -10,14 +10,32 @@ import {
   handleEncryptOfflinePending,
   handleEncryptTitle,
   handleEvictDek,
+  handleFetchMountedShareDocumentBootstrap,
+  handleFetchMountedShareFolderBootstrap,
+  handleFetchShareDocumentBootstrap,
+  handleFetchShareFolderBootstrap,
   handleGenerateDek,
+  handleClearShareSecrets,
+  handleCloneShareDekEncryptionKey,
   handleHasDek,
   handleHasDekBatch,
+  handleHasShareDekEncryptionKey,
+  handleDeleteDekForOffline,
+  handlePrepareManagedShareSecrets,
+  handleLoadOfflineDekMetadata,
+  handleRestoreShareSecretsFromDsk,
+  handlePrepareOpenShareSecrets,
+  handlePreparePasswordShareChallenge,
+  handlePreparePasswordShareSecrets,
   handleUnwrapDek,
-  handleUnwrapDekFromOffline,
+  handleUnwrapShareDek,
+  handleRestoreDekFromOffline,
   handleWrapDek,
   handleWrapDekForShare,
-  handleWrapDekForOffline,
+  handleStoreDekForOffline,
+  handlePersistMountedShareSecretsWithDsk,
+  handleWrapPreparedShareDek,
+  handlePersistShareSecretsWithDsk,
 } from "../dek";
 import { withCryptoOperationError } from "../utils";
 import type { RequestHandlerTable } from "./shared";
@@ -49,9 +67,56 @@ export const documentRequestHandlers = {
   "has-dek-batch": (state, payload) => handleHasDekBatch(state, payload),
   "unwrap-dek": (state, payload) =>
     withCryptoOperationError("decryption_failed", () => handleUnwrapDek(state, payload)),
-  "unwrap-dek-from-offline": (state, payload) =>
-    withCryptoOperationError("decryption_failed", () => handleUnwrapDekFromOffline(state, payload)),
+  "unwrap-share-dek": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () => handleUnwrapShareDek(state, payload)),
+  "fetch-share-document-bootstrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleFetchShareDocumentBootstrap(state, payload),
+    ),
+  "fetch-share-folder-bootstrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleFetchShareFolderBootstrap(state, payload),
+    ),
+  "fetch-mounted-share-document-bootstrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleFetchMountedShareDocumentBootstrap(state, payload),
+    ),
+  "fetch-mounted-share-folder-bootstrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleFetchMountedShareFolderBootstrap(state, payload),
+    ),
+  "prepare-managed-share-secrets": (state, payload) =>
+    handlePrepareManagedShareSecrets(state, payload),
+  "wrap-prepared-share-dek": (state, payload) => handleWrapPreparedShareDek(state, payload),
+  "prepare-open-share-secrets": (state, payload) => handlePrepareOpenShareSecrets(state, payload),
+  "prepare-password-share-secrets": (state, payload) =>
+    handlePreparePasswordShareSecrets(state, payload),
+  "prepare-password-share-challenge": (state, payload) =>
+    handlePreparePasswordShareChallenge(state, payload),
+  "restore-share-secrets-from-dsk": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleRestoreShareSecretsFromDsk(state, payload),
+    ),
+  "has-share-dek-encryption-key": (state, payload) =>
+    handleHasShareDekEncryptionKey(state, payload),
+  "clone-share-dek-encryption-key": (state, payload) =>
+    handleCloneShareDekEncryptionKey(state, payload),
+  "clear-share-secrets": (state, payload) => handleClearShareSecrets(state, payload),
+  "persist-share-secrets-with-dsk": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handlePersistShareSecretsWithDsk(state, payload),
+    ),
+  "persist-mounted-share-secrets-with-dsk": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handlePersistMountedShareSecretsWithDsk(state, payload),
+    ),
+  "restore-dek-from-offline": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleRestoreDekFromOffline(state, payload),
+    ),
+  "load-offline-dek-metadata": (_state, payload) => handleLoadOfflineDekMetadata(payload),
+  "delete-dek-for-offline": (_state, payload) => handleDeleteDekForOffline(payload),
   "wrap-dek": (state, payload) => handleWrapDek(state, payload),
   "wrap-dek-for-share": (state, payload) => handleWrapDekForShare(state, payload),
-  "wrap-dek-for-offline": (state, payload) => handleWrapDekForOffline(state, payload),
+  "store-dek-for-offline": (state, payload) => handleStoreDekForOffline(state, payload),
 } satisfies RequestHandlerTable;

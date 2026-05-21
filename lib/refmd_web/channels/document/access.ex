@@ -11,7 +11,7 @@ defmodule RefMDWeb.Channels.Document.Access do
     if share_context?(socket) do
       if is_nil(socket.assigns.document.archived_at) and
            Sharing.can_write_document?(
-             socket.assigns.current_share_id,
+             effective_share_id(socket),
              socket.assigns.document.id
            ) do
         :ok
@@ -47,45 +47,58 @@ defmodule RefMDWeb.Channels.Document.Access do
           :ok | {:error, %{reason: String.t()}}
   def check_join(document, user_id, socket, mounted_share_id) do
     if socket.assigns[:session_kind] == :share_participant do
-      if Workspaces.share_links_enabled?(document.workspace_id) and
-           Sharing.can_join_document_session?(
-             socket.assigns.current_share_id,
-             document.id,
-             socket.assigns.current_session.id
-           ) do
-        :ok
-      else
-        {:error, %{reason: "permission_denied"}}
+      share_id = mounted_share_id || socket.assigns.current_share_id
+
+      cond do
+        not Workspaces.share_links_enabled?(document.workspace_id) ->
+          {:error, %{reason: "permission_denied"}}
+
+        not Sharing.can_join_document_session?(
+          share_id,
+          document.id,
+          socket.assigns.current_session.id
+        ) ->
+          {:error, %{reason: "permission_denied"}}
+
+        true ->
+          :ok
       end
     else
-      if is_binary(mounted_share_id) do
-        :ok
-      else
-        check_workspace_read(document.workspace_id, user_id, document)
-      end
+      check_workspace_read(document.workspace_id, user_id, document)
     end
   end
 
-  @spec resolve_mounted_share_id(map(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec resolve_mounted_share_id(map(), Ecto.UUID.t(), Ecto.UUID.t(), Phoenix.Socket.t()) ::
           {:ok, Ecto.UUID.t() | nil} | {:error, %{reason: String.t()}}
-  def resolve_mounted_share_id(%{"mount_id" => mount_id}, user_id, document_id)
-      when is_binary(mount_id) do
-    case Sharing.resolve_mounted_document_share(user_id, mount_id, document_id) do
+  def resolve_mounted_share_id(
+        %{"mount_id" => mount_id} = params,
+        _user_id,
+        document_id,
+        %{assigns: %{session_kind: :share_participant, current_share_id: share_id}}
+      )
+      when is_binary(mount_id) and is_binary(share_id) do
+    case Sharing.resolve_mounted_document_share_for_session(
+           share_id,
+           mount_id,
+           document_id,
+           params["share_id"],
+           mount_trust_anchor_params(params)
+         ) do
       {:ok, share_id} -> {:ok, share_id}
       {:error, _reason} -> {:error, %{reason: "permission_denied"}}
     end
   end
 
-  def resolve_mounted_share_id(_params, _user_id, _document_id), do: {:ok, nil}
+  def resolve_mounted_share_id(%{"mount_id" => mount_id}, _user_id, _document_id, _socket)
+      when is_binary(mount_id),
+      do: {:error, %{reason: "permission_denied"}}
+
+  def resolve_mounted_share_id(_params, _user_id, _document_id, _socket), do: {:ok, nil}
 
   @spec share_session_still_authorized?(Phoenix.Socket.t()) :: boolean()
   def share_session_still_authorized?(socket) do
     Workspaces.share_links_enabled?(socket.assigns.document.workspace_id) and
       Sharing.participant_session_active?(socket.assigns.current_session.id) and
-      Sharing.participant_owns_device?(
-        socket.assigns.share_participant_principal_id,
-        socket.assigns.device_id
-      ) and
       Sharing.can_continue_document_session?(
         socket.assigns.current_share_id,
         socket.assigns.document_id
@@ -93,20 +106,31 @@ defmodule RefMDWeb.Channels.Document.Access do
   end
 
   @spec mounted_share_still_authorized?(Phoenix.Socket.t()) :: boolean()
-  def mounted_share_still_authorized?(socket) do
-    case Sharing.resolve_mounted_document_share(
-           socket.assigns.current_user_id,
-           socket.assigns.mount_id,
-           socket.assigns.document_id
-         ) do
-      {:ok, share_id} ->
-        share_id == socket.assigns.current_share_id and
-          Workspaces.share_links_enabled?(socket.assigns.document.workspace_id)
-
-      _ ->
-        false
+  def mounted_share_still_authorized?(%{assigns: %{session_kind: :share_participant}} = socket) do
+    with true <- Workspaces.share_links_enabled?(socket.assigns.document.workspace_id),
+         true <- Sharing.participant_session_active?(socket.assigns.current_session.id),
+         {:ok, share_id} <-
+           Sharing.resolve_mounted_document_share_for_session(
+             socket.assigns.current_share_id,
+             socket.assigns.mount_id,
+             socket.assigns.document_id,
+             socket.assigns.mounted_share_id,
+             socket.assigns.mounted_trust_anchor
+           ),
+         true <- share_id == socket.assigns.mounted_share_id,
+         true <-
+           Sharing.can_join_document_session?(
+             share_id,
+             socket.assigns.document_id,
+             socket.assigns.current_session.id
+           ) do
+      true
+    else
+      _ -> false
     end
   end
+
+  def mounted_share_still_authorized?(_socket), do: false
 
   @spec subscribe_device_revocation(Phoenix.Socket.t()) :: :ok
   def subscribe_device_revocation(%{
@@ -133,17 +157,20 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   def maybe_subscribe_share_document_revocation(_share_id, _document_id), do: :ok
 
+  @spec maybe_subscribe_share_revocation(Ecto.UUID.t() | nil) :: :ok
+  def maybe_subscribe_share_revocation(share_id) when is_binary(share_id) do
+    Phoenix.PubSub.subscribe(RefMD.PubSub, "share:#{share_id}:revoked")
+    :ok
+  end
+
+  def maybe_subscribe_share_revocation(_share_id), do: :ok
+
   @spec validate_write(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def validate_write(socket) do
-    cond do
-      socket.assigns[:session_kind] == :share_participant ->
-        validate_share_write_access(socket)
-
-      is_binary(socket.assigns[:mounted_share_id]) ->
-        validate_mounted_share_write_access(socket)
-
-      true ->
-        validate_workspace_write_access(socket)
+    if socket.assigns[:session_kind] == :share_participant do
+      validate_share_write_access(socket)
+    else
+      validate_workspace_write_access(socket)
     end
   end
 
@@ -172,13 +199,27 @@ defmodule RefMDWeb.Channels.Document.Access do
     end
   end
 
+  @spec workspace_write_allowed?(map(), Ecto.UUID.t()) :: boolean()
+  def workspace_write_allowed?(document, user_id) do
+    if Workspaces.guest_user?(user_id) do
+      Workspaces.authorize_guest_permission(
+        document.workspace_id,
+        user_id,
+        "document:write",
+        document
+      ) == :ok
+    else
+      case Workspaces.get_member_with_role(document.workspace_id, user_id) do
+        {_member, role} -> role_allows_document_write?(role)
+        nil -> false
+      end
+    end
+  end
+
   @spec validate_device_active(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def validate_device_active(socket) do
     if socket.assigns[:session_kind] == :share_participant do
-      if Sharing.participant_owns_device?(
-           socket.assigns.share_participant_principal_id,
-           socket.assigns.device_id
-         ) do
+      if share_participant_device_active?(socket) do
         :ok
       else
         {:error, "device_revoked"}
@@ -186,12 +227,21 @@ defmodule RefMDWeb.Channels.Document.Access do
     else
       case Devices.get_device(socket.assigns.device_id) do
         %{user_id: uid, revoked_at: nil} when uid == socket.assigns.current_user_id ->
-          :ok
+          validate_workspace_device_not_wipe_required(socket)
 
         _ ->
           {:error, "device_revoked"}
       end
     end
+  end
+
+  defp validate_workspace_device_not_wipe_required(socket) do
+    workspace_id = socket.assigns.document.workspace_id
+    device_id = socket.assigns.device_id
+
+    if Workspaces.workspace_device_wipe_required?(workspace_id, device_id),
+      do: {:error, "device_wipe_required"},
+      else: :ok
   end
 
   defp share_context?(socket) do
@@ -202,6 +252,11 @@ defmodule RefMDWeb.Channels.Document.Access do
   defp share_participant_socket?(%{assigns: %{session_kind: :share_participant}}), do: true
   defp share_participant_socket?(_socket), do: false
 
+  defp effective_share_id(%{assigns: %{mounted_share_id: share_id}}) when is_binary(share_id),
+    do: share_id
+
+  defp effective_share_id(socket), do: socket.assigns.current_share_id
+
   defp check_workspace_read(workspace_id, user_id, document) do
     if Workspaces.guest_user?(user_id) do
       guest_read_access(workspace_id, user_id, document)
@@ -211,7 +266,8 @@ defmodule RefMDWeb.Channels.Document.Access do
   end
 
   defp share_read_access_result(socket) do
-    if Sharing.can_read_document?(socket.assigns.current_share_id, socket.assigns.document.id) do
+    if share_participant_socket_authorized_for_read?(socket) and
+         Sharing.can_read_document?(effective_share_id(socket), socket.assigns.document.id) do
       :ok
     else
       :evict
@@ -268,16 +324,8 @@ defmodule RefMDWeb.Channels.Document.Access do
   defp validate_share_write_access(socket) do
     if socket.assigns.share_participant_grant == "edit" and
          Workspaces.share_links_enabled?(socket.assigns.document.workspace_id) and
-         Sharing.can_write_document?(socket.assigns.current_share_id, socket.assigns.document.id) do
-      :ok
-    else
-      {:error, "permission_denied"}
-    end
-  end
-
-  defp validate_mounted_share_write_access(socket) do
-    if Workspaces.share_links_enabled?(socket.assigns.document.workspace_id) and
-         Sharing.can_write_document?(socket.assigns.current_share_id, socket.assigns.document.id) do
+         share_participant_device_active?(socket) and
+         Sharing.can_write_document?(effective_share_id(socket), socket.assigns.document.id) do
       :ok
     else
       {:error, "permission_denied"}
@@ -315,5 +363,54 @@ defmodule RefMDWeb.Channels.Document.Access do
       :ok -> :ok
       {:error, _reason} -> {:error, "permission_denied"}
     end
+  end
+
+  defp share_participant_socket_authorized_for_read?(socket) do
+    if share_participant_socket?(socket) do
+      share_participant_device_active?(socket)
+    else
+      true
+    end
+  end
+
+  defp share_participant_device_active?(%{
+         assigns: %{
+           session_kind: :share_participant,
+           share_participant_principal_id: principal_id,
+           current_session: %{share_id: share_id} = session
+         }
+       })
+       when is_binary(share_id) and is_binary(principal_id) do
+    device_id = Map.get(session, :device_id)
+
+    match?(
+      %{principal_id: ^principal_id},
+      Sharing.get_participant_device(share_id, principal_id, device_id)
+    )
+  end
+
+  defp share_participant_device_active?(%{
+         assigns: %{
+           session_kind: :share_participant,
+           share_participant_principal_id: principal_id,
+           device_id: device_id,
+           current_session: %{share_id: share_id}
+         }
+       })
+       when is_binary(share_id) and is_binary(principal_id) and is_binary(device_id) and
+              is_binary(share_id) do
+    match?(
+      %{principal_id: ^principal_id},
+      Sharing.get_participant_device(share_id, principal_id, device_id)
+    )
+  end
+
+  defp share_participant_device_active?(_socket), do: false
+
+  defp mount_trust_anchor_params(params) do
+    %{
+      authenticated_workspace_pin_bootstrap_hash:
+        params["authenticated_workspace_pin_bootstrap_hash"]
+    }
   end
 end

@@ -1,17 +1,18 @@
-import { client, throwIfError } from "./core";
+import { client, throwIfError, withUserPopParams } from "./core";
 import type { components } from "./schema";
 
 export const workspacesApi = {
-  list: async () => throwIfError(await client.GET("/api/workspaces")),
+  list: async () =>
+    throwIfError(await client.GET("/api/workspaces", { params: withUserPopParams() })),
 
   get: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
-  create: async (body: { name: string; description?: string | null; icon?: string | null }) =>
+  create: async (body: components["schemas"]["CreateWorkspaceRequest"]) =>
     throwIfError(
       await client.POST("/api/workspaces", {
         body,
@@ -21,7 +22,7 @@ export const workspacesApi = {
   update: async (workspaceId: string, body: components["schemas"]["UpdateWorkspaceRequest"]) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -32,7 +33,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/features", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -40,7 +41,7 @@ export const workspacesApi = {
   delete: async (workspaceId: string) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -48,7 +49,7 @@ export const workspacesApi = {
   listMembers: async (workspaceId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/members", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
         ...init,
       }),
     ),
@@ -56,15 +57,20 @@ export const workspacesApi = {
   changeMemberRole: async (workspaceId: string, userId: string, roleId: string) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/members/{user_id}", {
-        params: { path: { workspace_id: workspaceId, user_id: userId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId, user_id: userId } }),
         body: { role_id: roleId },
       }),
     ),
 
-  removeMember: async (workspaceId: string, userId: string) =>
+  removeMember: async (
+    workspaceId: string,
+    userId: string,
+    body: components["schemas"]["RemoveMemberRequest"],
+  ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/members/{user_id}", {
-        params: { path: { workspace_id: workspaceId, user_id: userId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId, user_id: userId } }),
+        body,
       }),
     ),
 
@@ -72,7 +78,7 @@ export const workspacesApi = {
   listRoles: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/roles", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -86,7 +92,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/roles", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -102,7 +108,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/roles/{role_id}", {
-        params: { path: { workspace_id: workspaceId, role_id: roleId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId, role_id: roleId } }),
         body,
       }),
     ),
@@ -110,7 +116,7 @@ export const workspacesApi = {
   deleteRole: async (workspaceId: string, roleId: string) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/roles/{role_id}", {
-        params: { path: { workspace_id: workspaceId, role_id: roleId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId, role_id: roleId } }),
       }),
     ),
 
@@ -118,37 +124,32 @@ export const workspacesApi = {
   listInvitations: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/invitations", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
   createInvitation: async (
     workspaceId: string,
-    body: {
-      invitation_id: string;
-      token_hash: string;
-      token_prefix: string;
-      encrypted_kek: string;
-      kek_nonce: string;
-      kek_version: number;
-      role_id?: string | null;
-      invited_email: string;
-      expires_at?: string;
-    },
+    body: components["schemas"]["CreateInvitationRequest"],
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/invitations", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
 
-  revokeInvitation: async (workspaceId: string, invitationId: string) =>
+  revokeInvitation: async (
+    workspaceId: string,
+    invitationId: string,
+    body: components["schemas"]["RevokeInvitationRequest"],
+  ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/invitations/{invitation_id}", {
-        params: {
+        params: withUserPopParams({
           path: { workspace_id: workspaceId, invitation_id: invitationId },
-        },
+        }),
+        body,
       }),
     ),
 
@@ -160,25 +161,29 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/members/{user_id}/devices", {
-        params: {
+        params: withUserPopParams({
           path: { workspace_id: workspaceId, user_id: userId },
           query: includeRevoked ? { include_revoked: true } : {},
-        },
+        }),
         ...init,
       }),
     ),
 
-  acceptInvitation: async (token: string) =>
+  acceptInvitation: async (
+    token: string,
+    body: Omit<components["schemas"]["AcceptInvitationRequest"], "token">,
+  ) =>
     throwIfError(
       await client.POST("/api/workspaces/invitations/accept", {
-        body: { token },
+        params: withUserPopParams(),
+        body: { token, ...body },
       }),
     ),
 
   lookupInvitation: async (token: string) =>
     throwIfError(
-      await client.POST("/api/workspaces/invitations/lookup", {
-        body: { token },
+      await client.GET("/api/invitations/lookup", {
+        params: { query: { token } },
       }),
     ),
 
@@ -186,31 +191,41 @@ export const workspacesApi = {
   listGuestInvitations: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/guest-invitations", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
   createGuestInvitation: async (
     workspaceId: string,
-    body: components["schemas"]["CreateGuestInvitationRequest"],
+    body: components["schemas"]["CreateGuestInvitationRequest"] & {
+      encrypted_bootstrap_package: Record<string, unknown>;
+      bootstrap_key_commitment: string;
+    },
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/guest-invitations", {
-        params: { path: { workspace_id: workspaceId } },
+        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
 
-  revokeGuestInvitation: async (workspaceId: string, invitationId: string) =>
+  revokeGuestInvitation: async (
+    workspaceId: string,
+    invitationId: string,
+    body: components["schemas"]["RevokeInvitationRequest"],
+  ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}", {
-        params: { path: { workspace_id: workspaceId, invitation_id: invitationId } },
+        params: withUserPopParams({
+          path: { workspace_id: workspaceId, invitation_id: invitationId },
+        }),
+        body,
       }),
     ),
 
   redeemGuestInvitation: async (body: components["schemas"]["RedeemGuestInvitationRequest"]) =>
     throwIfError(
-      await client.POST("/api/workspaces/guest-invitations/redeem", {
+      await client.POST("/api/guest/redeem", {
         body,
       }),
     ),

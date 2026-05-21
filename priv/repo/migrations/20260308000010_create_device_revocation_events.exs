@@ -10,9 +10,21 @@ defmodule RefMD.Repo.Migrations.CreateDeviceRevocationEvents do
       add :device_id, :binary_id, null: false, primary_key: true
       add :revoked_by_device_id, :binary_id, null: false
       add :revocation_mode, :text, null: false
-      add :signature, :binary, null: false
+      add :signature, :map, null: false
       add :revoked_at, :bigint, null: false
       add :created_at, :utc_datetime_usec, null: false
     end
+
+    execute(
+      """
+      ALTER TABLE device_revocation_events
+      ADD CONSTRAINT device_revocation_events_signature_object
+      CHECK (jsonb_typeof(signature) = 'object')
+      """,
+      """
+      ALTER TABLE device_revocation_events
+      DROP CONSTRAINT device_revocation_events_signature_object
+      """
+    )
   end
 end

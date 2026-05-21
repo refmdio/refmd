@@ -3,27 +3,29 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
 
   alias RefMD.Documents
   alias RefMD.Public
+  alias RefMD.Sharing
+  alias RefMD.Workspaces
   alias RefMDWeb.Channels.Document.Access
   alias RefMDWeb.Channels.Document.Envelope
 
   @spec load_for_join(map(), map(), Phoenix.Socket.t(), Ecto.UUID.t() | nil, Ecto.UUID.t()) ::
           {:ok, map()} | {:error, %{reason: String.t()}}
   def load_for_join(document, params, socket, mounted_share_id, user_id) do
-    cond do
-      socket.assigns[:session_kind] == :share_participant ->
-        load_share_initial_data(document, params, socket.assigns.current_share_id)
-
-      is_binary(mounted_share_id) ->
-        load_share_initial_data(document, params, mounted_share_id)
-
-      true ->
-        load_initial_data(document, params, document.workspace_id, user_id, socket)
+    if socket.assigns[:session_kind] == :share_participant do
+      load_share_initial_data(
+        document,
+        params,
+        mounted_share_id || socket.assigns.current_share_id
+      )
+    else
+      load_initial_data(document, params, document.workspace_id, user_id, socket)
     end
   end
 
   @spec validate_join_params(map()) :: :ok | {:error, %{reason: String.t()}}
   def validate_join_params(%{"mode" => "delta"} = params) do
-    with :ok <- validate_optional_join_uuid(params, "knownSnapshotId") do
+    with :ok <- validate_exact_join_keys(params),
+         :ok <- validate_optional_join_uuid(params, "knownSnapshotId") do
       case params["knownSnapshotUpdateClocks"] do
         clocks when is_map(clocks) -> validate_clock_values(clocks)
         _ -> {:error, %{reason: "knownSnapshotUpdateClocks required for delta mode"}}
@@ -32,13 +34,26 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
   end
 
   def validate_join_params(%{"mode" => "complete"} = params),
-    do: validate_optional_join_uuid(params, "knownSnapshotId")
+    do:
+      with(
+        :ok <- validate_exact_join_keys(params),
+        do: validate_optional_join_uuid(params, "knownSnapshotId")
+      )
 
   def validate_join_params(%{"mode" => nil} = params),
-    do: validate_optional_join_uuid(params, "knownSnapshotId")
+    do:
+      with(
+        :ok <- validate_exact_join_keys(params),
+        do: validate_optional_join_uuid(params, "knownSnapshotId")
+      )
 
   def validate_join_params(%{"mode" => _}), do: {:error, %{reason: "invalid mode"}}
-  def validate_join_params(params), do: validate_optional_join_uuid(params, "knownSnapshotId")
+
+  def validate_join_params(params) do
+    with :ok <- validate_exact_join_keys(params) do
+      validate_optional_join_uuid(params, "knownSnapshotId")
+    end
+  end
 
   defp load_initial_data(document, params, workspace_id, user_id, socket) do
     mode = params["mode"] || "complete"
@@ -55,6 +70,11 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
           document.id
           |> build_initial_data(snapshot, all_updates, mode, params)
           |> Map.put(:archived, !is_nil(document.archived_at))
+          |> Map.put(:readOnly, !Access.workspace_write_allowed?(document, user_id))
+          |> Map.put(
+            :authorityPermissionVersion,
+            Workspaces.get_member_permission_version(document.workspace_id, user_id)
+          )
           |> Map.put(
             :publicState,
             document.id
@@ -78,6 +98,8 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
           document.id
           |> build_initial_data(snapshot, all_updates, mode, params)
           |> Map.put(:archived, !is_nil(document.archived_at))
+          |> Map.put(:readOnly, !Sharing.can_write_document?(share_id, document.id))
+          |> Map.put(:authorityPermissionVersion, Sharing.get_share_permission_version(share_id))
 
         {:ok, initial_data}
 
@@ -106,6 +128,9 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
       snapshot: if(delta_same, do: nil, else: Envelope.format_snapshot(snapshot)),
       updates: Enum.map(updates, &Envelope.format_update/1),
       snapshotProofChain: proof_chain,
+      proofChainHash: if(snapshot, do: snapshot.proof_chain_hash),
+      ciphertextHash: if(snapshot, do: snapshot.ciphertext_hash),
+      snapshotAdmissionEventHash: if(snapshot, do: snapshot.snapshot_admission_event_hash),
       latestVersion: latest_version
     }
   end
@@ -128,10 +153,8 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
 
   defp filter_by_clocks(updates, known_clocks) do
     Enum.filter(updates, fn u ->
-      case u.device_signing_pub_key do
-        nil -> true
-        pk -> is_nil(u.clock) or u.clock > Map.get(known_clocks, pk, -1)
-      end
+      clock_key = "#{u.authority_context_key}:#{u.signing_key_id}"
+      u.clock > Map.get(known_clocks, clock_key, -1)
     end)
   end
 
@@ -148,6 +171,28 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
 
       _ ->
         {:error, %{reason: "invalid_#{key}"}}
+    end
+  end
+
+  defp validate_exact_join_keys(params) do
+    allowed = [
+      "knownSnapshotId",
+      "knownSnapshotUpdateClocks",
+      "mode",
+      "mount_id",
+      "authenticated_workspace_pin_bootstrap_hash",
+      "pop_actor_variant",
+      "pop_challenge",
+      "pop_device_id",
+      "pop_signature",
+      "share_id",
+      "silent"
+    ]
+
+    if Enum.all?(Map.keys(params), &(&1 in allowed)) do
+      :ok
+    else
+      {:error, %{reason: "unexpected_join_keys"}}
     end
   end
 

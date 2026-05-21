@@ -5,6 +5,7 @@ export type CryptoErrorCode =
   | "decryption_failed"
   | "signature_failed"
   | "invalid_key"
+  | "invalid_payload"
   | "key_not_found"
   | "tofu_hard_fail"
   | "internal_error";

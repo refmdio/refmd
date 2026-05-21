@@ -32,6 +32,7 @@ test.describe.serial("Cross-Session Persistence", () => {
     const editor = sharedPage.locator(".cm-content");
     await editor.click();
     await sharedPage.keyboard.insertText("Cross-session content");
+    await expectEditorTextContains(sharedPage, "Cross-session content", 10_000);
     await sharedPage.waitForTimeout(10000);
   });
 

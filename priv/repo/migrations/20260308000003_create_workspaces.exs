@@ -60,6 +60,7 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
           primary_key: true
 
       add :role_id, :binary_id, null: false
+      add :permission_version, :integer, null: false, default: 1
       add :is_default, :boolean, null: false, default: false
       add :joined_at, :utc_datetime_usec, null: false
     end
@@ -88,5 +89,55 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
       add :permission, :text, primary_key: true
       add :granted, :boolean, null: false
     end
+
+    create table(:workspace_kek_rotation_deletion_evidences, primary_key: false) do
+      add :old_key_deleted_event_hash, :string, primary_key: true
+
+      add :workspace_id, references(:workspaces, type: :binary_id, on_delete: :delete_all),
+        null: false
+
+      add :rotation_kind, :string, null: false
+      add :scope_kind, :string, null: false
+      add :scope_id, :string, null: false
+      add :old_key_version, :integer, null: false
+      add :deletion_manifest, :map, null: false
+      add :device_key_deletion_proofs, :map, null: false
+
+      timestamps(type: :utc_datetime_usec, updated_at: false)
+    end
+
+    create constraint(:workspace_kek_rotation_deletion_evidences, :rotation_kind_is_kek,
+             check: "rotation_kind = 'kek'"
+           )
+
+    create constraint(:workspace_kek_rotation_deletion_evidences, :scope_kind_is_workspace,
+             check: "scope_kind = 'workspace'"
+           )
+
+    create constraint(
+             :workspace_kek_rotation_deletion_evidences,
+             :scope_id_matches_workspace_id,
+             check: "scope_id = workspace_id::text"
+           )
+
+    create index(:workspace_kek_rotation_deletion_evidences, [:workspace_id])
+
+    create table(:workspace_device_wipe_requirements, primary_key: false) do
+      add :workspace_id, references(:workspaces, type: :binary_id, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
+      add :device_id, references(:devices, type: :binary_id, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
+      add :required_kek_version, :integer, null: false
+      add :reason, :text, null: false, default: "kek_rotation_deletion_proof_missing"
+      add :required_at, :utc_datetime_usec, null: false
+
+      timestamps(type: :utc_datetime_usec, updated_at: false)
+    end
+
+    create index(:workspace_device_wipe_requirements, [:device_id])
   end
 end

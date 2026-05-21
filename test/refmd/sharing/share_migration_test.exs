@@ -54,6 +54,7 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   defp create_folder_share_attrs do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    workspace_pin_bootstrap_hash = Process.get(:workspace_pin_bootstrap_hash)
 
     %{
       "id" => Ecto.UUID.generate(),
@@ -62,14 +63,19 @@ defmodule RefMD.Sharing.ShareMigrationTest do
       "token_prefix" => String.slice(share_slug, 0, 4),
       "permission" => "view",
       "password_protected" => false,
-      "encrypted_dek" => :crypto.strong_rand_bytes(32),
-      "nonce" => nil,
+      "authorization_public_key_material" =>
+        share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+      "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+      "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash,
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24),
       "share_keys" => []
     }
   end
 
   defp create_document_share_attrs do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    workspace_pin_bootstrap_hash = Process.get(:workspace_pin_bootstrap_hash)
 
     %{
       "id" => Ecto.UUID.generate(),
@@ -78,18 +84,48 @@ defmodule RefMD.Sharing.ShareMigrationTest do
       "token_prefix" => String.slice(share_slug, 0, 4),
       "permission" => "view",
       "password_protected" => false,
-      "encrypted_dek" => :crypto.strong_rand_bytes(32),
-      "nonce" => nil
+      "authorization_public_key_material" =>
+        share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+      "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+      "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash,
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24)
     }
+  end
+
+  defp create_share(document, owner_id, attrs) do
+    Sharing.create_share(
+      document,
+      owner_id,
+      with_test_share_security_artifacts(document, owner_id, attrs)
+    )
+  end
+
+  defp update_share_keys(document_id, share_id, attrs) do
+    share = Repo.get!(Share, share_id)
+
+    Sharing.update_share_keys(
+      document_id,
+      share_id,
+      with_test_share_scope_key_directory_append(share, attrs)
+    )
   end
 
   defp folder_share_key_attrs(document) do
     %{
       "share_id" => Ecto.UUID.generate(),
       "document_id" => document.id,
-      "encrypted_dek" => :crypto.strong_rand_bytes(32),
-      "nonce" => nil
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24)
     }
+  end
+
+  defp create_workspace_with_key_directory!(owner_id) do
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
+    workspace
   end
 
   defp insert_child_share!(root_share, document, owner_id, opts \\ []) do
@@ -103,12 +139,20 @@ defmodule RefMD.Sharing.ShareMigrationTest do
         scope: Keyword.get(opts, :scope, document.doc_type),
         token_hash: token_hash,
         token_prefix: String.slice(token_hash, 0, 4),
-        slug_ciphertext: :crypto.strong_rand_bytes(32),
-        slug_nonce: :crypto.strong_rand_bytes(12),
-        slug_key_id: "test",
         permission: "view",
         password_protected: false,
-        access_count: 0,
+        authorization_public_key_material: nil,
+        share_capability_secret_commitment: root_share.share_capability_secret_commitment,
+        password_capability_secret_commitment: root_share.password_capability_secret_commitment,
+        capability_context_hash: root_share.capability_context_hash,
+        created_event_hash: root_share.created_event_hash,
+        authenticated_workspace_pin_bootstrap_hash:
+          root_share.authenticated_workspace_pin_bootstrap_hash,
+        authenticated_workspace_pin_bootstrap_checkpoint:
+          root_share.authenticated_workspace_pin_bootstrap_checkpoint,
+        max_views: root_share.max_views,
+        expires_event_sequence: root_share.expires_event_sequence,
+        view_count: 0,
         created_by: owner_id
       })
     )
@@ -116,13 +160,13 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects child shares outside the root folder tree" do
     owner_id = create_user("share-migration@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_folder = create_document(workspace.id, owner_id, "folder")
     outside_folder = create_document(workspace.id, owner_id, "folder")
     outside_document = create_document(workspace.id, owner_id, "document", outside_folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(root_folder, owner_id, create_folder_share_attrs())
+             create_share(root_folder, owner_id, create_folder_share_attrs())
 
     insert_child_share!(created.share, outside_folder, owner_id)
     insert_child_share!(created.share, outside_document, owner_id)
@@ -134,11 +178,11 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects child shares missing an ancestor child share" do
     owner_id = create_user("share-migration-missing-ancestor@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_folder = create_document(workspace.id, owner_id, "folder")
 
     assert {:ok, created} =
-             Sharing.create_share(root_folder, owner_id, create_folder_share_attrs())
+             create_share(root_folder, owner_id, create_folder_share_attrs())
 
     child_folder = create_document(workspace.id, owner_id, "folder", root_folder.id)
     nested_document = create_document(workspace.id, owner_id, "document", child_folder.id)
@@ -152,12 +196,12 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects child shares under non-folder parent shares" do
     owner_id = create_user("share-migration-invalid-parent@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_document = create_document(workspace.id, owner_id, "document")
     child_document = create_document(workspace.id, owner_id, "document")
 
     assert {:ok, created} =
-             Sharing.create_share(root_document, owner_id, create_document_share_attrs())
+             create_share(root_document, owner_id, create_document_share_attrs())
 
     insert_child_share!(created.share, child_document, owner_id)
 
@@ -168,11 +212,11 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects duplicate child shares" do
     owner_id = create_user("share-migration-duplicates@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_folder = create_document(workspace.id, owner_id, "folder")
 
     assert {:ok, created} =
-             Sharing.create_share(root_folder, owner_id, create_folder_share_attrs())
+             create_share(root_folder, owner_id, create_folder_share_attrs())
 
     child_document = create_document(workspace.id, owner_id, "document", root_folder.id)
 
@@ -187,11 +231,11 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects child shares with mismatched scope" do
     owner_id = create_user("share-migration-invalid-scope@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_folder = create_document(workspace.id, owner_id, "folder")
 
     assert {:ok, created} =
-             Sharing.create_share(root_folder, owner_id, create_folder_share_attrs())
+             create_share(root_folder, owner_id, create_folder_share_attrs())
 
     child_folder = create_document(workspace.id, owner_id, "folder", root_folder.id)
     insert_child_share!(created.share, child_folder, owner_id, scope: "document")
@@ -203,19 +247,18 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects child shares excluded after materialization" do
     owner_id = create_user("share-migration-excluded-child@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_folder = create_document(workspace.id, owner_id, "folder")
 
     assert {:ok, created} =
-             Sharing.create_share(root_folder, owner_id, create_folder_share_attrs())
+             create_share(root_folder, owner_id, create_folder_share_attrs())
 
     child_document = create_document(workspace.id, owner_id, "document", root_folder.id)
 
     assert {:ok, _result} =
-             Sharing.update_share_keys(
+             update_share_keys(
                root_folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(child_document)]}
              )
 
@@ -233,11 +276,11 @@ defmodule RefMD.Sharing.ShareMigrationTest do
 
   test "migration preflight rejects child shares missing key material" do
     owner_id = create_user("share-migration-missing-material@example.com")
-    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Migration")
+    workspace = create_workspace_with_key_directory!(owner_id)
     root_folder = create_document(workspace.id, owner_id, "folder")
 
     assert {:ok, created} =
-             Sharing.create_share(root_folder, owner_id, create_folder_share_attrs())
+             create_share(root_folder, owner_id, create_folder_share_attrs())
 
     child_document = create_document(workspace.id, owner_id, "document", root_folder.id)
     insert_child_share!(created.share, child_document, owner_id)

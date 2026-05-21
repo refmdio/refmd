@@ -2,6 +2,7 @@ import type { WorkerKeyState } from "../../state";
 import { base64UrlDecode, base64UrlEncode } from "../../../encoding";
 import { deriveAuthKeys } from "../../../kdf";
 import {
+  deriveRecoveryAuthorizationKey,
   deriveRukFromMnemonic,
   generateRecoveryKey,
   isValidMnemonic,
@@ -22,11 +23,19 @@ export async function handleGenerateRecoveryKey(state: WorkerKeyState): Promise<
   const umk = requireUmk(state);
   const userId = requireUserId(state);
 
-  const { mnemonic, ruk } = await generateRecoveryKey();
+  const { mnemonic, ruk, recoveryAuthorizationPublicKey, recoveryAuthorizationKeyId } =
+    await generateRecoveryKey(userId);
   const { encryptedUmk, nonce } = wrapUmkWithRuk(umk, ruk, userId);
+
   ruk.fill(0);
 
-  return { mnemonic, encryptedUmk, nonce };
+  return {
+    mnemonic,
+    encryptedUmk,
+    nonce,
+    recoveryAuthorizationPublicKey,
+    recoveryAuthorizationKeyId,
+  };
 }
 
 export async function handleDeriveAuthKeys(payload: HandlerPayload): Promise<unknown> {
@@ -49,7 +58,6 @@ export async function handleDeriveAuthKeys(payload: HandlerPayload): Promise<unk
 
   clearTransientPuk();
   setTransientPuk(derived.puk);
-  derived.pdk.fill(0);
 
   return { authKey: base64UrlDecode(derived.authKeyBase64) };
 }
@@ -90,6 +98,12 @@ export function handleUnwrapUmkWithRuk(state: WorkerKeyState, payload: HandlerPa
   }
 
   state.umk = unwrapUmkWithRuk(encrypted, nonce, ruk, userId);
+  const authorization = deriveRecoveryAuthorizationKey(ruk, userId);
+  state.recoveryAuthorizationHybridSigningState = {
+    privateKeyMaterial: authorization.privateKeyMaterial,
+    publicKeyMaterial: authorization.publicKeyMaterial,
+    signingKeyId: authorization.keyId,
+  };
   state.userId = userId;
   ruk.fill(0);
 

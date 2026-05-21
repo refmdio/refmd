@@ -7,6 +7,11 @@
 # General application configuration
 import Config
 
+pop_http_header_options = [
+  http_1_options: [max_header_length: 16_384],
+  http_2_options: [max_header_block_size: 16_384]
+]
+
 config :refmd,
   namespace: RefMD,
   ecto_repos: [RefMD.Repo],
@@ -17,6 +22,7 @@ config :refmd,
 config :refmd, RefMDWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
+  http: pop_http_header_options,
   render_errors: [
     formats: [json: RefMDWeb.ErrorJSON],
     layout: false

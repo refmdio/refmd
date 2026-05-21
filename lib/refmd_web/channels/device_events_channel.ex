@@ -1,6 +1,6 @@
 defmodule RefMDWeb.DeviceEventsChannel do
   @moduledoc """
-  Phoenix Channel for device registration and trust-transfer events.
+  Phoenix Channel for device registration events.
   """
 
   use Phoenix.Channel

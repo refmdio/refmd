@@ -11,6 +11,7 @@ import {
   type DocumentCacheEntry,
   type PendingChangesEntry,
 } from "@/shared/lib/offline/storage/store";
+import { clientWarn } from "@/shared/lib/logger";
 import type { CacheableDocumentState } from "./types";
 
 const periodicFlushIntervalMs = 30000;
@@ -60,7 +61,7 @@ export async function cacheDocumentState(
       cacheSize: ciphertext.byteLength,
     });
   } catch (err) {
-    console.warn("[offline-cache] Failed to cache document state:", documentId, err);
+    clientWarn("offline_cache_document_state_failed", { documentId, error: err });
     try {
       const { checkAndEvict } = await import("@/shared/lib/offline/cache/eviction");
       await checkAndEvict();
@@ -134,7 +135,7 @@ export async function cachePendingChanges(
       await putOfflineDocumentMeta(meta);
     }
   } catch (err) {
-    console.warn("[offline-cache] Failed to cache pending changes:", documentId, err);
+    clientWarn("offline_cache_pending_changes_failed", { documentId, error: err });
     try {
       const { checkAndEvict } = await import("@/shared/lib/offline/cache/eviction");
       await checkAndEvict();

@@ -1,4 +1,12 @@
 import { blake3 } from "@noble/hashes/blake3.js";
+import { base64UrlEncode } from "./encoding";
+import {
+  computeHybridEncryptionKeyId,
+  type HybridEncryptionPublicKeyMaterial,
+} from "./hybrid-encryption";
+import { canonicalizeStrictBytes, type StrictJsonValue } from "./jcs";
+import { computeSigningKeyId } from "./signature";
+import type { HybridSigningPublicKeyMaterial } from "./signature-types";
 // 256 visually distinct emojis for SAS display (Signal-inspired categories)
 // Each byte (0-255) maps to exactly one emoji
 const SAS_EMOJIS: readonly string[] = [
@@ -266,33 +274,30 @@ const SAS_EMOJIS: readonly string[] = [
 ] as const;
 interface SasResult {
   emojis: string[];
-  bytes: Uint8Array;
+  hash: Uint8Array;
 }
 export function computeSas(
-  identitySigningPublic: Uint8Array,
-  deviceSigningPublic: Uint8Array,
-  deviceEcdhPublic: Uint8Array,
+  deviceId: string,
+  identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial,
+  deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial,
+  deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial,
   clientNonce: Uint8Array,
 ): SasResult {
-  const input = new Uint8Array(
-    identitySigningPublic.length +
-      deviceSigningPublic.length +
-      deviceEcdhPublic.length +
-      clientNonce.length,
-  );
-  let offset = 0;
-  input.set(identitySigningPublic, offset);
-  offset += identitySigningPublic.length;
-  input.set(deviceSigningPublic, offset);
-  offset += deviceSigningPublic.length;
-  input.set(deviceEcdhPublic, offset);
-  offset += deviceEcdhPublic.length;
-  input.set(clientNonce, offset);
+  const input = canonicalizeStrictBytes({
+    device_id: deviceId,
+    identity_signing_key_id: computeSigningKeyId(identityHybridSigningPublicKeyMaterial),
+    identity_hybrid_signing_public_key_material: identityHybridSigningPublicKeyMaterial,
+    device_signing_key_id: computeSigningKeyId(deviceHybridSigningPublicKeyMaterial),
+    device_hybrid_signing_public_key_material: deviceHybridSigningPublicKeyMaterial,
+    device_encryption_key_id: computeHybridEncryptionKeyId(deviceHybridEncryptionPublicKeyMaterial),
+    device_hybrid_encryption_public_key_material: deviceHybridEncryptionPublicKeyMaterial,
+    client_nonce: base64UrlEncode(clientNonce),
+  } as unknown as StrictJsonValue);
   const hash = blake3(input);
   const sasBytes = hash.slice(0, 7);
   const emojis: string[] = [];
   for (let i = 0; i < 7; i++) {
     emojis.push(SAS_EMOJIS[sasBytes[i]!]!);
   }
-  return { emojis, bytes: sasBytes };
+  return { emojis, hash };
 }

@@ -1,4 +1,3 @@
-import { buildOfflineDocumentCacheAad } from "@/shared/lib/crypto/aad";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import {
   getOfflineDocumentMeta,
@@ -7,36 +6,29 @@ import {
   putOfflineDocumentMeta,
   putOfflineKek,
 } from "@/shared/lib/offline/storage/store";
+import { clientWarn } from "@/shared/lib/logger";
 
 export async function cacheDek(documentId: string, keyVersion: number): Promise<void> {
   try {
-    const worker = getCryptoWorker();
-    const { ciphertext, iv } = await worker.wrapDekForOffline({ documentId, keyVersion });
     await putOfflineDek({
       documentId,
-      wrappedDek: ciphertext,
-      wrappedDekNonce: iv,
       keyVersion,
       cachedAt: Date.now(),
     });
   } catch (err) {
-    console.warn("[offline-cache] Failed to cache DEK:", documentId, err);
+    clientWarn("offline_cache_dek_failed", { documentId, error: err });
   }
 }
 
 export async function cacheKek(workspaceId: string, keyVersion: number): Promise<void> {
   try {
-    const worker = getCryptoWorker();
-    const { ciphertext, iv } = await worker.wrapKekForOffline({ workspaceId, keyVersion });
     await putOfflineKek({
       workspaceId,
-      wrappedKek: ciphertext,
-      wrappedKekNonce: iv,
       keyVersion,
       cachedAt: Date.now(),
     });
   } catch (err) {
-    console.warn("[offline-cache] Failed to cache KEK:", workspaceId, err);
+    clientWarn("offline_cache_kek_failed", { workspaceId, error: err });
   }
 }
 
@@ -48,10 +40,10 @@ export async function wrapTitleWithDsk(
   encryptedTitleNonce: Uint8Array;
 }> {
   const worker = getCryptoWorker();
-  const titleAad = buildOfflineDocumentCacheAad(documentId, 0);
-  const { ciphertext, iv } = await worker.wrapWithDsk({
+  const { ciphertext, iv } = await worker.wrapOfflineDocumentTitleWithDsk({
     plaintext: new TextEncoder().encode(title),
-    aad: titleAad,
+    documentId,
+    keyVersion: 0,
   });
   return {
     encryptedTitle: new Uint8Array(ciphertext) as Uint8Array<ArrayBuffer>,
@@ -84,9 +76,7 @@ export async function recoverKekFromCache(workspaceId: string): Promise<boolean>
   const kekEntry = await getOfflineKek(workspaceId);
   if (!kekEntry) return false;
   const worker = getCryptoWorker();
-  await worker.unwrapKekFromOffline({
-    ciphertext: kekEntry.wrappedKek,
-    iv: kekEntry.wrappedKekNonce,
+  await worker.restoreKekFromOffline({
     workspaceId,
     keyVersion: kekEntry.keyVersion,
     isActive: true,

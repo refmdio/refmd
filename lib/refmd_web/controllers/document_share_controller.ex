@@ -3,6 +3,7 @@ defmodule RefMDWeb.DocumentShareController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Sharing, Workspaces}
+
   alias RefMDWeb.Schemas
 
   plug RefMDWeb.Plugs.ResolveDocumentWorkspace
@@ -13,13 +14,20 @@ defmodule RefMDWeb.DocumentShareController do
        when action in [:update, :delete, :admin_delete, :update_exclusions, :update_keys]
 
   plug :reject_guest_share_management when action in [:create, :index]
-  plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:write"] when action in [:create, :index]
+
+  plug RefMDWeb.Plugs.RequireRBAC,
+       [permission: "document:manage_share"]
+       when action in [:create, :index]
 
   plug RefMDWeb.Plugs.RequireRBAC,
        [permission: "document:read"] when action in [:verification_directory]
 
   plug RefMDWeb.Plugs.RequireRBAC,
        [permission: "workspace:admin"] when action in [:admin_delete]
+
+  plug RefMDWeb.Plugs.RequireRBAC,
+       [permission: "document:manage_share"]
+       when action in [:update, :delete, :update_exclusions, :update_keys]
 
   defp reject_guest_share_management(conn, _opts) do
     if Workspaces.guest_user?(conn.assigns.current_user_id) do
@@ -31,6 +39,10 @@ defmodule RefMDWeb.DocumentShareController do
       conn
     end
   end
+
+  defp derive_share_limit_cache_attrs(attrs), do: attrs
+
+  defp encode_share_list_item(share) when is_map(share), do: share
 
   operation(:create,
     summary: "Create a share for a document",
@@ -64,18 +76,28 @@ defmodule RefMDWeb.DocumentShareController do
         "scope",
         "share_slug",
         "token_prefix",
+        "authorization_public_key_material",
+        "share_capability_secret_commitment",
+        "password_capability_secret_commitment",
         "permission",
         "password_protected",
+        "authenticated_workspace_pin_bootstrap_hash",
+        "authenticated_workspace_pin_bootstrap",
         "encrypted_dek",
         "nonce",
         "share_keys",
         "exclusions",
         "salt",
-        "kdf_params",
         "auth_key",
-        "expires_at",
-        "access_limit"
+        "kdf_params",
+        "expires_event_sequence",
+        "max_views",
+        "share_link_secret_backup_wraps",
+        "workspace_key_directory_events",
+        "workspace_key_directory_checkpoint"
       ])
+      |> derive_share_limit_cache_attrs()
+      |> Map.put("actor_device_id", conn.assigns[:pop_device_id])
       |> decode_binary_fields()
 
     case attrs do
@@ -87,7 +109,8 @@ defmodule RefMDWeb.DocumentShareController do
             |> json(%{
               id: result.share.id,
               share_slug: result.share_slug,
-              share_manage_token: result.share_manage_token
+              event_sequence: result.created_event_sequence,
+              event_hash: result.share.created_event_hash
             })
 
           {:error, reason} ->
@@ -119,7 +142,7 @@ defmodule RefMDWeb.DocumentShareController do
         conn.assigns.workspace_role
       )
 
-    json(conn, %{shares: shares})
+    json(conn, %{shares: Enum.map(shares, &encode_share_list_item/1)})
   end
 
   operation(:verification_directory,
@@ -145,8 +168,7 @@ defmodule RefMDWeb.DocumentShareController do
     summary: "Update share settings",
     parameters: [
       document_id: [in: :path, type: :string, required: true],
-      share_id: [in: :path, type: :string, required: true],
-      authorization: [in: :header, type: :string, required: true]
+      share_id: [in: :path, type: :string, required: true]
     ],
     request_body: {"Share update params", "application/json", Schemas.UpdateShareRequest},
     responses: [
@@ -159,23 +181,30 @@ defmodule RefMDWeb.DocumentShareController do
 
   @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, %{"share_id" => share_id} = params) do
-    with :ok <- validate_uuid_param(share_id, :share_id),
-         {:ok, manage_token} <- fetch_manage_token(conn) do
-      attrs = Map.take(params, ["expires_at", "access_limit"])
+    case validate_uuid_param(share_id, :share_id) do
+      :ok ->
+        attrs =
+          Map.take(params, [
+            "expires_event_sequence",
+            "max_views",
+            "workspace_key_directory_events",
+            "workspace_key_directory_checkpoint"
+          ])
+          |> derive_share_limit_cache_attrs()
 
-      case Sharing.update_share_settings(conn.assigns.document.id, share_id, manage_token, attrs) do
-        {:ok, share} ->
-          json(conn, %{
-            id: share.id,
-            expires_at: share.expires_at && DateTime.to_iso8601(share.expires_at),
-            access_limit: share.access_limit,
-            access_count: share.access_count
-          })
+        case Sharing.update_share_settings(conn.assigns.document.id, share_id, attrs) do
+          {:ok, share} ->
+            json(conn, %{
+              id: share.id,
+              expires_event_sequence: share.expires_event_sequence,
+              max_views: share.max_views,
+              view_count: share.view_count
+            })
 
-        {:error, reason} ->
-          handle_manage_error(conn, reason)
-      end
-    else
+          {:error, reason} ->
+            handle_manage_error(conn, reason)
+        end
+
       {:error, reason} ->
         handle_manage_error(conn, reason)
     end
@@ -185,9 +214,11 @@ defmodule RefMDWeb.DocumentShareController do
     summary: "Delete a share",
     parameters: [
       document_id: [in: :path, type: :string, required: true],
-      share_id: [in: :path, type: :string, required: true],
-      authorization: [in: :header, type: :string, required: false]
+      share_id: [in: :path, type: :string, required: true]
     ],
+    request_body:
+      {"Share deletion key directory", "application/json", Schemas.ShareManagementRequest,
+       required: true},
     responses: [
       no_content: {"Deleted", "application/json", nil},
       bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
@@ -197,22 +228,21 @@ defmodule RefMDWeb.DocumentShareController do
   )
 
   @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def delete(conn, %{"share_id" => share_id}) do
+  def delete(conn, %{"share_id" => share_id} = params) do
     case validate_uuid_param(share_id, :share_id) do
-      :ok -> delete_valid_share(conn, share_id)
+      :ok -> delete_valid_share(conn, share_id, params)
       {:error, reason} -> handle_manage_error(conn, reason)
     end
   end
 
-  defp delete_valid_share(conn, share_id) do
-    case fetch_manage_token(conn) do
-      {:ok, manage_token} -> delete_share_with_manage_token(conn, share_id, manage_token)
-      {:error, :not_found} -> handle_manage_error(conn, :not_found)
-    end
-  end
+  defp delete_valid_share(conn, share_id, params) do
+    attrs =
+      Map.take(params, [
+        "workspace_key_directory_events",
+        "workspace_key_directory_checkpoint"
+      ])
 
-  defp delete_share_with_manage_token(conn, share_id, manage_token) do
-    case Sharing.delete_share(conn.assigns.document.id, share_id, manage_token) do
+    case Sharing.delete_share(conn.assigns.document.id, share_id, attrs) do
       :ok -> send_resp(conn, :no_content, "")
       {:error, reason} -> handle_manage_error(conn, reason)
     end
@@ -224,6 +254,9 @@ defmodule RefMDWeb.DocumentShareController do
       document_id: [in: :path, type: :string, required: true],
       share_id: [in: :path, type: :string, required: true]
     ],
+    request_body:
+      {"Share deletion key directory", "application/json", Schemas.ShareManagementRequest,
+       required: true},
     responses: [
       no_content: {"Deleted", "application/json", nil},
       bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
@@ -233,15 +266,21 @@ defmodule RefMDWeb.DocumentShareController do
   )
 
   @spec admin_delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def admin_delete(conn, %{"share_id" => share_id}) do
+  def admin_delete(conn, %{"share_id" => share_id} = params) do
     case validate_uuid_param(share_id, :share_id) do
-      :ok -> admin_delete_valid_share(conn, share_id)
+      :ok -> admin_delete_valid_share(conn, share_id, params)
       {:error, reason} -> handle_manage_error(conn, reason)
     end
   end
 
-  defp admin_delete_valid_share(conn, share_id) do
-    case Sharing.delete_share(conn.assigns.document.id, share_id) do
+  defp admin_delete_valid_share(conn, share_id, params) do
+    attrs =
+      Map.take(params, [
+        "workspace_key_directory_events",
+        "workspace_key_directory_checkpoint"
+      ])
+
+    case Sharing.delete_share(conn.assigns.document.id, share_id, attrs) do
       :ok -> send_resp(conn, :no_content, "")
       {:error, reason} -> handle_manage_error(conn, reason)
     end
@@ -251,8 +290,7 @@ defmodule RefMDWeb.DocumentShareController do
     summary: "Update folder share exclusions",
     parameters: [
       document_id: [in: :path, type: :string, required: true],
-      share_id: [in: :path, type: :string, required: true],
-      authorization: [in: :header, type: :string, required: true]
+      share_id: [in: :path, type: :string, required: true]
     ],
     request_body:
       {"Share exclusion update params", "application/json", Schemas.UpdateShareExclusionsRequest},
@@ -266,23 +304,28 @@ defmodule RefMDWeb.DocumentShareController do
 
   @spec update_exclusions(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_exclusions(conn, %{"share_id" => share_id} = params) do
-    with :ok <- validate_uuid_param(share_id, :share_id),
-         {:ok, manage_token} <- fetch_manage_token(conn) do
-      attrs = Map.take(params, ["add", "remove"])
+    case validate_uuid_param(share_id, :share_id) do
+      :ok ->
+        attrs =
+          Map.take(params, [
+            "add",
+            "remove",
+            "workspace_key_directory_events",
+            "workspace_key_directory_checkpoint"
+          ])
 
-      case Sharing.update_share_exclusions(
-             conn.assigns.document.id,
-             share_id,
-             manage_token,
-             attrs
-           ) do
-        {:ok, result} ->
-          json(conn, result)
+        case Sharing.update_share_exclusions(
+               conn.assigns.document.id,
+               share_id,
+               attrs
+             ) do
+          {:ok, result} ->
+            json(conn, result)
 
-        {:error, reason} ->
-          handle_manage_error(conn, reason)
-      end
-    else
+          {:error, reason} ->
+            handle_manage_error(conn, reason)
+        end
+
       {:error, reason} ->
         handle_manage_error(conn, reason)
     end
@@ -292,8 +335,7 @@ defmodule RefMDWeb.DocumentShareController do
     summary: "Update folder share keys",
     parameters: [
       document_id: [in: :path, type: :string, required: true],
-      share_id: [in: :path, type: :string, required: true],
-      authorization: [in: :header, type: :string, required: true]
+      share_id: [in: :path, type: :string, required: true]
     ],
     request_body:
       {"Share key update params", "application/json", Schemas.UpdateShareKeysRequest,
@@ -309,10 +351,16 @@ defmodule RefMDWeb.DocumentShareController do
   @spec update_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_keys(conn, %{"share_id" => share_id} = params) do
     with :ok <- validate_uuid_param(share_id, :share_id),
-         {:ok, manage_token} <- fetch_manage_token(conn),
          {:ok, attrs} <-
-           decode_share_key_update_params(Map.take(params, ["add_keys", "replace_keys"])) do
-      case Sharing.update_share_keys(conn.assigns.document.id, share_id, manage_token, attrs) do
+           decode_share_key_update_params(
+             Map.take(params, [
+               "add_keys",
+               "replace_keys",
+               "workspace_key_directory_events",
+               "workspace_key_directory_checkpoint"
+             ])
+           ) do
+      case Sharing.update_share_keys(conn.assigns.document.id, share_id, attrs) do
         {:ok, result} ->
           json(conn, result)
 
@@ -339,6 +387,7 @@ defmodule RefMDWeb.DocumentShareController do
        attrs
        |> Map.put("encrypted_dek", encrypted_dek)
        |> Map.put("nonce", nonce)
+       |> Map.put("authorization_public_key_material", attrs["authorization_public_key_material"])
        |> Map.put("share_keys", share_keys)
        |> Map.put("salt", salt)
        |> Map.put("auth_key", auth_key)}
@@ -416,9 +465,7 @@ defmodule RefMDWeb.DocumentShareController do
   end
 
   defp maybe_put_decoded_share_key_update(attrs, _field, :missing), do: attrs
-
-  defp maybe_put_decoded_share_key_update(attrs, field, values),
-    do: Map.put(attrs, field, values)
+  defp maybe_put_decoded_share_key_update(attrs, field, values), do: Map.put(attrs, field, values)
 
   defp decode_share_key_update_list(nil, field), do: {:error, {:invalid_format, field}}
 
@@ -439,10 +486,7 @@ defmodule RefMDWeb.DocumentShareController do
   defp decode_share_key_update_list(_values, field),
     do: {:error, {:invalid_format, field}}
 
-  defp decode_share_key_item(
-         %{"encrypted_dek" => encrypted_dek} = share_key,
-         field
-       ) do
+  defp decode_share_key_item(%{"encrypted_dek" => encrypted_dek} = share_key, field) do
     with {:ok, decoded_encrypted_dek} <-
            decode_required_binary_field(encrypted_dek, "#{field}.encrypted_dek"),
          {:ok, decoded_nonce} <-
@@ -518,13 +562,6 @@ defmodule RefMDWeb.DocumentShareController do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: to_string(reason)})
-  end
-
-  defp fetch_manage_token(conn) do
-    case get_req_header(conn, "authorization") do
-      [token | _] when is_binary(token) and token != "" -> {:ok, token}
-      _ -> {:error, :not_found}
-    end
   end
 
   defp validate_uuid_param(value, field) do

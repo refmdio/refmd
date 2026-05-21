@@ -5,7 +5,6 @@ export { documentsApi } from "./documents";
 export { encryptionApi } from "./encryption";
 export { sharesApi } from "./shares";
 export { publicApi } from "./public";
-export { trustTransferApi } from "./trust-transfer";
 export { settingsApi } from "./settings";
 export type { SettingsResponse } from "./settings";
 export { workspacesApi } from "./workspaces";

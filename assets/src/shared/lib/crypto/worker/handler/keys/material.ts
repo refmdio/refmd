@@ -4,6 +4,8 @@ import { generateUmk } from "../../../umk";
 import { generateClientNonce, generateDeviceKeyPair } from "../../../device";
 import {
   requireUmk,
+  currentDeviceHybridSigningState,
+  requireDeviceId,
   requireUserId,
   setDeviceFromPrivateKeys,
   setIdentityFromDecrypted,
@@ -16,33 +18,31 @@ export function handleImportIdentityKeys(state: WorkerKeyState, payload: Handler
 
   const identity = decryptIdentityPrivateKeys(
     {
-      encryptedEcdhPrivate: payload.encryptedEcdhPrivate as Uint8Array,
-      ecdhPrivateNonce: payload.ecdhPrivateNonce as Uint8Array,
-      encryptedSigningPrivate: payload.encryptedSigningPrivate as Uint8Array,
-      signingPrivateNonce: payload.signingPrivateNonce as Uint8Array,
+      encryptedHybridEncryptionPrivateKeyMaterial:
+        payload.encryptedHybridEncryptionPrivateKeyMaterial as Uint8Array,
+      hybridEncryptionPrivateKeyMaterialNonce:
+        payload.hybridEncryptionPrivateKeyMaterialNonce as Uint8Array,
+      encryptionKeyId: payload.encryptionKeyId as string,
+      encryptedHybridSigningPrivateKeyMaterial:
+        payload.encryptedHybridSigningPrivateKeyMaterial as Uint8Array,
+      hybridSigningPrivateKeyMaterialNonce:
+        payload.hybridSigningPrivateKeyMaterialNonce as Uint8Array,
+      signingKeyId: payload.signingKeyId as string,
     },
     umk,
     userId,
   );
   setIdentityFromDecrypted(state, identity);
+  const deviceHybridSigningPublicKeyMaterialKeyMaterial =
+    currentDeviceHybridSigningState(state)?.publicKeyMaterial;
 
   return {
-    deviceSigningPublic: state.deviceSigningPublic,
+    deviceHybridSigningPublicKeyMaterial: deviceHybridSigningPublicKeyMaterialKeyMaterial,
     deviceEcdhPublic: state.deviceEcdhPublic,
-    identitySigningPublic: identity.signingPublic,
+    identityHybridSigningPublicKeyMaterial: identity.hybridSigningPublicKeyMaterial,
     identityEcdhPublic: identity.ecdhPublic,
-  };
-}
-
-export function handleImportDeviceKeys(state: WorkerKeyState, payload: HandlerPayload): unknown {
-  setDeviceFromPrivateKeys(
-    state,
-    payload.ecdhPrivate as Uint8Array,
-    payload.signingPrivate as Uint8Array,
-  );
-  return {
-    ecdhPublic: state.deviceEcdhPublic,
-    signingPublic: state.deviceSigningPublic,
+    identityHybridEncryptionPublicKeyMaterial: identity.hybridEncryptionPublicKeyMaterial,
+    identityEncryptionKeyId: identity.encryptionKeyId,
   };
 }
 
@@ -52,18 +52,38 @@ export function handleImportUmk(state: WorkerKeyState, payload: HandlerPayload):
 }
 
 export function handleGenerateIdentityKeys(state: WorkerKeyState): unknown {
-  const keyPair = generateIdentityKeyPair();
+  const userId = requireUserId(state);
+  const keyPair = generateIdentityKeyPair(userId);
   setIdentityFromDecrypted(state, keyPair);
-  return { ecdhPublic: keyPair.ecdhPublic, signingPublic: keyPair.signingPublic };
+  return {
+    ecdhPublic: keyPair.ecdhPublic,
+    hybridEncryptionPublicKeyMaterial: keyPair.hybridEncryptionPublicKeyMaterial,
+    encryptionKeyId: keyPair.encryptionKeyId,
+    hybridSigningPublicKeyMaterial: keyPair.hybridSigningPublicKeyMaterial,
+  };
 }
 
-export function handleGenerateDeviceKeys(state: WorkerKeyState): unknown {
-  const keyPair = generateDeviceKeyPair();
-  state.deviceEcdhPrivate = keyPair.ecdhPrivate;
-  state.deviceEcdhPublic = keyPair.ecdhPublic;
-  state.deviceSigningPrivate = keyPair.signingPrivate;
-  state.deviceSigningPublic = keyPair.signingPublic;
-  return { ecdhPublic: keyPair.ecdhPublic, signingPublic: keyPair.signingPublic };
+export function handleGenerateDeviceKeys(state: WorkerKeyState, payload: HandlerPayload): unknown {
+  const deviceId = (payload.deviceId as string | undefined) ?? requireDeviceId(state);
+  const ownerKind =
+    payload.ownerKind === "share_participant_device" ? "share_participant_device" : "device";
+  const keyPair = generateDeviceKeyPair(deviceId, ownerKind);
+  setDeviceFromPrivateKeys(
+    state,
+    keyPair.ecdhPrivate,
+    keyPair.hybridEncryptionPrivateKeyMaterial,
+    keyPair.hybridSigningPrivateKeyMaterial,
+    ownerKind,
+    deviceId,
+  );
+  state.deviceId = deviceId;
+  return {
+    ecdhPublic: keyPair.ecdhPublic,
+    hybridEncryptionPublicKeyMaterial: keyPair.hybridEncryptionPublicKeyMaterial,
+    encryptionKeyId: keyPair.encryptionKeyId,
+    hybridSigningPublicKeyMaterial: keyPair.hybridSigningPublicKeyMaterial,
+    signingKeyId: keyPair.signingKeyId,
+  };
 }
 
 export function handleGenerateUmk(state: WorkerKeyState): unknown {

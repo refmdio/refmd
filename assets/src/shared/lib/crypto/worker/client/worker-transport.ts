@@ -1,7 +1,9 @@
 import type { CryptoError, CryptoResponse } from "../types";
+import type { CryptoRequestType } from "../types/request";
 import { CryptoWorkerError } from "./worker-errors";
 
 interface PendingRequest {
+  type: CryptoRequestType;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
 }
@@ -27,7 +29,7 @@ export class WorkerTransport {
 
       if (type === "error") {
         const err = payload as CryptoError;
-        pending.reject(new CryptoWorkerError(err.code, err.message));
+        pending.reject(new CryptoWorkerError(err.code, err.message, pending.type));
         return;
       }
 
@@ -42,7 +44,7 @@ export class WorkerTransport {
     };
   }
 
-  async send(type: string, payload: unknown): Promise<unknown> {
+  async send(type: CryptoRequestType, payload: unknown): Promise<unknown> {
     const retryPolicy = this.getRateLimitRetryPolicy(type);
 
     for (let attempt = 0; ; attempt++) {
@@ -78,7 +80,7 @@ export class WorkerTransport {
     this.worker.terminate();
   }
 
-  private getRateLimitRetryPolicy(type: string): RateLimitRetryPolicy | null {
+  private getRateLimitRetryPolicy(type: CryptoRequestType): RateLimitRetryPolicy | null {
     if (type === "derive-auth-keys") {
       return { maxRetries: 2, baseDelayMs: 10_000, maxDelayMs: 10_000 };
     }
@@ -104,7 +106,7 @@ export class WorkerTransport {
 
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { type: type as CryptoRequestType, resolve, reject });
       this.worker.postMessage({ id, type, payload });
     });
   }

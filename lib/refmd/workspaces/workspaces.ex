@@ -10,6 +10,7 @@ defmodule RefMD.Workspaces do
   alias RefMD.Workspaces.{
     GuestInvitation,
     Workspace,
+    WorkspaceDeviceWipeRequirement,
     WorkspaceGuestGrant,
     WorkspaceInvitation,
     WorkspaceMember,
@@ -26,10 +27,32 @@ defmodule RefMD.Workspaces do
   defdelegate get_member_with_role(workspace_id, user_id), to: RefMD.Workspaces.Members
   defdelegate list_workspace_members(workspace_id), to: RefMD.Workspaces.Members
 
+  @spec get_member_permission_version(Ecto.UUID.t(), Ecto.UUID.t()) :: pos_integer()
+  def get_member_permission_version(workspace_id, user_id) do
+    from(m in WorkspaceMember,
+      where: m.workspace_id == ^workspace_id and m.user_id == ^user_id,
+      select: m.permission_version,
+      limit: 1
+    )
+    |> Repo.one()
+    |> case do
+      version when is_integer(version) and version > 0 -> version
+      _ -> 1
+    end
+  end
+
+  @spec workspace_device_wipe_required?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
+  def workspace_device_wipe_required?(workspace_id, device_id) do
+    from(r in WorkspaceDeviceWipeRequirement,
+      where: r.workspace_id == ^workspace_id and r.device_id == ^device_id
+    )
+    |> Repo.exists?()
+  end
+
   defdelegate change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id),
     to: RefMD.Workspaces.Members
 
-  defdelegate remove_member(workspace_id, target_user_id, actor_user_id),
+  defdelegate remove_member(workspace_id, target_user_id, actor_user_id, key_directory),
     to: RefMD.Workspaces.Members
 
   # ── Roles (delegated to RefMD.Workspaces.Roles) ──
@@ -55,11 +78,34 @@ defmodule RefMD.Workspaces do
 
   defdelegate create_invitation(attrs), to: RefMD.Workspaces.Invitations
 
-  defdelegate accept_invitation(token_hash, user_id, user_email),
-    to: RefMD.Workspaces.Invitations
+  defdelegate invitation_lookup_ancestry(
+                workspace_id,
+                created_event_type,
+                invitation_body_key,
+                invitation_id,
+                current_checkpoint
+              ),
+              to: RefMD.Workspaces.Invitations,
+              as: :lookup_ancestry
+
+  defdelegate validate_invitation_encrypted_bootstrap_package(package, workspace_id, key_version),
+    to: RefMD.Workspaces.Invitations,
+    as: :validate_encrypted_bootstrap_package
+
+  defdelegate accept_invitation(
+                token_hash,
+                user_id,
+                user_email,
+                requester_device_id,
+                admission \\ nil
+              ),
+              to: RefMD.Workspaces.Invitations
 
   defdelegate list_active_invitations(workspace_id), to: RefMD.Workspaces.Invitations
   defdelegate revoke_invitation(workspace_id, invitation_id), to: RefMD.Workspaces.Invitations
+
+  defdelegate revoke_invitation(workspace_id, invitation_id, actor_user_id, key_directory),
+    to: RefMD.Workspaces.Invitations
 
   defdelegate revoke_invitations_for_email(workspace_id, email),
     to: RefMD.Workspaces.Invitations
@@ -67,17 +113,41 @@ defmodule RefMD.Workspaces do
   defdelegate revoke_all_active_invitations(workspace_ids), to: RefMD.Workspaces.Invitations
   defdelegate revoke_all_active_guest_invitations(workspace_ids), to: RefMD.Workspaces.Guests
 
-  @spec lookup_invitation_kind(String.t()) :: {:ok, :member | :guest} | {:error, :not_found}
+  @spec lookup_invitation_kind(String.t()) :: {:ok, :workspace | :guest} | {:error, :not_found}
   def lookup_invitation_kind(token_hash) when is_binary(token_hash) do
     cond do
       Repo.exists?(from(i in WorkspaceInvitation, where: i.token_hash == ^token_hash)) ->
-        {:ok, :member}
+        {:ok, :workspace}
 
       Repo.exists?(from(i in GuestInvitation, where: i.token_hash == ^token_hash)) ->
         {:ok, :guest}
 
       true ->
         {:error, :not_found}
+    end
+  end
+
+  @spec lookup_invitation(String.t()) ::
+          {:ok, WorkspaceInvitation.t() | GuestInvitation.t()} | {:error, :not_found}
+  def lookup_invitation(token_hash) when is_binary(token_hash) do
+    case Repo.one(from(i in WorkspaceInvitation, where: i.token_hash == ^token_hash, limit: 1)) do
+      %WorkspaceInvitation{} = invitation ->
+        {:ok, invitation}
+
+      nil ->
+        case Repo.one(from(i in GuestInvitation, where: i.token_hash == ^token_hash, limit: 1)) do
+          %GuestInvitation{} = invitation -> {:ok, invitation}
+          nil -> {:error, :not_found}
+        end
+    end
+  end
+
+  @spec get_guest_invitation_redeem_context(String.t()) ::
+          {:ok, GuestInvitation.t()} | {:error, :not_found}
+  def get_guest_invitation_redeem_context(token_hash) when is_binary(token_hash) do
+    case Repo.one(from(i in GuestInvitation, where: i.token_hash == ^token_hash, limit: 1)) do
+      %GuestInvitation{} = invitation -> {:ok, invitation}
+      nil -> {:error, :not_found}
     end
   end
 
@@ -95,6 +165,10 @@ defmodule RefMD.Workspaces do
   # ── Guest Invitations (delegated to RefMD.Workspaces.Guests) ──
 
   defdelegate guest_user?(user_id), to: RefMD.Workspaces.Guests
+
+  defdelegate guest_role_for_active_grants(workspace_id, user_id), to: RefMD.Workspaces.Guests
+
+  defdelegate active_guest_device_workspace_id(user_id, device_id), to: RefMD.Workspaces.Guests
 
   defdelegate authorize_guest_permission(workspace_id, user_id, permission, document \\ nil),
     to: RefMD.Workspaces.Guests,
@@ -118,7 +192,13 @@ defmodule RefMD.Workspaces do
   defdelegate revoke_guest_invitation(workspace_id, invitation_id, actor_user_id),
     to: RefMD.Workspaces.Guests
 
+  defdelegate revoke_guest_invitation(workspace_id, invitation_id, actor_user_id, key_directory),
+    to: RefMD.Workspaces.Guests
+
   defdelegate redeem_guest_invitation(token_hash, device_attrs, session_attrs),
+    to: RefMD.Workspaces.Guests
+
+  defdelegate redeem_guest_invitation(token_hash, device_attrs, session_attrs, key_directory),
     to: RefMD.Workspaces.Guests
 
   defdelegate revoke_guest_grants(workspace_id, user_id), to: RefMD.Workspaces.Guests
@@ -140,106 +220,8 @@ defmodule RefMD.Workspaces do
 
   # ── Workspace CRUD ──────────────────────────────
 
-  @spec create_default_workspace(Ecto.UUID.t(), String.t()) ::
-          {:ok, Workspace.t()} | {:error, term()}
-  def create_default_workspace(user_id, name) do
-    slug = generate_slug(name)
-
-    Repo.transaction(fn ->
-      workspace =
-        insert_or_rollback(
-          %Workspace{}
-          |> Workspace.changeset(%{name: name, slug: slug, owner_id: user_id})
-        )
-
-      roles =
-        for {base_role, role_name} <- [
-              {"owner", "Owner"},
-              {"admin", "Admin"},
-              {"editor", "Editor"},
-              {"viewer", "Viewer"},
-              {"guest", "Guest"}
-            ] do
-          insert_or_rollback(
-            %WorkspaceRole{created_at: DateTime.utc_now()}
-            |> WorkspaceRole.changeset(%{
-              workspace_id: workspace.id,
-              name: role_name,
-              base_role: base_role,
-              is_default: base_role == "editor"
-            })
-          )
-        end
-
-      owner_role = Enum.find(roles, &(&1.base_role == "owner"))
-
-      insert_or_rollback(
-        %WorkspaceMember{joined_at: DateTime.utc_now()}
-        |> WorkspaceMember.changeset(%{
-          workspace_id: workspace.id,
-          user_id: user_id,
-          role_id: owner_role.id,
-          is_default: true,
-          joined_at: DateTime.utc_now()
-        })
-      )
-
-      workspace
-    end)
-  end
-
-  @spec create_workspace(Ecto.UUID.t(), String.t(), map()) ::
-          {:ok, Workspace.t()} | {:error, term()}
-  def create_workspace(user_id, name, opts \\ %{}) do
-    slug = generate_slug(name)
-
-    attrs =
-      %{name: name, slug: slug, owner_id: user_id}
-      |> maybe_put(:description, opts[:description])
-      |> maybe_put(:icon, opts[:icon])
-
-    Repo.transaction(fn ->
-      workspace =
-        insert_or_rollback(
-          %Workspace{}
-          |> Workspace.changeset(attrs)
-        )
-
-      roles =
-        for {base_role, role_name} <- [
-              {"owner", "Owner"},
-              {"admin", "Admin"},
-              {"editor", "Editor"},
-              {"viewer", "Viewer"},
-              {"guest", "Guest"}
-            ] do
-          insert_or_rollback(
-            %WorkspaceRole{created_at: DateTime.utc_now()}
-            |> WorkspaceRole.changeset(%{
-              workspace_id: workspace.id,
-              name: role_name,
-              base_role: base_role,
-              is_default: base_role == "editor"
-            })
-          )
-        end
-
-      owner_role = Enum.find(roles, &(&1.base_role == "owner"))
-
-      insert_or_rollback(
-        %WorkspaceMember{joined_at: DateTime.utc_now()}
-        |> WorkspaceMember.changeset(%{
-          workspace_id: workspace.id,
-          user_id: user_id,
-          role_id: owner_role.id,
-          is_default: false,
-          joined_at: DateTime.utc_now()
-        })
-      )
-
-      workspace
-    end)
-  end
+  defdelegate create_default_workspace(user_id, name), to: RefMD.Workspaces.Creation
+  defdelegate create_workspace(user_id, name, opts \\ %{}), to: RefMD.Workspaces.Creation
 
   @spec get_workspace(Ecto.UUID.t()) :: Workspace.t() | nil
   def get_workspace(id), do: Repo.get(Workspace, id)
@@ -322,23 +304,21 @@ defmodule RefMD.Workspaces do
         ]
   def list_discoverable_workspaces(user_id) do
     if guest_user?(user_id) do
-      from(wm in WorkspaceMember,
+      from(g in WorkspaceGuestGrant,
         join: w in Workspace,
-        on: w.id == wm.workspace_id,
+        on: w.id == g.workspace_id,
         join: r in WorkspaceRole,
-        on: r.id == wm.role_id,
-        join: g in WorkspaceGuestGrant,
         on:
-          g.workspace_id == wm.workspace_id and
-            g.user_id == wm.user_id and
-            is_nil(g.revoked_at),
-        where: wm.user_id == ^user_id,
+          r.workspace_id == g.workspace_id and r.base_role == "guest" and
+            is_nil(r.catalog_version),
+        where: g.user_id == ^user_id and is_nil(g.revoked_at),
         select: %{
           workspace: w,
-          is_default: wm.is_default,
-          role_id: wm.role_id,
+          is_default: false,
+          role_id: r.id,
           base_role: r.base_role
         },
+        distinct: w.id,
         order_by: [asc: w.name]
       )
       |> Repo.all()
@@ -359,14 +339,10 @@ defmodule RefMD.Workspaces do
   @spec get_discoverable_workspace_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def get_discoverable_workspace_ids(user_id) do
     if guest_user?(user_id) do
-      from(wm in WorkspaceMember,
-        join: g in WorkspaceGuestGrant,
-        on:
-          g.workspace_id == wm.workspace_id and
-            g.user_id == wm.user_id and
-            is_nil(g.revoked_at),
-        where: wm.user_id == ^user_id,
-        select: wm.workspace_id
+      from(g in WorkspaceGuestGrant,
+        where: g.user_id == ^user_id and is_nil(g.revoked_at),
+        select: g.workspace_id,
+        distinct: true
       )
       |> Repo.all()
     else
@@ -387,155 +363,22 @@ defmodule RefMD.Workspaces do
 
   # ── KEK Rotation ────────────────────────────────
 
-  @spec mark_kek_rotation_needed([Ecto.UUID.t()], Ecto.UUID.t()) ::
-          {non_neg_integer(), nil | [term()]}
-  def mark_kek_rotation_needed(workspace_ids, initiator_user_id) when workspace_ids != [] do
-    from(w in Workspace,
-      where: w.id in ^workspace_ids and w.needs_kek_rotation == false
-    )
-    |> Repo.update_all(
-      set: [needs_kek_rotation: true, kek_rotation_initiator_user_id: initiator_user_id]
-    )
-  end
+  defdelegate mark_kek_rotation_needed(workspace_ids, initiator_user_id),
+    to: RefMD.Workspaces.KekRotation
 
-  def mark_kek_rotation_needed([], _initiator_user_id), do: {0, nil}
+  defdelegate mark_dek_rotation_needed(workspace_ids), to: RefMD.Workspaces.KekRotation
 
-  @spec mark_dek_rotation_needed([Ecto.UUID.t()]) :: {non_neg_integer(), nil | [term()]}
-  def mark_dek_rotation_needed(workspace_ids) when workspace_ids != [] do
-    from(d in RefMD.Documents.Document,
-      where: d.workspace_id in ^workspace_ids and d.needs_dek_rotation == false
-    )
-    |> Repo.update_all(set: [needs_dek_rotation: true])
-  end
+  defdelegate start_kek_rotation(workspace_id, initiator_user_id, opts \\ []),
+    to: RefMD.Workspaces.KekRotation
 
-  def mark_dek_rotation_needed([]), do: {0, nil}
+  defdelegate prepare_kek_rotation_completion(workspace_id, new_kek_version, opts \\ []),
+    to: RefMD.Workspaces.KekRotation
 
-  @spec start_kek_rotation(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, Workspace.t()} | {:error, :not_found | :kek_rotation_already_in_progress}
-  def start_kek_rotation(workspace_id, initiator_user_id) do
-    from(w in Workspace,
-      where: w.id == ^workspace_id and w.needs_kek_rotation == false
-    )
-    |> Repo.update_all(
-      set: [
-        needs_kek_rotation: true,
-        kek_rotation_initiator_user_id: initiator_user_id
-      ]
-    )
-    |> case do
-      {1, _} ->
-        {:ok, Repo.get!(Workspace, workspace_id)}
+  defdelegate complete_kek_rotation(workspace_id, new_kek_version, opts \\ []),
+    to: RefMD.Workspaces.KekRotation
 
-      {0, _} ->
-        case Repo.get(Workspace, workspace_id) do
-          nil -> {:error, :not_found}
-          %{needs_kek_rotation: true} -> {:error, :kek_rotation_already_in_progress}
-        end
-    end
-  end
+  defdelegate list_workspaces_needing_kek_rotation, to: RefMD.Workspaces.KekRotation
 
-  @spec complete_kek_rotation(Ecto.UUID.t(), integer(), keyword()) :: :ok | {:error, term()}
-  def complete_kek_rotation(workspace_id, new_kek_version, opts \\ []) do
-    envelope_checks = Keyword.get(opts, :envelope_checks, fn -> :ok end)
-
-    Repo.transaction(fn ->
-      workspace =
-        from(w in Workspace,
-          where: w.id == ^workspace_id,
-          lock: "FOR UPDATE"
-        )
-        |> Repo.one()
-
-      cond do
-        workspace == nil ->
-          Repo.rollback(:not_found)
-
-        not workspace.needs_kek_rotation ->
-          Repo.rollback(:not_in_rotation)
-
-        workspace.current_kek_version >= new_kek_version ->
-          Repo.rollback(:version_not_monotonic)
-
-        true ->
-          apply_rotation_completion(workspace_id, new_kek_version, envelope_checks)
-      end
-    end)
-    |> case do
-      {:ok, :ok} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @spec list_workspaces_needing_kek_rotation() :: [map()]
-  def list_workspaces_needing_kek_rotation do
-    from(w in Workspace,
-      where: w.needs_kek_rotation == true,
-      select: %{
-        workspace_id: w.id,
-        initiator_user_id: w.kek_rotation_initiator_user_id,
-        current_kek_version: w.current_kek_version
-      }
-    )
-    |> Repo.all()
-  end
-
-  # ── Private Helpers ─────────────────────────────
-
-  defp apply_rotation_completion(workspace_id, new_kek_version, envelope_checks) do
-    case envelope_checks.() do
-      :ok ->
-        from(k in RefMD.Encryption.WorkspaceEncryptedKey,
-          where:
-            k.workspace_id == ^workspace_id and
-              k.key_version < ^new_kek_version and
-              k.is_active == true
-        )
-        |> Repo.update_all(set: [is_active: false])
-
-        from(w in Workspace, where: w.id == ^workspace_id)
-        |> Repo.update_all(
-          set: [
-            current_kek_version: new_kek_version,
-            min_kek_version: new_kek_version,
-            needs_kek_rotation: false,
-            kek_rotation_initiator_user_id: nil
-          ]
-        )
-
-        :ok
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
-  end
-
-  defp insert_or_rollback(changeset) do
-    case Repo.insert(changeset) do
-      {:ok, record} -> record
-      {:error, changeset} -> Repo.rollback(changeset)
-    end
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp generate_slug(name) do
-    base =
-      name
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
-
-    base = if base == "", do: "workspace", else: base
-
-    suffix =
-      :crypto.strong_rand_bytes(4)
-      |> Base.url_encode64(padding: false)
-      |> String.downcase()
-      |> String.replace("_", "-")
-      |> String.replace(~r/-+/, "-")
-      |> String.trim("-")
-
-    "#{base}-#{suffix}"
-  end
+  defdelegate rotation_deletion_evidences_by_event_hash(event_hashes),
+    to: RefMD.Workspaces.KekRotation
 end

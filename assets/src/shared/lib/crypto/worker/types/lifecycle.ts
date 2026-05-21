@@ -1,42 +1,42 @@
-export interface PdkWrappedBlobs {
-  ciphertext: string;
-  nonce: string;
+import type { HybridSigningPublicKeyMaterial } from "../../signature";
+import type { HybridEncryptionPublicKeyMaterial } from "../../hybrid-encryption";
+
+interface DskWrappedBlob {
+  ciphertext: ArrayBuffer;
+  iv: ArrayBuffer;
 }
 
-export interface InitPdkResult {
-  wrappedUmk?: PdkWrappedBlobs;
-  wrappedDeviceKeys?: {
-    ecdh: PdkWrappedBlobs;
-    signing: PdkWrappedBlobs;
-  };
+interface DskDeviceSigningKeys {
+  wrappedDeviceEcdh: DskWrappedBlob;
+  wrappedDeviceMlkem: DskWrappedBlob;
+  wrappedDeviceSigning: DskWrappedBlob & { signingKeyId: string };
+  deviceSigningKeyId: string;
 }
 
-export interface InitPayload {
+interface NoDskDeviceSigningKeys {
+  wrappedDeviceEcdh?: never;
+  wrappedDeviceMlkem?: never;
+  wrappedDeviceSigning?: never;
+  deviceSigningKeyId?: string;
+}
+
+type DskDeviceKeyRestore = DskDeviceSigningKeys | NoDskDeviceSigningKeys;
+
+interface InitPayloadBase {
   dsk: CryptoKey | null;
-  wrappedUmk?: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
-  wrappedDeviceEcdh?: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
-  wrappedDeviceSigning?: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
+  wrappedUmk?: DskWrappedBlob;
   userId: string;
   deviceId: string;
-  encryptedIdentityEcdh?: Uint8Array;
-  identityEcdhNonce?: Uint8Array;
-  encryptedIdentitySigning?: Uint8Array;
-  identitySigningNonce?: Uint8Array;
+  encryptedIdentityHybridEncryptionPrivateKeyMaterial?: Uint8Array;
+  identityHybridEncryptionPrivateKeyMaterialNonce?: Uint8Array;
+  identityEncryptionKeyId?: string;
+  encryptedIdentityHybridSigningPrivateKeyMaterial?: Uint8Array;
+  identityHybridSigningPrivateKeyMaterialNonce?: Uint8Array;
+  identitySigningKeyId?: string;
   serverEncryptedUmk?: Uint8Array;
   serverUmkNonce?: Uint8Array;
-  pdkWrappedUmk?: PdkWrappedBlobs;
-  pdkWrappedDeviceEcdh?: PdkWrappedBlobs;
-  pdkWrappedDeviceSigning?: PdkWrappedBlobs;
-  returnPdkWrapped?: boolean;
+  keyRestoreEndpointRef?: string | null;
+  useStoredDsk?: boolean;
   passwordParams?: {
     password: string;
     salt: Uint8Array;
@@ -48,7 +48,9 @@ export interface InitPayload {
   };
 }
 
-export interface InitFromPasswordPayload {
+export type InitPayload = InitPayloadBase & DskDeviceKeyRestore;
+
+interface InitFromPasswordPayloadBase {
   password: string;
   salt: Uint8Array;
   kdfParams: {
@@ -57,31 +59,30 @@ export interface InitFromPasswordPayload {
     parallelism: number;
   };
   dsk: CryptoKey | null;
-  wrappedDeviceEcdh?: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
-  wrappedDeviceSigning?: {
-    ciphertext: ArrayBuffer;
-    iv: ArrayBuffer;
-  };
   serverEncryptedUmk?: Uint8Array;
   serverUmkNonce?: Uint8Array;
   userId: string;
   deviceId: string;
-  encryptedIdentityEcdh?: Uint8Array;
-  identityEcdhNonce?: Uint8Array;
-  encryptedIdentitySigning?: Uint8Array;
-  identitySigningNonce?: Uint8Array;
-  pdkWrappedUmk?: PdkWrappedBlobs;
-  pdkWrappedDeviceEcdh?: PdkWrappedBlobs;
-  pdkWrappedDeviceSigning?: PdkWrappedBlobs;
-  returnPdkWrapped?: boolean;
+  encryptedIdentityHybridEncryptionPrivateKeyMaterial?: Uint8Array;
+  identityHybridEncryptionPrivateKeyMaterialNonce?: Uint8Array;
+  identityEncryptionKeyId?: string;
+  encryptedIdentityHybridSigningPrivateKeyMaterial?: Uint8Array;
+  identityHybridSigningPrivateKeyMaterialNonce?: Uint8Array;
+  identitySigningKeyId?: string;
+  keyRestoreEndpointRef?: string | null;
+  useStoredDsk?: boolean;
 }
 
+export type InitFromPasswordPayload = InitFromPasswordPayloadBase & DskDeviceKeyRestore;
+
 export interface PublicKeys {
-  deviceSigningPublic: Uint8Array;
-  deviceEcdhPublic: Uint8Array;
-  identitySigningPublic: Uint8Array | null;
+  deviceEcdhPublic: Uint8Array | null;
+  deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial | null;
+  deviceEncryptionKeyId: string | null;
+  deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
+  deviceSigningKeyId: string | null;
+  identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
   identityEcdhPublic: Uint8Array | null;
+  identityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial | null;
+  identityEncryptionKeyId: string | null;
 }

@@ -4,33 +4,32 @@
  */
 
 export interface paths {
-    "/api/workspaces/{workspace_id}/roles": {
+    "/api/mounts/{mount_id}/documents/{document_token}/bootstrap": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List workspace roles */
-        get: operations["RefMDWeb.RoleController.index"];
+        get?: never;
         put?: never;
-        /** Create a custom role */
-        post: operations["RefMDWeb.RoleController.create"];
+        /** Bootstrap a mounted document */
+        post: operations["post_api_mounts_by_mount_id_documents_by_document_token_bootstrap"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/recovery": {
+    "/api/shares/{share_slug}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get recovery data (encrypted UMK, identity keys) */
-        get: operations["RefMDWeb.AuthController.get_recovery"];
+        /** Get share landing metadata */
+        get: operations["get_api_shares_by_share_slug"];
         put?: never;
         post?: never;
         delete?: never;
@@ -39,36 +38,172 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/trust-transfer/state": {
+    "/api/shares/d/{document_token}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Retrieve and consume trust state for a device (new device, no PoP) */
-        get: operations["RefMDWeb.TrustTransferController.get_state"];
+        /** Get canonical document bootstrap for a share */
+        get: operations["get_api_shares_d_by_document_token"];
         put?: never;
-        /** Send encrypted trust state (existing device, PoP required) */
-        post: operations["RefMDWeb.TrustTransferController.send_state"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces/{workspace_id}/guest-invitations": {
+    "/api/auth/recovery/session": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List guest invitations */
-        get: operations["RefMDWeb.GuestInvitationController.index"];
+        get?: never;
         put?: never;
-        /** Create a guest invitation */
-        post: operations["RefMDWeb.GuestInvitationController.create"];
+        /** Establish a recovery session via Identity signature */
+        post: operations["post_api_auth_recovery_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login with credentials */
+        post: operations["post_api_auth_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/salt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get salt for email */
+        get: operations["get_api_auth_salt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_id}/keys/umk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get distributed UMK for a device */
+        get: operations["get_api_devices_by_device_id_keys_umk"];
+        put?: never;
+        /** Distribute UMK to a device (existing device sends) */
+        post: operations["post_api_devices_by_device_id_keys_umk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/key-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current device key restore payload */
+        get: operations["get_api_auth_key_restore"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation */
+        post: operations["post_api_workspaces_invitations_accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/authors/{author_slug}/documents/{document_slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a public document */
+        get: operations["get_api_public_authors_by_author_slug_documents_by_document_slug"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/roles/{role_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a custom role */
+        delete: operations["delete_api_workspaces_by_workspace_id_roles_by_role_id"];
+        options?: never;
+        head?: never;
+        /** Update a role */
+        patch: operations["patch_api_workspaces_by_workspace_id_roles_by_role_id"];
+        trace?: never;
+    };
+    "/api/auth/recovery/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a recovery challenge */
+        post: operations["post_api_auth_recovery_challenge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -89,27 +224,10 @@ export interface paths {
         options?: never;
         head?: never;
         /** Update workspace feature settings */
-        patch: operations["RefMDWeb.WorkspaceController.update_features"];
+        patch: operations["patch_api_workspaces_by_workspace_id_features"];
         trace?: never;
     };
-    "/api/auth/recovery-key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Regenerate recovery key (PoP required) */
-        put: operations["RefMDWeb.PasswordController.regenerate_recovery_key"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/invitations/lookup": {
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
         parameters: {
             query?: never;
             header?: never;
@@ -118,40 +236,127 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Start KEK rotation for a workspace (manual trigger) */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_kek_rotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace roles */
+        get: operations["get_api_workspaces_by_workspace_id_roles"];
+        put?: never;
+        /** Create a custom role */
+        post: operations["post_api_workspaces_by_workspace_id_roles"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a guest invitation */
+        delete: operations["delete_api_workspaces_by_workspace_id_guest_invitations_by_invitation_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/publication/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sync publication content */
+        put: operations["put_api_documents_by_document_id_publication_content"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List active invitations */
+        get: operations["get_api_workspaces_by_workspace_id_invitations"];
+        put?: never;
+        /** Create an invitation */
+        post: operations["post_api_workspaces_by_workspace_id_invitations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace members */
+        get: operations["get_api_workspaces_by_workspace_id_members"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current session info */
+        get: operations["get_api_auth_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
         /** Lookup invitation kind */
-        post: operations["RefMDWeb.InvitationController.lookup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/ws-token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Generate a short-lived WebSocket authentication token */
-        post: operations["RefMDWeb.AuthController.ws_token"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shares/{share_slug}/mounts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List saved mounts for a share */
-        get: operations["RefMDWeb.ShareMountController.share_mounts"];
+        get: operations["get_api_invitations_lookup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -160,329 +365,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/devices/registrations/{id}/approve": {
+    "/api/workspaces/{workspace_id}/member-keys": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Approve a pending device */
-        post: operations["RefMDWeb.DeviceController.approve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/member-envelopes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Save member envelopes for KEK rotation */
-        post: operations["RefMDWeb.KekRotationController.save_member_envelopes"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{document_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get document details */
-        get: operations["RefMDWeb.DocumentController.show"];
-        put?: never;
-        post?: never;
-        /** Delete a document permanently */
-        delete: operations["RefMDWeb.DocumentController.delete"];
-        options?: never;
-        head?: never;
-        /** Update a document */
-        patch: operations["RefMDWeb.DocumentController.update"];
-        trace?: never;
-    };
-    "/api/documents/{document_id}/share-verification-directory": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get share participant verification directory for a document */
-        get: operations["RefMDWeb.DocumentShareController.verification_directory"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get current user settings */
-        get: operations["RefMDWeb.SettingsController.show"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update current user settings */
-        patch: operations["RefMDWeb.SettingsController.update"];
-        trace?: never;
-    };
-    "/api/auth/password-reset/request": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Request a password reset email */
-        post: operations["RefMDWeb.PasswordController.password_reset_request"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Logout current session */
-        post: operations["RefMDWeb.AuthController.logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/invitations/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Accept an invitation */
-        post: operations["RefMDWeb.InvitationController.accept"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shares/{share_slug}/challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a password challenge for a share */
-        get: operations["RefMDWeb.ShareController.challenge"];
-        put?: never;
-        /** Respond to a password challenge for a share */
-        post: operations["RefMDWeb.ShareController.respond_challenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/password-set": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Set password after recovery (recovery session required) */
-        post: operations["RefMDWeb.PasswordController.password_set"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Login with credentials */
-        post: operations["RefMDWeb.AuthController.login"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mounts/{mount_id}/folders/{folder_token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a mounted folder subtree */
-        get: operations["RefMDWeb.ShareMountController.folder"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/registrations/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Reject (delete) a device registration */
-        delete: operations["RefMDWeb.DeviceController.reject_registration"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mounts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List share mounts for a workspace */
-        get: operations["RefMDWeb.ShareMountController.index"];
-        put?: never;
-        /** Create a share mount */
-        post: operations["RefMDWeb.ShareMountController.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/mounts/{mount_id}/challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a password challenge for a mounted share */
-        get: operations["RefMDWeb.ShareMountController.challenge"];
-        put?: never;
-        /** Respond to a password challenge for a mounted share */
-        post: operations["RefMDWeb.ShareMountController.respond_challenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/pop-challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Request a PoP challenge nonce */
-        post: operations["RefMDWeb.AuthController.pop_challenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List documents in a workspace */
-        get: operations["RefMDWeb.DocumentController.index"];
-        put?: never;
-        /** Create a document or folder */
-        post: operations["RefMDWeb.DocumentController.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/documents/{document_id}/keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get all DEK versions for a document */
-        get: operations["RefMDWeb.DocumentKeyController.get_document_keys"];
-        put?: never;
-        /** Register a DEK for a document */
-        post: operations["RefMDWeb.DocumentKeyController.create_document_key"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/public/authors/{author_slug}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a public author page */
-        get: operations["RefMDWeb.PublicDocumentController.show_author"];
+        /** Get Identity ECDH public keys for all workspace members */
+        get: operations["get_api_workspaces_by_workspace_id_member_keys"];
         put?: never;
         post?: never;
         delete?: never;
@@ -501,14 +392,14 @@ export interface paths {
         get?: never;
         put?: never;
         /** Archive a document recursively */
-        post: operations["RefMDWeb.DocumentController.archive"];
+        post: operations["post_api_documents_by_document_id_archive"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/register": {
+    "/api/shares/d/{document_token}/bootstrap": {
         parameters: {
             query?: never;
             header?: never;
@@ -517,77 +408,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register a new user */
-        post: operations["RefMDWeb.AuthController.register"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shares/{share_slug}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get share landing metadata */
-        get: operations["RefMDWeb.ShareController.show"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/guest-invitations/redeem": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Redeem a guest invitation */
-        post: operations["RefMDWeb.GuestInvitationController.redeem"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get workspace encryption keys */
-        get: operations["RefMDWeb.EncryptionController.get_workspace_keys"];
-        put?: never;
-        /** Create a workspace encryption key */
-        post: operations["RefMDWeb.EncryptionController.create_workspace_key"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/members/{user_id}/devices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List a member's devices */
-        get: operations["RefMDWeb.MemberController.devices"];
-        put?: never;
-        post?: never;
+        /** Bootstrap canonical document share content */
+        post: operations["post_api_shares_d_by_document_token_bootstrap"];
         delete?: never;
         options?: never;
         head?: never;
@@ -604,48 +426,14 @@ export interface paths {
         get?: never;
         put?: never;
         /** Verify auth key without creating a session */
-        post: operations["RefMDWeb.AuthController.verify_key"];
+        post: operations["post_api_auth_verify_key"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get current session info */
-        get: operations["RefMDWeb.AuthController.me"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shares/f/{folder_token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get canonical folder bootstrap for a share */
-        get: operations["RefMDWeb.ShareController.folder"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}": {
+    "/api/auth/pop-challenge": {
         parameters: {
             query?: never;
             header?: never;
@@ -654,132 +442,26 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
-        /** Revoke a guest invitation */
-        delete: operations["RefMDWeb.GuestInvitationController.delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{document_id}/shares/{share_id}/admin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a share as workspace admin */
-        delete: operations["RefMDWeb.DocumentShareController.admin_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/kek-backup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get KEK backup (active or by version) */
-        get: operations["RefMDWeb.EncryptionController.get_kek_backup"];
-        put?: never;
-        /** Create a KEK backup */
-        post: operations["RefMDWeb.EncryptionController.create_kek_backup"];
+        /** Request a PoP challenge nonce */
+        post: operations["post_api_auth_pop_challenge"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces": {
+    "/api/workspaces/{workspace_id}/guest-invitations": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List workspaces the current user belongs to */
-        get: operations["RefMDWeb.WorkspaceController.index"];
+        /** List guest invitations */
+        get: operations["get_api_workspaces_by_workspace_id_guest_invitations"];
         put?: never;
-        /** Create a new workspace */
-        post: operations["RefMDWeb.WorkspaceController.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/reorder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Reorder a document (move and/or change position) */
-        patch: operations["RefMDWeb.DocumentController.reorder"];
-        trace?: never;
-    };
-    "/api/documents/{document_id}/shares/{share_id}/exclusions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update folder share exclusions */
-        patch: operations["RefMDWeb.DocumentShareController.update_exclusions"];
-        trace?: never;
-    };
-    "/api/documents/{document_id}/publication": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get publication settings */
-        get: operations["RefMDWeb.PublicDocumentController.show"];
-        put?: never;
-        /** Publish a document */
-        post: operations["RefMDWeb.PublicDocumentController.create"];
-        /** Unpublish a document */
-        delete: operations["RefMDWeb.PublicDocumentController.delete"];
-        options?: never;
-        head?: never;
-        /** Update publication settings */
-        patch: operations["RefMDWeb.PublicDocumentController.update"];
-        trace?: never;
-    };
-    "/api/shares/d/{document_token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get canonical document bootstrap for a share */
-        get: operations["RefMDWeb.ShareController.document"];
-        put?: never;
-        post?: never;
+        /** Create a guest invitation */
+        post: operations["post_api_workspaces_by_workspace_id_guest_invitations"];
         delete?: never;
         options?: never;
         head?: never;
@@ -796,14 +478,14 @@ export interface paths {
         get?: never;
         put?: never;
         /** Bootstrap a share participant session */
-        post: operations["RefMDWeb.ShareController.bootstrap"];
+        post: operations["post_api_shares_by_share_slug_bootstrap"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/encryption/setup-complete": {
+    "/api/auth/password-reset/request": {
         parameters: {
             query?: never;
             header?: never;
@@ -812,15 +494,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mark encryption setup as complete */
-        post: operations["RefMDWeb.EncryptionController.setup_complete"];
+        /** Request a password reset email */
+        post: operations["post_api_auth_password_reset_request"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/documents/{document_id}/shares/{share_id}/keys": {
+    "/api/auth/logout": {
         parameters: {
             query?: never;
             header?: never;
@@ -829,119 +511,33 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update folder share keys */
-        patch: operations["RefMDWeb.DocumentShareController.update_keys"];
-        trace?: never;
-    };
-    "/api/documents/{document_id}/unarchive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Unarchive a document recursively */
-        post: operations["RefMDWeb.DocumentController.unarchive"];
+        /** Logout current session */
+        post: operations["post_api_auth_logout"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/devices/registrations": {
+    "/api/documents": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List device registrations for current user */
-        get: operations["RefMDWeb.DeviceController.list_registrations"];
+        /** List documents in a workspace */
+        get: operations["get_api_documents"];
         put?: never;
-        /** Create a device registration (2nd+ devices only) */
-        post: operations["RefMDWeb.DeviceController.create_registration"];
+        /** Create a document or folder */
+        post: operations["post_api_documents"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces/{workspace_id}/invitations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List active invitations */
-        get: operations["RefMDWeb.InvitationController.index"];
-        put?: never;
-        /** Create an invitation */
-        post: operations["RefMDWeb.InvitationController.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/recovery/session": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Establish a recovery session via Identity signature */
-        post: operations["RefMDWeb.AuthController.recovery_session"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start KEK rotation for a workspace (manual trigger) */
-        post: operations["RefMDWeb.KekRotationController.start_kek_rotation"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/trust-transfer/nonce": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Request a trust transfer nonce */
-        post: operations["RefMDWeb.TrustTransferController.create_nonce"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{document_id}/shares/{share_id}": {
+    "/api/devices/registrations/{device_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -951,66 +547,14 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a share */
-        delete: operations["RefMDWeb.DocumentShareController.delete"];
-        options?: never;
-        head?: never;
-        /** Update share settings */
-        patch: operations["RefMDWeb.DocumentShareController.update"];
-        trace?: never;
-    };
-    "/api/documents/{document_id}/publication/content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Sync publication content */
-        put: operations["RefMDWeb.PublicDocumentController.update_content"];
-        post?: never;
-        delete?: never;
+        /** Reject (delete) a device registration */
+        delete: operations["delete_api_devices_registrations_by_device_id"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/devices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List active devices for current user */
-        get: operations["RefMDWeb.DeviceController.list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/registrations/{id}/sas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get device registration status (polling fallback for realtime events) */
-        get: operations["RefMDWeb.DeviceController.get_registration_sas"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
+    "/api/auth/register": {
         parameters: {
             query?: never;
             header?: never;
@@ -1019,23 +563,127 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Complete KEK rotation for a workspace */
-        post: operations["RefMDWeb.KekRotationController.complete_kek_rotation"];
+        /** Register a new user */
+        post: operations["post_api_auth_register"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/salt": {
+    "/api/public/authors/{author_slug}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get salt for email */
-        get: operations["RefMDWeb.AuthController.salt"];
+        /** Get a public author page */
+        get: operations["get_api_public_authors_by_author_slug"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password-reset/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify password reset token and create session */
+        post: operations["post_api_auth_password_reset_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get workspace details */
+        get: operations["get_api_workspaces_by_workspace_id"];
+        put?: never;
+        post?: never;
+        /** Delete a workspace */
+        delete: operations["delete_api_workspaces_by_workspace_id"];
+        options?: never;
+        head?: never;
+        /** Update workspace name, description, or icon */
+        patch: operations["patch_api_workspaces_by_workspace_id"];
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members/{user_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a member's devices */
+        get: operations["get_api_workspaces_by_workspace_id_members_by_user_id_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/share-verification-directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get share participant verification directory for a document */
+        get: operations["get_api_documents_by_document_id_share_verification_directory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue pending device registration challenge */
+        post: operations["post_api_devices_registrations_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/key-directory/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the latest pinned workspace key-directory checkpoint and ancestry */
+        get: operations["get_api_workspaces_by_workspace_id_key_directory_latest"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1054,14 +702,31 @@ export interface paths {
         get?: never;
         put?: never;
         /** Bootstrap first device (first device only) */
-        post: operations["RefMDWeb.DeviceController.bootstrap"];
+        post: operations["post_api_devices_bootstrap"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces/{workspace_id}/roles/{role_id}": {
+    "/api/auth/kdf-migration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Migrate KDF parameters */
+        post: operations["post_api_auth_kdf_migration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares/{share_id}/admin": {
         parameters: {
             query?: never;
             header?: never;
@@ -1071,33 +736,31 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a custom role */
-        delete: operations["RefMDWeb.RoleController.delete"];
+        /** Delete a share as workspace admin */
+        delete: operations["delete_api_documents_by_document_id_shares_by_share_id_admin"];
         options?: never;
         head?: never;
-        /** Update a role */
-        patch: operations["RefMDWeb.RoleController.update"];
+        patch?: never;
         trace?: never;
     };
-    "/api/devices/{device_id}": {
+    "/api/shares/{share_slug}/mounts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List current user's saved mounts for a share link */
+        get: operations["get_api_shares_by_share_slug_mounts"];
         put?: never;
         post?: never;
-        /** Revoke a device */
-        delete: operations["RefMDWeb.DeviceController.revoke"];
+        delete?: never;
         options?: never;
         head?: never;
-        /** Rename a device */
-        patch: operations["RefMDWeb.DeviceController.rename"];
+        patch?: never;
         trace?: never;
     };
-    "/api/auth/password-reset/verify": {
+    "/api/devices/bootstrap/challenge": {
         parameters: {
             query?: never;
             header?: never;
@@ -1106,8 +769,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify password reset token and create session */
-        post: operations["RefMDWeb.PasswordController.password_reset_verify"];
+        /** Issue first-device bootstrap registration challenge */
+        post: operations["post_api_devices_bootstrap_challenge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1125,32 +788,13 @@ export interface paths {
         put?: never;
         post?: never;
         /** Revoke an invitation */
-        delete: operations["RefMDWeb.InvitationController.delete"];
+        delete: operations["delete_api_workspaces_by_workspace_id_invitations_by_invitation_id"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/mounts/{mount_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a share mount */
-        get: operations["RefMDWeb.ShareMountController.show"];
-        put?: never;
-        post?: never;
-        /** Delete a share mount */
-        delete: operations["RefMDWeb.ShareMountController.delete"];
-        options?: never;
-        head?: never;
-        /** Update a share mount position */
-        patch: operations["RefMDWeb.ShareMountController.update"];
-        trace?: never;
-    };
-    "/api/auth/kdf-migration": {
+    "/api/auth/password-set": {
         parameters: {
             query?: never;
             header?: never;
@@ -1159,34 +803,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Migrate KDF parameters */
-        post: operations["RefMDWeb.AuthController.kdf_migration"];
+        /** Set password after recovery (recovery session required) */
+        post: operations["post_api_auth_password_set"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces/{workspace_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get workspace details */
-        get: operations["RefMDWeb.WorkspaceController.show"];
-        put?: never;
-        post?: never;
-        /** Delete a workspace */
-        delete: operations["RefMDWeb.WorkspaceController.delete"];
-        options?: never;
-        head?: never;
-        /** Update workspace name, description, or icon */
-        patch: operations["RefMDWeb.WorkspaceController.update"];
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/members/{user_id}": {
+    "/api/auth/recovery-key": {
         parameters: {
             query?: never;
             header?: never;
@@ -1194,114 +819,9 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /** Regenerate recovery key (PoP required) */
+        put: operations["put_api_auth_recovery_key"];
         post?: never;
-        /** Remove a member or leave workspace */
-        delete: operations["RefMDWeb.MemberController.delete"];
-        options?: never;
-        head?: never;
-        /** Change a member's role */
-        patch: operations["RefMDWeb.MemberController.update"];
-        trace?: never;
-    };
-    "/api/public/authors/{author_slug}/documents/{document_slug}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a public document */
-        get: operations["RefMDWeb.PublicDocumentController.show_public"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/recovery/challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Request a recovery challenge */
-        post: operations["RefMDWeb.AuthController.recovery_challenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List workspace members */
-        get: operations["RefMDWeb.MemberController.index"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/member-keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Identity ECDH public keys for all workspace members */
-        get: operations["RefMDWeb.MemberController.identity_keys"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{document_id}/shares": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List shares for a document */
-        get: operations["RefMDWeb.DocumentShareController.index"];
-        put?: never;
-        /** Create a share for a document */
-        post: operations["RefMDWeb.DocumentShareController.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/{device_id}/keys/umk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get distributed UMK for a device */
-        get: operations["RefMDWeb.UmkController.get_umk"];
-        put?: never;
-        /** Distribute UMK to a device (existing device sends) */
-        post: operations["RefMDWeb.UmkController.distribute_umk"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1322,7 +842,75 @@ export interface paths {
         options?: never;
         head?: never;
         /** Change password (PoP required) */
-        patch: operations["RefMDWeb.PasswordController.change_password"];
+        patch: operations["patch_api_auth_password"];
+        trace?: never;
+    };
+    "/api/shares/f/{folder_token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get canonical folder route metadata for a share */
+        get: operations["get_api_shares_f_by_folder_token"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations/{device_id}/sas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get device registration status (polling fallback for realtime events) */
+        get: operations["get_api_devices_registrations_by_device_id_sas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/ws-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a short-lived WebSocket authentication token */
+        post: operations["post_api_auth_ws_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/member-envelopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save member envelopes for KEK rotation */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_member_envelopes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/workspaces/ids": {
@@ -1333,9 +921,240 @@ export interface paths {
             cookie?: never;
         };
         /** Get workspace IDs for the current user */
-        get: operations["RefMDWeb.EncryptionController.workspace_ids"];
+        get: operations["get_api_workspaces_ids"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares/f/{folder_token}/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bootstrap canonical folder share content */
+        post: operations["post_api_shares_f_by_folder_token_bootstrap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List share mounts for a workspace */
+        get: operations["get_api_mounts"];
+        put?: never;
+        /** Create a share mount */
+        post: operations["post_api_mounts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get document details */
+        get: operations["get_api_documents_by_document_id"];
+        put?: never;
+        post?: never;
+        /** Delete a document permanently */
+        delete: operations["delete_api_documents_by_document_id"];
+        options?: never;
+        head?: never;
+        /** Update a document */
+        patch: operations["patch_api_documents_by_document_id"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a share */
+        delete: operations["delete_api_documents_by_document_id_shares_by_share_id"];
+        options?: never;
+        head?: never;
+        /** Update share settings */
+        patch: operations["patch_api_documents_by_document_id_shares_by_share_id"];
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get workspace encryption keys */
+        get: operations["get_api_encryption_workspaces_by_workspace_id_keys"];
+        put?: never;
+        /** Create a workspace encryption key */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_keys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mounts/{mount_id}/folders/{folder_token}/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bootstrap a mounted folder subtree */
+        post: operations["post_api_mounts_by_mount_id_folders_by_folder_token_bootstrap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List active devices for current user */
+        get: operations["get_api_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares/{share_slug}/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a password challenge for a share */
+        get: operations["get_api_shares_by_share_slug_challenge"];
+        put?: never;
+        /** Respond to a password challenge for a share */
+        post: operations["post_api_shares_by_share_slug_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mounts/{mount_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a share mount */
+        get: operations["get_api_mounts_by_mount_id"];
+        put?: never;
+        post?: never;
+        /** Delete a share mount */
+        delete: operations["delete_api_mounts_by_mount_id"];
+        options?: never;
+        head?: never;
+        /** Update a share mount position */
+        patch: operations["patch_api_mounts_by_mount_id"];
+        trace?: never;
+    };
+    "/api/documents/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Reorder a document (move and/or change position) */
+        patch: operations["patch_api_documents_reorder"];
+        trace?: never;
+    };
+    "/api/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspaces the current user belongs to */
+        get: operations["get_api_workspaces"];
+        put?: never;
+        /** Create a new workspace */
+        post: operations["post_api_workspaces"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List shares for a document */
+        get: operations["get_api_documents_by_document_id_shares"];
+        put?: never;
+        /** Create a share for a document */
+        post: operations["post_api_documents_by_document_id_shares"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/key-directory/append": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append workspace device or identity key admission events */
+        post: operations["post_api_workspaces_by_workspace_id_key_directory_append"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1350,9 +1169,307 @@ export interface paths {
             cookie?: never;
         };
         /** Get own member envelope for KEK recovery */
-        get: operations["RefMDWeb.KekRotationController.get_member_envelope"];
+        get: operations["get_api_encryption_workspaces_by_workspace_id_member_envelope"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/guest/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem a guest invitation */
+        post: operations["post_api_guest_redeem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a member or leave workspace */
+        delete: operations["delete_api_workspaces_by_workspace_id_members_by_user_id"];
+        options?: never;
+        head?: never;
+        /** Change a member's role */
+        patch: operations["patch_api_workspaces_by_workspace_id_members_by_user_id"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unarchive a document recursively */
+        post: operations["post_api_documents_by_document_id_unarchive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}/key-directory/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the latest pinned user key-directory checkpoint and ancestry */
+        get: operations["get_api_users_by_user_id_key_directory_latest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations/{device_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending device */
+        post: operations["post_api_devices_registrations_by_device_id_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get recovery data (encrypted UMK, identity keys) */
+        get: operations["get_api_auth_recovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current user settings */
+        get: operations["get_api_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update current user settings */
+        patch: operations["patch_api_settings"];
+        trace?: never;
+    };
+    "/api/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a device */
+        delete: operations["delete_api_devices_by_device_id"];
+        options?: never;
+        head?: never;
+        /** Rename a device */
+        patch: operations["patch_api_devices_by_device_id"];
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete KEK rotation for a workspace */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_kek_rotation_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/completion-manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prepare KEK rotation completion manifest hashes */
+        get: operations["get_api_encryption_workspaces_by_workspace_id_kek_rotation_completion_manifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/documents/{document_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get all DEK versions for a document */
+        get: operations["get_api_encryption_documents_by_document_id_keys"];
+        put?: never;
+        /** Register a DEK for a document */
+        post: operations["post_api_encryption_documents_by_document_id_keys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares/{share_id}/exclusions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update folder share exclusions */
+        patch: operations["patch_api_documents_by_document_id_shares_by_share_id_exclusions"];
+        trace?: never;
+    };
+    "/api/encryption/setup-complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark encryption setup as complete */
+        post: operations["post_api_encryption_setup_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List device registrations for current user */
+        get: operations["get_api_devices_registrations"];
+        put?: never;
+        /** Create a device registration (2nd+ devices only) */
+        post: operations["post_api_devices_registrations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/shares/{share_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update folder share keys */
+        patch: operations["patch_api_documents_by_document_id_shares_by_share_id_keys"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get publication settings */
+        get: operations["get_api_documents_by_document_id_publication"];
+        put?: never;
+        /** Publish a document */
+        post: operations["post_api_documents_by_document_id_publication"];
+        /** Unpublish a document */
+        delete: operations["delete_api_documents_by_document_id_publication"];
+        options?: never;
+        head?: never;
+        /** Update publication settings */
+        patch: operations["patch_api_documents_by_document_id_publication"];
+        trace?: never;
+    };
+    "/api/mounts/{mount_id}/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a password challenge for a mounted share */
+        get: operations["get_api_mounts_by_mount_id_challenge"];
+        put?: never;
+        /** Respond to a password challenge for a mounted share */
+        post: operations["post_api_mounts_by_mount_id_challenge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1363,6 +1480,59 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** PublicAuthorDocument */
+        PublicAuthorDocument: {
+            excerpt: string;
+            noindex: boolean;
+            /** Format: date-time */
+            published_at: string;
+            slug: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** InitialAkeDeliveryPair */
+        InitialAkeDeliveryPair: {
+            initial_ake: components["schemas"]["InitialAkeArtifact"];
+            initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
+        };
+        /** InitialAkeApprovalTranscript */
+        InitialAkeApprovalTranscript: {
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            context: components["schemas"]["InitialAkeApprovalContext"];
+            directory: components["schemas"]["InitialAkeApprovalDirectory"];
+            initiator: components["schemas"]["InitialAkeTranscriptInitiator"];
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            /** @enum {string} */
+            purpose: "device_approval_kek_initial";
+            required_components: components["schemas"]["InitialAkeRequiredComponents"];
+            responder: components["schemas"]["InitialAkeTranscriptResponder"];
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** RegisterResponse */
+        RegisterResponse: {
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
+            /** Format: uuid */
+            workspace_id: string;
+            /** Format: uuid */
+            workspace_owner_role_id: string;
+        };
+        /** ChangeMemberRoleRequest */
+        ChangeMemberRoleRequest: {
+            /** Format: uuid */
+            role_id: string;
+        };
+        /** ShareMountConflictResponse */
+        ShareMountConflictResponse: {
+            mount: components["schemas"]["ShareMountResponse"];
+        };
         /** CreatePublicationRequest */
         CreatePublicationRequest: {
             content: string;
@@ -1371,573 +1541,26 @@ export interface components {
             slug?: string | null;
             title: string;
         };
-        /** SharePasswordChallengeResponse */
-        SharePasswordChallengeResponse: {
-            challenge: string;
-            kdf_params: components["schemas"]["KdfParams"];
-            salt: string;
+        /** ShareMountDocumentResponse */
+        ShareMountDocumentResponse: {
+            document: components["schemas"]["MountedShareDocument"];
+            mount: components["schemas"]["ShareMountBootstrapMountSummary"];
         };
-        /** ShareMountResponse */
-        ShareMountResponse: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            parent_id: string | null;
-            password_protected: boolean;
-            position: number;
-            share: components["schemas"]["ShareMountShareSummary"];
-            /** Format: uuid */
-            share_id: string;
+        /** ShareCapabilitySigningPublicKeyMaterial */
+        ShareCapabilitySigningPublicKeyMaterial: {
+            ed25519_public: string;
+            mldsa65_public: string;
+            owner_id: string;
             /** @enum {string} */
-            status: "active" | "expired" | "access_limit_reached";
-            target: components["schemas"]["ShareMountTarget"];
-            /** Format: uuid */
-            target_document_id: string;
+            owner_kind: "share_capability";
             /** @enum {string} */
-            target_kind: "document" | "folder";
-            target_token: string | null;
-            title: string | null;
-            title_state: string;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** DeviceInfo */
-        DeviceInfo: {
-            device_type: string;
-            /** Format: uuid */
-            id: string;
-            name: string;
-        };
-        /** RegisterRequest */
-        RegisterRequest: {
-            auth_key: string;
-            ecdh_public_key: string;
-            /** Format: email */
-            email: string;
-            encrypted_ecdh_private: string;
-            encrypted_ecdh_private_nonce: string;
-            encrypted_signing_private: string;
-            encrypted_signing_private_nonce: string;
-            encrypted_umk: string;
-            kdf_params: components["schemas"]["KdfParams"];
-            name: string;
-            recovery_encrypted_umk: string;
-            recovery_nonce: string;
-            salt: string;
-            signing_public_key: string;
-            umk_nonce: string;
-            /**
-             * Format: uuid
-             * @description Client-generated UUID for AAD binding
-             */
-            user_id: string;
-        };
-        /** MemberDevicesResponse */
-        MemberDevicesResponse: {
-            devices: components["schemas"]["MemberDeviceInfo"][];
-        };
-        /** DeviceRegistrationStatusResponse */
-        DeviceRegistrationStatusResponse: {
+            protocol: "refmd.hybrid-signing-key-material";
             /** @enum {string} */
-            status: "pending" | "approved" | "expired";
-        };
-        /** CreateWorkspaceKeyRequest */
-        CreateWorkspaceKeyRequest: {
-            /** Format: uuid */
-            device_id: string;
-            encrypted_kek: string;
-            is_active?: boolean;
-            key_version: number;
-            nonce: string;
-            /** Format: uuid */
-            sender_device_id: string;
-        };
-        /** ShareLandingResponse */
-        ShareLandingResponse: {
-            root: components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"];
-            share: components["schemas"]["ShareMetadata"];
-        };
-        /** ShareMountFolderChallengeResponse */
-        ShareMountFolderChallengeResponse: {
-            child_shares: components["schemas"]["ShareMountChildShare"][];
-            folder_tree: {
-                entries: components["schemas"]["ShareTreeEntry"][];
-                folder: components["schemas"]["ShareTreeEntry"];
-            };
-            mount: components["schemas"]["ShareMountResponse"];
-        };
-        /** UpdateShareExclusionsRequest */
-        UpdateShareExclusionsRequest: {
-            add: string[];
-            remove?: string[];
-        } | {
-            add?: string[];
-            remove: string[];
-        };
-        /** RoleDeleteResponse */
-        RoleDeleteResponse: {
-            invalidated_invitation_count: number;
-            ok: boolean;
-        };
-        /** RolesListResponse */
-        RolesListResponse: {
-            roles: components["schemas"]["RoleResponse"][];
-        };
-        /** MembersListResponse */
-        MembersListResponse: {
-            members: components["schemas"]["MemberInfo"][];
-        };
-        /** ShareMountListResponse */
-        ShareMountListResponse: {
-            mounts: components["schemas"]["ShareMountResponse"][];
-        };
-        /** ShareDocumentBootstrapResponse */
-        ShareDocumentBootstrapResponse: {
-            /** Format: uuid */
-            document_id: string;
-            encrypted_dek: string;
-            encrypted_title: string | null;
-            encrypted_title_key_version: number | null;
-            encrypted_title_nonce: string | null;
-            key_version: number;
-            nonce: string | null;
-            password_protected: boolean;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            /** Format: uuid */
-            share_id: string;
-            share_slug: string;
-            title: string | null;
-            verification_directory: components["schemas"]["ShareVerificationDirectory"];
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** AcceptInvitationRequest */
-        AcceptInvitationRequest: {
-            token: string;
-        };
-        /** InvitationsListResponse */
-        InvitationsListResponse: {
-            invitations: components["schemas"]["InvitationListItem"][];
-        };
-        /** WorkspaceKeyItem */
-        WorkspaceKeyItem: {
-            encrypted_kek: string;
-            is_active: boolean;
-            key_version: number;
-            nonce: string;
-            /** Format: uuid */
-            sender_device_id: string;
-            sender_ecdh_public_key?: string | null;
-            sender_signing_public_key?: string | null;
-        };
-        /** TrustTransferNonceRequest */
-        TrustTransferNonceRequest: {
-            /** Format: uuid */
-            device_id: string;
-        };
-        /** ShareMountChallengeRequest */
-        ShareMountChallengeRequest: {
-            /** Format: uuid */
-            document_id?: string | null;
-            response: string;
-            /** Format: uuid */
-            share_id?: string | null;
-        };
-        /** ShareMountLookupItem */
-        ShareMountLookupItem: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            share_id: string;
-            /** @enum {string} */
-            target_kind: "document" | "folder";
-            target_token: string;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** InvitationLookupRequest */
-        InvitationLookupRequest: {
-            token: string;
-        };
-        /** RoleResponse */
-        RoleResponse: {
-            /** @enum {string} */
-            base_role: "owner" | "admin" | "editor" | "viewer" | "guest";
-            catalog_version?: number | null;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            id: string;
-            is_default: boolean;
-            name: string;
-            permissions?: components["schemas"]["PermissionOverride"][];
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** RecoveryDataResponse */
-        RecoveryDataResponse: {
-            ecdh_public_key?: string;
-            encrypted_ecdh_private?: string;
-            encrypted_ecdh_private_nonce?: string;
-            encrypted_signing_private?: string;
-            encrypted_signing_private_nonce?: string;
-            recovery_encrypted_umk: string;
-            recovery_nonce: string;
-            signing_public_key?: string;
-        };
-        /** CreateWorkspaceRequest */
-        CreateWorkspaceRequest: {
-            description?: string | null;
-            icon?: string | null;
-            name: string;
-        };
-        /** CreateRoleRequest */
-        CreateRoleRequest: {
-            /** @enum {string} */
-            base_role: "admin" | "editor" | "viewer";
-            name: string;
-            permissions?: components["schemas"]["PermissionOverride"][];
-        };
-        /** WorkspaceRotationInfo */
-        WorkspaceRotationInfo: {
-            current_kek_version: number;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** RecoverySessionResponse */
-        RecoverySessionResponse: {
-            is_recovery: boolean;
-            /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfo"];
-        };
-        /** TrustTransferGetResponse */
-        TrustTransferGetResponse: {
-            ciphertext: string;
-            nonce: string;
-            /** Format: uuid */
-            sender_device_id: string;
-            sender_ecdh_public_key: string;
-            sender_signing_public_key: string;
-            signature: string;
-        };
-        /** CreateDeviceRegistrationRequest */
-        CreateDeviceRegistrationRequest: {
-            client_nonce: string;
-            device_ecdh_public_key: string;
-            device_signing_public_key: string;
-            device_type?: string;
-            identity_signing_public_key: string;
-            name?: string;
-        };
-        /** DocumentKeysResponse */
-        DocumentKeysResponse: {
-            keys: components["schemas"]["DocumentKeyResponse"][];
-        };
-        /** InvitationLookupResponse */
-        InvitationLookupResponse: {
-            /** @enum {string} */
-            kind: "member" | "guest";
-        };
-        /** UpdateRoleRequest */
-        UpdateRoleRequest: {
-            is_default?: boolean;
-            name?: string;
-            permissions?: components["schemas"]["PermissionOverride"][];
-        };
-        /** DocumentShareRoot */
-        DocumentShareRoot: {
-            document_token: string;
-            /** @enum {string} */
-            kind: "document";
-        };
-        /** LoginRequest */
-        LoginRequest: {
-            auth_key: string;
-            /** Format: uuid */
-            device_id?: string;
-            /** Format: email */
-            email: string;
-            remember_me?: boolean;
-        };
-        /** CreateKekBackupRequest */
-        CreateKekBackupRequest: {
-            encrypted_kek: string;
-            key_version: number;
-            nonce: string;
-        };
-        /** PermissionOverride */
-        PermissionOverride: {
-            granted: boolean;
-            permission: string;
-        };
-        /** MeResponse */
-        MeResponse: {
-            account_type?: string | null;
-            auth_type?: string | null;
-            /** Format: uuid */
-            device_id?: string | null;
-            device_verified: boolean;
-            /** Format: email */
-            email: string;
-            /** Format: date-time */
-            encryption_setup_at?: string | null;
-            /** Format: date-time */
-            expires_at: string;
-            identity_signing_public_key?: string | null;
-            is_recovery?: boolean;
-            keys?: components["schemas"]["LoginKeys"];
-            name: string;
-            remember_me?: boolean;
-            /** Format: uuid */
-            session_id: string;
-            /** Format: uuid */
-            user_id: string;
-        };
-        /** WsTokenResponse */
-        WsTokenResponse: {
-            token: string;
-        };
-        /** UpdateWorkspaceFeaturesRequest */
-        UpdateWorkspaceFeaturesRequest: {
-            guest_invites_enabled?: boolean;
-            guest_member_limit?: number | null;
-            public_author_bio?: string | null;
-            public_author_display_name?: string | null;
-            public_author_slug?: string | null;
-            public_publishing_enabled?: boolean;
-            share_links_enabled?: boolean;
-        };
-        /** ShareParticipantInfo */
-        ShareParticipantInfo: {
-            /** Format: uuid */
-            device_id: string;
-            /** @enum {string} */
-            grant: "view" | "edit";
-            /** Format: uuid */
-            principal_id: string;
-        };
-        /** MemberInfo */
-        MemberInfo: {
-            /** @enum {string} */
-            base_role: "owner" | "admin" | "editor" | "viewer" | "guest";
-            /** Format: email */
-            email: string;
-            is_default?: boolean;
-            /** Format: date-time */
-            joined_at: string;
-            name: string;
-            /** Format: uuid */
-            role_id: string;
-            role_name: string;
-            /** Format: uuid */
-            user_id: string;
-        };
-        /** ShareMountDetailResponse */
-        ShareMountDetailResponse: {
-            admission: components["schemas"]["MountedShareAdmission"] | null;
-            child_shares: components["schemas"]["ShareMountChildShare"][] | null;
-            folder_tree: {
-                entries?: components["schemas"]["ShareTreeEntry"][];
-                folder?: components["schemas"]["ShareTreeEntry"];
-            } | null;
-            mount: components["schemas"]["ShareMountResponse"];
-        };
-        /** ShareMetadata */
-        ShareMetadata: {
-            /** Format: uuid */
-            document_id: string;
-            /** Format: uuid */
-            id: string;
-            password_protected: boolean;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            /** @enum {string} */
-            scope: "document" | "folder";
-        };
-        /** RemoveMemberResponse */
-        RemoveMemberResponse: {
-            ok: boolean;
-            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
-        };
-        /** TrustTransferSendRequest */
-        TrustTransferSendRequest: {
-            ciphertext: string;
-            nonce: string;
-            signature: string;
-            /** Format: uuid */
-            target_device_id: string;
-            transfer_nonce: string;
-        };
-        /** DeviceRegistrationsResponse */
-        DeviceRegistrationsResponse: {
-            devices: components["schemas"]["DeviceRegistrationInfo"][];
-        };
-        /** ShareMountCreateResponse */
-        ShareMountCreateResponse: components["schemas"]["ShareMountResponse"];
-        /** ShareVerificationDirectory */
-        ShareVerificationDirectory: {
-            share_participant_devices: Record<string, never>[];
-            workspace_devices: Record<string, never>[];
-        };
-        /** GuestInvitationResponse */
-        GuestInvitationResponse: {
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            expires_at: string;
-            /** Format: uuid */
-            invitation_id: string;
-            /** Format: uuid */
-            invited_by: string;
-            kek_version: number;
-            max_redemptions: number;
-            permission: string;
-            redemption_count: number;
-            /** Format: date-time */
-            revoked_at: string | null;
-            /** Format: uuid */
-            target_document_id?: string | null;
-            target_scope: string;
-            token_prefix: string;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** ShareMountChildShare */
-        ShareMountChildShare: {
-            /** @enum {string} */
-            doc_type: "document" | "folder";
-            /** Format: uuid */
-            document_id: string;
-            document_token: string | null;
-            folder_token: string | null;
-            /** Format: uuid */
-            share_id: string;
-        };
-        /** ShareTreeEntry */
-        ShareTreeEntry: {
-            /** @enum {string} */
-            doc_type: "document" | "folder";
-            document_token: string | null;
-            encrypted_dek: string;
-            encrypted_title: string | null;
-            encrypted_title_key_version: number | null;
-            encrypted_title_nonce: string | null;
-            folder_token: string | null;
-            /** Format: uuid */
-            id: string;
-            key_version: number;
-            nonce: string | null;
-            /** Format: uuid */
-            parent_id: string | null;
-            position: number | null;
-            /** Format: uuid */
-            share_id: string;
-            title: string | null;
-        };
-        /** GuestInvitationsListResponse */
-        GuestInvitationsListResponse: {
-            invitations: components["schemas"]["GuestInvitationResponse"][];
-        };
-        /** CreateInvitationRequest */
-        CreateInvitationRequest: {
-            encrypted_kek: string;
-            /** Format: date-time */
-            expires_at?: string | null;
-            /** Format: uuid */
-            invitation_id: string;
-            /** Format: email */
-            invited_email: string;
-            kek_nonce: string;
-            kek_version: number;
-            /** Format: uuid */
-            role_id?: string | null;
-            token_hash: string;
-            token_prefix: string;
-        };
-        /** DocumentResponse */
-        DocumentResponse: {
-            /** Format: date-time */
-            archived_at?: string | null;
-            can_sync_publication: boolean;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            created_by?: string | null;
-            /** @enum {string} */
-            doc_type: "document" | "folder";
-            encrypted_title?: string | null;
-            encrypted_title_key_version?: number | null;
-            encrypted_title_nonce?: string | null;
-            /** Format: uuid */
-            id: string;
-            is_encrypted: boolean;
-            is_published: boolean;
-            min_dek_version: number;
-            needs_dek_rotation: boolean;
-            needs_rotation_snapshot?: boolean;
-            /** Format: uuid */
-            parent_id?: string | null;
-            path?: string | null;
-            position: number;
-            slug: string;
-            title: string;
-            /** Format: date-time */
-            updated_at: string;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** WorkspaceMemberKeysResponse */
-        WorkspaceMemberKeysResponse: {
-            members: {
-                ecdh_public_key: string;
-                signing_public_key: string;
-                /** Format: uuid */
-                user_id: string;
-            }[];
-        };
-        /** UpdateDocumentRequest */
-        UpdateDocumentRequest: {
-            encrypted_title?: string;
-            encrypted_title_key_version?: number;
-            encrypted_title_nonce?: string;
-            /** Format: uuid */
-            parent_id?: string | null;
-            title?: string;
-        };
-        /** MountedShareAdmission */
-        MountedShareAdmission: {
-            /** Format: uuid */
-            document_id: string;
-            encrypted_dek: string;
-            encrypted_title: string | null;
-            encrypted_title_key_version: number | null;
-            encrypted_title_nonce: string | null;
-            key_version: number;
-            nonce: string | null;
-            password_protected: boolean;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            /** Format: uuid */
-            share_id: string;
-            title: string | null;
-            verification_directory: components["schemas"]["ShareVerificationDirectory"];
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** WorkspacesListResponse */
-        WorkspacesListResponse: {
-            workspaces: components["schemas"]["WorkspaceResponse"][];
-        };
-        /** ShareUpdateResponse */
-        ShareUpdateResponse: {
-            access_count: number;
-            access_limit?: number | null;
-            /** Format: date-time */
-            expires_at?: string | null;
-            /** Format: uuid */
-            id: string;
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
         };
         /** UpdateSettingsRequest */
         UpdateSettingsRequest: {
@@ -1951,13 +1574,58 @@ export interface components {
             /** @enum {string} */
             theme?: "light" | "dark" | "system";
         };
-        /** DevicesResponse */
-        DevicesResponse: {
-            devices: components["schemas"]["DeviceFullInfo"][];
+        /** ErrorResponse */
+        ErrorResponse: {
+            details?: components["schemas"]["ErrorDetail"][] | components["schemas"]["ErrorContextDetails"];
+            error: string;
         };
-        /** ApproveDeviceResponse */
-        ApproveDeviceResponse: {
-            device: components["schemas"]["DeviceInfo"];
+        /** UserInfo */
+        UserInfo: {
+            /** Format: email */
+            email: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        /** UpdatePublicationContentRequest */
+        UpdatePublicationContentRequest: {
+            content: string;
+            content_hash: string;
+            title: string;
+        };
+        /** InitialKeyDeliveryAead */
+        InitialKeyDeliveryAead: {
+            ciphertext: string;
+            ciphertext_hash: string;
+            nonce: string;
+            /** @enum {string} */
+            suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            suite_rank: 1000;
+        };
+        /** ErrorDetail */
+        ErrorDetail: {
+            path: string[];
+            reason: string;
+        };
+        /** KeyDirectoryAppendRequest */
+        KeyDirectoryAppendRequest: {
+            checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** AcceptInvitationResponse */
+        AcceptInvitationResponse: {
+            encrypted_bootstrap_package?: components["schemas"]["WorkspaceInvitationBootstrapPackage"] | null;
+            /** Format: uuid */
+            invitation_id: string;
+            kek_version: number;
+            role_name: string;
+            /** @enum {string} */
+            status: "accepted";
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_name: string;
         };
         /** ShareChildListItem */
         ShareChildListItem: {
@@ -1966,106 +1634,9 @@ export interface components {
             /** Format: uuid */
             share_id: string;
         };
-        /** ShareBootstrapResponse */
-        ShareBootstrapResponse: {
-            participant: components["schemas"]["ShareParticipantInfo"];
-            root: components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"];
-        };
-        /** PublicAuthorResponse */
-        PublicAuthorResponse: {
-            author_description: string | null;
-            author_name: string;
-            author_slug: string;
-            documents: components["schemas"]["PublicAuthorDocument"][];
-        };
-        /** ShareMountConflictResponse */
-        ShareMountConflictResponse: {
-            mount: components["schemas"]["ShareMountResponse"];
-        };
-        /** ShareFolderBootstrapResponse */
-        ShareFolderBootstrapResponse: {
-            entries: components["schemas"]["ShareTreeEntry"][];
-            folder: components["schemas"]["ShareTreeEntry"];
-            password_protected: boolean;
-            /** Format: uuid */
-            share_id: string;
-            share_slug: string;
-            verification_directory: components["schemas"]["ShareVerificationDirectory"];
-        };
-        /** CreateGuestInvitationRequest */
-        CreateGuestInvitationRequest: {
-            encrypted_kek: string;
-            /** Format: date-time */
-            expires_at?: string | null;
-            /** Format: uuid */
-            invitation_id: string;
-            kek_nonce: string;
-            kek_version: number;
-            max_redemptions?: number | null;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            /** Format: uuid */
-            target_document_id?: string | null;
-            /** @enum {string} */
-            target_scope: "workspace" | "document" | "folder";
-            token_hash: string;
-            token_prefix: string;
-        };
-        /** ShareMountLookupResponse */
-        ShareMountLookupResponse: {
-            mounts: components["schemas"]["ShareMountLookupItem"][];
-        };
-        /** ReplaceFolderShareKeyItem */
-        ReplaceFolderShareKeyItem: {
-            /** Format: uuid */
-            document_id: string;
-            encrypted_dek: string;
-            nonce?: string | null;
-            /**
-             * Format: uuid
-             * @description Existing child share ID whose key will be replaced
-             */
-            share_id: string;
-        };
-        /** CreateShareMountRequest */
-        CreateShareMountRequest: {
-            /** Format: uuid */
-            parent_id?: string | null;
-            share_slug: string;
-            /** @enum {string} */
-            target_kind: "document" | "folder";
-            target_token: string;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** SaltResponse */
-        SaltResponse: {
-            kdf_params: components["schemas"]["KdfParams"];
-            salt: string;
-        };
-        /** ShareMountDocumentChallengeResponse */
-        ShareMountDocumentChallengeResponse: {
-            admission: components["schemas"]["MountedShareAdmission"];
-        };
-        /** PublicationConflictResponse */
-        PublicationConflictResponse: {
-            error: string;
-            suggested_slug?: string | null;
-        };
-        /** ShareMountFolderMountSummary */
-        ShareMountFolderMountSummary: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            share_id: string;
-            /** @enum {string} */
-            status: "active";
-        };
-        /** UpdateShareRequest */
-        UpdateShareRequest: {
-            access_limit?: number | null;
-            /** Format: date-time */
-            expires_at?: string | null;
+        /** GuestInvitationsListResponse */
+        GuestInvitationsListResponse: {
+            invitations: components["schemas"]["GuestInvitationResponse"][];
         };
         /** CreateDocumentRequest */
         CreateDocumentRequest: {
@@ -2082,106 +1653,339 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
-        /** RecoveryChallengeResponse */
-        RecoveryChallengeResponse: {
-            challenge: string;
+        /** InitialKeyDeliveryRecord */
+        InitialKeyDeliveryRecord: components["schemas"]["InitialKeyDeliveryUmkRecord"] | components["schemas"]["InitialKeyDeliveryApprovalRecord"] | components["schemas"]["InitialKeyDeliveryTrustTransferRecord"];
+        /** ShareMountChallengeRequest */
+        ShareMountChallengeRequest: {
+            password_challenge_hash: string;
+            response: string;
         };
-        /** PopChallengeResponse */
-        PopChallengeResponse: {
-            challenge: string;
-        };
-        /** RevokeDeviceRequest */
-        RevokeDeviceRequest: {
-            identity_signature: string;
+        /** MemberEnvelopeResponse */
+        MemberEnvelopeResponse: components["schemas"]["HybridKeyWrapFields"] & {
+            key_version: number;
+            sender_approval_delivery_artifacts: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
+            sender_approval_delivery_commitments: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            sender_approval_proof: components["schemas"]["DeviceApprovalProof"];
+            sender_approval_signature: components["schemas"]["HybridSignature"];
             /** @enum {string} */
-            revocation_mode?: "security" | "retire";
-            /** @description Unix timestamp in milliseconds */
-            revoked_at: number;
+            sender_approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            sender_client_nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            sender_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            sender_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            sender_identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            sender_identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            sender_user_id: string;
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
         };
-        /** RenameDeviceRequest */
-        RenameDeviceRequest: {
-            name: string;
+        /** InvitationBootstrapCiphertext */
+        InvitationBootstrapCiphertext: {
+            ciphertext: string;
+            nonce: string;
         };
-        /** UpdatePublicationContentRequest */
-        UpdatePublicationContentRequest: {
-            content: string;
-            content_hash: string;
-            title: string;
+        /** IdentityHybridSigningPublicKeyMaterial */
+        IdentityHybridSigningPublicKeyMaterial: {
+            ed25519_public: string;
+            mldsa65_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "identity";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signing-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
         };
-        /** RedeemGuestInvitationResponse */
-        RedeemGuestInvitationResponse: {
-            encrypted_kek: string;
-            /** Format: uuid */
-            guest_device_id: string;
-            /** Format: uuid */
-            guest_user_id: string;
-            /** Format: uuid */
-            invitation_id: string;
-            kek_nonce: string;
-            kek_version: number;
-            permission: string;
-            /** Format: uuid */
-            target_document_id?: string | null;
-            target_scope: string;
-            /** Format: uuid */
-            workspace_id: string;
-            workspace_name: string;
+        /** UpdateShareExclusionsRequest */
+        UpdateShareExclusionsRequest: {
+            add: string[];
+            remove?: string[];
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        } | {
+            add?: string[];
+            remove: string[];
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** HybridSignature */
+        HybridSignature: {
+            ed25519: string;
+            mldsa65: string;
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature";
+            signing_key_id: string;
+            /** @enum {string} */
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            transcript_hash: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** ShareParticipantDeviceEncryptionPublicKeyMaterial */
+        ShareParticipantDeviceEncryptionPublicKeyMaterial: {
+            hybrid_public: string;
+            mlkem768_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "share_participant_device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-encryption-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+            x25519_public: string;
+        };
+        /** InitialAkeApprovalArtifact */
+        InitialAkeApprovalArtifact: {
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            initiator_commitment: components["schemas"]["InitiatorAkeCommitment"];
+            initiator_commitment_signature: components["schemas"]["HybridSignature"];
+            initiator_confirmation: string;
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            /** @enum {string} */
+            purpose: "device_approval_kek_initial";
+            responder_confirmation: string;
+            transcript: components["schemas"]["InitialAkeApprovalTranscript"];
+            transcript_hash: string;
+            /** @enum {integer} */
+            version: 1;
         };
         /** DistributeUmkRequest */
         DistributeUmkRequest: {
-            encrypted_umk: string;
-            nonce: string;
+            device_state_delivery: components["schemas"]["InitialAkeDeliveryPair"];
+            initial_ake: components["schemas"]["InitialAkeArtifact"];
+            initial_kek_deliveries: {
+                [key: string]: components["schemas"]["InitialAkeDeliveryPair"];
+            };
+            initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
             /** Format: uuid */
             sender_device_id: string;
         };
-        /** CreateFolderShareKeyItem */
-        CreateFolderShareKeyItem: {
+        /** CreateShareMountRequest */
+        CreateShareMountRequest: {
+            authenticated_workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            parent_id?: string | null;
+            share_slug: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** DocumentShareRoot */
+        DocumentShareRoot: {
+            document_token: string;
+            /** @enum {string} */
+            kind: "document";
+        };
+        /** DeviceKeyDeletionProof */
+        DeviceKeyDeletionProof: {
+            payload: components["schemas"]["DeviceKeyDeletionPayload"];
+            signature: components["schemas"]["HybridSignature"];
+            transcript: components["schemas"]["DeviceKeyDeletionTranscript"];
+        };
+        /** ShareMountFolderMountSummary */
+        ShareMountFolderMountSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            status: "active";
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ReplaceFolderShareKeyItem */
+        ReplaceFolderShareKeyItem: {
             /** Format: uuid */
             document_id: string;
             encrypted_dek: string;
-            nonce?: string | null;
-            /** Format: uuid */
+            nonce: string;
+            /**
+             * Format: uuid
+             * @description Existing child share ID whose key will be replaced
+             */
             share_id: string;
         };
-        /** CreateDocumentShareRequest */
-        CreateDocumentShareRequest: {
-            access_limit?: number | null;
-            auth_key?: string | null;
-            encrypted_dek: string;
+        /** DeviceRegistrationInfo */
+        DeviceRegistrationInfo: {
+            ake_responder_prekeys?: {
+                device_approval_kek_initial: {
+                    prekey: {
+                        payload: {
+                            expires_event_sequence: number;
+                            issued_at_event_sequence: number;
+                            mlkem768_ephemeral_public: string;
+                            mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
+                            /** Format: uuid */
+                            operation_id: string;
+                            /** Format: uuid */
+                            prekey_id: string;
+                            /** @enum {string} */
+                            protocol: "refmd.responder-prekey";
+                            /** @enum {string} */
+                            purpose: "umk_distribution" | "trust_transfer" | "device_approval_kek_initial";
+                            /** Format: uuid */
+                            responder_device_id: string;
+                            /** @enum {string} */
+                            responder_signer_kind: "device";
+                            responder_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                            /** Format: uuid */
+                            responder_user_id: string;
+                            server_challenge: string;
+                            /** @enum {integer} */
+                            version: 1;
+                            x25519_ephemeral_public: string;
+                        };
+                        signature: components["schemas"]["HybridSignature"];
+                    };
+                    /** Format: uuid */
+                    workspace_id: string;
+                }[];
+                trust_transfer: {
+                    payload: {
+                        expires_event_sequence: number;
+                        issued_at_event_sequence: number;
+                        mlkem768_ephemeral_public: string;
+                        mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        operation_id: string;
+                        /** Format: uuid */
+                        prekey_id: string;
+                        /** @enum {string} */
+                        protocol: "refmd.responder-prekey";
+                        /** @enum {string} */
+                        purpose: "umk_distribution" | "trust_transfer" | "device_approval_kek_initial";
+                        /** Format: uuid */
+                        responder_device_id: string;
+                        /** @enum {string} */
+                        responder_signer_kind: "device";
+                        responder_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        responder_user_id: string;
+                        server_challenge: string;
+                        /** @enum {integer} */
+                        version: 1;
+                        x25519_ephemeral_public: string;
+                    };
+                    signature: components["schemas"]["HybridSignature"];
+                };
+                umk_distribution: {
+                    payload: {
+                        expires_event_sequence: number;
+                        issued_at_event_sequence: number;
+                        mlkem768_ephemeral_public: string;
+                        mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        operation_id: string;
+                        /** Format: uuid */
+                        prekey_id: string;
+                        /** @enum {string} */
+                        protocol: "refmd.responder-prekey";
+                        /** @enum {string} */
+                        purpose: "umk_distribution" | "trust_transfer" | "device_approval_kek_initial";
+                        /** Format: uuid */
+                        responder_device_id: string;
+                        /** @enum {string} */
+                        responder_signer_kind: "device";
+                        responder_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        responder_user_id: string;
+                        server_challenge: string;
+                        /** @enum {integer} */
+                        version: 1;
+                        x25519_ephemeral_public: string;
+                    };
+                    signature: components["schemas"]["HybridSignature"];
+                };
+            } | null;
+            client_nonce: string;
             /** Format: date-time */
-            expires_at?: string | null;
+            created_at: string;
+            device_type: string;
+            encryption_key_id: string;
+            /** Format: date-time */
+            expires_at: string;
+            hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
             /** Format: uuid */
             id: string;
-            kdf_params?: components["schemas"]["KdfParams"] | null;
-            nonce?: string | null;
-            password_protected: boolean;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            salt?: string | null;
-            /** @enum {string} */
-            scope: "document";
-            share_slug: string;
-            token_prefix: string;
+            ip_address?: string | null;
+            name: string;
+            pending_registration_challenge_hash?: string | null;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
         };
-        /** DocumentsListResponse */
-        DocumentsListResponse: {
-            documents: components["schemas"]["DocumentResponse"][];
+        /** RemoveMemberResponse */
+        RemoveMemberResponse: {
+            ok: boolean;
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
         };
-        /** ShareCreateResponse */
-        ShareCreateResponse: {
+        /** LogoutRequest */
+        LogoutRequest: {
+            clear_mount_session?: boolean;
+        };
+        /** GetUmkResponse */
+        GetUmkResponse: {
+            device_state_delivery: components["schemas"]["InitialAkeDeliveryPair"];
+            initial_ake: components["schemas"]["InitialAkeArtifact"];
+            initial_kek_deliveries: {
+                [key: string]: components["schemas"]["InitialAkeDeliveryPair"];
+            };
+            initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
+            sender_approval_delivery_artifacts: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
+            sender_approval_delivery_commitments: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            sender_approval_proof: components["schemas"]["DeviceApprovalProof"];
+            sender_approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            sender_approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            sender_client_nonce: string;
             /** Format: uuid */
-            id: string;
-            share_manage_token: string;
-            share_slug: string;
+            sender_device_id: string;
+            sender_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            sender_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            sender_identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            sender_identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            sender_user_id: string;
         };
-        /** ShareDocumentBootstrapRequiredResponse */
-        ShareDocumentBootstrapRequiredResponse: {
-            bootstrap_required: boolean;
-            share_slug: string;
+        /** RecoverySessionResponse */
+        RecoverySessionResponse: {
+            is_recovery: boolean;
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
         };
-        /** SaveMemberEnvelopesRequest */
-        SaveMemberEnvelopesRequest: {
-            envelopes: components["schemas"]["MemberEnvelopeItem"][];
+        /** InitialAkeTrustTransferContext */
+        InitialAkeTrustTransferContext: {
+            challenge: string;
+            operation_id: string;
+            /** Format: uuid */
+            owner_user_id: string;
+            /** @enum {string} */
+            purpose: "trust_transfer";
+            /** Format: uuid */
+            source_device_id: string;
+            /** Format: uuid */
+            target_device_id: string;
+            /** @enum {string} */
+            target_payload_kind: "trust_state_bundle";
+            transfer_scope_hash: string;
+            trust_transfer_id: string;
         };
         /** PublicationResponse */
         PublicationResponse: {
@@ -2195,409 +1999,111 @@ export interface components {
             updated_at: string;
             url: string;
         };
-        /** ShareListItem */
-        ShareListItem: {
-            access_count: number;
-            access_limit?: number | null;
-            child_shares: components["schemas"]["ShareChildListItem"][];
-            /** Format: date-time */
-            created_at: string;
-            exclusions: string[];
-            /** Format: date-time */
-            expires_at?: string | null;
-            /** Format: uuid */
-            id: string;
-            kdf_params?: components["schemas"]["KdfParams"];
-            password_protected: boolean;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            salt?: string | null;
-            /** @enum {string} */
-            scope: "document" | "folder";
-            share_slug: string;
-            token_prefix: string;
-        };
-        /** AddFolderShareKeyItem */
-        AddFolderShareKeyItem: {
-            /** Format: uuid */
-            document_id: string;
-            encrypted_dek: string;
-            nonce?: string | null;
-            /**
-             * Format: uuid
-             * @description New child share ID generated before encryption
-             */
-            share_id: string;
-        };
-        /** PasswordSetResponse */
-        PasswordSetResponse: {
-            ok: boolean;
-            /** Format: uuid */
-            session_id: string;
-        };
-        /** LoginKeys */
-        LoginKeys: {
-            encrypted_ecdh_private: string;
-            encrypted_ecdh_private_nonce: string;
-            encrypted_signing_private: string;
-            encrypted_signing_private_nonce: string;
-            encrypted_umk?: string;
-            umk_nonce?: string;
-        } | null;
-        /** RevokeDeviceResponse */
-        RevokeDeviceResponse: {
-            revocation_mode: string;
-            /** Format: uuid */
-            revoked_device_id: string;
-            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
-        };
-        /** ShareMountFolderResponse */
-        ShareMountFolderResponse: {
-            entries: components["schemas"]["ShareTreeEntry"][];
-            folder: components["schemas"]["ShareTreeEntry"];
-            mount: components["schemas"]["ShareMountFolderMountSummary"];
-        };
-        /** WorkspaceIdsResponse */
-        WorkspaceIdsResponse: {
-            workspace_ids: string[];
-        };
-        /** PasswordSetRequest */
-        PasswordSetRequest: {
-            new_auth_key: string;
-            new_encrypted_umk: string;
-            new_salt: string;
-            new_umk_nonce: string;
-        };
-        /** PasswordResetVerifyResponse */
-        PasswordResetVerifyResponse: {
-            /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfo"];
-        };
-        /** FolderShareRoot */
-        FolderShareRoot: {
-            folder_token: string;
-            /** @enum {string} */
-            kind: "folder";
-        };
-        /** ShareBootstrapRequest */
-        ShareBootstrapRequest: {
-            device_encryption_pub_key: string;
-            device_signing_pub_key: string;
-            display_name: string;
-        };
         /** VerifyKeyRequest */
         VerifyKeyRequest: {
             auth_key: string;
         };
-        /** UpdateShareKeysRequest */
-        UpdateShareKeysRequest: {
-            add_keys: components["schemas"]["AddFolderShareKeyItem"][];
-            replace_keys?: components["schemas"]["ReplaceFolderShareKeyItem"][];
-        } | {
-            add_keys?: components["schemas"]["AddFolderShareKeyItem"][];
-            replace_keys: components["schemas"]["ReplaceFolderShareKeyItem"][];
-        };
-        /** MemberDeviceInfo */
-        MemberDeviceInfo: {
-            client_nonce: string;
-            /** Format: date-time */
-            created_at: string;
+        /** InitialAkeApprovalContext */
+        InitialAkeApprovalContext: {
             /** Format: uuid */
-            device_id: string;
-            ecdh_public_key: string;
-            identity_signature: string;
-            /** Format: date-time */
-            revoked_at?: string | null;
-            signing_public_key: string;
+            approved_device_id: string;
+            challenge: string;
+            operation_id: string;
+            /** Format: uuid */
+            owner_user_id: string;
+            /** @enum {string} */
+            purpose: "device_approval_kek_initial";
+            /** Format: uuid */
+            registration_id: string;
+            target_key_kind: string;
+            target_key_version: number;
+            /** Format: uuid */
+            workspace_id: string;
         };
-        /** KekBackupResponse */
-        KekBackupResponse: {
-            encrypted_kek: string;
+        /** DeviceApprovalKekInitialDeliveryCommitment */
+        DeviceApprovalKekInitialDeliveryCommitment: {
+            delivery_id: string;
+            delivery_record_hash: components["schemas"]["Blake3Base64Url"];
+            key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
             key_version: number;
-            nonce: string;
-        };
-        /** UpdateWorkspaceRequest */
-        UpdateWorkspaceRequest: {
-            description?: string | null;
-            encrypted_description?: string | null;
-            encrypted_description_key_version?: number | null;
-            encrypted_description_nonce?: string | null;
-            encrypted_icon?: string | null;
-            encrypted_icon_key_version?: number | null;
-            encrypted_icon_nonce?: string | null;
-            encrypted_name?: string | null;
-            encrypted_name_key_version?: number | null;
-            encrypted_name_nonce?: string | null;
-            guest_invites_enabled?: boolean;
-            guest_member_limit?: number | null;
-            icon?: string | null;
-            name?: string;
-            slug?: string;
-        };
-        /** UserInfo */
-        UserInfo: {
-            /** Format: email */
-            email: string;
-            /** Format: uuid */
-            id: string;
-            name: string;
-        };
-        /** MemberEnvelopeItem */
-        MemberEnvelopeItem: {
-            encrypted_kek: string;
-            key_version: number;
-            nonce: string;
-            /** Format: uuid */
+            /** @enum {string} */
+            purpose: "device_approval_kek_initial";
+            recipient_device_id: string;
             sender_device_id: string;
+            /** @enum {string} */
+            variant: "device_approval_kek_initial";
+            workspace_id: string;
+        };
+        /** InitiatorAkeCommitment */
+        InitiatorAkeCommitment: {
+            ake_inputs: components["schemas"]["InitiatorAkeCommitmentInputs"];
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            context_hash: string;
+            directory_hash: string;
+            /** @enum {string} */
+            initial_delivery_suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            initial_delivery_suite_rank: 1000;
+            initiator: components["schemas"]["InitiatorAkeCommitmentInitiator"];
+            operation_id: string;
+            /** @enum {string} */
+            protocol: "refmd.initiator-ake-commitment";
+            /** @enum {string} */
+            purpose: "umk_distribution" | "device_approval_kek_initial" | "trust_transfer";
+            recipient_hash: string;
+            server_challenge: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** GuestInvitationKeyVersionContext */
+        GuestInvitationKeyVersionContext: {
+            dek_version: number | "NOT_APPLICABLE";
+            share_key_version: number | "NOT_APPLICABLE";
+            workspace_kek_version: number | "NOT_APPLICABLE";
+        };
+        /** MeResponse */
+        MeResponse: {
+            account_type?: string | null;
+            auth_type?: string | null;
+            candidate_user_event_head_sequence?: number | null;
             /** Format: uuid */
-            target_user_id: string;
-        };
-        /** ChangePasswordRequest */
-        ChangePasswordRequest: {
-            current_auth_key: string;
-            new_auth_key: string;
-            new_encrypted_umk: string;
-            new_salt: string;
-            new_umk_nonce: string;
-        };
-        /** RegenerateRecoveryKeyRequest */
-        RegenerateRecoveryKeyRequest: {
-            new_recovery_encrypted_umk: string;
-            new_recovery_nonce: string;
-        };
-        /** PasswordResetRequestBody */
-        PasswordResetRequestBody: {
-            /** Format: email */
-            email: string;
-        };
-        /** LoginResponse */
-        LoginResponse: {
+            device_id?: string | null;
             device_verified: boolean;
-            encrypted_umk?: string;
-            kdf_migration_required?: boolean;
-            keys?: components["schemas"]["LoginKeys"];
-            /** Format: uuid */
-            session_id: string;
-            target_kdf_params?: components["schemas"]["KdfParams"];
-            umk_nonce?: string;
-            user: components["schemas"]["UserInfo"];
-        };
-        /** AcceptInvitationResponse */
-        AcceptInvitationResponse: {
-            encrypted_kek: string;
-            /** Format: uuid */
-            invitation_id: string;
-            kek_nonce: string;
-            kek_version: number;
-            role_name?: string | null;
-            /** Format: uuid */
-            workspace_id: string;
-            workspace_name: string;
-        };
-        /** InvitationListItem */
-        InvitationListItem: {
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            expires_at: string;
-            /** Format: uuid */
-            invitation_id: string;
-            /** Format: uuid */
-            invited_by: string;
             /** Format: email */
-            invited_email: string;
-            is_used: boolean;
-            kek_version: number;
-            /** Format: uuid */
-            role_id?: string;
-            role_name?: string;
-            token_prefix: string;
-            /** Format: uuid */
-            workspace_id: string;
-        };
-        /** ShareExclusionsResponse */
-        ShareExclusionsResponse: {
-            exclusions: string[];
-            /** Format: uuid */
-            share_id: string;
-        };
-        /** DeviceRegistrationInfo */
-        DeviceRegistrationInfo: {
-            client_nonce: string;
+            email: string;
             /** Format: date-time */
-            created_at: string;
-            device_type: string;
-            ecdh_public_key: string;
+            encryption_setup_at?: string | null;
             /** Format: date-time */
             expires_at: string;
-            /** Format: uuid */
-            id: string;
-            ip_address?: string | null;
+            identity_hybrid_encryption_public_key_material?: components["schemas"]["HybridEncryptionPublicKeyMaterial"] | null;
+            identity_hybrid_signing_public_key_material?: components["schemas"]["HybridSigningPublicKeyMaterial"] | null;
+            is_recovery?: boolean;
+            key_restore_available: boolean;
+            key_restore_endpoint_ref?: string | null;
             name: string;
-            signing_public_key: string;
-        };
-        /** GetUmkResponse */
-        GetUmkResponse: {
-            encrypted_umk: string;
-            nonce: string;
-            /** Format: uuid */
-            sender_device_id: string;
-            sender_ecdh_public_key: string;
-            sender_signing_public_key: string;
-        };
-        /** SharePasswordChallengeRequest */
-        SharePasswordChallengeRequest: {
-            device_encryption_pub_key: string;
-            device_signing_pub_key: string;
-            display_name: string;
-            response: string;
-        };
-        /** KdfMigrationRequest */
-        KdfMigrationRequest: {
-            new_auth_key: string;
-            new_encrypted_umk: string;
-            new_kdf_params: components["schemas"]["KdfParams"];
-            new_nonce: string;
-        };
-        /** KdfParams */
-        KdfParams: {
-            algorithm: string;
-            hash_length: number;
-            iterations: number;
-            memory: number;
-            parallelism: number;
-        };
-        /** SettingsResponse */
-        SettingsResponse: {
-            /** @enum {string} */
-            editor_default_mode: "markdown" | "wysiwyg" | "split";
-            editor_font_size: number;
-            /** @enum {string} */
-            editor_layout_mode: "tiling" | "horizontal" | "vertical";
-            editor_vim_mode: boolean;
-            locale: string;
-            /** @enum {string} */
-            theme: "light" | "dark" | "system";
-        };
-        /** RegisterResponse */
-        RegisterResponse: {
+            remember_me?: boolean;
             /** Format: uuid */
             session_id: string;
-            user: components["schemas"]["UserInfo"];
             /** Format: uuid */
-            workspace_id: string;
+            user_id: string;
         };
-        /** InvitationResponse */
-        InvitationResponse: {
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            expires_at: string;
-            /** Format: uuid */
-            invitation_id: string;
-            /** Format: email */
-            invited_email: string;
-            is_used: boolean;
-            kek_version: number;
-            /** Format: uuid */
-            role_id?: string | null;
-            token_prefix: string;
-            /** Format: uuid */
-            workspace_id: string;
+        /** RecoveryChallengeResponse */
+        RecoveryChallengeResponse: {
+            challenge: string;
         };
-        /** ShareMountTarget */
-        ShareMountTarget: {
-            /** @enum {string} */
-            doc_type: "document" | "folder";
-            /** Format: uuid */
-            document_id: string;
-            encrypted_title: string | null;
-            encrypted_title_key_version: number | null;
-            encrypted_title_nonce: string | null;
-            title: string | null;
+        /** UpdateShareRequest */
+        UpdateShareRequest: {
+            expires_event_sequence?: number;
+            max_views?: number;
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
         };
-        /** PublicationContentResponse */
-        PublicationContentResponse: {
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** KekRotationCompleteRequest */
-        KekRotationCompleteRequest: {
-            new_kek_version: number;
-        };
-        /** PasswordResetVerifyBody */
-        PasswordResetVerifyBody: {
-            token: string;
-        };
-        /** RedeemGuestInvitationRequest */
-        RedeemGuestInvitationRequest: {
-            client_nonce: string;
-            device_encryption_pub_key: string;
-            device_name?: string | null;
-            device_signing_pub_key: string;
-            device_type?: string | null;
-            encrypted_identity_encryption_private: string;
-            encrypted_identity_encryption_private_nonce: string;
-            encrypted_identity_signing_private: string;
-            encrypted_identity_signing_private_nonce: string;
-            /** Format: uuid */
-            guest_user_id: string;
-            identity_encryption_pub_key: string;
-            identity_signature: string;
-            identity_signing_pub_key: string;
-            recovery_encrypted_umk: string;
-            recovery_nonce: string;
-            token: string;
-        };
-        /** ShareMountShareSummary */
-        ShareMountShareSummary: {
-            /** Format: uuid */
-            document_id: string;
-            /** @enum {string} */
-            permission: "view" | "edit";
-            /** @enum {string} */
-            scope: "document" | "folder";
-        };
-        /** ShareListResponse */
-        ShareListResponse: {
-            shares: components["schemas"]["ShareListItem"][];
-        };
-        /** CreateShareRequest */
-        CreateShareRequest: components["schemas"]["CreateDocumentShareRequest"] | components["schemas"]["CreateFolderShareRequest"];
-        /** ErrorResponse */
-        ErrorResponse: {
-            details?: {
-                [key: string]: unknown;
-            };
-            error: string;
-        };
-        /** PublicAuthorDocument */
-        PublicAuthorDocument: {
-            excerpt: string;
-            noindex: boolean;
-            /** Format: date-time */
-            published_at: string;
-            slug: string;
-            title: string;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** UpdateShareMountRequest */
-        UpdateShareMountRequest: {
-            /** Format: uuid */
-            parent_id?: string | null;
-            position: number;
-        };
-        /** ReorderDocumentRequest */
-        ReorderDocumentRequest: {
-            /** Format: uuid */
-            document_id: string;
-            /** Format: uuid */
-            parent_id: string | null;
-            position: number;
-            /** Format: uuid */
-            workspace_id: string;
+        /** OkResponse */
+        OkResponse: {
+            ok: boolean;
         };
         /** WorkspaceResponse */
         WorkspaceResponse: {
@@ -2636,32 +2142,236 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** WorkspaceKeysResponse */
-        WorkspaceKeysResponse: {
-            current_kek_version: number;
-            keys: components["schemas"]["WorkspaceKeyItem"][];
+        /** PublicAuthorResponse */
+        PublicAuthorResponse: {
+            author_description: string | null;
+            author_name: string;
+            author_slug: string;
+            documents: components["schemas"]["PublicAuthorDocument"][];
         };
-        /** TrustTransferNonceResponse */
-        TrustTransferNonceResponse: {
-            /** Format: date-time */
-            expires_at: string;
-            nonce: string;
+        /** ShareBootstrapRequest */
+        ShareBootstrapRequest: {
+            display_name: string;
+            hybrid_encryption_public_key_material: components["schemas"]["ShareParticipantDeviceEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["ShareParticipantDeviceSigningPublicKeyMaterial"];
+            share_capability_authorization: components["schemas"]["ShareCapabilityAuthorization"];
+            share_participant_device_authorization: components["schemas"]["ShareParticipantDeviceAuthorization"];
+            /** Format: uuid */
+            share_participant_device_id: string;
+            /** Format: uuid */
+            share_participant_principal_id: string;
+            /** Format: uuid */
+            share_participant_session_id: string;
         };
-        /** CreateDocumentKeyRequest */
-        CreateDocumentKeyRequest: {
-            encrypted_dek: string;
-            kek_version: number;
+        /** WorkspacePinBootstrap */
+        WorkspacePinBootstrap: {
+            payload: {
+                allowed_suite_ids_hash: string;
+                /** @description Strict unpadded base64url-encoded 32-byte value. */
+                bootstrap_nonce: string;
+                checkpoint_hash: string;
+                checkpoint_sequence: number;
+                event_head_hash: string;
+                event_head_sequence: number;
+                expires_event_sequence: number;
+                issuer: {
+                    /** Format: uuid */
+                    device_id: string;
+                    key_checkpoint_hash: string;
+                    key_checkpoint_sequence: number;
+                    /** Format: uuid */
+                    key_scope_id: string;
+                    /** @enum {string} */
+                    key_scope_kind: "workspace";
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    /** Format: uuid */
+                    user_id: string;
+                };
+                issuing_event_hash: string;
+                min_suite_rank: number;
+                /** @enum {string} */
+                protocol: "refmd.workspace-pin-bootstrap";
+                suite_policy_version: number;
+                /** @enum {integer} */
+                version: 1;
+                /** Format: uuid */
+                workspace_id: string;
+            };
+            signatures: {
+                signature: components["schemas"]["HybridSignature"];
+                signer: {
+                    /** Format: uuid */
+                    device_id: string;
+                    key_checkpoint_hash: string;
+                    key_checkpoint_sequence: number;
+                    /** Format: uuid */
+                    key_scope_id: string;
+                    /** @enum {string} */
+                    key_scope_kind: "workspace";
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    /** Format: uuid */
+                    user_id: string;
+                };
+            }[];
+        };
+        /** ShareVerificationDirectory */
+        ShareVerificationDirectory: {
+            share_participant_devices: components["schemas"]["ShareVerificationParticipantDevice"][];
+            workspace_devices: components["schemas"]["ShareVerificationWorkspaceDevice"][];
+        };
+        /** MemberDevicesResponse */
+        MemberDevicesResponse: {
+            devices: components["schemas"]["MemberDeviceInfo"][];
+        };
+        /** RotationDeletionEvidence */
+        RotationDeletionEvidence: {
+            deletion_manifest: components["schemas"]["OldKeyDeletionManifest"];
+            device_key_deletion_proofs: {
+                proofs: components["schemas"]["DeviceKeyDeletionProof"][];
+            };
+            old_key_deleted_event_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            rotation_kind: string;
+            scope_id: string;
+            scope_kind: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** BootstrapDeviceResponse */
+        BootstrapDeviceResponse: {
+            status: string;
+        };
+        /** InitialKeyDeliveryApprovalMetadata */
+        InitialKeyDeliveryApprovalMetadata: {
+            ake_transcript_hash: string;
+            context_hash: string;
+            /** Format: uuid */
+            delivery_id: string;
+            initiator_commitment_hash: string;
+            key_checkpoint_hash: string;
+            key_confirmation_hash: string;
+            key_kind: string;
             key_version: number;
-            nonce: string;
+            payload_kind: string;
+            recipient_challenge_hash: string;
+            /** Format: uuid */
+            recipient_device_id: string;
+            recipient_encryption_key_id: string;
+            resource_hash: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareMountShareSummary */
+        ShareMountShareSummary: {
+            /** Format: uuid */
+            document_id: string;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** @enum {string} */
+            scope: "document" | "folder";
+        };
+        /** DeviceKeyDeletionPayload */
+        DeviceKeyDeletionPayload: {
+            deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_storage_classes: ("crypto_worker_state" | "indexeddb_cache" | "local_encrypted_key_store" | "offline_cache" | "pending_queue")[];
+            /** Format: uuid */
+            device_id: string;
+            local_cache_epoch: number;
+            old_key_version: number;
+            proof_nonce: string;
+            /** @enum {string} */
+            protocol: "refmd.device-key-deletion-proof";
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            rotation_kind: "kek";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "workspace";
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareParticipantInfo */
+        ShareParticipantInfo: {
+            /** Format: uuid */
+            device_id: string;
+            /** @enum {string} */
+            grant: "view" | "edit";
+            /** Format: uuid */
+            principal_id: string;
+            /** Format: uuid */
+            session_id: string;
+        };
+        /** MountedShareTreeEntry */
+        MountedShareTreeEntry: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            document_token: string | null;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            folder_token: string | null;
+            /** Format: uuid */
+            id: string;
+            key_version: number;
+            nonce: string | null;
+            /** Format: uuid */
+            parent_id: string | null;
+            position: number | null;
+            /** Format: uuid */
+            share_id: string;
+            workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
+        };
+        /** CreateGuestInvitationRequest */
+        CreateGuestInvitationRequest: {
+            bootstrap_key_commitment: string;
+            bootstrap_package_hash: string;
+            bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
+            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            /** @enum {string} */
+            bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            capability_context_hash: string;
+            encrypted_bootstrap_package: components["schemas"]["GuestInvitationBootstrapPackage"];
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            invitation_id: string;
+            kek_version: number;
+            max_redemptions?: number | null;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            scope_id?: string | null;
+            /** @enum {string} */
+            scope_kind: "workspace" | "document" | "folder" | "share";
+            token_hash: string;
+            token_prefix: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** CreateFolderShareRequest */
         CreateFolderShareRequest: {
-            access_limit?: number | null;
-            auth_key?: string | null;
+            auth_key?: string;
+            authenticated_workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"];
+            authenticated_workspace_pin_bootstrap_hash: string;
+            authorization_public_key_material: components["schemas"]["ShareCapabilitySigningPublicKeyMaterial"];
             encrypted_dek: string;
-            exclusions?: string[] | null;
-            /** Format: date-time */
-            expires_at?: string | null;
+            exclusions?: string[];
+            expires_event_sequence: number;
             /** Format: uuid */
             id: string;
             kdf_params?: {
@@ -2670,46 +2380,23 @@ export interface components {
                 iterations: number;
                 memory: number;
                 parallelism: number;
-            } | null;
-            nonce?: string | null;
+            };
+            max_views: number;
+            nonce: string;
+            password_capability_secret_commitment: string | "none";
             password_protected: boolean;
             /** @enum {string} */
             permission: "view" | "edit";
-            salt?: string | null;
+            salt?: string;
             /** @enum {string} */
             scope: "folder";
+            share_capability_secret_commitment: string;
             share_keys: components["schemas"]["CreateFolderShareKeyItem"][];
+            share_link_secret_backup_wraps: components["schemas"]["HybridKeyWrapFields"][];
             share_slug: string;
             token_prefix: string;
-        };
-        /** ApproveDeviceRequest */
-        ApproveDeviceRequest: {
-            identity_signature: string;
-        };
-        /** ShareKeysUpdateResponse */
-        ShareKeysUpdateResponse: {
-            added: string[];
-            replaced: string[];
-            /** Format: uuid */
-            share_id: string;
-        };
-        /** PublicAuthorProfile */
-        PublicAuthorProfile: {
-            bio?: string | null;
-            display_name: string;
-            slug: string;
-        };
-        /** DocumentKeyResponse */
-        DocumentKeyResponse: {
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            document_id: string;
-            encrypted_dek: string;
-            is_active: boolean;
-            kek_version: number;
-            key_version: number;
-            nonce: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** PublicDocumentResponse */
         PublicDocumentResponse: {
@@ -2724,47 +2411,6161 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** RevokeDeviceRequest */
+        RevokeDeviceRequest: {
+            /** @enum {string} */
+            revocation_mode?: "security" | "retire";
+            revocation_signature: components["schemas"]["HybridSignature"];
+            /** @description Unix timestamp in milliseconds */
+            revoked_at: number;
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_appends: {
+                checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+                events: components["schemas"]["KeyDirectoryEnvelope"][];
+                /** Format: uuid */
+                workspace_id: string;
+            }[];
+        };
+        /** WorkspaceKeysResponse */
+        WorkspaceKeysResponse: {
+            current_kek_version: number;
+            keys: components["schemas"]["WorkspaceKeyItem"][];
+        };
+        /** DocumentsListResponse */
+        DocumentsListResponse: {
+            documents: components["schemas"]["DocumentResponse"][];
+        };
+        /** ShareListResponse */
+        ShareListResponse: {
+            shares: components["schemas"]["ShareListItem"][];
+        };
+        /** ShareCapabilityAuthorizationTranscript */
+        ShareCapabilityAuthorizationTranscript: {
+            authorization: {
+                token_hash: string;
+                workspace_pin_bootstrap_hash: string;
+            };
+            /** @enum {string} */
+            label: "RefMD hybrid signature transcript v1";
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "share_capability";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature-transcript";
+            share_state: {
+                capability_context_hash: string;
+                created_event_hash: string;
+                latest_bootstrap_event_hash: string;
+                password_capability_secret_commitment: string;
+                password_protected: boolean;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                /** Format: uuid */
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_capability_secret_commitment: string;
+                /** Format: uuid */
+                share_id: string;
+            };
+            /** @enum {string} */
+            signature_suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            signature_suite_rank: 1000;
+            /** @enum {string} */
+            signing_purpose: "share_capability_authorization";
+            subject_hash: string;
+            /** @enum {string} */
+            subject_protocol: "refmd.share.capability_authorization";
+            /** @enum {integer} */
+            subject_version: 1;
+            /** @enum {string} */
+            surface_id: "share_capability_authorization";
+            /** @enum {string} */
+            surface_variant: "none";
+            /** @enum {string} */
+            transcript_owner: "refmd.share.capability_authorization";
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** ShareParticipantDeviceAuthorization */
+        ShareParticipantDeviceAuthorization: {
+            signature: components["schemas"]["HybridSignature"];
+            transcript: components["schemas"]["ShareParticipantDeviceAuthorizationTranscript"];
+        };
+        /** HybridSigningPublicKeyMaterial */
+        HybridSigningPublicKeyMaterial: {
+            ed25519_public: string;
+            mldsa65_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "identity" | "device" | "share_participant_device" | "invitation_redeem_authority";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signing-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** InvitationListItem */
+        InvitationListItem: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: uuid */
+            invited_by: string;
+            /** Format: email */
+            invited_email: string;
+            is_used: boolean;
+            kek_version: number;
+            /** Format: uuid */
+            role_id?: string | null;
+            role_name?: string | null;
+            token_prefix: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareExclusionsResponse */
+        ShareExclusionsResponse: {
+            exclusions: string[];
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** InitialAkeUmkArtifact */
+        InitialAkeUmkArtifact: {
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            initiator_commitment: components["schemas"]["InitiatorAkeCommitment"];
+            initiator_commitment_signature: components["schemas"]["HybridSignature"];
+            initiator_confirmation: string;
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            /** @enum {string} */
+            purpose: "umk_distribution";
+            responder_confirmation: string;
+            transcript: components["schemas"]["InitialAkeUmkTranscript"];
+            transcript_hash: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** KeyDirectoryEnvelope */
+        KeyDirectoryEnvelope: {
+            payload: (({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    device_id: string;
+                    encryption_key_id: string;
+                    signing_key_id: string;
+                    user_id: string;
+                };
+                /** @enum {string} */
+                event_type: "device_key_added";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    device_id: string;
+                    encryption_key_id: string;
+                    signing_key_id: string;
+                    user_id: string;
+                };
+                /** @enum {string} */
+                event_type: "device_key_added";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    key_id: string;
+                    key_material_hash: string;
+                };
+                /** @enum {string} */
+                event_type: "identity_key_added";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    key_id: string;
+                    key_material_hash: string;
+                };
+                /** @enum {string} */
+                event_type: "identity_key_added";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    key_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                };
+                /** @enum {string} */
+                event_type: "signing_key_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    key_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                };
+                /** @enum {string} */
+                event_type: "signing_key_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    key_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                };
+                /** @enum {string} */
+                event_type: "encryption_key_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    key_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                };
+                /** @enum {string} */
+                event_type: "encryption_key_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    allowed_suite_ids: string;
+                    min_suite_rank: string;
+                    suite_policy_version: string;
+                };
+                /** @enum {string} */
+                event_type: "suite_policy_changed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    allowed_suite_ids: string;
+                    min_suite_rank: string;
+                    suite_policy_version: string;
+                };
+                /** @enum {string} */
+                event_type: "suite_policy_changed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    base_role: string;
+                    role_id: string;
+                    user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "member_added";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    base_role: string;
+                    role_id: string;
+                    user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "member_added";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    removed_at_event_sequence: number;
+                    user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "member_removed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    removed_at_event_sequence: number;
+                    user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "member_removed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    purpose: string;
+                    recipient: {
+                        share_session_id?: string;
+                        guest_invitation_id?: string;
+                        key_checkpoint_sequence?: number;
+                        key_material_hash?: string;
+                        invitation_id?: string;
+                        target_device_id?: string;
+                        invitee_binding?: {
+                            email_hash: string;
+                            /** @enum {string} */
+                            kind: "email";
+                        };
+                        key_checkpoint_hash?: string;
+                        share_capability_secret_commitment?: string;
+                        share_participant_device_id?: string;
+                        key_scope_id?: string;
+                        dek_version?: number;
+                        kek_version?: number;
+                        signer_kind?: string;
+                        device_id?: string;
+                        signing_key_id?: string;
+                        share_key_version?: number;
+                        recipient_kind?: string;
+                        scope_kind?: string;
+                        encryption_key_id?: string;
+                        key_id?: string;
+                        invitee_device_id?: string;
+                        document_scope_hash?: string;
+                        scope_id?: string;
+                        permission?: string;
+                        target_user_id?: string;
+                        workspace_id?: string;
+                        password_protected?: boolean;
+                        created_event_hash?: string;
+                        owner_id?: string;
+                        recipient_user_id?: string;
+                        invitee_user_id?: string;
+                        redeemed_user_id?: string;
+                        owner_kind?: string;
+                        recipient_encryption_key_id?: string;
+                        role_id?: string;
+                        password_capability_secret_commitment?: string | "none";
+                        user_id?: string;
+                        guest_invitation_redeemed_event_hash?: string;
+                        guest_user_id?: string;
+                        recipient_device_id?: string;
+                        principal_id?: string;
+                        workspace_invitation_redeemed_event_hash?: string;
+                        guest_device_id?: string;
+                        workspace_pin_bootstrap_hash?: string;
+                        guest_grant_id?: string;
+                        token_hash?: string;
+                        redeemed_device_id?: string;
+                        share_id?: string;
+                        bootstrap_version?: number;
+                        share_participant_principal_id?: string;
+                        key_scope_kind?: string;
+                    };
+                    resource: {
+                        share_session_id?: string;
+                        guest_invitation_id?: string;
+                        key_checkpoint_sequence?: number;
+                        key_material_hash?: string;
+                        invitation_id?: string;
+                        target_device_id?: string;
+                        invitee_binding?: {
+                            email_hash: string;
+                            /** @enum {string} */
+                            kind: "email";
+                        };
+                        key_checkpoint_hash?: string;
+                        share_capability_secret_commitment?: string;
+                        share_participant_device_id?: string;
+                        key_scope_id?: string;
+                        dek_version?: number;
+                        kek_version?: number;
+                        signer_kind?: string;
+                        device_id?: string;
+                        signing_key_id?: string;
+                        share_key_version?: number;
+                        recipient_kind?: string;
+                        scope_kind?: string;
+                        encryption_key_id?: string;
+                        key_id?: string;
+                        invitee_device_id?: string;
+                        document_scope_hash?: string;
+                        scope_id?: string;
+                        permission?: string;
+                        target_user_id?: string;
+                        workspace_id?: string;
+                        password_protected?: boolean;
+                        created_event_hash?: string;
+                        owner_id?: string;
+                        recipient_user_id?: string;
+                        invitee_user_id?: string;
+                        redeemed_user_id?: string;
+                        owner_kind?: string;
+                        recipient_encryption_key_id?: string;
+                        role_id?: string;
+                        password_capability_secret_commitment?: string | "none";
+                        user_id?: string;
+                        guest_invitation_redeemed_event_hash?: string;
+                        guest_user_id?: string;
+                        recipient_device_id?: string;
+                        principal_id?: string;
+                        workspace_invitation_redeemed_event_hash?: string;
+                        guest_device_id?: string;
+                        workspace_pin_bootstrap_hash?: string;
+                        guest_grant_id?: string;
+                        token_hash?: string;
+                        redeemed_device_id?: string;
+                        share_id?: string;
+                        bootstrap_version?: number;
+                        share_participant_principal_id?: string;
+                        key_scope_kind?: string;
+                    };
+                    resource_hash: string;
+                    sender: {
+                        share_session_id?: string;
+                        guest_invitation_id?: string;
+                        key_checkpoint_sequence?: number;
+                        key_material_hash?: string;
+                        invitation_id?: string;
+                        target_device_id?: string;
+                        invitee_binding?: {
+                            email_hash: string;
+                            /** @enum {string} */
+                            kind: "email";
+                        };
+                        key_checkpoint_hash?: string;
+                        share_capability_secret_commitment?: string;
+                        share_participant_device_id?: string;
+                        key_scope_id?: string;
+                        dek_version?: number;
+                        kek_version?: number;
+                        signer_kind?: string;
+                        device_id?: string;
+                        signing_key_id?: string;
+                        share_key_version?: number;
+                        recipient_kind?: string;
+                        scope_kind?: string;
+                        encryption_key_id?: string;
+                        key_id?: string;
+                        invitee_device_id?: string;
+                        document_scope_hash?: string;
+                        scope_id?: string;
+                        permission?: string;
+                        target_user_id?: string;
+                        workspace_id?: string;
+                        password_protected?: boolean;
+                        created_event_hash?: string;
+                        owner_id?: string;
+                        recipient_user_id?: string;
+                        invitee_user_id?: string;
+                        redeemed_user_id?: string;
+                        owner_kind?: string;
+                        recipient_encryption_key_id?: string;
+                        role_id?: string;
+                        password_capability_secret_commitment?: string | "none";
+                        user_id?: string;
+                        guest_invitation_redeemed_event_hash?: string;
+                        guest_user_id?: string;
+                        recipient_device_id?: string;
+                        principal_id?: string;
+                        workspace_invitation_redeemed_event_hash?: string;
+                        guest_device_id?: string;
+                        workspace_pin_bootstrap_hash?: string;
+                        guest_grant_id?: string;
+                        token_hash?: string;
+                        redeemed_device_id?: string;
+                        share_id?: string;
+                        bootstrap_version?: number;
+                        share_participant_principal_id?: string;
+                        key_scope_kind?: string;
+                    };
+                    wrap_body_hash: string;
+                    wrap_protocol: string;
+                    wrap_suite_id: string;
+                    wrap_suite_rank: number;
+                    wrap_version: number;
+                };
+                /** @enum {string} */
+                event_type: "wrap_issued";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    purpose: string;
+                    recipient: {
+                        share_session_id?: string;
+                        guest_invitation_id?: string;
+                        key_checkpoint_sequence?: number;
+                        key_material_hash?: string;
+                        invitation_id?: string;
+                        target_device_id?: string;
+                        invitee_binding?: {
+                            email_hash: string;
+                            /** @enum {string} */
+                            kind: "email";
+                        };
+                        key_checkpoint_hash?: string;
+                        share_capability_secret_commitment?: string;
+                        share_participant_device_id?: string;
+                        key_scope_id?: string;
+                        dek_version?: number;
+                        kek_version?: number;
+                        signer_kind?: string;
+                        device_id?: string;
+                        signing_key_id?: string;
+                        share_key_version?: number;
+                        recipient_kind?: string;
+                        scope_kind?: string;
+                        encryption_key_id?: string;
+                        key_id?: string;
+                        invitee_device_id?: string;
+                        document_scope_hash?: string;
+                        scope_id?: string;
+                        permission?: string;
+                        target_user_id?: string;
+                        workspace_id?: string;
+                        password_protected?: boolean;
+                        created_event_hash?: string;
+                        owner_id?: string;
+                        recipient_user_id?: string;
+                        invitee_user_id?: string;
+                        redeemed_user_id?: string;
+                        owner_kind?: string;
+                        recipient_encryption_key_id?: string;
+                        role_id?: string;
+                        password_capability_secret_commitment?: string | "none";
+                        user_id?: string;
+                        guest_invitation_redeemed_event_hash?: string;
+                        guest_user_id?: string;
+                        recipient_device_id?: string;
+                        principal_id?: string;
+                        workspace_invitation_redeemed_event_hash?: string;
+                        guest_device_id?: string;
+                        workspace_pin_bootstrap_hash?: string;
+                        guest_grant_id?: string;
+                        token_hash?: string;
+                        redeemed_device_id?: string;
+                        share_id?: string;
+                        bootstrap_version?: number;
+                        share_participant_principal_id?: string;
+                        key_scope_kind?: string;
+                    };
+                    resource: {
+                        share_session_id?: string;
+                        guest_invitation_id?: string;
+                        key_checkpoint_sequence?: number;
+                        key_material_hash?: string;
+                        invitation_id?: string;
+                        target_device_id?: string;
+                        invitee_binding?: {
+                            email_hash: string;
+                            /** @enum {string} */
+                            kind: "email";
+                        };
+                        key_checkpoint_hash?: string;
+                        share_capability_secret_commitment?: string;
+                        share_participant_device_id?: string;
+                        key_scope_id?: string;
+                        dek_version?: number;
+                        kek_version?: number;
+                        signer_kind?: string;
+                        device_id?: string;
+                        signing_key_id?: string;
+                        share_key_version?: number;
+                        recipient_kind?: string;
+                        scope_kind?: string;
+                        encryption_key_id?: string;
+                        key_id?: string;
+                        invitee_device_id?: string;
+                        document_scope_hash?: string;
+                        scope_id?: string;
+                        permission?: string;
+                        target_user_id?: string;
+                        workspace_id?: string;
+                        password_protected?: boolean;
+                        created_event_hash?: string;
+                        owner_id?: string;
+                        recipient_user_id?: string;
+                        invitee_user_id?: string;
+                        redeemed_user_id?: string;
+                        owner_kind?: string;
+                        recipient_encryption_key_id?: string;
+                        role_id?: string;
+                        password_capability_secret_commitment?: string | "none";
+                        user_id?: string;
+                        guest_invitation_redeemed_event_hash?: string;
+                        guest_user_id?: string;
+                        recipient_device_id?: string;
+                        principal_id?: string;
+                        workspace_invitation_redeemed_event_hash?: string;
+                        guest_device_id?: string;
+                        workspace_pin_bootstrap_hash?: string;
+                        guest_grant_id?: string;
+                        token_hash?: string;
+                        redeemed_device_id?: string;
+                        share_id?: string;
+                        bootstrap_version?: number;
+                        share_participant_principal_id?: string;
+                        key_scope_kind?: string;
+                    };
+                    resource_hash: string;
+                    sender: {
+                        share_session_id?: string;
+                        guest_invitation_id?: string;
+                        key_checkpoint_sequence?: number;
+                        key_material_hash?: string;
+                        invitation_id?: string;
+                        target_device_id?: string;
+                        invitee_binding?: {
+                            email_hash: string;
+                            /** @enum {string} */
+                            kind: "email";
+                        };
+                        key_checkpoint_hash?: string;
+                        share_capability_secret_commitment?: string;
+                        share_participant_device_id?: string;
+                        key_scope_id?: string;
+                        dek_version?: number;
+                        kek_version?: number;
+                        signer_kind?: string;
+                        device_id?: string;
+                        signing_key_id?: string;
+                        share_key_version?: number;
+                        recipient_kind?: string;
+                        scope_kind?: string;
+                        encryption_key_id?: string;
+                        key_id?: string;
+                        invitee_device_id?: string;
+                        document_scope_hash?: string;
+                        scope_id?: string;
+                        permission?: string;
+                        target_user_id?: string;
+                        workspace_id?: string;
+                        password_protected?: boolean;
+                        created_event_hash?: string;
+                        owner_id?: string;
+                        recipient_user_id?: string;
+                        invitee_user_id?: string;
+                        redeemed_user_id?: string;
+                        owner_kind?: string;
+                        recipient_encryption_key_id?: string;
+                        role_id?: string;
+                        password_capability_secret_commitment?: string | "none";
+                        user_id?: string;
+                        guest_invitation_redeemed_event_hash?: string;
+                        guest_user_id?: string;
+                        recipient_device_id?: string;
+                        principal_id?: string;
+                        workspace_invitation_redeemed_event_hash?: string;
+                        guest_device_id?: string;
+                        workspace_pin_bootstrap_hash?: string;
+                        guest_grant_id?: string;
+                        token_hash?: string;
+                        redeemed_device_id?: string;
+                        share_id?: string;
+                        bootstrap_version?: number;
+                        share_participant_principal_id?: string;
+                        key_scope_kind?: string;
+                    };
+                    wrap_body_hash: string;
+                    wrap_protocol: string;
+                    wrap_suite_id: string;
+                    wrap_suite_rank: number;
+                    wrap_version: number;
+                };
+                /** @enum {string} */
+                event_type: "wrap_issued";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    base_role: string;
+                    bootstrap_key_commitment: string;
+                    bootstrap_package_hash: string;
+                    bootstrap_suite_id: string;
+                    capability_context_hash: string;
+                    expires_event_sequence: number;
+                    invitation_id: string;
+                    invitee_binding: {
+                        email_hash: string;
+                        /** @enum {string} */
+                        kind: "email";
+                    };
+                    kek_version: number;
+                    redeem_authority: {
+                        hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+                        /** @enum {string} */
+                        signer_kind: "invitation_redeem_authority";
+                        signing_key_id: string;
+                    };
+                    role_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_created";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    base_role: string;
+                    bootstrap_key_commitment: string;
+                    bootstrap_package_hash: string;
+                    bootstrap_suite_id: string;
+                    capability_context_hash: string;
+                    expires_event_sequence: number;
+                    invitation_id: string;
+                    invitee_binding: {
+                        email_hash: string;
+                        /** @enum {string} */
+                        kind: "email";
+                    };
+                    kek_version: number;
+                    redeem_authority: {
+                        hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+                        /** @enum {string} */
+                        signer_kind: "invitation_redeem_authority";
+                        signing_key_id: string;
+                    };
+                    role_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_created";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    invitation_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    invitation_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    bootstrap_package_hash: string;
+                    bootstrap_package_key_maintenance_wrap_hash: string;
+                    invitation_id: string;
+                    key_version_context: {
+                        dek_version?: number | string;
+                        share_key_version?: number | string;
+                        workspace_kek_version?: number | string;
+                    };
+                    previous_bootstrap_package_hash: string;
+                    update_reason: string;
+                    updated_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_bootstrap_updated";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    bootstrap_package_hash: string;
+                    bootstrap_package_key_maintenance_wrap_hash: string;
+                    invitation_id: string;
+                    key_version_context: {
+                        dek_version?: number | string;
+                        share_key_version?: number | string;
+                        workspace_kek_version?: number | string;
+                    };
+                    previous_bootstrap_package_hash: string;
+                    update_reason: string;
+                    updated_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_bootstrap_updated";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    invitation_id: string;
+                    member_envelope_hash: string;
+                    member_envelope_key_version: number;
+                    redeemed_at_event_sequence: number;
+                    redeemed_device_id: string;
+                    redeemed_encryption_key_id: string;
+                    redeemed_user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_redeemed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    invitation_id: string;
+                    member_envelope_hash: string;
+                    member_envelope_key_version: number;
+                    redeemed_at_event_sequence: number;
+                    redeemed_device_id: string;
+                    redeemed_encryption_key_id: string;
+                    redeemed_user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "workspace_invitation_redeemed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    allowed_share_ids_hash: string;
+                    bootstrap_key_commitment: string;
+                    bootstrap_package_hash: string;
+                    bootstrap_suite_id: string;
+                    capability_context_hash: string;
+                    expires_event_sequence: number;
+                    guest_grant_template_hash: string;
+                    guest_invitation_id: string;
+                    key_version_context: {
+                        dek_version?: number | string;
+                        share_key_version?: number | string;
+                        workspace_kek_version?: number | string;
+                    };
+                    permission: string;
+                    redeem_authority: {
+                        hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+                        /** @enum {string} */
+                        signer_kind: "invitation_redeem_authority";
+                        signing_key_id: string;
+                    };
+                    scope_id: string;
+                    scope_kind: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_created";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    allowed_share_ids_hash: string;
+                    bootstrap_key_commitment: string;
+                    bootstrap_package_hash: string;
+                    bootstrap_suite_id: string;
+                    capability_context_hash: string;
+                    expires_event_sequence: number;
+                    guest_grant_template_hash: string;
+                    guest_invitation_id: string;
+                    key_version_context: {
+                        dek_version?: number | string;
+                        share_key_version?: number | string;
+                        workspace_kek_version?: number | string;
+                    };
+                    permission: string;
+                    redeem_authority: {
+                        hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+                        /** @enum {string} */
+                        signer_kind: "invitation_redeem_authority";
+                        signing_key_id: string;
+                    };
+                    scope_id: string;
+                    scope_kind: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_created";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_invitation_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_invitation_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    bootstrap_package_hash: string;
+                    bootstrap_package_key_maintenance_wrap_hash: string;
+                    guest_invitation_id: string;
+                    key_version_context: {
+                        dek_version?: number | string;
+                        share_key_version?: number | string;
+                        workspace_kek_version?: number | string;
+                    };
+                    previous_bootstrap_package_hash: string;
+                    scope_id: string;
+                    scope_kind: string;
+                    update_reason: string;
+                    updated_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_bootstrap_updated";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    bootstrap_package_hash: string;
+                    bootstrap_package_key_maintenance_wrap_hash: string;
+                    guest_invitation_id: string;
+                    key_version_context: {
+                        dek_version?: number | string;
+                        share_key_version?: number | string;
+                        workspace_kek_version?: number | string;
+                    };
+                    previous_bootstrap_package_hash: string;
+                    scope_id: string;
+                    scope_kind: string;
+                    update_reason: string;
+                    updated_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_bootstrap_updated";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_device_id: string;
+                    guest_encryption_key_id: string;
+                    guest_grant_id: string;
+                    guest_invitation_id: string;
+                    guest_signing_key_id: string;
+                    guest_user_id: string;
+                    permission: string;
+                    redeemed_at_event_sequence: number;
+                    scope_id: string;
+                    scope_kind: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_redeemed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_device_id: string;
+                    guest_encryption_key_id: string;
+                    guest_grant_id: string;
+                    guest_invitation_id: string;
+                    guest_signing_key_id: string;
+                    guest_user_id: string;
+                    permission: string;
+                    redeemed_at_event_sequence: number;
+                    scope_id: string;
+                    scope_kind: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_invitation_redeemed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_grant_id: string;
+                    guest_user_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    scope_id: string;
+                    scope_kind: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_grant_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_grant_id: string;
+                    guest_user_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    scope_id: string;
+                    scope_kind: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_grant_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_device_id: string;
+                    guest_encryption_key_id: string;
+                    guest_signing_key_id: string;
+                    guest_user_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_device_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    guest_device_id: string;
+                    guest_encryption_key_id: string;
+                    guest_signing_key_id: string;
+                    guest_user_id: string;
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "guest_device_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    authorization_public_key_material: components["schemas"]["ShareCapabilitySigningPublicKeyMaterial"];
+                    authorization_public_key_material_hash: string;
+                    capability_context_hash: string;
+                    expires_event_sequence: number;
+                    max_views: number;
+                    password_auth_metadata_hash: string | "none";
+                    password_capability_secret_commitment: string | "none";
+                    password_protected: boolean;
+                    permission: string;
+                    redeem_authority_policy: string;
+                    scope_id: string;
+                    scope_kind: string;
+                    share_capability_secret_commitment: string;
+                    share_id: string;
+                    share_key_version: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_created";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    authorization_public_key_material: components["schemas"]["ShareCapabilitySigningPublicKeyMaterial"];
+                    authorization_public_key_material_hash: string;
+                    capability_context_hash: string;
+                    expires_event_sequence: number;
+                    max_views: number;
+                    password_auth_metadata_hash: string | "none";
+                    password_capability_secret_commitment: string | "none";
+                    password_protected: boolean;
+                    permission: string;
+                    redeem_authority_policy: string;
+                    scope_id: string;
+                    scope_kind: string;
+                    share_capability_secret_commitment: string;
+                    share_id: string;
+                    share_key_version: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_created";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    share_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_revoked";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    reason: string;
+                    revoked_at_event_sequence: number;
+                    share_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_revoked";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    expires_event_sequence: number;
+                    max_views: number;
+                    metadata_update_nonce: string;
+                    share_id: string;
+                    updated_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_metadata_updated";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    expires_event_sequence: number;
+                    max_views: number;
+                    metadata_update_nonce: string;
+                    share_id: string;
+                    updated_at_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_metadata_updated";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    added_at_event_sequence: number;
+                    document_scope_hash: string;
+                    parent_share_id: string;
+                    scope_id: string;
+                    scope_kind: string;
+                    share_id: string;
+                    share_key_version: number;
+                    share_metadata_hash: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_key_scope_added";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    added_at_event_sequence: number;
+                    document_scope_hash: string;
+                    parent_share_id: string;
+                    scope_id: string;
+                    scope_kind: string;
+                    share_id: string;
+                    share_key_version: number;
+                    share_metadata_hash: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_key_scope_added";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    document_scope_hash: string;
+                    previous_share_key_version: number;
+                    replaced_at_event_sequence: number;
+                    scope_id: string;
+                    scope_kind: string;
+                    share_id: string;
+                    share_key_version: number;
+                    share_metadata_hash: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_key_scope_replaced";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    document_scope_hash: string;
+                    previous_share_key_version: number;
+                    replaced_at_event_sequence: number;
+                    scope_id: string;
+                    scope_kind: string;
+                    share_id: string;
+                    share_key_version: number;
+                    share_metadata_hash: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_key_scope_replaced";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    document_scope_hash: string;
+                    previous_share_scope_event_hash: string;
+                    removed_at_event_sequence: number;
+                    /** @enum {string} */
+                    removed_reason: "moved_out_of_share_root" | "share_exclusion_added" | "document_deleted" | "folder_deleted" | "share_root_deleted";
+                    scope_id: string;
+                    scope_kind: string;
+                    share_id: string;
+                    share_key_version: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_key_scope_removed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    document_scope_hash: string;
+                    previous_share_scope_event_hash: string;
+                    removed_at_event_sequence: number;
+                    /** @enum {string} */
+                    removed_reason: "moved_out_of_share_root" | "share_exclusion_added" | "document_deleted" | "folder_deleted" | "share_root_deleted";
+                    scope_id: string;
+                    scope_kind: string;
+                    share_id: string;
+                    share_key_version: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_key_scope_removed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    added_scope_hashes: string[];
+                    changed_at_event_sequence: number;
+                    exclusion_change_nonce: string;
+                    removed_scope_hashes: string[];
+                    share_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_exclusion_changed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    added_scope_hashes: string[];
+                    changed_at_event_sequence: number;
+                    exclusion_change_nonce: string;
+                    removed_scope_hashes: string[];
+                    share_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "share_exclusion_changed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    admission_nonce: string;
+                    authorization_hash: string;
+                    authorization_id: string;
+                    context_id: string;
+                    context_kind: string;
+                    event_type: string;
+                    live_redeem_challenge_hash: string;
+                    permission: string;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    recipient_device_id: string;
+                    recipient_hash: string;
+                    recipient_nonce_state_hash: string;
+                    redeem_attempt_id: string;
+                    redeem_freshness_proof_hash: string;
+                    share_session_binding_hash: string;
+                    share_session_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "recipient_bound_delivery_admitted";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    admission_nonce: string;
+                    authorization_hash: string;
+                    authorization_id: string;
+                    context_id: string;
+                    context_kind: string;
+                    event_type: string;
+                    live_redeem_challenge_hash: string;
+                    permission: string;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    recipient_device_id: string;
+                    recipient_hash: string;
+                    recipient_nonce_state_hash: string;
+                    redeem_attempt_id: string;
+                    redeem_freshness_proof_hash: string;
+                    share_session_binding_hash: string;
+                    share_session_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "recipient_bound_delivery_admitted";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    event_type: string;
+                    new_key_version: number;
+                    not_before_event_sequence: number;
+                    old_key_version: number;
+                    reason: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_started";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    event_type: string;
+                    new_key_version: number;
+                    not_before_event_sequence: number;
+                    old_key_version: number;
+                    reason: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_started";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    completed_at_event_sequence: number;
+                    completion_manifest_hash: string;
+                    event_type: string;
+                    new_key_version: number;
+                    old_key_version: number;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_completed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    completed_at_event_sequence: number;
+                    completion_manifest_hash: string;
+                    event_type: string;
+                    new_key_version: number;
+                    old_key_version: number;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_completed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    deleted_at_event_sequence: number;
+                    deletion_manifest_hash: string;
+                    event_type: string;
+                    old_key_version: number;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "old_key_deleted";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    deleted_at_event_sequence: number;
+                    deletion_manifest_hash: string;
+                    event_type: string;
+                    old_key_version: number;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "old_key_deleted";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    admission_nonce: string;
+                    dek_version: number;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    event_type: string;
+                    min_dek_version: number;
+                    operation_hash: string;
+                    operation_signature_hash: string;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_update_accepted";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    admission_nonce: string;
+                    dek_version: number;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    event_type: string;
+                    min_dek_version: number;
+                    operation_hash: string;
+                    operation_signature_hash: string;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_update_accepted";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    admission_nonce: string;
+                    dek_version: number;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    event_type: string;
+                    min_dek_version: number;
+                    operation_hash: string;
+                    operation_signature_hash: string;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_snapshot_accepted";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    admission_nonce: string;
+                    dek_version: number;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    event_type: string;
+                    min_dek_version: number;
+                    operation_hash: string;
+                    operation_signature_hash: string;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_snapshot_accepted";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            })) | ({
+                allowed_suite_ids: string[];
+                covered_event_head: {
+                    head_hash: string;
+                    head_sequence: number;
+                };
+                device_keys: {
+                    key_id: string;
+                    key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"] | components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+                    revoked_at?: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                    valid_from: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                }[];
+                identity_keys: {
+                    key_id: string;
+                    key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"] | components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+                    revoked_at?: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                    valid_from: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                }[];
+                /** Format: date-time */
+                issued_at: string;
+                min_suite_rank: number;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-checkpoint";
+                required_components: string[];
+                revoked_key_ids: string[];
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                share_participant_keys: {
+                    key_id: string;
+                    key_material: components["schemas"]["ShareParticipantDeviceSigningPublicKeyMaterial"] | components["schemas"]["ShareParticipantDeviceEncryptionPublicKeyMaterial"];
+                    revoked_at?: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                    valid_from: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                }[];
+                suite_policy_version: number;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                allowed_suite_ids: string[];
+                covered_event_head: {
+                    head_hash: string;
+                    head_sequence: number;
+                };
+                device_keys: {
+                    key_id: string;
+                    key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"] | components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+                    revoked_at?: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                    valid_from: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                }[];
+                identity_keys: {
+                    key_id: string;
+                    key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"] | components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+                    revoked_at?: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                    valid_from: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                }[];
+                /** Format: date-time */
+                issued_at: string;
+                min_suite_rank: number;
+                previous_checkpoint_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-checkpoint";
+                required_components: string[];
+                revoked_key_ids: string[];
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                share_participant_keys: {
+                    key_id: string;
+                    key_material: components["schemas"]["ShareParticipantDeviceSigningPublicKeyMaterial"] | components["schemas"]["ShareParticipantDeviceEncryptionPublicKeyMaterial"];
+                    revoked_at?: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                    valid_from: {
+                        event_hash: string;
+                        event_sequence: number;
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "user" | "workspace";
+                    };
+                }[];
+                suite_policy_version: number;
+                /** @enum {integer} */
+                version: 1;
+            });
+            signatures: {
+                signature: components["schemas"]["HybridSignature"];
+                signer: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+            }[];
+        };
+        /** KeyDirectoryPin */
+        KeyDirectoryPin: {
+            allowed_suite_ids_hash: components["schemas"]["Blake3Base64Url"];
+            checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            checkpoint_sequence: number;
+            event_head_hash: components["schemas"]["Blake3Base64Url"];
+            event_head_sequence: number;
+            min_suite_rank: number;
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "user" | "workspace";
+            suite_policy_version: number;
+        } | null;
+        /** PasswordResetVerifyBody */
+        PasswordResetVerifyBody: {
+            token: string;
+        };
+        /** ShareLinkMountListResponse */
+        ShareLinkMountListResponse: {
+            mounts: components["schemas"]["ShareLinkMountListItem"][];
+        };
+        /** CreateFolderShareKeyItem */
+        CreateFolderShareKeyItem: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            nonce: string;
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** ShareMountTarget */
+        ShareMountTarget: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            /** Format: uuid */
+            document_id: string;
+        };
+        /** KekRotationStartRequest */
+        KekRotationStartRequest: {
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** ApprovalDeliveryCommitments */
+        ApprovalDeliveryCommitments: {
+            device_approval_kek_initial_delivery_commitments: components["schemas"]["DeviceApprovalKekInitialDeliveryCommitment"][];
+            trust_transfer_delivery_commitment: components["schemas"]["TrustTransferDeliveryCommitment"];
+            umk_distribution_delivery_commitment: components["schemas"]["UmkDistributionDeliveryCommitment"];
+        };
+        /** InvitationBootstrapMaintenanceWrap */
+        InvitationBootstrapMaintenanceWrap: {
+            ciphertext: string;
+            key_version: number;
+            nonce: string;
+        };
+        /** DocumentKeysResponse */
+        DocumentKeysResponse: {
+            keys: components["schemas"]["DocumentKeyResponse"][];
+        };
+        /** ShareMountBootstrapRequest */
+        ShareMountBootstrapRequest: {
+            authenticated_workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
+        };
+        /** RenameDeviceRequest */
+        RenameDeviceRequest: {
+            name: string;
+        };
+        /** InitialAkeTranscriptResponder */
+        InitialAkeTranscriptResponder: {
+            /** Format: uuid */
+            device_id: string;
+            mlkem768_ephemeral_public_hash: string;
+            prekey_hash: string;
+            /** Format: uuid */
+            prekey_id: string;
+            /** @enum {string} */
+            signer_kind: "device";
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            user_id: string;
+            x25519_ephemeral_public: string;
+        };
+        /** WorkspaceIdsResponse */
+        WorkspaceIdsResponse: {
+            workspace_ids: string[];
+        };
+        /** ReorderDocumentRequest */
+        ReorderDocumentRequest: {
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            position: number;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** DeviceFullInfo */
+        DeviceFullInfo: {
+            approval_delivery_artifacts?: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
+            approval_delivery_commitments?: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            approval_proof: components["schemas"]["DeviceApprovalProof"];
+            approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            client_nonce: string;
+            /** Format: date-time */
+            created_at?: string;
+            device_type: string;
+            encryption_key_id: string;
+            hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            id: string;
+            key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            key_checkpoint_sequence: number;
+            /** Format: date-time */
+            last_seen_at?: string;
+            name: string;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+        };
         /** UpdatePublicationRequest */
         UpdatePublicationRequest: {
             noindex?: boolean;
             slug?: string;
         };
-        /** MemberEnvelopeResponse */
-        MemberEnvelopeResponse: {
-            encrypted_kek: string;
-            key_version: number;
-            nonce: string;
+        /** InitiatorAkeCommitmentInitiator */
+        InitiatorAkeCommitmentInitiator: {
             /** Format: uuid */
-            sender_device_id: string;
-            sender_ecdh_public_key?: string;
-            sender_signing_public_key?: string;
+            device_id: string;
+            encryption_key_id: string;
+            pending_registration_binding_hash: string;
+            /** @enum {string} */
+            signer_kind: "active_device";
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
             /** Format: uuid */
-            sender_user_id: string;
+            user_id: string;
         };
-        /** DeviceFullInfo */
-        DeviceFullInfo: {
-            client_nonce?: string;
-            /** Format: date-time */
-            created_at?: string;
-            device_type: string;
-            ecdh_public_key: string;
+        /** RedeemGuestInvitationRequest */
+        RedeemGuestInvitationRequest: {
+            approval_signature: components["schemas"]["HybridSignature"];
+            client_nonce: string;
+            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            device_id: string;
+            device_name?: string | null;
+            device_type?: string | null;
+            /** Format: uuid */
+            guest_user_id: string;
+            identity_hybrid_encryption_public_key_material?: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            identity_hybrid_signing_public_key_material?: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            pending_registration_challenge_hash: string;
+            token: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** KekRotationCompletionManifestResponse */
+        KekRotationCompletionManifestResponse: {
+            completed_at_event_sequence: number;
+            completion_manifest_hash: string;
+            deleted_at_event_sequence: number;
+            deleted_secret_ids_hash: string;
+            deleted_wrap_ids_hash: string;
+            new_kek_version: number;
+            old_kek_version: number;
+            server_rejects_old_key_uploads_after_sequence: number;
+            started_event_hash: string;
+        };
+        /** CreateWorkspaceRequest */
+        CreateWorkspaceRequest: {
+            description?: string | null;
+            icon?: string | null;
+            name: string;
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            /** Format: uuid */
+            workspace_owner_role_id: string;
+        };
+        /** PasswordResetRequestBody */
+        PasswordResetRequestBody: {
+            /** Format: email */
+            email: string;
+        };
+        /** ShareCanonicalBootstrapRequest */
+        ShareCanonicalBootstrapRequest: {
+            authenticated_workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
+        };
+        /** ShareMountListItem */
+        ShareMountListItem: {
             /** Format: uuid */
             id: string;
-            /** @description Identity cross-sign of device keys */
-            identity_signature?: string;
-            /** Format: date-time */
-            last_seen_at?: string;
-            name: string;
-            signing_public_key: string;
-        };
-        /** ChangeMemberRoleRequest */
-        ChangeMemberRoleRequest: {
             /** Format: uuid */
-            role_id: string;
+            parent_id: string | null;
+            password_protected: boolean;
+            position: number;
+            share: components["schemas"]["ShareMountShareSummary"];
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            status: "active" | "expired";
+            target: components["schemas"]["ShareMountTarget"];
+            /** Format: uuid */
+            target_document_id: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string | null;
         };
-        /** OkResponse */
-        OkResponse: {
-            ok: boolean;
+        /** ApproveDeviceResponse */
+        ApproveDeviceResponse: {
+            device: components["schemas"]["DeviceFullInfo"];
+        };
+        /** InitialAkeArtifact */
+        InitialAkeArtifact: components["schemas"]["InitialAkeUmkArtifact"] | components["schemas"]["InitialAkeApprovalArtifact"] | components["schemas"]["InitialAkeTrustTransferArtifact"];
+        /** RegenerateRecoveryKeyRequest */
+        RegenerateRecoveryKeyRequest: {
+            new_recovery_authorization_key_id: string;
+            new_recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            new_recovery_encrypted_umk: string;
+            new_recovery_nonce: string;
+        };
+        /** ShareFolderRouteMetadataResponse */
+        ShareFolderRouteMetadataResponse: {
+            bootstrap_required: boolean;
+            /** Format: uuid */
+            folder_id: string;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            share_id: string;
+            share_token_hash: string;
+        };
+        /** ShareBootstrapResponse */
+        ShareBootstrapResponse: {
+            capability_context_hash: string;
+            created_event_hash: string;
+            latest_bootstrap_event_hash: string;
+            participant: components["schemas"]["ShareParticipantInfo"];
+            password_capability_secret_commitment: string;
+            root: components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"];
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document" | "folder";
+            share_capability_secret_commitment: string;
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** AcceptInvitationRequest */
+        AcceptInvitationRequest: {
+            member_envelope: components["schemas"]["MemberEnvelopeItem"];
+            token: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** InitialAkeTrustTransferTranscript */
+        InitialAkeTrustTransferTranscript: {
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            context: components["schemas"]["InitialAkeTrustTransferContext"];
+            directory: components["schemas"]["InitialAkeTrustTransferDirectory"];
+            initiator: components["schemas"]["InitialAkeTranscriptInitiator"];
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            /** @enum {string} */
+            purpose: "trust_transfer";
+            required_components: components["schemas"]["InitialAkeRequiredComponents"];
+            responder: components["schemas"]["InitialAkeTranscriptResponder"];
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** MountedShareDocument */
+        MountedShareDocument: {
+            /** Format: uuid */
+            authorization_share_id: string;
+            /** Format: uuid */
+            document_id: string;
+            document_token: string;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            key_version: number;
+            nonce: string | null;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            share_id: string;
+            verification_directory: components["schemas"]["ShareVerificationDirectory"];
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
+        };
+        /** InitialAkeUmkTranscript */
+        InitialAkeUmkTranscript: {
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            context: components["schemas"]["InitialAkeUmkContext"];
+            directory: components["schemas"]["InitialAkeUmkDirectory"];
+            initiator: components["schemas"]["InitialAkeTranscriptInitiator"];
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            /** @enum {string} */
+            purpose: "umk_distribution";
+            required_components: components["schemas"]["InitialAkeRequiredComponents"];
+            responder: components["schemas"]["InitialAkeTranscriptResponder"];
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** PublicAuthorProfile */
+        PublicAuthorProfile: {
+            bio?: string | null;
+            display_name: string;
+            slug: string;
+        };
+        /** InitialKeyDeliveryUmkRecord */
+        InitialKeyDeliveryUmkRecord: {
+            aead: components["schemas"]["InitialKeyDeliveryAead"];
+            authority: components["schemas"]["InitialKeyDeliveryAuthority"];
+            /** @enum {string} */
+            initial_delivery_suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            initial_delivery_suite_rank: 1000;
+            metadata: components["schemas"]["InitialKeyDeliveryMetadata"];
+            /** @enum {string} */
+            protocol: "refmd.initial-key-delivery";
+            /** @enum {string} */
+            purpose: "umk_distribution";
+            signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            variant: "umk_distribution";
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** MemberEnvelopeItem */
+        MemberEnvelopeItem: {
+            event: {
+                wrap_event_body_hash: string;
+                wrap_event_hash: string;
+                wrap_event_sequence: number;
+            };
+            event_scope: {
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace" | "document" | "folder";
+            };
+            hpke: {
+                /** @enum {integer} */
+                aead_id: 3;
+                ciphertext: string;
+                enc: string;
+                /** @enum {integer} */
+                kdf_id: 1;
+                /** @enum {integer} */
+                kem_id: 25722;
+                /** @enum {string} */
+                mode: "base";
+            };
+            key_version: number;
+            operation_checkpoint: {
+                checkpoint_hash: string;
+                checkpoint_sequence: number;
+                covered_event_head_hash: string;
+                covered_event_head_sequence: number;
+            };
+            /** @enum {string} */
+            protocol: "refmd.signed-pq-hybrid-wrap";
+            /** @enum {integer} */
+            protocol_version: 1;
+            /** @enum {string} */
+            purpose: "workspace_device_kek_wrap" | "workspace_member_kek_wrap" | "share_participant_bootstrap_wrap" | "share_link_secret_backup_wrap" | "workspace_invitation_kek_wrap" | "guest_invitation_workspace_kek_wrap" | "guest_invitation_share_key_wrap";
+            recipient: {
+                device_id?: string;
+                encryption_key_id: string;
+                guest_device_id?: string;
+                guest_user_id?: string;
+                invitee_device_id?: string;
+                invitee_user_id?: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace" | "document" | "folder";
+                /** @enum {string} */
+                recipient_kind: "device" | "user_identity" | "invitee" | "guest" | "share_participant_device";
+                share_participant_device_id?: string;
+                share_participant_principal_id?: string;
+                user_id?: string;
+            };
+            resource: {
+                kek_version: number;
+                target_device_id: string;
+                target_user_id: string;
+                workspace_id: string;
+            } | {
+                kek_version: number;
+                target_user_id: string;
+                workspace_id: string;
+            } | {
+                bootstrap_version: number;
+                dek_version: number;
+                document_scope_hash: string;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_id: string;
+                share_key_version: number;
+                share_participant_device_id: string;
+                share_participant_principal_id: string;
+                share_session_id: string;
+                workspace_id: string;
+            } | {
+                created_event_hash: string;
+                key_checkpoint_hash: string;
+                password_capability_secret_commitment: string | "none";
+                password_protected: boolean;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                recipient_device_id: string;
+                recipient_encryption_key_id: string;
+                recipient_user_id: string;
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_capability_secret_commitment: string;
+                share_id: string;
+                token_hash: string;
+                workspace_id: string;
+                workspace_pin_bootstrap_hash: string;
+            } | {
+                invitation_id: string;
+                kek_version: number;
+                recipient_encryption_key_id: string;
+                redeemed_device_id: string;
+                redeemed_user_id: string;
+                role_id: string;
+                workspace_id: string;
+                workspace_invitation_redeemed_event_hash: string;
+            } | {
+                guest_device_id: string;
+                guest_grant_id: string;
+                guest_invitation_id: string;
+                guest_invitation_redeemed_event_hash: string;
+                guest_user_id: string;
+                kek_version: number;
+                /** @enum {string} */
+                permission: "edit";
+                recipient_encryption_key_id: string;
+                /** @enum {string} */
+                scope_id: "none";
+                /** @enum {string} */
+                scope_kind: "workspace";
+                workspace_id: string;
+            } | {
+                dek_version: number;
+                document_scope_hash: string;
+                guest_device_id: string;
+                guest_invitation_id: string;
+                guest_invitation_redeemed_event_hash: string;
+                guest_user_id: string;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                recipient_encryption_key_id: string;
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_id: string;
+                share_key_version: number;
+                workspace_id: string;
+            };
+            sender: {
+                device_id: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace" | "document" | "folder";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: string;
+                user_id: string;
+            };
+            /** Format: uuid */
+            sender_device_id: string;
+            signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** Format: uuid */
+            target_user_id: string;
+            transcript_hash: string;
+        };
+        /** LoginResponse */
+        LoginResponse: {
+            device_verified: boolean;
+            kdf_migration_required?: boolean;
+            keys?: components["schemas"]["LoginKeys"];
+            /** Format: uuid */
+            session_id: string;
+            target_kdf_params?: components["schemas"]["KdfParams"];
+            user: components["schemas"]["UserInfo"];
+        };
+        /** UpdateDocumentRequest */
+        UpdateDocumentRequest: {
+            encrypted_title?: string;
+            encrypted_title_key_version?: number;
+            encrypted_title_nonce?: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            title?: string;
+        };
+        /** UpdateWorkspaceRequest */
+        UpdateWorkspaceRequest: {
+            description?: string | null;
+            encrypted_description?: string | null;
+            encrypted_description_key_version?: number | null;
+            encrypted_description_nonce?: string | null;
+            encrypted_icon?: string | null;
+            encrypted_icon_key_version?: number | null;
+            encrypted_icon_nonce?: string | null;
+            encrypted_name?: string | null;
+            encrypted_name_key_version?: number | null;
+            encrypted_name_nonce?: string | null;
+            guest_invites_enabled?: boolean;
+            guest_member_limit?: number | null;
+            icon?: string | null;
+            name?: string;
+            slug?: string;
+        };
+        /** CreateDeviceRegistrationRequest */
+        CreateDeviceRegistrationRequest: {
+            ake_responder_prekeys: {
+                device_approval_kek_initial: {
+                    prekey: {
+                        payload: {
+                            expires_event_sequence: number;
+                            issued_at_event_sequence: number;
+                            mlkem768_ephemeral_public: string;
+                            mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
+                            /** Format: uuid */
+                            operation_id: string;
+                            /** Format: uuid */
+                            prekey_id: string;
+                            /** @enum {string} */
+                            protocol: "refmd.responder-prekey";
+                            /** @enum {string} */
+                            purpose: "umk_distribution" | "trust_transfer" | "device_approval_kek_initial";
+                            /** Format: uuid */
+                            responder_device_id: string;
+                            /** @enum {string} */
+                            responder_signer_kind: "device";
+                            responder_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                            /** Format: uuid */
+                            responder_user_id: string;
+                            server_challenge: string;
+                            /** @enum {integer} */
+                            version: 1;
+                            x25519_ephemeral_public: string;
+                        };
+                        signature: components["schemas"]["HybridSignature"];
+                    };
+                    /** Format: uuid */
+                    workspace_id: string;
+                }[];
+                trust_transfer: {
+                    payload: {
+                        expires_event_sequence: number;
+                        issued_at_event_sequence: number;
+                        mlkem768_ephemeral_public: string;
+                        mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        operation_id: string;
+                        /** Format: uuid */
+                        prekey_id: string;
+                        /** @enum {string} */
+                        protocol: "refmd.responder-prekey";
+                        /** @enum {string} */
+                        purpose: "umk_distribution" | "trust_transfer" | "device_approval_kek_initial";
+                        /** Format: uuid */
+                        responder_device_id: string;
+                        /** @enum {string} */
+                        responder_signer_kind: "device";
+                        responder_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        responder_user_id: string;
+                        server_challenge: string;
+                        /** @enum {integer} */
+                        version: 1;
+                        x25519_ephemeral_public: string;
+                    };
+                    signature: components["schemas"]["HybridSignature"];
+                };
+                umk_distribution: {
+                    payload: {
+                        expires_event_sequence: number;
+                        issued_at_event_sequence: number;
+                        mlkem768_ephemeral_public: string;
+                        mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        operation_id: string;
+                        /** Format: uuid */
+                        prekey_id: string;
+                        /** @enum {string} */
+                        protocol: "refmd.responder-prekey";
+                        /** @enum {string} */
+                        purpose: "umk_distribution" | "trust_transfer" | "device_approval_kek_initial";
+                        /** Format: uuid */
+                        responder_device_id: string;
+                        /** @enum {string} */
+                        responder_signer_kind: "device";
+                        responder_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        responder_user_id: string;
+                        server_challenge: string;
+                        /** @enum {integer} */
+                        version: 1;
+                        x25519_ephemeral_public: string;
+                    };
+                    signature: components["schemas"]["HybridSignature"];
+                };
+            };
+            client_nonce: string;
+            device_encryption_key_id: string;
+            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            device_id: string;
+            device_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            device_type?: string;
+            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            name?: string;
+            registration_challenge: string;
+        } | {
+            client_nonce: string;
+            device_encryption_key_id: string;
+            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            device_id: string;
+            device_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            device_type?: string;
+            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            name?: string;
+            registration_challenge: string;
+        };
+        /** ShareCreateResponse */
+        ShareCreateResponse: {
+            event_hash: string;
+            event_sequence: number;
+            /** Format: uuid */
+            id: string;
+            share_slug: string;
+        };
+        /** ErrorContextDetails */
+        ErrorContextDetails: {
+            current_kek_version?: number | null;
+        };
+        /** ShareMountChallengeResponse */
+        ShareMountChallengeResponse: {
+            bootstrap_required: boolean;
+            /** Format: uuid */
+            mount_id: string;
+        };
+        /**
+         * EncryptedIdentityHybridPrivateKeyMaterial
+         * @description Strict base64url ciphertext for encrypted identity hybrid private key material.
+         */
+        EncryptedIdentityHybridPrivateKeyMaterial: string;
+        /** InitialAkeTrustTransferDirectory */
+        InitialAkeTrustTransferDirectory: {
+            allowed_suite_ids_hash: string;
+            min_suite_rank: number;
+            suite_policy_version: number;
+            user_checkpoint_hash: string;
+            user_event_head_hash: string;
+            workspace_pins_hash: string;
+        };
+        /** ShareLandingResponse */
+        ShareLandingResponse: {
+            password_challenge_required?: boolean | null;
+            root?: (components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"]) | null;
+            share: {
+                capability_context_hash: string;
+                created_event_hash: string;
+                /** Format: uuid */
+                document_id: string;
+                /** Format: uuid */
+                id: string;
+                latest_bootstrap_event_hash: string;
+                password_capability_secret_commitment: string;
+                password_protected: boolean;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                /** @enum {string} */
+                scope: "document" | "folder";
+                share_capability_secret_commitment: string;
+            };
+        };
+        /** UpdateShareKeysRequest */
+        UpdateShareKeysRequest: {
+            add_keys: components["schemas"]["AddFolderShareKeyItem"][];
+            replace_keys?: components["schemas"]["ReplaceFolderShareKeyItem"][];
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        } | {
+            add_keys?: components["schemas"]["AddFolderShareKeyItem"][];
+            replace_keys: components["schemas"]["ReplaceFolderShareKeyItem"][];
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** InvitationsListResponse */
+        InvitationsListResponse: {
+            invitations: components["schemas"]["InvitationListItem"][];
+        };
+        /** CreateDocumentKeyRequest */
+        CreateDocumentKeyRequest: {
+            encrypted_dek: string;
+            kek_version: number;
+            key_version: number;
+            nonce: string;
+        };
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            current_auth_key: string;
+            new_auth_key: string;
+            new_encrypted_umk: string;
+            new_salt: string;
+            new_umk_nonce: string;
+        };
+        /** KekRotationCompleteRequest */
+        KekRotationCompleteRequest: {
+            device_key_deletion_proofs: {
+                payload: {
+                    deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+                    deleted_storage_classes: ("crypto_worker_state" | "indexeddb_cache" | "local_encrypted_key_store" | "offline_cache" | "pending_queue")[];
+                    /** Format: uuid */
+                    device_id: string;
+                    local_cache_epoch: number;
+                    old_key_version: number;
+                    proof_nonce: string;
+                    /** @enum {string} */
+                    protocol: "refmd.device-key-deletion-proof";
+                    rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+                    /** @enum {string} */
+                    rotation_kind: "kek";
+                    /** Format: uuid */
+                    scope_id: string;
+                    /** @enum {string} */
+                    scope_kind: "workspace";
+                    /** @enum {integer} */
+                    version: 1;
+                    /** Format: uuid */
+                    workspace_id: string;
+                };
+                signature: components["schemas"]["HybridSignature"];
+                transcript: {
+                    actor: {
+                        /** Format: uuid */
+                        device_id: string;
+                        key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                        key_checkpoint_sequence: number;
+                        /** Format: uuid */
+                        key_scope_id: string;
+                        /** @enum {string} */
+                        key_scope_kind: "workspace";
+                        /** @enum {string} */
+                        signer_kind: "workspace_device";
+                        signing_key_id: components["schemas"]["Blake3Base64Url"];
+                        /** Format: uuid */
+                        user_id: string;
+                    };
+                    authority_boundary: {
+                        deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+                        deleted_storage_classes_hash: components["schemas"]["Blake3Base64Url"];
+                        old_key_version: number;
+                        rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+                        /** @enum {string} */
+                        rotation_kind: "kek";
+                        /** Format: uuid */
+                        scope_id: string;
+                        /** @enum {string} */
+                        scope_kind: "workspace";
+                        /** Format: uuid */
+                        workspace_id: string;
+                    };
+                    /** @enum {string} */
+                    label: "RefMD hybrid signature transcript v1";
+                    /** Format: uuid */
+                    owner_id: string;
+                    /** @enum {string} */
+                    owner_kind: "device";
+                    /** @enum {string} */
+                    protocol: "refmd.hybrid-signature-transcript";
+                    signature_suite_id: string;
+                    signature_suite_rank: number;
+                    /** @enum {string} */
+                    signing_purpose: "device_key_deletion_proof";
+                    subject_hash: components["schemas"]["Blake3Base64Url"];
+                    /** @enum {string} */
+                    subject_protocol: "refmd.device-key-deletion-proof";
+                    /** @enum {integer} */
+                    subject_version: 1;
+                    /** @enum {string} */
+                    surface_id: "device_key_deletion_proof";
+                    /** @enum {string} */
+                    surface_variant: "device_key_deletion_proof";
+                    transcript_owner: string;
+                    /** @enum {integer} */
+                    version: 1;
+                };
+            }[];
+            new_kek_version: number;
+            wipe_required_device_ids: string[];
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** InitialKeyDeliveryArtifact */
+        InitialKeyDeliveryArtifact: {
+            initial_ake: components["schemas"]["InitialAkeArtifact"];
+            initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
         };
         /** KekRotationStartResponse */
         KekRotationStartResponse: {
@@ -2772,34 +8573,1789 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
-        /** BootstrapDeviceRequest */
-        BootstrapDeviceRequest: {
-            client_nonce: string;
-            device_ecdh_public_key: string;
-            device_signing_public_key: string;
-            device_type: string;
-            identity_signature: string;
-            identity_signing_public_key: string;
-            name: string;
+        /** PasswordSetRequest */
+        PasswordSetRequest: {
+            new_auth_key: string;
+            new_encrypted_umk: string;
+            new_salt: string;
+            new_umk_nonce: string;
         };
-        /** RecoverySessionRequest */
-        RecoverySessionRequest: {
+        /** RedeemGuestInvitationResponse */
+        RedeemGuestInvitationResponse: {
+            /** Format: uuid */
+            guest_device_id: string;
+            /** Format: uuid */
+            guest_user_id: string;
+            /** Format: uuid */
+            invitation_id: string;
+            kek_version: number;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            scope_id?: string | null;
+            /** @enum {string} */
+            scope_kind: "workspace" | "document" | "folder" | "share";
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_name: string;
+        };
+        /** ShareMountMetadataResponse */
+        ShareMountMetadataResponse: {
+            bootstrap_required: boolean;
+            mount: components["schemas"]["ShareMountResponse"];
+        };
+        /** ShareUpdateResponse */
+        ShareUpdateResponse: {
+            expires_event_sequence: number;
+            /** Format: uuid */
+            id: string;
+            max_views: number;
+            view_count: number;
+        };
+        /** SettingsResponse */
+        SettingsResponse: {
+            /** @enum {string} */
+            editor_default_mode: "markdown" | "wysiwyg" | "split";
+            editor_font_size: number;
+            /** @enum {string} */
+            editor_layout_mode: "tiling" | "horizontal" | "vertical";
+            editor_vim_mode: boolean;
+            locale: string;
+            /** @enum {string} */
+            theme: "light" | "dark" | "system";
+        };
+        /** ShareDocumentRouteMetadataResponse */
+        ShareDocumentRouteMetadataResponse: {
+            bootstrap_required: boolean;
+            /** Format: uuid */
+            document_id: string;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            share_id: string;
+            share_token_hash: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareMountResponse */
+        ShareMountResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            parent_id: string | null;
+            password_protected: boolean;
+            position: number;
+            share: components["schemas"]["ShareMountShareSummary"];
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            status: "active" | "expired";
+            target: components["schemas"]["ShareMountTarget"];
+            /** Format: uuid */
+            target_document_id: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string | null;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** AddFolderShareKeyItem */
+        AddFolderShareKeyItem: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            nonce: string;
+            /**
+             * Format: uuid
+             * @description New child share ID generated before encryption
+             */
+            share_id: string;
+        };
+        /** WorkspaceKeyItem */
+        WorkspaceKeyItem: components["schemas"]["HybridKeyWrapFields"] & {
+            is_active: boolean;
+            key_version: number;
+            sender_approval_delivery_artifacts: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
+            sender_approval_delivery_commitments: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            sender_approval_proof: components["schemas"]["DeviceApprovalProof"];
+            sender_approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            sender_approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            sender_client_nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            sender_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            sender_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            sender_identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            sender_identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            sender_user_id: string;
+        };
+        /** PasswordSetResponse */
+        PasswordSetResponse: {
+            ok: boolean;
+            /** Format: uuid */
+            session_id: string;
+        };
+        /** ShareCapabilityAuthorization */
+        ShareCapabilityAuthorization: {
+            signature: components["schemas"]["HybridSignature"];
+            transcript: components["schemas"]["ShareCapabilityAuthorizationTranscript"];
+        };
+        /** ShareKeysUpdateResponse */
+        ShareKeysUpdateResponse: {
+            added: string[];
+            replaced: string[];
+            /** Format: uuid */
+            share_id: string;
+        };
+        /** InitialAkeUmkContext */
+        InitialAkeUmkContext: {
             challenge: string;
+            distribution_id: string;
+            operation_id: string;
+            /** Format: uuid */
+            owner_user_id: string;
+            /** @enum {string} */
+            purpose: "umk_distribution";
+            /** Format: uuid */
+            recipient_device_id: string;
+            target_key_kind: string;
+            target_key_version: number;
+        };
+        /** IdentityHybridEncryptionPublicKeyMaterial */
+        IdentityHybridEncryptionPublicKeyMaterial: {
+            hybrid_public: string;
+            mlkem768_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "identity";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-encryption-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+            x25519_public: string;
+        };
+        /** ShareMountListResponse */
+        ShareMountListResponse: {
+            mounts: components["schemas"]["ShareMountListItem"][];
+        };
+        /** CreateInvitationRequest */
+        CreateInvitationRequest: {
+            bootstrap_key_commitment: string;
+            bootstrap_package_hash: string;
+            bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
+            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            /** @enum {string} */
+            bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            capability_context_hash: string;
+            encrypted_bootstrap_package: components["schemas"]["WorkspaceInvitationBootstrapPackage"];
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: email */
+            invited_email: string;
+            kek_version: number;
+            /** Format: uuid */
+            role_id?: string | null;
+            token_hash: string;
+            token_prefix: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** WorkspaceMemberKeysResponse */
+        WorkspaceMemberKeysResponse: {
+            members: {
+                hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+                hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+                /** Format: uuid */
+                user_id: string;
+            }[];
+        };
+        /** MemberInfo */
+        MemberInfo: {
+            /** @enum {string} */
+            base_role: "owner" | "admin" | "editor" | "viewer" | "guest";
             /** Format: email */
             email: string;
-            signature: string;
-            timestamp: number;
+            is_default?: boolean;
+            /** Format: date-time */
+            joined_at: string;
+            name: string;
+            /** Format: uuid */
+            role_id: string;
+            role_name: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** HybridKeyWrapFields */
+        HybridKeyWrapFields: {
+            event: {
+                wrap_event_body_hash: string;
+                wrap_event_hash: string;
+                wrap_event_sequence: number;
+            };
+            event_scope: {
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace" | "document" | "folder";
+            };
+            hpke: {
+                /** @enum {integer} */
+                aead_id: 3;
+                ciphertext: string;
+                enc: string;
+                /** @enum {integer} */
+                kdf_id: 1;
+                /** @enum {integer} */
+                kem_id: 25722;
+                /** @enum {string} */
+                mode: "base";
+            };
+            operation_checkpoint: {
+                checkpoint_hash: string;
+                checkpoint_sequence: number;
+                covered_event_head_hash: string;
+                covered_event_head_sequence: number;
+            };
+            /** @enum {string} */
+            protocol: "refmd.signed-pq-hybrid-wrap";
+            /** @enum {integer} */
+            protocol_version: 1;
+            /** @enum {string} */
+            purpose: "workspace_device_kek_wrap" | "workspace_member_kek_wrap" | "share_participant_bootstrap_wrap" | "share_link_secret_backup_wrap" | "workspace_invitation_kek_wrap" | "guest_invitation_workspace_kek_wrap" | "guest_invitation_share_key_wrap";
+            recipient: {
+                device_id?: string;
+                encryption_key_id: string;
+                guest_device_id?: string;
+                guest_user_id?: string;
+                invitee_device_id?: string;
+                invitee_user_id?: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace" | "document" | "folder";
+                /** @enum {string} */
+                recipient_kind: "device" | "user_identity" | "invitee" | "guest" | "share_participant_device";
+                share_participant_device_id?: string;
+                share_participant_principal_id?: string;
+                user_id?: string;
+            };
+            resource: {
+                kek_version: number;
+                target_device_id: string;
+                target_user_id: string;
+                workspace_id: string;
+            } | {
+                kek_version: number;
+                target_user_id: string;
+                workspace_id: string;
+            } | {
+                bootstrap_version: number;
+                dek_version: number;
+                document_scope_hash: string;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_id: string;
+                share_key_version: number;
+                share_participant_device_id: string;
+                share_participant_principal_id: string;
+                share_session_id: string;
+                workspace_id: string;
+            } | {
+                created_event_hash: string;
+                key_checkpoint_hash: string;
+                password_capability_secret_commitment: string | "none";
+                password_protected: boolean;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                recipient_device_id: string;
+                recipient_encryption_key_id: string;
+                recipient_user_id: string;
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_capability_secret_commitment: string;
+                share_id: string;
+                token_hash: string;
+                workspace_id: string;
+                workspace_pin_bootstrap_hash: string;
+            } | {
+                invitation_id: string;
+                kek_version: number;
+                recipient_encryption_key_id: string;
+                redeemed_device_id: string;
+                redeemed_user_id: string;
+                role_id: string;
+                workspace_id: string;
+                workspace_invitation_redeemed_event_hash: string;
+            } | {
+                guest_device_id: string;
+                guest_grant_id: string;
+                guest_invitation_id: string;
+                guest_invitation_redeemed_event_hash: string;
+                guest_user_id: string;
+                kek_version: number;
+                /** @enum {string} */
+                permission: "edit";
+                recipient_encryption_key_id: string;
+                /** @enum {string} */
+                scope_id: "none";
+                /** @enum {string} */
+                scope_kind: "workspace";
+                workspace_id: string;
+            } | {
+                dek_version: number;
+                document_scope_hash: string;
+                guest_device_id: string;
+                guest_invitation_id: string;
+                guest_invitation_redeemed_event_hash: string;
+                guest_user_id: string;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                recipient_encryption_key_id: string;
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_id: string;
+                share_key_version: number;
+                workspace_id: string;
+            };
+            sender: {
+                device_id: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace" | "document" | "folder";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: string;
+                user_id: string;
+            };
+            signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            transcript_hash: string;
+        };
+        /** ApproveDeviceRequest */
+        ApproveDeviceRequest: {
+            approval_proof: components["schemas"]["DeviceApprovalProof"];
+            approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            approval_signature_surface: "device_approval";
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_appends: {
+                checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+                events: components["schemas"]["KeyDirectoryEnvelope"][];
+                /** Format: uuid */
+                workspace_id: string;
+            }[];
+        } | {
+            approval_proof: components["schemas"]["DeviceApprovalProof"];
+            approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            approval_signature_surface: "recovery_device_approval";
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_appends: {
+                checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+                events: components["schemas"]["KeyDirectoryEnvelope"][];
+                /** Format: uuid */
+                workspace_id: string;
+            }[];
+        };
+        /** InitialAkeTrustTransferArtifact */
+        InitialAkeTrustTransferArtifact: {
+            /** @enum {string} */
+            ake_suite_id: "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65";
+            /** @enum {integer} */
+            ake_suite_rank: 1000;
+            initiator_commitment: components["schemas"]["InitiatorAkeCommitment"];
+            initiator_commitment_signature: components["schemas"]["HybridSignature"];
+            initiator_confirmation: string;
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            /** @enum {string} */
+            purpose: "trust_transfer";
+            responder_confirmation: string;
+            transcript: components["schemas"]["InitialAkeTrustTransferTranscript"];
+            transcript_hash: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** RevokeInvitationRequest */
+        RevokeInvitationRequest: {
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** InvitationLookupResponse */
+        InvitationLookupResponse: {
+            encrypted_bootstrap_package?: (components["schemas"]["WorkspaceInvitationBootstrapPackage"] | components["schemas"]["GuestInvitationBootstrapPackage"]) | null;
+            /** Format: uuid */
+            invitation_id?: string;
+            kek_version?: number | null;
+            /** @enum {string} */
+            kind: "workspace" | "guest";
+            /** @enum {string|null} */
+            permission?: "view" | "edit" | null;
+            /** Format: uuid */
+            scope_id?: string | null;
+            /** @enum {string|null} */
+            scope_kind?: "workspace" | "document" | "folder" | null;
+            /** Format: uuid */
+            workspace_id?: string | null;
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
+        };
+        /** DeviceKeyDeletionTranscript */
+        DeviceKeyDeletionTranscript: {
+            actor: {
+                /** Format: uuid */
+                device_id: string;
+                key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "workspace";
+                /** @enum {string} */
+                signer_kind: "workspace_device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                user_id: string;
+            };
+            authority_boundary: {
+                deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+                deleted_storage_classes_hash: components["schemas"]["Blake3Base64Url"];
+                old_key_version: number;
+                rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+                /** @enum {string} */
+                rotation_kind: "kek";
+                /** Format: uuid */
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "workspace";
+                /** Format: uuid */
+                workspace_id: string;
+            };
+            /** @enum {string} */
+            label: "RefMD hybrid signature transcript v1";
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature-transcript";
+            signature_suite_id: string;
+            signature_suite_rank: number;
+            /** @enum {string} */
+            signing_purpose: "device_key_deletion_proof";
+            subject_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            subject_protocol: "refmd.device-key-deletion-proof";
+            /** @enum {integer} */
+            subject_version: 1;
+            /** @enum {string} */
+            surface_id: "device_key_deletion_proof";
+            /** @enum {string} */
+            surface_variant: "device_key_deletion_proof";
+            transcript_owner: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            auth_key: string;
+            /** Format: uuid */
+            device_id?: string;
+            /** Format: email */
+            email: string;
+            remember_me?: boolean;
+        };
+        /** PopChallengeResponse */
+        PopChallengeResponse: {
+            actor: {
+                /** Format: uuid */
+                device_id: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                user_id: string;
+            } | {
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "workspace";
+                /** Format: uuid */
+                share_id: string;
+                /** Format: uuid */
+                share_participant_device_id: string;
+                /** Format: uuid */
+                share_participant_principal_id: string;
+                /** @enum {string} */
+                signer_kind: "share_participant_device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+            };
+            challenge: string;
+            session: {
+                is_recovery: boolean;
+                session_id_hash: string;
+                /** @enum {string} */
+                session_kind: "user";
+            } | {
+                is_recovery: boolean;
+                session_id_hash: string;
+                /** @enum {string} */
+                session_kind: "share_participant";
+                /** Format: uuid */
+                share_id: string;
+            };
+        };
+        /** ApprovalDeliveryArtifacts */
+        ApprovalDeliveryArtifacts: {
+            device_approval_kek_initial_deliveries: {
+                delivery: components["schemas"]["InitialKeyDeliveryArtifact"];
+                /** Format: uuid */
+                workspace_id: string;
+            }[];
+            trust_transfer_initial_delivery: components["schemas"]["InitialKeyDeliveryArtifact"];
+            umk_distribution_initial_delivery: components["schemas"]["InitialKeyDeliveryArtifact"];
         };
         /** RecoveryChallengeRequest */
         RecoveryChallengeRequest: {
             /** Format: email */
             email: string;
         };
-        /** CreateDeviceRegistrationResponse */
-        CreateDeviceRegistrationResponse: {
+        /** InvitationResponse */
+        InvitationResponse: components["schemas"]["InvitationListItem"];
+        /** ShareMountCreateResponse */
+        ShareMountCreateResponse: components["schemas"]["ShareMountResponse"];
+        /**
+         * EncryptedMaterialNonce
+         * @description Strict base64url 24-byte XChaCha20-Poly1305 nonce for encrypted material.
+         */
+        EncryptedMaterialNonce: string;
+        /** DeviceHybridEncryptionPublicKeyMaterial */
+        DeviceHybridEncryptionPublicKeyMaterial: {
+            hybrid_public: string;
+            mlkem768_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-encryption-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+            x25519_public: string;
+        };
+        /** WorkspacesListResponse */
+        WorkspacesListResponse: {
+            workspaces: components["schemas"]["WorkspaceResponse"][];
+        };
+        /** InitialKeyDeliveryAuthority */
+        InitialKeyDeliveryAuthority: {
+            /** @enum {string} */
+            sender_authority_kind: "device";
+        };
+        /** SaltResponse */
+        SaltResponse: {
+            kdf_params: components["schemas"]["KdfParams"];
+            salt: string;
+        };
+        /** ShareListItem */
+        ShareListItem: {
+            child_shares: components["schemas"]["ShareChildListItem"][];
+            /** Format: date-time */
+            created_at: string;
+            exclusions: string[];
+            expires_event_sequence?: number;
+            /** Format: uuid */
+            id: string;
+            kdf_params?: components["schemas"]["KdfParams"];
+            max_views?: number;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            salt?: string | null;
+            /** @enum {string} */
+            scope: "document" | "folder";
+            share_link_secret_backup_wraps: components["schemas"]["HybridKeyWrapFields"][];
+            token_prefix: string;
+            view_count: number;
+        };
+        /** LatestKeyDirectoryResponse */
+        LatestKeyDirectoryResponse: {
+            checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            events: components["schemas"]["KeyDirectoryEnvelope"][];
+            pin: components["schemas"]["KeyDirectoryPin"];
+            rotation_deletion_evidences: components["schemas"]["RotationDeletionEvidence"][];
+        };
+        /** ShareTreeEntry */
+        ShareTreeEntry: {
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            document_token: string | null;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            folder_token: string | null;
+            /** Format: uuid */
+            id: string;
+            key_version: number;
+            nonce: string | null;
+            /** Format: uuid */
+            parent_id: string | null;
+            position: number | null;
+            /** Format: uuid */
+            share_id: string;
+            workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
+        };
+        /** DocumentResponse */
+        DocumentResponse: {
+            /** Format: uuid */
+            active_snapshot_id: string | null;
+            /** Format: date-time */
+            archived_at?: string | null;
+            can_sync_publication: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @enum {string} */
+            doc_type: "document" | "folder";
+            encrypted_title?: string | null;
+            encrypted_title_key_version?: number | null;
+            encrypted_title_nonce?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_encrypted: boolean;
+            is_published: boolean;
+            min_dek_version: number;
+            needs_dek_rotation: boolean;
+            needs_rotation_snapshot?: boolean;
+            /** Format: uuid */
+            parent_id?: string | null;
+            path?: string | null;
+            position: number;
+            slug: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** DeviceRegistrationsResponse */
+        DeviceRegistrationsResponse: {
+            devices: components["schemas"]["DeviceRegistrationInfo"][];
+        };
+        /** FolderShareRoot */
+        FolderShareRoot: {
+            folder_token: string;
+            /** @enum {string} */
+            kind: "folder";
+        };
+        /** HybridEncryptionPublicKeyMaterial */
+        HybridEncryptionPublicKeyMaterial: {
+            hybrid_public: string;
+            mlkem768_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "identity" | "device" | "share_participant_device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-encryption-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+            x25519_public: string;
+        };
+        /** InitialAkeApprovalDirectory */
+        InitialAkeApprovalDirectory: {
+            allowed_suite_ids_hash: string;
+            event_head_hash: string;
+            min_suite_rank: number;
+            suite_policy_version: number;
+            user_checkpoint_hash: string;
+            workspace_checkpoint_hash: string;
+        };
+        /** PublicationConflictResponse */
+        PublicationConflictResponse: {
+            error: string;
+            suggested_slug?: string | null;
+        };
+        /** ShareParticipantDeviceSigningPublicKeyMaterial */
+        ShareParticipantDeviceSigningPublicKeyMaterial: {
+            ed25519_public: string;
+            mldsa65_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "share_participant_device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signing-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** GuestInvitationBootstrapPackage */
+        GuestInvitationBootstrapPackage: {
+            aad: components["schemas"]["GuestInvitationBootstrapAad"];
+            encrypted_payload: components["schemas"]["InvitationBootstrapCiphertext"];
+            key_version: number;
+            package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
+            package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            /** @enum {string} */
+            protocol: "refmd.guest-invitation-bootstrap";
+            /** @enum {string} */
+            suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareDocumentBootstrapRequiredResponse */
+        ShareDocumentBootstrapRequiredResponse: {
+            bootstrap_required: boolean;
+            share_token_hash: string;
+        };
+        /** InitialAkeTranscriptInitiator */
+        InitialAkeTranscriptInitiator: {
             /** Format: uuid */
             device_id: string;
+            initiator_commitment_hash: string;
+            mlkem768_enc: string;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            user_id: string;
+            x25519_ephemeral_public: string;
+        };
+        /** LoginKeys */
+        LoginKeys: {
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            encrypted_umk?: string;
+            identity_encryption_key_id: string;
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            umk_nonce?: string;
+        } | null;
+        /** WorkspaceInvitationBootstrapAad */
+        WorkspaceInvitationBootstrapAad: {
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: email */
+            invited_email: string;
+            key_version_context: {
+                workspace_kek_version: number;
+            };
+            /** @enum {string} */
+            protocol: "refmd.workspace-invitation-bootstrap";
+            /** Format: uuid */
+            role_id: string;
+            /** @enum {string} */
+            suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            token_hash: string;
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ShareParticipantDeviceAuthorizationTranscript */
+        ShareParticipantDeviceAuthorizationTranscript: {
+            capability_context_hash: string;
+            /** @enum {string} */
+            label: "RefMD hybrid signature transcript v1";
+            latest_bootstrap_event_hash: string;
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "share_participant_device";
+            participant_encryption_key_id: string;
+            participant_signing_key_id: string;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature-transcript";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document" | "folder";
+            share_created_event_hash: string;
+            /** Format: uuid */
+            share_id: string;
+            /** Format: uuid */
+            share_participant_device_id: string;
+            /** Format: uuid */
+            share_participant_principal_id: string;
+            /** Format: uuid */
+            share_session_id: string;
+            /** @enum {string} */
+            signature_suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            signature_suite_rank: 1000;
+            /** @enum {string} */
+            signing_purpose: "share_participant_device_authorization";
+            /** @enum {string} */
+            surface_id: "share_participant_device_authorization";
+            /** @enum {string} */
+            surface_variant: "none";
+            /** @enum {string} */
+            transcript_owner: "refmd.share.participant_device_authorization";
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** CreateDeviceRegistrationResponse */
+        CreateDeviceRegistrationResponse: {
             status: string;
+        };
+        /** ShareFolderBootstrapResponse */
+        ShareFolderBootstrapResponse: {
+            capability_context_hash: string;
+            created_event_hash: string;
+            entries: components["schemas"]["ShareTreeEntry"][];
+            folder: components["schemas"]["ShareTreeEntry"];
+            latest_bootstrap_event_hash: string;
+            password_capability_secret_commitment: string;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document" | "folder";
+            share_capability_secret_commitment: string;
+            /** Format: uuid */
+            share_id: string;
+            share_token_hash: string;
+            verification_directory: components["schemas"]["ShareVerificationDirectory"];
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
+        };
+        /** ShareVerificationWorkspaceDevice */
+        ShareVerificationWorkspaceDevice: {
+            approval_delivery_artifacts?: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
+            approval_delivery_commitments?: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            approval_proof: components["schemas"]["DeviceApprovalProof"];
+            approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            client_nonce: string;
+            /** Format: uuid */
+            device_id: string;
+            encryption_key_id: string;
+            historical: boolean;
+            hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** RegistrationChallengeResponse */
+        RegistrationChallengeResponse: {
+            expires_in_seconds: number;
+            registration_challenge: string;
+        };
+        /** InitialKeyDeliveryApprovalRecord */
+        InitialKeyDeliveryApprovalRecord: {
+            aead: components["schemas"]["InitialKeyDeliveryAead"];
+            authority: components["schemas"]["InitialKeyDeliveryAuthority"];
+            /** @enum {string} */
+            initial_delivery_suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            initial_delivery_suite_rank: 1000;
+            metadata: components["schemas"]["InitialKeyDeliveryApprovalMetadata"];
+            /** @enum {string} */
+            protocol: "refmd.initial-key-delivery";
+            /** @enum {string} */
+            purpose: "device_approval_kek_initial";
+            signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            variant: "device_approval_kek_initial";
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** UpdateRoleRequest */
+        UpdateRoleRequest: {
+            is_default?: boolean;
+            name?: string;
+            permissions?: components["schemas"]["PermissionOverride"][];
+        };
+        /** InitialKeyDeliveryTrustTransferRecord */
+        InitialKeyDeliveryTrustTransferRecord: {
+            aead: components["schemas"]["InitialKeyDeliveryAead"];
+            authority: components["schemas"]["InitialKeyDeliveryAuthority"];
+            /** @enum {string} */
+            initial_delivery_suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            initial_delivery_suite_rank: 1000;
+            metadata: components["schemas"]["InitialKeyDeliveryTrustTransferMetadata"];
+            /** @enum {string} */
+            protocol: "refmd.initial-key-delivery";
+            /** @enum {string} */
+            purpose: "trust_transfer";
+            signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            variant: "trust_transfer";
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** UpdateShareMountRequest */
+        UpdateShareMountRequest: {
+            /** Format: uuid */
+            parent_id?: string | null;
+            position: number;
+        };
+        /** OldKeyDeletionManifest */
+        OldKeyDeletionManifest: {
+            active_device_deletion_proofs_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_wrap_ids_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            /** @enum {string} */
+            protocol: "refmd.old-key-deletion-manifest";
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            rotation_kind: "kek";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "workspace";
+            server_rejects_old_key_uploads_after_sequence: number;
+            /** @enum {integer} */
+            version: 1;
+            wipe_required_device_ids_hash: components["schemas"]["Blake3Base64Url"];
+        };
+        /** DeviceHybridSigningPublicKeyMaterial */
+        DeviceHybridSigningPublicKeyMaterial: {
+            ed25519_public: string;
+            mldsa65_public: string;
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signing-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** UmkDistributionDeliveryCommitment */
+        UmkDistributionDeliveryCommitment: {
+            delivery_id: string;
+            delivery_record_hash: components["schemas"]["Blake3Base64Url"];
+            key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            purpose: "umk_distribution";
+            recipient_device_id: string;
+            sender_device_id: string;
+            /** @enum {string} */
+            variant: "umk_distribution";
+        };
+        /** DocumentKeyResponse */
+        DocumentKeyResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            is_active: boolean;
+            kek_version: number;
+            key_version: number;
+            nonce: string;
+        };
+        /** KdfParams */
+        KdfParams: {
+            algorithm: string;
+            hash_length: number;
+            iterations: number;
+            memory: number;
+            parallelism: number;
+        };
+        /** ShareDocumentBootstrapResponse */
+        ShareDocumentBootstrapResponse: {
+            /** Format: uuid */
+            authorization_share_id: string;
+            capability_context_hash: string;
+            created_event_hash: string;
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            encrypted_title: string | null;
+            encrypted_title_key_version: number | null;
+            encrypted_title_nonce: string | null;
+            key_version: number;
+            latest_bootstrap_event_hash: string;
+            nonce: string | null;
+            password_capability_secret_commitment: string;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document" | "folder";
+            share_capability_secret_commitment: string;
+            /** Format: uuid */
+            share_id: string;
+            share_token_hash: string;
+            verification_directory: components["schemas"]["ShareVerificationDirectory"];
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
+        };
+        /** InitialKeyDeliveryMetadata */
+        InitialKeyDeliveryMetadata: {
+            ake_transcript_hash: string;
+            context_hash: string;
+            /** Format: uuid */
+            delivery_id: string;
+            initiator_commitment_hash: string;
+            key_checkpoint_hash: string;
+            key_confirmation_hash: string;
+            key_kind: string;
+            key_version: number;
+            payload_kind: string;
+            recipient_challenge_hash: string;
+            /** Format: uuid */
+            recipient_device_id: string;
+            recipient_encryption_key_id: string;
+            resource_hash: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            suite_rank: 1000;
+        };
+        /** Blake3Base64Url */
+        Blake3Base64Url: string;
+        /** RecoveryDataResponse */
+        RecoveryDataResponse: {
+            candidate_user_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            candidate_user_checkpoint_hash?: string;
+            candidate_user_checkpoint_sequence?: number;
+            candidate_user_event_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
+            candidate_user_event_head_hash?: string;
+            candidate_user_event_head_sequence?: number;
+            candidate_workspace_checkpoints?: {
+                checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+                /** Format: uuid */
+                workspace_id: string;
+            }[];
+            encrypted_identity_hybrid_encryption_private_key_material?: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            encrypted_identity_hybrid_signing_private_key_material?: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            hybrid_encryption_public_key_material?: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material?: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_encryption_key_id?: string;
+            identity_hybrid_encryption_private_key_material_nonce?: components["schemas"]["EncryptedMaterialNonce"];
+            identity_hybrid_signing_private_key_material_nonce?: components["schemas"]["EncryptedMaterialNonce"];
+            identity_signing_key_id?: components["schemas"]["Blake3Base64Url"];
+            recovery_encrypted_umk: string;
+            recovery_nonce: string;
+        };
+        /** SharePasswordChallengeRequest */
+        SharePasswordChallengeRequest: {
+            display_name: string;
+            hybrid_encryption_public_key_material: components["schemas"]["ShareParticipantDeviceEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["ShareParticipantDeviceSigningPublicKeyMaterial"];
+            password_challenge_hash: string;
+            response: string;
+            share_capability_authorization: components["schemas"]["ShareCapabilityAuthorization"];
+            share_participant_device_authorization: components["schemas"]["ShareParticipantDeviceAuthorization"];
+            /** Format: uuid */
+            share_participant_device_id: string;
+            /** Format: uuid */
+            share_participant_principal_id: string;
+            /** Format: uuid */
+            share_participant_session_id: string;
+        };
+        /** GuestInvitationBootstrapAad */
+        GuestInvitationBootstrapAad: {
+            /** Format: uuid */
+            guest_invitation_id: string;
+            key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"];
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** @enum {string} */
+            protocol: "refmd.guest-invitation-bootstrap";
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "workspace" | "document" | "folder" | "share";
+            /** @enum {string} */
+            suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            token_hash: string;
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** PasswordResetVerifyResponse */
+        PasswordResetVerifyResponse: {
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
+        };
+        /** SharePasswordChallengeResponse */
+        SharePasswordChallengeResponse: {
+            challenge: string;
+            kdf_params: components["schemas"]["KdfParams"];
+            salt: string;
+        };
+        /** PermissionOverride */
+        PermissionOverride: {
+            granted: boolean;
+            permission: string;
+        };
+        /** RoleResponse */
+        RoleResponse: {
+            /** @enum {string} */
+            base_role: "owner" | "admin" | "editor" | "viewer" | "guest";
+            catalog_version?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            permissions?: components["schemas"]["PermissionOverride"][];
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** RolesListResponse */
+        RolesListResponse: {
+            roles: components["schemas"]["RoleResponse"][];
+        };
+        /** WorkspaceRotationInfo */
+        WorkspaceRotationInfo: {
+            current_kek_version: number;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** CreateWorkspaceKeyRequest */
+        CreateWorkspaceKeyRequest: {
+            /** Format: uuid */
+            device_id: string;
+            event: {
+                wrap_event_body_hash: string;
+                wrap_event_hash: string;
+                wrap_event_sequence: number;
+            };
+            event_scope: {
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace" | "document" | "folder";
+            };
+            hpke: {
+                /** @enum {integer} */
+                aead_id: 3;
+                ciphertext: string;
+                enc: string;
+                /** @enum {integer} */
+                kdf_id: 1;
+                /** @enum {integer} */
+                kem_id: 25722;
+                /** @enum {string} */
+                mode: "base";
+            };
+            is_active?: boolean;
+            key_version: number;
+            operation_checkpoint: {
+                checkpoint_hash: string;
+                checkpoint_sequence: number;
+                covered_event_head_hash: string;
+                covered_event_head_sequence: number;
+            };
+            /** @enum {string} */
+            protocol: "refmd.signed-pq-hybrid-wrap";
+            /** @enum {integer} */
+            protocol_version: 1;
+            /** @enum {string} */
+            purpose: "workspace_device_kek_wrap" | "workspace_member_kek_wrap" | "share_participant_bootstrap_wrap" | "share_link_secret_backup_wrap" | "workspace_invitation_kek_wrap" | "guest_invitation_workspace_kek_wrap" | "guest_invitation_share_key_wrap";
+            recipient: {
+                device_id?: string;
+                encryption_key_id: string;
+                guest_device_id?: string;
+                guest_user_id?: string;
+                invitee_device_id?: string;
+                invitee_user_id?: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace" | "document" | "folder";
+                /** @enum {string} */
+                recipient_kind: "device" | "user_identity" | "invitee" | "guest" | "share_participant_device";
+                share_participant_device_id?: string;
+                share_participant_principal_id?: string;
+                user_id?: string;
+            };
+            resource: {
+                kek_version: number;
+                target_device_id: string;
+                target_user_id: string;
+                workspace_id: string;
+            } | {
+                kek_version: number;
+                target_user_id: string;
+                workspace_id: string;
+            } | {
+                bootstrap_version: number;
+                dek_version: number;
+                document_scope_hash: string;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_id: string;
+                share_key_version: number;
+                share_participant_device_id: string;
+                share_participant_principal_id: string;
+                share_session_id: string;
+                workspace_id: string;
+            } | {
+                created_event_hash: string;
+                key_checkpoint_hash: string;
+                password_capability_secret_commitment: string | "none";
+                password_protected: boolean;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                recipient_device_id: string;
+                recipient_encryption_key_id: string;
+                recipient_user_id: string;
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_capability_secret_commitment: string;
+                share_id: string;
+                token_hash: string;
+                workspace_id: string;
+                workspace_pin_bootstrap_hash: string;
+            } | {
+                invitation_id: string;
+                kek_version: number;
+                recipient_encryption_key_id: string;
+                redeemed_device_id: string;
+                redeemed_user_id: string;
+                role_id: string;
+                workspace_id: string;
+                workspace_invitation_redeemed_event_hash: string;
+            } | {
+                guest_device_id: string;
+                guest_grant_id: string;
+                guest_invitation_id: string;
+                guest_invitation_redeemed_event_hash: string;
+                guest_user_id: string;
+                kek_version: number;
+                /** @enum {string} */
+                permission: "edit";
+                recipient_encryption_key_id: string;
+                /** @enum {string} */
+                scope_id: "none";
+                /** @enum {string} */
+                scope_kind: "workspace";
+                workspace_id: string;
+            } | {
+                dek_version: number;
+                document_scope_hash: string;
+                guest_device_id: string;
+                guest_invitation_id: string;
+                guest_invitation_redeemed_event_hash: string;
+                guest_user_id: string;
+                /** @enum {string} */
+                permission: "view" | "edit";
+                recipient_encryption_key_id: string;
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "document" | "folder";
+                share_id: string;
+                share_key_version: number;
+                workspace_id: string;
+            };
+            sender: {
+                device_id: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace" | "document" | "folder";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: string;
+                user_id: string;
+            };
+            /** Format: uuid */
+            sender_device_id: string;
+            signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** Format: uuid */
+            target_user_id: string;
+            transcript_hash: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** SaveMemberEnvelopesRequest */
+        SaveMemberEnvelopesRequest: {
+            envelopes: components["schemas"]["MemberEnvelopeItem"][];
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** InitialAkeRequiredComponents */
+        InitialAkeRequiredComponents: ("x25519-ephemeral" | "mlkem768-ephemeral" | "hkdf-sha256" | "initiator-ake-commitment" | "responder-prekey-signature")[];
+        /** WorkspaceInvitationBootstrapPackage */
+        WorkspaceInvitationBootstrapPackage: {
+            aad: components["schemas"]["WorkspaceInvitationBootstrapAad"];
+            encrypted_payload: components["schemas"]["InvitationBootstrapCiphertext"];
+            key_version: number;
+            package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
+            package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            /** @enum {string} */
+            protocol: "refmd.workspace-invitation-bootstrap";
+            /** @enum {string} */
+            suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** DeviceRegistrationStatusResponse */
+        DeviceRegistrationStatusResponse: {
+            /** @enum {string} */
+            status: "pending" | "approved" | "expired";
+        };
+        /** DeviceApprovalProof */
+        DeviceApprovalProof: {
+            /** @enum {string} */
+            approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            approval_surface_id: string;
+            /** @enum {string} */
+            approval_surface_variant: "none";
+            approval_transcript_hash: components["schemas"]["Blake3Base64Url"];
+            approval_transcript_owner: string;
+            approving_key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            approving_key_checkpoint_sequence: number;
+            approving_owner_id: string;
+            /** @enum {string} */
+            approving_owner_kind: "device" | "identity";
+            approving_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            protocol: "refmd.device-approval-proof";
+            surface_details: {
+                /** @enum {string} */
+                kind: "genesis_device_bootstrap";
+                registration_challenge_hash: components["schemas"]["Blake3Base64Url"];
+                user_identity_public_key_hash: components["schemas"]["Blake3Base64Url"];
+            } | {
+                approved_device_registration_sas_hash: components["schemas"]["Blake3Base64Url"];
+                approving_device_key_directory_proof_hash: components["schemas"]["Blake3Base64Url"];
+                device_approval_kek_initial_delivery_commitments: components["schemas"]["DeviceApprovalKekInitialDeliveryCommitment"][];
+                /** @enum {string} */
+                kind: "device_approval";
+                pending_registration_challenge_hash: components["schemas"]["Blake3Base64Url"];
+                pending_registration_id: string;
+                trust_transfer_delivery_commitment: components["schemas"]["TrustTransferDeliveryCommitment"];
+                umk_distribution_delivery_commitment: components["schemas"]["UmkDistributionDeliveryCommitment"];
+            } | {
+                /** @enum {string} */
+                kind: "recovery_device_approval";
+                pending_registration_binding_hash: components["schemas"]["Blake3Base64Url"];
+                pending_registration_challenge_hash: components["schemas"]["Blake3Base64Url"];
+                pending_registration_id: string;
+                recovery_capability_hash: components["schemas"]["Blake3Base64Url"];
+                recovery_session_transcript_hash: components["schemas"]["Blake3Base64Url"];
+            };
+            target_device_client_nonce_hash: components["schemas"]["Blake3Base64Url"];
+            target_device_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            target_device_hybrid_encryption_public_key_material_hash: components["schemas"]["Blake3Base64Url"];
+            target_device_hybrid_signing_public_key_material_hash: components["schemas"]["Blake3Base64Url"];
+            target_device_id: string;
+            target_device_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            target_key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            target_key_checkpoint_sequence: number;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** CreateRoleRequest */
+        CreateRoleRequest: {
+            /** @enum {string} */
+            base_role: "admin" | "editor" | "viewer";
+            name: string;
+            permissions?: components["schemas"]["PermissionOverride"][];
+        };
+        /** TrustTransferDeliveryCommitment */
+        TrustTransferDeliveryCommitment: {
+            ake_session_id: string;
+            delivery_id: string;
+            delivery_record_hash: components["schemas"]["Blake3Base64Url"];
+            document_rollback_pin_set_hash: components["schemas"]["Blake3Base64Url"];
+            key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            purpose: "trust_transfer";
+            recipient_device_id: string;
+            sender_device_id: string;
+            /** @enum {string} */
+            variant: "trust_transfer";
+        };
+        /** RevokeDeviceResponse */
+        RevokeDeviceResponse: {
+            revocation_mode: string;
+            /** Format: uuid */
+            revoked_device_id: string;
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
+        };
+        /** CreateDocumentShareRequest */
+        CreateDocumentShareRequest: {
+            auth_key?: string;
+            authenticated_workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"];
+            authenticated_workspace_pin_bootstrap_hash: string;
+            authorization_public_key_material: components["schemas"]["ShareCapabilitySigningPublicKeyMaterial"];
+            encrypted_dek: string;
+            expires_event_sequence: number;
+            /** Format: uuid */
+            id: string;
+            kdf_params?: components["schemas"]["KdfParams"];
+            max_views: number;
+            nonce: string;
+            password_capability_secret_commitment: string | "none";
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            salt?: string;
+            /** @enum {string} */
+            scope: "document";
+            share_capability_secret_commitment: string;
+            share_link_secret_backup_wraps: components["schemas"]["HybridKeyWrapFields"][];
+            share_slug: string;
+            token_prefix: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** ShareMountBootstrapMountSummary */
+        ShareMountBootstrapMountSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            status: "active";
+        };
+        /** ShareVerificationParticipantDevice */
+        ShareVerificationParticipantDevice: {
+            approval_delivery_artifacts?: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
+            approval_delivery_commitments?: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            approval_proof?: components["schemas"]["DeviceApprovalProof"] | null;
+            approval_signature?: components["schemas"]["HybridSignature"] | null;
+            approval_signature_surface?: string | null;
+            authorization_public_key_material?: components["schemas"]["ShareCapabilitySigningPublicKeyMaterial"] | null;
+            client_nonce?: string | null;
+            /** Format: uuid */
+            device_id: string;
+            display_name: string | null;
+            encryption_key_id: string | null;
+            historical: boolean;
+            hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"] | null;
+            hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_public_key_material?: components["schemas"]["HybridEncryptionPublicKeyMaterial"] | null;
+            identity_hybrid_signing_public_key_material?: components["schemas"]["HybridSigningPublicKeyMaterial"] | null;
+            /** @enum {string} */
+            participant_device_kind: "share_participant_device";
+            /** Format: uuid */
+            principal_id: string;
+            share_capability_context_hash?: string | null;
+            share_capability_secret_commitment?: string | null;
+            share_created_event_hash?: string | null;
+            /** Format: uuid */
+            share_id: string | null;
+            share_latest_bootstrap_event_hash?: string | null;
+            share_password_protected?: boolean | null;
+            /** @enum {string|null} */
+            share_permission?: "view" | "edit" | null;
+            share_scope_id?: string | null;
+            /** @enum {string|null} */
+            share_scope_kind?: "document" | "folder" | null;
+            /** Format: uuid */
+            share_session_id: string | null;
+            share_token_hash?: string | null;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+        };
+        /** BootstrapDeviceRequest */
+        BootstrapDeviceRequest: {
+            client_nonce: string;
+            device_encryption_key_id: string;
+            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            device_id: string;
+            device_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            device_type: string;
+            identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_signature: components["schemas"]["HybridSignature"];
+            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            name: string;
+            registration_challenge: string;
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** MemberDeviceInfo */
+        MemberDeviceInfo: {
+            approval_delivery_commitments?: components["schemas"]["ApprovalDeliveryCommitments"] | null;
+            approval_proof: components["schemas"]["DeviceApprovalProof"];
+            approval_signature: components["schemas"]["HybridSignature"];
+            /** @enum {string} */
+            approval_signature_surface: "genesis_device_bootstrap" | "device_approval" | "recovery_device_approval";
+            client_nonce: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            device_id: string;
+            encryption_key_id: string;
+            hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            /** Format: date-time */
+            revoked_at?: string | null;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+        };
+        /** RemoveMemberRequest */
+        RemoveMemberRequest: {
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** ShareMountFolderResponse */
+        ShareMountFolderResponse: {
+            entries: components["schemas"]["MountedShareTreeEntry"][];
+            folder: components["schemas"]["MountedShareTreeEntry"];
+            mount: components["schemas"]["ShareMountFolderMountSummary"];
+        };
+        /** RoleDeleteResponse */
+        RoleDeleteResponse: {
+            invalidated_invitation_count: number;
+            ok: boolean;
+        };
+        /** MembersListResponse */
+        MembersListResponse: {
+            members: components["schemas"]["MemberInfo"][];
+        };
+        /** CreateShareRequest */
+        CreateShareRequest: components["schemas"]["CreateDocumentShareRequest"] | components["schemas"]["CreateFolderShareRequest"];
+        /** GuestInvitationResponse */
+        GuestInvitationResponse: {
+            bootstrap_key_commitment: string;
+            bootstrap_package_hash: string;
+            bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
+            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            /** @enum {string} */
+            bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
+            capability_context_hash: string;
+            /** Format: date-time */
+            created_at: string;
+            encrypted_bootstrap_package: components["schemas"]["GuestInvitationBootstrapPackage"];
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: uuid */
+            invited_by: string;
+            kek_version: number;
+            max_redemptions?: number | null;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            redemption_count: number;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** Format: uuid */
+            scope_id?: string | null;
+            /** @enum {string} */
+            scope_kind: "workspace" | "document" | "folder" | "share";
+            token_prefix: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** DevicesResponse */
+        DevicesResponse: {
+            devices: components["schemas"]["DeviceFullInfo"][];
+        };
+        /** RegisterRequest */
+        RegisterRequest: {
+            auth_key: string;
+            /** Format: email */
+            email: string;
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            encrypted_umk: string;
+            hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            kdf_params: components["schemas"]["KdfParams"];
+            name: string;
+            recovery_authorization_key_id: string;
+            recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            recovery_encrypted_umk: string;
+            recovery_nonce: string;
+            salt: string;
+            umk_nonce: string;
+            /**
+             * Format: uuid
+             * @description Client-generated UUID for AAD binding
+             */
+            user_id: string;
+        };
+        /** InitialAkeUmkDirectory */
+        InitialAkeUmkDirectory: {
+            allowed_suite_ids_hash: string;
+            min_suite_rank: number;
+            suite_policy_version: number;
+            user_checkpoint_hash: string;
+            user_event_head_hash: string;
+        };
+        /** PublicationContentResponse */
+        PublicationContentResponse: {
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** InitiatorAkeCommitmentInputs */
+        InitiatorAkeCommitmentInputs: {
+            mlkem768_enc: string;
+            responder_prekey_hash: string;
+            x25519_ephemeral_public: string;
+        };
+        /** ShareManagementRequest */
+        ShareManagementRequest: {
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** UpdateWorkspaceFeaturesRequest */
+        UpdateWorkspaceFeaturesRequest: {
+            guest_invites_enabled?: boolean;
+            guest_member_limit?: number | null;
+            public_author_bio?: string | null;
+            public_author_display_name?: string | null;
+            public_author_slug?: string | null;
+            public_publishing_enabled?: boolean;
+            share_links_enabled?: boolean;
+        };
+        /** KdfMigrationRequest */
+        KdfMigrationRequest: {
+            new_auth_key: string;
+            new_encrypted_umk: string;
+            new_kdf_params: components["schemas"]["KdfParams"];
+            new_nonce: string;
+        };
+        /** ShareLinkMountListItem */
+        ShareLinkMountListItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            target_kind: "document" | "folder";
+            target_token: string | null;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** WsTokenResponse */
+        WsTokenResponse: {
+            token: string;
+        };
+        /** RecoverySessionRequest */
+        RecoverySessionRequest: {
+            candidate_user_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            candidate_user_checkpoint_hash: string;
+            candidate_user_checkpoint_sequence: number;
+            candidate_user_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            candidate_user_event_head_hash: string;
+            candidate_user_event_head_sequence: number;
+            challenge: string;
+            /** Format: email */
+            email: string;
+            pending_registration_binding_hash: string;
+            /** Format: uuid */
+            pending_registration_id: string;
+            /** Format: uuid */
+            recipient_device_id: string;
+            recovery_authorization_key_id: string;
+            recovery_authorization_proof: components["schemas"]["HybridSignature"];
+            recovery_capability_hash: string;
+            /** Format: uuid */
+            recovery_session_id: string;
+            recovery_session_signature: components["schemas"]["HybridSignature"];
+            recovery_session_transcript_hash: string;
+            target_key_checkpoint_hash: string;
+            target_key_checkpoint_sequence: number;
+        };
+        /** InitialKeyDeliveryTrustTransferMetadata */
+        InitialKeyDeliveryTrustTransferMetadata: {
+            ake_transcript_hash: string;
+            context_hash: string;
+            /** Format: uuid */
+            delivery_id: string;
+            document_rollback_pin_set_hash: string;
+            initiator_commitment_hash: string;
+            key_checkpoint_hash: string;
+            key_confirmation_hash: string;
+            key_kind: string;
+            key_version: number;
+            payload_kind: string;
+            recipient_challenge_hash: string;
+            /** Format: uuid */
+            recipient_device_id: string;
+            recipient_encryption_key_id: string;
+            resource_hash: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            suite_rank: 1000;
         };
     };
     responses: never;
@@ -2810,55 +10366,52 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    "RefMDWeb.RoleController.index": {
+    post_api_mounts_by_mount_id_documents_by_document_token_bootstrap: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
-                workspace_id: string;
+                mount_id: string;
+                document_token: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Mount bootstrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareMountBootstrapRequest"];
+            };
+        };
         responses: {
-            /** @description Role list */
+            /** @description Share mount document */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RolesListResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.RoleController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Role params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateRoleRequest"];
-            };
-        };
-        responses: {
-            /** @description Created role */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoleResponse"];
+                    "application/json": components["schemas"]["ShareMountDocumentResponse"];
                 };
             };
             /** @description Invalid */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2875,8 +10428,8 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Validation error */
-            422: {
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2886,22 +10439,24 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.get_recovery": {
+    get_api_shares_by_share_slug: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                share_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Recovery data */
+            /** @description Share landing */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecoveryDataResponse"];
+                    "application/json": components["schemas"]["ShareLandingResponse"];
                 };
             };
             /** @description Not found */
@@ -2915,10 +10470,109 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.TrustTransferController.get_state": {
+    get_api_shares_d_by_document_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document route metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareDocumentBootstrapRequiredResponse"] | components["schemas"]["ShareDocumentRouteMetadataResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_recovery_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recovery session request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoverySessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovery session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoverySessionResponse"];
+                };
+            };
+            /** @description Invalid recovery */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Login params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Login response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_auth_salt: {
         parameters: {
             query: {
-                device_id: string;
+                email: string;
             };
             header?: never;
             path?: never;
@@ -2926,13 +10580,44 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Trust state */
+            /** @description Salt response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrustTransferGetResponse"];
+                    "application/json": components["schemas"]["SaltResponse"];
+                };
+            };
+        };
+    };
+    get_api_devices_by_device_id_keys_umk: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description UMK data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetUmkResponse"];
                 };
             };
             /** @description Invalid device */
@@ -2955,22 +10640,33 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.TrustTransferController.send_state": {
+    post_api_devices_by_device_id_keys_umk: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                device_id: string;
+            };
             cookie?: never;
         };
-        /** @description Trust state */
-        requestBody?: {
+        /** @description UMK distribution params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TrustTransferSendRequest"];
+                "application/json": components["schemas"]["DistributeUmkRequest"];
             };
         };
         responses: {
-            /** @description State saved */
-            200: {
+            /** @description UMK distributed */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2987,101 +10683,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Payload too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.GuestInvitationController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Guest invitation list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GuestInvitationsListResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.GuestInvitationController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Guest invitation params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateGuestInvitationRequest"];
-            };
-        };
-        responses: {
-            /** @description Created guest invitation */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GuestInvitationResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
+            /** @description UMK already distributed */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3101,129 +10703,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.WorkspaceController.update_features": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Feature params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdateWorkspaceFeaturesRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated workspace */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PasswordController.regenerate_recovery_key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Recovery key params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RegenerateRecoveryKeyRequest"];
-            };
-        };
-        responses: {
-            /** @description Recovery key updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Update failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.InvitationController.lookup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Lookup params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["InvitationLookupRequest"];
-            };
-        };
-        responses: {
-            /** @description Invitation kind */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationLookupResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.ws_token": {
+    get_api_auth_key_restore: {
         parameters: {
             query?: never;
             header?: never;
@@ -3232,16 +10712,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description WS token */
+            /** @description Key restore payload */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WsTokenResponse"];
+                    "application/json": components["schemas"]["LoginKeys"];
                 };
             };
-            /** @description Unauthorized */
+            /** @description Not authenticated */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3250,128 +10730,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-        };
-    };
-    "RefMDWeb.ShareMountController.share_mounts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_slug: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Share mounts */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareMountLookupResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Approval params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ApproveDeviceRequest"];
-            };
-        };
-        responses: {
-            /** @description Approved device */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApproveDeviceResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Approval failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.KekRotationController.save_member_envelopes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Member envelopes */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["SaveMemberEnvelopesRequest"];
-            };
-        };
-        responses: {
-            /** @description Envelopes saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Not authorized */
+            /** @description Device is not verified */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3382,306 +10741,24 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.DocumentController.show": {
+    post_api_workspaces_invitations_accept: {
         parameters: {
             query?: never;
-            header?: never;
-            path: {
-                document_id: string;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Cannot delete */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Update params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdateDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated document */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentShareController.verification_directory": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Verification directory */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareVerificationDirectory"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.SettingsController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description User settings */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SettingsResponse"];
-                };
-            };
-            /** @description Settings not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.SettingsController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Settings params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdateSettingsRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated settings */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SettingsResponse"];
-                };
-            };
-            /** @description Settings not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PasswordController.password_reset_request": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Reset request */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PasswordResetRequestBody"];
-            };
-        };
-        responses: {
-            /** @description Request accepted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Logout result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.InvitationController.accept": {
-        parameters: {
-            query?: never;
-            header?: never;
             path?: never;
             cookie?: never;
         };
         /** @description Accept params */
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["AcceptInvitationRequest"];
             };
@@ -3743,883 +10820,29 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.ShareController.challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_slug: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Password challenge */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharePasswordChallengeResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareController.respond_challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_slug: string;
-            };
-            cookie?: never;
-        };
-        /** @description Challenge response */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["SharePasswordChallengeRequest"];
-            };
-        };
-        responses: {
-            /** @description Bootstrap result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareBootstrapResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PasswordController.password_set": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Password set params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PasswordSetRequest"];
-            };
-        };
-        responses: {
-            /** @description Password set */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PasswordSetResponse"];
-                };
-            };
-            /** @description Not a recovery session */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Update failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Login params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Login response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LoginResponse"];
-                };
-            };
-            /** @description Invalid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareMountController.folder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                mount_id: string;
-                folder_token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Mounted folder subtree */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareMountFolderResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.reject_registration": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Rejection result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareMountController.index": {
-        parameters: {
-            query: {
-                workspace_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Share mount list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareMountListResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareMountController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Share mount params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateShareMountRequest"];
-            };
-        };
-        responses: {
-            /** @description Created mount */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareMountCreateResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareMountConflictResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareMountController.challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                mount_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Password challenge */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharePasswordChallengeResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareMountController.respond_challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                mount_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Challenge response */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ShareMountChallengeRequest"];
-            };
-        };
-        responses: {
-            /** @description Challenge result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareMountDocumentChallengeResponse"] | components["schemas"]["ShareMountFolderChallengeResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.pop_challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Challenge response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PopChallengeResponse"];
-                };
-            };
-            /** @description Invalid device */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.index": {
-        parameters: {
-            query: {
-                workspace_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentsListResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Document params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Created document */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentKeyController.get_document_keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document keys */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentKeysResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentKeyController.create_document_key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description DEK params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateDocumentKeyRequest"];
-            };
-        };
-        responses: {
-            /** @description Key created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Version already exists */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PublicDocumentController.show_author": {
+    get_api_public_authors_by_author_slug_documents_by_document_slug: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 author_slug: string;
+                document_slug: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Public author */
+            /** @description Public document */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublicAuthorResponse"];
+                    "application/json": components["schemas"]["PublicDocumentResponse"];
                 };
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Archived document */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Already archived */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Registration params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description Registration response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegisterResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_slug: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Share landing */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareLandingResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.GuestInvitationController.redeem": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Redeem guest invitation params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RedeemGuestInvitationRequest"];
-            };
-        };
-        responses: {
-            /** @description Redeemed guest invitation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RedeemGuestInvitationResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4638,29 +10861,101 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.get_workspace_keys": {
+    delete_api_workspaces_by_workspace_id_roles_by_role_id: {
         parameters: {
-            query: {
-                device_id: string;
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
-            header?: never;
             path: {
                 workspace_id: string;
+                role_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Workspace keys */
+            /** @description Deleted */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkspaceKeysResponse"];
+                    "application/json": components["schemas"]["RoleDeleteResponse"];
                 };
             };
-            /** @description Bad request */
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot delete */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_workspaces_by_workspace_id_roles_by_role_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                role_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Update params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleResponse"];
+                };
+            };
+            /** @description Invalid permission */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4687,31 +10982,83 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
-    "RefMDWeb.EncryptionController.create_workspace_key": {
+    post_api_auth_recovery_challenge: {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recovery challenge request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoveryChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Challenge response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryChallengeResponse"];
+                };
+            };
+        };
+    };
+    patch_api_workspaces_by_workspace_id_features: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
                 workspace_id: string;
             };
             cookie?: never;
         };
-        /** @description Key params */
-        requestBody?: {
+        /** @description Feature params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateWorkspaceKeyRequest"];
+                "application/json": components["schemas"]["UpdateWorkspaceFeaturesRequest"];
             };
         };
         responses: {
-            /** @description Key created */
-            201: {
+            /** @description Updated workspace */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation error */
@@ -4725,65 +11072,42 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.MemberController.devices": {
+    post_api_encryption_workspaces_by_workspace_id_kek_rotation: {
         parameters: {
-            query?: {
-                include_revoked?: boolean;
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
-            header?: never;
             path: {
                 workspace_id: string;
-                user_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Member devices */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberDevicesResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.verify_key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Verify key params */
-        requestBody?: {
+        /** @description Start params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["VerifyKeyRequest"];
+                "application/json": components["schemas"]["KekRotationStartRequest"];
             };
         };
         responses: {
-            /** @description Valid */
+            /** @description Rotation started */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["KekRotationStartResponse"];
                 };
             };
-            /** @description Invalid credentials */
-            401: {
+            /** @description Not authorized */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4791,58 +11115,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-        };
-    };
-    "RefMDWeb.AuthController.me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session info */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MeResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareController.folder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                folder_token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Folder bootstrap */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareFolderBootstrapResponse"] | components["schemas"]["ShareDocumentBootstrapRequiredResponse"];
-                };
-            };
-            /** @description Not found */
+            /** @description Workspace not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4851,19 +11124,145 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Rotation already in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid key directory */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
-    "RefMDWeb.GuestInvitationController.delete": {
+    get_api_workspaces_by_workspace_id_roles: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolesListResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_roles: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Role params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created role */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id_guest_invitations_by_invitation_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
                 workspace_id: string;
                 invitation_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Revocation params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeInvitationRequest"];
+            };
+        };
         responses: {
             /** @description Revoked */
             204: {
@@ -4912,324 +11311,38 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.DocumentShareController.admin_delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-                share_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.EncryptionController.get_kek_backup": {
-        parameters: {
-            query?: {
-                key_version?: number;
-            };
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description KEK backup */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KekBackupResponse"];
-                };
-            };
-            /** @description Not a member */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.EncryptionController.create_kek_backup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Backup params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateKekBackupRequest"];
-            };
-        };
-        responses: {
-            /** @description Backup created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Workspace not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Version mismatch */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.WorkspaceController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Workspace list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspacesListResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.WorkspaceController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Workspace params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateWorkspaceRequest"];
-            };
-        };
-        responses: {
-            /** @description Created workspace */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.reorder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Reorder params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ReorderDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Reordered document */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentShareController.update_exclusions": {
+    put_api_documents_by_document_id_publication_content: {
         parameters: {
             query?: never;
             header: {
-                authorization: string;
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
-                share_id: string;
             };
             cookie?: never;
         };
-        /** @description Share exclusion update params */
-        requestBody?: {
+        /** @description Publication content */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateShareExclusionsRequest"];
+                "application/json": components["schemas"]["UpdatePublicationContentRequest"];
             };
         };
         responses: {
-            /** @description Updated exclusions */
+            /** @description Content sync result */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ShareExclusionsResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PublicDocumentController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Publication */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicationResponse"];
+                    "application/json": components["schemas"]["PublicationContentResponse"];
                 };
             };
             /** @description Forbidden */
@@ -5248,60 +11361,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PublicDocumentController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Publication params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreatePublicationRequest"];
-            };
-        };
-        responses: {
-            /** @description Publication */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicationResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicationConflictResponse"];
                 };
             };
             /** @description Too large */
@@ -5324,378 +11383,19 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.PublicDocumentController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.PublicDocumentController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Publication settings */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdatePublicationRequest"];
-            };
-        };
-        responses: {
-            /** @description Publication */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicationResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicationConflictResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareController.document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document bootstrap */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareDocumentBootstrapResponse"] | components["schemas"]["ShareDocumentBootstrapRequiredResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareController.bootstrap": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_slug: string;
-            };
-            cookie?: never;
-        };
-        /** @description Bootstrap params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ShareBootstrapRequest"];
-            };
-        };
-        responses: {
-            /** @description Bootstrap result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareBootstrapResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.EncryptionController.setup_complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Setup complete */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentShareController.update_keys": {
+    get_api_workspaces_by_workspace_id_invitations: {
         parameters: {
             query?: never;
             header: {
-                authorization: string;
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
-            path: {
-                document_id: string;
-                share_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Share key update params */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateShareKeysRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated share keys */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShareKeysUpdateResponse"];
-                };
-            };
-            /** @description Invalid */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentController.unarchive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Unarchived document */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not archived or ancestor archived */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.list_registrations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Device registrations */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceRegistrationsResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.create_registration": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Device params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateDeviceRegistrationRequest"];
-            };
-        };
-        responses: {
-            /** @description Device registration */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateDeviceRegistrationResponse"];
-                };
-            };
-            /** @description Re-authentication required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.InvitationController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
             path: {
                 workspace_id: string;
             };
@@ -5723,17 +11423,26 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.InvitationController.create": {
+    post_api_workspaces_by_workspace_id_invitations: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
                 workspace_id: string;
             };
             cookie?: never;
         };
         /** @description Invitation params */
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateInvitationRequest"];
             };
@@ -5795,30 +11504,65 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.recovery_session": {
+    get_api_workspaces_by_workspace_id_members: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MembersListResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_auth_me: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Recovery session request */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RecoverySessionRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Recovery session */
+            /** @description Session info */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecoverySessionResponse"];
+                    "application/json": components["schemas"]["MeResponse"];
                 };
             };
-            /** @description Invalid recovery */
+            /** @description Not authenticated */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5829,28 +11573,28 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.KekRotationController.start_kek_rotation": {
+    get_api_invitations_lookup: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
+            query: {
+                token: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Rotation started */
+            /** @description Invitation kind */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KekRotationStartResponse"];
+                    "application/json": components["schemas"]["InvitationLookupResponse"];
                 };
             };
-            /** @description Not authorized */
-            403: {
+            /** @description Invalid */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5858,17 +11602,8 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Workspace not found */
+            /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Rotation already in progress */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5878,27 +11613,195 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.TrustTransferController.create_nonce": {
+    get_api_workspaces_by_workspace_id_member_keys: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMemberKeysResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_documents_by_document_id_archive: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Already archived */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_shares_d_by_document_token_bootstrap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_token: string;
+            };
+            cookie?: never;
+        };
+        /** @description Canonical bootstrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareCanonicalBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Document bootstrap */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareDocumentBootstrapResponse"] | components["schemas"]["ShareDocumentBootstrapRequiredResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_verify_key: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description Nonce request */
-        requestBody?: {
+        /** @description Verify key params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["TrustTransferNonceRequest"];
+                "application/json": components["schemas"]["VerifyKeyRequest"];
             };
         };
         responses: {
-            /** @description Nonce response */
+            /** @description Valid */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrustTransferNonceResponse"];
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_pop_challenge: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Set to share to select the share participant session cookie on dual-session routes. */
+                "x-refmd-session-scope"?: "share";
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Challenge response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PopChallengeResponse"];
                 };
             };
             /** @description Invalid device */
@@ -5912,11 +11815,856 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.DocumentShareController.delete": {
+    get_api_workspaces_by_workspace_id_guest_invitations: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guest invitation list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestInvitationsListResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_guest_invitations: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Guest invitation params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGuestInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created guest invitation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_shares_by_share_slug_bootstrap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        /** @description Bootstrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Bootstrap result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareBootstrapResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_password_reset_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Reset request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Request accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_logout: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string;
+                /** @description Set to share to select the share participant session cookie on dual-session routes. */
+                "x-refmd-session-scope"?: "share";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Logout params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Logout result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    get_api_documents: {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentsListResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_documents: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Document params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created document */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Document id already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_devices_registrations_by_device_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejection result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Registration params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registration response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_public_authors_by_author_slug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                author_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public author */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAuthorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_password_reset_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Token verification */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetVerifyBody"];
+            };
+        };
+        responses: {
+            /** @description Session created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetVerifyResponse"];
+                };
+            };
+            /** @description Invalid token */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Not a member */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_workspaces_by_workspace_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Update params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id_members_by_user_id_devices: {
+        parameters: {
+            query?: {
+                include_revoked?: boolean;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberDevicesResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_documents_by_document_id_share_verification_directory: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verification directory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareVerificationDirectory"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_devices_registrations_challenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registration challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationChallengeResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id_key_directory_latest: {
+        parameters: {
+            query: {
+                checkpoint_sequence: number;
+                event_head_sequence: number;
+                checkpoint_hash: string;
+                event_head_hash: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device" | "share_participant_device";
+                /** @description Set to share to select the share participant session cookie on dual-session routes. */
+                "x-refmd-session-scope"?: "share";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest key directory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestKeyDirectoryResponse"];
+                };
+            };
+            /** @description Invalid pin */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Pin mismatch */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_devices_bootstrap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bootstrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BootstrapDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Bootstrapped device */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BootstrapDeviceResponse"];
+                };
+            };
+            /** @description Already has devices */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_kdf_migration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description KDF migration params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KdfMigrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Migration result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Migration failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_documents_by_document_id_shares_by_share_id_admin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -5924,7 +12672,12 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Share deletion key directory */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareManagementRequest"];
+            };
+        };
         responses: {
             /** @description Deleted */
             204: {
@@ -5964,11 +12717,855 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.DocumentShareController.update": {
+    get_api_shares_by_share_slug_mounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share link mount list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinkMountListResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_devices_bootstrap_challenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registration challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationChallengeResponse"];
+                };
+            };
+            /** @description Already has devices */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id_invitations_by_invitation_id: {
         parameters: {
             query?: never;
             header: {
-                authorization: string;
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Revocation params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid ID format */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_password_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Password set params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Password set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordSetResponse"];
+                };
+            };
+            /** @description Not a recovery session */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Update failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    put_api_auth_recovery_key: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recovery key params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegenerateRecoveryKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovery key updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Update failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_auth_password: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Password change params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Invalid current password */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Update failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_shares_f_by_folder_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Folder route metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareDocumentBootstrapRequiredResponse"] | components["schemas"]["ShareFolderRouteMetadataResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_devices_registrations_by_device_id_sas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationStatusResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_ws_token: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Set to share to select the share participant session cookie on dual-session routes. */
+                "x-refmd-session-scope"?: "share";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WS token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WsTokenResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_workspaces_by_workspace_id_member_envelopes: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Member envelopes */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveMemberEnvelopesRequest"];
+            };
+        };
+        responses: {
+            /** @description Envelopes saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_ids: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace IDs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceIdsResponse"];
+                };
+            };
+        };
+    };
+    post_api_shares_f_by_folder_token_bootstrap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_token: string;
+            };
+            cookie?: never;
+        };
+        /** @description Canonical bootstrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareCanonicalBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Folder bootstrap */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareFolderBootstrapResponse"] | components["schemas"]["ShareDocumentBootstrapRequiredResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_mounts: {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share mount list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountListResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_mounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Share mount params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShareMountRequest"];
+            };
+        };
+        responses: {
+            /** @description Created mount */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountCreateResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountConflictResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_documents_by_document_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_documents_by_document_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot delete */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_documents_by_document_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Update params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_documents_by_document_id_shares_by_share_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share deletion key directory */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareManagementRequest"];
+            };
+        };
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_documents_by_document_id_shares_by_share_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -5977,7 +13574,7 @@ export interface operations {
             cookie?: never;
         };
         /** @description Share update params */
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateShareRequest"];
             };
@@ -6021,367 +13618,35 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.PublicDocumentController.update_content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Publication content */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdatePublicationContentRequest"];
-            };
-        };
-        responses: {
-            /** @description Content sync result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicationContentResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.list": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Devices */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DevicesResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.get_registration_sas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceRegistrationStatusResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.KekRotationController.complete_kek_rotation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Completion params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["KekRotationCompleteRequest"];
-            };
-        };
-        responses: {
-            /** @description Rotation completed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Not authorized */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Preconditions not met */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.salt": {
+    get_api_encryption_workspaces_by_workspace_id_keys: {
         parameters: {
             query: {
-                email: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Salt response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SaltResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.bootstrap": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Bootstrap params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["BootstrapDeviceRequest"];
-            };
-        };
-        responses: {
-            /** @description Bootstrapped device */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateDeviceRegistrationResponse"];
-                };
-            };
-            /** @description Already has devices */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.RoleController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                role_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoleDeleteResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Cannot delete */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.RoleController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                role_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Update params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdateRoleRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated role */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoleResponse"];
-                };
-            };
-            /** @description Invalid permission */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
                 device_id: string;
             };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
             cookie?: never;
         };
-        /** @description Revocation params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RevokeDeviceRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Revocation result */
+            /** @description Workspace keys */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RevokeDeviceResponse"];
+                    "application/json": components["schemas"]["WorkspaceKeysResponse"];
                 };
             };
             /** @description Bad request */
@@ -6411,49 +13676,40 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Retire blocked */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
         };
     };
-    "RefMDWeb.DeviceController.rename": {
+    post_api_encryption_workspaces_by_workspace_id_keys: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
-                device_id: string;
+                workspace_id: string;
             };
             cookie?: never;
         };
-        /** @description Rename params */
-        requestBody?: {
+        /** @description Key params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["RenameDeviceRequest"];
+                "application/json": components["schemas"]["CreateWorkspaceKeyRequest"];
             };
         };
         responses: {
-            /** @description Renamed device */
-            200: {
+            /** @description Key created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation error */
@@ -6467,111 +13723,39 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.PasswordController.password_reset_verify": {
+    post_api_mounts_by_mount_id_folders_by_folder_token_bootstrap: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Token verification */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PasswordResetVerifyBody"];
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
-        };
-        responses: {
-            /** @description Session created */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PasswordResetVerifyResponse"];
-                };
-            };
-            /** @description Invalid token */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.InvitationController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                invitation_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revoked */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid ID format */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.ShareMountController.show": {
-        parameters: {
-            query?: {
-                share?: string;
-                document_id?: string;
-            };
-            header?: never;
             path: {
                 mount_id: string;
+                folder_token: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Mount bootstrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareMountBootstrapRequest"];
+            };
+        };
         responses: {
-            /** @description Share mount */
+            /** @description Mounted folder subtree */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ShareMountDetailResponse"];
+                    "application/json": components["schemas"]["ShareMountFolderResponse"];
                 };
             };
             /** @description Invalid */
@@ -6612,10 +13796,182 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.ShareMountController.delete": {
+    get_api_devices: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicesResponse"];
+                };
+            };
+        };
+    };
+    get_api_shares_by_share_slug_challenge: {
         parameters: {
             query?: never;
             header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Password challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePasswordChallengeResponse"];
+                };
+            };
+        };
+    };
+    post_api_shares_by_share_slug_challenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_slug: string;
+            };
+            cookie?: never;
+        };
+        /** @description Challenge response */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharePasswordChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Bootstrap result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareBootstrapResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_mounts_by_mount_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share mount */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountMetadataResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_mounts_by_mount_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
                 mount_id: string;
             };
@@ -6670,17 +14026,26 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.ShareMountController.update": {
+    patch_api_mounts_by_mount_id: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
                 mount_id: string;
             };
             cookie?: never;
         };
         /** @description Share mount update params */
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateShareMountRequest"];
             };
@@ -6742,125 +14107,36 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.kdf_migration": {
+    patch_api_documents_reorder: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path?: never;
             cookie?: never;
         };
-        /** @description KDF migration params */
-        requestBody?: {
+        /** @description Reorder params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["KdfMigrationRequest"];
+                "application/json": components["schemas"]["ReorderDocumentRequest"];
             };
         };
         responses: {
-            /** @description Migration result */
+            /** @description Reordered document */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Migration failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.WorkspaceController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Workspace details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceResponse"];
-                };
-            };
-            /** @description Not a member */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.WorkspaceController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.WorkspaceController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Update params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["UpdateWorkspaceRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated workspace */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceResponse"];
+                    "application/json": components["schemas"]["DocumentResponse"];
                 };
             };
             /** @description Forbidden */
@@ -6883,80 +14159,56 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.MemberController.delete": {
+    get_api_workspaces: {
         parameters: {
             query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                user_id: string;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Removed */
+            /** @description Workspace list */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RemoveMemberResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Last owner */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["WorkspacesListResponse"];
                 };
             };
         };
     };
-    "RefMDWeb.MemberController.update": {
+    post_api_workspaces: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                workspace_id: string;
-                user_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        /** @description Role change */
-        requestBody?: {
+        /** @description Workspace params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
             };
         };
         responses: {
-            /** @description Updated member */
-            200: {
+            /** @description Created workspace */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["WorkspaceResponse"];
                 };
             };
             /** @description Validation error */
@@ -6970,138 +14222,19 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.PublicDocumentController.show_public": {
+    get_api_documents_by_document_id_shares: {
         parameters: {
             query?: never;
-            header?: never;
-            path: {
-                author_slug: string;
-                document_slug: string;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
             };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Public document */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PublicDocumentResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Gone */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.recovery_challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Recovery challenge request */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RecoveryChallengeRequest"];
-            };
-        };
-        responses: {
-            /** @description Challenge response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecoveryChallengeResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.MemberController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Member list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MembersListResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.MemberController.identity_keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Member keys */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceMemberKeysResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DocumentShareController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
             path: {
                 document_id: string;
             };
@@ -7129,17 +14262,26 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.DocumentShareController.create": {
+    post_api_documents_by_document_id_shares: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
                 document_id: string;
             };
             cookie?: never;
         };
         /** @description Share params */
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateShareRequest"];
             };
@@ -7192,27 +14334,99 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.UmkController.get_umk": {
+    post_api_workspaces_by_workspace_id_key_directory_append: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
-                device_id: string;
+                workspace_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Key-directory append */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeyDirectoryAppendRequest"];
+            };
+        };
         responses: {
-            /** @description UMK data */
+            /** @description Appended */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GetUmkResponse"];
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
-            /** @description Invalid device */
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid key directory */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_encryption_workspaces_by_workspace_id_member_envelope: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member envelope */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberEnvelopeResponse"];
+                };
+            };
+            /** @description Not a member */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7232,32 +14446,39 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.UmkController.distribute_umk": {
+    post_api_guest_redeem: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                device_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        /** @description UMK distribution params */
-        requestBody?: {
+        /** @description Redeem guest invitation params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["DistributeUmkRequest"];
+                "application/json": components["schemas"]["RedeemGuestInvitationRequest"];
             };
         };
         responses: {
-            /** @description UMK distributed */
-            201: {
+            /** @description Redeemed guest invitation */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["RedeemGuestInvitationResponse"];
                 };
             };
-            /** @description Invalid device */
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7266,7 +14487,783 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description UMK already distributed */
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id_members_by_user_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Remove member params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoveMemberResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Last owner */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_workspaces_by_workspace_id_members_by_user_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Role change */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated member */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_documents_by_document_id_unarchive: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unarchived document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not archived or ancestor archived */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_users_by_user_id_key_directory_latest: {
+        parameters: {
+            query: {
+                checkpoint_sequence: number;
+                event_head_sequence: number;
+                checkpoint_hash: string;
+                event_head_hash: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device" | "share_participant_device";
+                /** @description Set to share to select the share participant session cookie on dual-session routes. */
+                "x-refmd-session-scope"?: "share";
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest key directory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestKeyDirectoryResponse"];
+                };
+            };
+            /** @description Invalid pin */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Pin mismatch */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_devices_registrations_by_device_id_approve: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id"?: string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge"?: string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport"?: string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant"?: "user_device";
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Approval params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApproveDeviceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Approval failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_auth_recovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recovery data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryDataResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Settings not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_settings: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Settings params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Settings not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_devices_by_device_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Revocation params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Revocation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeDeviceResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Retire blocked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_devices_by_device_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Rename params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_workspaces_by_workspace_id_kek_rotation_complete: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Completion params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KekRotationCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Rotation completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Preconditions not met */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_encryption_workspaces_by_workspace_id_kek_rotation_completion_manifest: {
+        parameters: {
+            query: {
+                new_kek_version: number;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completion manifest hashes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KekRotationCompletionManifestResponse"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Preconditions not met */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_encryption_documents_by_document_id_keys: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentKeysResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_documents_by_document_id_keys: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description DEK params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Version already exists */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7286,31 +15283,43 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.PasswordController.change_password": {
+    patch_api_documents_by_document_id_shares_by_share_id_exclusions: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+                share_id: string;
+            };
             cookie?: never;
         };
-        /** @description Password change params */
-        requestBody?: {
+        /** @description Share exclusion update params */
+        requestBody: {
             content: {
-                "application/json": components["schemas"]["ChangePasswordRequest"];
+                "application/json": components["schemas"]["UpdateShareExclusionsRequest"];
             };
         };
         responses: {
-            /** @description Password changed */
+            /** @description Updated exclusions */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["ShareExclusionsResponse"];
                 };
             };
-            /** @description Invalid current password */
-            401: {
+            /** @description Invalid */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7318,7 +15327,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Update failed */
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7329,7 +15347,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.workspace_ids": {
+    post_api_encryption_setup_complete: {
         parameters: {
             query?: never;
             header?: never;
@@ -7338,38 +15356,515 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workspace IDs */
+            /** @description Setup complete */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkspaceIdsResponse"];
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
     };
-    "RefMDWeb.KekRotationController.get_member_envelope": {
+    get_api_devices_registrations: {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device registrations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationsResponse"];
+                };
+            };
+        };
+    };
+    post_api_devices_registrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Device params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDeviceRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Device registration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateDeviceRegistrationResponse"];
+                };
+            };
+            /** @description Re-authentication required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_documents_by_document_id_shares_by_share_id_keys: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
             path: {
-                workspace_id: string;
+                document_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Share key update params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateShareKeysRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated share keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareKeysUpdateResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_documents_by_document_id_publication: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Member envelope */
+            /** @description Publication */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemberEnvelopeResponse"];
+                    "application/json": components["schemas"]["PublicationResponse"];
                 };
             };
-            /** @description Not a member */
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_documents_by_document_id_publication: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Publication params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description Publication */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationConflictResponse"];
+                };
+            };
+            /** @description Too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_documents_by_document_id_publication: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_documents_by_document_id_publication: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Publication settings */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description Publication */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationConflictResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_mounts_by_mount_id_challenge: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Password challenge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePasswordChallengeResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_mounts_by_mount_id_challenge: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                mount_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Challenge response */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareMountChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Challenge result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareMountChallengeResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;

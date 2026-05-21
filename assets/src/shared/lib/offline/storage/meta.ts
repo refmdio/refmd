@@ -21,8 +21,6 @@ export interface OfflineCreatedDocument {
   encryptedTitle: Uint8Array;
   encryptedTitleNonce: Uint8Array;
   encryptedTitleKeyVersion: number;
-  wrappedDek: ArrayBuffer;
-  wrappedDekNonce: ArrayBuffer;
   dekKeyVersion: number;
   kekWrappedDek: Uint8Array;
   kekWrappedDekNonce: Uint8Array;
@@ -72,8 +70,6 @@ interface OfflineCreatedIdb {
   encryptedTitle: ArrayBuffer;
   encryptedTitleNonce: ArrayBuffer;
   encryptedTitleKeyVersion: number;
-  wrappedDek: ArrayBuffer;
-  wrappedDekNonce: ArrayBuffer;
   dekKeyVersion: number;
   kekWrappedDek: ArrayBuffer;
   kekWrappedDekNonce: ArrayBuffer;
@@ -112,8 +108,6 @@ function serializeOfflineCreated(entry: OfflineCreatedDocument): OfflineCreatedI
     encryptedTitle: toArrayBuffer(entry.encryptedTitle),
     encryptedTitleNonce: toArrayBuffer(entry.encryptedTitleNonce),
     encryptedTitleKeyVersion: entry.encryptedTitleKeyVersion,
-    wrappedDek: entry.wrappedDek,
-    wrappedDekNonce: entry.wrappedDekNonce,
     dekKeyVersion: entry.dekKeyVersion,
     kekWrappedDek: toArrayBuffer(entry.kekWrappedDek),
     kekWrappedDekNonce: toArrayBuffer(entry.kekWrappedDekNonce),
@@ -133,8 +127,6 @@ function deserializeOfflineCreated(raw: OfflineCreatedIdb): OfflineCreatedDocume
     encryptedTitle: new Uint8Array(raw.encryptedTitle),
     encryptedTitleNonce: new Uint8Array(raw.encryptedTitleNonce),
     encryptedTitleKeyVersion: raw.encryptedTitleKeyVersion,
-    wrappedDek: raw.wrappedDek,
-    wrappedDekNonce: raw.wrappedDekNonce,
     dekKeyVersion: raw.dekKeyVersion,
     kekWrappedDek: new Uint8Array(raw.kekWrappedDek),
     kekWrappedDekNonce: new Uint8Array(raw.kekWrappedDekNonce),

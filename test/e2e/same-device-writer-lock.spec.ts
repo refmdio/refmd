@@ -90,3 +90,59 @@ test("same device opens one writable editor per document", async ({ browser }) =
     await context.close();
   }
 });
+
+test("duplicated same-device tab does not keep two writable editors", async ({ browser }) => {
+  test.setTimeout(180_000);
+
+  const context = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
+  const pageA = await context.newPage();
+
+  try {
+    await registerAccount(pageA);
+    await createDocument(pageA, "Duplicated Writer Lock Doc");
+    await openDocument(pageA, "Duplicated Writer Lock Doc");
+
+    const editorA = pageA.locator(".cm-content").first();
+    await expect(editorA).toBeVisible({ timeout: 30_000 });
+    await editorA.click();
+    await pageA.keyboard.insertText("duplicate baseline");
+    await expectEditorTextContains(pageA, "duplicate baseline", 30_000);
+
+    const documentUrl = pageA.url();
+    const sessionEntries = await pageA.evaluate(() =>
+      Object.fromEntries(
+        Object.keys(sessionStorage).map((key) => [key, sessionStorage.getItem(key)]),
+      ),
+    );
+
+    const pageB = await context.newPage();
+    await pageB.addInitScript((entries) => {
+      for (const [key, value] of Object.entries(entries as Record<string, string | null>)) {
+        if (value !== null) sessionStorage.setItem(key, value);
+      }
+    }, sessionEntries);
+    await pageB.goto(documentUrl, { waitUntil: "domcontentloaded" });
+
+    const editorB = pageB.locator(".cm-content").first();
+    await expect(editorB).toBeVisible({ timeout: 45_000 });
+    await expectEditorTextContains(pageB, "duplicate baseline", 30_000);
+
+    await expect
+      .poll(
+        async () => {
+          const states = await Promise.all([
+            editorA.getAttribute("contenteditable"),
+            editorB.getAttribute("contenteditable"),
+          ]);
+          return states.filter((state) => state === "true").length;
+        },
+        {
+          timeout: 10_000,
+          message: "duplicated same-device tabs both remained writable",
+        },
+      )
+      .toBe(1);
+  } finally {
+    await context.close();
+  }
+});

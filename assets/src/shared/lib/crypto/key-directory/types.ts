@@ -1,0 +1,291 @@
+import type { components } from "@/shared/api/schema";
+import type { HybridEncryptionPublicKeyMaterial } from "../hybrid-encryption";
+import type { HybridSigningPublicKeyMaterial } from "../signature-types";
+import type { SignedPqWrapRecord } from "../signed-pq-wrap";
+
+export type KeyDirectoryEnvelope = components["schemas"]["KeyDirectoryEnvelope"];
+
+export function keyDirectoryEnvelope(
+  payload: KeyDirectoryEnvelope["payload"],
+  signatures: KeyDirectoryEnvelope["signatures"],
+): KeyDirectoryEnvelope {
+  return { payload, signatures };
+}
+
+export function assertKeyDirectoryEnvelope(value: unknown, code: string): KeyDirectoryEnvelope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(code);
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.payload !== "object" ||
+    record.payload === null ||
+    Array.isArray(record.payload)
+  ) {
+    throw new Error(code);
+  }
+  if (!Array.isArray(record.signatures)) {
+    throw new Error(code);
+  }
+  return value as KeyDirectoryEnvelope;
+}
+
+export interface InitialKeyDirectoryInput {
+  userId: string;
+  workspaceId: string;
+  workspaceOwnerRoleId: string;
+  deviceId: string;
+  identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  identityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+}
+
+export interface InitialKeyDirectoryBootstrap {
+  userEvents: KeyDirectoryEnvelope[];
+  userCheckpoint: KeyDirectoryEnvelope;
+  workspaceEvents: KeyDirectoryEnvelope[];
+  workspaceCheckpoint: KeyDirectoryEnvelope;
+}
+
+export interface InitialUserKeyDirectoryBootstrap {
+  userEvents: KeyDirectoryEnvelope[];
+  userCheckpoint: KeyDirectoryEnvelope;
+}
+
+export interface InitialWorkspaceKeyDirectoryBootstrap {
+  workspaceEvents: KeyDirectoryEnvelope[];
+  workspaceCheckpoint: KeyDirectoryEnvelope;
+}
+
+export interface DeviceKeyDirectoryAppendInput {
+  scopeKind: "user" | "workspace";
+  scopeId: string;
+  userId: string;
+  recipientUserId?: string;
+  actorDeviceId?: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  recipientDeviceId: string;
+  recipientHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  recipientHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+}
+
+export interface RecoveryWorkspaceDeviceKeyDirectoryAppendInput {
+  workspaceId: string;
+  userId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  recipientDeviceId: string;
+  recipientHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  recipientHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+}
+
+export interface IdentityKeyDirectoryAppendInput {
+  scopeKind: "workspace";
+  scopeId: string;
+  userId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  recipientHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+}
+
+export interface DeviceRevocationKeyDirectoryAppendInput {
+  scopeKind: "user" | "workspace";
+  scopeId: string;
+  userId: string;
+  actorDeviceId?: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  revokedSigningKeyId: string;
+  revokedEncryptionKeyId: string;
+  reason: "security" | "retire";
+}
+
+export interface WorkspaceMemberRemovalKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  removedUserId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  removedDeviceKeys: Array<{
+    signingKeyId: string;
+    encryptionKeyId: string;
+  }>;
+}
+
+export interface WrapIssuedKeyDirectoryAppendInput {
+  scopeKind: "user" | "workspace";
+  scopeId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  wrapRecord: SignedPqWrapRecord;
+}
+
+export interface ShareCreatedKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  body: Record<string, unknown>;
+}
+
+export interface ShareManagementKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  eventType:
+    | "share_metadata_updated"
+    | "share_revoked"
+    | "share_exclusion_changed"
+    | "share_key_scope_added"
+    | "share_key_scope_replaced"
+    | "share_key_scope_removed";
+  body: Record<string, unknown>;
+}
+
+export interface KekRotationCompletionKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  oldKeyVersion: number;
+  newKeyVersion: number;
+  completionManifestHash: string;
+  deletionManifestHash: string;
+}
+
+export interface KekRotationStartKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  oldKeyVersion: number;
+  newKeyVersion: number;
+  reason: "manual" | "security" | "membership_change" | "scheduled";
+}
+
+export interface KeyDirectoryAppendArtifacts {
+  events: KeyDirectoryEnvelope[];
+  checkpoint: KeyDirectoryEnvelope;
+}
+
+export interface DocumentAdmissionKeyDirectoryAppendInput {
+  workspaceId: string;
+  documentId: string;
+  shareId?: string;
+  shareSessionId?: string;
+  shareSlug?: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  actor:
+    | {
+        kind?: "device";
+        userId: string;
+        deviceId: string;
+      }
+    | {
+        kind: "share_participant_device";
+        principalId: string;
+        deviceId: string;
+        signingKeyId: string;
+        hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+      };
+  eventType: "document_update_accepted" | "document_snapshot_accepted";
+  operationHash: string;
+  operationSignatureHash: string;
+  dekVersion: number;
+  minDekVersion: number;
+  admissionNonce: string;
+  documentPermissionProofHash: string;
+}
+
+export interface WorkspaceInvitationCreatedKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  invitationId: string;
+  roleId: string;
+  baseRole: string;
+  kekVersion: number;
+  invitedEmail: string;
+  expiresEventSequence: number;
+  redeemAuthority: {
+    signingKeyId: string;
+    hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  };
+  bootstrapKeyCommitment: string;
+  bootstrapPackageHash: string;
+  bootstrapSuiteId: string;
+  capabilityContextHash: string;
+}
+
+export interface WorkspaceInvitationRevokedKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  invitationId: string;
+  reason?: string;
+}
+
+export interface GuestInvitationCreatedKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  invitationId: string;
+  scopeKind: "workspace" | "document" | "folder" | "share";
+  scopeId: string;
+  permission: "view" | "edit";
+  kekVersion: number;
+  expiresEventSequence: number;
+  redeemAuthority: {
+    signingKeyId: string;
+    hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  };
+  bootstrapKeyCommitment: string;
+  bootstrapPackageHash: string;
+  bootstrapSuiteId: string;
+  capabilityContextHash: string;
+}
+
+export interface GuestInvitationRevokedKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  invitationId: string;
+  reason?: string;
+}
+
+export interface WorkspaceInvitationRedeemedKeyDirectoryAppendInput {
+  workspaceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  invitationId: string;
+  redeemAuthoritySigningKeyId: string;
+  memberEnvelopeWrap: SignedPqWrapRecord;
+  redeemedUserId: string;
+  redeemedDeviceId: string;
+  redeemedIdentityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  redeemedDeviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  redeemedDeviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  redeemedEncryptionKeyId: string;
+  memberEnvelopeKeyVersion: number;
+  memberEnvelopeHash: string;
+}
+
+export interface GuestInvitationRedeemedKeyDirectoryAppendInput {
+  workspaceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  invitationId: string;
+  guestGrantId: string;
+  redeemAuthoritySigningKeyId: string;
+  guestUserId: string;
+  guestDeviceId: string;
+  guestIdentityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  guestDeviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  guestDeviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  guestEncryptionKeyId: string;
+  guestSigningKeyId: string;
+  scopeKind: "workspace" | "document" | "folder" | "share";
+  scopeId: string;
+  permission: "view" | "edit";
+}

@@ -29,7 +29,10 @@ async function closeDialog(page: Page): Promise<void> {
 async function enablePublicPublishing(page: Page): Promise<void> {
   await openSettings(page);
   await selectSettingsTab(page, "Workspace");
-  const publicSection = page.locator("section").filter({ hasText: "Public Publishing" });
+  const publicSection = page
+    .locator("section")
+    .filter({ has: page.getByText("Public Publishing", { exact: true }) })
+    .last();
   await publicSection.locator('[data-slot="switch"]').first().click({ force: true });
   await expect(publicSection.getByRole("switch").first()).toBeChecked({ timeout: 30_000 });
 
@@ -41,8 +44,15 @@ async function enablePublicPublishing(page: Page): Promise<void> {
   await expect(authorSlugInput).toHaveValue("public-route-author", { timeout: 10_000 });
 
   const saveButton = publicSection.getByRole("button", { name: "Save" });
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" &&
+      response.url().includes("/api/workspaces/") &&
+      response.url().endsWith("/features"),
+  );
   await expect(saveButton).toBeEnabled({ timeout: 10_000 });
   await saveButton.click();
+  await saveResponse;
   await expect(publicSection.getByPlaceholder("author-slug-base")).toHaveValue(
     /^public-route-author-[0-9a-f]{8}$/,
     { timeout: 30_000 },

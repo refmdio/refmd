@@ -1,8 +1,9 @@
 import { openIdb, idbConditionalPut, idbGet, idbPut } from "@/shared/lib/storage/idb";
 
 const DB_NAME = "refmd-security";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "document-state-pins";
+const KEY_DIRECTORY_STORE_NAME = "key-directory-pins";
 
 export interface DocumentStatePin {
   documentId: string;
@@ -40,6 +41,9 @@ function openSecurityDb(): Promise<IDBDatabase> {
   return openIdb(DB_NAME, DB_VERSION, (db, oldVersion) => {
     if (oldVersion < 1) {
       db.createObjectStore(STORE_NAME, { keyPath: "documentId" });
+    }
+    if (oldVersion < 2 && !db.objectStoreNames.contains(KEY_DIRECTORY_STORE_NAME)) {
+      db.createObjectStore(KEY_DIRECTORY_STORE_NAME, { keyPath: "pinKey" });
     }
   });
 }

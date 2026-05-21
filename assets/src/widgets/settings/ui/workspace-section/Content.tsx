@@ -10,7 +10,7 @@ import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
 import { Switch } from "@/shared/ui/switch";
-import type { WorkspaceSectionModel } from "../../model/workspace-section/useSection";
+import type { WorkspaceSectionModel } from "../../model/workspace-section/use-section";
 
 interface WorkspaceSectionContentProps {
   state: WorkspaceSectionModel;

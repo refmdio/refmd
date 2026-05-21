@@ -1,5 +1,6 @@
 defmodule RefMDWeb.PublicDocumentControllerTest do
   use RefMDWeb.ConnCase, async: true
+  import Phoenix.ConnTest, except: [delete: 2, patch: 3, post: 3, put: 3]
 
   alias RefMD.Auth
   alias RefMD.Documents
@@ -38,54 +39,97 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
   end
 
   defp create_device(user_id) do
-    {signing_public_key, signing_private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    device_id = Ecto.UUID.generate()
+    keys = hybrid_device_material(device_id)
     {ecdh_public_key, _ecdh_private_key} = :crypto.generate_key(:ecdh, :x25519)
+    encryption = hybrid_encryption_public_key_material("device", device_id, ecdh_public_key)
+    client_nonce = :crypto.strong_rand_bytes(16)
 
     {:ok, device} =
       RefMD.Devices.create_device(%{
+        id: device_id,
         user_id: user_id,
         name: "Browser",
         device_type: "browser",
-        ecdh_public_key: ecdh_public_key,
-        signing_public_key: signing_public_key,
-        identity_signature: :crypto.strong_rand_bytes(64),
-        client_nonce: :crypto.strong_rand_bytes(16)
+        hybrid_encryption_public_key_material: encryption.public,
+        encryption_key_id: encryption.encryption_key_id,
+        hybrid_signing_public_key_material: keys.public,
+        signing_key_id: keys.signing_key_id,
+        approval_signature:
+          genesis_device_bootstrap_signature(
+            user_id,
+            device_id,
+            keys.public,
+            ecdh_public_key,
+            encryption.public,
+            client_nonce
+          ),
+        approval_signature_surface: "genesis_device_bootstrap",
+        approval_proof:
+          genesis_device_approval_proof(
+            user_id,
+            device_id,
+            keys.public,
+            ecdh_public_key,
+            encryption.public,
+            client_nonce
+          ),
+        client_nonce: client_nonce
       })
 
-    %{device: device, signing_private_key: signing_private_key}
+    %{device: device, signing_private_key: keys.private}
   end
 
   defp authed_conn(conn, user_id, device) do
-    {:ok, _session, token} = Auth.create_session(user_id, %{device_id: device.id})
-
-    put_req_header(conn, "cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
-  end
-
-  defp with_pop_headers(conn, user_id, device, signing_private_key) do
-    {:ok, challenge} = Auth.create_pop_challenge(user_id, device.id)
-
-    message =
-      RefMD.Crypto.build_signature_message("pop_challenge", %{
-        "challenge" => Base.url_encode64(challenge, padding: false),
-        "device_id" => device.id
-      })
-
-    signature = :crypto.sign(:eddsa, :none, message, [signing_private_key, :ed25519])
+    {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("x-pop-device-id", device.id)
-    |> put_req_header("x-pop-challenge", Base.url_encode64(challenge, padding: false))
-    |> put_req_header("x-pop-signature", Base.url_encode64(signature, padding: false))
+    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_private(:test_session, session)
+  end
+
+  defp with_pop_headers(conn, user_id, device, signing_private_key, method, path, body) do
+    put_test_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
   end
 
   defp pop_conn(conn, user_id, user_device) do
     conn
     |> authed_conn(user_id, user_device.device)
-    |> with_pop_headers(user_id, user_device.device, user_device.signing_private_key)
+    |> put_private(:test_pop_args, {user_id, user_device.device, user_device.signing_private_key})
   end
 
-  defp conn_with_cookie(conn, cookie) do
-    put_req_header(conn, "cookie", "_refmd_session=#{cookie}")
+  defp post(conn, path, body) do
+    conn
+    |> maybe_put_deferred_pop("POST", path, body)
+    |> Phoenix.ConnTest.dispatch(@endpoint, :post, path, test_json_body(body))
+  end
+
+  defp patch(conn, path, body) do
+    conn
+    |> maybe_put_deferred_pop("PATCH", path, body)
+    |> Phoenix.ConnTest.dispatch(@endpoint, :patch, path, test_json_body(body))
+  end
+
+  defp put(conn, path, body) do
+    conn
+    |> maybe_put_deferred_pop("PUT", path, body)
+    |> Phoenix.ConnTest.dispatch(@endpoint, :put, path, test_json_body(body))
+  end
+
+  defp delete(conn, path) do
+    conn
+    |> maybe_put_deferred_pop("DELETE", path, "")
+    |> Phoenix.ConnTest.dispatch(@endpoint, :delete, path, "")
+  end
+
+  defp maybe_put_deferred_pop(conn, method, path, body) do
+    case conn.private[:test_pop_args] do
+      {user_id, device, signing_private_key} ->
+        with_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
+
+      _ ->
+        conn
+    end
   end
 
   defp add_member(workspace_id, user_id, base_role) do
@@ -101,84 +145,6 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
       is_default: false,
       joined_at: DateTime.utc_now()
     })
-  end
-
-  defp guest_device_attrs(signing_public_key, ecdh_public_key) do
-    {identity_signing_public_key, identity_signing_private_key} =
-      :crypto.generate_key(:eddsa, :ed25519)
-
-    {identity_ecdh_public_key, identity_ecdh_private_key} = :crypto.generate_key(:ecdh, :x25519)
-    client_nonce = :crypto.strong_rand_bytes(16)
-
-    identity_signature =
-      RefMD.Crypto.build_signature_message("device_registration", %{
-        "client_nonce" => Base.url_encode64(client_nonce, padding: false),
-        "device_ecdh_public_key" => Base.url_encode64(ecdh_public_key, padding: false),
-        "device_signing_public_key" => Base.url_encode64(signing_public_key, padding: false)
-      })
-      |> then(&:crypto.sign(:eddsa, :none, &1, [identity_signing_private_key, :ed25519]))
-
-    %{
-      device_signing_pub_key: signing_public_key,
-      device_encryption_pub_key: ecdh_public_key,
-      identity_signing_pub_key: identity_signing_public_key,
-      identity_encryption_pub_key: identity_ecdh_public_key,
-      identity_signature: identity_signature,
-      client_nonce: client_nonce,
-      recovery_encrypted_umk: :crypto.strong_rand_bytes(48),
-      recovery_nonce: :crypto.strong_rand_bytes(24),
-      encrypted_identity_encryption_private: identity_ecdh_private_key <> <<0::128>>,
-      encrypted_identity_encryption_private_nonce: :crypto.strong_rand_bytes(24),
-      encrypted_identity_signing_private: identity_signing_private_key <> <<0::128>>,
-      encrypted_identity_signing_private_nonce: :crypto.strong_rand_bytes(24),
-      device_name: "Guest Browser",
-      device_type: "browser"
-    }
-  end
-
-  defp create_edit_guest(workspace, owner_id, owner_role, document_id) do
-    {:ok, workspace} = Workspaces.update_workspace(workspace, %{guest_invites_enabled: true})
-    Workspaces.update_current_kek_version(workspace.id, 1)
-
-    token_hash =
-      Base.url_encode64(:crypto.hash(:sha256, :crypto.strong_rand_bytes(32)), padding: false)
-
-    {:ok, _invitation} =
-      Workspaces.create_guest_invitation(%{
-        workspace_id: workspace.id,
-        actor_role: owner_role,
-        invitation_id: Ecto.UUID.generate(),
-        token_hash: token_hash,
-        token_prefix: "PuBl",
-        target_scope: "document",
-        target_document_id: document_id,
-        permission: "edit",
-        encrypted_kek: :crypto.strong_rand_bytes(48),
-        kek_nonce: :crypto.strong_rand_bytes(24),
-        kek_version: 1,
-        max_redemptions: 1,
-        invited_by: owner_id,
-        expires_at: DateTime.add(DateTime.utc_now(), 86_400, :second)
-      })
-
-    {guest_signing_public_key, guest_signing_private_key} =
-      :crypto.generate_key(:eddsa, :ed25519)
-
-    {guest_ecdh_public_key, _guest_ecdh_private_key} = :crypto.generate_key(:ecdh, :x25519)
-
-    {:ok, redeem_result} =
-      Workspaces.redeem_guest_invitation(
-        token_hash,
-        guest_device_attrs(guest_signing_public_key, guest_ecdh_public_key),
-        %{ip_address: "127.0.0.1", user_agent: "public-test"}
-      )
-
-    %{
-      user_id: redeem_result.guest_user_id,
-      device: RefMD.Devices.get_device(redeem_result.guest_device_id),
-      signing_private_key: guest_signing_private_key,
-      session_token: redeem_result.session_token
-    }
   end
 
   defp publication_body(slug, title \\ "Public Title", content \\ "# Hello\n\nPublic body") do
@@ -339,39 +305,6 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
       })
 
     assert %{"updated_at" => _updated_at} = json_response(sync_conn, 200)
-  end
-
-  test "PUT /api/documents/:document_id/publication/content rejects edit guests",
-       %{
-         conn: conn,
-         owner_id: owner_id,
-         owner_role: owner_role,
-         owner_device: owner_device,
-         document: document,
-         workspace: workspace
-       } do
-    assert json_response(
-             conn
-             |> pop_conn(owner_id, owner_device)
-             |> post("/api/documents/#{document.id}/publication", publication_body("guest-sync")),
-             201
-           )
-
-    guest = create_edit_guest(workspace, owner_id, owner_role, document.id)
-    title = "Guest Synced"
-    content = "Guest content"
-
-    sync_conn =
-      build_conn()
-      |> conn_with_cookie(Base.url_encode64(guest.session_token, padding: false))
-      |> with_pop_headers(guest.user_id, guest.device, guest.signing_private_key)
-      |> put("/api/documents/#{document.id}/publication/content", %{
-        "title" => title,
-        "content" => content,
-        "content_hash" => Public.content_hash(title, content)
-      })
-
-    assert json_response(sync_conn, 403) == %{"error" => "permission_denied"}
   end
 
   test "PUT /api/documents/:document_id/publication/content rejects same-hash sync when public publishing is disabled",

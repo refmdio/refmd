@@ -1,6 +1,6 @@
 import createClient from "openapi-fetch";
 import type { paths } from "./schema";
-import { getCryptoWorker, CryptoWorkerError } from "@/shared/lib/crypto/worker/client";
+import { CryptoWorkerError } from "@/shared/lib/crypto/worker/client";
 import { PopChallengeRateLimitError } from "@/shared/lib/auth/pop";
 import {
   getPreferredSessionScope,
@@ -18,6 +18,9 @@ import {
   recordAuthTransportRateLimit,
   waitForAuthTransport,
 } from "@/shared/lib/ws/transport-coordinator";
+import { canonicalQueryString } from "@/shared/lib/crypto/canonical-query";
+import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import { clientError } from "@/shared/lib/logger";
 
 function isSessionOnlyEndpoint(url: string, method: string): boolean {
   const path = new URL(url, "http://localhost").pathname;
@@ -44,17 +47,8 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
     if (method === "POST" && path.endsWith("/approve")) return false;
     return true;
   }
-  // Trust transfer: nonce (POST), state retrieval (GET)
-  if (path === "/api/trust-transfer/nonce") return true;
-  if (path === "/api/trust-transfer/state" && method === "GET") return true;
   // Encryption setup (initial, before PoP is possible)
   if (path === "/api/encryption/setup-complete") return true;
-  // Workspace creation (session-only, no PoP)
-  if (path === "/api/workspaces" && method === "POST") return true;
-  // Invitation lookup is unauthenticated and only resolves the token kind.
-  if (path === "/api/workspaces/invitations/lookup" && method === "POST") return true;
-  // Guest invitation redemption creates the guest principal/device, so PoP is impossible before it.
-  if (path === "/api/workspaces/guest-invitations/redeem" && method === "POST") return true;
   // Share mount creation is user-session scoped; do not issue share-scoped PoP on share routes.
   if (path === "/api/mounts" && method === "POST") return true;
   // Settings read (session-only, no PoP needed for startup)
@@ -64,6 +58,54 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   return false;
 }
 export const POP_DEVICE_OVERRIDE_HEADER = "X-Pop-Override-Device-Id";
+export type PopActorVariant = "user_device" | "share_participant_device";
+
+export function currentPopActorVariant(): PopActorVariant {
+  return getPreferredSessionScope() === "share" ? "share_participant_device" : "user_device";
+}
+
+type PopHeaderParams = {
+  "x-pop-actor-variant": PopActorVariant;
+  "x-pop-device-id": string;
+  "x-pop-challenge": string;
+  "x-pop-signature-transport": string;
+};
+
+type UserPopHeaderParams = Omit<PopHeaderParams, "x-pop-actor-variant"> & {
+  "x-pop-actor-variant": "user_device";
+};
+
+function emptyPopHeaderParams(actorVariant: PopActorVariant): PopHeaderParams {
+  return {
+    "x-pop-actor-variant": actorVariant,
+    "x-pop-device-id": "",
+    "x-pop-challenge": "",
+    "x-pop-signature-transport": "",
+  };
+}
+
+export function withPopParams(): { header: PopHeaderParams };
+export function withPopParams<T extends Record<string, unknown>>(
+  params: T,
+): T & { header: PopHeaderParams };
+export function withPopParams<T extends Record<string, unknown>>(params?: T) {
+  return {
+    ...params,
+    header: emptyPopHeaderParams(currentPopActorVariant()),
+  };
+}
+
+export function withUserPopParams(): { header: UserPopHeaderParams };
+export function withUserPopParams<T extends Record<string, unknown>>(
+  params: T,
+): T & { header: UserPopHeaderParams };
+export function withUserPopParams<T extends Record<string, unknown>>(params?: T) {
+  return {
+    ...params,
+    header: emptyPopHeaderParams("user_device") as UserPopHeaderParams,
+  };
+}
+
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MAX_CONCURRENT_POP_REQUESTS = 10;
 let getDeviceId = (): string | null => null;
@@ -109,24 +151,29 @@ async function applyPopHeaders(request: Request): Promise<void> {
   }
   const deviceId = deviceIdOverride ?? getDeviceId();
   if (!deviceId) return;
-  if (!deviceIdOverride) {
-    try {
-      const workerReady = await getCryptoWorker().isReady();
-      if (!workerReady) return;
-    } catch {
-      return;
-    }
-  }
   const { getPopHeaders } = await import("@/shared/lib/auth/pop");
+  const url = new URL(request.url);
+  const canonicalQuery = canonicalQueryString(url.search);
+  const bodyHash = blake3Base64Url(new Uint8Array(await request.clone().arrayBuffer()));
   const headers = await getPopHeaders(
     deviceIdOverride,
     request.signal,
     getRequestSessionScope(request),
+    undefined,
+    {
+      body_hash: bodyHash,
+      canonical_query: canonicalQuery,
+      method: request.method.toUpperCase(),
+      path: url.pathname,
+      query_hash: blake3Base64Url(new TextEncoder().encode(canonicalQuery)),
+    },
   );
   request.headers.set("X-PoP-Device-Id", headers["X-PoP-Device-Id"]);
+  request.headers.set("X-PoP-Actor-Variant", headers["X-PoP-Actor-Variant"]);
   request.headers.set("X-PoP-Challenge", headers["X-PoP-Challenge"]);
-  request.headers.set("X-PoP-Signature", headers["X-PoP-Signature"]);
+  request.headers.set("X-PoP-Signature-Transport", headers["X-PoP-Signature-Transport"]);
 }
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -168,7 +215,9 @@ export function shouldUseShareSessionScopeHeader(path: string): boolean {
     /^\/api\/shares\/[^/]+\/bootstrap$/.test(path) ||
     /^\/api\/shares\/[^/]+\/challenge$/.test(path) ||
     /^\/api\/shares\/d\/[^/]+$/.test(path) ||
-    /^\/api\/shares\/f\/[^/]+$/.test(path)
+    /^\/api\/shares\/d\/[^/]+\/bootstrap$/.test(path) ||
+    /^\/api\/shares\/f\/[^/]+$/.test(path) ||
+    /^\/api\/shares\/f\/[^/]+\/bootstrap$/.test(path)
   );
 }
 
@@ -275,7 +324,7 @@ export const client = createClient<paths>({
         if (e instanceof TypeError) {
           throw e;
         }
-        console.error("[PoP] Failed to apply PoP headers:", e);
+        clientError("pop_headers_apply_failed", { error: e });
         throw e;
       } finally {
         releasePopSlot?.();

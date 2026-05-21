@@ -9,6 +9,7 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       id: %Schema{type: :string, format: :uuid},
       workspace_id: %Schema{type: :string, format: :uuid},
       parent_id: %Schema{type: :string, format: :uuid, nullable: true},
+      active_snapshot_id: %Schema{type: :string, format: :uuid, nullable: true},
       position: %Schema{type: :integer},
       title: %Schema{type: :string},
       encrypted_title: %Schema{type: :string, nullable: true},
@@ -31,6 +32,7 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
     required: [
       :id,
       :workspace_id,
+      :active_snapshot_id,
       :position,
       :title,
       :slug,
@@ -113,6 +115,6 @@ defmodule RefMDWeb.Schemas.ReorderDocumentRequest do
       parent_id: %Schema{type: :string, format: :uuid, nullable: true},
       position: %Schema{type: :integer, minimum: 0}
     },
-    required: [:workspace_id, :document_id, :parent_id, :position]
+    required: [:workspace_id, :document_id, :position]
   })
 end

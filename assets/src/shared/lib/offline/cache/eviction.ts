@@ -7,6 +7,7 @@ import {
   getOfflineDocumentMeta,
   putOfflineDocumentMeta,
 } from "../storage/store";
+import { clientWarn } from "@/shared/lib/logger";
 
 const MAX_CACHE_SIZE_BROWSER = 100 * 1024 * 1024; // 100 MB
 const MAX_CACHE_SIZE_DESKTOP = 1024 * 1024 * 1024; // 1 GB
@@ -58,7 +59,7 @@ export async function checkAndEvict(): Promise<void> {
         .catch(() => {});
     }
   } catch (err) {
-    console.warn("[lru-eviction] Error during eviction:", err);
+    clientWarn("lru_eviction_failed", { error: err });
   }
 }
 

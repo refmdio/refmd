@@ -2,29 +2,31 @@ defmodule RefMDWeb.ShareMountController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Crypto.Encoding
   alias RefMD.Sharing
+
   alias RefMDWeb.Schemas
 
-  operation(:share_mounts,
-    summary: "List saved mounts for a share",
+  operation(:share_mounts_for_share,
+    summary: "List current user's saved mounts for a share link",
     parameters: [
       share_slug: [in: :path, type: :string, required: true]
     ],
     responses: [
-      ok: {"Share mounts", "application/json", Schemas.ShareMountLookupResponse},
+      ok: {"Share link mount list", "application/json", Schemas.ShareLinkMountListResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.ErrorResponse},
       not_found: {"Not found", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  @spec share_mounts(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def share_mounts(conn, %{"share_slug" => share_slug}) do
+  @spec share_mounts_for_share(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def share_mounts_for_share(conn, %{"share_slug" => share_slug}) do
     case Sharing.list_share_mounts_for_share(conn.assigns.current_user_id, share_slug) do
       {:ok, response} ->
         json(conn, response)
 
-      {:error, :not_found} ->
-        conn |> put_status(:not_found) |> json(%{error: "not_found"})
+      {:error, reason} ->
+        handle_error(conn, reason)
     end
   end
 
@@ -44,14 +46,22 @@ defmodule RefMDWeb.ShareMountController do
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     attrs =
-      Map.take(params, ["workspace_id", "share_slug", "target_kind", "target_token", "parent_id"])
+      Map.take(params, [
+        "workspace_id",
+        "share_slug",
+        "target_kind",
+        "target_token",
+        "parent_id",
+        "authenticated_workspace_pin_bootstrap_hash"
+      ])
+      |> Map.put("__share_session_token", get_share_session_token(conn))
 
     case Sharing.create_share_mount(conn.assigns.current_user_id, attrs) do
       {:ok, response} ->
-        conn |> put_status(:created) |> json(encode_mount_summary(response))
+        conn |> put_status(:created) |> json(encode_mount_placement(response))
 
       {:error, {:conflict, payload}} ->
-        conn |> put_status(:conflict) |> json(%{mount: encode_mount_summary(payload.mount)})
+        conn |> put_status(:conflict) |> json(%{mount: encode_mount_placement(payload.mount)})
 
       {:error, reason} ->
         handle_error(conn, reason)
@@ -77,7 +87,7 @@ defmodule RefMDWeb.ShareMountController do
       :ok ->
         case Sharing.list_share_mounts(conn.assigns.current_user_id, workspace_id) do
           {:ok, response} ->
-            json(conn, %{mounts: Enum.map(response.mounts, &encode_mount_summary/1)})
+            json(conn, %{mounts: Enum.map(response.mounts, &encode_mount_list_item/1)})
 
           {:error, reason} ->
             handle_error(conn, reason)
@@ -91,12 +101,10 @@ defmodule RefMDWeb.ShareMountController do
   operation(:show,
     summary: "Get a share mount",
     parameters: [
-      mount_id: [in: :path, type: :string, required: true],
-      share: [in: :query, type: :string, required: false],
-      document_id: [in: :query, type: :string, required: false]
+      mount_id: [in: :path, type: :string, required: true]
     ],
     responses: [
-      ok: {"Share mount", "application/json", Schemas.ShareMountDetailResponse},
+      ok: {"Share mount", "application/json", Schemas.ShareMountMetadataResponse},
       bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.ErrorResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
@@ -105,25 +113,59 @@ defmodule RefMDWeb.ShareMountController do
   )
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def show(conn, %{"mount_id" => mount_id} = params) do
-    with :ok <- validate_uuid_param(mount_id, :mount_id),
-         {:ok, share_id} <- validate_optional_uuid_param(params["share"], :share),
-         {:ok, document_id} <- validate_optional_uuid_param(params["document_id"], :document_id) do
-      result =
-        cond do
-          is_binary(share_id) ->
-            Sharing.get_share_mount_share(conn.assigns.current_user_id, mount_id, share_id)
+  def show(conn, %{"mount_id" => mount_id}) do
+    case validate_uuid_param(mount_id, :mount_id) do
+      :ok ->
+        case Sharing.get_share_mount(conn.assigns.current_user_id, mount_id) do
+          {:ok, response} ->
+            json(conn, encode_mount_metadata(response))
 
-          is_nil(document_id) ->
-            Sharing.get_share_mount(conn.assigns.current_user_id, mount_id)
-
-          true ->
-            Sharing.get_share_mount_document(conn.assigns.current_user_id, mount_id, document_id)
+          {:error, reason} ->
+            handle_error(conn, reason)
         end
 
-      case result do
+      {:error, reason} ->
+        handle_error(conn, reason)
+    end
+  end
+
+  operation(:document_bootstrap,
+    summary: "Bootstrap a mounted document",
+    parameters: [
+      mount_id: [in: :path, type: :string, required: true],
+      document_token: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Mount bootstrap params", "application/json", Schemas.ShareMountBootstrapRequest},
+    responses: [
+      ok: {"Share mount document", "application/json", Schemas.ShareMountDocumentResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      unauthorized: {"Unauthorized", "application/json", Schemas.ErrorResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec document_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def document_bootstrap(
+        conn,
+        %{"mount_id" => mount_id, "document_token" => document_token} = params
+      ) do
+    with :ok <- validate_uuid_param(mount_id, :mount_id),
+         {:ok, mount_trust_anchor} <- validate_mount_trust_anchor(params) do
+      case Sharing.get_share_mount_document_by_token(
+             conn.assigns.current_user_id,
+             mount_id,
+             document_token,
+             conn.assigns.pop_device_id,
+             mount_trust_anchor,
+             get_share_session_token(conn),
+             get_mount_password_session(conn, mount_id)
+           ) do
         {:ok, response} ->
-          json(conn, encode_mount_detail(response))
+          conn
+          |> maybe_set_mount_share_session_cookie(response)
+          |> json(encode_mount_document_response(response))
 
         {:error, reason} ->
           handle_error(conn, reason)
@@ -178,14 +220,7 @@ defmodule RefMDWeb.ShareMountController do
     ],
     request_body: {"Challenge response", "application/json", Schemas.ShareMountChallengeRequest},
     responses: [
-      ok:
-        {"Challenge result", "application/json",
-         %OpenApiSpex.Schema{
-           oneOf: [
-             Schemas.ShareMountDocumentChallengeResponse,
-             Schemas.ShareMountFolderChallengeResponse
-           ]
-         }},
+      ok: {"Challenge result", "application/json", Schemas.ShareMountChallengeResponse},
       bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
       unauthorized: {"Unauthorized", "application/json", Schemas.ErrorResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
@@ -196,17 +231,23 @@ defmodule RefMDWeb.ShareMountController do
   @spec respond_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def respond_challenge(conn, %{"mount_id" => mount_id, "response" => response} = params) do
     with :ok <- validate_uuid_param(mount_id, :mount_id),
-         {:ok, share_id} <- validate_optional_uuid_param(params["share_id"], :share_id),
-         {:ok, document_id} <- validate_optional_uuid_param(params["document_id"], :document_id),
+         {:ok, challenge_hash} <-
+           validate_password_challenge_hash(params["password_challenge_hash"]),
          {:ok, decoded} <- decode_mount_binary(response) do
       case Sharing.respond_share_mount_challenge(
              conn.assigns.current_user_id,
              mount_id,
+             conn.assigns.pop_device_id,
              decoded,
-             share_id || document_id
+             nil,
+             challenge_hash,
+             get_share_session_token(conn)
            ) do
         {:ok, payload} ->
-          json(conn, encode_mount_detail(payload))
+          conn
+          |> maybe_set_mount_share_session_cookie(payload)
+          |> maybe_set_mount_password_session_cookie(payload)
+          |> json(encode_mount_challenge_response(payload))
 
         {:error, reason} ->
           handle_error(conn, reason)
@@ -220,12 +261,21 @@ defmodule RefMDWeb.ShareMountController do
     end
   end
 
-  operation(:folder,
-    summary: "Get a mounted folder subtree",
+  defp maybe_set_mount_share_session_cookie(conn, %{session_token: token})
+       when is_binary(token) do
+    set_share_session_cookie(conn, token, false)
+  end
+
+  defp maybe_set_mount_share_session_cookie(conn, _payload), do: conn
+
+  operation(:folder_bootstrap,
+    summary: "Bootstrap a mounted folder subtree",
     parameters: [
       mount_id: [in: :path, type: :string, required: true],
       folder_token: [in: :path, type: :string, required: true]
     ],
+    request_body:
+      {"Mount bootstrap params", "application/json", Schemas.ShareMountBootstrapRequest},
     responses: [
       ok: {"Mounted folder subtree", "application/json", Schemas.ShareMountFolderResponse},
       bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
@@ -235,18 +285,28 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec folder(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def folder(conn, %{"mount_id" => mount_id, "folder_token" => folder_token}) do
-    case validate_uuid_param(mount_id, :mount_id) do
-      :ok ->
-        case Sharing.get_share_mount_folder(conn.assigns.current_user_id, mount_id, folder_token) do
-          {:ok, response} ->
-            json(conn, encode_mount_folder_response(response))
+  @spec folder_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def folder_bootstrap(conn, %{"mount_id" => mount_id, "folder_token" => folder_token} = params) do
+    with :ok <- validate_uuid_param(mount_id, :mount_id),
+         {:ok, mount_trust_anchor} <- validate_mount_trust_anchor(params) do
+      case Sharing.get_share_mount_folder(
+             conn.assigns.current_user_id,
+             mount_id,
+             folder_token,
+             conn.assigns.pop_device_id,
+             mount_trust_anchor,
+             get_share_session_token(conn),
+             get_mount_password_session(conn, mount_id)
+           ) do
+        {:ok, response} ->
+          conn
+          |> maybe_set_mount_share_session_cookie(response)
+          |> json(encode_mount_folder_response(response))
 
-          {:error, reason} ->
-            handle_error(conn, reason)
-        end
-
+        {:error, reason} ->
+          handle_error(conn, reason)
+      end
+    else
       {:error, reason} ->
         handle_error(conn, reason)
     end
@@ -277,7 +337,7 @@ defmodule RefMDWeb.ShareMountController do
 
         case Sharing.update_share_mount(conn.assigns.current_user_id, mount_id, attrs) do
           {:ok, response} ->
-            json(conn, encode_mount_summary(response))
+            json(conn, encode_mount_placement(response))
 
           {:error, reason} ->
             handle_error(conn, reason)
@@ -319,48 +379,77 @@ defmodule RefMDWeb.ShareMountController do
     end
   end
 
+  defp encode_mount_summary(mount) do
+    mount
+  end
+
+  defp encode_mount_placement(mount) do
+    encode_mount_summary(mount)
+  end
+
+  defp encode_mount_list_item(mount) do
+    mount
+    |> encode_mount_summary()
+    |> Map.delete(:workspace_id)
+  end
+
   defp encode_mount_folder_response(response) do
     %{
       mount: response.mount,
-      folder: encode_share_tree_entry(response.folder),
-      entries: Enum.map(response.entries, &encode_share_tree_entry/1)
+      folder: encode_mount_tree_entry(response.folder),
+      entries: Enum.map(response.entries, &encode_mount_tree_entry/1)
     }
   end
 
-  defp encode_mount_detail(%{mount: _mount, admission: admission} = response)
-       when is_map(admission) do
+  defp encode_mount_challenge_response(%{
+         mount_id: mount_id,
+         bootstrap_required: bootstrap_required
+       }) do
+    %{mount_id: mount_id, bootstrap_required: bootstrap_required}
+  end
+
+  defp maybe_set_mount_password_session_cookie(conn, %{mount_password_session: session})
+       when is_map(session) do
+    token =
+      Phoenix.Token.sign(
+        RefMDWeb.Endpoint,
+        "mount_password_session",
+        %{
+          "mount_id" => session.mount_id,
+          "share_id" => session.share_id,
+          "user_id" => session.user_id
+        }
+      )
+
+    set_mount_session_cookie(conn, token, false)
+  end
+
+  defp maybe_set_mount_password_session_cookie(conn, _payload), do: conn
+
+  defp encode_mount_document_response(%{mount: _mount, document: _document} = response) do
     response
-    |> Map.update!(:mount, &encode_mount_summary/1)
-    |> Map.update!(:admission, &encode_mount_admission/1)
-  end
-
-  defp encode_mount_detail(%{admission: admission} = response) when is_map(admission) do
-    Map.update!(response, :admission, &encode_mount_admission/1)
-  end
-
-  defp encode_mount_detail(%{folder_tree: folder_tree} = response) when is_map(folder_tree) do
-    response
-    |> Map.update!(:mount, &encode_mount_summary/1)
-    |> Map.put(:folder_tree, %{
-      folder: encode_share_tree_entry(folder_tree.folder),
-      entries: Enum.map(folder_tree.entries, &encode_share_tree_entry/1)
-    })
-  end
-
-  defp encode_mount_detail(%{mount: _mount} = response) do
-    Map.update!(response, :mount, &encode_mount_summary/1)
-  end
-
-  defp encode_mount_summary(mount) do
-    Map.update!(mount, :target, fn target ->
-      target
-      |> Map.update!(:encrypted_title, &encode_mount_binary/1)
-      |> Map.update!(:encrypted_title_nonce, &encode_mount_binary/1)
+    |> Map.drop([:session_token])
+    |> Map.update!(:mount, &encode_mount_bootstrap_summary/1)
+    |> Map.update!(:document, fn document ->
+      document
+      |> encode_mount_document()
+      |> Map.drop([:title])
     end)
   end
 
-  defp encode_mount_admission(admission) do
-    admission
+  defp encode_mount_bootstrap_summary(mount) do
+    Map.take(mount, [:id, :share_id, :status])
+  end
+
+  defp encode_mount_metadata(%{mount: mount, bootstrap_required: bootstrap_required}) do
+    %{
+      mount: encode_mount_placement(mount),
+      bootstrap_required: bootstrap_required
+    }
+  end
+
+  defp encode_mount_document(document) do
+    document
     |> Map.update!(:encrypted_dek, &encode_mount_binary/1)
     |> Map.update!(:encrypted_title, &encode_mount_binary/1)
     |> Map.update!(:encrypted_title_nonce, &encode_mount_binary/1)
@@ -375,14 +464,19 @@ defmodule RefMDWeb.ShareMountController do
     |> Map.update!(:nonce, &encode_mount_binary/1)
   end
 
+  defp encode_mount_tree_entry(entry) do
+    entry
+    |> encode_share_tree_entry()
+    |> Map.drop([:title])
+  end
+
   defp encode_mount_binary(nil), do: nil
   defp encode_mount_binary(value), do: Base.url_encode64(value, padding: false)
 
   defp decode_mount_binary(value) when is_binary(value) do
-    case Base.url_decode64(value, padding: false) do
-      {:ok, bytes} -> {:ok, bytes}
-      :error -> {:error, :invalid_binary}
-    end
+    {:ok, Encoding.decode_base64url!(value)}
+  rescue
+    ArgumentError -> {:error, :invalid_binary}
   end
 
   defp validate_uuid_param(value, field) do
@@ -392,13 +486,73 @@ defmodule RefMDWeb.ShareMountController do
     end
   end
 
-  defp validate_optional_uuid_param(nil, _field), do: {:ok, nil}
-  defp validate_optional_uuid_param("", _field), do: {:ok, nil}
+  defp validate_mount_pin_hash(value) when is_binary(value) do
+    if Regex.match?(~r/^[A-Za-z0-9\-_]{43}$/, value),
+      do: {:ok, value},
+      else: {:error, {:invalid_value, :authenticated_workspace_pin_bootstrap_hash}}
+  end
 
-  defp validate_optional_uuid_param(value, field) do
-    case Ecto.UUID.cast(value) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, {:invalid_uuid, field}}
+  defp validate_mount_pin_hash(_),
+    do: {:error, {:missing_field, :authenticated_workspace_pin_bootstrap_hash}}
+
+  defp validate_mount_trust_anchor(params) do
+    with {:ok, pin_hash} <-
+           validate_mount_pin_hash(params["authenticated_workspace_pin_bootstrap_hash"]) do
+      {:ok,
+       %{
+         authenticated_workspace_pin_bootstrap_hash: pin_hash
+       }}
+    end
+  end
+
+  defp validate_password_challenge_hash(value) when is_binary(value) do
+    if Regex.match?(~r/^[A-Za-z0-9\-_]{43}$/, value),
+      do: {:ok, value},
+      else: {:error, {:invalid_value, :password_challenge_hash}}
+  end
+
+  defp validate_password_challenge_hash(_),
+    do: {:error, {:missing_field, :password_challenge_hash}}
+
+  defp get_share_session_token(conn) do
+    conn
+    |> get_req_header("cookie")
+    |> List.first("")
+    |> String.split(";")
+    |> Enum.find_value(fn part ->
+      case String.trim(part) |> String.split("=", parts: 2) do
+        ["_refmd_share_session", value] -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp get_mount_password_session(conn, mount_id) do
+    conn
+    |> get_req_header("cookie")
+    |> List.first("")
+    |> String.split(";")
+    |> Enum.find_value(fn part ->
+      case String.trim(part) |> String.split("=", parts: 2) do
+        ["_refmd_mount_session", value] -> value
+        _ -> nil
+      end
+    end)
+    |> verify_mount_password_session_token(mount_id)
+  end
+
+  defp verify_mount_password_session_token(nil, _mount_id), do: nil
+
+  defp verify_mount_password_session_token(token, mount_id) do
+    with {:ok, signed_token} <- Base.url_decode64(token, padding: false),
+         {:ok, %{"mount_id" => ^mount_id, "share_id" => share_id, "user_id" => user_id}} <-
+           Phoenix.Token.verify(RefMDWeb.Endpoint, "mount_password_session", signed_token,
+             max_age: 24 * 60 * 60
+           ),
+         true <- is_binary(share_id) and is_binary(user_id) do
+      %{mount_id: mount_id, share_id: share_id, user_id: user_id}
+    else
+      _ -> nil
     end
   end
 
@@ -420,6 +574,12 @@ defmodule RefMDWeb.ShareMountController do
 
   defp handle_error(conn, :not_found) do
     conn |> put_status(:not_found) |> json(%{error: "not_found"})
+  end
+
+  defp handle_error(conn, :fresh_share_participant_device_required) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "fresh_share_participant_device_required"})
   end
 
   defp handle_error(conn, %Ecto.Changeset{} = changeset) do

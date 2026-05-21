@@ -7,6 +7,7 @@ defmodule RefMD.Repo.Migrations.AddPasswordProtectedShareSupport do
       add :kdf_params, :map
       add :encrypted_auth_key, :binary
       add :auth_key_nonce, :binary
+      add :auth_key_server_key_id, :string
     end
 
     execute(
@@ -47,6 +48,7 @@ defmodule RefMD.Repo.Migrations.AddPasswordProtectedShareSupport do
     execute("ALTER TABLE share_keys DROP CONSTRAINT IF EXISTS share_keys_salt_size")
 
     alter table(:share_keys) do
+      remove :auth_key_server_key_id
       remove :auth_key_nonce
       remove :encrypted_auth_key
       remove :kdf_params

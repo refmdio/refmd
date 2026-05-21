@@ -3,6 +3,7 @@ defmodule RefMDWeb.EncryptionController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Devices, Encryption, Users, Workspaces}
+  alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Schemas
 
   operation(:create_workspace_key,
@@ -22,22 +23,52 @@ defmodule RefMDWeb.EncryptionController do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]
     sender_device_id = pop_device_id || params["sender_device_id"]
+    target_user_id = params["target_user_id"]
+    target_device_id = params["device_id"]
 
     with :ok <- validate_sender_device_match(pop_device_id, params["sender_device_id"]),
          {:ok, workspace} <- fetch_workspace(workspace_id),
-         :ok <- require_membership(workspace_id, user_id),
-         :ok <- validate_device_ownership(user_id, params["device_id"]),
-         :ok <- validate_key_version_range(params["key_version"], workspace, user_id) do
-      execute_create_workspace_key(conn, workspace, %{
+         {:ok, sender_role} <- fetch_membership(workspace_id, user_id),
+         :ok <- require_workspace_member(workspace_id, target_user_id),
+         :ok <-
+           require_workspace_key_delivery_authority(
+             sender_role,
+             user_id,
+             target_user_id,
+             target_device_id
+           ),
+         :ok <- validate_key_version_range(params["key_version"], workspace, user_id),
+         {:ok, sender_device} <- fetch_active_device(user_id, sender_device_id),
+         {:ok, target_device} <- fetch_active_device(target_user_id, target_device_id),
+         :ok <- require_no_workspace_wipe_requirement(workspace_id, sender_device_id),
+         :ok <- require_no_workspace_wipe_requirement(workspace_id, target_device_id) do
+      metadata = %{
         workspace_id: workspace_id,
-        user_id: user_id,
-        device_id: params["device_id"],
+        user_id: target_user_id,
+        device_id: target_device_id,
         key_version: params["key_version"],
         sender_device_id: sender_device_id,
-        encrypted_kek: decode_binary!(params["encrypted_kek"]),
-        nonce: decode_binary!(params["nonce"]),
         is_active: Map.get(params, "is_active", true)
-      })
+      }
+
+      validation_context = %{
+        workspace_id: workspace_id,
+        sender_user_id: user_id,
+        target_user_id: target_user_id,
+        workspace_checkpoint: params["workspace_key_directory_checkpoint"],
+        sender_device: sender_device,
+        target_device: target_device
+      }
+
+      execute_create_workspace_key(
+        conn,
+        workspace,
+        params,
+        metadata,
+        validation_context,
+        params["workspace_key_directory_events"],
+        params["workspace_key_directory_checkpoint"]
+      )
     else
       {:error, status, error} ->
         conn |> put_status(status) |> json(%{error: error})
@@ -70,7 +101,8 @@ defmodule RefMDWeb.EncryptionController do
     with :ok <- require_device_id(device_id),
          :ok <- validate_pop_device_match(pop_device_id, device_id),
          :ok <- validate_device_owned(user_id, device_id),
-         :ok <- require_membership(workspace_id, user_id) do
+         :ok <- require_membership(workspace_id, user_id),
+         :ok <- require_no_workspace_wipe_requirement(workspace_id, device_id) do
       workspace = Workspaces.get_workspace(workspace_id)
       keys = Encryption.get_workspace_encrypted_keys(workspace_id, user_id, device_id)
 
@@ -88,85 +120,6 @@ defmodule RefMDWeb.EncryptionController do
         })
       end
     else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
-    end
-  end
-
-  operation(:create_kek_backup,
-    summary: "Create a KEK backup",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"Backup params", "application/json", Schemas.CreateKekBackupRequest},
-    responses: [
-      created: {"Backup created", "application/json", Schemas.OkResponse},
-      not_found: {"Workspace not found", "application/json", Schemas.ErrorResponse},
-      conflict: {"Version mismatch", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec create_kek_backup(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def create_kek_backup(conn, %{"workspace_id" => workspace_id} = params) do
-    user_id = conn.assigns.current_user_id
-    key_version = params["key_version"]
-
-    with {:ok, workspace} <- fetch_workspace(workspace_id, "workspace_not_found"),
-         :ok <- require_membership(workspace_id, user_id),
-         {:ok, active_kek_version} <- resolve_active_kek_version(workspace),
-         :ok <- validate_kek_backup_version(key_version, active_kek_version, workspace, user_id),
-         :ok <- validate_user_has_active_kek(workspace, workspace_id, user_id) do
-      execute_create_kek_backup(conn, workspace, workspace_id, active_kek_version, %{
-        workspace_id: workspace_id,
-        user_id: user_id,
-        key_version: key_version,
-        encrypted_kek: decode_binary!(params["encrypted_kek"]),
-        nonce: decode_binary!(params["nonce"]),
-        is_active: true
-      })
-    else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
-    end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
-  end
-
-  operation(:get_kek_backup,
-    summary: "Get KEK backup (active or by version)",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true],
-      key_version: [in: :query, type: :integer, required: false]
-    ],
-    responses: [
-      ok: {"KEK backup", "application/json", Schemas.KekBackupResponse},
-      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec get_kek_backup(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_kek_backup(conn, %{"workspace_id" => workspace_id} = params) do
-    user_id = conn.assigns.current_user_id
-
-    case require_workspace_crypto_access(workspace_id, user_id) do
-      :ok ->
-        backup = resolve_kek_backup(workspace_id, user_id, params["key_version"])
-
-        case backup do
-          nil ->
-            conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-          b ->
-            json(conn, %{
-              key_version: b.key_version,
-              encrypted_kek: encode_binary(b.encrypted_kek),
-              nonce: encode_binary(b.nonce)
-            })
-        end
-
       {:error, status, error} ->
         conn |> put_status(status) |> json(%{error: error})
     end
@@ -197,6 +150,7 @@ defmodule RefMDWeb.EncryptionController do
   def setup_complete(conn, _params) do
     user_id = conn.assigns.current_user_id
     workspace_ids = Workspaces.get_user_workspace_ids(user_id)
+    workspaces = Enum.map(workspace_ids, &Workspaces.get_workspace/1)
 
     cond do
       not Devices.user_has_devices?(user_id) ->
@@ -208,10 +162,11 @@ defmodule RefMDWeb.EncryptionController do
       not Enum.all?(workspace_ids, &Encryption.user_has_active_kek?(&1, user_id)) ->
         conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_kek_envelope"})
 
-      not Enum.all?(workspace_ids, fn wid ->
-        Encryption.get_active_kek_backup(wid, user_id) != nil
+      not Enum.all?(workspaces, fn workspace ->
+        workspace != nil and
+            Encryption.member_has_envelope?(workspace.id, user_id, workspace.current_kek_version)
       end) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_kek_backup"})
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_member_envelope"})
 
       true ->
         Users.update_encryption_setup(user_id)
@@ -243,24 +198,69 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp require_membership(workspace_id, user_id),
-    do: require_workspace_crypto_access(workspace_id, user_id)
+  defp require_membership(workspace_id, user_id) do
+    require_workspace_crypto_access(workspace_id, user_id)
+  end
+
+  defp require_no_workspace_wipe_requirement(workspace_id, device_id) do
+    if Workspaces.workspace_device_wipe_required?(workspace_id, device_id),
+      do: {:error, :forbidden, "device_wipe_required"},
+      else: :ok
+  end
+
+  defp fetch_membership(workspace_id, user_id) do
+    case Workspaces.get_member_role(workspace_id, user_id) do
+      nil -> {:error, :forbidden, "not_a_member"}
+      role -> {:ok, role}
+    end
+  end
+
+  defp require_workspace_member(workspace_id, user_id) do
+    case Workspaces.get_member_role(workspace_id, user_id) do
+      role when is_binary(role) and role != "guest" -> :ok
+      "guest" -> {:error, :forbidden, "forbidden"}
+      _ -> {:error, :forbidden, "target_not_a_member"}
+    end
+  end
+
+  defp require_workspace_key_delivery_authority(
+         role,
+         _sender_user_id,
+         _target_user_id,
+         _target_device_id
+       )
+       when role in ~w(owner admin),
+       do: :ok
+
+  defp require_workspace_key_delivery_authority(
+         "guest",
+         _sender_user_id,
+         _target_user_id,
+         _target_device_id
+       ),
+       do: {:error, :forbidden, "forbidden"}
+
+  defp require_workspace_key_delivery_authority(
+         _role,
+         sender_user_id,
+         sender_user_id,
+         target_device_id
+       ) do
+    if Devices.user_owns_active_device?(sender_user_id, target_device_id) do
+      :ok
+    else
+      {:error, :forbidden, "forbidden"}
+    end
+  end
+
+  defp require_workspace_key_delivery_authority(_, _, _, _),
+    do: {:error, :forbidden, "forbidden"}
 
   defp validate_sender_device_match(pop_device_id, sender_device_id) do
     if pop_device_id != nil and sender_device_id != nil and sender_device_id != pop_device_id do
       {:error, :forbidden, "sender_device_id_mismatch"}
     else
       :ok
-    end
-  end
-
-  defp validate_device_ownership(_user_id, nil), do: :ok
-
-  defp validate_device_ownership(user_id, device_id) do
-    if Devices.user_owns_active_device?(user_id, device_id) do
-      :ok
-    else
-      {:error, :forbidden, "invalid_device"}
     end
   end
 
@@ -272,11 +272,23 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
+  defp fetch_active_device(user_id, device_id) when is_binary(device_id) do
+    case Devices.get_device(device_id) do
+      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
+      _ -> {:error, :forbidden, "invalid_device"}
+    end
+  end
+
+  defp fetch_active_device(_user_id, _device_id), do: {:error, :forbidden, "invalid_device"}
+
   defp validate_key_version_range(key_version, workspace, user_id)
        when is_integer(key_version) do
     max = max_allowed_key_version(workspace, user_id, key_version)
 
     cond do
+      workspace.needs_kek_rotation and key_version != workspace.current_kek_version + 1 ->
+        {:error, :unprocessable_entity, "kek_rotation_required"}
+
       key_version < 1 ->
         {:error, :unprocessable_entity, "key_version_must_be_positive"}
 
@@ -323,47 +335,40 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp resolve_active_kek_version(workspace) do
-    if workspace.current_kek_version > 0 do
-      {:ok, workspace.current_kek_version}
-    else
-      case Encryption.get_max_active_kek_version(workspace.id) do
-        nil -> {:error, :conflict, "no_active_kek"}
-        version -> {:ok, version}
-      end
-    end
-  end
-
-  defp validate_kek_backup_version(key_version, active_kek_version, workspace, user_id) do
-    rotation_version_allowed =
-      workspace.needs_kek_rotation and
-        workspace.kek_rotation_initiator_user_id == user_id and
-        key_version == active_kek_version + 1
-
-    if key_version == active_kek_version or rotation_version_allowed do
-      :ok
-    else
-      {:error, :conflict, "key_version_mismatch"}
-    end
-  end
-
-  defp validate_user_has_active_kek(_workspace, workspace_id, user_id) do
-    if Encryption.user_has_active_kek?(workspace_id, user_id) do
-      :ok
-    else
-      {:error, :forbidden, "no_active_kek_for_user"}
-    end
-  end
-
   # --- Execution helpers ---
 
-  defp execute_create_workspace_key(conn, workspace, attrs) do
-    case Encryption.create_workspace_encrypted_key(attrs) do
+  defp execute_create_workspace_key(
+         conn,
+         workspace,
+         params,
+         metadata,
+         validation_context,
+         workspace_events,
+         workspace_checkpoint
+       ) do
+    case Encryption.create_workspace_encrypted_key_from_client_wrap(
+           params,
+           metadata,
+           validation_context,
+           workspace_events,
+           workspace_checkpoint
+         ) do
       {:ok, key} ->
-        handle_workspace_key_created(conn, workspace, key, attrs.key_version)
+        handle_workspace_key_created(conn, workspace, key, metadata.key_version)
 
       {:error, :invalid_sender_device} ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_sender_device"})
+
+      {:error, :missing_key_directory} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_key_directory"})
+
+      {:error, :invalid_key_directory} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
+
+      {:error, :invalid_workspace_device_kek_wrap} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_workspace_device_kek_wrap"})
 
       {:error, %Ecto.Changeset{} = changeset} ->
         handle_workspace_key_changeset_error(conn, changeset)
@@ -401,48 +406,26 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp execute_create_kek_backup(conn, workspace, workspace_id, active_kek_version, attrs) do
-    case Encryption.create_workspace_kek_backup(attrs) do
-      {:ok, _} ->
-        if workspace.current_kek_version == 0 do
-          Workspaces.update_current_kek_version(workspace_id, active_kek_version)
-        end
-
-        conn |> put_status(:created) |> json(%{ok: true})
-
-      {:error, changeset} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_backup", details: format_errors(changeset)})
-    end
-  end
-
   defp format_workspace_key(key) do
     sender = if key.sender_device_id, do: Devices.get_device(key.sender_device_id)
 
     %{
       key_version: key.key_version,
-      encrypted_kek: encode_binary(key.encrypted_kek),
-      nonce: encode_binary(key.nonce),
       is_active: key.is_active,
       sender_device_id: key.sender_device_id,
-      sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
-      sender_signing_public_key: sender && encode_binary(sender.signing_public_key)
+      workspace_key_directory_checkpoint: operation_checkpoint_envelope(key),
+      workspace_key_directory_checkpoint_ancestry: operation_checkpoint_ancestry(key),
+      workspace_key_directory_event_ancestry: operation_event_ancestry(key)
     }
+    |> Map.merge(Encryption.workspace_device_key_response_fields(key))
+    |> Map.merge(DeviceIdentity.sender_fields(sender))
   end
 
-  defp resolve_kek_backup(workspace_id, user_id, nil) do
-    Encryption.get_active_kek_backup(workspace_id, user_id)
-  end
+  defp operation_checkpoint_envelope(key),
+    do: Encryption.workspace_key_operation_checkpoint_envelope(key)
 
-  defp resolve_kek_backup(workspace_id, user_id, ver) when is_binary(ver) do
-    case Integer.parse(ver) do
-      {int_ver, ""} -> Encryption.get_kek_backup_by_version(workspace_id, user_id, int_ver)
-      _ -> nil
-    end
-  end
+  defp operation_checkpoint_ancestry(key),
+    do: Encryption.workspace_key_operation_checkpoint_ancestry(key)
 
-  defp resolve_kek_backup(workspace_id, user_id, ver) when is_integer(ver) do
-    Encryption.get_kek_backup_by_version(workspace_id, user_id, ver)
-  end
+  defp operation_event_ancestry(key), do: Encryption.workspace_key_operation_event_ancestry(key)
 end

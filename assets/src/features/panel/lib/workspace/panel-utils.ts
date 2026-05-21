@@ -11,8 +11,8 @@ export interface DocumentPanelTarget {
   workspaceId?: string | null;
 }
 
-export interface RawShareDocumentPanelTarget {
-  source: "raw-share-document";
+export interface ShareLinkDocumentPanelTarget {
+  source: "share-link-document";
   targetKey: string;
   documentId: string;
   documentToken: string;
@@ -34,7 +34,7 @@ export interface MountedShareDocumentPanelTarget {
 
 export type PanelTarget =
   | DocumentPanelTarget
-  | RawShareDocumentPanelTarget
+  | ShareLinkDocumentPanelTarget
   | MountedShareDocumentPanelTarget;
 
 export type OpenPanelTargetInput =
@@ -67,15 +67,15 @@ export function createDocumentPanelTarget(documentId: string, title?: string): D
   };
 }
 
-export function createRawShareDocumentPanelTarget(args: {
+export function createShareLinkDocumentPanelTarget(args: {
   documentToken: string;
   documentId: string;
   routePath?: string;
   title?: string;
   workspaceId?: string | null;
-}): RawShareDocumentPanelTarget {
+}): ShareLinkDocumentPanelTarget {
   return {
-    source: "raw-share-document",
+    source: "share-link-document",
     targetKey: `share:d:${args.documentToken}`,
     documentId: args.documentId,
     documentToken: args.documentToken,
@@ -95,7 +95,7 @@ export function createMountedShareDocumentPanelTarget(args: {
 }): MountedShareDocumentPanelTarget {
   return {
     source: "mounted-share-document",
-    targetKey: `mount:${args.mountId}:${args.shareId}:${args.documentId}`,
+    targetKey: `mount:${args.mountId}:${args.shareId}`,
     mountId: args.mountId,
     shareId: args.shareId,
     documentId: args.documentId,
@@ -134,7 +134,7 @@ export function encodePanelIdForTarget(
 ): string {
   const id = instanceId ?? generateInstanceId();
   const sg = scrollGroupId ?? generateInstanceId();
-  if (target.source === "raw-share-document") {
+  if (target.source === "share-link-document") {
     return `share:d:${target.documentToken}:${target.documentId}:${type}:${id}:${sg}`;
   }
   if (target.source === "mounted-share-document") {
@@ -177,7 +177,7 @@ export function decodePanelId(panelId: string): PanelId | null {
       return null;
     }
     return {
-      source: "raw-share-document",
+      source: "share-link-document",
       targetKey: `share:d:${documentToken}`,
       documentId,
       type: type as PanelType,
@@ -200,7 +200,7 @@ export function decodePanelId(panelId: string): PanelId | null {
     }
     return {
       source: "mounted-share-document",
-      targetKey: `mount:${mountId}:${shareId}:${documentId}`,
+      targetKey: `mount:${mountId}:${shareId}`,
       documentId,
       type: type as PanelType,
       instanceId,

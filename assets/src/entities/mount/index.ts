@@ -1,14 +1,23 @@
+export { useShareMounts } from "./model/query/use-share-mounts";
 export {
-  deleteShareMount,
-  getShareMount,
-  getShareMountFolder,
-  useShareMounts,
-} from "./model/use-share-mounts";
+  forgetMountTrustAnchor,
+  loadMountTrustAnchor,
+  loadMountTrustAnchorHash,
+  mountedShareSessionKey,
+  mountTargetTokenHash,
+  mountTrustAnchorRequest,
+  readShareUrlFragmentFromLocation,
+  readShareSlugFromLocation,
+  readWorkspacePinBootstrapHashFromLocation,
+  rememberMountTrustAnchor,
+} from "./model/trust-anchor/trust-anchor";
+export type { ResolvedShareMount } from "./model/query/use-share-mounts";
+export type { MountTrustAnchor } from "./model/trust-anchor/trust-anchor";
 export type {
   MountedShareTreeEntry,
+  ShareLinkMount,
   ShareMount,
-  ShareMountAdmission,
+  ShareMountDocument,
   ShareMountDetail,
-  ShareMountLookupItem,
   ShareTreeEntry,
-} from "./model/types";
+} from "./model/mount/types";

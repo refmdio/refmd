@@ -55,13 +55,29 @@ export async function waitForWorkspaceReady(page: Page): Promise<void> {
           'aside [data-slot="dropdown-menu-trigger"]',
         );
         const workspaceName = trigger?.textContent?.trim() ?? "";
-        return !!workspaceId && workspaceName.length > 0 && workspaceName !== "Select workspace";
+        const hasWorkspaceMenu =
+          workspaceName.length > 0 && workspaceName !== "Select workspace";
+        const hasWorkspaceSidebar = Array.from(document.querySelectorAll("aside button")).some(
+          (button) => button.textContent?.trim() === "New Document",
+        );
+        const ready = !!workspaceId && (hasWorkspaceMenu || hasWorkspaceSidebar);
+        return ready
+          ? "ready"
+          : JSON.stringify({
+              workspaceId,
+              workspaceName,
+              hasWorkspaceMenu,
+              hasWorkspaceSidebar,
+              url: window.location.pathname,
+              hasEditor: !!document.querySelector(".cm-content, .ProseMirror"),
+              bodyText: document.body.textContent?.trim().slice(0, 160) ?? "",
+            });
       });
     }, {
       timeout: 120_000,
       message: "workspace selection was not initialized",
     })
-    .toBe(true);
+    .toBe("ready");
 }
 
 export async function blockApiRequests(page: Page): Promise<{
@@ -145,6 +161,7 @@ export async function login(
   email: string,
   options?: {
     allowDeviceRegistration?: boolean;
+    rememberMe?: boolean;
   },
 ): Promise<void> {
   const isWorkspaceVisible = async () =>
@@ -203,6 +220,11 @@ export async function login(
   await expect(emailInput).toBeVisible({ timeout: 30_000 });
   await emailInput.fill(email);
   await page.locator("#password").fill(TEST_PASSWORD);
+  if (options?.rememberMe === true) {
+    await page.locator("#remember").check();
+  } else {
+    await page.locator("#remember").uncheck();
+  }
   await page.locator('button[type="submit"]').click();
 
   await expect(page).toHaveURL(
@@ -326,6 +348,7 @@ export async function openDocument(page: Page, title: string): Promise<void> {
     failedToLoad: boolean;
     disconnected: boolean;
     bodySnippet: string;
+    clientLogs: unknown[];
   } | null = null;
 
   while (Date.now() < deadline) {
@@ -336,9 +359,14 @@ export async function openDocument(page: Page, title: string): Promise<void> {
       failedToLoad: document.body.textContent?.includes("Failed to load document") ?? false,
       disconnected: document.body.textContent?.includes("disconnected") ?? false,
       bodySnippet: document.body.textContent?.slice(0, 400) ?? "",
+      clientLogs: (
+        (window as Window & { __refmdE2EClientLogs?: unknown[] }).__refmdE2EClientLogs ?? []
+      ).slice(-10),
     }));
 
-    if (lastState.hasCm || lastState.hasPm) return;
+    if (lastState.hasCm || lastState.hasPm) {
+      return;
+    }
     await page.waitForTimeout(500);
   }
 
@@ -427,15 +455,17 @@ export async function selectSettingsTab(page: Page, tabName: string): Promise<vo
  */
 export async function logout(page: Page): Promise<void> {
   const loginForm = page.locator("#email");
-  if (await loginForm.isVisible({ timeout: 2_000 }).catch(() => false)) {
+  if (await loginForm.isVisible({ timeout: 5_000 }).catch(() => false)) {
     return;
   }
 
   const settingsButton = page.locator('button[aria-label="Settings"]');
   if (!(await settingsButton.isVisible({ timeout: 5_000 }).catch(() => false))) {
     await page.goto("/auth/login", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#email")).toBeVisible({ timeout: 10_000 });
-    return;
+    if (await loginForm.isVisible({ timeout: 10_000 }).catch(() => false)) {
+      return;
+    }
+    await expect(settingsButton).toBeVisible({ timeout: 20_000 });
   }
 
   await openSettings(page);
@@ -555,25 +585,48 @@ export async function expectToast(page: Page, message: string): Promise<void> {
   });
 }
 
+export async function indexedDbKeysFromDb(
+  page: Page,
+  dbName: string,
+  storeName: string,
+): Promise<string[]> {
+  return page
+    .evaluate(
+      async ({ targetDbName, targetStoreName }) => {
+        return new Promise<string[]>((resolve) => {
+          const request = indexedDB.open(targetDbName);
+          request.onsuccess = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(targetStoreName)) {
+              db.close();
+              resolve([]);
+              return;
+            }
+            const transaction = db.transaction(targetStoreName, "readonly");
+            const store = transaction.objectStore(targetStoreName);
+            const keysRequest = store.getAllKeys();
+            keysRequest.onsuccess = () => {
+              db.close();
+              resolve(keysRequest.result.map((key) => String(key)));
+            };
+            keysRequest.onerror = () => {
+              db.close();
+              resolve([]);
+            };
+          };
+          request.onerror = () => resolve([]);
+        });
+      },
+      { targetDbName: dbName, targetStoreName: storeName },
+    )
+    .catch(() => []);
+}
+
 export async function indexedDbKeys(page: Page, storeName: string): Promise<string[]> {
-  return page.evaluate(async (targetStoreName) => {
-    return new Promise<string[]>((resolve) => {
-      const request = indexedDB.open("refmd-offline");
-      request.onsuccess = () => {
-        const db = request.result;
-        const transaction = db.transaction(targetStoreName, "readonly");
-        const store = transaction.objectStore(targetStoreName);
-        const keysRequest = store.getAllKeys();
-        keysRequest.onsuccess = () => {
-          db.close();
-          resolve(keysRequest.result.map((key) => String(key)));
-        };
-        keysRequest.onerror = () => {
-          db.close();
-          resolve([]);
-        };
-      };
-      request.onerror = () => resolve([]);
-    });
-  }, storeName);
+  return indexedDbKeysFromDb(page, "refmd-offline", storeName);
+}
+
+export async function offlineKeyStoreKeys(page: Page, prefix: string): Promise<string[]> {
+  const keys = await indexedDbKeysFromDb(page, "refmd-keys", "keystore");
+  return keys.filter((key) => key.startsWith(prefix));
 }

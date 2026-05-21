@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
-import { useWorkspaceSection } from "../../model/workspace-section/useSection";
+import { useWorkspaceSection } from "../../model/workspace-section/use-section";
 import { WorkspaceSectionContent } from "../workspace-section/Content";
 import { WorkspaceSectionDialogs } from "../workspace-section/Dialogs";
 

@@ -1,5 +1,5 @@
-export { currentWorkspaceId, setCurrentWorkspaceId } from "./model/workspace-selection";
-export { useWorkspaces } from "./model/use-workspaces";
+export { currentWorkspaceId, setCurrentWorkspaceId } from "./model/selection/selection";
+export { useWorkspaces } from "./model/query/use-workspaces";
 export {
   ALL_PERMISSIONS,
   PERMISSION_LABELS,
@@ -7,6 +7,6 @@ export {
   PRIVILEGE_LEVEL,
   isAtOrAbove,
   checkEffectivePermission,
-} from "./lib/permissions";
-export type { BaseRole } from "./lib/permissions";
-export type { WorkspaceMember, WorkspaceRole } from "./model/types";
+} from "./lib/permissions/permissions";
+export type { BaseRole } from "./lib/permissions/permissions";
+export type { WorkspaceMember, WorkspaceRole } from "./model/workspace/types";

@@ -13,19 +13,10 @@ let sharedPage: Page;
 let defaultWorkspaceName: string;
 let secondWorkspaceName = "Routing Workspace Two";
 let defaultDocumentId: string;
-let folderId: string;
 let secondWorkspaceDocumentId: string;
 
 function documentRouteRegex(documentId: string): RegExp {
   return new RegExp(`/document/${documentId}$`);
-}
-
-async function selectedDocumentId(page: Page): Promise<string> {
-  const documentId = await page.evaluate(() => localStorage.getItem("refmd_selected_document"));
-  if (!documentId) {
-    throw new Error("selected document id not found in localStorage");
-  }
-  return documentId;
 }
 
 test.describe.serial("Document Routing Edge Cases", () => {
@@ -51,9 +42,7 @@ test.describe.serial("Document Routing Edge Cases", () => {
 
     await createFolder(sharedPage, "Routing Edge Folder");
     await sharedPage.locator("aside").getByText("Routing Edge Folder").click();
-    folderId = await selectedDocumentId(sharedPage);
     expect(defaultDocumentId).toBeTruthy();
-    expect(folderId).toBeTruthy();
 
     await createWorkspace(sharedPage, secondWorkspaceName);
 

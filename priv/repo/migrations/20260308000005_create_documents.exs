@@ -46,13 +46,24 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
       add :data, :binary, null: false
       add :nonce, :binary, null: false
       add :key_version, :integer, null: false
-      add :signature, :binary, null: false
+      add :hybrid_signature, :map, null: false
       add :ciphertext_hash, :text, null: false
+      add :snapshot_signature_hash, :text, null: false
+      add :snapshot_admission_event_hash, :text, null: false
+      add :proof_chain_hash, :text, null: false
       add :clocks, :map, null: false, default: %{}
       add :parent_snapshot_update_clocks, :map, null: false, default: %{}
-      add :parent_snapshot_proof, :text, null: false, default: ""
-      add :device_id, references(:devices, type: :binary_id), null: false
-      add :created_by_device, :text, null: false
+      add :parent_proof_hash, :text, null: false, default: "GENESIS"
+      add :created_by_signing_key_id, :text, null: false
+      add :owner_kind, :text, null: false
+      add :owner_id, :text, null: false
+      add :authority_kind, :text, null: false
+      add :authority_id, :text, null: false
+      add :authority_context_key, :text, null: false
+      add :authority_scope_id, :text, null: false
+      add :authority_permission_version, :integer, null: false
+      add :key_checkpoint_sequence, :bigint, null: false
+      add :key_checkpoint_hash, :text, null: false
       add :created_at, :utc_datetime_usec, null: false, default: fragment("NOW()")
     end
 
@@ -70,17 +81,24 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
         null: false
 
       add :snapshot_id, references(:document_snapshots, type: :binary_id), null: false
-      add :clock, :integer
+      add :clock, :integer, null: false
       add :version, :bigint, null: false
-      add :device_id, references(:devices, type: :binary_id)
-      add :device_signing_pub_key, :text
+      add :signing_key_id, :text, null: false
       add :update_data, :binary, null: false
       add :nonce, :binary, null: false
       add :key_version, :integer, null: false
       add :update_hash, :text, null: false
-      add :signature, :binary
-      add :mac, :binary
-      add :share_id, :binary_id
+      add :hybrid_signature, :map, null: false
+      add :owner_kind, :text, null: false
+      add :owner_id, :text, null: false
+      add :authority_kind, :text, null: false
+      add :authority_id, :text, null: false
+      add :authority_context_key, :text, null: false
+      add :authority_scope_id, :text, null: false
+      add :authority_permission_version, :integer, null: false
+      add :key_checkpoint_sequence, :bigint, null: false
+      add :key_checkpoint_hash, :text, null: false
+      add :admission_event_hash, :text, null: false
       add :timestamp, :bigint, null: false
       add :created_at, :utc_datetime_usec, null: false, default: fragment("NOW()")
     end
@@ -89,18 +107,25 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
     create unique_index(:document_updates, [:document_id, :version])
     create unique_index(:document_updates, [:document_id, :update_hash])
 
-    # CHECK: all persisted updates use the signed device-authenticated shape.
+    # CHECK: all persisted updates use the signed owner-authenticated shape.
     execute(
       """
       ALTER TABLE document_updates
       ADD CONSTRAINT document_updates_auth_check
       CHECK (
-        signature IS NOT NULL AND
-        mac IS NULL AND
+        hybrid_signature IS NOT NULL AND
         clock IS NOT NULL AND
-        device_signing_pub_key IS NOT NULL AND
-        device_id IS NOT NULL AND
-        share_id IS NULL
+        signing_key_id IS NOT NULL AND
+        owner_kind IS NOT NULL AND
+        owner_id IS NOT NULL AND
+        authority_kind IS NOT NULL AND
+        authority_id IS NOT NULL AND
+        authority_context_key IS NOT NULL AND
+        authority_scope_id IS NOT NULL AND
+        authority_permission_version IS NOT NULL AND
+        key_checkpoint_sequence IS NOT NULL AND
+        key_checkpoint_hash IS NOT NULL AND
+        admission_event_hash IS NOT NULL
       )
       """,
       """

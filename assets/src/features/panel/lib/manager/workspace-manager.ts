@@ -219,9 +219,8 @@ class WorkspaceManagerImpl extends Events implements AppWorkspace {
   on(event: "editor-drop", cb: (evt: DragEvent, editor: unknown, view: unknown) => void): EventRef;
   on(event: "resize", cb: () => void): EventRef;
   on(event: "css-change", cb: () => void): EventRef;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on(event: string, cb: (...data: any[]) => any, ctx?: any): EventRef {
-    return super.on(event, cb, ctx);
+  on(event: string, cb: (...data: never[]) => unknown, ctx?: unknown): EventRef {
+    return super.on(event, cb as (...data: unknown[]) => unknown, ctx);
   }
 }
 

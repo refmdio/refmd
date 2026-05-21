@@ -6,12 +6,14 @@ import {
   type OfflineSessionResult,
 } from "@/features/auth";
 import {
+  clearSession,
   setAuthState,
   setCryptoWorkerReady,
   setDeviceState,
   setSessionContextRestorer,
   setTofuErrors,
 } from "@/entities/session";
+import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { isTofuHardFail } from "@/shared/lib/crypto/worker/client";
 
 export function isPublicPath(pathname = window.location.pathname): boolean {
@@ -31,17 +33,18 @@ function applyOfflineSession(offlineResult: OfflineSessionResult) {
       name: offlineResult.name,
     },
     sessionId: "",
-    identitySigningPublic: null,
+    identityHybridSigningPublicKeyMaterial: null,
     identityEcdhPublic: null,
     expiresAt: "",
   });
   setDeviceState({
     deviceId: offlineResult.deviceId,
-    deviceSigningPublic: offlineResult.deviceSigningPublic,
+    deviceSigningKeyId: offlineResult.deviceSigningKeyId,
+    deviceHybridSigningPublicKeyMaterial: offlineResult.deviceHybridSigningPublicKeyMaterial,
     deviceEcdhPublic: offlineResult.deviceEcdhPublic,
   });
   // DSK is set even if !workerReady (no UMK). Offline operations
-  // (unwrapDekFromOffline, decryptOfflineCache) only need DSK.
+  // (restoreDekFromOffline, decryptOfflineCache) only need DSK.
   setCryptoWorkerReady(true);
 }
 
@@ -78,8 +81,11 @@ export function useSessionBootstrap() {
           const offlineResult = await restoreOfflineSession();
           if (offlineResult) {
             applyOfflineSession(offlineResult);
+            return;
           }
         }
+        clearSession();
+        setCurrentWorkspaceId(null);
         return;
       }
 
@@ -107,6 +113,10 @@ export function useSessionBootstrap() {
   setSessionContextRestorer(async () => {
     const result = await restoreSession();
     if (!result || result === "rate_limited" || result === "transient_error") {
+      if (!result) {
+        clearSession();
+        setCurrentWorkspaceId(null);
+      }
       return;
     }
 

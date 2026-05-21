@@ -2,6 +2,7 @@ defmodule RefMDWeb.WorkspaceController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Crypto.Encoding
   alias RefMD.{Public, Workspaces}
   alias RefMDWeb.Schemas
 
@@ -32,7 +33,15 @@ defmodule RefMDWeb.WorkspaceController do
     user_id = conn.assigns.current_user_id
 
     opts =
-      %{}
+      %{
+        workspace_id: params["workspace_id"],
+        workspace_owner_role_id: params["workspace_owner_role_id"],
+        key_directory: %{
+          workspace_events: params["workspace_key_directory_events"],
+          workspace_checkpoint: params["workspace_key_directory_checkpoint"]
+        },
+        creator_device_id: conn.assigns.current_session.device_id
+      }
       |> maybe_put_string(:description, params["description"])
       |> maybe_put_string(:icon, params["icon"])
 
@@ -42,10 +51,15 @@ defmodule RefMDWeb.WorkspaceController do
         |> put_status(:created)
         |> json(serialize_workspace(workspace))
 
-      {:error, changeset} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "validation_error", details: format_errors(changeset)})
+
+      {:error, reason} when is_atom(reason) ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: Atom.to_string(reason)})
     end
   end
 
@@ -261,10 +275,9 @@ defmodule RefMDWeb.WorkspaceController do
   end
 
   defp decode_workspace_binary_field(attrs, key, value) when is_binary(value) do
-    case Base.url_decode64(value, padding: false) do
-      {:ok, decoded} -> Map.put(attrs, key, decoded)
-      :error -> attrs
-    end
+    Map.put(attrs, key, Encoding.decode_base64url!(value))
+  rescue
+    ArgumentError -> attrs
   end
 
   defp decode_workspace_binary_field(attrs, _key, _value), do: attrs

@@ -1,4 +1,4 @@
-defmodule RefMDWeb.RequireAuthTest do
+defmodule RefMDWeb.Plugs.RequireAuthTest do
   use RefMDWeb.ConnCase, async: true
 
   alias RefMD.Auth
@@ -40,46 +40,42 @@ defmodule RefMDWeb.RequireAuthTest do
 
   defp create_share(document, owner_id) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    workspace_pin_bootstrap_hash = Process.get(:workspace_pin_bootstrap_hash)
 
-    {:ok, created} =
-      Sharing.create_share(document, owner_id, %{
+    attrs =
+      with_test_share_security_artifacts(document, owner_id, %{
         "id" => Ecto.UUID.generate(),
         "scope" => "document",
         "share_slug" => share_slug,
         "token_prefix" => String.slice(share_slug, 0, 4),
         "permission" => "view",
         "password_protected" => false,
-        "encrypted_dek" => :crypto.strong_rand_bytes(32),
-        "nonce" => nil
+        "authorization_public_key_material" =>
+          share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+        "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+        "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash,
+        "encrypted_dek" => :crypto.strong_rand_bytes(48),
+        "nonce" => :crypto.strong_rand_bytes(24)
       })
 
+    {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+
     created
-  end
-
-  defp valid_signing_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_ed25519_public_key?(key), do: key, else: valid_signing_public_key()
-  end
-
-  defp valid_encryption_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_x25519_public_key?(key), do: key, else: valid_encryption_public_key()
   end
 
   setup do
     owner_id = create_user("owner-require-auth@example.com")
     {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "RequireAuth Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
     document = create_document(workspace.id, owner_id)
     created = create_share(document, owner_id)
 
     {:ok, _user_session, user_token} = Auth.create_session(owner_id)
 
     {:ok, bootstrapped} =
-      Sharing.bootstrap_participant(created.share_slug, %{
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => valid_signing_public_key(),
-        "device_encryption_pub_key" => valid_encryption_public_key()
-      })
+      bootstrap_share_participant(created, "Guest User")
 
     %{
       user_cookie: Base.url_encode64(user_token, padding: false),

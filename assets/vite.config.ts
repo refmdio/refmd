@@ -46,6 +46,33 @@ function getManualChunk(id: string): string | undefined {
   return undefined;
 }
 
+const fsdSlices = {
+  entities: ["document", "mount", "session", "settings", "workspace"],
+  features: ["auth", "devices", "document", "editor", "panel", "publication", "share", "workspace"],
+  widgets: ["document-editor", "document-workspace", "settings", "share-workspace", "sidebar"],
+} as const;
+
+function noSelfAliasImportOverrides() {
+  return Object.entries(fsdSlices).flatMap(([layer, slices]) =>
+    slices.map((slice) => ({
+      files: [`src/${layer}/${slice}/**/*.{ts,tsx}`],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: [`@/${layer}/${slice}`, `@/${layer}/${slice}/*`],
+                message: "Use relative imports inside the same FSD slice.",
+              },
+            ],
+          },
+        ],
+      },
+    })),
+  );
+}
+
 export default defineConfig({
   lint: {
     plugins: ["oxc", "typescript", "unicorn"],
@@ -61,9 +88,8 @@ export default defineConfig({
         { type: "entities", pattern: "src/entities/*", mode: "folder" },
         { type: "features", pattern: "src/features/*", mode: "folder" },
         { type: "widgets", pattern: "src/widgets/*", mode: "folder" },
-        { type: "core-plugins", pattern: "src/core-plugins/*", mode: "folder" },
-        { type: "pages", pattern: "src/routes/*", mode: "folder" },
-        { type: "pages", pattern: "src/routes/*", mode: "file" },
+        { type: "pages", pattern: "src/pages/*", mode: "folder" },
+        { type: "pages", pattern: "src/pages/*", mode: "file" },
         { type: "app", pattern: "src/app/*", mode: "folder" },
         { type: "app", pattern: "src/app/*", mode: "file" },
         { type: "app", pattern: "src/*", mode: "file" },
@@ -90,32 +116,82 @@ export default defineConfig({
           "check-file/filename-blocklist": [
             "error",
             {
-              "src/!(app|routes|widgets|features|entities|shared|core-plugins|types|index.ts|index.tsx)/**/*.{ts,tsx}":
+              "src/!(app|pages|widgets|features|entities|shared|index.ts|index.tsx)/**/*.{ts,tsx}":
                 "move the file into a supported src layer",
               "src/app/!(*App).{ts,tsx}": "keep only App.tsx at src/app root",
-              "src/app/!(bootstrap|layout|router|workspace)/**/*.{ts,tsx}":
-                "use src/app/{bootstrap,layout,router,workspace}/**",
-              "src/widgets/*/!(*index).{ts,tsx}":
-                "move non-index files under src/widgets/<slice>/{ui,model,lib}/",
+              "src/app/!(bootstrap|core-plugins|layout|router|workspace)/**/*.{ts,tsx}":
+                "use src/app/{bootstrap,core-plugins,layout,router,workspace}/**",
+              "src/widgets/*/!(index).{ts,tsx}":
+                "move non-entry files under src/widgets/<slice>/{ui,model,lib}/",
               "src/widgets/*/!(ui|model|lib)/**/*.{ts,tsx}":
                 "use only ui, model, or lib under widgets slices",
-              "src/entities/*/!(*index).{ts,tsx}":
-                "move non-index files under src/entities/<slice>/{ui,model,lib}/",
+              "src/widgets/*/lib/*.{ts,tsx}":
+                "place widget lib files under src/widgets/<slice>/lib/<subsystem>/",
+              "src/widgets/*/model/*.{ts,tsx}":
+                "place widget model files under src/widgets/<slice>/model/<subsystem>/",
+              "src/widgets/*/ui/*.{ts,tsx}":
+                "place widget ui files under src/widgets/<slice>/ui/<subsystem>/",
+              "src/widgets/*/lib/*/*/**/*.{ts,tsx}":
+                "keep widget lib subsystem internals one directory deep",
+              "src/widgets/*/model/*/*/**/*.{ts,tsx}":
+                "keep widget model subsystem internals one directory deep",
+              "src/widgets/*/ui/*/*/**/*.{ts,tsx}":
+                "keep widget ui subsystem internals one directory deep",
+              "src/entities/*/!(index).{ts,tsx}":
+                "move non-entry files under src/entities/<slice>/{ui,model,lib}/",
               "src/entities/*/!(ui|model|lib)/**/*.{ts,tsx}":
                 "use only ui, model, or lib under entity slices",
-              "src/features/*/!(*index).{ts,tsx}": "keep only index.ts[x] at feature slice roots",
-              "src/features/*/!(ui|model|lib)/!(*index).{ts,tsx}":
-                "keep only index.ts[x] at feature use-case roots",
-              "src/features/*/!(ui|model|lib)/!(ui|model|lib)/**/*.{ts,tsx}":
-                "use only ui, model, or lib under feature use-cases",
-              "src/shared/!(api|ui|lib)/**/*.{ts,tsx}": "use only api, ui, or lib under shared",
+              "src/entities/*/lib/*.{ts,tsx}":
+                "place entity lib files under src/entities/<slice>/lib/<subsystem>/",
+              "src/entities/*/model/*.{ts,tsx}":
+                "place entity model files under src/entities/<slice>/model/<subsystem>/",
+              "src/entities/*/ui/*.{ts,tsx}":
+                "place entity ui files under src/entities/<slice>/ui/<subsystem>/",
+              "src/entities/*/lib/*/*/**/*.{ts,tsx}":
+                "keep entity lib subsystem internals one directory deep",
+              "src/entities/*/model/*/*/**/*.{ts,tsx}":
+                "keep entity model subsystem internals one directory deep",
+              "src/entities/*/ui/*/*/**/*.{ts,tsx}":
+                "keep entity ui subsystem internals one directory deep",
+              "src/features/*/!(index).{ts,tsx}": "keep only index.ts[x] at feature slice roots",
+              "src/features/*/!(api|ui|model|lib)/**/*.{ts,tsx}":
+                "use only api, ui, model, or lib under feature slices",
+              "src/features/*/api/*.{ts,tsx}":
+                "place feature api files under src/features/<slice>/api/<subsystem>/",
+              "src/features/*/lib/*.{ts,tsx}":
+                "place feature lib files under src/features/<slice>/lib/<subsystem>/",
+              "src/features/*/model/*.{ts,tsx}":
+                "place feature model files under src/features/<slice>/model/<subsystem>/",
+              "src/features/*/ui/*.{ts,tsx}":
+                "place feature ui files under src/features/<slice>/ui/<subsystem>/",
+              "src/features/*/api/*/*/**/*.{ts,tsx}":
+                "keep feature api subsystem internals one directory deep",
+              "src/features/*/lib/*/*/**/*.{ts,tsx}":
+                "keep feature lib subsystem internals one directory deep",
+              "src/features/*/model/*/*/**/*.{ts,tsx}":
+                "keep feature model subsystem internals one directory deep",
+              "src/features/*/ui/*/*/**/*.{ts,tsx}":
+                "keep feature ui subsystem internals one directory deep",
+              "src/shared/!(api|ui|lib|types)/**/*.{ts,tsx}":
+                "use only api, ui, lib, or types under shared",
               "src/shared/api/*/**/*.{ts,tsx}": "keep shared/api flat",
+              "src/shared/types/*/**/*.{ts,tsx}": "keep shared/types flat",
               "src/shared/ui/*/**/*.{ts,tsx}": "keep shared/ui flat",
-              "src/core-plugins/*/!(ui|model|lib)/**/*.{ts,tsx}":
-                "use direct files or ui/model/lib under core plugin slices",
             },
             {
               errorMessage: "File placement violates the configured structure rules.",
+            },
+          ],
+          "check-file/filename-naming-convention": [
+            "error",
+            {
+              "src/{features,widgets,entities}/*/{api,lib,model}/**/*.{ts,tsx}": "KEBAB_CASE",
+              "src/shared/{api,lib,types}/**/*.{ts,tsx}": "KEBAB_CASE",
+              "src/app/{bootstrap,workspace}/**/*.ts": "KEBAB_CASE",
+            },
+            {
+              ignoreMiddleExtensions: true,
+              errorMessage: "Non-UI frontend files must use kebab-case filenames.",
             },
           ],
           "boundaries/element-types": [
@@ -128,24 +204,12 @@ export default defineConfig({
                 { from: ["features"], allow: ["shared", "entities"] },
                 { from: ["widgets"], allow: ["shared", "entities", "features"] },
                 {
-                  from: ["core-plugins"],
-                  allow: ["shared", "entities", "features", "widgets"],
-                },
-                {
                   from: ["pages"],
                   allow: ["shared", "entities", "features", "widgets", "pages"],
                 },
                 {
                   from: ["app"],
-                  allow: [
-                    "shared",
-                    "entities",
-                    "features",
-                    "widgets",
-                    "pages",
-                    "app",
-                    "core-plugins",
-                  ],
+                  allow: ["shared", "entities", "features", "widgets", "pages", "app"],
                 },
               ],
             },
@@ -159,7 +223,6 @@ export default defineConfig({
                 { target: ["entities"], allow: "index.{ts,tsx}" },
                 { target: ["features"], allow: "index.{ts,tsx}" },
                 { target: ["widgets"], allow: "index.{ts,tsx}" },
-                { target: ["core-plugins"], allow: "index.{ts,tsx}" },
                 { target: ["pages"], allow: "**" },
                 { target: ["app"], allow: "**" },
               ],
@@ -172,6 +235,7 @@ export default defineConfig({
           { name: "check-file", specifier: "eslint-plugin-check-file" },
         ],
       },
+      ...noSelfAliasImportOverrides(),
     ],
   },
   fmt: {

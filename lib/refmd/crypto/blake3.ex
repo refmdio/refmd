@@ -5,10 +5,10 @@ defmodule RefMD.Crypto.Blake3 do
   Uses dirty CPU scheduler to avoid blocking the Erlang scheduler.
   """
 
-  use Rustler, otp_app: :refmd, crate: "refmd_crypto"
+  alias RefMD.Crypto.Native
 
   @spec hash(binary()) :: binary()
-  def hash(_data), do: :erlang.nif_error(:nif_not_loaded)
+  def hash(data), do: Native.hash(data)
 
   @spec hash_hex(binary()) :: String.t()
   def hash_hex(data) do

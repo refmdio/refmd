@@ -3,6 +3,7 @@ defmodule RefMDWeb.PasswordController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Auth, Encryption, Users}
+  alias RefMD.Crypto.Encoding
   alias RefMDWeb.Schemas
 
   @target_kdf_params %{
@@ -42,7 +43,19 @@ defmodule RefMDWeb.PasswordController do
 
           {:ok, new_session, token} =
             Auth.create_session(user_id, %{
+              id: session.id,
               is_recovery: true,
+              device_registration_id: session.device_registration_id,
+              recovery_session_transcript_hash: session.recovery_session_transcript_hash,
+              recovery_capability_hash: session.recovery_capability_hash,
+              pending_registration_binding_hash: session.pending_registration_binding_hash,
+              target_key_checkpoint_sequence: session.target_key_checkpoint_sequence,
+              target_key_checkpoint_hash: session.target_key_checkpoint_hash,
+              candidate_user_checkpoint_sequence: session.candidate_user_checkpoint_sequence,
+              candidate_user_checkpoint_hash: session.candidate_user_checkpoint_hash,
+              candidate_user_event_head_sequence: session.candidate_user_event_head_sequence,
+              candidate_user_event_head_hash: session.candidate_user_event_head_hash,
+              recovered_identity_signing_key_id: session.recovered_identity_signing_key_id,
               ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
               user_agent: get_req_header(conn, "user-agent") |> List.first()
             })
@@ -119,7 +132,10 @@ defmodule RefMDWeb.PasswordController do
 
     case Encryption.update_recovery_key(user_id, %{
            recovery_encrypted_umk: decode_optional_binary(params["new_recovery_encrypted_umk"]),
-           recovery_nonce: decode_optional_binary(params["new_recovery_nonce"])
+           recovery_nonce: decode_optional_binary(params["new_recovery_nonce"]),
+           recovery_authorization_public_material:
+             params["new_recovery_authorization_public_material"],
+           recovery_authorization_key_id: params["new_recovery_authorization_key_id"]
          }) do
       {:ok, _} ->
         json(conn, %{ok: true})
@@ -168,7 +184,7 @@ defmodule RefMDWeb.PasswordController do
 
   @spec password_reset_verify(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def password_reset_verify(conn, %{"token" => token_b64}) do
-    with {:ok, raw_token} <- Base.url_decode64(token_b64, padding: false),
+    with {:ok, raw_token} <- decode_base64url(token_b64),
          {:ok, user_id} <- Auth.verify_password_reset_token(raw_token) do
       user = Users.get_user(user_id)
 
@@ -192,6 +208,14 @@ defmodule RefMDWeb.PasswordController do
         conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_or_expired_token"})
     end
   end
+
+  defp decode_base64url(value) when is_binary(value) do
+    {:ok, Encoding.decode_base64url!(value)}
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp decode_base64url(_), do: :error
 
   defp maybe_send_password_reset(user) do
     if Auth.can_send_password_reset?(user.id) do

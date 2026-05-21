@@ -1,4 +1,6 @@
-import { idbGet, idbPut, openIdb, toArrayBuffer } from "@/shared/lib/storage/idb";
+import { idbConditionalPut, idbGet, openIdb, toArrayBuffer } from "@/shared/lib/storage/idb";
+import { canonicalizeStrict, type StrictJsonValue } from "./jcs";
+import type { HybridSigningPublicKeyMaterial } from "./signature-types";
 
 const DB_NAME = "refmd-trust";
 const DB_VERSION = 1;
@@ -9,7 +11,7 @@ export const DEFAULT_TOFU_NAMESPACE = "default";
 export interface TofuEntry {
   userId: string;
   deviceId: string;
-  signingPublicKey: Uint8Array;
+  hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   ecdhPublicKey: Uint8Array;
   firstSeenAt: number;
   lastSeenAt: number;
@@ -18,7 +20,7 @@ export interface TofuEntry {
 interface SerializedTofuEntry {
   userId: string;
   deviceId: string;
-  signingPublicKey: ArrayBuffer;
+  hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   ecdhPublicKey: ArrayBuffer;
   firstSeenAt: number;
   lastSeenAt: number;
@@ -69,7 +71,7 @@ function serialize(entry: TofuEntry, namespace: string): SerializedTofuEntry {
   return {
     userId: qualifyUserId(namespace, entry.userId),
     deviceId: entry.deviceId,
-    signingPublicKey: toArrayBuffer(entry.signingPublicKey),
+    hybridSigningPublicKeyMaterial: entry.hybridSigningPublicKeyMaterial,
     ecdhPublicKey: toArrayBuffer(entry.ecdhPublicKey),
     firstSeenAt: entry.firstSeenAt,
     lastSeenAt: entry.lastSeenAt,
@@ -81,7 +83,7 @@ function deserialize(serialized: SerializedTofuEntry): TofuEntry {
   return {
     userId,
     deviceId: serialized.deviceId,
-    signingPublicKey: new Uint8Array(serialized.signingPublicKey),
+    hybridSigningPublicKeyMaterial: serialized.hybridSigningPublicKeyMaterial,
     ecdhPublicKey: new Uint8Array(serialized.ecdhPublicKey),
     firstSeenAt: serialized.firstSeenAt,
     lastSeenAt: serialized.lastSeenAt,
@@ -93,7 +95,15 @@ export async function saveTofuEntry(
   namespace = DEFAULT_TOFU_NAMESPACE,
 ): Promise<void> {
   const db = await openDb();
-  await idbPut(db, STORE_NAME, serialize(entry, namespace));
+  const serialized = serialize(entry, namespace);
+  const wrote = await idbConditionalPut<SerializedTofuEntry>(
+    db,
+    STORE_NAME,
+    compositeKey(serialized.userId, serialized.deviceId),
+    serialized,
+    (existing) => !existing || sameTofuKeys(existing, serialized),
+  );
+  if (!wrote) throw new Error("tofu_entry_conflict");
 }
 
 export async function getTofuEntry(
@@ -170,21 +180,71 @@ export async function importTofuEntries(
   namespace = DEFAULT_TOFU_NAMESPACE,
 ): Promise<void> {
   if (entries.length === 0) return;
+  assertNoConflictingImportEntries(entries, namespace);
 
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
+    let failed = false;
 
     for (const entry of entries) {
-      const request = store.put(serialize(entry, namespace));
-      request.onerror = () => reject(request.error);
+      const serialized = serialize(entry, namespace);
+      const getRequest = store.get(compositeKey(serialized.userId, serialized.deviceId));
+      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onsuccess = () => {
+        if (failed) return;
+        const existing = getRequest.result as SerializedTofuEntry | undefined;
+        if (existing && !sameTofuKeys(existing, serialized)) {
+          failed = true;
+          tx.abort();
+          reject(new Error("tofu_entry_conflict"));
+          return;
+        }
+        const request = store.put(serialized);
+        request.onerror = () => reject(request.error);
+      };
     }
 
     tx.oncomplete = () => {
       db.close();
       resolve();
     };
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => {
+      db.close();
+      if (!failed) reject(tx.error);
+    };
+    tx.onabort = () => {
+      db.close();
+      if (!failed) reject(tx.error);
+    };
   });
+}
+
+function assertNoConflictingImportEntries(entries: TofuEntry[], namespace: string): void {
+  const seen = new Map<string, SerializedTofuEntry>();
+  for (const entry of entries) {
+    const serialized = serialize(entry, namespace);
+    const key = `${serialized.userId}${TOFU_NAMESPACE_SEPARATOR}${serialized.deviceId}`;
+    const existing = seen.get(key);
+    if (existing && !sameTofuKeys(existing, serialized)) {
+      throw new Error("tofu_entry_conflict");
+    }
+    seen.set(key, serialized);
+  }
+}
+
+function sameTofuKeys(left: SerializedTofuEntry, right: SerializedTofuEntry): boolean {
+  return (
+    canonicalizeStrict(left.hybridSigningPublicKeyMaterial as unknown as StrictJsonValue) ===
+      canonicalizeStrict(right.hybridSigningPublicKeyMaterial as unknown as StrictJsonValue) &&
+    sameArrayBuffer(left.ecdhPublicKey, right.ecdhPublicKey)
+  );
+}
+
+function sameArrayBuffer(left: ArrayBuffer, right: ArrayBuffer): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  const leftBytes = new Uint8Array(left);
+  const rightBytes = new Uint8Array(right);
+  return leftBytes.every((byte, index) => byte === rightBytes[index]);
 }

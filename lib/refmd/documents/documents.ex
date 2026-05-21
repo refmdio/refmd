@@ -5,8 +5,10 @@ defmodule RefMD.Documents do
 
   import Ecto.{Changeset, Query}
 
-  alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate, TreeOrdering}
+  alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate, Ordering}
+  alias RefMD.Encryption
   alias RefMD.Repo
+  alias RefMD.Sharing
   alias RefMD.Workspaces
 
   @max_nesting_depth 10
@@ -18,6 +20,94 @@ defmodule RefMD.Documents do
 
   defdelegate build_snapshot_proof_chain(document_id, pinned_snapshot_id, active_snapshot_id),
     to: RefMD.Documents.Snapshots
+
+  defdelegate publication_sync_allowed?(document, user_id, socket, mounted_share_id),
+    to: RefMD.Documents.Access
+
+  defdelegate get_or_start_server(document_id),
+    to: RefMD.Documents.Runtime.Server,
+    as: :get_or_start
+
+  defdelegate register_connection(document_id, channel_pid), to: RefMD.Documents.Runtime.Server
+  defdelegate unregister_connection(document_id, channel_pid), to: RefMD.Documents.Runtime.Server
+
+  defdelegate set_active_snapshot(document_id, snapshot_id, clocks),
+    to: RefMD.Documents.Runtime.Server
+
+  defdelegate update_clocks(document_id, authority_context_key, signing_key_id, clock),
+    to: RefMD.Documents.Runtime.Server
+
+  @spec count_combined_siblings(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
+  defdelegate count_combined_siblings(workspace_id, parent_id), to: Ordering
+
+  @spec affected_parent_groups_for_document(Ecto.UUID.t()) :: [
+          {Ecto.UUID.t(), Ecto.UUID.t() | nil}
+        ]
+  defdelegate affected_parent_groups_for_document(document_id), to: Ordering
+
+  @spec normalize_combined_siblings!(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: :ok
+  defdelegate normalize_combined_siblings!(workspace_id, parent_id), to: Ordering
+
+  @spec normalize_combined_sibling_groups!([{Ecto.UUID.t(), Ecto.UUID.t() | nil}]) :: :ok
+  defdelegate normalize_combined_sibling_groups!(groups), to: Ordering
+
+  @spec move_share_mount!(map(), Ecto.UUID.t() | nil, non_neg_integer()) :: :ok
+  defdelegate move_share_mount!(mount, parent_id, position), to: Ordering
+
+  @spec document_admission_package!(Ecto.UUID.t(), String.t(), String.t()) :: map()
+  def document_admission_package!(document_id, event_type, admission_event_hash) do
+    document = get_document(document_id) || raise ArgumentError, "document_required"
+
+    event =
+      Encryption.workspace_key_directory_event_by_hash(
+        document.workspace_id,
+        admission_event_hash
+      ) || raise ArgumentError, "document_admission_event_required"
+
+    if event.event_type != event_type,
+      do: raise(ArgumentError, "document_admission_event_required")
+
+    checkpoint =
+      Encryption.workspace_key_directory_checkpoint_covering_event_head(
+        document.workspace_id,
+        event.sequence
+      ) || raise ArgumentError, "document_admission_checkpoint_required"
+
+    current_pin =
+      Encryption.current_workspace_key_directory_pin(document.workspace_id) ||
+        raise ArgumentError, "document_admission_pin_required"
+
+    checkpoint_ancestry =
+      Encryption.workspace_key_directory_checkpoints_between(
+        document.workspace_id,
+        1,
+        current_pin.checkpoint_sequence
+      )
+
+    event_ancestry =
+      Encryption.workspace_key_directory_events_after_until(
+        document.workspace_id,
+        0,
+        current_pin.event_head_sequence
+      )
+
+    %{
+      workspaceKeyDirectoryEvents: [
+        key_directory_envelope(event)
+      ],
+      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
+      workspaceKeyDirectoryCheckpointAncestry:
+        Enum.map(checkpoint_ancestry, &key_directory_envelope/1),
+      workspaceKeyDirectoryEventAncestry: Enum.map(event_ancestry, &key_directory_envelope/1)
+    }
+  end
+
+  defp key_directory_envelope(envelope) do
+    %{
+      "payload" => envelope.payload,
+      "signatures" => envelope.signatures
+    }
+  end
 
   # ── Reordering (delegated to RefMD.Documents.Reordering) ──
 
@@ -54,6 +144,18 @@ defmodule RefMD.Documents do
     end
   end
 
+  @spec get_snapshot(Ecto.UUID.t()) :: DocumentSnapshot.t() | nil
+  def get_snapshot(snapshot_id), do: Repo.get(DocumentSnapshot, snapshot_id)
+
+  @spec get_update_by_hash(Ecto.UUID.t(), String.t()) :: DocumentUpdate.t() | nil
+  def get_update_by_hash(document_id, update_hash) do
+    from(u in DocumentUpdate,
+      where: u.document_id == ^document_id and u.update_hash == ^update_hash,
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
   # Single-statement initial document data fetch with inline RBAC.
   # One SQL = one MVCC snapshot = no TOCTOU between snapshot and updates fetch.
   # Returns 0 rows if user lacks document:read, 1 row otherwise.
@@ -61,14 +163,18 @@ defmodule RefMD.Documents do
   WITH authorized_document AS (
     SELECT d.id AS document_id, d.active_snapshot_id
     FROM documents d
-    JOIN workspace_members wm
+    LEFT JOIN users u
+      ON u.id = $3
+    LEFT JOIN workspace_members wm
       ON wm.workspace_id = d.workspace_id AND wm.user_id = $3
-    JOIN workspace_roles wr
+    LEFT JOIN workspace_roles wr
       ON wr.id = wm.role_id
     LEFT JOIN workspace_role_permissions wrp
       ON wrp.role_id = wr.id AND wrp.permission = 'document:read'
     WHERE d.id = $1 AND d.workspace_id = $2
       AND CASE
+            WHEN u.account_type = 'guest' THEN TRUE
+            WHEN wm.user_id IS NULL THEN FALSE
             WHEN wr.base_role = 'owner' THEN TRUE
             WHEN wrp.granted IS NOT NULL THEN wrp.granted
             WHEN wr.catalog_version IS NOT NULL AND wr.catalog_version < 1 THEN FALSE
@@ -76,11 +182,15 @@ defmodule RefMD.Documents do
           END
   )
   SELECT
-    s.id, s.document_id, s.parent_snapshot_id, s.device_id,
+    s.id, s.document_id, s.parent_snapshot_id,
     s.latest_version, s.data, s.nonce, s.key_version,
-    s.signature, s.ciphertext_hash, s.clocks,
-    s.parent_snapshot_update_clocks, s.parent_snapshot_proof,
-    s.created_by_device, s.created_at,
+    s.hybrid_signature, s.ciphertext_hash, s.snapshot_signature_hash,
+    s.snapshot_admission_event_hash, s.proof_chain_hash, s.clocks,
+    s.parent_snapshot_update_clocks, s.parent_proof_hash,
+    s.created_by_signing_key_id, s.owner_kind, s.owner_id,
+    s.authority_kind, s.authority_id, s.authority_context_key,
+    s.authority_scope_id, s.authority_permission_version,
+    s.key_checkpoint_sequence, s.key_checkpoint_hash, s.created_at,
     COALESCE(u.updates_json, '[]'::jsonb) AS updates_json
   FROM authorized_document ad
   LEFT JOIN document_snapshots s
@@ -91,17 +201,24 @@ defmodule RefMD.Documents do
         'id', du.id,
         'document_id', du.document_id,
         'snapshot_id', du.snapshot_id,
-        'device_id', du.device_id,
         'clock', du.clock,
         'version', du.version,
-        'device_signing_pub_key', du.device_signing_pub_key,
+        'signing_key_id', du.signing_key_id,
         'update_data', encode(du.update_data, 'base64'),
         'nonce', encode(du.nonce, 'base64'),
         'key_version', du.key_version,
         'update_hash', du.update_hash,
-        'signature', CASE WHEN du.signature IS NOT NULL THEN encode(du.signature, 'base64') END,
-        'mac', CASE WHEN du.mac IS NOT NULL THEN encode(du.mac, 'base64') END,
-        'share_id', du.share_id,
+        'hybrid_signature', du.hybrid_signature,
+        'owner_kind', du.owner_kind,
+        'owner_id', du.owner_id,
+        'authority_kind', du.authority_kind,
+        'authority_id', du.authority_id,
+        'authority_context_key', du.authority_context_key,
+        'authority_scope_id', du.authority_scope_id,
+        'authority_permission_version', du.authority_permission_version,
+        'key_checkpoint_sequence', du.key_checkpoint_sequence,
+        'key_checkpoint_hash', du.key_checkpoint_hash,
+        'admission_event_hash', du.admission_event_hash,
         'timestamp', du.timestamp
       ) ORDER BY du.version
     ) AS updates_json
@@ -158,11 +275,11 @@ defmodule RefMD.Documents do
       sh.parent_share_id,
       sh.document_id AS selected_document_id,
       sh.scope AS selected_scope,
-      sh.expires_at AS selected_expires_at,
+      sh.expires_event_sequence AS selected_expires_event_sequence,
       COALESCE(root_sh.id, sh.id) AS root_share_id,
       COALESCE(root_sh.document_id, sh.document_id) AS root_document_id,
       COALESCE(root_sh.scope, sh.scope) AS root_scope,
-      COALESCE(root_sh.expires_at, sh.expires_at) AS root_expires_at
+      COALESCE(root_sh.expires_event_sequence, sh.expires_event_sequence) AS root_expires_event_sequence
     FROM shares sh
     LEFT JOIN shares root_sh ON root_sh.id = sh.parent_share_id
     WHERE sh.id = $2
@@ -178,11 +295,15 @@ defmodule RefMD.Documents do
     INNER JOIN share_descendants sd ON child.parent_id = sd.id
   )
   SELECT
-    s.id, s.document_id, s.parent_snapshot_id, s.device_id,
+    s.id, s.document_id, s.parent_snapshot_id,
     s.latest_version, s.data, s.nonce, s.key_version,
-    s.signature, s.ciphertext_hash, s.clocks,
-    s.parent_snapshot_update_clocks, s.parent_snapshot_proof,
-    s.created_by_device, s.created_at,
+    s.hybrid_signature, s.ciphertext_hash, s.snapshot_signature_hash,
+    s.snapshot_admission_event_hash, s.proof_chain_hash, s.clocks,
+    s.parent_snapshot_update_clocks, s.parent_proof_hash,
+    s.created_by_signing_key_id, s.owner_kind, s.owner_id,
+    s.authority_kind, s.authority_id, s.authority_context_key,
+    s.authority_scope_id, s.authority_permission_version,
+    s.key_checkpoint_sequence, s.key_checkpoint_hash, s.created_at,
     COALESCE(u.updates_json, '[]'::jsonb) AS updates_json
   FROM selected_share ss
   JOIN documents d
@@ -195,17 +316,24 @@ defmodule RefMD.Documents do
         'id', du.id,
         'document_id', du.document_id,
         'snapshot_id', du.snapshot_id,
-        'device_id', du.device_id,
         'clock', du.clock,
         'version', du.version,
-        'device_signing_pub_key', du.device_signing_pub_key,
+        'signing_key_id', du.signing_key_id,
         'update_data', encode(du.update_data, 'base64'),
         'nonce', encode(du.nonce, 'base64'),
         'key_version', du.key_version,
         'update_hash', du.update_hash,
-        'signature', CASE WHEN du.signature IS NOT NULL THEN encode(du.signature, 'base64') END,
-        'mac', CASE WHEN du.mac IS NOT NULL THEN encode(du.mac, 'base64') END,
-        'share_id', du.share_id,
+        'hybrid_signature', du.hybrid_signature,
+        'owner_kind', du.owner_kind,
+        'owner_id', du.owner_id,
+        'authority_kind', du.authority_kind,
+        'authority_id', du.authority_id,
+        'authority_context_key', du.authority_context_key,
+        'authority_scope_id', du.authority_scope_id,
+        'authority_permission_version', du.authority_permission_version,
+        'key_checkpoint_sequence', du.key_checkpoint_sequence,
+        'key_checkpoint_hash', du.key_checkpoint_hash,
+        'admission_event_hash', du.admission_event_hash,
         'timestamp', du.timestamp
       ) ORDER BY du.version
     ) AS updates_json
@@ -214,8 +342,8 @@ defmodule RefMD.Documents do
       AND du.snapshot_id = d.active_snapshot_id
   ) u ON TRUE
   WHERE d.id = $1
-    AND (ss.selected_expires_at IS NULL OR ss.selected_expires_at > $3)
-    AND (ss.root_expires_at IS NULL OR ss.root_expires_at > $3)
+    AND ss.selected_expires_event_sequence > $3
+    AND ss.root_expires_event_sequence > $3
     AND (
       (
         ss.parent_share_id IS NULL
@@ -247,19 +375,39 @@ defmodule RefMD.Documents do
   @spec get_initial_document_data_for_share(Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
   def get_initial_document_data_for_share(document_id, share_id) do
-    case Repo.query(@initial_document_data_share_sql, [
-           Ecto.UUID.dump!(document_id),
-           Ecto.UUID.dump!(share_id),
-           DateTime.utc_now()
-         ]) do
-      {:ok, %{rows: [row], columns: columns}} ->
-        {:ok, parse_initial_data_row(row, columns)}
+    case current_workspace_event_sequence_for_document(document_id) do
+      {:ok, current_sequence} ->
+        case Repo.query(@initial_document_data_share_sql, [
+               Ecto.UUID.dump!(document_id),
+               Ecto.UUID.dump!(share_id),
+               current_sequence
+             ]) do
+          {:ok, %{rows: [row], columns: columns}} ->
+            {:ok, parse_initial_data_row(row, columns)}
 
-      {:ok, %{rows: []}} ->
-        {:error, :unauthorized}
+          {:ok, %{rows: []}} ->
+            {:error, :unauthorized}
 
-      {:error, _} ->
+          {:error, _} ->
+            {:error, :db_error}
+        end
+
+      _ ->
         {:error, :db_error}
+    end
+  end
+
+  defp current_workspace_event_sequence_for_document(document_id) do
+    workspace_id =
+      from(d in Document, where: d.id == ^document_id, select: d.workspace_id)
+      |> Repo.one()
+
+    case workspace_id && Encryption.current_workspace_key_directory_pin(workspace_id) do
+      %{event_head_sequence: sequence} when is_integer(sequence) and sequence > 0 ->
+        {:ok, sequence}
+
+      _ ->
+        :error
     end
   end
 
@@ -279,17 +427,28 @@ defmodule RefMD.Documents do
               if(row_map["parent_snapshot_id"],
                 do: Ecto.UUID.load!(row_map["parent_snapshot_id"])
               ),
-            device_id: Ecto.UUID.load!(row_map["device_id"]),
             latest_version: row_map["latest_version"],
             data: row_map["data"],
             nonce: row_map["nonce"],
             key_version: row_map["key_version"],
-            signature: row_map["signature"],
+            hybrid_signature: row_map["hybrid_signature"],
             ciphertext_hash: row_map["ciphertext_hash"],
+            snapshot_signature_hash: row_map["snapshot_signature_hash"],
+            snapshot_admission_event_hash: row_map["snapshot_admission_event_hash"],
+            proof_chain_hash: row_map["proof_chain_hash"],
             clocks: row_map["clocks"],
             parent_snapshot_update_clocks: row_map["parent_snapshot_update_clocks"],
-            parent_snapshot_proof: row_map["parent_snapshot_proof"],
-            created_by_device: row_map["created_by_device"],
+            parent_proof_hash: row_map["parent_proof_hash"],
+            created_by_signing_key_id: row_map["created_by_signing_key_id"],
+            owner_kind: row_map["owner_kind"],
+            owner_id: row_map["owner_id"],
+            authority_kind: row_map["authority_kind"],
+            authority_id: row_map["authority_id"],
+            authority_context_key: row_map["authority_context_key"],
+            authority_scope_id: row_map["authority_scope_id"],
+            authority_permission_version: row_map["authority_permission_version"],
+            key_checkpoint_sequence: row_map["key_checkpoint_sequence"],
+            key_checkpoint_hash: row_map["key_checkpoint_hash"],
             created_at: row_map["created_at"]
           }
       end
@@ -306,17 +465,24 @@ defmodule RefMD.Documents do
         %{
           document_id: uuid_load.(u["document_id"]),
           snapshot_id: uuid_load.(u["snapshot_id"]),
-          device_id: uuid_load.(u["device_id"]),
           clock: u["clock"],
           version: u["version"],
-          device_signing_pub_key: u["device_signing_pub_key"],
+          signing_key_id: u["signing_key_id"],
           update_data: Base.decode64!(u["update_data"], ignore: :whitespace),
           nonce: Base.decode64!(u["nonce"], ignore: :whitespace),
           key_version: u["key_version"],
           update_hash: u["update_hash"],
-          signature: if(u["signature"], do: Base.decode64!(u["signature"], ignore: :whitespace)),
-          mac: if(u["mac"], do: Base.decode64!(u["mac"], ignore: :whitespace)),
-          share_id: u["share_id"],
+          hybrid_signature: u["hybrid_signature"],
+          owner_kind: u["owner_kind"],
+          owner_id: u["owner_id"],
+          authority_kind: u["authority_kind"],
+          authority_id: u["authority_id"],
+          authority_context_key: u["authority_context_key"],
+          authority_scope_id: u["authority_scope_id"],
+          authority_permission_version: u["authority_permission_version"],
+          key_checkpoint_sequence: u["key_checkpoint_sequence"],
+          key_checkpoint_hash: u["key_checkpoint_hash"],
+          admission_event_hash: u["admission_event_hash"],
           timestamp: u["timestamp"]
         }
       end)
@@ -333,34 +499,17 @@ defmodule RefMD.Documents do
     |> Repo.all()
   end
 
-  @spec list_updates_after_clocks(Ecto.UUID.t(), Ecto.UUID.t(), map()) :: [DocumentUpdate.t()]
-  def list_updates_after_clocks(document_id, snapshot_id, known_clocks) do
-    updates = list_updates_for_snapshot(document_id, snapshot_id)
-
-    Enum.filter(updates, fn update ->
-      case update.device_signing_pub_key do
-        nil ->
-          true
-
-        pub_key ->
-          known_clock = Map.get(known_clocks, pub_key, -1)
-          is_nil(update.clock) or update.clock > known_clock
-      end
-    end)
-  end
-
   # ── Create ───────────────────────────────────────
 
   @spec create_document(map()) :: {:ok, Document.t()} | {:error, Ecto.Changeset.t()}
   def create_document(attrs) do
-    doc_type = get_attr(attrs, :doc_type)
     encrypted_title = get_attr(attrs, :encrypted_title)
     title = get_attr(attrs, :title)
     workspace_id = get_attr(attrs, :workspace_id)
     parent_id = get_attr(attrs, :parent_id)
 
-    is_encrypted = doc_type != "folder" && encrypted_title != nil
-    position = TreeOrdering.append_position(workspace_id, parent_id)
+    is_encrypted = encrypted_title != nil
+    position = Ordering.append_position(workspace_id, parent_id)
     slug_source = if is_encrypted, do: "untitled", else: title || "untitled"
     slug = generate_slug(slug_source)
 
@@ -418,12 +567,12 @@ defmodule RefMD.Documents do
 
   defp delete_document_tx(document) do
     public_deleted? = RefMD.Public.handle_document_deleted(document.id) == :published_deleted
-    affected_groups = TreeOrdering.affected_parent_groups_for_document(document.id)
+    affected_groups = Ordering.affected_parent_groups_for_document(document.id)
 
     case Repo.delete(document) do
       {:ok, deleted} ->
-        TreeOrdering.normalize_combined_siblings!(document.workspace_id, document.parent_id)
-        TreeOrdering.normalize_combined_sibling_groups!(affected_groups)
+        Ordering.normalize_combined_siblings!(document.workspace_id, document.parent_id)
+        Ordering.normalize_combined_sibling_groups!(affected_groups)
         {deleted, public_deleted?}
 
       {:error, changeset} ->
@@ -472,10 +621,10 @@ defmodule RefMD.Documents do
 
   defp normalize_parent_change!(%Document{} = original, %Document{} = updated) do
     if original.parent_id != updated.parent_id do
-      TreeOrdering.normalize_combined_siblings!(original.workspace_id, original.parent_id)
+      Ordering.normalize_combined_siblings!(original.workspace_id, original.parent_id)
     end
 
-    TreeOrdering.normalize_combined_siblings!(updated.workspace_id, updated.parent_id)
+    Ordering.normalize_combined_siblings!(updated.workspace_id, updated.parent_id)
   end
 
   # ── Archive / Unarchive ──────────────────────────
@@ -654,12 +803,12 @@ defmodule RefMD.Documents do
     case Map.fetch(changeset.changes, :parent_id) do
       {:ok, nil} ->
         workspace_id = get_field(changeset, :workspace_id)
-        new_position = TreeOrdering.append_position(workspace_id, nil)
+        new_position = Ordering.append_position(workspace_id, nil)
         force_change(changeset, :position, new_position)
 
       {:ok, new_parent_id} ->
         workspace_id = get_field(changeset, :workspace_id)
-        new_position = TreeOrdering.append_position(workspace_id, new_parent_id)
+        new_position = Ordering.append_position(workspace_id, new_parent_id)
 
         changeset
         |> force_change(:position, new_position)
@@ -749,11 +898,7 @@ defmodule RefMD.Documents do
       from(d in Document, where: d.parent_id == ^document_id, limit: 1)
       |> Repo.exists?()
 
-    mount_children? =
-      from(m in RefMD.Sharing.ShareMount, where: m.parent_id == ^document_id, limit: 1)
-      |> Repo.exists?()
-
-    document_children? or mount_children?
+    document_children? or Sharing.share_mount_children?(document_id)
   end
 
   defp generate_slug(title) do

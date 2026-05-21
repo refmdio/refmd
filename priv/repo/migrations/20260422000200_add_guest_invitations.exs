@@ -29,18 +29,20 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
 
       add :token_hash, :text, null: false
       add :token_prefix, :text, null: false
-      add :target_scope, :text, null: false
-      add :target_document_id, references(:documents, type: :binary_id, on_delete: :delete_all)
+      add :scope_kind, :text, null: false
+      add :scope_id, :binary_id
       add :permission, :text, null: false
-
-      add :encrypted_kek, :bytea, null: false
-      add :kek_nonce, :bytea, null: false
       add :kek_version, :integer, null: false
-
+      add :bootstrap_key_commitment, :text
+      add :encrypted_bootstrap_package, :map
+      add :bootstrap_package_hash, :text
+      add :bootstrap_package_key_recipient_wrap, :map
+      add :bootstrap_package_key_maintenance_wrap, :map
+      add :bootstrap_suite_id, :text
+      add :capability_context_hash, :text
       add :max_redemptions, :integer, null: false, default: 1
       add :redemption_count, :integer, null: false, default: 0
-
-      add :invited_by, references(:users, type: :binary_id), null: false
+      add :invited_by, references(:users, type: :binary_id, on_delete: :delete_all), null: false
       add :expires_at, :utc_datetime_usec, null: false
       add :created_at, :utc_datetime_usec, null: false
       add :revoked_at, :utc_datetime_usec
@@ -48,26 +50,17 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
 
     create unique_index(:guest_invitations, [:token_hash])
     create index(:guest_invitations, [:workspace_id])
-    create index(:guest_invitations, [:target_document_id])
+    create index(:guest_invitations, [:scope_id])
+    create index(:guest_invitations, [:invited_by])
 
     execute(
-      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_target_scope_check CHECK (target_scope IN ('workspace', 'document', 'folder'))",
-      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_target_scope_check"
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_scope_kind_check CHECK (scope_kind IN ('workspace', 'document', 'folder', 'share'))",
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_scope_kind_check"
     )
 
     execute(
       "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_permission_check CHECK (permission IN ('view', 'edit'))",
       "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_permission_check"
-    )
-
-    execute(
-      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_encrypted_kek_length CHECK (length(encrypted_kek) = 48)",
-      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_encrypted_kek_length"
-    )
-
-    execute(
-      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_kek_nonce_length CHECK (length(kek_nonce) = 24)",
-      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_kek_nonce_length"
     )
 
     execute(
@@ -111,18 +104,35 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
     )
 
     execute(
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_bootstrap_key_commitment_format CHECK (bootstrap_key_commitment IS NULL OR bootstrap_key_commitment ~ '^[A-Za-z0-9\\-_]{43}$')",
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_bootstrap_key_commitment_format"
+    )
+
+    execute(
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_bootstrap_package_hash_format CHECK (bootstrap_package_hash IS NULL OR bootstrap_package_hash ~ '^[A-Za-z0-9\\-_]{43}$')",
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_bootstrap_package_hash_format"
+    )
+
+    execute(
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_capability_context_hash_format CHECK (capability_context_hash IS NULL OR capability_context_hash ~ '^[A-Za-z0-9\\-_]{43}$')",
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_capability_context_hash_format"
+    )
+
+    execute(
       """
       ALTER TABLE guest_invitations
       ADD CONSTRAINT guest_invitations_target_required
       CHECK (
-        (target_scope = 'workspace' AND target_document_id IS NULL) OR
-        (target_scope IN ('document', 'folder') AND target_document_id IS NOT NULL)
+        (scope_kind = 'workspace' AND scope_id IS NULL) OR
+        (scope_kind IN ('document', 'folder', 'share') AND scope_id IS NOT NULL)
       )
       """,
       "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_target_required"
     )
 
     create table(:workspace_guest_grants, primary_key: false) do
+      add :id, :binary_id, null: false, default: fragment("gen_random_uuid()")
+
       add :workspace_id,
           references(:workspaces, type: :binary_id, on_delete: :delete_all),
           primary_key: true
@@ -131,8 +141,8 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
           references(:users, type: :binary_id, on_delete: :delete_all),
           primary_key: true
 
-      add :target_scope, :text, null: false
-      add :target_document_id, references(:documents, type: :binary_id, on_delete: :delete_all)
+      add :scope_kind, :text, null: false
+      add :scope_id, :binary_id
       add :permission, :text, null: false
 
       add :invite_id, references(:guest_invitations, type: :binary_id), null: false
@@ -141,13 +151,14 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
       add :created_at, :utc_datetime_usec, null: false
     end
 
+    create unique_index(:workspace_guest_grants, [:id])
     create index(:workspace_guest_grants, [:user_id])
     create index(:workspace_guest_grants, [:invite_id])
     create index(:workspace_guest_grants, [:workspace_id, :revoked_at])
 
     execute(
-      "ALTER TABLE workspace_guest_grants ADD CONSTRAINT workspace_guest_grants_target_scope_check CHECK (target_scope IN ('workspace', 'document', 'folder'))",
-      "ALTER TABLE workspace_guest_grants DROP CONSTRAINT workspace_guest_grants_target_scope_check"
+      "ALTER TABLE workspace_guest_grants ADD CONSTRAINT workspace_guest_grants_scope_kind_check CHECK (scope_kind IN ('workspace', 'document', 'folder', 'share'))",
+      "ALTER TABLE workspace_guest_grants DROP CONSTRAINT workspace_guest_grants_scope_kind_check"
     )
 
     execute(
@@ -160,8 +171,8 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
       ALTER TABLE workspace_guest_grants
       ADD CONSTRAINT workspace_guest_grants_target_required
       CHECK (
-        (target_scope = 'workspace' AND target_document_id IS NULL) OR
-        (target_scope IN ('document', 'folder') AND target_document_id IS NOT NULL)
+        (scope_kind = 'workspace' AND scope_id IS NULL) OR
+        (scope_kind IN ('document', 'folder', 'share') AND scope_id IS NOT NULL)
       )
       """,
       "ALTER TABLE workspace_guest_grants DROP CONSTRAINT workspace_guest_grants_target_required"

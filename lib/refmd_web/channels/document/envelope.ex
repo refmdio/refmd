@@ -1,11 +1,25 @@
 defmodule RefMDWeb.Channels.Document.Envelope do
   @moduledoc false
 
+  alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
   alias RefMD.Documents
+  alias RefMD.Encryption
 
-  @update_public_data_keys ~w(docId deviceId signingPubKey clock keyVersion timestamp refSnapshotId updateHash)
-  @snapshot_public_data_keys ~w(docId deviceId signingPubKey snapshotId keyVersion parentSnapshotId parentSnapshotProof parentSnapshotUpdateClocks)
-  @ephemeral_public_data_keys ~w(docId deviceId signingPubKey)
+  @key_checkpoint_public_data_keys ~w(keyCheckpointSequence keyCheckpointHash)
+  @authority_public_data_keys ~w(ownerKind ownerId authorityKind authorityId authorityContextKey authorityScopeId authorityPermissionVersion)
+  @update_public_data_keys ~w(docId signingKeyId clock keyVersion timestamp refSnapshotId updateHash) ++
+                             @authority_public_data_keys ++
+                             @key_checkpoint_public_data_keys
+  @snapshot_public_data_keys ~w(docId signingKeyId snapshotId keyVersion parentSnapshotId parentProofHash parentSnapshotUpdateClocks) ++
+                               @authority_public_data_keys ++
+                               @key_checkpoint_public_data_keys
+  @workspace_event_head_public_data_keys ~w(workspaceEventHeadSequence workspaceEventHeadHash)
+  @ephemeral_public_data_keys ~w(docId signingKeyId) ++
+                                @authority_public_data_keys ++
+                                @key_checkpoint_public_data_keys ++
+                                @workspace_event_head_public_data_keys
+  @signed_document_envelope_keys ~w(admission ciphertext nonce publicData signature)
+  @ephemeral_envelope_keys ~w(ciphertext nonce publicData signature)
 
   # ── Envelope Parsing ──────────────────────────
 
@@ -13,24 +27,34 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   def parse_update_envelope(payload, socket) do
     public_data = payload["publicData"]
 
-    with {:ok, _} <- validate_map(public_data, "publicData"),
+    with {:ok, admission} <- validate_admission_artifacts(payload),
+         :ok <-
+           validate_exact_keys(
+             payload,
+             @signed_document_envelope_keys,
+             "unexpected_envelope_keys"
+           ),
+         {:ok, _} <- validate_map(public_data, "publicData"),
          :ok <- validate_exact_keys(public_data, @update_public_data_keys),
          :ok <- validate_doc_id(public_data, socket),
-         :ok <- validate_signing_pub_key(public_data, socket),
-         :ok <- validate_device_id(public_data, socket),
+         :ok <- validate_signing_key_id(public_data, socket),
+         :ok <- validate_authority_fields(public_data, socket),
          :ok <- validate_integer_field(public_data, "clock"),
          :ok <- validate_integer_field(public_data, "keyVersion"),
          :ok <- validate_integer_field(public_data, "timestamp"),
+         :ok <- validate_key_checkpoint_fields(public_data),
          :ok <- validate_uuid_field(public_data, "refSnapshotId"),
          :ok <- validate_string_field(public_data, "updateHash"),
          {:ok, ciphertext_raw} <- decode_field(payload, "ciphertext"),
          {:ok, nonce_raw} <- decode_and_validate_nonce(payload),
-         {:ok, signature_raw} <- decode_field(payload, "signature") do
+         {:ok, signature} <- validate_signature_object(payload["signature"]),
+         :ok <- validate_key_checkpoint_boundary(public_data, admission) do
       {:ok,
        %{
          ciphertext_raw: ciphertext_raw,
          nonce_raw: nonce_raw,
-         signature_raw: signature_raw,
+         signature: signature,
+         admission: admission,
          public_data: public_data
        }}
     end
@@ -40,22 +64,32 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   def parse_snapshot_envelope(payload, socket) do
     public_data = payload["publicData"]
 
-    with {:ok, _} <- validate_map(public_data, "publicData"),
+    with {:ok, admission} <- validate_admission_artifacts(payload),
+         :ok <-
+           validate_exact_keys(
+             payload,
+             @signed_document_envelope_keys,
+             "unexpected_envelope_keys"
+           ),
+         {:ok, _} <- validate_map(public_data, "publicData"),
          :ok <- validate_exact_keys(public_data, @snapshot_public_data_keys),
          :ok <- validate_doc_id(public_data, socket),
-         :ok <- validate_signing_pub_key(public_data, socket),
-         :ok <- validate_device_id(public_data, socket),
+         :ok <- validate_signing_key_id(public_data, socket),
+         :ok <- validate_authority_fields(public_data, socket),
          :ok <- validate_uuid_field(public_data, "snapshotId"),
          :ok <- validate_integer_field(public_data, "keyVersion"),
+         :ok <- validate_key_checkpoint_fields(public_data),
          :ok <- validate_snapshot_lineage(public_data),
          {:ok, ciphertext_raw} <- decode_field(payload, "ciphertext"),
          {:ok, nonce_raw} <- decode_and_validate_nonce(payload),
-         {:ok, signature_raw} <- decode_field(payload, "signature") do
+         {:ok, signature} <- validate_signature_object(payload["signature"]),
+         :ok <- validate_key_checkpoint_boundary(public_data, admission) do
       {:ok,
        %{
          ciphertext_raw: ciphertext_raw,
          nonce_raw: nonce_raw,
-         signature_raw: signature_raw,
+         signature: signature,
+         admission: admission,
          public_data: public_data
        }}
     end
@@ -65,17 +99,20 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   def parse_ephemeral_envelope(payload, socket) do
     public_data = payload["publicData"]
 
-    with {:ok, _} <- validate_map(public_data, "publicData"),
+    with :ok <- validate_exact_keys(payload, @ephemeral_envelope_keys, "unexpected_envelope_keys"),
+         {:ok, _} <- validate_map(public_data, "publicData"),
          :ok <- validate_exact_keys(public_data, @ephemeral_public_data_keys),
          :ok <- validate_doc_id(public_data, socket),
-         :ok <- validate_signing_pub_key(public_data, socket),
-         :ok <- validate_device_id(public_data, socket),
+         :ok <- validate_signing_key_id(public_data, socket),
+         :ok <- validate_authority_fields(public_data, socket),
+         :ok <- validate_key_checkpoint_fields(public_data),
+         :ok <- validate_workspace_event_head_fields(public_data),
          {:ok, _ciphertext_raw} <- decode_field(payload, "ciphertext"),
          {:ok, _nonce_raw} <- decode_and_validate_nonce(payload),
-         {:ok, signature_raw} <- decode_field(payload, "signature") do
+         {:ok, signature} <- validate_signature_object(payload["signature"]) do
       {:ok,
        %{
-         signature_raw: signature_raw,
+         signature: signature,
          public_data: public_data
        }}
     end
@@ -85,23 +122,175 @@ defmodule RefMDWeb.Channels.Document.Envelope do
 
   @spec verify_envelope_signature(String.t(), map(), map(), Phoenix.Socket.t()) ::
           :ok | {:error, String.t()}
-  def verify_envelope_signature(prefix, payload, parsed, socket) do
-    verified =
-      try do
-        RefMD.Crypto.verify_ws_envelope_signature(
-          prefix,
-          payload["ciphertext"],
-          payload["nonce"],
-          parsed.public_data,
-          parsed.signature_raw,
-          socket.assigns.device_signing_pub_key_raw
-        )
-      rescue
-        _ -> false
-      end
-
-    if verified, do: :ok, else: {:error, "signature_verification_failed"}
+  def verify_envelope_signature("refmd_update", payload, parsed, socket) do
+    with {:ok, public_material} <- get_socket_public_material(socket),
+         signing_key_id when is_binary(signing_key_id) <- socket.assigns[:device_signing_key_id],
+         transcript <-
+           Signature.build_document_update_transcript!(%{
+             owner_kind: collaboration_owner_kind(socket),
+             owner_id: socket.assigns.device_id,
+             workspace_id: socket.assigns.document.workspace_id,
+             actor_user_id: socket.assigns.current_user_id,
+             actor_device_id: socket.assigns.device_id,
+             signing_key_id: signing_key_id,
+             public_data: parsed.public_data,
+             authority_boundary: authority_boundary(parsed, "document_update_accepted"),
+             ciphertext: payload["ciphertext"],
+             nonce: payload["nonce"]
+           }),
+         :ok <-
+           Signature.verify_hybrid_signature_result(
+             "document_update",
+             transcript,
+             parsed.signature,
+             public_material,
+             semantic_context(socket, signing_key_id)
+           ) do
+      :ok
+    else
+      {:error, :invalid_signature} -> {:error, "invalid_signature"}
+      {:error, reason} -> {:error, signature_semantic_error(reason)}
+      _ -> {:error, "invalid_signature"}
+    end
+  rescue
+    ArgumentError -> {:error, "invalid_signature"}
   end
+
+  def verify_envelope_signature("refmd_snapshot", payload, parsed, socket) do
+    with {:ok, public_material} <- get_socket_public_material(socket),
+         signing_key_id when is_binary(signing_key_id) <- socket.assigns[:device_signing_key_id],
+         transcript <-
+           Signature.build_document_snapshot_transcript!(%{
+             owner_kind: collaboration_owner_kind(socket),
+             owner_id: socket.assigns.device_id,
+             workspace_id: socket.assigns.document.workspace_id,
+             actor_user_id: socket.assigns.current_user_id,
+             actor_device_id: socket.assigns.device_id,
+             signing_key_id: signing_key_id,
+             public_data: parsed.public_data,
+             authority_boundary: authority_boundary(parsed, "document_snapshot_accepted"),
+             ciphertext: payload["ciphertext"],
+             nonce: payload["nonce"]
+           }),
+         :ok <-
+           Signature.verify_hybrid_signature_result(
+             "document_snapshot",
+             transcript,
+             parsed.signature,
+             public_material,
+             semantic_context(socket, signing_key_id)
+           ) do
+      :ok
+    else
+      {:error, :invalid_signature} -> {:error, "invalid_signature"}
+      {:error, reason} -> {:error, signature_semantic_error(reason)}
+      _ -> {:error, "invalid_signature"}
+    end
+  rescue
+    ArgumentError -> {:error, "invalid_signature"}
+  end
+
+  def verify_envelope_signature("refmd_ephemeral", payload, parsed, socket) do
+    with {:ok, public_material} <- get_socket_public_material(socket),
+         signing_key_id when is_binary(signing_key_id) <- socket.assigns[:device_signing_key_id],
+         transcript <-
+           Signature.build_editor_ephemeral_transcript!(%{
+             owner_kind: collaboration_owner_kind(socket),
+             owner_id: socket.assigns.device_id,
+             actor_user_id: socket.assigns.current_user_id,
+             actor_device_id: socket.assigns.device_id,
+             signing_key_id: signing_key_id,
+             workspace_id: socket.assigns.document.workspace_id,
+             public_data: parsed.public_data,
+             authority_boundary:
+               ephemeral_authority_boundary(
+                 socket.assigns.document.workspace_id,
+                 parsed.public_data
+               ),
+             ciphertext: payload["ciphertext"],
+             nonce: payload["nonce"]
+           }),
+         :ok <-
+           Signature.verify_hybrid_signature_result(
+             "editor_ephemeral",
+             transcript,
+             parsed.signature,
+             public_material,
+             semantic_context(socket, signing_key_id, :ephemeral)
+           ) do
+      :ok
+    else
+      {:error, :invalid_signature} -> {:error, "invalid_signature"}
+      {:error, reason} -> {:error, signature_semantic_error(reason)}
+      _ -> {:error, "invalid_signature"}
+    end
+  rescue
+    ArgumentError -> {:error, "invalid_signature"}
+  end
+
+  def verify_envelope_signature(_prefix, _payload, _parsed, _socket),
+    do: {:error, "invalid_signature"}
+
+  defp signature_semantic_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp semantic_context(socket, signing_key_id) do
+    %{
+      document: socket.assigns.document,
+      session: %{
+        kind: socket.assigns[:session_kind],
+        user_id: socket.assigns[:current_user_id],
+        device_id: socket.assigns[:device_id],
+        principal_id: socket.assigns[:share_participant_principal_id],
+        signing_key_id: signing_key_id
+      }
+    }
+  end
+
+  defp semantic_context(socket, signing_key_id, :ephemeral) do
+    socket
+    |> semantic_context(signing_key_id)
+    |> Map.put(
+      :workspace_event_head,
+      current_workspace_event_head!(socket.assigns.document.workspace_id)
+    )
+  end
+
+  defp current_workspace_event_head!(workspace_id) do
+    case Encryption.current_workspace_key_directory_pin(workspace_id) do
+      %{event_head_sequence: sequence, event_head_hash: hash}
+      when is_integer(sequence) and is_binary(hash) ->
+        %{sequence: sequence, hash: hash}
+
+      _ ->
+        raise ArgumentError, "ephemeral_workspace_head_context_missing"
+    end
+  end
+
+  defp validate_signature_object(signature) when is_map(signature) do
+    JCS.canonical_bytes!(signature)
+    {:ok, signature}
+  rescue
+    ArgumentError -> {:error, :invalid_signature}
+  end
+
+  defp validate_signature_object(_signature), do: {:error, :invalid_signature}
+
+  defp get_socket_public_material(%{
+         assigns: %{device_hybrid_signing_public_key_material: material}
+       })
+       when is_map(material),
+       do: {:ok, material}
+
+  defp get_socket_public_material(_socket), do: {:error, :missing_public_key_material}
+
+  defp collaboration_owner_kind(socket) do
+    if socket.assigns[:session_kind] == :share_participant,
+      do: "share_participant_device",
+      else: "device"
+  end
+
+  defp share_authority_principal_id(%{assigns: %{session_kind: :share_participant}} = socket),
+    do: socket.assigns.share_participant_principal_id
 
   @spec verify_update_hash(map(), Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def verify_update_hash(parsed, socket) do
@@ -109,7 +298,7 @@ defmodule RefMDWeb.Channels.Document.Envelope do
 
     params = %{
       "clock" => parsed.public_data["clock"],
-      "device_signing_pub_key" => socket.assigns.device_signing_pub_key,
+      "signing_key_id" => socket.assigns.device_signing_key_id,
       "document_id" => socket.assigns.document_id,
       "encrypted_content" => Base.url_encode64(parsed.ciphertext_raw, padding: false),
       "key_version" => parsed.public_data["keyVersion"],
@@ -134,16 +323,30 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     %{
       ciphertext: Base.url_encode64(snap.data, padding: false),
       nonce: Base.url_encode64(snap.nonce, padding: false),
-      signature: Base.url_encode64(snap.signature, padding: false),
+      signature: snap.hybrid_signature,
+      admission:
+        format_admission!(
+          snap.document_id,
+          "document_snapshot_accepted",
+          snap.snapshot_admission_event_hash
+        ),
       publicData: %{
         docId: snap.document_id,
         snapshotId: snap.id,
-        deviceId: snap.device_id,
-        signingPubKey: snap.created_by_device,
+        signingKeyId: snap.created_by_signing_key_id,
         keyVersion: snap.key_version,
-        parentSnapshotId: snap.parent_snapshot_id,
-        parentSnapshotProof: snap.parent_snapshot_proof,
-        parentSnapshotUpdateClocks: snap.parent_snapshot_update_clocks
+        parentSnapshotId: snap.parent_snapshot_id || "GENESIS",
+        parentProofHash: snap.parent_proof_hash,
+        parentSnapshotUpdateClocks: snap.parent_snapshot_update_clocks,
+        ownerKind: snap.owner_kind,
+        ownerId: snap.owner_id,
+        authorityKind: snap.authority_kind,
+        authorityId: snap.authority_id,
+        authorityContextKey: snap.authority_context_key,
+        authorityScopeId: snap.authority_scope_id,
+        authorityPermissionVersion: snap.authority_permission_version,
+        keyCheckpointSequence: snap.key_checkpoint_sequence,
+        keyCheckpointHash: snap.key_checkpoint_hash
       }
     }
   end
@@ -156,21 +359,40 @@ defmodule RefMDWeb.Channels.Document.Envelope do
       version: update.version,
       publicData: %{
         docId: update.document_id,
-        deviceId: update.device_id,
-        signingPubKey: update.device_signing_pub_key,
+        signingKeyId: update.signing_key_id,
         keyVersion: update.key_version,
         refSnapshotId: update.snapshot_id,
         clock: update.clock,
         timestamp: update.timestamp,
-        updateHash: update.update_hash
+        updateHash: update.update_hash,
+        ownerKind: update.owner_kind,
+        ownerId: update.owner_id,
+        authorityKind: update.authority_kind,
+        authorityId: update.authority_id,
+        authorityContextKey: update.authority_context_key,
+        authorityScopeId: update.authority_scope_id,
+        authorityPermissionVersion: update.authority_permission_version,
+        keyCheckpointSequence: update.key_checkpoint_sequence,
+        keyCheckpointHash: update.key_checkpoint_hash
       }
     }
 
-    if update.signature do
-      Map.put(base, :signature, Base.url_encode64(update.signature, padding: false))
-    else
-      Map.put(base, :mac, Base.url_encode64(update.mac, padding: false))
-    end
+    signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
+
+    base
+    |> Map.put(:signature, signature)
+    |> Map.put(
+      :admission,
+      format_admission!(
+        update.document_id,
+        "document_update_accepted",
+        update.admission_event_hash
+      )
+    )
+  end
+
+  defp format_admission!(document_id, event_type, admission_event_hash) do
+    Documents.document_admission_package!(document_id, event_type, admission_event_hash)
   end
 
   @spec build_snapshot_failure(map() | nil, Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
@@ -191,7 +413,10 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     %{
       snapshot: format_snapshot(snapshot),
       updates: Enum.map(updates, &format_update/1),
-      snapshotProofChain: proof_chain
+      snapshotProofChain: proof_chain,
+      proofChainHash: if(snapshot, do: snapshot.proof_chain_hash),
+      ciphertextHash: if(snapshot, do: snapshot.ciphertext_hash),
+      snapshotAdmissionEventHash: if(snapshot, do: snapshot.snapshot_admission_event_hash)
     }
   end
 
@@ -202,12 +427,14 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   defp validate_map(_, name), do: {:error, "invalid_#{name}"}
 
   defp validate_exact_keys(public_data, allowed_keys) do
-    extra = Map.keys(public_data) -- allowed_keys
+    validate_exact_keys(public_data, allowed_keys, "unexpected_publicData_keys")
+  end
 
-    if extra == [] do
+  defp validate_exact_keys(public_data, allowed_keys, error) do
+    if Enum.sort(Map.keys(public_data)) == Enum.sort(allowed_keys) do
       :ok
     else
-      {:error, "unexpected_publicData_keys"}
+      {:error, error}
     end
   end
 
@@ -219,50 +446,91 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     end
   end
 
-  defp validate_signing_pub_key(public_data, socket) do
-    if public_data["signingPubKey"] == socket.assigns.device_signing_pub_key do
+  defp validate_signing_key_id(public_data, socket) do
+    if public_data["signingKeyId"] == socket.assigns.device_signing_key_id do
       :ok
     else
-      {:error, "signing_pub_key_mismatch"}
+      {:error, "signing_key_id_mismatch"}
     end
   end
 
-  defp validate_device_id(public_data, socket) do
-    if public_data["deviceId"] == socket.assigns.device_id do
-      :ok
-    else
-      {:error, "device_id_mismatch"}
-    end
+  defp validate_authority_fields(public_data, socket) do
+    expected_authority_fields(socket, public_data)
+    |> Enum.find_value(:ok, &authority_field_error(public_data, &1))
   end
+
+  defp authority_field_error(public_data, {field, expected, error}) do
+    if public_data[field] == expected, do: false, else: {:error, error}
+  end
+
+  defp expected_authority_fields(socket, public_data) do
+    context = authority_context(socket)
+
+    [
+      {"ownerKind", collaboration_owner_kind(socket), "owner_kind_mismatch"},
+      {"ownerId", socket.assigns.device_id, "owner_id_mismatch"},
+      {"authorityKind", context.kind, "authority_kind_mismatch"},
+      {"authorityId", context.authority_id || public_data["authorityId"],
+       "authority_id_mismatch"},
+      {"authorityContextKey", context.context_key, "authority_context_key_mismatch"},
+      {"authorityScopeId", context.scope_id, "authority_scope_id_mismatch"},
+      {"authorityPermissionVersion", authority_permission_version(socket),
+       "authority_permission_version_mismatch"}
+    ]
+  end
+
+  defp authority_context(socket) do
+    if share_authority?(socket),
+      do: share_authority_context(socket),
+      else: workspace_authority_context(socket)
+  end
+
+  defp share_authority?(socket),
+    do: socket.assigns[:session_kind] == :share_participant
+
+  defp share_authority_context(socket) do
+    %{
+      kind: "share_participant_device",
+      authority_id: socket.assigns.current_share_id,
+      context_key: "#{socket.assigns.current_share_id}:#{share_authority_principal_id(socket)}",
+      scope_id: socket.assigns.current_share_id
+    }
+  end
+
+  defp workspace_authority_context(socket) do
+    workspace_id = socket.assigns[:document] && socket.assigns.document.workspace_id
+
+    %{
+      kind: "workspace_device",
+      authority_id: workspace_id,
+      context_key: socket.assigns.device_signing_key_id,
+      scope_id: workspace_id
+    }
+  end
+
+  defp authority_permission_version(socket),
+    do: socket.assigns[:authority_permission_version] || 1
 
   defp validate_snapshot_lineage(public_data) do
-    with :ok <- validate_nullable_uuid_field(public_data, "parentSnapshotId"),
-         :ok <- validate_parent_snapshot_proof(public_data["parentSnapshotProof"]) do
+    with :ok <- validate_parent_snapshot_id(public_data["parentSnapshotId"]),
+         :ok <- validate_parent_proof_hash(public_data["parentProofHash"]) do
       validate_parent_snapshot_clocks(public_data["parentSnapshotUpdateClocks"])
     end
   end
 
-  defp validate_nullable_uuid_field(public_data, field) do
-    if Map.has_key?(public_data, field) do
-      validate_nullable_uuid_value(public_data[field], field)
-    else
-      {:error, "missing_#{field}"}
-    end
-  end
+  defp validate_parent_snapshot_id("GENESIS"), do: :ok
 
-  defp validate_nullable_uuid_value(nil, _field), do: :ok
-
-  defp validate_nullable_uuid_value(v, field) when is_binary(v) do
+  defp validate_parent_snapshot_id(v) when is_binary(v) do
     case Ecto.UUID.cast(v) do
       {:ok, _} -> :ok
-      :error -> {:error, "invalid_#{field}"}
+      :error -> {:error, "invalid_parentSnapshotId"}
     end
   end
 
-  defp validate_nullable_uuid_value(_, field), do: {:error, "invalid_#{field}"}
+  defp validate_parent_snapshot_id(_), do: {:error, "invalid_parentSnapshotId"}
 
-  defp validate_parent_snapshot_proof(proof) when is_binary(proof), do: :ok
-  defp validate_parent_snapshot_proof(_), do: {:error, "invalid_parentSnapshotProof"}
+  defp validate_parent_proof_hash(proof) when is_binary(proof), do: :ok
+  defp validate_parent_proof_hash(_), do: {:error, "invalid_parentProofHash"}
 
   defp validate_parent_snapshot_clocks(clocks) when is_map(clocks) do
     if Enum.all?(clocks, fn {_k, v} -> is_integer(v) end) do
@@ -273,6 +541,164 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   end
 
   defp validate_parent_snapshot_clocks(_), do: {:error, "invalid_parentSnapshotUpdateClocks"}
+
+  defp validate_admission_artifacts(payload) do
+    with {:ok, admission} <- validate_map(payload["admission"], "admission"),
+         :ok <-
+           validate_exact_keys(admission, [
+             "workspaceKeyDirectoryCheckpoint",
+             "workspaceKeyDirectoryEvents",
+             "workspaceKeyDirectoryCheckpointAncestry",
+             "workspaceKeyDirectoryEventAncestry"
+           ]),
+         {:ok, events} <- validate_admission_events(admission["workspaceKeyDirectoryEvents"]),
+         {:ok, checkpoint} <-
+           validate_map(
+             admission["workspaceKeyDirectoryCheckpoint"],
+             "workspaceKeyDirectoryCheckpoint"
+           ),
+         {:ok, checkpoint_ancestry} <-
+           validate_optional_admission_envelopes(
+             admission["workspaceKeyDirectoryCheckpointAncestry"],
+             "invalid_workspaceKeyDirectoryCheckpointAncestry"
+           ),
+         {:ok, event_ancestry} <-
+           validate_optional_admission_envelopes(
+             admission["workspaceKeyDirectoryEventAncestry"],
+             "invalid_workspaceKeyDirectoryEventAncestry"
+           ) do
+      {:ok,
+       %{
+         "workspaceKeyDirectoryEvents" => events,
+         "workspaceKeyDirectoryCheckpoint" => checkpoint,
+         "workspaceKeyDirectoryCheckpointAncestry" => checkpoint_ancestry,
+         "workspaceKeyDirectoryEventAncestry" => event_ancestry
+       }}
+    end
+  end
+
+  defp validate_optional_admission_envelopes(nil, _error), do: {:ok, []}
+
+  defp validate_optional_admission_envelopes([%{} | _] = envelopes, error) do
+    if Enum.all?(envelopes, &is_map/1), do: {:ok, envelopes}, else: {:error, error}
+  end
+
+  defp validate_optional_admission_envelopes([], _error), do: {:ok, []}
+  defp validate_optional_admission_envelopes(_, error), do: {:error, error}
+
+  defp validate_admission_events([%{} | _] = events) do
+    if Enum.all?(events, &is_map/1) do
+      {:ok, events}
+    else
+      {:error, "invalid_workspaceKeyDirectoryEvents"}
+    end
+  end
+
+  defp validate_admission_events(_), do: {:error, "invalid_workspaceKeyDirectoryEvents"}
+
+  defp validate_key_checkpoint_fields(public_data) do
+    with :ok <- validate_integer_field(public_data, "keyCheckpointSequence"),
+         do: validate_hash_field(public_data, "keyCheckpointHash")
+  end
+
+  defp validate_workspace_event_head_fields(public_data) do
+    with :ok <- validate_integer_field(public_data, "workspaceEventHeadSequence"),
+         do: validate_hash_field(public_data, "workspaceEventHeadHash")
+  end
+
+  defp validate_key_checkpoint_boundary(public_data, admission) do
+    [event | _] = admission["workspaceKeyDirectoryEvents"]
+    body = get_in(event, ["payload", "body"])
+    checkpoint_payload = get_in(admission, ["workspaceKeyDirectoryCheckpoint", "payload"])
+
+    cond do
+      not is_map(body) or not is_map(checkpoint_payload) ->
+        {:error, "invalid_key_checkpoint_boundary"}
+
+      checkpoint_payload["sequence"] != public_data["keyCheckpointSequence"] + 1 ->
+        {:error, "key_checkpoint_sequence_mismatch"}
+
+      checkpoint_payload["previous_checkpoint_hash"] != public_data["keyCheckpointHash"] ->
+        {:error, "key_checkpoint_hash_mismatch"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp authority_boundary(parsed, event_type) do
+    event =
+      Enum.find(parsed.admission["workspaceKeyDirectoryEvents"], fn
+        %{"payload" => %{"event_type" => ^event_type}} -> true
+        _ -> false
+      end) || raise ArgumentError, "document_admission_event_missing"
+
+    body = get_in(event, ["payload", "body"])
+    if not is_map(body), do: raise(ArgumentError, "document_admission_body_invalid")
+
+    %{
+      "previous_workspace_event_sequence" => body["previous_workspace_event_sequence"],
+      "previous_workspace_event_hash" => body["previous_workspace_event_hash"],
+      "admission_event_type" => event_type,
+      "admission_nonce" => body["admission_nonce"],
+      "min_dek_version" => body["min_dek_version"],
+      "document_permission_proof_hash" => body["document_permission_proof_hash"]
+    }
+  end
+
+  defp ephemeral_authority_boundary(workspace_id, public_data) do
+    actor_active_proof =
+      JCS.canonical_bytes!(%{
+        "protocol" => "refmd.editor-ephemeral-actor-active-proof",
+        "version" => 1,
+        "owner_kind" => public_data["ownerKind"],
+        "owner_id" => public_data["ownerId"],
+        "authority_kind" => public_data["authorityKind"],
+        "authority_id" => public_data["authorityId"],
+        "authority_context_key" => public_data["authorityContextKey"],
+        "key_checkpoint_sequence" => public_data["keyCheckpointSequence"],
+        "key_checkpoint_hash" => public_data["keyCheckpointHash"],
+        "signing_key_id" => public_data["signingKeyId"]
+      })
+
+    permission_proof =
+      JCS.canonical_bytes!(%{
+        "protocol" => "refmd.document-permission-proof",
+        "version" => 1,
+        "workspace_id" => workspace_id,
+        "document_id" => public_data["docId"],
+        "authority_kind" => public_data["authorityKind"],
+        "authority_id" => public_data["authorityId"],
+        "authority_context_key" => public_data["authorityContextKey"],
+        "authority_scope_id" => public_data["authorityScopeId"],
+        "authority_permission_version" => public_data["authorityPermissionVersion"],
+        "permission" => "edit"
+      })
+
+    %{
+      "workspace_event_head_sequence" => public_data["workspaceEventHeadSequence"],
+      "workspace_event_head_hash" => public_data["workspaceEventHeadHash"],
+      "actor_active_proof_hash" => Hash.blake3_base64url(actor_active_proof),
+      "document_permission_proof_hash" => Hash.blake3_base64url(permission_proof),
+      "expires_event_sequence" => public_data["workspaceEventHeadSequence"] + 1
+    }
+  end
+
+  defp validate_hash_field(public_data, field) do
+    case public_data[field] do
+      v when is_binary(v) ->
+        Hash.assert_blake3_base64url!(v)
+        :ok
+
+      nil ->
+        {:error, "missing_#{field}"}
+
+      _ ->
+        {:error, "invalid_#{field}"}
+    end
+  rescue
+    ArgumentError -> {:error, "invalid_#{field}"}
+  end
 
   defp validate_string_field(public_data, field) do
     case public_data[field] do
@@ -322,10 +748,9 @@ defmodule RefMDWeb.Channels.Document.Envelope do
         {:error, "missing_#{key}"}
 
       val ->
-        case Base.url_decode64(val, padding: false) do
-          {:ok, decoded} -> {:ok, decoded}
-          :error -> {:error, "invalid_#{key}"}
-        end
+        {:ok, Encoding.decode_base64url!(val)}
     end
+  rescue
+    ArgumentError -> {:error, "invalid_#{key}"}
   end
 end

@@ -1,9 +1,10 @@
 import { getCryptoWorker } from "./worker/client";
+import type { HybridSigningPublicKeyMaterial } from "./signature-types";
 
 interface TofuVerifyParams {
   userId: string;
   deviceId: string;
-  signingPublicKey: Uint8Array;
+  hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   ecdhPublicKey: Uint8Array;
 }
 
@@ -11,15 +12,20 @@ interface TofuVerifyResult {
   status: string;
 }
 
+interface ApplyTofuVerificationOptions {
+  persistFirstSeen?: boolean;
+}
+
 export async function applyTofuVerification(
   params: TofuVerifyParams,
   result: TofuVerifyResult,
+  options: ApplyTofuVerificationOptions = {},
 ): Promise<void> {
   const worker = getCryptoWorker();
   if (result.status === "identity_key_changed" || result.status === "ecdh_key_mismatch") {
     throw new Error("Key verification failed: " + result.status);
   }
-  if (result.status === "first_seen") {
+  if (result.status === "first_seen" && options.persistFirstSeen === true) {
     await worker.tofuTrustDevice(params);
   } else if (result.status === "known_trusted") {
     await worker.tofuUpdateLastSeen({

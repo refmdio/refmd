@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { leaveDocument } from "@/shared/lib/ws/phoenix-channel";
 import { documentStates, errorSignals, syncPausedSignals } from "./registry";
-import { getRegisteredDocumentAccess } from "./access";
+import { canSharedAccessWriteDurably, getRegisteredDocumentAccess } from "./access";
 import type { DocumentState } from "./types";
 
 function createDocumentState(
@@ -47,6 +47,7 @@ function createDocumentState(
     snapshotCiphertextHash: "",
     pendingSnapshot: null,
     latestVersion: 0,
+    authorityPermissionVersion: 1,
     signingKeys: new Map(),
     historicalSigningKeys: new Map(),
     signingKeyOwners: new Map(),
@@ -78,10 +79,8 @@ function createDocumentState(
     offlineResumeCleanup: null,
     loadedFromOfflineCache: false,
     _reauthResolvers: [],
-    _rollbackResolvers: [],
-    _replaceRollbackPinOnNextPersist: false,
     _headlessSync: false,
-    readOnly: access.kind === "share" ? access.permission !== "edit" : false,
+    readOnly: access.kind === "share" ? !canSharedAccessWriteDurably(access) : false,
     writerLockCleanup: null,
     pendingSaveTimeout: null,
     publicationState: { isPublished: false, updatedAt: null },

@@ -3,6 +3,7 @@ defmodule RefMDWeb.ShareController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Sharing
+
   alias RefMDWeb.Schemas
 
   operation(:show,
@@ -18,11 +19,11 @@ defmodule RefMDWeb.ShareController do
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"share_slug" => share_slug}) do
-    case Sharing.get_share_landing(share_slug) do
+    case Sharing.get_share_landing(share_slug, get_session_token(conn)) do
       {:ok, %{share: share, root: root}} ->
         conn
         |> no_store()
-        |> json(%{share: serialize_share(share), root: root})
+        |> json(landing_response(share, root))
 
       {:error, :invalid_slug} ->
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
@@ -47,20 +48,51 @@ defmodule RefMDWeb.ShareController do
 
   @spec bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def bootstrap(conn, %{"share_slug" => share_slug} = params) do
-    attrs =
-      params
-      |> Map.take(["display_name", "device_signing_pub_key", "device_encryption_pub_key"])
-      |> decode_binary_fields()
+    allowed = [
+      "share_slug",
+      "display_name",
+      "share_participant_device_id",
+      "share_participant_principal_id",
+      "share_participant_session_id",
+      "hybrid_signing_public_key_material",
+      "hybrid_encryption_public_key_material",
+      "share_capability_authorization",
+      "share_participant_device_authorization"
+    ]
 
-    case attrs do
-      {:ok, decoded} ->
-        conn
-        |> no_store()
-        |> render_bootstrap_result(Sharing.bootstrap_participant(share_slug, decoded))
+    with :ok <- reject_extra_fields(params, allowed),
+         attrs <-
+           params
+           |> Map.take([
+             "display_name",
+             "share_participant_device_id",
+             "share_participant_principal_id",
+             "share_participant_session_id",
+             "hybrid_signing_public_key_material",
+             "hybrid_encryption_public_key_material",
+             "share_capability_authorization",
+             "share_participant_device_authorization"
+           ])
+           |> decode_share_participant_fields([]),
+         {:ok, decoded} <- attrs do
+      conn
+      |> no_store()
+      |> render_bootstrap_result(Sharing.bootstrap_participant(share_slug, decoded))
+    else
+      {:error, :unexpected_field} ->
+        conn |> put_status(:bad_request) |> json(%{error: "unexpected_field"})
 
       {:error, field} ->
         conn |> put_status(:bad_request) |> json(%{error: "invalid_format", field: field})
     end
+  end
+
+  defp reject_extra_fields(params, allowed) do
+    allowed = MapSet.new(allowed)
+
+    if Enum.all?(Map.keys(params), &MapSet.member?(allowed, &1)),
+      do: :ok,
+      else: {:error, :unexpected_field}
   end
 
   operation(:challenge,
@@ -106,21 +138,43 @@ defmodule RefMDWeb.ShareController do
 
   @spec respond_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def respond_challenge(conn, %{"share_slug" => share_slug} = params) do
-    attrs =
-      params
-      |> Map.take([
-        "response",
-        "display_name",
-        "device_signing_pub_key",
-        "device_encryption_pub_key"
-      ])
-      |> decode_challenge_fields()
+    allowed = [
+      "share_slug",
+      "response",
+      "display_name",
+      "share_participant_device_id",
+      "share_participant_principal_id",
+      "share_participant_session_id",
+      "hybrid_signing_public_key_material",
+      "hybrid_encryption_public_key_material",
+      "share_capability_authorization",
+      "share_participant_device_authorization",
+      "password_challenge_hash"
+    ]
 
-    case attrs do
-      {:ok, decoded} ->
-        conn
-        |> no_store()
-        |> render_bootstrap_result(Sharing.respond_password_challenge(share_slug, decoded))
+    with :ok <- reject_extra_fields(params, allowed),
+         attrs <-
+           params
+           |> Map.take([
+             "response",
+             "display_name",
+             "share_participant_device_id",
+             "share_participant_principal_id",
+             "share_participant_session_id",
+             "hybrid_signing_public_key_material",
+             "hybrid_encryption_public_key_material",
+             "share_capability_authorization",
+             "share_participant_device_authorization",
+             "password_challenge_hash"
+           ])
+           |> decode_share_participant_fields(["response"]),
+         {:ok, decoded} <- attrs do
+      conn
+      |> no_store()
+      |> render_bootstrap_result(Sharing.respond_password_challenge(share_slug, decoded))
+    else
+      {:error, :unexpected_field} ->
+        conn |> put_status(:bad_request) |> json(%{error: "unexpected_field"})
 
       {:error, field} ->
         conn |> put_status(:bad_request) |> json(%{error: "invalid_format", field: field})
@@ -134,6 +188,39 @@ defmodule RefMDWeb.ShareController do
     ],
     responses: [
       ok:
+        {"Document route metadata", "application/json",
+         %OpenApiSpex.Schema{
+           oneOf: [
+             Schemas.ShareDocumentBootstrapRequiredResponse,
+             Schemas.ShareDocumentRouteMetadataResponse
+           ]
+         }},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec document(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def document(conn, %{"document_token" => document_token}) do
+    case Sharing.get_document_bootstrap(document_token, get_session_token(conn), nil) do
+      {:ok, response} ->
+        conn
+        |> no_store()
+        |> json(response)
+
+      {:error, _reason} ->
+        conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
+
+  operation(:document_bootstrap,
+    summary: "Bootstrap canonical document share content",
+    parameters: [
+      document_token: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Canonical bootstrap params", "application/json", Schemas.ShareCanonicalBootstrapRequest},
+    responses: [
+      ok:
         {"Document bootstrap", "application/json",
          %OpenApiSpex.Schema{
            oneOf: [
@@ -145,24 +232,67 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec document(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def document(conn, %{"document_token" => document_token}) do
-    case Sharing.get_document_bootstrap(document_token, get_session_token(conn)) do
+  @spec document_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def document_bootstrap(conn, %{"document_token" => document_token} = params) do
+    case validate_canonical_pin_hash(params) do
+      {:ok, pin_hash} ->
+        case Sharing.get_document_bootstrap(
+               document_token,
+               get_session_token(conn),
+               pin_hash
+             ) do
+          {:ok, response} ->
+            conn
+            |> no_store()
+            |> json(encode_document_bootstrap(response))
+
+          {:error, _reason} ->
+            conn |> put_status(:not_found) |> json(%{error: "not_found"})
+        end
+
+      {:error, reason} ->
+        handle_canonical_bootstrap_error(conn, reason)
+    end
+  end
+
+  operation(:folder,
+    summary: "Get canonical folder route metadata for a share",
+    parameters: [
+      folder_token: [in: :path, type: :string, required: true]
+    ],
+    responses: [
+      ok:
+        {"Folder route metadata", "application/json",
+         %OpenApiSpex.Schema{
+           oneOf: [
+             Schemas.ShareDocumentBootstrapRequiredResponse,
+             Schemas.ShareFolderRouteMetadataResponse
+           ]
+         }},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec folder(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def folder(conn, %{"folder_token" => folder_token}) do
+    case Sharing.get_folder_bootstrap(folder_token, get_session_token(conn), nil) do
       {:ok, response} ->
         conn
         |> no_store()
-        |> json(encode_document_bootstrap(response))
+        |> json(response)
 
       {:error, _reason} ->
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
     end
   end
 
-  operation(:folder,
-    summary: "Get canonical folder bootstrap for a share",
+  operation(:folder_bootstrap,
+    summary: "Bootstrap canonical folder share content",
     parameters: [
       folder_token: [in: :path, type: :string, required: true]
     ],
+    request_body:
+      {"Canonical bootstrap params", "application/json", Schemas.ShareCanonicalBootstrapRequest},
     responses: [
       ok:
         {"Folder bootstrap", "application/json",
@@ -176,16 +306,26 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec folder(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def folder(conn, %{"folder_token" => folder_token}) do
-    case Sharing.get_folder_bootstrap(folder_token, get_session_token(conn)) do
-      {:ok, response} ->
-        conn
-        |> no_store()
-        |> json(encode_folder_bootstrap(response))
+  @spec folder_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def folder_bootstrap(conn, %{"folder_token" => folder_token} = params) do
+    case validate_canonical_pin_hash(params) do
+      {:ok, pin_hash} ->
+        case Sharing.get_folder_bootstrap(
+               folder_token,
+               get_session_token(conn),
+               pin_hash
+             ) do
+          {:ok, response} ->
+            conn
+            |> no_store()
+            |> json(encode_folder_bootstrap(response))
 
-      {:error, _reason} ->
-        conn |> put_status(:not_found) |> json(%{error: "not_found"})
+          {:error, _reason} ->
+            conn |> put_status(:not_found) |> json(%{error: "not_found"})
+        end
+
+      {:error, reason} ->
+        handle_canonical_bootstrap_error(conn, reason)
     end
   end
 
@@ -195,8 +335,21 @@ defmodule RefMDWeb.ShareController do
       document_id: share.document_id,
       scope: share.scope,
       permission: share.permission,
+      created_event_hash: share.created_event_hash,
+      latest_bootstrap_event_hash: share.latest_bootstrap_event_hash,
+      capability_context_hash: share.capability_context_hash,
+      share_capability_secret_commitment: share.share_capability_secret_commitment,
+      password_capability_secret_commitment: share.password_capability_secret_commitment,
       password_protected: share.password_protected
     }
+  end
+
+  defp landing_response(%{password_protected: true} = share, _root) do
+    %{share: serialize_share(share), password_challenge_required: true}
+  end
+
+  defp landing_response(share, root) do
+    %{share: serialize_share(share), root: root}
   end
 
   defp no_store(conn) do
@@ -229,38 +382,17 @@ defmodule RefMDWeb.ShareController do
     |> Map.update!(:nonce, &encode_binary/1)
   end
 
-  defp decode_binary_fields(attrs) do
-    with {:ok, signing_key} <- decode_binary(attrs["device_signing_pub_key"]),
-         {:ok, encryption_key} <- decode_binary(attrs["device_encryption_pub_key"]) do
-      {:ok,
-       attrs
-       |> Map.put("device_signing_pub_key", signing_key)
-       |> Map.put("device_encryption_pub_key", encryption_key)}
-    else
-      _ ->
-        if attrs["device_signing_pub_key"] == nil,
-          do: {:error, "device_signing_pub_key"},
-          else: {:error, "device_encryption_pub_key"}
-    end
+  defp decode_share_participant_fields(attrs, extra_binary_fields) do
+    decode_binary_fields(attrs, extra_binary_fields)
   end
 
-  defp decode_challenge_fields(attrs) do
-    with {:ok, response} <- decode_binary(attrs["response"]),
-         {:ok, signing_key} <- decode_binary(attrs["device_signing_pub_key"]),
-         {:ok, encryption_key} <- decode_binary(attrs["device_encryption_pub_key"]) do
-      {:ok,
-       attrs
-       |> Map.put("response", response)
-       |> Map.put("device_signing_pub_key", signing_key)
-       |> Map.put("device_encryption_pub_key", encryption_key)}
-    else
-      _ ->
-        cond do
-          attrs["response"] == nil -> {:error, "response"}
-          attrs["device_signing_pub_key"] == nil -> {:error, "device_signing_pub_key"}
-          true -> {:error, "device_encryption_pub_key"}
-        end
-    end
+  defp decode_binary_fields(attrs, fields) do
+    Enum.reduce_while(fields, {:ok, attrs}, fn field, {:ok, acc} ->
+      case decode_binary(Map.get(acc, field)) do
+        {:ok, decoded} -> {:cont, {:ok, Map.put(acc, field, decoded)}}
+        _ -> {:halt, {:error, field}}
+      end
+    end)
   end
 
   defp render_bootstrap_result(conn, {:ok, result}) do
@@ -268,6 +400,14 @@ defmodule RefMDWeb.ShareController do
     |> set_share_session_cookie(result.session_token, false)
     |> json(%{
       root: result.root,
+      share_id: result.share_id,
+      scope_kind: result.scope_kind,
+      scope_id: result.scope_id,
+      created_event_hash: result.created_event_hash,
+      latest_bootstrap_event_hash: result.latest_bootstrap_event_hash,
+      capability_context_hash: result.capability_context_hash,
+      share_capability_secret_commitment: result.share_capability_secret_commitment,
+      password_capability_secret_commitment: result.password_capability_secret_commitment,
       participant: result.participant
     })
   end
@@ -292,6 +432,26 @@ defmodule RefMDWeb.ShareController do
     conn |> put_status(:bad_request) |> json(%{error: "invalid_public_key", field: field})
   end
 
+  defp render_bootstrap_result(conn, {:error, {:invalid_field, field}}) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_field", field: field})
+  end
+
+  defp render_bootstrap_result(conn, {:error, {:missing_field, field}}) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing_field", field: field})
+  end
+
+  defp render_bootstrap_result(conn, {:error, :invalid_share_participant_device_authorization}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_share_participant_device_authorization"})
+  end
+
+  defp render_bootstrap_result(conn, {:error, :invalid_share_capability_authorization}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_share_capability_authorization"})
+  end
+
   defp render_bootstrap_result(conn, {:error, :invalid_token}) do
     conn |> put_status(:not_found) |> json(%{error: "not_found"})
   end
@@ -304,6 +464,30 @@ defmodule RefMDWeb.ShareController do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: "validation_error", details: format_errors(changeset)})
+  end
+
+  defp render_bootstrap_result(conn, {:error, reason}) when is_atom(reason) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: Atom.to_string(reason)})
+  end
+
+  defp validate_canonical_pin_hash(%{"authenticated_workspace_pin_bootstrap_hash" => value})
+       when is_binary(value) do
+    if Regex.match?(~r/^[A-Za-z0-9_-]{43}$/, value) do
+      {:ok, value}
+    else
+      {:error, {:invalid_value, "authenticated_workspace_pin_bootstrap_hash"}}
+    end
+  end
+
+  defp validate_canonical_pin_hash(_params),
+    do: {:error, {:missing_field, "authenticated_workspace_pin_bootstrap_hash"}}
+
+  defp handle_canonical_bootstrap_error(conn, {:missing_field, field}) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing_field", field: field})
+  end
+
+  defp handle_canonical_bootstrap_error(conn, {:invalid_value, field}) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_value", field: field})
   end
 
   defp get_session_token(conn) do

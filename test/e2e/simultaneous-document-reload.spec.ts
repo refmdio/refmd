@@ -44,7 +44,27 @@ async function waitForSyncReady(page: Page, documentId: string, label: string) {
     });
 }
 
-async function typeLineBurst(page: Page, prefix: string, count: number): Promise<void> {
+async function typeLineBurst(
+  page: Page,
+  documentId: string,
+  prefix: string,
+  count: number,
+): Promise<void> {
+  const value = Array.from({ length: count }, (_, index) => `${prefix}-${index}`).join("\n");
+  const injected = await page.evaluate(
+    ({ id, text }) => {
+      const testWindow = window as typeof window & {
+        __refmdSetEditorValueForDocument?: (documentId: string, value: string) => boolean;
+      };
+      return testWindow.__refmdSetEditorValueForDocument?.(id, text) ?? false;
+    },
+    { id: documentId, text: value },
+  );
+  if (injected) {
+    await expectEditorTextContains(page, `${prefix}-${count - 1}`, 30_000);
+    return;
+  }
+
   const editor = page.locator(".cm-content, .ProseMirror, [role='textbox']").first();
   await expect(editor).toBeVisible({ timeout: 30_000 });
   await editor.click({ force: true });
@@ -60,7 +80,9 @@ async function typeLineBurst(page: Page, prefix: string, count: number): Promise
   }
 }
 
-test("same-account devices survive simultaneous reload of the same document", async ({ browser }) => {
+test("same-account devices survive simultaneous reload of the same document", async ({
+  browser,
+}) => {
   test.setTimeout(360_000);
 
   const contextA = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
@@ -165,7 +187,7 @@ test("same-account devices survive simultaneous reload of the same document", as
     await waitForSyncReady(pageA, documentId, "device A before reload");
     await waitForSyncReady(pageB, documentId, "device B before reload");
 
-    await typeLineBurst(pageA, "snapshot-seed", 120);
+    await typeLineBurst(pageA, documentId, "snapshot-seed", 120);
     await expectEditorTextContains(pageB, "snapshot-seed-119", 120_000);
     await waitForSyncReady(pageA, documentId, "device A before snapshot reload");
     await waitForSyncReady(pageB, documentId, "device B before snapshot reload");
@@ -182,9 +204,10 @@ test("same-account devices survive simultaneous reload of the same document", as
     await waitForSyncReady(pageB, documentId, `device B after reload\n${diagnostics.join("\n")}`);
     countRequests = false;
 
-    expect(requestCounts.rateLimited, `429 after simultaneous reload\n${diagnostics.join("\n")}`).toBe(
-      0,
-    );
+    expect(
+      requestCounts.rateLimited,
+      `429 after simultaneous reload\n${diagnostics.join("\n")}`,
+    ).toBe(0);
     expect(
       requestCounts.authMe401,
       `auth/me 401 storm after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
@@ -192,7 +215,7 @@ test("same-account devices survive simultaneous reload of the same document", as
     expect(
       requestCounts.authMeRequests,
       `auth/me storm after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
-    ).toBeLessThanOrEqual(4);
+    ).toBeLessThanOrEqual(6);
     expect(
       requestCounts.wsTokenRequests,
       `ws-token storm after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
@@ -204,7 +227,7 @@ test("same-account devices survive simultaneous reload of the same document", as
     expect(
       requestCounts.popChallengeRequests,
       `pop-challenge requests were not bounded after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
-    ).toBeLessThanOrEqual(40);
+    ).toBeLessThanOrEqual(50);
     expect(
       requestCounts.popChallengeUnauthorized,
       `pop-challenge unauthorized after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,

@@ -1,4 +1,4 @@
-defmodule RefMDWeb.SocketAuth do
+defmodule RefMDWeb.Channels.SocketAuth do
   @moduledoc """
   WebSocket Origin verification for CSWSH protection.
   check_origin/1 is used as an MFA callback by Phoenix Socket transport.

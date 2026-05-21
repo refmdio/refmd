@@ -30,8 +30,9 @@ export function handleWrapIdentityKeysForServer(
   if (
     !state.identityEcdhPrivate ||
     !state.identityEcdhPublic ||
-    !state.identitySigningPrivate ||
-    !state.identitySigningPublic
+    !state.identityHybridEncryptionPrivateKeyMaterial ||
+    !state.identityHybridEncryptionPublicKeyMaterial ||
+    !state.identityHybridSigningState
   ) {
     throw new CryptoOperationError("not_initialized", "Identity keys not available");
   }
@@ -40,17 +41,23 @@ export function handleWrapIdentityKeysForServer(
     {
       ecdhPrivate: state.identityEcdhPrivate,
       ecdhPublic: state.identityEcdhPublic,
-      signingPrivate: state.identitySigningPrivate,
-      signingPublic: state.identitySigningPublic,
+      hybridEncryptionPrivateKeyMaterial: state.identityHybridEncryptionPrivateKeyMaterial,
+      hybridEncryptionPublicKeyMaterial: state.identityHybridEncryptionPublicKeyMaterial,
+      encryptionKeyId: "",
+      hybridSigningPrivateKeyMaterial: state.identityHybridSigningState.privateKeyMaterial,
+      hybridSigningPublicKeyMaterial: state.identityHybridSigningState.publicKeyMaterial,
     },
     umk,
     userId,
   );
 
   return {
-    encryptedEcdhPrivate: encrypted.encryptedEcdhPrivate,
-    ecdhPrivateNonce: encrypted.ecdhPrivateNonce,
-    encryptedSigningPrivate: encrypted.encryptedSigningPrivate,
-    signingPrivateNonce: encrypted.signingPrivateNonce,
+    encryptedHybridEncryptionPrivateKeyMaterial:
+      encrypted.encryptedHybridEncryptionPrivateKeyMaterial,
+    hybridEncryptionPrivateKeyMaterialNonce: encrypted.hybridEncryptionPrivateKeyMaterialNonce,
+    encryptionKeyId: encrypted.encryptionKeyId,
+    encryptedHybridSigningPrivateKeyMaterial: encrypted.encryptedHybridSigningPrivateKeyMaterial,
+    hybridSigningPrivateKeyMaterialNonce: encrypted.hybridSigningPrivateKeyMaterialNonce,
+    signingKeyId: encrypted.signingKeyId,
   };
 }

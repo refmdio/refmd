@@ -1,3 +1,4 @@
+import * as Y from "yjs";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { getOfflineKek } from "@/shared/lib/offline/storage/store";
 
@@ -12,9 +13,7 @@ export async function createDocumentOffline(
   if (!kekEntry) {
     throw new Error("Cannot create document offline: no KEK cache for workspace");
   }
-  await worker.unwrapKekFromOffline({
-    ciphertext: kekEntry.wrappedKek,
-    iv: kekEntry.wrappedKekNonce,
+  await worker.restoreKekFromOffline({
     workspaceId,
     keyVersion: kekEntry.keyVersion,
     isActive: true,
@@ -28,16 +27,14 @@ export async function createDocumentOffline(
     dekKeyVersion,
     true,
   );
-  const { ciphertext: wrappedDek, iv: wrappedDekNonce } = await worker.wrapDekForOffline({
-    documentId,
-    keyVersion: dekKeyVersion,
-  });
   const { encrypted: encryptedTitle, nonce: encryptedTitleNonce } = await worker.encryptTitle({
     title: documentTitle,
     documentId,
     keyVersion: dekKeyVersion,
   });
-  const emptyState = new Uint8Array(0);
+  const emptyDoc = new Y.Doc();
+  const emptyState = Y.encodeStateAsUpdate(emptyDoc);
+  emptyDoc.destroy();
   const { ciphertext: encryptedState, nonce: stateNonce } = await worker.encryptOfflineCache({
     plaintext: emptyState,
     documentId,
@@ -47,8 +44,6 @@ export async function createDocumentOffline(
   const { putOfflineCreated, putOfflineDek } = await import("@/shared/lib/offline/storage/store");
   await putOfflineDek({
     documentId,
-    wrappedDek,
-    wrappedDekNonce,
     keyVersion: dekKeyVersion,
     cachedAt: Date.now(),
   });
@@ -59,8 +54,6 @@ export async function createDocumentOffline(
     encryptedTitle,
     encryptedTitleNonce,
     encryptedTitleKeyVersion: dekKeyVersion,
-    wrappedDek,
-    wrappedDekNonce,
     dekKeyVersion,
     kekWrappedDek,
     kekWrappedDekNonce,

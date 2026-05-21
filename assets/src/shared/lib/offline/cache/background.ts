@@ -1,5 +1,6 @@
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { getPopHeaders } from "@/shared/lib/auth/pop";
+import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { clientWarn } from "@/shared/lib/logger";
 import {
   hasTrackedDocumentChannel,
   joinTemporaryDocument,
@@ -9,7 +10,14 @@ import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
 import { documentsApi } from "@/shared/api/documents";
 import { encryptionApi } from "@/shared/api/encryption";
 import { resolveActiveKek, type KekResolverSession } from "@/shared/lib/crypto/kek-resolver";
-import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
+import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
+import {
+  documentOperationAuthorityBoundary,
+  verifyDocumentOperationAdmission,
+  verifyDocumentOperationAdmissionAncestry,
+} from "@/shared/lib/document/document-operation-admission";
+import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import * as Y from "yjs";
 import {
   getOfflineDocumentMeta,
@@ -30,7 +38,8 @@ const MAX_BACKGROUND_CACHE_DESKTOP = 200;
 type DeviceKeyCacheResult =
   | {
       status: "ok";
-      signingKeys: Map<string, Uint8Array>;
+      signingKeys: Map<string, HybridSigningPublicKeyMaterial>;
+      signingKeyOwners: Map<string, string>;
     }
   | {
       status: "key_changed";
@@ -123,14 +132,18 @@ async function cacheDocumentSilently(
   docInfo?: DocumentListEntry,
 ): Promise<void> {
   await ensurePhoenixWsToken("user");
-  const popHeaders = await getPopHeaders();
   const worker = getCryptoWorker();
   // Build member signing key set for signature verification
   const keyCaches = await buildDeviceKeyCaches(workspaceId);
   if (keyCaches.status === "key_changed") throw new Error("TOFU key change detected");
   const validSigningKeys = keyCaches.signingKeys;
-  const resolveSigningKey = (signingPubKey: string): Uint8Array | null =>
-    validSigningKeys.get(signingPubKey) ?? null;
+  const resolveSigningKey = (
+    signingKeyId: string,
+  ): { key: HybridSigningPublicKeyMaterial; ownerId: string } | null => {
+    const key = validSigningKeys.get(signingKeyId);
+    const ownerId = keyCaches.signingKeyOwners.get(signingKeyId);
+    return key && ownerId ? { key, ownerId } : null;
+  };
   // Resolve KEK and cache to offline-kek-cache
   const { kekVersion } = await resolveActiveKek(workspaceId, getKekResolverSession());
   await cacheKek(workspaceId, kekVersion).catch(() => {});
@@ -156,14 +169,20 @@ async function cacheDocumentSilently(
     await import("@/shared/lib/anti-rollback/document-state-pins");
   const bgPin = await getPin(documentId).catch(() => null);
   const joinParams: Record<string, unknown> = {
-    pop_challenge: popHeaders["X-PoP-Challenge"],
-    pop_signature: popHeaders["X-PoP-Signature"],
     mode: "complete",
     silent: true,
   };
   if (hasCompleteSnapshotPin(bgPin)) {
     joinParams.knownSnapshotId = bgPin.latestSnapshotId;
   }
+  const popParams = await getChannelPopParams(
+    undefined,
+    undefined,
+    "user",
+    undefined,
+    buildChannelPopResource(documentId, "user", undefined, joinParams),
+  );
+  Object.assign(joinParams, popParams);
   return new Promise<void>((resolve, reject) => {
     let resolved = false;
     let disposeChannel: (() => void) | null = null;
@@ -186,18 +205,44 @@ async function cacheDocumentSilently(
           // Verify and decrypt snapshot
           if (payload.snapshot) {
             const snap = payload.snapshot;
-            const spk = snap.publicData.signingPubKey;
+            const spk = snap.publicData.signingKeyId;
             const signingKey = resolveSigningKey(spk);
             if (!signingKey) throw new Error("Snapshot signer is not foreground-verifiable");
-            const sigValid = await worker.verifyWsSignature({
-              prefix: "refmd_snapshot",
+            const sigValid = await worker.verifyDocumentSnapshotSignature({
+              publicKeyMaterial: signingKey.key,
+              signature: snap.signature,
+              actorUserId: signingKey.ownerId,
+              workspaceId,
+              publicData: snap.publicData,
+              authorityBoundary: documentOperationAuthorityBoundary(
+                snap.admission,
+                "document_snapshot_accepted",
+              ),
               ciphertext: snap.ciphertext,
               nonce: snap.nonce,
-              publicData: snap.publicData,
-              signature: base64UrlDecode(snap.signature),
-              signingPubKey: signingKey,
             });
             if (!sigValid) throw new Error("Snapshot signature verification failed");
+            if (!payload.snapshotAdmissionEventHash) {
+              throw new Error("Snapshot admission event hash missing");
+            }
+            const snapshotCiphertextHash = base64UrlEncode(
+              await worker.blake3Hash(base64UrlDecode(snap.ciphertext)),
+            );
+            await verifyDocumentOperationAdmission({
+              admission: snap.admission,
+              eventType: "document_snapshot_accepted",
+              publicData: snap.publicData,
+              workspaceId,
+              documentId,
+              operationHash: snapshotCiphertextHash,
+              signature: snap.signature,
+              actorUserId: signingKey.ownerId,
+              expectedAdmissionEventHash: payload.snapshotAdmissionEventHash,
+            });
+            await verifyDocumentOperationAdmissionAncestry({
+              admission: snap.admission,
+              workspaceId,
+            });
             const decrypted = await worker.decryptSnapshot({
               ciphertext: base64UrlDecode(snap.ciphertext),
               nonce: base64UrlDecode(snap.nonce),
@@ -209,18 +254,50 @@ async function cacheDocumentSilently(
           // Verify and decrypt updates
           if (payload.updates) {
             for (const update of payload.updates) {
-              const upk = update.publicData.signingPubKey;
+              const upk = update.publicData.signingKeyId;
               const signingKey = resolveSigningKey(upk);
               if (!signingKey) throw new Error("Update signer is not foreground-verifiable");
-              const sigValid = await worker.verifyWsSignature({
-                prefix: "refmd_update",
+              const sigValid = await worker.verifyDocumentUpdateSignature({
+                publicKeyMaterial: signingKey.key,
+                signature: update.signature,
+                actorUserId: signingKey.ownerId,
+                workspaceId,
+                publicData: update.publicData,
+                authorityBoundary: documentOperationAuthorityBoundary(
+                  update.admission,
+                  "document_update_accepted",
+                ),
                 ciphertext: update.ciphertext,
                 nonce: update.nonce,
-                publicData: update.publicData,
-                signature: base64UrlDecode(update.signature),
-                signingPubKey: signingKey,
               });
               if (!sigValid) throw new Error("Update signature verification failed");
+              const updateHash = await worker.computeUpdateHash({
+                clock: update.publicData.clock,
+                signing_key_id: update.publicData.signingKeyId,
+                document_id: documentId,
+                encrypted_content: update.ciphertext,
+                key_version: update.publicData.keyVersion,
+                nonce: update.nonce,
+                ref_snapshot_id: update.publicData.refSnapshotId,
+                timestamp: update.publicData.timestamp,
+              });
+              if (updateHash !== update.publicData.updateHash) {
+                throw new Error("Update hash verification failed");
+              }
+              await verifyDocumentOperationAdmission({
+                admission: update.admission,
+                eventType: "document_update_accepted",
+                publicData: update.publicData,
+                workspaceId,
+                documentId,
+                operationHash: updateHash,
+                signature: update.signature,
+                actorUserId: signingKey.ownerId,
+              });
+              await verifyDocumentOperationAdmissionAncestry({
+                admission: update.admission,
+                workspaceId,
+              });
               const decrypted = await worker.decryptContent({
                 ciphertext: base64UrlDecode(update.ciphertext),
                 nonce: base64UrlDecode(update.nonce),
@@ -243,7 +320,7 @@ async function cacheDocumentSilently(
           const confirmedClocks: Record<string, number> = {};
           if (payload.updates) {
             for (const update of payload.updates) {
-              const key = update.publicData.signingPubKey;
+              const key = documentClockKey(update.publicData);
               const clock = update.publicData.clock;
               if (clock > (confirmedClocks[key] ?? -1)) {
                 confirmedClocks[key] = clock;
@@ -281,13 +358,13 @@ async function cacheDocumentSilently(
             if (validation.rollbackWarnings.length > 0) {
               // Skip pin update and document cache for rollback-detected documents.
               // These require user approval which background cache cannot provide.
-              console.warn("[background-cache] Rollback detected, skipping:", documentId);
+              clientWarn("background_cache_rollback_detected", { documentId });
               throw new Error("Rollback detected during background cache");
             }
             await putDocumentCache(entry);
           } catch (pinErr) {
             // Pin validation failure in background cache: skip this document
-            console.warn("[background-cache] Pin validation failed:", documentId, pinErr);
+            clientWarn("background_cache_pin_validation_failed", { documentId, error: pinErr });
             yDoc.destroy();
             cleanup();
             resolved = true;

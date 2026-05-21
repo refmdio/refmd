@@ -3,503 +3,498 @@ defmodule RefMD.Encryption do
   The Encryption context. Manages E2EE key storage and distribution.
   """
 
-  import Ecto.Query
-
   alias RefMD.Encryption.{
     DocumentEncryptedKey,
+    Documents,
+    KeyDirectory,
+    Members,
     UserEncryptedIdentityKey,
     UserEncryptedMasterKey,
     UserIdentityPublicKey,
+    Users,
     WorkspaceEncryptedKey,
-    WorkspaceKekBackup,
-    WorkspaceMemberEnvelope
+    WorkspaceMemberEnvelope,
+    Workspaces
   }
 
-  alias RefMD.Repo
+  alias RefMD.Encryption.Wraps.ShareAuth
 
   # ── User Keys ──────────────────────────────────
 
   @spec create_user_identity_public_key(map()) ::
           {:ok, UserIdentityPublicKey.t()} | {:error, Ecto.Changeset.t()}
-  def create_user_identity_public_key(attrs) do
-    %UserIdentityPublicKey{}
-    |> UserIdentityPublicKey.changeset(attrs)
-    |> Repo.insert()
-  end
+  defdelegate create_user_identity_public_key(attrs),
+    to: Users,
+    as: :create_identity_public_key
 
   @spec create_user_encrypted_master_key(map()) ::
           {:ok, UserEncryptedMasterKey.t()} | {:error, Ecto.Changeset.t()}
-  def create_user_encrypted_master_key(attrs) do
-    %UserEncryptedMasterKey{}
-    |> UserEncryptedMasterKey.changeset(attrs)
-    |> Repo.insert()
-  end
+  defdelegate create_user_encrypted_master_key(attrs),
+    to: Users,
+    as: :create_encrypted_master_key
 
   @spec create_user_encrypted_identity_key(map()) ::
           {:ok, UserEncryptedIdentityKey.t()} | {:error, Ecto.Changeset.t()}
-  def create_user_encrypted_identity_key(attrs) do
-    %UserEncryptedIdentityKey{}
-    |> UserEncryptedIdentityKey.changeset(attrs)
-    |> Repo.insert()
-  end
+  defdelegate create_user_encrypted_identity_key(attrs),
+    to: Users,
+    as: :create_encrypted_identity_key
 
   @spec get_user_encrypted_master_key(Ecto.UUID.t()) :: UserEncryptedMasterKey.t() | nil
-  def get_user_encrypted_master_key(user_id) do
-    Repo.get(UserEncryptedMasterKey, user_id)
-  end
+  defdelegate get_user_encrypted_master_key(user_id), to: Users, as: :get_encrypted_master_key
 
   @spec update_master_key_kdf(Ecto.UUID.t(), map()) ::
           {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def update_master_key_kdf(user_id, attrs) do
-    case Repo.get(UserEncryptedMasterKey, user_id) do
-      nil ->
-        {:error, :not_found}
-
-      master_key ->
-        master_key
-        |> Ecto.Changeset.change(%{
-          auth_key_hash: attrs.auth_key_hash,
-          encrypted_umk: attrs.encrypted_umk,
-          umk_nonce: attrs.umk_nonce,
-          kdf_params: attrs.kdf_params
-        })
-        |> Repo.update()
-    end
-  end
+  defdelegate update_master_key_kdf(user_id, attrs), to: Users
 
   @spec update_master_key_for_password_set(Ecto.UUID.t(), map()) ::
           {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def update_master_key_for_password_set(user_id, attrs) do
-    case Repo.get(UserEncryptedMasterKey, user_id) do
-      nil ->
-        {:error, :not_found}
-
-      master_key ->
-        master_key
-        |> Ecto.Changeset.change(%{
-          auth_type: "password",
-          kdf_type: "argon2id",
-          auth_key_hash: attrs.auth_key_hash,
-          salt: attrs.salt,
-          encrypted_umk: attrs.encrypted_umk,
-          umk_nonce: attrs.umk_nonce,
-          kdf_params: attrs.kdf_params
-        })
-        |> Repo.update()
-    end
-  end
+  defdelegate update_master_key_for_password_set(user_id, attrs), to: Users
 
   @spec update_recovery_key(Ecto.UUID.t(), map()) ::
           {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def update_recovery_key(user_id, attrs) do
-    case Repo.get(UserEncryptedMasterKey, user_id) do
-      nil ->
-        {:error, :not_found}
-
-      master_key ->
-        master_key
-        |> Ecto.Changeset.change(%{
-          recovery_encrypted_umk: attrs.recovery_encrypted_umk,
-          recovery_nonce: attrs.recovery_nonce
-        })
-        |> Repo.update()
-    end
-  end
+  defdelegate update_recovery_key(user_id, attrs), to: Users
 
   @spec get_user_encrypted_identity_key(Ecto.UUID.t()) :: UserEncryptedIdentityKey.t() | nil
-  def get_user_encrypted_identity_key(user_id) do
-    Repo.get(UserEncryptedIdentityKey, user_id)
-  end
+  defdelegate get_user_encrypted_identity_key(user_id),
+    to: Users,
+    as: :get_encrypted_identity_key
 
   @spec get_user_identity_public_key(Ecto.UUID.t()) :: UserIdentityPublicKey.t() | nil
-  def get_user_identity_public_key(user_id) do
-    Repo.get(UserIdentityPublicKey, user_id)
-  end
-
-  @spec get_workspace_member_identity_keys(Ecto.UUID.t()) :: [
-          %{
-            user_id: Ecto.UUID.t(),
-            ecdh_public_key: binary(),
-            signing_public_key: binary()
-          }
-        ]
-  def get_workspace_member_identity_keys(workspace_id) do
-    from(wm in RefMD.Workspaces.WorkspaceMember,
-      join: ipk in UserIdentityPublicKey,
-      on: ipk.user_id == wm.user_id,
-      where: wm.workspace_id == ^workspace_id,
-      select: %{
-        user_id: wm.user_id,
-        ecdh_public_key: ipk.ecdh_public_key,
-        signing_public_key: ipk.signing_public_key
-      }
-    )
-    |> Repo.all()
-  end
+  defdelegate get_user_identity_public_key(user_id), to: Users, as: :get_identity_public_key
 
   # ── Workspace Keys ─────────────────────────────
 
-  @spec create_workspace_encrypted_key(map()) ::
-          {:ok, WorkspaceEncryptedKey.t()} | {:error, :invalid_sender_device | Ecto.Changeset.t()}
-  def create_workspace_encrypted_key(attrs) do
-    user_id = attrs[:user_id] || attrs["user_id"]
-    sender_device_id = attrs[:sender_device_id] || attrs["sender_device_id"]
-
-    if sender_device_id != nil and
-         not RefMD.Devices.user_owns_active_device?(user_id, sender_device_id) do
-      {:error, :invalid_sender_device}
-    else
-      %WorkspaceEncryptedKey{created_at: DateTime.utc_now()}
-      |> WorkspaceEncryptedKey.changeset(attrs)
-      |> Repo.insert()
-    end
-  end
+  @spec create_workspace_encrypted_key_with_key_directory(map(), [map()], map()) ::
+          {:ok, WorkspaceEncryptedKey.t()}
+          | {:error, :invalid_sender_device | Ecto.Changeset.t() | atom()}
+  defdelegate create_workspace_encrypted_key_with_key_directory(
+                attrs,
+                workspace_events,
+                workspace_checkpoint
+              ),
+              to: Workspaces,
+              as: :create_with_key_directory
 
   @spec delete_workspace_encrypted_key(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), integer()) ::
           {non_neg_integer(), nil | [term()]}
-  def delete_workspace_encrypted_key(workspace_id, user_id, device_id, key_version) do
-    from(k in WorkspaceEncryptedKey,
-      where:
-        k.workspace_id == ^workspace_id and
-          k.user_id == ^user_id and
-          k.device_id == ^device_id and
-          k.key_version == ^key_version
-    )
-    |> Repo.delete_all()
-  end
+  defdelegate delete_workspace_encrypted_key(workspace_id, user_id, device_id, key_version),
+    to: Workspaces,
+    as: :delete
 
-  @spec get_workspace_encrypted_keys(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          [WorkspaceEncryptedKey.t()]
-  def get_workspace_encrypted_keys(workspace_id, user_id, device_id) do
-    from(k in WorkspaceEncryptedKey,
-      where:
-        k.workspace_id == ^workspace_id and
-          k.user_id == ^user_id and
-          k.device_id == ^device_id,
-      order_by: [asc: k.key_version]
-    )
-    |> Repo.all()
-  end
+  @spec get_workspace_encrypted_keys(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: [
+          WorkspaceEncryptedKey.t()
+        ]
+  defdelegate get_workspace_encrypted_keys(workspace_id, user_id, device_id),
+    to: Workspaces,
+    as: :list_for_device
 
   @spec user_has_active_kek?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
-  def user_has_active_kek?(workspace_id, user_id) do
-    from(k in WorkspaceEncryptedKey,
-      where:
-        k.workspace_id == ^workspace_id and
-          k.user_id == ^user_id and
-          k.is_active == true,
-      select: count()
-    )
-    |> Repo.one()
-    |> Kernel.>(0)
-  end
-
-  # ── KEK Backups ───────────────────────────────
-
-  @spec create_workspace_kek_backup(map()) ::
-          {:ok, WorkspaceKekBackup.t()} | {:error, Ecto.Changeset.t()}
-  def create_workspace_kek_backup(attrs) do
-    Repo.transaction(fn ->
-      # Deactivate existing active backup for this (workspace, user) to satisfy partial unique index
-      from(b in WorkspaceKekBackup,
-        where:
-          b.workspace_id == ^attrs.workspace_id and
-            b.user_id == ^attrs.user_id and
-            b.is_active == true
-      )
-      |> Repo.update_all(set: [is_active: false])
-
-      case %WorkspaceKekBackup{created_at: DateTime.utc_now()}
-           |> WorkspaceKekBackup.changeset(attrs)
-           |> Repo.insert(
-             on_conflict: {:replace, [:encrypted_kek, :nonce, :is_active, :created_at]},
-             conflict_target: [:workspace_id, :user_id, :key_version]
-           ) do
-        {:ok, backup} -> backup
-        {:error, changeset} -> Repo.rollback(changeset)
-      end
-    end)
-  end
-
-  @spec get_active_kek_backup(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceKekBackup.t() | nil
-  def get_active_kek_backup(workspace_id, user_id) do
-    from(b in WorkspaceKekBackup,
-      where:
-        b.workspace_id == ^workspace_id and
-          b.user_id == ^user_id and
-          b.is_active == true
-    )
-    |> Repo.one()
-  end
-
-  @spec get_kek_backup_by_version(Ecto.UUID.t(), Ecto.UUID.t(), integer()) ::
-          WorkspaceKekBackup.t() | nil
-  def get_kek_backup_by_version(workspace_id, user_id, key_version) do
-    from(b in WorkspaceKekBackup,
-      where:
-        b.workspace_id == ^workspace_id and
-          b.user_id == ^user_id and
-          b.key_version == ^key_version
-    )
-    |> Repo.one()
-  end
+  defdelegate user_has_active_kek?(workspace_id, user_id), to: Workspaces
 
   @spec get_max_active_kek_version(Ecto.UUID.t()) :: integer() | nil
-  def get_max_active_kek_version(workspace_id) do
-    from(k in WorkspaceEncryptedKey,
-      where: k.workspace_id == ^workspace_id and k.is_active == true,
-      select: max(k.key_version)
-    )
-    |> Repo.one()
-  end
+  defdelegate get_max_active_kek_version(workspace_id),
+    to: Workspaces,
+    as: :max_active_kek_version
 
   # ── Member Envelopes ─────────────────────────
 
-  @spec save_member_envelopes(Ecto.UUID.t(), [map()]) :: {:ok, any()} | {:error, any()}
-  def save_member_envelopes(workspace_id, envelopes) do
-    now = DateTime.utc_now()
-
-    parsed =
-      Enum.reduce_while(envelopes, {:ok, []}, fn env, {:ok, acc} ->
-        with {:ok, encrypted_kek} <- safe_decode64(env["encrypted_kek"]),
-             {:ok, nonce} <- safe_decode64(env["nonce"]) do
-          changeset =
-            %WorkspaceMemberEnvelope{created_at: now}
-            |> WorkspaceMemberEnvelope.changeset(%{
-              workspace_id: workspace_id,
-              target_user_id: env["target_user_id"],
-              key_version: env["key_version"],
-              sender_device_id: env["sender_device_id"],
-              encrypted_kek: encrypted_kek,
-              nonce: nonce
-            })
-
-          {:cont, {:ok, [changeset | acc]}}
-        else
-          :error -> {:halt, {:error, :invalid_base64}}
-        end
-      end)
-
-    case parsed do
-      {:error, reason} ->
-        {:error, reason}
-
-      {:ok, changesets} ->
-        Repo.transaction(fn ->
-          Enum.each(changesets, &insert_envelope_or_rollback/1)
-        end)
-    end
-  end
-
-  defp insert_envelope_or_rollback(changeset) do
-    case Repo.insert(changeset,
-           on_conflict: {:replace, [:encrypted_kek, :nonce, :sender_device_id, :created_at]},
-           conflict_target: [:workspace_id, :target_user_id, :key_version]
-         ) do
-      {:ok, _} ->
-        :ok
-
-      {:error, %Ecto.Changeset{errors: errors} = cs} ->
-        if member_removed_during_rotation?(errors) do
-          :ok
-        else
-          Repo.rollback({:invalid_envelope, cs})
-        end
-    end
-  end
-
-  defp member_removed_during_rotation?(errors) do
-    case Keyword.get(errors, :target_user_id) do
-      {_msg, opts} -> opts[:constraint] == :foreign
-      _ -> false
-    end
-  end
-
-  defp safe_decode64(base64) when is_binary(base64) do
-    Base.url_decode64(base64, padding: false)
-  end
-
-  defp safe_decode64(_), do: :error
+  @spec save_member_envelopes_with_key_directory(Ecto.UUID.t(), [map()], [map()], map()) ::
+          {:ok, any()} | {:error, any()}
+  defdelegate save_member_envelopes_with_key_directory(
+                workspace_id,
+                envelopes,
+                workspace_events,
+                workspace_checkpoint
+              ),
+              to: Members,
+              as: :save_with_key_directory
 
   @spec get_member_envelope(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceMemberEnvelope.t() | nil
-  def get_member_envelope(workspace_id, user_id) do
-    from(e in WorkspaceMemberEnvelope,
-      where: e.workspace_id == ^workspace_id and e.target_user_id == ^user_id,
-      order_by: [desc: :key_version],
-      limit: 1
-    )
-    |> Repo.one()
-  end
+  defdelegate get_member_envelope(workspace_id, user_id), to: Members, as: :get
+
+  @spec save_member_envelopes(Ecto.UUID.t(), [map()]) :: {:ok, any()} | {:error, any()}
+  defdelegate save_member_envelopes(workspace_id, envelopes), to: Members, as: :save
+
+  @spec validate_workspace_invitation_member_envelope(map(), map()) ::
+          {:ok, %{member_envelope_hash: String.t()}} | {:error, :invalid_member_envelope}
+  defdelegate validate_workspace_invitation_member_envelope(member_envelope, context),
+    to: Members,
+    as: :validate_invitation_member_envelope
+
+  @spec member_has_envelope?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
+  defdelegate member_has_envelope?(workspace_id, user_id, key_version), to: Members
 
   @spec all_user_devices_have_key?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
-  def all_user_devices_have_key?(workspace_id, user_id, key_version) do
-    active_device_ids =
-      from(d in RefMD.Devices.Device,
-        where: d.user_id == ^user_id and is_nil(d.revoked_at),
-        select: d.id
-      )
-      |> Repo.all()
-      |> MapSet.new()
+  defdelegate all_user_devices_have_key?(workspace_id, user_id, key_version), to: Members
 
-    covered_device_ids =
-      from(k in WorkspaceEncryptedKey,
-        where:
-          k.workspace_id == ^workspace_id and
-            k.user_id == ^user_id and
-            k.key_version == ^key_version and
-            k.is_active == true,
-        select: k.device_id
-      )
-      |> Repo.all()
-      |> MapSet.new()
-
-    MapSet.subset?(active_device_ids, covered_device_ids)
-  end
+  @spec all_workspace_member_devices_have_key?(Ecto.UUID.t(), integer()) :: boolean()
+  defdelegate all_workspace_member_devices_have_key?(workspace_id, key_version),
+    to: Members
 
   @spec all_members_have_envelope?(Ecto.UUID.t(), integer()) :: boolean()
-  def all_members_have_envelope?(workspace_id, key_version) do
-    member_count =
-      from(wm in RefMD.Workspaces.WorkspaceMember,
-        where: wm.workspace_id == ^workspace_id,
-        select: count()
-      )
-      |> Repo.one()
-
-    envelope_count =
-      from(e in WorkspaceMemberEnvelope,
-        where: e.workspace_id == ^workspace_id and e.key_version == ^key_version,
-        select: count()
-      )
-      |> Repo.one()
-
-    envelope_count >= member_count
-  end
+  defdelegate all_members_have_envelope?(workspace_id, key_version), to: Members
 
   # ── Document Keys ──────────────────────────────
 
   @spec create_document_encrypted_key(map()) ::
           {:ok, DocumentEncryptedKey.t()} | {:error, Ecto.Changeset.t()}
-  def create_document_encrypted_key(attrs) do
-    %DocumentEncryptedKey{created_at: DateTime.utc_now()}
-    |> DocumentEncryptedKey.changeset(attrs)
-    |> Repo.insert()
-  end
+  defdelegate create_document_encrypted_key(attrs), to: Documents, as: :create
 
   @spec get_active_document_encrypted_key(Ecto.UUID.t()) :: DocumentEncryptedKey.t() | nil
-  def get_active_document_encrypted_key(document_id) do
-    from(k in DocumentEncryptedKey,
-      where: k.document_id == ^document_id and k.is_active == true
-    )
-    |> Repo.one()
-  end
+  defdelegate get_active_document_encrypted_key(document_id), to: Documents, as: :get_active
 
   @spec list_document_encrypted_keys(Ecto.UUID.t()) :: [DocumentEncryptedKey.t()]
-  def list_document_encrypted_keys(document_id) do
-    from(k in DocumentEncryptedKey,
-      where: k.document_id == ^document_id,
-      order_by: [asc: k.key_version]
-    )
-    |> Repo.all()
-  end
+  defdelegate list_document_encrypted_keys(document_id), to: Documents, as: :list
 
   @spec create_document_key_with_rotation(map()) ::
           {:ok, DocumentEncryptedKey.t()} | {:error, term()}
-  def create_document_key_with_rotation(attrs) do
-    document_id = attrs[:document_id] || attrs["document_id"]
-    key_version = attrs[:key_version] || attrs["key_version"]
-    kek_version = attrs[:kek_version] || attrs["kek_version"]
+  defdelegate create_document_key_with_rotation(attrs),
+    to: Documents,
+    as: :create_with_rotation
 
-    Repo.transaction(fn ->
-      document = lock_and_validate_document!(document_id, key_version)
-      validate_kek_version!(document.workspace_id, kek_version)
-      validate_consecutive_key_version!(document_id, key_version)
-      insert_dek_with_rotation!(document, attrs, key_version)
-    end)
+  # ── Key Directory ─────────────────────────────
+
+  @spec validate_workspace_key_directory_append(
+          [map()],
+          map(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t() | nil
+        ) ::
+          {:ok, String.t()} | {:error, :unprocessable_entity, String.t()}
+  defdelegate validate_workspace_key_directory_append(
+                events,
+                checkpoint,
+                workspace_id,
+                actor_user_id,
+                pop_device_id
+              ),
+              to: KeyDirectory.AppendPolicy,
+              as: :validate
+
+  @spec append_workspace_key_directory(Ecto.UUID.t(), [map()], map(), keyword()) ::
+          :ok | {:error, :invalid_key_directory}
+  def append_workspace_key_directory(workspace_id, events, checkpoint, opts \\ []),
+    do: KeyDirectory.append_signed_scope("workspace", workspace_id, events, checkpoint, opts)
+
+  @spec append_user_key_directory!(Ecto.UUID.t(), [map()], map(), keyword()) :: map()
+  def append_user_key_directory!(user_id, events, checkpoint, opts \\ []),
+    do: KeyDirectory.append_signed_scope!("user", user_id, events, checkpoint, opts)
+
+  @spec append_workspace_key_directory!(Ecto.UUID.t(), [map()], map(), keyword()) :: map()
+  def append_workspace_key_directory!(workspace_id, events, checkpoint, opts \\ []),
+    do: KeyDirectory.append_signed_scope!("workspace", workspace_id, events, checkpoint, opts)
+
+  @spec insert_initial_user_key_directory!(Ecto.UUID.t(), [map()], map(), keyword()) :: map()
+  def insert_initial_user_key_directory!(user_id, events, checkpoint, opts \\ []),
+    do: KeyDirectory.insert_signed_initial_scope!("user", user_id, events, checkpoint, opts)
+
+  @spec insert_initial_workspace_key_directory!(Ecto.UUID.t(), [map()], map(), keyword()) :: map()
+  def insert_initial_workspace_key_directory!(workspace_id, events, checkpoint, opts \\ []),
+    do:
+      KeyDirectory.insert_signed_initial_scope!(
+        "workspace",
+        workspace_id,
+        events,
+        checkpoint,
+        opts
+      )
+
+  @spec verify_user_key_directory_replay!(Ecto.UUID.t(), [map()], map(), keyword()) ::
+          :ok
+  def verify_user_key_directory_replay!(user_id, events, checkpoint, opts \\ []),
+    do: KeyDirectory.verify_complete_replay!("user", user_id, events, checkpoint, opts)
+
+  @spec current_user_key_directory_checkpoint(Ecto.UUID.t()) :: struct() | nil
+  def current_user_key_directory_checkpoint(user_id),
+    do: KeyDirectory.current_checkpoint("user", user_id)
+
+  @spec current_workspace_key_directory_checkpoint(Ecto.UUID.t()) :: struct() | nil
+  def current_workspace_key_directory_checkpoint(workspace_id),
+    do: KeyDirectory.current_checkpoint("workspace", workspace_id)
+
+  @spec current_user_key_directory_pin(Ecto.UUID.t()) :: struct() | nil
+  def current_user_key_directory_pin(user_id), do: KeyDirectory.current_pin("user", user_id)
+
+  @spec current_workspace_key_directory_pin(Ecto.UUID.t()) :: struct() | nil
+  def current_workspace_key_directory_pin(workspace_id),
+    do: KeyDirectory.current_pin("workspace", workspace_id)
+
+  @spec workspace_key_directory_event_type_by_hash(Ecto.UUID.t(), binary()) :: String.t() | nil
+  def workspace_key_directory_event_type_by_hash(workspace_id, event_hash) do
+    case KeyDirectory.event_by_hash("workspace", workspace_id, event_hash) do
+      %{event_type: event_type} -> event_type
+      _ -> nil
+    end
   end
 
-  defp validate_consecutive_key_version!(document_id, key_version) do
-    max_version =
-      from(k in DocumentEncryptedKey,
-        where: k.document_id == ^document_id,
-        select: max(k.key_version)
-      )
-      |> Repo.one()
+  @spec workspace_key_directory_event_by_hash(Ecto.UUID.t(), binary()) :: struct() | nil
+  def workspace_key_directory_event_by_hash(workspace_id, event_hash),
+    do: KeyDirectory.event_by_hash("workspace", workspace_id, event_hash)
 
-    expected = (max_version || 0) + 1
+  @spec workspace_key_directory_checkpoint_covering_event_head(Ecto.UUID.t(), pos_integer()) ::
+          struct() | nil
+  def workspace_key_directory_checkpoint_covering_event_head(workspace_id, event_sequence),
+    do: KeyDirectory.checkpoint_covering_event_head("workspace", workspace_id, event_sequence)
 
+  @spec workspace_key_directory_checkpoints_between(Ecto.UUID.t(), pos_integer(), pos_integer()) ::
+          [
+            struct()
+          ]
+  def workspace_key_directory_checkpoints_between(workspace_id, first_sequence, last_sequence),
+    do: KeyDirectory.checkpoints_between("workspace", workspace_id, first_sequence, last_sequence)
+
+  @spec active_user_key_material_in_current_checkpoint(Ecto.UUID.t(), binary()) ::
+          {:ok, map()} | {:error, :not_found}
+  def active_user_key_material_in_current_checkpoint(user_id, key_id),
+    do: KeyDirectory.active_key_material_in_current_checkpoint("user", user_id, key_id)
+
+  @spec active_workspace_key_material_in_current_checkpoint(Ecto.UUID.t(), binary()) ::
+          {:ok, map()} | {:error, :not_found}
+  def active_workspace_key_material_in_current_checkpoint(workspace_id, key_id),
+    do: KeyDirectory.active_key_material_in_current_checkpoint("workspace", workspace_id, key_id)
+
+  @spec user_key_directory_events_after_until(Ecto.UUID.t(), non_neg_integer(), pos_integer()) ::
+          [
+            struct()
+          ]
+  def user_key_directory_events_after_until(user_id, after_sequence, head_sequence),
+    do: KeyDirectory.events_after_until("user", user_id, after_sequence, head_sequence)
+
+  @spec workspace_key_directory_events_after_until(
+          Ecto.UUID.t(),
+          non_neg_integer(),
+          pos_integer()
+        ) :: [struct()]
+  def workspace_key_directory_events_after_until(workspace_id, after_sequence, head_sequence),
+    do: KeyDirectory.events_after_until("workspace", workspace_id, after_sequence, head_sequence)
+
+  @spec workspace_key_directory_events_up_to(Ecto.UUID.t(), pos_integer()) :: [struct()]
+  def workspace_key_directory_events_up_to(workspace_id, head_sequence),
+    do: KeyDirectory.events_up_to("workspace", workspace_id, head_sequence)
+
+  @spec workspace_key_directory_ancestry_for_body_field(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          Ecto.UUID.t(),
+          map() | nil
+        ) :: %{checkpoints: [map()], events: [map()]}
+  def workspace_key_directory_ancestry_for_body_field(
+        workspace_id,
+        created_event_type,
+        body_key,
+        body_value,
+        current_checkpoint
+      ) do
+    with %{sequence: _} <- current_checkpoint,
+         %{sequence: created_sequence} <-
+           KeyDirectory.event_by_body_field(
+             "workspace",
+             workspace_id,
+             created_event_type,
+             body_key,
+             body_value
+           ),
+         %{sequence: bootstrap_sequence, covered_event_head_sequence: bootstrap_head_sequence} <-
+           KeyDirectory.checkpoint_covering_event_head(
+             "workspace",
+             workspace_id,
+             created_sequence - 1
+           ) do
+      %{
+        checkpoints:
+          KeyDirectory.checkpoints_between(
+            "workspace",
+            workspace_id,
+            bootstrap_sequence,
+            current_checkpoint.sequence - 1
+          ),
+        events:
+          workspace_key_directory_events_after_until(
+            workspace_id,
+            bootstrap_head_sequence,
+            current_checkpoint.covered_event_head_sequence
+          )
+      }
+    else
+      _ -> %{checkpoints: [], events: []}
+    end
+  end
+
+  @spec latest_user_key_directory_delta(Ecto.UUID.t(), map()) ::
+          {:ok,
+           %{
+             checkpoint: struct(),
+             checkpoints: [struct()],
+             events: [struct()],
+             pin: struct() | nil
+           }}
+          | {:error, :not_found | :invalid_anchor}
+  def latest_user_key_directory_delta(user_id, client_anchor),
+    do: latest_key_directory_delta("user", user_id, client_anchor)
+
+  @spec latest_workspace_key_directory_delta(Ecto.UUID.t(), map()) ::
+          {:ok,
+           %{
+             checkpoint: struct(),
+             checkpoints: [struct()],
+             events: [struct()],
+             pin: struct() | nil
+           }}
+          | {:error, :not_found | :invalid_anchor}
+  def latest_workspace_key_directory_delta(workspace_id, client_anchor),
+    do: latest_key_directory_delta("workspace", workspace_id, client_anchor)
+
+  defp latest_key_directory_delta(scope_kind, scope_id, client_anchor) do
+    case KeyDirectory.current_checkpoint(scope_kind, scope_id) do
+      nil ->
+        {:error, :not_found}
+
+      checkpoint ->
+        with :ok <- assert_client_anchor(scope_kind, scope_id, client_anchor, checkpoint) do
+          events =
+            KeyDirectory.events_after_until(
+              scope_kind,
+              scope_id,
+              client_anchor.event_head_sequence,
+              checkpoint.covered_event_head_sequence
+            )
+            |> assert_stored_events!()
+
+          checkpoints =
+            KeyDirectory.checkpoints_between(
+              scope_kind,
+              scope_id,
+              client_anchor.checkpoint_sequence,
+              checkpoint.sequence - 1
+            )
+            |> assert_stored_checkpoints!()
+
+          {:ok,
+           %{
+             checkpoint: checkpoint,
+             checkpoints: checkpoints,
+             events: events,
+             pin: KeyDirectory.current_pin(scope_kind, scope_id)
+           }}
+        end
+    end
+  end
+
+  defp assert_stored_events!(events) do
+    Enum.each(events, &KeyDirectory.assert_stored_event!/1)
+    events
+  end
+
+  defp assert_stored_checkpoints!(checkpoints) do
+    Enum.each(checkpoints, &KeyDirectory.assert_stored_checkpoint!/1)
+    checkpoints
+  end
+
+  defp assert_client_anchor(scope_kind, scope_id, client_anchor, server_checkpoint) do
     cond do
-      key_version == expected -> :ok
-      # Version already exists: let unique constraint produce 409 Conflict
-      key_version <= (max_version || 0) -> :ok
-      true -> Repo.rollback(:key_version_not_consecutive)
+      client_anchor.checkpoint_sequence > server_checkpoint.sequence ->
+        {:error, :invalid_anchor}
+
+      client_anchor.event_head_sequence > server_checkpoint.covered_event_head_sequence ->
+        {:error, :invalid_anchor}
+
+      true ->
+        case KeyDirectory.checkpoints_between(
+               scope_kind,
+               scope_id,
+               client_anchor.checkpoint_sequence,
+               client_anchor.checkpoint_sequence
+             ) do
+          [
+            %{
+              checkpoint_hash: checkpoint_hash,
+              covered_event_head_sequence: event_head_sequence,
+              covered_event_head_hash: event_head_hash
+            }
+          ]
+          when checkpoint_hash == client_anchor.checkpoint_hash and
+                 event_head_sequence == client_anchor.event_head_sequence and
+                 event_head_hash == client_anchor.event_head_hash ->
+            :ok
+
+          _ ->
+            {:error, :invalid_anchor}
+        end
     end
   end
 
-  defp lock_and_validate_document!(document_id, key_version) do
-    document =
-      from(d in RefMD.Documents.Document,
-        where: d.id == ^document_id,
-        lock: "FOR UPDATE"
-      )
-      |> Repo.one()
+  # ── Workspace/Member Key Material ─────────────
 
-    if is_nil(document), do: Repo.rollback(:document_not_found)
-    if document.doc_type == "folder", do: Repo.rollback(:folders_cannot_have_dek)
-    if key_version < document.min_dek_version, do: Repo.rollback(:key_version_too_old)
+  @spec create_workspace_encrypted_key_from_client_wrap(map(), map(), map(), [map()], map()) ::
+          {:ok, WorkspaceEncryptedKey.t()} | {:error, term()}
+  defdelegate create_workspace_encrypted_key_from_client_wrap(
+                container,
+                metadata,
+                validation_context,
+                workspace_events,
+                workspace_checkpoint
+              ),
+              to: Workspaces,
+              as: :create_from_client_wrap
 
-    document
-  end
+  @spec validate_share_link_secret_backup_wrap(map(), map()) ::
+          :ok | {:error, :invalid_share_link_secret_backup_wrap}
+  defdelegate validate_share_link_secret_backup_wrap(wrap, context),
+    to: Workspaces
 
-  defp validate_kek_version!(workspace_id, kek_version) do
-    workspace =
-      from(w in RefMD.Workspaces.Workspace,
-        where: w.id == ^workspace_id,
-        lock: "FOR SHARE"
-      )
-      |> Repo.one!()
+  @spec workspace_device_key_response_fields(WorkspaceEncryptedKey.t()) :: map()
+  defdelegate workspace_device_key_response_fields(key),
+    to: Workspaces,
+    as: :device_key_response_fields
 
-    if kek_version != workspace.current_kek_version do
-      Repo.rollback(:kek_version_mismatch)
-    end
-  end
+  @spec encrypt_share_auth_key(binary(), Ecto.UUID.t()) ::
+          {:ok, %{ciphertext: binary(), nonce: binary(), key_id: String.t()}} | {:error, term()}
+  defdelegate encrypt_share_auth_key(auth_key, share_id), to: ShareAuth, as: :encrypt
 
-  defp insert_dek_with_rotation!(document, attrs, key_version) do
-    insert_attrs =
-      attrs
-      |> Map.put(:is_active, true)
+  @spec decrypt_share_auth_key(binary(), binary(), String.t(), Ecto.UUID.t()) ::
+          {:ok, binary()} | {:error, term()}
+  defdelegate decrypt_share_auth_key(ciphertext_and_tag, nonce, key_id, share_id),
+    to: ShareAuth,
+    as: :decrypt
 
-    from(k in DocumentEncryptedKey,
-      where: k.document_id == ^document.id and k.is_active == true
-    )
-    |> Repo.update_all(set: [is_active: false])
+  @spec workspace_key_operation_checkpoint_envelope(WorkspaceEncryptedKey.t()) :: map() | nil
+  defdelegate workspace_key_operation_checkpoint_envelope(key),
+    to: Workspaces,
+    as: :operation_checkpoint_envelope
 
-    case create_document_encrypted_key(insert_attrs) do
-      {:ok, key} ->
-        update_document_after_dek_save(document, key_version)
-        key
+  @spec workspace_key_operation_checkpoint_ancestry(WorkspaceEncryptedKey.t()) :: [map()]
+  defdelegate workspace_key_operation_checkpoint_ancestry(key),
+    to: Workspaces,
+    as: :operation_checkpoint_ancestry
 
-      {:error, changeset} ->
-        Repo.rollback(changeset)
-    end
-  end
+  @spec workspace_key_operation_event_ancestry(WorkspaceEncryptedKey.t()) :: [map()]
+  defdelegate workspace_key_operation_event_ancestry(key),
+    to: Workspaces,
+    as: :operation_event_ancestry
 
-  defp update_document_after_dek_save(document, key_version) do
-    is_rotation = key_version > 1
-    updates = [min_dek_version: key_version]
+  @spec prepare_workspace_member_envelope_from_client(map(), map(), map(), map(), map()) ::
+          {:ok, map()} | {:error, :invalid_workspace_member_kek_wrap}
+  defdelegate prepare_workspace_member_envelope_from_client(
+                container,
+                metadata,
+                validation_context,
+                event,
+                workspace_checkpoint
+              ),
+              to: Members,
+              as: :prepare_client_envelope
 
-    updates =
-      if is_rotation, do: Keyword.put(updates, :needs_rotation_snapshot, true), else: updates
+  @spec member_envelope_response_fields(WorkspaceMemberEnvelope.t()) :: map()
+  defdelegate member_envelope_response_fields(envelope),
+    to: Members,
+    as: :response_fields
 
-    updates =
-      if document.needs_dek_rotation do
-        Keyword.put(updates, :needs_dek_rotation, false)
-      else
-        updates
-      end
-
-    from(d in RefMD.Documents.Document, where: d.id == ^document.id)
-    |> Repo.update_all(set: updates)
-  end
+  @spec member_envelope_operation_checkpoint_envelope(WorkspaceMemberEnvelope.t()) :: map() | nil
+  defdelegate member_envelope_operation_checkpoint_envelope(envelope),
+    to: Members,
+    as: :operation_checkpoint_envelope
 
   # ── Login Keys Response ────────────────────────
 

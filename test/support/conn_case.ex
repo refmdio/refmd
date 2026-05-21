@@ -28,6 +28,7 @@ defmodule RefMDWeb.ConnCase do
       import Plug.Conn
       import Phoenix.ConnTest
       import RefMDWeb.ConnCase
+      import RefMD.TestCrypto
     end
   end
 

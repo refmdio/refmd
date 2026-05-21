@@ -15,6 +15,18 @@ defmodule RefMD.Repo.Migrations.RelaxDocumentDeviceForeignKeys do
     execute("""
     DO $$
     BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'document_snapshots' AND column_name = 'device_id'
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'document_updates' AND column_name = 'device_id'
+      ) THEN
+        RETURN;
+      END IF;
+
       IF EXISTS (
         SELECT 1
         FROM document_snapshots ds

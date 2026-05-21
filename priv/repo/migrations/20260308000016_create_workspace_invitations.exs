@@ -10,16 +10,17 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceInvitations do
 
       add :token_hash, :text, null: false
       add :token_prefix, :text, null: false
-
       add :role_id, :binary_id
-
-      add :invited_by, references(:users, type: :binary_id), null: false
+      add :invited_by, references(:users, type: :binary_id, on_delete: :delete_all), null: false
       add :invited_email, :text, null: false
-
-      add :encrypted_kek, :bytea, null: false
-      add :kek_nonce, :bytea, null: false
       add :kek_version, :integer, null: false
-
+      add :bootstrap_key_commitment, :text
+      add :encrypted_bootstrap_package, :map
+      add :bootstrap_package_hash, :text
+      add :bootstrap_package_key_recipient_wrap, :map
+      add :bootstrap_package_key_maintenance_wrap, :map
+      add :bootstrap_suite_id, :text
+      add :capability_context_hash, :text
       add :is_used, :boolean, null: false, default: false
       add :expires_at, :utc_datetime_usec, null: false
       add :created_at, :utc_datetime_usec, null: false
@@ -27,9 +28,9 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceInvitations do
     end
 
     create unique_index(:workspace_invitations, [:token_hash])
+    create index(:workspace_invitations, [:workspace_id])
+    create index(:workspace_invitations, [:role_id])
 
-    # Composite FK: (workspace_id, role_id) → workspace_roles(workspace_id, id)
-    # SET NULL on role deletion
     execute(
       """
       ALTER TABLE workspace_invitations
@@ -42,17 +43,6 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceInvitations do
       ALTER TABLE workspace_invitations
       DROP CONSTRAINT workspace_invitations_role_fk
       """
-    )
-
-    # CHECK constraints
-    execute(
-      "ALTER TABLE workspace_invitations ADD CONSTRAINT invitation_encrypted_kek_length CHECK (length(encrypted_kek) = 48)",
-      "ALTER TABLE workspace_invitations DROP CONSTRAINT invitation_encrypted_kek_length"
-    )
-
-    execute(
-      "ALTER TABLE workspace_invitations ADD CONSTRAINT invitation_kek_nonce_length CHECK (length(kek_nonce) = 24)",
-      "ALTER TABLE workspace_invitations DROP CONSTRAINT invitation_kek_nonce_length"
     )
 
     execute(
@@ -78,6 +68,21 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceInvitations do
     execute(
       ~s|ALTER TABLE workspace_invitations ADD CONSTRAINT invitation_token_prefix_format CHECK (token_prefix ~ '^[A-Za-z0-9\\-_]{4}$')|,
       "ALTER TABLE workspace_invitations DROP CONSTRAINT invitation_token_prefix_format"
+    )
+
+    execute(
+      ~s|ALTER TABLE workspace_invitations ADD CONSTRAINT workspace_invitations_bootstrap_key_commitment_format CHECK (bootstrap_key_commitment IS NULL OR bootstrap_key_commitment ~ '^[A-Za-z0-9\\-_]{43}$')|,
+      "ALTER TABLE workspace_invitations DROP CONSTRAINT workspace_invitations_bootstrap_key_commitment_format"
+    )
+
+    execute(
+      ~s|ALTER TABLE workspace_invitations ADD CONSTRAINT workspace_invitations_bootstrap_package_hash_format CHECK (bootstrap_package_hash IS NULL OR bootstrap_package_hash ~ '^[A-Za-z0-9\\-_]{43}$')|,
+      "ALTER TABLE workspace_invitations DROP CONSTRAINT workspace_invitations_bootstrap_package_hash_format"
+    )
+
+    execute(
+      ~s|ALTER TABLE workspace_invitations ADD CONSTRAINT workspace_invitations_capability_context_hash_format CHECK (capability_context_hash IS NULL OR capability_context_hash ~ '^[A-Za-z0-9\\-_]{43}$')|,
+      "ALTER TABLE workspace_invitations DROP CONSTRAINT workspace_invitations_capability_context_hash_format"
     )
   end
 end

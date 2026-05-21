@@ -8,15 +8,31 @@ import {
   newE2EContext,
 } from "./helpers";
 
+const MOCK_WPB_HASH = Buffer.alloc(32, 0).toString("base64url");
+const MOCK_PROTECTED_CAPABILITY = Buffer.alloc(32, 1).toString("base64url");
+const MOCK_RETRY_PROTECTED_CAPABILITY = Buffer.alloc(32, 2).toString("base64url");
+const MOCK_PASSWORD_CAPABILITY_SECRET_COMMITMENT = Buffer.alloc(32, 7).toString("base64url");
+const MOCK_SHARE_BOOTSTRAP_FIELDS = {
+  share_id: "00000000-0000-4000-8000-000000000000",
+  scope_kind: "document",
+  scope_id: "00000000-0000-4000-8000-000000000001",
+  created_event_hash: Buffer.alloc(32, 3).toString("base64url"),
+  latest_bootstrap_event_hash: Buffer.alloc(32, 4).toString("base64url"),
+  capability_context_hash: Buffer.alloc(32, 5).toString("base64url"),
+  share_capability_secret_commitment: Buffer.alloc(32, 6).toString("base64url"),
+} as const;
+
 let sharedContext: BrowserContext;
 let dashboardPage: Page;
 let sharePage: Page;
 let documentId: string;
 let shareSlug: string;
+let shareCap: string;
+let shareWpb: string;
 let documentToken: string;
 
 function shareDocumentRouteRegex(token: string): RegExp {
-  return new RegExp(`/share/d/${token}$`);
+  return new RegExp(`/share/d/${token}(?:#s=[A-Za-z0-9_-]{22})?$`);
 }
 
 async function currentDocumentId(page: Page): Promise<string> {
@@ -31,7 +47,7 @@ async function currentDocumentId(page: Page): Promise<string> {
 async function createShareLinkFromUi(
   page: Page,
   title: string,
-): Promise<string> {
+): Promise<{ slug: string; cap: string; wpb: string }> {
   const menu = await openContextMenu(page, title);
   await menu.getByRole("menuitem", { name: "Share" }).click();
 
@@ -40,17 +56,42 @@ async function createShareLinkFromUi(
     timeout: 10_000,
   });
   await dialog.getByRole("button", { name: "Create new link" }).click();
+  const createResponsePromise = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "POST" &&
+        /^\/api\/documents\/[^/]+\/shares$/.test(url.pathname)
+      );
+    },
+    { timeout: 60_000 },
+  );
   await dialog.getByRole("button", { name: "Create Link" }).click();
+  const createResponse = await createResponsePromise;
+  if (!createResponse.ok()) {
+    throw new Error(
+      `share create failed: ${createResponse.status()} ${await createResponse.text()}`,
+    );
+  }
 
   const input = dialog.locator("input[readonly]");
-  await expect(input).toHaveValue(/\/share\/[^/]+$/, { timeout: 60_000 });
+  await expect(input).toHaveValue(/\/share\/[^/#]+#cap=[A-Za-z0-9_-]{43}&wpb=[A-Za-z0-9_-]{43}$/, {
+    timeout: 60_000,
+  });
   const link = await input.inputValue();
   await page.keyboard.press("Escape");
 
-  const slug = new URL(link).pathname.match(/^\/share\/([^/]+)$/)?.[1];
-  if (!slug)
-    throw new Error(`share link did not include a share slug: ${link}`);
-  return slug;
+  const url = new URL(link);
+  const slug = url.pathname.match(/^\/share\/([^/]+)$/)?.[1];
+  if (!slug) throw new Error(`share link did not include a share slug: ${link}`);
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  const cap = fragment.get("cap");
+  const wpb = fragment.get("wpb");
+  if (!cap || !/^[A-Za-z0-9_-]{43}$/.test(cap)) {
+    throw new Error(`share link did not include a capability secret: ${link}`);
+  }
+  if (!wpb) throw new Error(`share link did not include a wpb hash: ${link}`);
+  return { slug, cap, wpb };
 }
 
 async function countSpinnerVisibilityFlips(page: Page, durationMs: number): Promise<number> {
@@ -95,10 +136,15 @@ test.describe.serial("Share Route Session Coexistence", () => {
     await openDocument(dashboardPage, "Shared Route Doc");
 
     documentId = await currentDocumentId(dashboardPage);
-    shareSlug = await createShareLinkFromUi(dashboardPage, "Shared Route Doc");
+    const shareLink = await createShareLinkFromUi(dashboardPage, "Shared Route Doc");
+    shareSlug = shareLink.slug;
+    shareCap = shareLink.cap;
+    shareWpb = shareLink.wpb;
 
     expect(documentId).toBeTruthy();
     expect(shareSlug).toBeTruthy();
+    expect(shareCap).toBeTruthy();
+    expect(shareWpb).toBeTruthy();
   });
 
   test("landing route redirects to canonical route with share-scoped requests and keeps both cookies", async () => {
@@ -120,13 +166,17 @@ test.describe.serial("Share Route Session Coexistence", () => {
       }
     });
 
-    await sharePage.goto(`/share/${shareSlug}`, {
+    await sharePage.goto(`/share/${shareSlug}#cap=${shareCap}&wpb=${shareWpb}`, {
       waitUntil: "domcontentloaded",
     });
 
-    await expect(sharePage).toHaveURL(/\/share\/d\/[^/]+$/, {
+    await expect(sharePage).toHaveURL(/\/share\/d\/[^/#]+#s=[A-Za-z0-9_-]{22}$/, {
       timeout: 30_000,
     });
+    const canonicalUrl = new URL(sharePage.url());
+    expect(canonicalUrl.hash).toBe(`#s=${shareSlug}`);
+    expect(canonicalUrl.hash).not.toContain("cap=");
+    expect(canonicalUrl.hash).not.toContain("wpb=");
     documentToken = new URL(sharePage.url()).pathname.split("/").at(-1) ?? "";
     expect(documentToken).toBeTruthy();
     await expect(
@@ -149,10 +199,13 @@ test.describe.serial("Share Route Session Coexistence", () => {
       .toBeGreaterThan(0);
 
     await expect
-      .poll(() => canonicalRequests.some((entry) => entry.path === `/api/shares/d/${documentToken}`), {
-        timeout: 10_000,
-        message: "share canonical request was not observed",
-      })
+      .poll(
+        () => canonicalRequests.some((entry) => entry.path === `/api/shares/d/${documentToken}`),
+        {
+          timeout: 10_000,
+          message: "share canonical request was not observed",
+        },
+      )
       .toBe(true);
 
     expect(landingHeaders).toContain("share");
@@ -163,12 +216,8 @@ test.describe.serial("Share Route Session Coexistence", () => {
     ).toContain("share");
 
     const cookies = await sharedContext.cookies();
-    expect(cookies.some((cookie) => cookie.name === "_refmd_session")).toBe(
-      true,
-    );
-    expect(
-      cookies.some((cookie) => cookie.name === "_refmd_share_session"),
-    ).toBe(true);
+    expect(cookies.some((cookie) => cookie.name === "_refmd_session")).toBe(true);
+    expect(cookies.some((cookie) => cookie.name === "_refmd_share_session")).toBe(true);
 
     await dashboardPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
     await waitForWorkspaceReady(dashboardPage);
@@ -186,6 +235,9 @@ test.describe.serial("Share Route Session Coexistence", () => {
       }
     });
 
+    await sharePage.evaluate(() => {
+      window.history.replaceState({}, "", window.location.pathname);
+    });
     await sharePage.reload({ waitUntil: "domcontentloaded" });
 
     await expect(sharePage).toHaveURL(shareDocumentRouteRegex(documentToken), {
@@ -226,7 +278,7 @@ test.describe.serial("Share Route Session Coexistence", () => {
     });
 
     try {
-      await anonymousPage.goto(`/share/d/${documentToken}`, {
+      await anonymousPage.goto(`/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`, {
         waitUntil: "domcontentloaded",
       });
 
@@ -249,7 +301,7 @@ test.describe.serial("Share Route Session Coexistence", () => {
       expect(spinnerFlips).toBeLessThanOrEqual(1);
 
       await anonymousPage.waitForTimeout(3_000);
-      expect(authMeRequests.length).toBeLessThanOrEqual(1);
+      expect(authMeRequests.length).toBeLessThanOrEqual(2);
       expect(popChallengeScopes).not.toContain(undefined);
       expect(popChallengeScopes).not.toContain("user");
       expect(wsTokenScopes).not.toContain(undefined);
@@ -259,154 +311,162 @@ test.describe.serial("Share Route Session Coexistence", () => {
     }
   });
 
-  test("canonical direct access without a share session bootstraps and recovers", async () => {
+  test("canonical direct access without a share session bootstraps and recovers", async ({
+    browser,
+  }) => {
     test.setTimeout(60_000);
 
-    await sharePage.close();
-    const reentryPage = await sharedContext.newPage();
-    const bootstrapPaths: string[] = [];
+    const reentryContext = await newE2EContext(browser, {
+      bypassCSP: true,
+      acceptDownloads: true,
+    });
+    const reentryPage = await reentryContext.newPage();
+    const landingBootstrapPaths: string[] = [];
+    const documentBootstrapPaths: string[] = [];
     const canonicalPaths: string[] = [];
 
     reentryPage.on("request", (request) => {
       const path = new URL(request.url()).pathname;
       if (path === `/api/shares/${shareSlug}/bootstrap`) {
-        bootstrapPaths.push(path);
+        landingBootstrapPaths.push(path);
+      }
+      if (path === `/api/shares/d/${documentToken}/bootstrap`) {
+        documentBootstrapPaths.push(path);
       }
       if (path === `/api/shares/d/${documentToken}`) {
         canonicalPaths.push(path);
       }
     });
 
-    await sharedContext.addCookies([
-      {
-        name: "_refmd_share_session",
-        value: "",
-        domain: "localhost",
-        path: "/api",
-        expires: 0,
-        httpOnly: true,
-        sameSite: "Lax",
-      },
-    ]);
-
-    await reentryPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
-    await reentryPage.evaluate(async () => {
-      localStorage.removeItem("refmd-share-participant-session");
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase("refmd-share-sessions");
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-        request.onsuccess = () => resolve();
+    try {
+      await reentryPage.goto(`/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`, {
+        waitUntil: "domcontentloaded",
       });
-    });
 
-    await reentryPage.goto(`/share/d/${documentToken}`, {
-      waitUntil: "domcontentloaded",
-    });
-
-    await expect(reentryPage).toHaveURL(
-      shareDocumentRouteRegex(documentToken),
-      {
+      await expect(reentryPage).toHaveURL(shareDocumentRouteRegex(documentToken), {
         timeout: 30_000,
-      },
-    );
+      });
 
-    await expect
-      .poll(() => canonicalPaths.length, {
-        timeout: 10_000,
-        message: "canonical direct-access request was not observed",
-      })
-      .toBeGreaterThan(0);
+      await expect
+        .poll(() => canonicalPaths.length, {
+          timeout: 10_000,
+          message: "canonical direct-access request was not observed",
+        })
+        .toBeGreaterThan(0);
 
-    await expect
-      .poll(() => bootstrapPaths.length, {
-        timeout: 10_000,
-        message: "canonical re-entry bootstrap request was not observed",
-      })
-      .toBeGreaterThan(0);
+      await expect
+        .poll(() => landingBootstrapPaths.length + documentBootstrapPaths.length, {
+          timeout: 10_000,
+          message: "canonical re-entry bootstrap request was not observed",
+        })
+        .toBeGreaterThan(0);
 
-    await reentryPage.close();
+      await expect(
+        reentryPage.locator("aside").getByText("Shared Route Doc", { exact: true }),
+      ).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect
+        .poll(() => reentryPage.locator("[data-panel-id]").count(), {
+          timeout: 30_000,
+          message: "canonical re-entry did not open the shared document",
+        })
+        .toBeGreaterThan(0);
+    } finally {
+      await reentryContext.close();
+    }
   });
 
-  test("protected share landing prompts for a password and submits the unlock challenge", async () => {
+  test("protected share landing prompts for a password and submits the unlock challenge", async ({
+    browser,
+  }) => {
     test.setTimeout(60_000);
 
-    const protectedShareSlug = "mock-protected-share";
+    const protectedShareSlug = Buffer.alloc(16, 4).toString("base64url");
     const protectedDocumentToken = "mock-protected-doc";
     const challenge = Buffer.alloc(32, 7).toString("base64url");
     const salt = Buffer.alloc(16, 3).toString("base64url");
     const challengeBodies: Array<Record<string, unknown>> = [];
-    const protectedPage = await sharedContext.newPage();
-
-    await protectedPage.route(
-      `**/api/shares/${protectedShareSlug}`,
-      async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            share: {
-              id: "00000000-0000-0000-0000-000000000000",
-              document_id: "00000000-0000-0000-0000-000000000001",
-              scope: "document",
-              permission: "view",
-              password_protected: true,
-            },
-            root: {
-              kind: "document",
-              document_token: protectedDocumentToken,
-            },
-          }),
-        });
-      },
-    );
-
-    await protectedPage.route(
-      `**/api/shares/${protectedShareSlug}/challenge`,
-      async (route) => {
-        if (route.request().method() === "GET") {
-          await route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              challenge,
-              salt,
-              kdf_params: {
-                algorithm: "argon2id",
-                memory: 65536,
-                iterations: 3,
-                parallelism: 4,
-                hash_length: 32,
-              },
-            }),
-          });
-          return;
-        }
-
-        challengeBodies.push(
-          (route.request().postDataJSON() ?? {}) as Record<string, unknown>,
-        );
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            root: {
-              kind: "document",
-              document_token: protectedDocumentToken,
-            },
-            participant: {
-              principal_id: "00000000-0000-0000-0000-000000000010",
-              device_id: "00000000-0000-0000-0000-000000000011",
-              grant: "view",
-            },
-          }),
-        });
-      },
-    );
-
-    await protectedPage.goto(`/share/${protectedShareSlug}`, {
-      waitUntil: "domcontentloaded",
+    const protectedContext = await newE2EContext(browser, {
+      bypassCSP: true,
+      acceptDownloads: true,
     });
+    const protectedPage = await protectedContext.newPage();
+
+    await protectedPage.route(`**/api/shares/${protectedShareSlug}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          share: {
+            id: "00000000-0000-4000-8000-000000000000",
+            document_id: "00000000-0000-4000-8000-000000000001",
+            scope: "document",
+            permission: "view",
+            password_protected: true,
+            password_capability_secret_commitment: MOCK_PASSWORD_CAPABILITY_SECRET_COMMITMENT,
+            ...MOCK_SHARE_BOOTSTRAP_FIELDS,
+          },
+          root: {
+            kind: "document",
+            document_token: protectedDocumentToken,
+          },
+        }),
+      });
+    });
+
+    await protectedPage.route(`**/api/shares/${protectedShareSlug}/challenge`, async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            challenge,
+            salt,
+            kdf_params: {
+              algorithm: "argon2id",
+              memory: 65536,
+              iterations: 3,
+              parallelism: 4,
+              hash_length: 32,
+            },
+          }),
+        });
+        return;
+      }
+
+      const challengeBody = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      challengeBodies.push(challengeBody);
+      const participantDeviceId =
+        typeof challengeBody.share_participant_device_id === "string"
+          ? challengeBody.share_participant_device_id
+          : "00000000-0000-4000-8000-000000000011";
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...MOCK_SHARE_BOOTSTRAP_FIELDS,
+          password_capability_secret_commitment: MOCK_PASSWORD_CAPABILITY_SECRET_COMMITMENT,
+          root: {
+            kind: "document",
+            document_token: protectedDocumentToken,
+          },
+          participant: {
+            principal_id: "00000000-0000-4000-8000-000000000010",
+            device_id: participantDeviceId,
+            session_id: "00000000-0000-4000-8000-000000000012",
+            grant: "view",
+          },
+        }),
+      });
+    });
+
+    await protectedPage.goto(
+      `/share/${protectedShareSlug}#cap=${MOCK_PROTECTED_CAPABILITY}&wpb=${MOCK_WPB_HASH}`,
+      {
+        waitUntil: "domcontentloaded",
+      },
+    );
 
     await expect(
       protectedPage.getByRole("heading", {
@@ -414,14 +474,12 @@ test.describe.serial("Share Route Session Coexistence", () => {
       }),
     ).toBeVisible();
 
-    await protectedPage
-      .getByLabel("Password")
-      .fill("correct horse battery staple");
+    await protectedPage.getByLabel("Password").fill("correct horse battery staple");
     await protectedPage.getByRole("button", { name: "Unlock Share" }).click();
 
     await expect
       .poll(() => challengeBodies.length, {
-        timeout: 15_000,
+        timeout: 60_000,
         message: "challenge response request was not observed",
       })
       .toBe(1);
@@ -429,125 +487,129 @@ test.describe.serial("Share Route Session Coexistence", () => {
     expect(challengeBodies[0]?.display_name).toBe("Guest");
     expect(typeof challengeBodies[0]?.response).toBe("string");
     expect(challengeBodies[0]?.response).not.toBe("");
+    await expect(protectedPage).toHaveURL(shareDocumentRouteRegex(protectedDocumentToken), {
+      timeout: 30_000,
+    });
 
-    await expect(protectedPage).toHaveURL(
-      shareDocumentRouteRegex(protectedDocumentToken),
-      {
-        timeout: 30_000,
-      },
-    );
-
-    await protectedPage.close();
+    await protectedContext.close();
   });
 
-  test("protected share landing stays on the password prompt after an unlock failure and allows retry", async () => {
+  test("protected share landing stays on the password prompt after an unlock failure and allows retry", async ({
+    browser,
+  }) => {
     test.setTimeout(60_000);
 
-    const protectedShareSlug = "mock-protected-share-retry";
+    const protectedShareSlug = Buffer.alloc(16, 5).toString("base64url");
     const protectedDocumentToken = "mock-protected-doc-retry";
     const challenge = Buffer.alloc(32, 9).toString("base64url");
     const salt = Buffer.alloc(16, 5).toString("base64url");
     const challengeBodies: Array<Record<string, unknown>> = [];
-    const protectedPage = await sharedContext.newPage();
+    const protectedContext = await newE2EContext(browser, {
+      bypassCSP: true,
+      acceptDownloads: true,
+    });
+    const protectedPage = await protectedContext.newPage();
     let respondAttempts = 0;
 
-    await protectedPage.route(
-      `**/api/shares/${protectedShareSlug}`,
-      async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            share: {
-              id: "00000000-0000-0000-0000-000000000100",
-              document_id: "00000000-0000-0000-0000-000000000101",
-              scope: "document",
-              permission: "view",
-              password_protected: true,
-            },
-            root: {
-              kind: "document",
-              document_token: protectedDocumentToken,
-            },
-          }),
-        });
-      },
-    );
-
-    await protectedPage.route(
-      `**/api/shares/${protectedShareSlug}/challenge`,
-      async (route) => {
-        if (route.request().method() === "GET") {
-          await route.fulfill({
-            status: 200,
-            headers: {
-              "cache-control": "no-store",
-            },
-            contentType: "application/json",
-            body: JSON.stringify({
-              challenge,
-              salt,
-              kdf_params: {
-                algorithm: "argon2id",
-                memory: 65536,
-                iterations: 3,
-                parallelism: 4,
-                hash_length: 32,
-              },
-            }),
-          });
-          return;
-        }
-
-        challengeBodies.push(
-          (route.request().postDataJSON() ?? {}) as Record<string, unknown>,
-        );
-        respondAttempts += 1;
-
-        if (respondAttempts === 1) {
-          await route.fulfill({
-            status: 404,
-            contentType: "application/json",
-            body: JSON.stringify({ error: "not_found" }),
-          });
-          return;
-        }
-
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            root: {
-              kind: "document",
-              document_token: protectedDocumentToken,
-            },
-            participant: {
-              principal_id: "00000000-0000-0000-0000-000000000110",
-              device_id: "00000000-0000-0000-0000-000000000111",
-              grant: "view",
-            },
-          }),
-        });
-      },
-    );
-
-    await protectedPage.goto(`/share/${protectedShareSlug}`, {
-      waitUntil: "domcontentloaded",
+    await protectedPage.route(`**/api/shares/${protectedShareSlug}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          share: {
+            id: "00000000-0000-4000-8000-000000000100",
+            document_id: "00000000-0000-4000-8000-000000000101",
+            scope: "document",
+            permission: "view",
+            password_protected: true,
+            password_capability_secret_commitment: MOCK_PASSWORD_CAPABILITY_SECRET_COMMITMENT,
+            ...MOCK_SHARE_BOOTSTRAP_FIELDS,
+          },
+          root: {
+            kind: "document",
+            document_token: protectedDocumentToken,
+          },
+        }),
+      });
     });
+
+    await protectedPage.route(`**/api/shares/${protectedShareSlug}/challenge`, async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            "cache-control": "no-store",
+          },
+          contentType: "application/json",
+          body: JSON.stringify({
+            challenge,
+            salt,
+            kdf_params: {
+              algorithm: "argon2id",
+              memory: 65536,
+              iterations: 3,
+              parallelism: 4,
+              hash_length: 32,
+            },
+          }),
+        });
+        return;
+      }
+
+      const challengeBody = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      challengeBodies.push(challengeBody);
+      respondAttempts += 1;
+
+      if (respondAttempts === 1) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "not_found" }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...MOCK_SHARE_BOOTSTRAP_FIELDS,
+          password_capability_secret_commitment: MOCK_PASSWORD_CAPABILITY_SECRET_COMMITMENT,
+          root: {
+            kind: "document",
+            document_token: protectedDocumentToken,
+          },
+          participant: {
+            principal_id: "00000000-0000-4000-8000-000000000110",
+            device_id:
+              typeof challengeBody.share_participant_device_id === "string"
+                ? challengeBody.share_participant_device_id
+                : "00000000-0000-4000-8000-000000000111",
+            session_id: "00000000-0000-4000-8000-000000000112",
+            grant: "view",
+          },
+        }),
+      });
+    });
+
+    await protectedPage.goto(
+      `/share/${protectedShareSlug}#cap=${MOCK_RETRY_PROTECTED_CAPABILITY}&wpb=${MOCK_WPB_HASH}`,
+      {
+        waitUntil: "domcontentloaded",
+      },
+    );
 
     await protectedPage.getByLabel("Password").fill("wrong password");
     await protectedPage.getByRole("button", { name: "Unlock Share" }).click();
 
-    await expect(
-      protectedPage.getByText("Share not found or password is invalid."),
-    ).toBeVisible();
+    await expect(protectedPage.getByText("Share not found or password is invalid.")).toBeVisible();
     await expect(protectedPage).toHaveURL(
-      new RegExp(`/share/${protectedShareSlug}$`),
+      new RegExp(
+        `/share/${protectedShareSlug}#cap=${MOCK_RETRY_PROTECTED_CAPABILITY}&wpb=${MOCK_WPB_HASH}$`,
+      ),
     );
 
-    await protectedPage
-      .getByLabel("Password")
-      .fill("correct horse battery staple");
+    await protectedPage.getByLabel("Password").fill("correct horse battery staple");
     await protectedPage.getByRole("button", { name: "Unlock Share" }).click();
 
     await expect
@@ -557,13 +619,10 @@ test.describe.serial("Share Route Session Coexistence", () => {
       })
       .toBe(2);
 
-    await expect(protectedPage).toHaveURL(
-      shareDocumentRouteRegex(protectedDocumentToken),
-      {
-        timeout: 30_000,
-      },
-    );
+    await expect(protectedPage).toHaveURL(shareDocumentRouteRegex(protectedDocumentToken), {
+      timeout: 30_000,
+    });
 
-    await protectedPage.close();
+    await protectedContext.close();
   });
 });

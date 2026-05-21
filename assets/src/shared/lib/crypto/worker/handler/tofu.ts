@@ -1,116 +1,43 @@
 import type { WorkerKeyState } from "../state";
-import { base64UrlEncode } from "../../encoding";
 import { getAllTofuEntries, importTofuEntries } from "../../trust-store";
+import { handleTofuResult, trustDevice, updateDeviceLastSeen, verifyTofu } from "../../tofu";
+import { base64UrlDecode, base64UrlEncode } from "../../encoding";
+import { blake3Base64Url } from "../../hash";
+import { canonicalizeStrict, canonicalizeStrictBytes, type StrictJsonValue } from "../../jcs";
 import {
-  decryptTrustState,
-  encryptTrustState,
-  type TrustTransferAadParams,
-} from "../../trust-transfer";
+  computeHybridEncryptionKeyId,
+  type HybridEncryptionPublicKeyMaterial,
+} from "../../hybrid-encryption";
+import { validateDeviceApprovalProofEnvelope } from "../../approval-proof-validation";
 import {
-  handleTofuResult,
-  trustDevice,
-  updateDeviceLastSeen,
-  verifyAllDeviceTofu,
-  verifyTofu,
-} from "../../tofu";
-import {
-  type HandlerPayload,
-  requireDeviceEcdhPrivate,
-  requireDeviceId,
-  requireDeviceSigningPrivate,
-  requireUserId,
-} from "./utils";
-
-export async function handleEncryptTrustState(
-  state: WorkerKeyState,
-  p: HandlerPayload,
-): Promise<unknown> {
-  const targetDeviceEcdhPublic = p.targetDeviceEcdhPublic as Uint8Array;
-  const transferNonce = p.transferNonce as Uint8Array;
-
-  const deviceEcdhPrivate = requireDeviceEcdhPrivate(state);
-  const deviceSigningPrivate = requireDeviceSigningPrivate(state);
-  const userId = requireUserId(state);
-  const deviceId = requireDeviceId(state);
-  const targetDeviceId = p.targetDeviceId as string;
-
-  const tofuEntries = await getAllTofuEntries();
-  if (tofuEntries.length === 0) return { empty: true };
-
-  const aadParams: TrustTransferAadParams = {
-    userId,
-    senderDeviceId: deviceId,
-    targetDeviceId,
-  };
-
-  const result = encryptTrustState(
-    { tofuEntries, transferNonce },
-    deviceEcdhPrivate,
-    targetDeviceEcdhPublic,
-    deviceSigningPrivate,
-    aadParams,
-  );
-
-  return {
-    ciphertext: result.encryptedState,
-    nonce: result.nonce,
-    signature: result.signature,
-  };
-}
-
-export async function handleDecryptTrustState(
-  state: WorkerKeyState,
-  p: HandlerPayload,
-): Promise<unknown> {
-  const senderDeviceEcdhPublic = p.senderDeviceEcdhPublic as Uint8Array;
-  const senderIdentitySigningPublic = p.senderIdentitySigningPublic as Uint8Array;
-  const transferNonce = p.transferNonce as Uint8Array;
-  const ciphertext = p.ciphertext as Uint8Array;
-  const nonce = p.nonce as Uint8Array;
-  const signature = p.signature as Uint8Array;
-  const senderDeviceId = p.senderDeviceId as string;
-
-  const deviceEcdhPrivate = requireDeviceEcdhPrivate(state);
-  const userId = requireUserId(state);
-  const deviceId = requireDeviceId(state);
-
-  const aadParams: TrustTransferAadParams = {
-    userId,
-    senderDeviceId,
-    targetDeviceId: deviceId,
-  };
-
-  const snapshot = decryptTrustState(
-    { encryptedState: ciphertext, nonce, signature },
-    deviceEcdhPrivate,
-    senderDeviceEcdhPublic,
-    senderIdentitySigningPublic,
-    transferNonce,
-    aadParams,
-  ) as {
-    tofuEntries: Array<{
-      userId: string;
-      deviceId: string;
-      signingPublicKey: Uint8Array;
-      ecdhPublicKey: Uint8Array;
-      firstSeenAt: number;
-      lastSeenAt: number;
-    }>;
-  };
-
-  await importTofuEntries(snapshot.tofuEntries);
-
-  return { imported: snapshot.tofuEntries.length };
-}
+  buildDeviceApprovalTranscript,
+  buildGenesisDeviceBootstrapTranscript,
+  buildPendingRegistrationBindingHash,
+  buildRecoveryDeviceApprovalTranscript,
+  computeSigningKeyId,
+  verifyDeviceApprovalSignature,
+  verifyGenesisDeviceBootstrapSignature,
+  verifyRecoveryDeviceApprovalSignature,
+  type HybridSignature,
+  type HybridSigningPublicKeyMaterial,
+} from "../../signature";
+import { type HandlerPayload, requireUserId } from "./utils";
 
 export async function handleTofuVerify(p: HandlerPayload): Promise<unknown> {
   const userId = p.userId as string;
   const deviceId = p.deviceId as string;
-  const signingPublicKey = p.signingPublicKey as Uint8Array;
+  const hybridSigningPublicKeyMaterial =
+    p.hybridSigningPublicKeyMaterial as HybridSigningPublicKeyMaterial;
   const ecdhPublicKey = p.ecdhPublicKey as Uint8Array;
   const namespace = p.namespace as string | undefined;
 
-  const result = await verifyTofu(userId, deviceId, signingPublicKey, ecdhPublicKey, namespace);
+  const result = await verifyTofu(
+    userId,
+    deviceId,
+    hybridSigningPublicKeyMaterial,
+    ecdhPublicKey,
+    namespace,
+  );
   return { status: result.status };
 }
 
@@ -122,28 +49,287 @@ export async function handleTofuVerifyAllDevices(
     userId: string;
     deviceId: string;
     name?: string;
-    signingPublicKey: Uint8Array;
     ecdhPublicKey: Uint8Array;
-    identitySignature?: string | null;
-    clientNonce?: string | null;
+    deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+    deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+    identitySignature: HybridSignature;
+    identitySignaturePurpose: string;
+    identitySignatureContext: Record<string, unknown>;
+    approvalDeliveryCommitments?: Record<string, unknown> | null;
+    approvalDeliveryArtifacts?: Record<string, unknown> | null;
+    clientNonce: string;
   }>;
   const userId = requireUserId(state);
+  const identityPublicMaterial = state.identityHybridSigningState?.publicKeyMaterial;
+  if (!identityPublicMaterial) {
+    throw new Error("identity_signing_key_unavailable");
+  }
 
-  const devices = rawDevices.map((device) => ({
-    id: device.deviceId,
-    name: device.name ?? device.deviceId,
-    signing_public_key: base64UrlEncode(device.signingPublicKey),
-    ecdh_public_key: base64UrlEncode(device.ecdhPublicKey),
-    identity_signature: device.identitySignature ?? null,
-    client_nonce: device.clientNonce ?? null,
-  }));
-
-  const errors = await verifyAllDeviceTofu(
-    userId,
-    devices as Parameters<typeof verifyAllDeviceTofu>[1],
-    state.identitySigningPublic,
+  const errors: string[] = [];
+  const deviceMaterials = new Map(
+    rawDevices.map((device) => [device.deviceId, device.deviceHybridSigningPublicKeyMaterial]),
   );
+  for (const device of rawDevices) {
+    if (!verifyDeviceApprovalSurface(device, identityPublicMaterial, deviceMaterials)) {
+      throw new Error(`invalid_device_approval_signature:${device.deviceId}`);
+    }
+
+    const result = await verifyTofu(
+      userId,
+      device.deviceId,
+      device.deviceHybridSigningPublicKeyMaterial,
+      device.ecdhPublicKey,
+    );
+    if (result.status === "identity_key_changed" || result.status === "ecdh_key_mismatch") {
+      errors.push(`${device.name ?? device.deviceId}: ${result.status}`);
+    } else {
+      await handleTofuResult(result, undefined, { persistFirstSeen: false });
+    }
+  }
   return { errors };
+}
+
+function verifyDeviceApprovalSurface(
+  device: {
+    userId: string;
+    deviceId: string;
+    ecdhPublicKey: Uint8Array;
+    deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+    deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+    identitySignature: HybridSignature;
+    identitySignaturePurpose: string;
+    identitySignatureContext: Record<string, unknown>;
+    approvalDeliveryCommitments?: Record<string, unknown> | null;
+    approvalDeliveryArtifacts?: Record<string, unknown> | null;
+    clientNonce: string;
+  },
+  identityPublicMaterial: HybridSigningPublicKeyMaterial,
+  deviceMaterials: Map<string, HybridSigningPublicKeyMaterial>,
+): boolean {
+  if (
+    typeof device.identitySignaturePurpose !== "string" ||
+    !isRecord(device.identitySignatureContext)
+  ) {
+    return false;
+  }
+
+  const deviceEcdhPublicKey = base64UrlEncode(device.ecdhPublicKey);
+  const purpose = device.identitySignaturePurpose;
+  const context = device.identitySignatureContext;
+  const details = isRecord(context.surface_details) ? context.surface_details : context;
+  const candidate =
+    purpose === "genesis_device_bootstrap"
+      ? {
+          signingPurpose: "genesis_device_bootstrap",
+          publicKeyMaterial: identityPublicMaterial,
+          transcript: buildGenesisDeviceBootstrapTranscript({
+            ownerId: identityPublicMaterial.owner_id,
+            deviceId: device.deviceId,
+            deviceHybridSigningPublicKeyMaterial: device.deviceHybridSigningPublicKeyMaterial,
+            deviceEcdhPublicKey,
+            deviceHybridEncryptionPublicKeyMaterial: device.deviceHybridEncryptionPublicKeyMaterial,
+            clientNonce: device.clientNonce,
+            registrationChallengeHash: (
+              context.surface_details as Record<string, unknown> | undefined
+            )?.registration_challenge_hash as string,
+            identitySigningKeyId: context.approving_signing_key_id as string,
+            userIdentityPublicKeyHash: (
+              context.surface_details as Record<string, unknown> | undefined
+            )?.user_identity_public_key_hash as string,
+          }),
+        }
+      : purpose === "device_approval"
+        ? {
+            signingPurpose: "device_approval",
+            publicKeyMaterial: deviceMaterials.get(context.approving_owner_id as string),
+            transcript: buildDeviceApprovalTranscript({
+              ownerId: identityPublicMaterial.owner_id,
+              approverDeviceId: context.approving_owner_id as string,
+              approvedDeviceId: device.deviceId,
+              approvedDeviceHybridSigningPublicKeyMaterial:
+                device.deviceHybridSigningPublicKeyMaterial,
+              approvedDeviceEcdhPublicKey: deviceEcdhPublicKey,
+              approvedDeviceHybridEncryptionPublicKeyMaterial:
+                device.deviceHybridEncryptionPublicKeyMaterial,
+              clientNonce: device.clientNonce,
+              ...deviceApprovalContextParams(context),
+              ...targetApprovalFields({
+                targetDeviceId: device.deviceId,
+                targetDeviceHybridSigningPublicKeyMaterial:
+                  device.deviceHybridSigningPublicKeyMaterial,
+                targetDeviceHybridEncryptionPublicKeyMaterial:
+                  device.deviceHybridEncryptionPublicKeyMaterial,
+                targetDeviceClientNonce: device.clientNonce,
+              }),
+            }),
+          }
+        : purpose === "recovery_device_approval"
+          ? {
+              signingPurpose: "recovery_device_approval",
+              publicKeyMaterial: identityPublicMaterial,
+              transcript: buildRecoveryDeviceApprovalTranscript({
+                ownerId: identityPublicMaterial.owner_id,
+                approvingSigningKeyId: context.approving_signing_key_id as string,
+                approvingKeyCheckpointSequence: context.approving_key_checkpoint_sequence as number,
+                approvingKeyCheckpointHash: context.approving_key_checkpoint_hash as string,
+                pendingRegistrationId: details.pending_registration_id as string,
+                pendingRegistrationChallengeHash:
+                  details.pending_registration_challenge_hash as string,
+                recoverySessionTranscriptHash: details.recovery_session_transcript_hash as string,
+                recoveryCapabilityHash: details.recovery_capability_hash as string,
+                pendingRegistrationBindingHash: buildPendingRegistrationBindingHash({
+                  userId: identityPublicMaterial.owner_id,
+                  pendingRegistrationId: details.pending_registration_id as string,
+                  pendingRegistrationChallengeHash:
+                    details.pending_registration_challenge_hash as string,
+                  targetDeviceId: device.deviceId,
+                  targetDeviceSigningKeyId: computeSigningKeyId(
+                    device.deviceHybridSigningPublicKeyMaterial,
+                  ),
+                  targetDeviceHybridSigningPublicKeyMaterial:
+                    device.deviceHybridSigningPublicKeyMaterial,
+                  targetDeviceHybridEncryptionPublicKeyMaterial:
+                    device.deviceHybridEncryptionPublicKeyMaterial,
+                  targetDeviceEncryptionKeyId: computeHybridEncryptionKeyId(
+                    device.deviceHybridEncryptionPublicKeyMaterial,
+                  ),
+                  targetDeviceClientNonce: device.clientNonce,
+                  targetKeyCheckpointSequence: context.target_key_checkpoint_sequence as number,
+                  targetKeyCheckpointHash: context.target_key_checkpoint_hash as string,
+                }),
+                approvedDeviceId: device.deviceId,
+                approvedDeviceHybridSigningPublicKeyMaterial:
+                  device.deviceHybridSigningPublicKeyMaterial,
+                approvedDeviceEcdhPublicKey: deviceEcdhPublicKey,
+                approvedDeviceHybridEncryptionPublicKeyMaterial:
+                  device.deviceHybridEncryptionPublicKeyMaterial,
+                clientNonce: device.clientNonce,
+                targetKeyCheckpointSequence: context.target_key_checkpoint_sequence as number,
+                targetKeyCheckpointHash: context.target_key_checkpoint_hash as string,
+              }),
+            }
+          : null;
+
+  if (
+    !candidate ||
+    !candidate.publicKeyMaterial ||
+    !validateDeviceApprovalProofEnvelope({
+      proof: context,
+      purpose,
+      transcript: candidate.transcript as StrictJsonValue,
+      targetDeviceId: device.deviceId,
+      targetDeviceHybridSigningPublicKeyMaterial: device.deviceHybridSigningPublicKeyMaterial,
+      targetDeviceHybridEncryptionPublicKeyMaterial: device.deviceHybridEncryptionPublicKeyMaterial,
+      targetDeviceClientNonce: device.clientNonce,
+      approvingHybridSigningPublicKeyMaterial: candidate.publicKeyMaterial,
+      approvalDeliveryCommitments: device.approvalDeliveryCommitments ?? null,
+      approvalDeliveryArtifacts: device.approvalDeliveryArtifacts ?? null,
+    }) ||
+    (typeof context.approval_transcript_hash === "string"
+      ? context.approval_transcript_hash !==
+        blake3Base64Url(canonicalizeStrictBytes(candidate.transcript as StrictJsonValue))
+      : !strictJsonEqual(context, candidate.transcript))
+  ) {
+    return false;
+  }
+
+  const verificationParams = {
+    transcript: candidate.transcript,
+    signature: device.identitySignature,
+    publicKeyMaterial: candidate.publicKeyMaterial,
+  };
+  if (candidate.signingPurpose === "genesis_device_bootstrap") {
+    return verifyGenesisDeviceBootstrapSignature(verificationParams);
+  }
+  if (candidate.signingPurpose === "device_approval") {
+    return verifyDeviceApprovalSignature(verificationParams);
+  }
+  return verifyRecoveryDeviceApprovalSignature(verificationParams);
+}
+
+function deviceApprovalContextParams(value: Record<string, unknown>): {
+  approvedDeviceRegistrationSasHash: string;
+  pendingRegistrationId: string;
+  pendingRegistrationChallengeHash: string;
+  approvingOwnerKind: "device";
+  approvingOwnerId: string;
+  approvingSigningKeyId: string;
+  approvingKeyCheckpointSequence: number;
+  approvingKeyCheckpointHash: string;
+  approvingDeviceKeyDirectoryProofHash: string;
+  targetKeyCheckpointSequence: number;
+  targetKeyCheckpointHash: string;
+  umkDistributionDeliveryCommitment: StrictJsonValue;
+  trustTransferDeliveryCommitment: StrictJsonValue;
+  deviceApprovalKekInitialDeliveryCommitments: StrictJsonValue[];
+} {
+  const details = isRecord(value.surface_details) ? value.surface_details : value;
+  return {
+    approvedDeviceRegistrationSasHash: details.approved_device_registration_sas_hash as string,
+    pendingRegistrationId: details.pending_registration_id as string,
+    pendingRegistrationChallengeHash: details.pending_registration_challenge_hash as string,
+    approvingOwnerKind: value.approving_owner_kind as "device",
+    approvingOwnerId: value.approving_owner_id as string,
+    approvingSigningKeyId: value.approving_signing_key_id as string,
+    approvingKeyCheckpointSequence: value.approving_key_checkpoint_sequence as number,
+    approvingKeyCheckpointHash: value.approving_key_checkpoint_hash as string,
+    approvingDeviceKeyDirectoryProofHash:
+      details.approving_device_key_directory_proof_hash as string,
+    targetKeyCheckpointSequence: value.target_key_checkpoint_sequence as number,
+    targetKeyCheckpointHash: value.target_key_checkpoint_hash as string,
+    umkDistributionDeliveryCommitment:
+      details.umk_distribution_delivery_commitment as StrictJsonValue,
+    trustTransferDeliveryCommitment: details.trust_transfer_delivery_commitment as StrictJsonValue,
+    deviceApprovalKekInitialDeliveryCommitments:
+      details.device_approval_kek_initial_delivery_commitments as StrictJsonValue[],
+  };
+}
+
+function targetApprovalFields(params: {
+  targetDeviceId: string;
+  targetDeviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  targetDeviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  targetDeviceClientNonce: string;
+}): {
+  targetDeviceId: string;
+  targetDeviceSigningKeyId: string;
+  targetDeviceHybridSigningPublicKeyMaterialHash: string;
+  targetDeviceHybridEncryptionPublicKeyMaterialHash: string;
+  targetDeviceEncryptionKeyId: string;
+  targetDeviceClientNonceHash: string;
+} {
+  return {
+    targetDeviceId: params.targetDeviceId,
+    targetDeviceSigningKeyId: computeSigningKeyId(
+      params.targetDeviceHybridSigningPublicKeyMaterial,
+    ),
+    targetDeviceHybridSigningPublicKeyMaterialHash: blake3Base64Url(
+      canonicalizeStrictBytes(
+        params.targetDeviceHybridSigningPublicKeyMaterial as unknown as StrictJsonValue,
+      ),
+    ),
+    targetDeviceHybridEncryptionPublicKeyMaterialHash: blake3Base64Url(
+      canonicalizeStrictBytes(
+        params.targetDeviceHybridEncryptionPublicKeyMaterial as unknown as StrictJsonValue,
+      ),
+    ),
+    targetDeviceEncryptionKeyId: computeHybridEncryptionKeyId(
+      params.targetDeviceHybridEncryptionPublicKeyMaterial,
+    ),
+    targetDeviceClientNonceHash: blake3Base64Url(base64UrlDecode(params.targetDeviceClientNonce)),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function strictJsonEqual(left: unknown, right: StrictJsonValue): boolean {
+  try {
+    return canonicalizeStrict(left as StrictJsonValue) === canonicalizeStrict(right);
+  } catch {
+    return false;
+  }
 }
 
 export async function handleTofuTrustDevice(p: HandlerPayload): Promise<unknown> {
@@ -151,7 +337,8 @@ export async function handleTofuTrustDevice(p: HandlerPayload): Promise<unknown>
     {
       userId: p.userId as string,
       deviceId: p.deviceId as string,
-      signingPublicKey: p.signingPublicKey as Uint8Array,
+      hybridSigningPublicKeyMaterial:
+        p.hybridSigningPublicKeyMaterial as HybridSigningPublicKeyMaterial,
       ecdhPublicKey: p.ecdhPublicKey as Uint8Array,
       firstSeenAt: (p.firstSeenAt as number) ?? Date.now(),
       lastSeenAt: (p.lastSeenAt as number) ?? Date.now(),
@@ -187,7 +374,7 @@ export async function handleTofuGetAllEntries(p: HandlerPayload): Promise<unknow
     entries: entries.map((entry) => ({
       userId: entry.userId,
       deviceId: entry.deviceId,
-      signingPublicKey: entry.signingPublicKey,
+      hybridSigningPublicKeyMaterial: entry.hybridSigningPublicKeyMaterial,
       ecdhPublicKey: entry.ecdhPublicKey,
       firstSeenAt: entry.firstSeenAt,
       lastSeenAt: entry.lastSeenAt,
@@ -199,7 +386,7 @@ export async function handleTofuImportEntries(p: HandlerPayload): Promise<unknow
   const entries = p.entries as Array<{
     userId: string;
     deviceId: string;
-    signingPublicKey: Uint8Array;
+    hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
     ecdhPublicKey: Uint8Array;
     firstSeenAt: number;
     lastSeenAt: number;

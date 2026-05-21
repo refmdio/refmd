@@ -2,7 +2,7 @@ export { attachActiveLeafRouteSync } from "./lib/manager/active-leaf-route-sync"
 export { closeDocumentPanels } from "./lib/workspace/close-document-panels";
 export {
   createMountedShareDocumentPanelTarget,
-  createRawShareDocumentPanelTarget,
+  createShareLinkDocumentPanelTarget,
   decodePanelId,
   hasScrollGroupPeer,
 } from "./lib/workspace/panel-utils";

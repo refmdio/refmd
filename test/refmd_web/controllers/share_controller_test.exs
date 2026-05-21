@@ -2,12 +2,22 @@ defmodule RefMDWeb.ShareControllerTest do
   use RefMDWeb.ConnCase, async: true
   import Ecto.Query
 
+  alias RefMD.Crypto.Blake3
   alias RefMD.Documents
   alias RefMD.Repo
   alias RefMD.Sharing
   alias RefMD.Sharing.SharePasswordChallenge
   alias RefMD.Users.User
   alias RefMD.Workspaces
+
+  defp workspace_pin_bootstrap_hash,
+    do: Process.get(:workspace_pin_bootstrap_hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+  defp password_challenge_hash(share_slug) do
+    share_slug
+    |> Base.url_decode64!(padding: false)
+    |> Blake3.hash_base64url()
+  end
 
   defp create_user(email) do
     user_id = Ecto.UUID.generate()
@@ -55,17 +65,24 @@ defmodule RefMDWeb.ShareControllerTest do
   defp create_share(document, owner_id) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
-    {:ok, created} =
-      Sharing.create_share(document, owner_id, %{
+    attrs =
+      %{
         "id" => Ecto.UUID.generate(),
         "scope" => "document",
         "share_slug" => share_slug,
         "token_prefix" => String.slice(share_slug, 0, 4),
         "permission" => "view",
         "password_protected" => false,
-        "encrypted_dek" => :crypto.strong_rand_bytes(32),
-        "nonce" => nil
-      })
+        "authorization_public_key_material" =>
+          share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+        "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+        "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "encrypted_dek" => :crypto.strong_rand_bytes(48),
+        "nonce" => :crypto.strong_rand_bytes(24)
+      }
+      |> with_test_share_security_artifacts(document, owner_id)
+
+    {:ok, created} = Sharing.create_share(document, owner_id, attrs)
 
     created
   end
@@ -74,14 +91,19 @@ defmodule RefMDWeb.ShareControllerTest do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     auth_key = :crypto.strong_rand_bytes(32)
 
-    {:ok, created} =
-      Sharing.create_share(document, owner_id, %{
+    attrs =
+      %{
         "id" => Ecto.UUID.generate(),
         "scope" => "document",
         "share_slug" => share_slug,
         "token_prefix" => String.slice(share_slug, 0, 4),
         "permission" => "view",
         "password_protected" => true,
+        "authorization_public_key_material" =>
+          share_capability_public_key_material_for_slug(auth_key, share_slug),
+        "auth_key" => auth_key,
+        "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+        "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
         "encrypted_dek" => :crypto.strong_rand_bytes(48),
         "nonce" => :crypto.strong_rand_bytes(24),
         "salt" => :crypto.strong_rand_bytes(16),
@@ -91,9 +113,11 @@ defmodule RefMDWeb.ShareControllerTest do
           "iterations" => 3,
           "parallelism" => 4,
           "hash_length" => 32
-        },
-        "auth_key" => auth_key
-      })
+        }
+      }
+      |> with_test_share_security_artifacts(document, owner_id)
+
+    {:ok, created} = Sharing.create_share(document, owner_id, attrs)
 
     {created, auth_key}
   end
@@ -101,44 +125,44 @@ defmodule RefMDWeb.ShareControllerTest do
   defp create_folder_share(folder, owner_id, shared_nodes) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
-    {:ok, created} =
-      Sharing.create_share(folder, owner_id, %{
+    attrs =
+      %{
         "id" => Ecto.UUID.generate(),
         "scope" => "folder",
         "share_slug" => share_slug,
         "token_prefix" => String.slice(share_slug, 0, 4),
         "permission" => "view",
         "password_protected" => false,
-        "encrypted_dek" => :crypto.strong_rand_bytes(32),
-        "nonce" => nil,
+        "authorization_public_key_material" =>
+          share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+        "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+        "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "encrypted_dek" => :crypto.strong_rand_bytes(48),
+        "nonce" => :crypto.strong_rand_bytes(24),
         "share_keys" =>
           Enum.map(shared_nodes, fn document ->
             %{
               "share_id" => Ecto.UUID.generate(),
               "document_id" => document.id,
-              "encrypted_dek" => :crypto.strong_rand_bytes(32),
-              "nonce" => nil
+              "encrypted_dek" => :crypto.strong_rand_bytes(48),
+              "nonce" => :crypto.strong_rand_bytes(24)
             }
           end)
-      })
+      }
+      |> with_test_share_security_artifacts(folder, owner_id)
+
+    {:ok, created} = Sharing.create_share(folder, owner_id, attrs)
 
     created
-  end
-
-  defp valid_signing_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_ed25519_public_key?(key), do: key, else: valid_signing_public_key()
-  end
-
-  defp valid_encryption_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_x25519_public_key?(key), do: key, else: valid_encryption_public_key()
   end
 
   setup do
     owner_id = create_user("owner-share-controller@example.com")
     {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Controller Workspace")
     document = create_document(workspace.id, owner_id)
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
 
     %{owner_id: owner_id, document: document}
   end
@@ -149,6 +173,34 @@ defmodule RefMDWeb.ShareControllerTest do
     assert json_response(conn, 404) == %{"error" => "not_found"}
   end
 
+  test "GET /api/shares/:share_slug returns only landing metadata", %{
+    conn: conn,
+    document: document,
+    owner_id: owner_id
+  } do
+    created = create_share(document, owner_id)
+
+    conn = get(conn, "/api/shares/#{created.share_slug}")
+
+    assert %{
+             "share" => share,
+             "root" => %{"kind" => "document"}
+           } = json_response(conn, 200)
+
+    assert Map.keys(share) |> Enum.sort() == [
+             "capability_context_hash",
+             "created_event_hash",
+             "document_id",
+             "id",
+             "latest_bootstrap_event_hash",
+             "password_capability_secret_commitment",
+             "password_protected",
+             "permission",
+             "scope",
+             "share_capability_secret_commitment"
+           ]
+  end
+
   test "POST /api/shares/:share_slug/bootstrap sets the share session cookie on /api", %{
     conn: conn,
     document: document,
@@ -157,12 +209,11 @@ defmodule RefMDWeb.ShareControllerTest do
     created = create_share(document, owner_id)
 
     conn =
-      post(conn, "/api/shares/#{created.share_slug}/bootstrap", %{
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => Base.url_encode64(valid_signing_public_key(), padding: false),
-        "device_encryption_pub_key" =>
-          Base.url_encode64(valid_encryption_public_key(), padding: false)
-      })
+      post(
+        conn,
+        "/api/shares/#{created.share_slug}/bootstrap",
+        share_participant_request_attrs("Guest User", created, open_admission_key())
+      )
 
     assert %{"root" => %{"kind" => "document"}, "participant" => %{"grant" => "view"}} =
              json_response(conn, 200)
@@ -175,17 +226,48 @@ defmodule RefMDWeb.ShareControllerTest do
     document: document,
     owner_id: owner_id
   } do
-    {created, _auth_key} = create_password_protected_share(document, owner_id)
+    {created, auth_key} = create_password_protected_share(document, owner_id)
 
     conn =
-      post(conn, "/api/shares/#{created.share_slug}/bootstrap", %{
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => Base.url_encode64(valid_signing_public_key(), padding: false),
-        "device_encryption_pub_key" =>
-          Base.url_encode64(valid_encryption_public_key(), padding: false)
-      })
+      post(
+        conn,
+        "/api/shares/#{created.share_slug}/bootstrap",
+        share_participant_request_attrs("Guest User", created, auth_key)
+      )
 
     assert json_response(conn, 409) == %{"error" => "password_required"}
+  end
+
+  test "POST /api/shares/:share_slug/bootstrap rejects extra authorization transcript fields", %{
+    conn: conn,
+    document: document,
+    owner_id: owner_id
+  } do
+    created = create_share(document, owner_id)
+
+    attrs =
+      share_participant_request_attrs("Guest User", created, open_admission_key())
+      |> put_in(["share_participant_device_authorization", "transcript", "extra"], "unexpected")
+
+    conn = post(conn, "/api/shares/#{created.share_slug}/bootstrap", attrs)
+
+    assert %{"error" => "invalid_request_schema"} = json_response(conn, 422)
+  end
+
+  test "GET /api/shares/:share_slug withholds password-protected root before challenge", %{
+    conn: conn,
+    document: document,
+    owner_id: owner_id
+  } do
+    {created, _auth_key} = create_password_protected_share(document, owner_id)
+
+    conn = get(conn, "/api/shares/#{created.share_slug}")
+
+    assert %{
+             "share" => %{"password_protected" => true},
+             "password_challenge_required" => true
+           } =
+             json_response(conn, 200)
   end
 
   test "password challenge endpoints bootstrap a protected share session", %{
@@ -206,19 +288,17 @@ defmodule RefMDWeb.ShareControllerTest do
     assert is_binary(challenge)
     assert is_binary(salt)
     assert get_resp_header(challenge_conn, "cache-control") == ["no-store"]
-
     challenge_bytes = Base.url_decode64!(challenge, padding: false)
     response = :crypto.mac(:hmac, :sha256, auth_key, challenge_bytes)
 
     respond_conn =
       build_conn()
-      |> post("/api/shares/#{created.share_slug}/challenge", %{
-        "response" => Base.url_encode64(response, padding: false),
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => Base.url_encode64(valid_signing_public_key(), padding: false),
-        "device_encryption_pub_key" =>
-          Base.url_encode64(valid_encryption_public_key(), padding: false)
-      })
+      |> post(
+        "/api/shares/#{created.share_slug}/challenge",
+        share_participant_request_attrs("Guest User", created, auth_key)
+        |> Map.put("response", Base.url_encode64(response, padding: false))
+        |> Map.put("password_challenge_hash", password_challenge_hash(created.share_slug))
+      )
 
     assert %{"root" => %{"kind" => "document"}, "participant" => %{"grant" => "view"}} =
              json_response(respond_conn, 200)
@@ -231,20 +311,19 @@ defmodule RefMDWeb.ShareControllerTest do
     document: document,
     owner_id: owner_id
   } do
-    {created, _auth_key} = create_password_protected_share(document, owner_id)
+    {created, auth_key} = create_password_protected_share(document, owner_id)
 
     challenge_conn = get(conn, "/api/shares/#{created.share_slug}/challenge")
     assert %{"challenge" => _challenge} = json_response(challenge_conn, 200)
 
     respond_conn =
       build_conn()
-      |> post("/api/shares/#{created.share_slug}/challenge", %{
-        "response" => Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => Base.url_encode64(valid_signing_public_key(), padding: false),
-        "device_encryption_pub_key" =>
-          Base.url_encode64(valid_encryption_public_key(), padding: false)
-      })
+      |> post(
+        "/api/shares/#{created.share_slug}/challenge",
+        share_participant_request_attrs("Guest User", created, auth_key)
+        |> Map.put("response", Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false))
+        |> Map.put("password_challenge_hash", password_challenge_hash(created.share_slug))
+      )
 
     assert json_response(respond_conn, 404) == %{"error" => "not_found"}
   end
@@ -282,24 +361,21 @@ defmodule RefMDWeb.ShareControllerTest do
 
     assert json_response(conn, 200) == %{
              "bootstrap_required" => true,
-             "share_slug" => created.share_slug
+             "share_token_hash" => created.share.token_hash
            }
   end
 
-  test "GET /api/shares/d/:document_token returns canonical bootstrap with a share session", %{
-    conn: conn,
-    document: document,
-    owner_id: owner_id
-  } do
+  test "POST /api/shares/d/:document_token/bootstrap returns canonical bootstrap with a share session",
+       %{
+         conn: conn,
+         document: document,
+         owner_id: owner_id
+       } do
     created = create_share(document, owner_id)
     {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     {:ok, bootstrapped} =
-      Sharing.bootstrap_participant(created.share_slug, %{
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => valid_signing_public_key(),
-        "device_encryption_pub_key" => valid_encryption_public_key()
-      })
+      bootstrap_share_participant(created, "Guest User")
 
     conn =
       conn
@@ -307,24 +383,35 @@ defmodule RefMDWeb.ShareControllerTest do
         "cookie",
         "_refmd_share_session=#{Base.url_encode64(bootstrapped.session_token, padding: false)}"
       )
-      |> get("/api/shares/d/#{landing.root.document_token}")
+      |> post(
+        "/api/shares/d/#{landing.root.document_token}/bootstrap",
+        %{
+          "authenticated_workspace_pin_bootstrap_hash" =>
+            created.share.authenticated_workspace_pin_bootstrap_hash
+        }
+      )
 
     assert %{
              "document_id" => document_id,
              "share_id" => share_id,
-             "share_slug" => share_slug,
+             "share_token_hash" => share_token_hash,
              "permission" => "view",
              "encrypted_dek" => encrypted_dek,
-             "verification_directory" => %{}
+             "verification_directory" => verification_directory
            } = json_response(conn, 200)
 
     assert document_id == document.id
     assert share_id == created.share.id
-    assert share_slug == created.share_slug
+    assert share_token_hash == created.share.token_hash
     assert is_binary(encrypted_dek)
+
+    assert %{
+             "workspace_devices" => [_],
+             "share_participant_devices" => [_]
+           } = verification_directory
   end
 
-  test "GET /api/shares/f/:folder_token returns shared descendants", %{
+  test "POST /api/shares/f/:folder_token/bootstrap returns shared descendants", %{
     conn: conn,
     document: document,
     owner_id: owner_id
@@ -340,11 +427,7 @@ defmodule RefMDWeb.ShareControllerTest do
     {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     {:ok, bootstrapped} =
-      Sharing.bootstrap_participant(created.share_slug, %{
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => valid_signing_public_key(),
-        "device_encryption_pub_key" => valid_encryption_public_key()
-      })
+      bootstrap_share_participant(created, "Guest User")
 
     share_session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
@@ -354,11 +437,17 @@ defmodule RefMDWeb.ShareControllerTest do
         "cookie",
         "_refmd_share_session=#{share_session_token}"
       )
-      |> get("/api/shares/f/#{landing.root.folder_token}")
+      |> post(
+        "/api/shares/f/#{landing.root.folder_token}/bootstrap",
+        %{
+          "authenticated_workspace_pin_bootstrap_hash" =>
+            created.share.authenticated_workspace_pin_bootstrap_hash
+        }
+      )
 
     assert %{
              "share_id" => share_id,
-             "share_slug" => share_slug,
+             "share_token_hash" => share_token_hash,
              "password_protected" => false,
              "folder" => root_folder,
              "entries" => entries
@@ -366,11 +455,11 @@ defmodule RefMDWeb.ShareControllerTest do
              json_response(conn, 200)
 
     assert share_id == created.share.id
-    assert share_slug == created.share_slug
+    assert share_token_hash == created.share.token_hash
     assert root_folder["share_id"] == created.share.id
     assert root_folder["parent_id"] == nil
     assert is_binary(root_folder["encrypted_dek"])
-    assert is_nil(root_folder["nonce"])
+    assert is_binary(root_folder["nonce"])
 
     shared_entry = Enum.find(entries, &(&1["id"] == shared_document.id))
     assert is_binary(shared_entry["share_id"])
@@ -384,21 +473,27 @@ defmodule RefMDWeb.ShareControllerTest do
              Base.url_encode64(shared_document.encrypted_title_nonce, padding: false)
 
     assert is_binary(shared_entry["encrypted_dek"])
-    assert is_nil(shared_entry["nonce"])
+    assert is_binary(shared_entry["nonce"])
 
     nested_folder_entry = Enum.find(entries, &(&1["id"] == nested_folder.id))
     assert is_binary(nested_folder_entry["share_id"])
     refute nested_folder_entry["share_id"] == created.share.id
     assert is_binary(nested_folder_entry["folder_token"])
     assert is_binary(nested_folder_entry["encrypted_dek"])
-    assert is_nil(nested_folder_entry["nonce"])
+    assert is_binary(nested_folder_entry["nonce"])
 
     refute Enum.any?(entries, &(&1["id"] == nested_document.id))
 
     nested_conn =
       build_conn()
       |> put_req_header("cookie", "_refmd_share_session=#{share_session_token}")
-      |> get("/api/shares/f/#{nested_folder_entry["folder_token"]}")
+      |> post(
+        "/api/shares/f/#{nested_folder_entry["folder_token"]}/bootstrap",
+        %{
+          "authenticated_workspace_pin_bootstrap_hash" =>
+            created.share.authenticated_workspace_pin_bootstrap_hash
+        }
+      )
 
     assert %{"folder" => nested_folder_root, "entries" => nested_entries} =
              json_response(nested_conn, 200)
@@ -412,6 +507,6 @@ defmodule RefMDWeb.ShareControllerTest do
     refute nested_entry["share_id"] == created.share.id
     assert is_binary(nested_entry["document_token"])
     assert is_binary(nested_entry["encrypted_dek"])
-    assert is_nil(nested_entry["nonce"])
+    assert is_binary(nested_entry["nonce"])
   end
 end

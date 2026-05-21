@@ -40,45 +40,42 @@ defmodule RefMDWeb.AuthShareSessionTest do
   defp create_share(document, owner_id) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
-    {:ok, created} =
-      Sharing.create_share(document, owner_id, %{
+    workspace_pin_bootstrap_hash = Process.get(:workspace_pin_bootstrap_hash)
+
+    attrs =
+      with_test_share_security_artifacts(document, owner_id, %{
         "id" => Ecto.UUID.generate(),
         "scope" => "document",
         "share_slug" => share_slug,
         "token_prefix" => String.slice(share_slug, 0, 4),
         "permission" => "view",
         "password_protected" => false,
-        "encrypted_dek" => :crypto.strong_rand_bytes(32),
-        "nonce" => nil
+        "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash,
+        "authorization_public_key_material" =>
+          share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+        "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+        "encrypted_dek" => :crypto.strong_rand_bytes(48),
+        "nonce" => :crypto.strong_rand_bytes(24)
       })
 
+    {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+
     created
-  end
-
-  defp valid_signing_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_ed25519_public_key?(key), do: key, else: valid_signing_public_key()
-  end
-
-  defp valid_encryption_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_x25519_public_key?(key), do: key, else: valid_encryption_public_key()
   end
 
   setup do
     owner_id = create_user("owner-auth-share@example.com")
     {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Auth Share Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
     document = create_document(workspace.id, owner_id)
     created = create_share(document, owner_id)
 
     {:ok, user_session, user_token} = Auth.create_session(owner_id)
 
     {:ok, bootstrapped} =
-      Sharing.bootstrap_participant(created.share_slug, %{
-        "display_name" => "Guest User",
-        "device_signing_pub_key" => valid_signing_public_key(),
-        "device_encryption_pub_key" => valid_encryption_public_key()
-      })
+      bootstrap_share_participant(created, "Guest User")
 
     %{
       user_session: user_session,
@@ -197,5 +194,46 @@ defmodule RefMDWeb.AuthShareSessionTest do
     assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: topic}
     assert topic == "share_socket:#{share_principal_id}"
     assert_receive {:device_revoked, ^share_device_id}
+  end
+
+  test "POST /api/auth/logout for user session preserves share participant session", %{
+    conn: conn,
+    user_cookie: user_cookie,
+    share_cookie: share_cookie
+  } do
+    conn =
+      conn
+      |> put_req_header(
+        "cookie",
+        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+      )
+      |> post("/api/auth/logout")
+
+    assert json_response(conn, 200) == %{"ok" => true}
+    assert conn.resp_cookies["_refmd_session"].max_age == 0
+    refute Map.has_key?(conn.resp_cookies, "_refmd_share_session")
+    assert {:error, _reason} = Auth.get_valid_session_by_token_base64(user_cookie)
+
+    assert {:ok, _share_session} =
+             Sharing.get_valid_participant_session_by_token_base64(share_cookie)
+  end
+
+  test "POST /api/auth/logout for secure user logout clears mount session cookie", %{
+    conn: conn,
+    user_cookie: user_cookie,
+    share_cookie: share_cookie
+  } do
+    conn =
+      conn
+      |> put_req_header(
+        "cookie",
+        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}; _refmd_mount_session=mount-session"
+      )
+      |> post("/api/auth/logout", %{"clear_mount_session" => true})
+
+    assert json_response(conn, 200) == %{"ok" => true}
+    assert conn.resp_cookies["_refmd_session"].max_age == 0
+    assert conn.resp_cookies["_refmd_mount_session"].max_age == 0
+    refute Map.has_key?(conn.resp_cookies, "_refmd_share_session")
   end
 end

@@ -1,3 +1,7 @@
+import type { CryptoRequestType } from "../types/request";
+
+export const workerSend: unique symbol = Symbol("worker-send");
+
 export interface CryptoWorkerClientMethodContext {
-  send(type: string, payload: unknown): Promise<unknown>;
+  [workerSend](type: CryptoRequestType, payload: unknown): Promise<unknown>;
 }

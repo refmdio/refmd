@@ -95,7 +95,8 @@ export function AccountSection() {
                   Keep credentials on this device
                 </Label>
                 <p class="text-xs text-muted-foreground">
-                  If unchecked, you will need to enter your password next time you log in.
+                  Turning this off performs Secure Logout: saved credentials and local encrypted
+                  caches are removed from this browser.
                 </p>
               </div>
             </div>

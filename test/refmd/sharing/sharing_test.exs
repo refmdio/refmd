@@ -1,16 +1,20 @@
-defmodule RefMD.SharingTest do
+defmodule RefMD.Sharing.SharingTest do
   use RefMD.DataCase, async: true
 
-  alias RefMD.Crypto.Blake3
+  alias RefMD.Crypto.{Blake3, JCS, Signature}
   alias RefMD.Documents
   alias RefMD.Repo
   alias RefMD.Sharing
 
-  alias RefMD.Sharing.{ServerEnvelope, Share, ShareExclusion, ShareKey, SharePasswordChallenge}
+  alias RefMD.Sharing.{Share, ShareExclusion, ShareKey, SharePasswordChallenge}
 
   alias RefMD.Users.User
   alias RefMD.Workspaces
+
   alias RefMD.Workspaces.{WorkspaceMember, WorkspaceRole}
+
+  defp workspace_pin_bootstrap_hash,
+    do: Process.get(:workspace_pin_bootstrap_hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
   defp create_user(email) do
     user_id = Ecto.UUID.generate()
@@ -65,19 +69,27 @@ defmodule RefMD.SharingTest do
       "token_prefix" => String.slice(share_slug, 0, 4),
       "permission" => Keyword.get(opts, :permission, "view"),
       "password_protected" => false,
-      "encrypted_dek" => :crypto.strong_rand_bytes(32),
-      "nonce" => nil,
-      "access_limit" => Keyword.get(opts, :access_limit),
-      "expires_at" => Keyword.get(opts, :expires_at)
+      "authorization_public_key_material" =>
+        share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+      "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+      "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24),
+      "max_views" => Keyword.get(opts, :max_views),
+      "expires_event_sequence" => Keyword.get(opts, :expires_event_sequence)
     }
   end
 
   defp create_password_protected_share_attrs(opts) do
     auth_key = Keyword.get(opts, :auth_key, :crypto.strong_rand_bytes(32))
+    attrs = create_share_attrs(opts)
 
-    create_share_attrs(opts)
+    attrs
     |> Map.merge(%{
       "password_protected" => true,
+      "authorization_public_key_material" =>
+        share_capability_public_key_material_for_slug(auth_key, attrs["share_slug"]),
+      "auth_key" => auth_key,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24),
       "salt" => :crypto.strong_rand_bytes(16),
@@ -87,14 +99,46 @@ defmodule RefMD.SharingTest do
         "iterations" => 3,
         "parallelism" => 4,
         "hash_length" => 32
-      },
-      "auth_key" => auth_key
+      }
     })
   end
 
-  defp valid_signing_public_key do
-    key = :crypto.strong_rand_bytes(32)
-    if RefMD.Crypto.valid_ed25519_public_key?(key), do: key, else: valid_signing_public_key()
+  defp create_share(document, owner_id, attrs) do
+    Sharing.create_share(
+      document,
+      owner_id,
+      with_test_share_security_artifacts(document, owner_id, attrs)
+    )
+  end
+
+  defp delete_share(document_id, share_id) do
+    share = Repo.get!(Share, share_id)
+
+    Sharing.delete_share(
+      document_id,
+      share_id,
+      with_test_share_management_append(share, "share_revoked")
+    )
+  end
+
+  defp update_share_exclusions(document_id, share_id, attrs) do
+    share = Repo.get!(Share, share_id)
+
+    Sharing.update_share_exclusions(
+      document_id,
+      share_id,
+      with_test_share_management_append(share, "share_exclusion_changed", attrs)
+    )
+  end
+
+  defp update_share_keys(document_id, share_id, attrs) do
+    share = Repo.get!(Share, share_id)
+
+    Sharing.update_share_keys(
+      document_id,
+      share_id,
+      with_test_share_scope_key_directory_append(share, attrs)
+    )
   end
 
   defp valid_encryption_public_key do
@@ -102,19 +146,91 @@ defmodule RefMD.SharingTest do
     if RefMD.Crypto.valid_x25519_public_key?(key), do: key, else: valid_encryption_public_key()
   end
 
+  defp valid_share_participant_device_attrs(attrs) do
+    device_id = Ecto.UUID.generate()
+    private = hybrid_signing_private_key_material("share_participant_device", device_id)
+    public = hybrid_signing_public_key_material(private)
+    encryption_public_key = valid_encryption_public_key()
+
+    encryption =
+      hybrid_encryption_public_key_material(
+        "share_participant_device",
+        device_id,
+        encryption_public_key
+      )
+
+    Map.merge(
+      %{
+        "share_participant_principal_id" => Ecto.UUID.generate(),
+        "share_participant_device_id" => device_id,
+        "share_participant_session_id" => Ecto.UUID.generate(),
+        "__share_participant_private_material" => private,
+        "hybrid_signing_public_key_material" => public,
+        "hybrid_encryption_public_key_material" => encryption.public
+      },
+      attrs
+    )
+  end
+
+  defp respond_share_password_challenge(created, attrs, authorization_secret) do
+    attrs = attach_share_participant_device_authorization(attrs, created, authorization_secret)
+
+    case Sharing.respond_password_challenge(created.share_slug, attrs) do
+      {:ok, bootstrapped} ->
+        {:ok, bootstrapped}
+
+      other ->
+        other
+    end
+  end
+
+  defp share_password_challenge_response(auth_key, %{challenge: challenge}) do
+    :crypto.mac(:hmac, :sha256, auth_key, challenge)
+  end
+
+  defp password_challenge_hash(share_slug) do
+    share_slug
+    |> Base.url_decode64!(padding: false)
+    |> Blake3.hash_base64url()
+  end
+
   defp create_device(user_id) do
-    {signing_public_key, _signing_private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    device_id = Ecto.UUID.generate()
+    keys = hybrid_device_material(device_id)
     {ecdh_public_key, _ecdh_private_key} = :crypto.generate_key(:ecdh, :x25519)
+    encryption = hybrid_encryption_public_key_material("device", device_id, ecdh_public_key)
+    client_nonce = :crypto.strong_rand_bytes(16)
 
     {:ok, device} =
       RefMD.Devices.create_device(%{
+        id: device_id,
         user_id: user_id,
         name: "Browser",
         device_type: "browser",
-        ecdh_public_key: ecdh_public_key,
-        signing_public_key: signing_public_key,
-        identity_signature: :crypto.strong_rand_bytes(64),
-        client_nonce: :crypto.strong_rand_bytes(16)
+        hybrid_encryption_public_key_material: encryption.public,
+        encryption_key_id: encryption.encryption_key_id,
+        hybrid_signing_public_key_material: keys.public,
+        signing_key_id: keys.signing_key_id,
+        approval_signature:
+          genesis_device_bootstrap_signature(
+            user_id,
+            device_id,
+            keys.public,
+            ecdh_public_key,
+            encryption.public,
+            client_nonce
+          ),
+        approval_signature_surface: "genesis_device_bootstrap",
+        approval_proof:
+          genesis_device_approval_proof(
+            user_id,
+            device_id,
+            keys.public,
+            ecdh_public_key,
+            encryption.public,
+            client_nonce
+          ),
+        client_nonce: client_nonce
       })
 
     device
@@ -122,31 +238,52 @@ defmodule RefMD.SharingTest do
 
   defp insert_document_signer!(attrs) do
     now = DateTime.utc_now()
+    document = Documents.get_document(attrs.document_id)
+    authority = document_signer_authority(attrs, document)
 
     Repo.insert_all(RefMD.Documents.DocumentSignerKey, [
       %{
         document_id: attrs.document_id,
-        signer_kind: attrs.signer_kind,
-        share_id: Map.get(attrs, :share_id),
-        principal_id: Map.get(attrs, :principal_id),
-        user_id: Map.get(attrs, :user_id),
-        device_id: attrs.device_id,
-        context_key:
-          [
-            attrs.signer_kind,
-            Map.get(attrs, :share_id) || "-",
-            Map.get(attrs, :principal_id) || "-",
-            Map.get(attrs, :user_id) || "-",
-            attrs.device_id
-          ]
-          |> Enum.join(":"),
-        signing_public_key: attrs.signing_public_key,
-        encryption_public_key: attrs.encryption_public_key,
+        authority_kind: authority.kind,
+        authority_id: authority.id,
+        authority_context_key: authority.context_key,
+        authority_scope_id: authority.scope_id,
+        authority_permission_version: 1,
+        key_checkpoint_sequence: 1,
+        key_checkpoint_hash: Blake3.hash_base64url("test-key-checkpoint"),
+        owner_kind: document_signer_owner_kind(attrs),
+        owner_id: attrs.device_id,
+        hybrid_signing_public_key_material: attrs.hybrid_signing_public_key_material,
+        signing_key_id:
+          Signature.compute_signing_key_id!(attrs.hybrid_signing_public_key_material),
         first_seen_at: now,
         last_seen_at: now
       }
     ])
   end
+
+  defp document_signer_authority(%{signer_kind: "workspace"} = attrs, document) do
+    %{
+      kind: "workspace_device",
+      id: document.workspace_id,
+      context_key: attrs.device_id,
+      scope_id: document.workspace_id
+    }
+  end
+
+  defp document_signer_authority(%{signer_kind: "share_participant"} = attrs, document) do
+    %{
+      kind: "share_participant_device",
+      id: attrs.share_id,
+      context_key: "#{attrs.share_id}:#{attrs.principal_id}",
+      scope_id: document.id
+    }
+  end
+
+  defp document_signer_owner_kind(%{signer_kind: "share_participant"}),
+    do: "share_participant_device"
+
+  defp document_signer_owner_kind(_attrs), do: "device"
 
   defp create_folder_share_attrs(nodes, opts \\ []) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
@@ -160,43 +297,31 @@ defmodule RefMD.SharingTest do
       "token_prefix" => String.slice(share_slug, 0, 4),
       "permission" => Keyword.get(opts, :permission, "view"),
       "password_protected" => password_protected,
-      "encrypted_dek" => :crypto.strong_rand_bytes(if(password_protected, do: 48, else: 32)),
-      "nonce" => if(password_protected, do: :crypto.strong_rand_bytes(24), else: nil),
+      "authorization_public_key_material" =>
+        share_capability_public_key_material_for_slug(
+          Keyword.get(opts, :auth_key, open_admission_key()),
+          share_slug
+        ),
+      "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+      "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24),
       "share_keys" => Enum.map(nodes, &folder_share_key_attrs(&1, password_protected)),
       "salt" => Keyword.get(opts, :salt),
-      "kdf_params" => Keyword.get(opts, :kdf_params),
       "auth_key" => Keyword.get(opts, :auth_key),
+      "kdf_params" => Keyword.get(opts, :kdf_params),
       "exclusions" => Keyword.get(opts, :exclusions)
     }
   end
 
-  defp folder_share_key_attrs(document, password_protected \\ false) do
+  defp folder_share_key_attrs(document, _password_protected \\ false) do
     %{
       "share_id" => Ecto.UUID.generate(),
       "document_id" => document.id,
-      "encrypted_dek" => :crypto.strong_rand_bytes(if(password_protected, do: 48, else: 32)),
-      "nonce" => if(password_protected, do: :crypto.strong_rand_bytes(24), else: nil)
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24)
     }
   end
-
-  defp legacy_server_wrap(plaintext, purpose, share_id, document_id \\ nil) do
-    aad =
-      %{protocol: "refmd", version: 1}
-      |> Map.merge(%{purpose: purpose, share_id: share_id})
-      |> maybe_put_document_id(document_id)
-      |> Jason.encode!()
-
-    nonce = :crypto.strong_rand_bytes(12)
-    key = :binary.copy(<<1>>, 32)
-
-    {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, plaintext, aad, 16, true)
-
-    %{ciphertext: ciphertext <> tag, nonce: nonce, key_id: "test-share-key"}
-  end
-
-  defp maybe_put_document_id(aad, nil), do: aad
-  defp maybe_put_document_id(aad, document_id), do: Map.put(aad, :document_id, document_id)
 
   defp insert_child_share_without_key!(root_share, document, owner_id, opts \\ []) do
     token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
@@ -209,12 +334,20 @@ defmodule RefMD.SharingTest do
         scope: Keyword.get(opts, :scope, "document"),
         token_hash: token,
         token_prefix: String.slice(token, 0, 4),
-        slug_ciphertext: :crypto.strong_rand_bytes(32),
-        slug_nonce: :crypto.strong_rand_bytes(12),
-        slug_key_id: "test",
         permission: "view",
         password_protected: false,
-        access_count: 0,
+        authorization_public_key_material: nil,
+        share_capability_secret_commitment: root_share.share_capability_secret_commitment,
+        password_capability_secret_commitment: root_share.password_capability_secret_commitment,
+        capability_context_hash: root_share.capability_context_hash,
+        created_event_hash: root_share.created_event_hash,
+        authenticated_workspace_pin_bootstrap_hash:
+          root_share.authenticated_workspace_pin_bootstrap_hash,
+        authenticated_workspace_pin_bootstrap_checkpoint:
+          root_share.authenticated_workspace_pin_bootstrap_checkpoint,
+        max_views: root_share.max_views,
+        expires_event_sequence: root_share.expires_event_sequence,
+        view_count: 0,
         created_by: owner_id
       })
     )
@@ -226,6 +359,8 @@ defmodule RefMD.SharingTest do
     document = create_document(workspace.id, owner_id)
     folder = create_folder(workspace.id, owner_id)
     {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
 
     %{
       owner_id: owner_id,
@@ -242,11 +377,10 @@ defmodule RefMD.SharingTest do
   } do
     attrs = create_share_attrs()
 
-    assert {:ok, result} = Sharing.create_share(document, owner_id, attrs)
+    assert {:ok, result} = create_share(document, owner_id, attrs)
     assert result.share.document_id == document.id
     assert result.share.permission == attrs["permission"]
     assert result.share_slug == attrs["share_slug"]
-    assert is_binary(result.share_manage_token)
 
     assert {:ok, landing} = Sharing.get_share_landing(attrs["share_slug"])
     assert landing.share.id == result.share.id
@@ -254,33 +388,209 @@ defmodule RefMD.SharingTest do
     assert is_binary(landing.root.document_token)
   end
 
+  test "create_share/3 rejects share capability material with the wrong owner id", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    attrs = create_share_attrs()
+
+    invalid_material =
+      attrs["authorization_public_key_material"]
+      |> Map.put("owner_id", Blake3.hash_base64url("wrong-share-token"))
+
+    assert {:error, {:invalid_public_key, :authorization_public_key_material}} =
+             create_share(
+               document,
+               owner_id,
+               Map.put(attrs, "authorization_public_key_material", invalid_material)
+             )
+  end
+
+  test "root share changeset rejects authorization material that does not match token_hash", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    token_hash = Blake3.hash_base64url("root-share-token")
+    material = share_capability_public_key_material(open_admission_key(), token_hash)
+
+    assert %{valid?: true} =
+             Share.changeset(%Share{}, %{
+               id: Ecto.UUID.generate(),
+               document_id: document.id,
+               scope: "document",
+               token_hash: token_hash,
+               token_prefix: "abcd",
+               permission: "view",
+               password_protected: false,
+               authorization_public_key_material: material,
+               share_capability_secret_commitment: open_share_capability_secret_commitment(),
+               password_capability_secret_commitment: "none",
+               capability_context_hash: Blake3.hash_base64url("capability-context"),
+               created_event_hash: Blake3.hash_base64url("created-event"),
+               authenticated_workspace_pin_bootstrap_hash: workspace_pin_bootstrap_hash(),
+               authenticated_workspace_pin_bootstrap_checkpoint: %{},
+               max_views: 9_007_199_254_740_991,
+               expires_event_sequence: 9_007_199_254_740_991,
+               view_count: 0,
+               created_by: owner_id
+             })
+
+    invalid_material = Map.put(material, "owner_id", Blake3.hash_base64url("other-share-token"))
+
+    assert %{valid?: false, errors: errors} =
+             Share.changeset(%Share{}, %{
+               id: Ecto.UUID.generate(),
+               document_id: document.id,
+               scope: "document",
+               token_hash: token_hash,
+               token_prefix: "abcd",
+               permission: "view",
+               password_protected: false,
+               authorization_public_key_material: invalid_material,
+               share_capability_secret_commitment: open_share_capability_secret_commitment(),
+               password_capability_secret_commitment: "none",
+               capability_context_hash: Blake3.hash_base64url("capability-context"),
+               created_event_hash: Blake3.hash_base64url("created-event"),
+               authenticated_workspace_pin_bootstrap_hash: workspace_pin_bootstrap_hash(),
+               authenticated_workspace_pin_bootstrap_checkpoint: %{},
+               max_views: 9_007_199_254_740_991,
+               expires_event_sequence: 9_007_199_254_740_991,
+               view_count: 0,
+               created_by: owner_id
+             })
+
+    assert {"is invalid", _meta} = errors[:authorization_public_key_material]
+  end
+
+  test "child share changeset rejects root share capability public material", %{
+    document: document,
+    folder: folder,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} =
+             create_share(
+               folder,
+               owner_id,
+               create_folder_share_attrs([])
+             )
+
+    child_token_hash = Blake3.hash_base64url("child-share-token")
+
+    assert %{valid?: true} =
+             Share.changeset(%Share{}, %{
+               id: Ecto.UUID.generate(),
+               document_id: document.id,
+               parent_share_id: created.share.id,
+               scope: "document",
+               token_hash: child_token_hash,
+               token_prefix: "abcd",
+               permission: "view",
+               password_protected: false,
+               authorization_public_key_material: nil,
+               share_capability_secret_commitment:
+                 created.share.share_capability_secret_commitment,
+               password_capability_secret_commitment:
+                 created.share.password_capability_secret_commitment,
+               capability_context_hash: created.share.capability_context_hash,
+               created_event_hash: created.share.created_event_hash,
+               authenticated_workspace_pin_bootstrap_hash:
+                 created.share.authenticated_workspace_pin_bootstrap_hash,
+               authenticated_workspace_pin_bootstrap_checkpoint:
+                 created.share.authenticated_workspace_pin_bootstrap_checkpoint,
+               max_views: created.share.max_views,
+               expires_event_sequence: created.share.expires_event_sequence,
+               view_count: 0,
+               created_by: owner_id
+             })
+
+    assert %{valid?: false, errors: errors} =
+             Share.changeset(%Share{}, %{
+               id: Ecto.UUID.generate(),
+               document_id: document.id,
+               parent_share_id: created.share.id,
+               scope: "document",
+               token_hash: child_token_hash,
+               token_prefix: "abcd",
+               permission: "view",
+               password_protected: false,
+               authorization_public_key_material: created.share.authorization_public_key_material,
+               share_capability_secret_commitment:
+                 created.share.share_capability_secret_commitment,
+               password_capability_secret_commitment:
+                 created.share.password_capability_secret_commitment,
+               capability_context_hash: created.share.capability_context_hash,
+               created_event_hash: created.share.created_event_hash,
+               authenticated_workspace_pin_bootstrap_hash:
+                 created.share.authenticated_workspace_pin_bootstrap_hash,
+               authenticated_workspace_pin_bootstrap_checkpoint:
+                 created.share.authenticated_workspace_pin_bootstrap_checkpoint,
+               max_views: created.share.max_views,
+               expires_event_sequence: created.share.expires_event_sequence,
+               view_count: 0,
+               created_by: owner_id
+             })
+
+    assert {"is invalid", _meta} = errors[:authorization_public_key_material]
+  end
+
+  test "share_created key directory body rejects non share-capability authorization material" do
+    material =
+      share_capability_public_key_material(open_admission_key(), Blake3.hash_base64url("share"))
+      |> Map.put("owner_kind", "device")
+      |> Map.put("owner_id", Ecto.UUID.generate())
+
+    body = %{
+      "workspace_id" => Ecto.UUID.generate(),
+      "share_id" => Ecto.UUID.generate(),
+      "scope_kind" => "document",
+      "scope_id" => Ecto.UUID.generate(),
+      "permission" => "view",
+      "share_key_version" => 1,
+      "password_protected" => false,
+      "authorization_public_key_material" => material,
+      "authorization_public_key_material_hash" =>
+        Blake3.hash_base64url(JCS.canonical_bytes!(material)),
+      "share_capability_secret_commitment" => Blake3.hash_base64url("share-capability"),
+      "password_capability_secret_commitment" => "none",
+      "password_auth_metadata_hash" => "none",
+      "max_views" => 9_007_199_254_740_991,
+      "expires_event_sequence" => 9_007_199_254_740_991,
+      "redeem_authority_policy" => "capability_url",
+      "capability_context_hash" => Blake3.hash_base64url("capability-context")
+    }
+
+    assert_raise ArgumentError, "authorization_public_key_material_owner_kind_invalid", fn ->
+      RefMD.Encryption.KeyDirectory.Share.assert!("share_created", body)
+    end
+  end
+
   test "create_share/3 rejects archived root documents", %{document: document, owner_id: owner_id} do
     assert {:ok, archived_document} = Documents.archive_document(document)
 
     assert {:error, {:invalid_value, :document_id}} =
-             Sharing.create_share(archived_document, owner_id, create_share_attrs())
+             create_share(archived_document, owner_id, create_share_attrs())
   end
 
   test "create_share/3 rejects archived root folders", %{folder: folder, owner_id: owner_id} do
     assert {:ok, archived_folder} = Documents.archive_document(folder)
 
     assert {:error, {:invalid_value, :document_id}} =
-             Sharing.create_share(archived_folder, owner_id, create_folder_share_attrs([]))
+             create_share(archived_folder, owner_id, create_folder_share_attrs([]))
   end
 
-  test "create_share/3 accepts access_limit on edit shares", %{
+  test "create_share/3 accepts max_views on edit shares", %{
     document: document,
     owner_id: owner_id
   } do
     assert {:ok, result} =
-             Sharing.create_share(
+             create_share(
                document,
                owner_id,
-               create_share_attrs(permission: "edit", access_limit: 1)
+               create_share_attrs(permission: "edit", max_views: 1)
              )
 
     assert result.share.permission == "edit"
-    assert result.share.access_limit == 1
+    assert result.share.max_views == 1
   end
 
   test "create_share/3 rejects password material on open shares", %{
@@ -296,50 +606,13 @@ defmodule RefMD.SharingTest do
       })
 
     assert {:error, {:invalid_value, :password_protected}} =
-             Sharing.create_share(document, owner_id, attrs)
+             create_share(document, owner_id, attrs)
   end
 
-  test "create_share/3 rejects nonce on open shares", %{document: document, owner_id: owner_id} do
-    attrs = Map.put(create_share_attrs(), "nonce", :crypto.strong_rand_bytes(24))
+  test "create_share/3 rejects missing nonce on shares", %{document: document, owner_id: owner_id} do
+    attrs = Map.put(create_share_attrs(), "nonce", nil)
 
-    assert {:error, :invalid_nonce} = Sharing.create_share(document, owner_id, attrs)
-  end
-
-  test "server envelope decrypts legacy AAD rows" do
-    share_id = Ecto.UUID.generate()
-    document_id = Ecto.UUID.generate()
-    slug = :crypto.strong_rand_bytes(16)
-    dek = :crypto.strong_rand_bytes(32)
-    auth_key = :crypto.strong_rand_bytes(32)
-
-    wrapped_slug = legacy_server_wrap(slug, "share_slug_server_wrap", share_id)
-    wrapped_dek = legacy_server_wrap(dek, "share_dek_server_wrap", share_id, document_id)
-    wrapped_auth_key = legacy_server_wrap(auth_key, "share_auth_key_server_wrap", share_id)
-
-    assert {:ok, ^slug} =
-             ServerEnvelope.decrypt_share_slug(
-               wrapped_slug.ciphertext,
-               wrapped_slug.nonce,
-               wrapped_slug.key_id,
-               share_id
-             )
-
-    assert {:ok, ^dek} =
-             ServerEnvelope.decrypt_share_dek(
-               wrapped_dek.ciphertext,
-               wrapped_dek.nonce,
-               wrapped_dek.key_id,
-               share_id,
-               document_id
-             )
-
-    assert {:ok, ^auth_key} =
-             ServerEnvelope.decrypt_share_auth_key(
-               wrapped_auth_key.ciphertext,
-               wrapped_auth_key.nonce,
-               wrapped_auth_key.key_id,
-               share_id
-             )
+    assert {:error, :invalid_nonce} = create_share(document, owner_id, attrs)
   end
 
   test "bootstrap_participant/2 issues a share session and canonical bootstrap", %{
@@ -347,16 +620,13 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     attrs = create_share_attrs(permission: "edit")
-    assert {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+    assert {:ok, created} = create_share(document, owner_id, attrs)
+
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
-    participant = %{
-      "display_name" => "Guest User",
-      "device_signing_pub_key" => valid_signing_public_key(),
-      "device_encryption_pub_key" => valid_encryption_public_key()
-    }
+    participant = valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
 
-    assert {:ok, bootstrapped} = Sharing.bootstrap_participant(created.share_slug, participant)
+    assert {:ok, bootstrapped} = bootstrap_share_participant(created, participant)
     assert bootstrapped.root.document_token == landing.root.document_token
     assert bootstrapped.participant.grant == "edit"
     assert bootstrapped.session.grant == "edit"
@@ -368,14 +638,144 @@ defmodule RefMD.SharingTest do
     |> Repo.update!()
 
     assert {:ok, canonical} =
-             Sharing.get_document_bootstrap(landing.root.document_token, session_token_base64)
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert canonical.share_id == created.share.id
     assert canonical.document_id == document.id
     assert canonical.permission == "edit"
-    assert canonical.share_slug == created.share_slug
+    assert canonical.share_token_hash == created.share.token_hash
     assert is_binary(canonical.encrypted_dek)
-    assert is_nil(canonical.nonce)
+    assert byte_size(canonical.nonce) == 24
+  end
+
+  test "bootstrap_participant/2 requires share capability authorization", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} = create_share(document, owner_id, create_share_attrs())
+
+    attrs =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
+      |> attach_share_participant_device_authorization(created)
+      |> Map.delete("share_capability_authorization")
+
+    assert {:error, {:missing_field, :share_capability_authorization}} =
+             Sharing.bootstrap_participant(created.share_slug, attrs)
+  end
+
+  test "bootstrap_participant/2 rejects capability authorization from wrong secret", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} = create_share(document, owner_id, create_share_attrs())
+
+    attrs =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
+      |> attach_share_participant_device_authorization(created)
+      |> put_in(
+        ["share_capability_authorization", "signature", "ed25519"],
+        Base.url_encode64(<<0::512>>, padding: false)
+      )
+
+    assert {:error, :invalid_share_capability_authorization} =
+             Sharing.bootstrap_participant(created.share_slug, attrs)
+  end
+
+  test "bootstrap_participant/2 establishes slug-only share participant session", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} =
+             create_share(document, owner_id, create_share_attrs(max_views: 1))
+
+    participant =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
+
+    assert {:ok, bootstrapped} = bootstrap_share_participant(created, participant)
+
+    assert bootstrapped.participant.device_id == participant["share_participant_device_id"]
+    assert %{view_count: 0} = Repo.get!(Share, created.share.id)
+
+    session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
+
+    assert {:ok, landing} = Sharing.get_share_landing(created.share_slug, session_token_base64)
+
+    assert {:ok, _canonical} =
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
+
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
+  end
+
+  test "bootstrap_participant/2 rejects share participant device id reuse", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} = create_share(document, owner_id, create_share_attrs(max_views: 2))
+
+    participant =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
+
+    assert {:ok, _bootstrapped} = bootstrap_share_participant(created, participant)
+
+    assert {:error, :participant_device_id_reused} =
+             bootstrap_share_participant(created, participant)
+  end
+
+  test "max_views reserves admission without updating view_count before canonical open",
+       %{
+         document: document,
+         owner_id: owner_id
+       } do
+    assert {:ok, created} =
+             create_share(document, owner_id, create_share_attrs(max_views: 1))
+
+    assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
+
+    first_participant = valid_share_participant_device_attrs(%{"display_name" => "First Guest"})
+    second_participant = valid_share_participant_device_attrs(%{"display_name" => "Second Guest"})
+
+    assert {:ok, first_bootstrapped} = bootstrap_share_participant(created, first_participant)
+    assert %{view_count: 0} = Repo.get!(Share, created.share.id)
+    assert {:error, :not_found} = bootstrap_share_participant(created, second_participant)
+
+    assert {:ok, first_canonical} =
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               Base.url_encode64(first_bootstrapped.session_token, padding: false),
+               workspace_pin_bootstrap_hash()
+             )
+
+    assert first_canonical.document_id == document.id
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
+
+    assert {:ok, resumed_first_canonical} =
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               Base.url_encode64(first_bootstrapped.session_token, padding: false),
+               workspace_pin_bootstrap_hash()
+             )
+
+    assert resumed_first_canonical.document_id == document.id
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
+
+    third_participant =
+      %{"display_name" => "Third Guest"}
+      |> valid_share_participant_device_attrs()
+
+    assert {:error, :not_found} = bootstrap_share_participant(created, third_participant)
+    assert {:error, :not_found} = bootstrap_share_participant(created, first_participant)
   end
 
   test "document share participant verification directory exposes edit participant devices only",
@@ -384,28 +784,20 @@ defmodule RefMD.SharingTest do
          owner_id: owner_id
        } do
     assert {:ok, view_share} =
-             Sharing.create_share(document, owner_id, create_share_attrs(permission: "view"))
+             create_share(document, owner_id, create_share_attrs(permission: "view"))
 
-    view_signing_key = valid_signing_public_key()
+    view_participant = valid_share_participant_device_attrs(%{"display_name" => "View Guest"})
 
-    assert {:ok, _view_bootstrap} =
-             Sharing.bootstrap_participant(view_share.share_slug, %{
-               "display_name" => "View Guest",
-               "device_signing_pub_key" => view_signing_key,
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+    assert {:ok, _view_bootstrap} = bootstrap_share_participant(view_share, view_participant)
 
     assert {:ok, edit_share} =
-             Sharing.create_share(document, owner_id, create_share_attrs(permission: "edit"))
-
-    edit_signing_key = valid_signing_public_key()
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
 
     assert {:ok, edit_bootstrap} =
-             Sharing.bootstrap_participant(edit_share.share_slug, %{
-               "display_name" => "Edit Guest",
-               "device_signing_pub_key" => edit_signing_key,
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               edit_share,
+               valid_share_participant_device_attrs(%{"display_name" => "Edit Guest"})
+             )
 
     directory = Sharing.document_share_participant_verification_directory(document.id)
 
@@ -417,7 +809,10 @@ defmodule RefMD.SharingTest do
 
     refute Enum.any?(
              directory.share_participant_devices,
-             &(&1.signing_public_key == Base.url_encode64(view_signing_key, padding: false))
+             &(&1.signing_key_id ==
+                 Signature.compute_signing_key_id!(
+                   view_participant["hybrid_signing_public_key_material"]
+                 ))
            )
   end
 
@@ -429,18 +824,17 @@ defmodule RefMD.SharingTest do
     child_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([child_document], permission: "edit")
              )
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Folder Guest",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Folder Guest"})
+             )
 
     directory = Sharing.document_share_participant_verification_directory(child_document.id)
 
@@ -451,10 +845,11 @@ defmodule RefMD.SharingTest do
            )
   end
 
-  test "verification directories include devices from users who saved a share mount", %{
-    document: document,
-    owner_id: owner_id
-  } do
+  test "verification directories do not treat saved mount workspace devices as share participants",
+       %{
+         document: document,
+         owner_id: owner_id
+       } do
     mount_user_id = create_user("mounted-reader@example.com")
 
     {:ok, mount_workspace} =
@@ -463,7 +858,7 @@ defmodule RefMD.SharingTest do
     mount_device = create_device(mount_user_id)
 
     assert {:ok, created} =
-             Sharing.create_share(document, owner_id, create_share_attrs(permission: "edit"))
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
 
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
@@ -472,12 +867,14 @@ defmodule RefMD.SharingTest do
                "workspace_id" => mount_workspace.id,
                "share_slug" => created.share_slug,
                "target_kind" => "document",
-               "target_token" => landing.root.document_token
+               "target_token" => landing.root.document_token,
+               "authenticated_workspace_pin_bootstrap_hash" =>
+                 created.share.authenticated_workspace_pin_bootstrap_hash
              })
 
     directory = Sharing.verification_directory(created.share.id, document.id)
 
-    assert Enum.any?(
+    refute Enum.any?(
              directory.share_participant_devices,
              &(&1.share_id == created.share.id and &1.principal_id == mount_user_id and
                  &1.device_id == mount_device.id)
@@ -485,7 +882,7 @@ defmodule RefMD.SharingTest do
 
     document_directory = Sharing.document_share_participant_verification_directory(document.id)
 
-    assert Enum.any?(
+    refute Enum.any?(
              document_directory.share_participant_devices,
              &(&1.share_id == created.share.id and &1.principal_id == mount_user_id and
                  &1.device_id == mount_device.id)
@@ -496,18 +893,13 @@ defmodule RefMD.SharingTest do
     document: document,
     owner_id: owner_id
   } do
-    signing_key = valid_signing_public_key()
-    encryption_key = valid_encryption_public_key()
+    participant = valid_share_participant_device_attrs(%{"display_name" => "Former Guest"})
 
     assert {:ok, created} =
-             Sharing.create_share(document, owner_id, create_share_attrs(permission: "edit"))
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Former Guest",
-               "device_signing_pub_key" => signing_key,
-               "device_encryption_pub_key" => encryption_key
-             })
+             bootstrap_share_participant(created, participant)
 
     insert_document_signer!(%{
       document_id: document.id,
@@ -515,18 +907,19 @@ defmodule RefMD.SharingTest do
       share_id: created.share.id,
       principal_id: bootstrapped.participant.principal_id,
       device_id: bootstrapped.participant.device_id,
-      signing_public_key: signing_key,
-      encryption_public_key: encryption_key
+      hybrid_signing_public_key_material: participant["hybrid_signing_public_key_material"]
     })
 
-    assert :ok = Sharing.delete_share(document.id, created.share.id, created.share_manage_token)
+    assert :ok = delete_share(document.id, created.share.id)
 
     directory = Sharing.document_share_participant_verification_directory(document.id)
-    encoded_signing_key = Base.url_encode64(signing_key, padding: false)
+
+    signing_key_id =
+      Signature.compute_signing_key_id!(participant["hybrid_signing_public_key_material"])
 
     assert Enum.any?(
              directory.share_participant_devices,
-             &(&1.signing_public_key == encoded_signing_key and
+             &(&1.signing_key_id == signing_key_id and
                  &1.device_id == bootstrapped.participant.device_id and
                  &1.historical == true and
                  is_nil(&1.display_name))
@@ -537,28 +930,28 @@ defmodule RefMD.SharingTest do
     document: document,
     owner_id: owner_id
   } do
-    device = create_device(owner_id)
-
     assert {:ok, created} =
-             Sharing.create_share(document, owner_id, create_share_attrs(permission: "edit"))
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
+
+    {%RefMD.Devices.Device{} = device, _private_material} =
+      Process.get({:test_share_actor_device, owner_id})
 
     insert_document_signer!(%{
       document_id: document.id,
       signer_kind: "workspace",
       user_id: owner_id,
       device_id: device.id,
-      signing_public_key: device.signing_public_key,
-      encryption_public_key: device.ecdh_public_key
+      hybrid_signing_public_key_material: device.hybrid_signing_public_key_material
     })
 
     Repo.delete!(device)
 
     directory = Sharing.verification_directory(created.share.id, document.id)
-    encoded_signing_key = Base.url_encode64(device.signing_public_key, padding: false)
+    signing_key_id = Signature.compute_signing_key_id!(device.hybrid_signing_public_key_material)
 
     assert Enum.any?(
              directory.workspace_devices,
-             &(&1.signing_public_key == encoded_signing_key and &1.device_id == device.id and
+             &(&1.signing_key_id == signing_key_id and &1.device_id == device.id and
                  &1.historical == true)
            )
   end
@@ -568,12 +961,12 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     attrs = create_share_attrs()
-    assert {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+    assert {:ok, created} = create_share(document, owner_id, attrs)
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
-    assert {:ok, response} = Sharing.get_document_bootstrap(landing.root.document_token, nil)
+    assert {:ok, response} = Sharing.get_document_bootstrap(landing.root.document_token, nil, nil)
     assert response.bootstrap_required == true
-    assert response.share_slug == created.share_slug
+    assert response.share_token_hash == created.share.token_hash
   end
 
   test "password-protected share requires challenge flow before issuing a participant session", %{
@@ -583,45 +976,110 @@ defmodule RefMD.SharingTest do
     auth_key = :crypto.strong_rand_bytes(32)
     attrs = create_password_protected_share_attrs(auth_key: auth_key)
 
-    assert {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+    assert {:ok, created} = create_share(document, owner_id, attrs)
     assert created.share.password_protected
 
     share_key = Repo.get!(ShareKey, created.share.id)
     assert share_key.salt == attrs["salt"]
     assert share_key.kdf_params == attrs["kdf_params"]
-    assert is_binary(share_key.encrypted_auth_key)
-    assert is_binary(share_key.auth_key_nonce)
 
-    participant = %{
-      "display_name" => "Guest User",
-      "device_signing_pub_key" => valid_signing_public_key(),
-      "device_encryption_pub_key" => valid_encryption_public_key()
-    }
+    participant =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
 
     assert {:error, :password_required} =
-             Sharing.bootstrap_participant(created.share_slug, participant)
+             bootstrap_share_participant(created, participant, auth_key)
 
     assert {:ok, challenge} = Sharing.get_password_challenge(created.share_slug)
     assert challenge.salt == attrs["salt"]
     assert challenge.kdf_params == attrs["kdf_params"]
 
-    response = :crypto.mac(:hmac, :sha256, auth_key, challenge.challenge)
-
     assert {:ok, bootstrapped} =
              Sharing.respond_password_challenge(
                created.share_slug,
-               Map.put(participant, "response", response)
+               participant
+               |> Map.put("response", share_password_challenge_response(auth_key, challenge))
+               |> Map.put("password_challenge_hash", password_challenge_hash(created.share_slug))
+               |> attach_share_participant_device_authorization(created, auth_key)
              )
 
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
-    {:ok, landing} = Sharing.get_share_landing(created.share_slug)
+
+    {:ok, landing} = Sharing.get_share_landing(created.share_slug, session_token_base64)
 
     assert {:ok, canonical} =
-             Sharing.get_document_bootstrap(landing.root.document_token, session_token_base64)
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert canonical.password_protected == true
     assert canonical.share_id == created.share.id
     assert canonical.nonce == attrs["nonce"]
+  end
+
+  test "password challenge returns dummy values after max_views is reached", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    auth_key = :crypto.strong_rand_bytes(32)
+    attrs = create_password_protected_share_attrs(auth_key: auth_key, max_views: 1)
+
+    assert {:ok, created} = create_share(document, owner_id, attrs)
+
+    participant =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
+
+    assert {:ok, challenge} = Sharing.get_password_challenge(created.share_slug)
+
+    assert {:ok, bootstrapped} =
+             Sharing.respond_password_challenge(
+               created.share_slug,
+               participant
+               |> Map.put("response", share_password_challenge_response(auth_key, challenge))
+               |> Map.put("password_challenge_hash", password_challenge_hash(created.share_slug))
+               |> attach_share_participant_device_authorization(created, auth_key)
+             )
+
+    session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
+
+    {:ok, landing} = Sharing.get_share_landing(created.share_slug, session_token_base64)
+
+    assert {:ok, _canonical} =
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
+
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
+    assert {:ok, blocked_challenge} = Sharing.get_password_challenge(created.share_slug)
+    refute blocked_challenge.salt == attrs["salt"]
+    assert blocked_challenge.kdf_params == challenge.kdf_params
+
+    assert {:error, :not_found} =
+             Sharing.respond_password_challenge(
+               created.share_slug,
+               participant
+               |> Map.put(
+                 "response",
+                 share_password_challenge_response(auth_key, blocked_challenge)
+               )
+               |> Map.put("password_challenge_hash", password_challenge_hash(created.share_slug))
+               |> attach_share_participant_device_authorization(created, auth_key)
+             )
+
+    assert {:ok, resumed_canonical} =
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
+
+    assert resumed_canonical.document_id == document.id
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
   end
 
   test "password challenge returns dummy salt for a non-existent share slug" do
@@ -654,7 +1112,7 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     attrs = create_password_protected_share_attrs(auth_key: :crypto.strong_rand_bytes(32))
-    assert {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+    assert {:ok, created} = create_share(document, owner_id, attrs)
 
     assert {:ok, first} = Sharing.get_password_challenge(created.share_slug)
     assert {:ok, second} = Sharing.get_password_challenge(created.share_slug)
@@ -703,17 +1161,13 @@ defmodule RefMD.SharingTest do
     child_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([child_document]))
+             create_share(folder, owner_id, create_folder_share_attrs([child_document]))
 
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
-    participant = %{
-      "display_name" => "Guest User",
-      "device_signing_pub_key" => valid_signing_public_key(),
-      "device_encryption_pub_key" => valid_encryption_public_key()
-    }
+    participant = valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
 
-    assert {:ok, bootstrapped} = Sharing.bootstrap_participant(created.share_slug, participant)
+    assert {:ok, bootstrapped} = bootstrap_share_participant(created, participant)
 
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
 
@@ -722,10 +1176,14 @@ defmodule RefMD.SharingTest do
     )
 
     assert {:ok, response} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token_base64)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert response.bootstrap_required == true
-    assert response.share_slug == created.share_slug
+    assert response.share_token_hash == created.share.token_hash
   end
 
   test "folder shares expose descendant documents and folders", %{
@@ -741,20 +1199,20 @@ defmodule RefMD.SharingTest do
         permission: "edit"
       )
 
-    assert {:ok, created} = Sharing.create_share(folder, owner_id, attrs)
+    assert {:ok, created} = create_share(folder, owner_id, attrs)
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
-    participant = %{
-      "display_name" => "Guest User",
-      "device_signing_pub_key" => valid_signing_public_key(),
-      "device_encryption_pub_key" => valid_encryption_public_key()
-    }
+    participant = valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
 
-    assert {:ok, bootstrapped} = Sharing.bootstrap_participant(created.share_slug, participant)
+    assert {:ok, bootstrapped} = bootstrap_share_participant(created, participant)
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token_base64)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert folder_bootstrap.share_id == created.share.id
     assert folder_bootstrap.password_protected == false
@@ -766,7 +1224,7 @@ defmodule RefMD.SharingTest do
     refute child_folder_entry.share_id == created.share.id
     assert is_binary(child_folder_entry.folder_token)
     assert is_binary(child_folder_entry.encrypted_dek)
-    assert is_nil(child_folder_entry.nonce)
+    assert byte_size(child_folder_entry.nonce) == 24
 
     visible_entry = Enum.find(folder_bootstrap.entries, &(&1.id == visible_document.id))
     assert is_binary(visible_entry.share_id)
@@ -775,12 +1233,16 @@ defmodule RefMD.SharingTest do
     assert visible_entry.encrypted_title == visible_document.encrypted_title
     assert visible_entry.encrypted_title_nonce == visible_document.encrypted_title_nonce
     assert is_binary(visible_entry.encrypted_dek)
-    assert is_nil(visible_entry.nonce)
+    assert byte_size(visible_entry.nonce) == 24
 
     refute Enum.any?(folder_bootstrap.entries, &(&1.id == nested_document.id))
 
     assert {:ok, nested_folder_bootstrap} =
-             Sharing.get_folder_bootstrap(child_folder_entry.folder_token, session_token_base64)
+             Sharing.get_folder_bootstrap(
+               child_folder_entry.folder_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert nested_folder_bootstrap.folder.parent_id == nil
     assert nested_folder_bootstrap.folder.share_id == child_folder_entry.share_id
@@ -792,15 +1254,19 @@ defmodule RefMD.SharingTest do
     assert nested_folder_entry.parent_id == child_folder.id
     assert is_binary(nested_folder_entry.share_id)
     assert is_binary(nested_folder_entry.encrypted_dek)
-    assert is_nil(nested_folder_entry.nonce)
+    assert byte_size(nested_folder_entry.nonce) == 24
 
     assert {:ok, canonical} =
-             Sharing.get_document_bootstrap(visible_entry.document_token, session_token_base64)
+             Sharing.get_document_bootstrap(
+               visible_entry.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert canonical.share_id == visible_entry.share_id
     assert canonical.document_id == visible_document.id
     assert canonical.permission == "edit"
-    assert canonical.share_slug == created.share_slug
+    assert canonical.share_token_hash == created.share.token_hash
 
     assert {:ok, {nil, []}} =
              Documents.get_initial_document_data_for_share(visible_document.id, created.share.id)
@@ -836,17 +1302,16 @@ defmodule RefMD.SharingTest do
 
     child_share = Repo.get!(Share, visible_entry.share_id)
 
-    assert {:ok, child_slug_bytes} =
-             ServerEnvelope.decrypt_share_slug(
-               child_share.slug_ciphertext,
-               child_share.slug_nonce,
-               child_share.slug_key_id,
-               child_share.id
-             )
+    refute is_nil(child_share.parent_share_id)
+    refute child_share.token_hash == created.share.token_hash
+    assert child_share.authorization_public_key_material == nil
+    assert {:error, :invalid_slug} = Sharing.get_share_landing(child_share.token_hash)
 
-    child_share_slug = Base.url_encode64(child_slug_bytes, padding: false)
-    assert {:error, :not_found} = Sharing.get_share_landing(child_share_slug)
-    assert {:error, :not_found} = Sharing.bootstrap_participant(child_share_slug, participant)
+    assert {:error, :invalid_token} =
+             Sharing.bootstrap_participant(
+               child_share.token_hash,
+               participant
+             )
 
     assert {:ok, _moved_document} =
              Documents.update_document(visible_document, %{"parent_id" => nil})
@@ -865,15 +1330,23 @@ defmodule RefMD.SharingTest do
              )
 
     assert {:error, :not_found} =
-             Sharing.get_document_bootstrap(visible_entry.document_token, session_token_base64)
+             Sharing.get_document_bootstrap(
+               visible_entry.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert {:error, :not_found} =
-             Sharing.get_document_bootstrap(visible_entry.document_token, nil)
+             Sharing.get_document_bootstrap(visible_entry.document_token, nil, nil)
 
     assert {:ok, _moved_folder} = Documents.update_document(child_folder, %{"parent_id" => nil})
 
     assert {:error, :not_found} =
-             Sharing.get_folder_bootstrap(child_folder_entry.folder_token, session_token_base64)
+             Sharing.get_folder_bootstrap(
+               child_folder_entry.folder_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
   end
 
   test "folder share creation skips excluded descendants", %{
@@ -890,7 +1363,7 @@ defmodule RefMD.SharingTest do
         exclusions: [excluded_document.id, excluded_folder.id]
       )
 
-    assert {:ok, created} = Sharing.create_share(folder, owner_id, attrs)
+    assert {:ok, created} = create_share(folder, owner_id, attrs)
 
     assert Repo.get_by(ShareExclusion,
              share_id: created.share.id,
@@ -913,16 +1386,19 @@ defmodule RefMD.SharingTest do
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     entry_ids = Enum.map(folder_bootstrap.entries, & &1.id)
 
@@ -953,28 +1429,35 @@ defmodule RefMD.SharingTest do
         nested_document
       ])
 
-    assert {:ok, created} = Sharing.create_share(folder, owner_id, attrs)
+    assert {:ok, created} = create_share(folder, owner_id, attrs)
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
     share_id = created.share.id
     visible_document_id = visible_document.id
 
     assert {:ok, initial_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     target_entry = Enum.find(initial_bootstrap.entries, &(&1.id == target_document.id))
     child_folder_entry = Enum.find(initial_bootstrap.entries, &(&1.id == child_folder.id))
 
     assert {:ok, nested_bootstrap} =
-             Sharing.get_folder_bootstrap(child_folder_entry.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               child_folder_entry.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     nested_entry = Enum.find(nested_bootstrap.entries, &(&1.id == nested_document.id))
 
@@ -1009,10 +1492,9 @@ defmodule RefMD.SharingTest do
     )
 
     assert {:ok, result} =
-             Sharing.update_share_exclusions(
+             update_share_exclusions(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add" => [target_document.id, child_folder.id]}
              )
 
@@ -1033,7 +1515,11 @@ defmodule RefMD.SharingTest do
     refute_receive %Phoenix.Socket.Broadcast{event: "disconnect"}, 50
 
     assert {:ok, updated_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     updated_entry_ids = Enum.map(updated_bootstrap.entries, & &1.id)
 
@@ -1042,29 +1528,44 @@ defmodule RefMD.SharingTest do
     refute child_folder.id in updated_entry_ids
 
     assert {:error, :not_found} =
-             Sharing.get_document_bootstrap(target_entry.document_token, session_token)
+             Sharing.get_document_bootstrap(
+               target_entry.document_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert {:error, :not_found} =
-             Sharing.get_folder_bootstrap(child_folder_entry.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               child_folder_entry.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert {:error, :not_found} =
-             Sharing.get_document_bootstrap(nested_entry.document_token, session_token)
+             Sharing.get_document_bootstrap(
+               nested_entry.document_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     refute Sharing.can_read_document?(created.share.id, target_document.id)
     refute Sharing.can_read_document?(created.share.id, nested_document.id)
 
     assert {:ok, result} =
-             Sharing.update_share_exclusions(
+             update_share_exclusions(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"remove" => [child_folder.id]}
              )
 
     assert result.exclusions == [target_document.id]
 
     assert {:ok, final_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     final_entry_ids = Enum.map(final_bootstrap.entries, & &1.id)
 
@@ -1080,18 +1581,17 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([], exclusions: [target_document.id])
              )
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     Phoenix.PubSub.subscribe(
       RefMD.PubSub,
@@ -1104,10 +1604,9 @@ defmodule RefMD.SharingTest do
     )
 
     assert {:ok, %{exclusions: []}} =
-             Sharing.update_share_exclusions(
+             update_share_exclusions(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"remove" => [target_document.id]}
              )
 
@@ -1120,21 +1619,24 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([]))
+             create_share(folder, owner_id, create_folder_share_attrs([]))
 
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, initial_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert initial_bootstrap.entries == []
 
@@ -1143,10 +1645,9 @@ defmodule RefMD.SharingTest do
     nested_document = create_document(folder.workspace_id, owner_id, new_folder.id)
 
     assert {:ok, result} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "add_keys" => [
                    folder_share_key_attrs(new_document),
@@ -1165,7 +1666,11 @@ defmodule RefMD.SharingTest do
     assert Repo.get_by(Share, parent_share_id: created.share.id, document_id: nested_document.id)
 
     assert {:ok, updated_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     document_entry = Enum.find(updated_bootstrap.entries, &(&1.id == new_document.id))
     folder_entry = Enum.find(updated_bootstrap.entries, &(&1.id == new_folder.id))
@@ -1174,7 +1679,11 @@ defmodule RefMD.SharingTest do
     assert is_binary(folder_entry.folder_token)
 
     assert {:ok, nested_bootstrap} =
-             Sharing.get_folder_bootstrap(folder_entry.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               folder_entry.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert Enum.any?(nested_bootstrap.entries, &(&1.id == nested_document.id))
     assert Sharing.can_read_document?(created.share.id, new_document.id)
@@ -1188,7 +1697,7 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document])
@@ -1198,20 +1707,19 @@ defmodule RefMD.SharingTest do
       Repo.get_by!(Share, parent_share_id: created.share.id, document_id: target_document.id)
 
     original_share_key = Repo.get!(ShareKey, child_share.id)
-    replacement_encrypted_dek = :crypto.strong_rand_bytes(32)
+    replacement_encrypted_dek = :crypto.strong_rand_bytes(48)
 
     assert {:ok, result} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "replace_keys" => [
                    %{
                      "share_id" => child_share.id,
                      "document_id" => target_document.id,
                      "encrypted_dek" => replacement_encrypted_dek,
-                     "nonce" => nil
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ]
                }
@@ -1222,17 +1730,9 @@ defmodule RefMD.SharingTest do
     assert result.replaced == [target_document.id]
 
     updated_share_key = Repo.get!(ShareKey, child_share.id)
-    assert is_nil(updated_share_key.nonce)
+    assert byte_size(updated_share_key.nonce) == 24
+    assert updated_share_key.encrypted_dek == replacement_encrypted_dek
     refute updated_share_key.encrypted_dek == original_share_key.encrypted_dek
-
-    assert {:ok, ^replacement_encrypted_dek} =
-             ServerEnvelope.decrypt_share_dek(
-               updated_share_key.encrypted_dek,
-               updated_share_key.dek_server_nonce,
-               updated_share_key.server_key_id,
-               child_share.id,
-               target_document.id
-             )
   end
 
   test "password-protected folder share keys can be added and replaced", %{
@@ -1242,7 +1742,7 @@ defmodule RefMD.SharingTest do
     auth_key = :crypto.strong_rand_bytes(32)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([],
@@ -1262,10 +1762,9 @@ defmodule RefMD.SharingTest do
     added_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, %{added: [added_document_id], replaced: []}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(added_document, true)]}
              )
 
@@ -1277,10 +1776,9 @@ defmodule RefMD.SharingTest do
     replacement_nonce = :crypto.strong_rand_bytes(24)
 
     assert {:ok, %{added: [], replaced: [replaced_document_id]}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "replace_keys" => [
                    %{
@@ -1297,66 +1795,71 @@ defmodule RefMD.SharingTest do
     assert {:ok, challenge} = Sharing.get_password_challenge(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.respond_password_challenge(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key(),
-               "response" => :crypto.mac(:hmac, :sha256, auth_key, challenge.challenge)
-             })
+             respond_share_password_challenge(
+               created,
+               valid_share_participant_device_attrs(%{
+                 "display_name" => "Guest User",
+                 "response" => share_password_challenge_response(auth_key, challenge),
+                 "password_challenge_hash" => password_challenge_hash(created.share_slug)
+               }),
+               auth_key
+             )
 
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     entry = Enum.find(folder_bootstrap.entries, &(&1.id == added_document.id))
 
     assert entry.nonce == replacement_nonce
   end
 
-  test "folder share key update rejects nonce on open shares", %{
+  test "folder share key update rejects missing nonce", %{
     folder: folder,
     owner_id: owner_id
   } do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([target_document]))
+             create_share(folder, owner_id, create_folder_share_attrs([target_document]))
 
     child_share =
       Repo.get_by!(Share, parent_share_id: created.share.id, document_id: target_document.id)
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "add_keys" => [
                    %{
                      "share_id" => Ecto.UUID.generate(),
                      "document_id" =>
                        create_document(folder.workspace_id, owner_id, folder.id).id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => :crypto.strong_rand_bytes(24)
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => nil
                    }
                  ]
                }
              )
 
     assert {:error, {:invalid_value, :replace_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "replace_keys" => [
                    %{
                      "share_id" => child_share.id,
                      "document_id" => target_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => :crypto.strong_rand_bytes(24)
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => nil
                    }
                  ]
                }
@@ -1370,7 +1873,7 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document])
@@ -1379,16 +1882,19 @@ defmodule RefMD.SharingTest do
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     target_entry = Enum.find(folder_bootstrap.entries, &(&1.id == target_document.id))
     unshared_folder = create_folder(folder.workspace_id, owner_id, folder.id)
@@ -1399,23 +1905,26 @@ defmodule RefMD.SharingTest do
     refute Sharing.can_read_document?(created.share.id, moved_document.id)
 
     assert {:error, :not_found} =
-             Sharing.get_document_bootstrap(target_entry.document_token, session_token)
+             Sharing.get_document_bootstrap(
+               target_entry.document_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     child_share =
       Repo.get_by!(Share, parent_share_id: created.share.id, document_id: moved_document.id)
 
     assert {:error, {:invalid_value, :replace_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "replace_keys" => [
                    %{
                      "share_id" => child_share.id,
                      "document_id" => moved_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => nil
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ]
                }
@@ -1430,7 +1939,7 @@ defmodule RefMD.SharingTest do
     nested_document = create_document(folder.workspace_id, owner_id, child_folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([child_folder, nested_document])
@@ -1439,16 +1948,19 @@ defmodule RefMD.SharingTest do
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     child_folder_entry = Enum.find(folder_bootstrap.entries, &(&1.id == child_folder.id))
     unshared_folder = create_folder(folder.workspace_id, owner_id, folder.id)
@@ -1457,7 +1969,11 @@ defmodule RefMD.SharingTest do
              Documents.update_document(child_folder, %{"parent_id" => unshared_folder.id})
 
     assert {:error, :not_found} =
-             Sharing.get_folder_bootstrap(child_folder_entry.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               child_folder_entry.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     refute Sharing.can_read_document?(created.share.id, moved_folder.id)
     refute Sharing.can_read_document?(created.share.id, nested_document.id)
@@ -1470,24 +1986,23 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document])
              )
 
     assert {:error, {:invalid_value, :replace_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "replace_keys" => [
                    %{
                      "share_id" => Ecto.UUID.generate(),
                      "document_id" => target_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => nil
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ]
                }
@@ -1499,7 +2014,7 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([]))
+             create_share(folder, owner_id, create_folder_share_attrs([]))
 
     added_document = create_document(folder.workspace_id, owner_id, folder.id)
     replace_document = create_document(folder.workspace_id, owner_id, folder.id)
@@ -1508,18 +2023,17 @@ defmodule RefMD.SharingTest do
       insert_child_share_without_key!(created.share, replace_document, owner_id)
 
     assert {:error, {:invalid_value, :replace_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "add_keys" => [folder_share_key_attrs(added_document)],
                  "replace_keys" => [
                    %{
                      "share_id" => child_share_without_key.id,
                      "document_id" => replace_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => nil
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ]
                }
@@ -1533,16 +2047,15 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([]))
+             create_share(folder, owner_id, create_folder_share_attrs([]))
 
     child_folder = create_folder(folder.workspace_id, owner_id, folder.id)
     nested_document = create_document(folder.workspace_id, owner_id, child_folder.id)
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(nested_document)]}
              )
 
@@ -1554,7 +2067,7 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([]))
+             create_share(folder, owner_id, create_folder_share_attrs([]))
 
     child_folder = create_folder(folder.workspace_id, owner_id, folder.id)
     nested_document = create_document(folder.workspace_id, owner_id, child_folder.id)
@@ -1562,10 +2075,9 @@ defmodule RefMD.SharingTest do
     insert_child_share_without_key!(created.share, child_folder, owner_id, scope: "document")
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(nested_document)]}
              )
   end
@@ -1575,7 +2087,7 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([]))
+             create_share(folder, owner_id, create_folder_share_attrs([]))
 
     child_folder = create_folder(folder.workspace_id, owner_id, folder.id)
     nested_document = create_document(folder.workspace_id, owner_id, child_folder.id)
@@ -1583,10 +2095,9 @@ defmodule RefMD.SharingTest do
     insert_child_share_without_key!(created.share, child_folder, owner_id, scope: "folder")
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(nested_document)]}
              )
   end
@@ -1598,7 +2109,7 @@ defmodule RefMD.SharingTest do
     existing_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([existing_document])
@@ -1610,42 +2121,40 @@ defmodule RefMD.SharingTest do
     new_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "add_keys" => [
                    %{
                      "share_id" => child_share.id,
                      "document_id" => new_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => nil
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ]
                }
              )
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{
                  "add_keys" => [
                    %{
                      "share_id" => child_share.id,
                      "document_id" => new_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => nil
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ],
                  "replace_keys" => [
                    %{
                      "share_id" => child_share.id,
                      "document_id" => existing_document.id,
-                     "encrypted_dek" => :crypto.strong_rand_bytes(32),
-                     "nonce" => nil
+                     "encrypted_dek" => :crypto.strong_rand_bytes(48),
+                     "nonce" => :crypto.strong_rand_bytes(24)
                    }
                  ]
                }
@@ -1657,13 +2166,12 @@ defmodule RefMD.SharingTest do
     owner_id: owner_id
   } do
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([]))
+             create_share(folder, owner_id, create_folder_share_attrs([]))
 
     assert {:ok, %{added: [], replaced: []}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [], "replace_keys" => []}
              )
   end
@@ -1675,17 +2183,16 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([], exclusions: [target_document.id])
              )
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(target_document)]}
              )
 
@@ -1699,7 +2206,7 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document])
@@ -1708,16 +2215,19 @@ defmodule RefMD.SharingTest do
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, bootstrapped} =
-             Sharing.bootstrap_participant(created.share_slug, %{
-               "display_name" => "Guest User",
-               "device_signing_pub_key" => valid_signing_public_key(),
-               "device_encryption_pub_key" => valid_encryption_public_key()
-             })
+             bootstrap_share_participant(
+               created,
+               valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
+             )
 
     session_token = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     target_entry = Enum.find(folder_bootstrap.entries, &(&1.id == target_document.id))
     assert is_binary(target_entry.document_token)
@@ -1732,10 +2242,18 @@ defmodule RefMD.SharingTest do
     refute Sharing.can_read_document?(created.share.id, target_document.id)
 
     assert {:error, :not_found} =
-             Sharing.get_document_bootstrap(target_entry.document_token, session_token)
+             Sharing.get_document_bootstrap(
+               target_entry.document_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert {:ok, updated_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token,
+               workspace_pin_bootstrap_hash()
+             )
 
     refute Enum.any?(updated_bootstrap.entries, &(&1.id == target_document.id))
   end
@@ -1747,17 +2265,16 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document])
              )
 
     assert {:error, {:invalid_value, :add_keys}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(target_document)]}
              )
   end
@@ -1769,11 +2286,13 @@ defmodule RefMD.SharingTest do
     target_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document])
              )
+
+    token_hash = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
     assert {:error, changeset} =
              %Share{}
@@ -1782,14 +2301,24 @@ defmodule RefMD.SharingTest do
                document_id: target_document.id,
                parent_share_id: created.share.id,
                scope: "document",
-               token_hash: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
-               token_prefix: "test",
-               slug_ciphertext: :crypto.strong_rand_bytes(32),
-               slug_nonce: :crypto.strong_rand_bytes(12),
-               slug_key_id: "test",
+               token_hash: token_hash,
+               token_prefix: String.slice(token_hash, 0, 4),
                permission: "view",
                password_protected: false,
-               access_count: 0,
+               authorization_public_key_material: nil,
+               share_capability_secret_commitment:
+                 created.share.share_capability_secret_commitment,
+               password_capability_secret_commitment:
+                 created.share.password_capability_secret_commitment,
+               capability_context_hash: created.share.capability_context_hash,
+               created_event_hash: created.share.created_event_hash,
+               authenticated_workspace_pin_bootstrap_hash:
+                 created.share.authenticated_workspace_pin_bootstrap_hash,
+               authenticated_workspace_pin_bootstrap_checkpoint:
+                 created.share.authenticated_workspace_pin_bootstrap_checkpoint,
+               max_views: created.share.max_views,
+               expires_event_sequence: created.share.expires_event_sequence,
+               view_count: 0,
                created_by: owner_id
              })
              |> Repo.insert()
@@ -1801,13 +2330,12 @@ defmodule RefMD.SharingTest do
     document: document,
     owner_id: owner_id
   } do
-    assert {:ok, created} = Sharing.create_share(document, owner_id, create_share_attrs())
+    assert {:ok, created} = create_share(document, owner_id, create_share_attrs())
 
     assert {:error, {:invalid_value, :scope}} =
-             Sharing.update_share_keys(
+             update_share_keys(
                document.id,
                created.share.id,
-               created.share_manage_token,
                %{"add_keys" => [folder_share_key_attrs(document)]}
              )
   end
@@ -1820,17 +2348,16 @@ defmodule RefMD.SharingTest do
     restored_document = create_document(folder.workspace_id, owner_id, folder.id)
 
     assert {:ok, created} =
-             Sharing.create_share(
+             create_share(
                folder,
                owner_id,
                create_folder_share_attrs([target_document], exclusions: [restored_document.id])
              )
 
     assert {:ok, result} =
-             Sharing.update_share_exclusions(
+             update_share_exclusions(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add" => [target_document.id], "remove" => [restored_document.id]}
              )
 
@@ -1841,13 +2368,12 @@ defmodule RefMD.SharingTest do
     document: document,
     owner_id: owner_id
   } do
-    assert {:ok, created} = Sharing.create_share(document, owner_id, create_share_attrs())
+    assert {:ok, created} = create_share(document, owner_id, create_share_attrs())
 
     assert {:error, {:invalid_value, :scope}} =
-             Sharing.update_share_exclusions(
+             update_share_exclusions(
                document.id,
                created.share.id,
-               created.share_manage_token,
                %{"add" => [document.id]}
              )
   end
@@ -1860,13 +2386,12 @@ defmodule RefMD.SharingTest do
     outside_document = create_document(folder.workspace_id, owner_id)
 
     assert {:ok, created} =
-             Sharing.create_share(folder, owner_id, create_folder_share_attrs([child_document]))
+             create_share(folder, owner_id, create_folder_share_attrs([child_document]))
 
     assert {:error, {:invalid_value, :exclusions}} =
-             Sharing.update_share_exclusions(
+             update_share_exclusions(
                folder.id,
                created.share.id,
-               created.share_manage_token,
                %{"add" => [outside_document.id]}
              )
   end
@@ -1881,7 +2406,7 @@ defmodule RefMD.SharingTest do
     attrs = create_folder_share_attrs([shared_document])
 
     assert {:error, {:invalid_value, :share_keys}} =
-             Sharing.create_share(folder, owner_id, attrs)
+             create_share(folder, owner_id, attrs)
 
     assert is_binary(omitted_document.id)
   end
@@ -1907,29 +2432,32 @@ defmodule RefMD.SharingTest do
         auth_key: auth_key
       )
 
-    assert {:ok, created} = Sharing.create_share(folder, owner_id, attrs)
+    assert {:ok, created} = create_share(folder, owner_id, attrs)
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
     assert {:ok, challenge} = Sharing.get_password_challenge(created.share_slug)
 
-    participant = %{
-      "display_name" => "Guest User",
-      "device_signing_pub_key" => valid_signing_public_key(),
-      "device_encryption_pub_key" => valid_encryption_public_key()
-    }
-
-    response = :crypto.mac(:hmac, :sha256, auth_key, challenge.challenge)
+    participant =
+      %{"display_name" => "Guest User"}
+      |> valid_share_participant_device_attrs()
 
     assert {:ok, bootstrapped} =
              Sharing.respond_password_challenge(
                created.share_slug,
-               Map.put(participant, "response", response)
+               participant
+               |> Map.put("response", share_password_challenge_response(auth_key, challenge))
+               |> Map.put("password_challenge_hash", password_challenge_hash(created.share_slug))
+               |> attach_share_participant_device_authorization(created, auth_key)
              )
 
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, folder_bootstrap} =
-             Sharing.get_folder_bootstrap(landing.root.folder_token, session_token_base64)
+             Sharing.get_folder_bootstrap(
+               landing.root.folder_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert folder_bootstrap.password_protected == true
 
@@ -1938,33 +2466,37 @@ defmodule RefMD.SharingTest do
     assert is_binary(child_entry.document_token)
 
     assert {:ok, canonical} =
-             Sharing.get_document_bootstrap(child_entry.document_token, session_token_base64)
+             Sharing.get_document_bootstrap(
+               child_entry.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert canonical.password_protected == true
     assert canonical.document_id == child_document.id
     assert canonical.share_id == child_entry.share_id
   end
 
-  test "access_limit share keeps the admitted session alive but blocks new admissions", %{
+  test "max_views blocks new admissions without revoking admitted session", %{
     document: document,
     owner_id: owner_id
   } do
-    attrs = create_share_attrs(access_limit: 1)
-    assert {:ok, created} = Sharing.create_share(document, owner_id, attrs)
+    attrs = create_share_attrs(max_views: 1)
+    assert {:ok, created} = create_share(document, owner_id, attrs)
     assert {:ok, landing} = Sharing.get_share_landing(created.share_slug)
 
-    participant = %{
-      "display_name" => "Guest User",
-      "device_signing_pub_key" => valid_signing_public_key(),
-      "device_encryption_pub_key" => valid_encryption_public_key()
-    }
+    participant = valid_share_participant_device_attrs(%{"display_name" => "Guest User"})
 
-    assert {:ok, bootstrapped} = Sharing.bootstrap_participant(created.share_slug, participant)
+    assert {:ok, bootstrapped} = bootstrap_share_participant(created, participant)
 
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
 
     assert {:ok, canonical} =
-             Sharing.get_document_bootstrap(landing.root.document_token, session_token_base64)
+             Sharing.get_document_bootstrap(
+               landing.root.document_token,
+               session_token_base64,
+               workspace_pin_bootstrap_hash()
+             )
 
     assert canonical.document_id == document.id
     assert Sharing.can_read_document?(created.share.id, document.id)
@@ -1986,8 +2518,15 @@ defmodule RefMD.SharingTest do
            )
 
     assert Sharing.can_continue_document_session?(created.share.id, document.id)
-    assert {:error, :not_found} = Sharing.bootstrap_participant(created.share_slug, participant)
+
+    second_participant = valid_share_participant_device_attrs(%{"display_name" => "Second Guest"})
+    assert {:error, :not_found} = bootstrap_share_participant(created, second_participant)
     assert {:error, :not_found} = Sharing.get_share_landing(created.share_slug)
+
+    assert {:ok, existing_landing} =
+             Sharing.get_share_landing(created.share_slug, session_token_base64)
+
+    assert existing_landing.root.document_token == landing.root.document_token
   end
 
   test "list_document_shares/3 filters non-admin users to their own shares", %{
@@ -2012,8 +2551,8 @@ defmodule RefMD.SharingTest do
       joined_at: DateTime.utc_now()
     })
 
-    {:ok, owner_share} = Sharing.create_share(document, owner_id, create_share_attrs())
-    {:ok, editor_share} = Sharing.create_share(document, editor_id, create_share_attrs())
+    {:ok, owner_share} = create_share(document, owner_id, create_share_attrs())
+    {:ok, editor_share} = create_share(document, editor_id, create_share_attrs())
 
     owner_visible = Sharing.list_document_shares(document, owner_id, owner_role)
     editor_visible = Sharing.list_document_shares(document, editor_id, editor_role)
@@ -2024,15 +2563,31 @@ defmodule RefMD.SharingTest do
     refute Enum.any?(editor_visible, &(&1.id == owner_share.share.id))
   end
 
-  test "list_document_shares/3 includes restorable share slugs", %{
+  test "list_document_shares/3 does not expose restorable share slugs", %{
     document: document,
     owner_id: owner_id,
     owner_role: owner_role
   } do
-    {:ok, created} = Sharing.create_share(document, owner_id, create_share_attrs())
+    {:ok, created} = create_share(document, owner_id, create_share_attrs())
 
     shares = Sharing.list_document_shares(document, owner_id, owner_role)
 
-    assert Enum.any?(shares, &(&1.id == created.share.id and &1.share_slug == created.share_slug))
+    assert Enum.any?(shares, &(&1.id == created.share.id))
+    refute Enum.any?(shares, &Map.has_key?(&1, :share_slug))
+  end
+
+  test "list_document_shares/3 does not expose workspace pin bootstrap hash", %{
+    document: document,
+    owner_id: owner_id,
+    owner_role: owner_role
+  } do
+    {:ok, created} = create_share(document, owner_id, create_share_attrs())
+
+    shares = Sharing.list_document_shares(document, owner_id, owner_role)
+
+    listed_share = Enum.find(shares, &(&1.id == created.share.id))
+
+    assert listed_share
+    refute Map.has_key?(listed_share, :authenticated_workspace_pin_bootstrap_hash)
   end
 end

@@ -22,9 +22,16 @@ export function attachActiveLeafRouteSync(
     }
     if (!panel) {
       if (getOpenDocuments().size > 0) return;
-      if (window.location.pathname.startsWith("/document/") && !hasSeenDocumentPanel) return;
+      const pathname = window.location.pathname;
+      const routeIsOwnedByDocumentWorkspace =
+        pathname === getEmptyPath() ||
+        pathname.startsWith("/document/") ||
+        pathname.startsWith("/mounts/");
+      if (!routeIsOwnedByDocumentWorkspace) return;
+      if (pathname.startsWith("/document/") && !hasSeenDocumentPanel) return;
+      if (pathname.startsWith("/mounts/") && !hasSeenDocumentPanel) return;
       const nextPath = getEmptyPath();
-      if (window.location.pathname === nextPath) return;
+      if (pathname === nextPath) return;
       navigate(nextPath, { replace: true, scroll: false });
       return;
     }

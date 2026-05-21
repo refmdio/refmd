@@ -2,19 +2,41 @@ import {
   handleBlake3Hash,
   handleCalculateFingerprint,
   handleComputeSas,
-  handleComputeSnapshotProof,
   handleComputeUpdateHash,
-  handleSignDeviceApproval,
-  handleSignDeviceRegistration,
-  handleSignMessage,
-  handleSignPop,
-  handleSignRecoveryChallenge,
-  handleSignSessionProof,
-  handleSignWsEnvelope,
-  handleVerifyDeviceIdentitySignature,
-  handleVerifyEd25519,
-  handleVerifySessionProof,
-  handleVerifyWsSignature,
+  handleCreateDeviceApprovalSignature,
+  handleSignDeviceKeyDeletionProof,
+  handleCreateGenesisDeviceBootstrapSignature,
+  handleCreateRecoveryDeviceApprovalSignature,
+  handleCreateDeviceRevocationSignature,
+  handleVerifyDeviceApprovalProof,
+  handleVerifyGenesisDeviceBootstrapProof,
+  handleVerifyRecoveryDeviceApprovalProof,
+  handleSignDocumentSnapshot,
+  handleSignDocumentUpdate,
+  handleSignEditorEphemeral,
+  handleGenerateInvitationRedeemAuthority,
+  handleSignDeviceKeyDirectoryCheckpoint,
+  handleSignDeviceKeyDirectoryEvent,
+  handleSignIdentityKeyDirectoryCheckpoint,
+  handleSignIdentityKeyDirectoryEvent,
+  handleSignInvitationRedeemKeyDirectoryCheckpoint,
+  handleSignInvitationRedeemKeyDirectoryEvent,
+  handleSignShareParticipantDeviceKeyDirectoryCheckpoint,
+  handleSignShareParticipantDeviceKeyDirectoryEvent,
+  handleSignWorkspacePinBootstrap,
+  handleCreatePopSignature,
+  handleSignRecoverySession,
+  handleSignShareCapabilityAuthorization,
+  handleCreateEditorEphemeralSessionProof,
+  handleSignShareParticipantDeviceAuthorization,
+  handleSignRecipientBoundAuthorization,
+  handleVerifyDocumentSnapshotSignature,
+  handleVerifyDocumentUpdateSignature,
+  handleVerifyEditorEphemeralSignature,
+  handleVerifyKeyDirectoryCheckpointSignature,
+  handleVerifyKeyDirectoryEventSignature,
+  handleVerifyWorkspacePinBootstrapSignature,
+  handleVerifyEditorEphemeralSessionProof,
 } from "../sign";
 import { withCryptoOperationError } from "../utils";
 import type { RequestHandlerTable } from "./shared";
@@ -23,32 +45,131 @@ export const signingRequestHandlers = {
   "blake3-hash": (_, payload) => handleBlake3Hash(payload),
   "calculate-fingerprint": (_, payload) => handleCalculateFingerprint(payload),
   "compute-sas": (_, payload) => handleComputeSas(payload),
-  "compute-snapshot-proof": (_, payload) => handleComputeSnapshotProof(payload),
   "compute-update-hash": (_, payload) => handleComputeUpdateHash(payload),
-  "sign-device-approval": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleSignDeviceApproval(state, payload)),
-  "sign-device-registration": (state, payload) =>
+  "create-device-approval-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
-      handleSignDeviceRegistration(state, payload),
+      handleCreateDeviceApprovalSignature(state, payload),
     ),
-  "sign-message": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleSignMessage(state, payload)),
-  "sign-pop": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleSignPop(state, payload)),
-  "sign-recovery-challenge": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleSignRecoveryChallenge(state, payload)),
-  "sign-session-proof": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleSignSessionProof(state, payload)),
-  "sign-ws-envelope": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleSignWsEnvelope(state, payload)),
-  "verify-device-identity-signature": (_, payload) =>
+  "create-genesis-device-bootstrap-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
-      handleVerifyDeviceIdentitySignature(payload),
+      handleCreateGenesisDeviceBootstrapSignature(state, payload),
     ),
-  "verify-ed25519": (_, payload) =>
-    withCryptoOperationError("signature_failed", () => handleVerifyEd25519(payload)),
-  "verify-session-proof": (_, payload) =>
-    withCryptoOperationError("signature_failed", () => handleVerifySessionProof(payload)),
-  "verify-ws-signature": (_, payload) =>
-    withCryptoOperationError("signature_failed", () => handleVerifyWsSignature(payload)),
+  "create-recovery-device-approval-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleCreateRecoveryDeviceApprovalSignature(state, payload),
+    ),
+  "create-device-revocation-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleCreateDeviceRevocationSignature(state, payload),
+    ),
+  "sign-device-key-deletion-proof": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignDeviceKeyDeletionProof(state, payload),
+    ),
+  "sign-identity-key-directory-checkpoint": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignIdentityKeyDirectoryCheckpoint(state, payload),
+    ),
+  "sign-device-key-directory-checkpoint": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignDeviceKeyDirectoryCheckpoint(state, payload),
+    ),
+  "sign-share-participant-device-key-directory-checkpoint": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignShareParticipantDeviceKeyDirectoryCheckpoint(state, payload),
+    ),
+  "sign-identity-key-directory-event": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignIdentityKeyDirectoryEvent(state, payload),
+    ),
+  "sign-device-key-directory-event": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignDeviceKeyDirectoryEvent(state, payload),
+    ),
+  "sign-share-participant-device-key-directory-event": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignShareParticipantDeviceKeyDirectoryEvent(state, payload),
+    ),
+  "sign-workspace-pin-bootstrap": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignWorkspacePinBootstrap(state, payload),
+    ),
+  "generate-invitation-redeem-authority": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleGenerateInvitationRedeemAuthority(state, payload),
+    ),
+  "sign-invitation-redeem-key-directory-event": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignInvitationRedeemKeyDirectoryEvent(state, payload),
+    ),
+  "sign-invitation-redeem-key-directory-checkpoint": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignInvitationRedeemKeyDirectoryCheckpoint(state, payload),
+    ),
+  "sign-recipient-bound-authorization": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignRecipientBoundAuthorization(state, payload),
+    ),
+  "create-pop-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleCreatePopSignature(state, payload)),
+  "sign-recovery-session": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignRecoverySession(state, payload)),
+  "sign-share-capability-authorization": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignShareCapabilityAuthorization(state, payload),
+    ),
+  "sign-share-participant-device-authorization": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignShareParticipantDeviceAuthorization(state, payload),
+    ),
+  "create-editor-ephemeral-session-proof": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleCreateEditorEphemeralSessionProof(state, payload),
+    ),
+  "sign-document-update": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignDocumentUpdate(state, payload)),
+  "sign-document-snapshot": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignDocumentSnapshot(state, payload)),
+  "sign-editor-ephemeral": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignEditorEphemeral(state, payload)),
+  "verify-genesis-device-bootstrap-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyGenesisDeviceBootstrapProof(state, payload),
+    ),
+  "verify-device-approval-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyDeviceApprovalProof(state, payload),
+    ),
+  "verify-recovery-device-approval-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyRecoveryDeviceApprovalProof(state, payload),
+    ),
+  "verify-editor-ephemeral-session-proof": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyEditorEphemeralSessionProof(state, payload),
+    ),
+  "verify-key-directory-checkpoint-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyKeyDirectoryCheckpointSignature(state, payload),
+    ),
+  "verify-key-directory-event-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyKeyDirectoryEventSignature(state, payload),
+    ),
+  "verify-workspace-pin-bootstrap-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyWorkspacePinBootstrapSignature(state, payload),
+    ),
+  "verify-document-update-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyDocumentUpdateSignature(state, payload),
+    ),
+  "verify-document-snapshot-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyDocumentSnapshotSignature(state, payload),
+    ),
+  "verify-editor-ephemeral-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyEditorEphemeralSignature(state, payload),
+    ),
 } satisfies RequestHandlerTable;

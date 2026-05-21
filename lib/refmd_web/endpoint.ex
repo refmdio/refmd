@@ -14,7 +14,8 @@ defmodule RefMDWeb.Endpoint do
   socket "/api/socket", RefMDWeb.UserSocket,
     websocket: [
       connect_info: [:peer_data, :uri],
-      check_origin: {RefMDWeb.SocketAuth, :check_origin, []}
+      check_origin: {RefMDWeb.Channels.SocketAuth, :check_origin, []},
+      serializer: [{RefMDWeb.Channels.StrictJSONSerializer, "~> 2.0.0"}]
     ],
     longpoll: false
 
@@ -43,6 +44,7 @@ defmodule RefMDWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    body_reader: {RefMDWeb.Http.BodyReader, :read_body, []},
     json_decoder: Phoenix.json_library()
 
   plug Plug.MethodOverride

@@ -1,25 +1,54 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { buildShareDekWrapAad } from "./aad";
+import { HKDF_ZERO_SALT } from "./constants";
 import { randomBytes } from "./encoding";
 
-const shareDekEncryptionKeys = new Map<string, Uint8Array>();
-
-export function setShareDekEncryptionKey(shareSlug: string, key: Uint8Array): void {
-  shareDekEncryptionKeys.set(shareSlug, new Uint8Array(key));
+export function deriveOpenShareDekEncryptionKey(shareAuthorizationSecret: Uint8Array): Uint8Array {
+  return hkdf(
+    sha256,
+    shareAuthorizationSecret,
+    HKDF_ZERO_SALT,
+    new TextEncoder().encode("RefMD:v2:open-share-dek-encryption"),
+    32,
+  );
 }
 
-export function getShareDekEncryptionKey(shareSlug: string): Uint8Array | null {
-  const key = shareDekEncryptionKeys.get(shareSlug);
-  return key ? new Uint8Array(key) : null;
+export function deriveOpenShareAdmissionKey(shareAuthorizationSecret: Uint8Array): Uint8Array {
+  return hkdf(
+    sha256,
+    shareAuthorizationSecret,
+    HKDF_ZERO_SALT,
+    new TextEncoder().encode("RefMD:v2:open-share-admission"),
+    32,
+  );
 }
 
-export function clearShareDekEncryptionKey(shareSlug?: string): void {
-  if (shareSlug) {
-    shareDekEncryptionKeys.delete(shareSlug);
-    return;
-  }
+export function derivePasswordShareDekEncryptionKey(
+  passwordShareDekEncryptionKey: Uint8Array,
+  shareCapabilitySecret: Uint8Array,
+): Uint8Array {
+  return hkdf(
+    sha256,
+    passwordShareDekEncryptionKey,
+    shareCapabilitySecret,
+    new TextEncoder().encode("RefMD:v2:password-share-dek-encryption"),
+    32,
+  );
+}
 
-  shareDekEncryptionKeys.clear();
+export function derivePasswordShareAdmissionKey(
+  passwordCapabilitySecret: Uint8Array,
+  shareCapabilitySecret: Uint8Array,
+): Uint8Array {
+  return hkdf(
+    sha256,
+    passwordCapabilitySecret,
+    shareCapabilitySecret,
+    new TextEncoder().encode("RefMD:v2:password-share-admission"),
+    32,
+  );
 }
 
 export function unwrapShareDek(params: {
