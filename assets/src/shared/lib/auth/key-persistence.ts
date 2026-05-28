@@ -36,6 +36,44 @@ export async function clearSessionData(
   }
 }
 
+export async function clearPersistedLoginKeyMaterial(): Promise<void> {
+  sessionStorage.clear();
+  clearLegacyCryptoCaches();
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith(DEVICE_ID_KEY_PREFIX)) {
+      localStorage.removeItem(key);
+    }
+  }
+
+  await clearAuthBootstrap().catch(() => {});
+
+  const dbNames = ["refmd-keys", "refmd-offline", "refmd-security", "refmd-share-sessions"];
+  const existingDbNames = await persistedDatabaseNames(dbNames);
+  const existingDbNameSet = new Set(existingDbNames);
+  if (existingDbNameSet.has("refmd-keys")) {
+    await overwriteDbEntries("refmd-keys", [
+      "dsk",
+      "device-keys",
+      "wrapped-umk",
+      "wrapped-device-ecdh",
+      "wrapped-device-mlkem768-material",
+      "wrapped-device-hybrid-signing",
+      "auth-bootstrap",
+    ]);
+  }
+  if (existingDbNameSet.has("refmd-offline")) {
+    await overwriteDbEntries("refmd-offline", []);
+  }
+
+  const dbResults = await Promise.all(dbNames.map((name) => deleteDbWithRetry(name)));
+  const failedDbs = dbResults.filter((result) => !result.deleted);
+  if (failedDbs.length > 0) {
+    throw new Error(
+      `Local key reset incomplete: failed to delete ${failedDbs.map((result) => result.name).join(", ")}`,
+    );
+  }
+}
+
 function clearLegacyCryptoCaches(): void {
   for (const key of Object.keys(localStorage)) {
     if (OBSOLETE_CRYPTO_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
@@ -55,40 +93,6 @@ export async function clearAllPersistedKeys(): Promise<void> {
       localStorage.removeItem(key);
     }
   }
-  await overwriteDbEntries("refmd-keys", [
-    "dsk",
-    "device-keys",
-    "wrapped-umk",
-    "wrapped-device-ecdh",
-    "wrapped-device-mlkem768-material",
-    "wrapped-device-hybrid-signing",
-    "auth-bootstrap",
-  ]);
-  await overwriteDbEntries("refmd-trust", []);
-  await overwriteDbEntries("refmd-offline", []);
-  const deleteDb = (
-    name: string,
-    retries = 2,
-  ): Promise<{
-    name: string;
-    deleted: boolean;
-  }> =>
-    new Promise((resolve) => {
-      try {
-        const req = indexedDB.deleteDatabase(name);
-        req.onsuccess = () => resolve({ name, deleted: true });
-        req.onerror = () => resolve({ name, deleted: false });
-        req.onblocked = () => {
-          if (retries > 0) {
-            setTimeout(() => deleteDb(name, retries - 1).then(resolve), 200);
-          } else {
-            resolve({ name, deleted: false });
-          }
-        };
-      } catch {
-        resolve({ name, deleted: false });
-      }
-    });
   const dbNames = [
     "refmd-keys",
     "refmd-trust",
@@ -96,7 +100,26 @@ export async function clearAllPersistedKeys(): Promise<void> {
     "refmd-security",
     "refmd-share-sessions",
   ];
-  const dbResults = await Promise.all(dbNames.map((name) => deleteDb(name)));
+  const existingDbNames = await persistedDatabaseNames(dbNames);
+  const existingDbNameSet = new Set(existingDbNames);
+  if (existingDbNameSet.has("refmd-keys")) {
+    await overwriteDbEntries("refmd-keys", [
+      "dsk",
+      "device-keys",
+      "wrapped-umk",
+      "wrapped-device-ecdh",
+      "wrapped-device-mlkem768-material",
+      "wrapped-device-hybrid-signing",
+      "auth-bootstrap",
+    ]);
+  }
+  if (existingDbNameSet.has("refmd-trust")) {
+    await overwriteDbEntries("refmd-trust", []);
+  }
+  if (existingDbNameSet.has("refmd-offline")) {
+    await overwriteDbEntries("refmd-offline", []);
+  }
+  const dbResults = await Promise.all(dbNames.map((name) => deleteDbWithRetry(name)));
   const failedDbs = dbResults.filter((result) => !result.deleted);
   if (failedDbs.length > 0) {
     throw new Error(
@@ -105,6 +128,66 @@ export async function clearAllPersistedKeys(): Promise<void> {
   }
 
   await clearCacheStorage();
+}
+
+async function persistedDatabaseNames(names: readonly string[]): Promise<readonly string[]> {
+  if (typeof indexedDB.databases !== "function") return names;
+  try {
+    const existing = new Set(
+      (await indexedDB.databases())
+        .map((database) => database.name)
+        .filter((name): name is string => typeof name === "string" && name.length > 0),
+    );
+    return names.filter((name) => existing.has(name));
+  } catch {
+    return names;
+  }
+}
+
+function deleteDbWithRetry(
+  name: string,
+  retries = 20,
+): Promise<{
+  name: string;
+  deleted: boolean;
+}> {
+  return new Promise((resolve) => {
+    const retry = (remaining: number) => {
+      if (remaining <= 0) {
+        resolve({ name, deleted: false });
+        return;
+      }
+      setTimeout(() => attempt(remaining - 1), 250);
+    };
+    const finishIfAbsent = (remaining: number) => {
+      verifyDatabaseAbsent(name)
+        .then((absent) => {
+          if (absent) {
+            resolve({ name, deleted: true });
+            return;
+          }
+          retry(remaining);
+        })
+        .catch(() => retry(remaining));
+    };
+    const attempt = (remaining: number) => {
+      try {
+        const req = indexedDB.deleteDatabase(name);
+        req.onsuccess = () => finishIfAbsent(remaining);
+        req.onerror = () => retry(remaining);
+        req.onblocked = () => retry(remaining);
+      } catch {
+        retry(remaining);
+      }
+    };
+    attempt(retries);
+  });
+}
+
+async function verifyDatabaseAbsent(name: string): Promise<boolean> {
+  if (typeof indexedDB.databases !== "function") return true;
+  const existing = await persistedDatabaseNames([name]);
+  return existing.length === 0;
 }
 
 async function clearCacheStorage(): Promise<void> {

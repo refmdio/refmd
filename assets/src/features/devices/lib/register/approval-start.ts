@@ -5,14 +5,15 @@ import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
+import { joinPendingRegistrationSecurityNotifications } from "@/shared/lib/security/notification-channel";
 import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
-import { joinRegistrationDeviceEvents } from "../events/channel";
 import type { DeviceRegistrationPublicKeys } from "../../model/register/types";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 
 interface StartRegistrationApprovalParams {
   publicKeys: DeviceRegistrationPublicKeys;
   identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  signal?: AbortSignal;
   shouldKeepWaiting: () => boolean;
   onReauthRequired: () => void;
   onApproved: (deviceId: string) => Promise<void>;
@@ -35,22 +36,27 @@ export async function startRegistrationApproval(
   const clientNonce = await worker.generateClientNonce();
 
   try {
-    const challenge = await devicesApi.registrationChallenge();
-    const registration = await devicesApi.createRegistration({
-      name: getDeviceName(),
-      device_type: getDeviceType(),
-      device_id: params.publicKeys.deviceId,
-      identity_signing_key_id: computeSigningKeyId(params.identityHybridSigningPublicKeyMaterial),
-      device_hybrid_encryption_public_key_material:
-        params.publicKeys.hybridEncryptionPublicKeyMaterial,
-      device_encryption_key_id: params.publicKeys.encryptionKeyId,
-      device_hybrid_signing_public_key_material: params.publicKeys.hybridSigningPublicKeyMaterial,
-      device_signing_key_id: params.publicKeys.signingKeyId,
-      client_nonce: base64UrlEncode(clientNonce),
-      registration_challenge: challenge.registration_challenge,
-      ake_responder_prekeys: params.publicKeys
-        .initialAkeResponderPrekeys as unknown as RegistrationRequestWithAke["ake_responder_prekeys"],
-    });
+    const challenge = await devicesApi.registrationChallenge({ signal: params.signal });
+    if (params.signal?.aborted) throw createAbortError();
+    const registration = await devicesApi.createRegistration(
+      {
+        name: getDeviceName(),
+        device_type: getDeviceType(),
+        device_id: params.publicKeys.deviceId,
+        identity_signing_key_id: computeSigningKeyId(params.identityHybridSigningPublicKeyMaterial),
+        device_hybrid_encryption_public_key_material:
+          params.publicKeys.hybridEncryptionPublicKeyMaterial,
+        device_encryption_key_id: params.publicKeys.encryptionKeyId,
+        device_hybrid_signing_public_key_material: params.publicKeys.hybridSigningPublicKeyMaterial,
+        device_signing_key_id: params.publicKeys.signingKeyId,
+        client_nonce: base64UrlEncode(clientNonce),
+        registration_challenge: challenge.registration_challenge,
+        ake_responder_prekeys: params.publicKeys
+          .initialAkeResponderPrekeys as unknown as RegistrationRequestWithAke["ake_responder_prekeys"],
+      },
+      { signal: params.signal },
+    );
+    if (params.signal?.aborted) throw createAbortError();
     if (registration.status !== "pending") {
       throw new Error("device_registration_not_pending");
     }
@@ -67,7 +73,7 @@ export async function startRegistrationApproval(
   }
 
   let pollTimer: ReturnType<typeof setInterval> | undefined;
-  let deviceEvents: { dispose: () => void } | undefined;
+  let securityNotifications: { dispose: () => void } | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   let connectionGeneration = 0;
@@ -79,16 +85,16 @@ export async function startRegistrationApproval(
     }
   };
 
-  const clearDeviceEvents = () => {
+  const clearSecurityNotifications = () => {
     connectionGeneration += 1;
-    const activeEvents = deviceEvents;
-    deviceEvents = undefined;
+    const activeEvents = securityNotifications;
+    securityNotifications = undefined;
     activeEvents?.dispose();
   };
 
   const dispose = () => {
     clearPolling();
-    clearDeviceEvents();
+    clearSecurityNotifications();
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = undefined;
@@ -140,7 +146,7 @@ export async function startRegistrationApproval(
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
       if (!settled && params.shouldKeepWaiting() && generation === connectionGeneration) {
-        connectDeviceEvents();
+        connectSecurityNotifications();
       }
     }, delay);
   };
@@ -148,16 +154,16 @@ export async function startRegistrationApproval(
   const handleEventConnectionLoss = (generation: number) => {
     if (settled || generation !== connectionGeneration) return;
 
-    clearDeviceEvents();
+    clearSecurityNotifications();
     startPollingFallback();
     scheduleEventReconnect(connectionGeneration);
   };
 
-  const connectDeviceEvents = () => {
+  const connectSecurityNotifications = () => {
     if (settled) return;
     const generation = connectionGeneration;
 
-    joinRegistrationDeviceEvents(params.publicKeys.deviceId, {
+    joinPendingRegistrationSecurityNotifications(params.publicKeys.deviceId, {
       onApproved: () => {
         void approve();
       },
@@ -177,7 +183,7 @@ export async function startRegistrationApproval(
           handle.dispose();
           return;
         }
-        deviceEvents = handle;
+        securityNotifications = handle;
         clearPolling();
       })
       .catch(() => {
@@ -186,11 +192,17 @@ export async function startRegistrationApproval(
       });
   };
 
-  connectDeviceEvents();
+  connectSecurityNotifications();
 
   return {
     status: "waiting",
     clientNonce,
     dispose,
   };
+}
+
+function createAbortError(): Error {
+  const error = new Error("device_registration_cancelled");
+  error.name = "AbortError";
+  return error;
 }

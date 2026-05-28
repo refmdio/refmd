@@ -27,7 +27,6 @@ interface UseDocumentTreeHandlersOptions {
 }
 
 export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions) {
-  const { documents } = getApp();
   const queryClient = useQueryClient();
   const [contextTarget, setContextTarget] = createSignal<DocumentResponse | null>(null);
 
@@ -79,6 +78,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
 
   const handleCreateDocument = options.selectedParentId
     ? async (title: string) => {
+        const { documents } = getApp();
         const documentId = await documents.createDocument(title, options.selectedParentId!());
         invalidateDocuments();
         setSelectedDocumentId(documentId);
@@ -113,7 +113,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
 
   const handleArchive = async (doc: DocumentResponse) => {
     try {
-      await archiveDocument(doc.id);
+      await archiveDocument(doc, options.flatDocuments());
       invalidateDocuments();
     } catch {
       new Notice("Failed to archive document");
@@ -122,7 +122,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
 
   const handleUnarchive = async (doc: DocumentResponse) => {
     try {
-      await unarchiveDocument(doc.id);
+      await unarchiveDocument(doc, options.flatDocuments());
       invalidateDocuments();
     } catch {
       new Notice("Failed to unarchive document");
@@ -141,7 +141,8 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
   const handleSelect = (documentId: string) => {
     setSelectedDocumentId(documentId);
     const doc = options.flatDocuments().find((candidate) => candidate.id === documentId);
-    if (doc && doc.doc_type === "document" && options.isTitleReady(doc)) {
+    if (doc && doc.doc_type === "document") {
+      const { documents } = getApp();
       documents.openDocument(doc.id);
     }
   };

@@ -5,6 +5,7 @@ import type { RemoteSnapshotPayload, UpdatePayload } from "@/shared/lib/ws/docum
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import type { EphemeralSession } from "../../lib/sync/ephemeral-session";
 import type { DocumentAccess } from "./access";
+import type { KeyDirectoryAdvance } from "../../lib/sync/outbound-admission";
 
 interface PendingSnapshot {
   snapshotId: string;
@@ -25,6 +26,34 @@ export interface AutoSyncHandle {
 export interface PublicationState {
   isPublished: boolean;
   updatedAt: string | null;
+}
+
+export interface WriteSessionState {
+  documentId: string;
+  signingKeyId: string;
+  keyVersion: number;
+  sessionId: string;
+  eventHash: string;
+  expiresAtMs: number;
+  maxUpdateCount: number;
+  maxCiphertextBytes: number;
+  usedUpdateCount: number;
+  usedCiphertextBytes: number;
+  admission: Record<string, unknown>;
+  keyDirectoryAdvance: KeyDirectoryAdvance;
+  publicDataFields: Record<string, unknown>;
+  authorityBoundary: Record<string, unknown>;
+}
+
+export interface SaveEventDiagnostic {
+  event: string;
+  at: number;
+  payload?: unknown;
+  pending?: unknown;
+  activeSnapshotId?: string | null;
+  hasPendingUpdateBytes?: boolean;
+  hasPendingUpdateEnvelope?: boolean;
+  reason?: unknown;
 }
 
 export interface DocumentState {
@@ -48,6 +77,7 @@ export interface DocumentState {
   localClock: number;
   knownClocks: Record<string, number>;
   confirmedClocks: Record<string, number>;
+  writeSessionCounters: Record<string, number>;
   snapshotBaseClocks: Record<string, number>;
   lastSavedState: Uint8Array | null;
   snapshotUpdatesCount: number;
@@ -69,6 +99,8 @@ export interface DocumentState {
   pendingUpdateBytes: Uint8Array | null;
   pendingUpdateEnvelope: Record<string, unknown> | null;
   pendingSnapshotEnvelope: Record<string, unknown> | null;
+  _admissionDirectoryRefreshRequired: boolean;
+  writeSession: WriteSessionState | null;
   _onDocumentMessage: ((payload: unknown) => void) | null;
   _retryDekRotation: (() => Promise<void>) | null;
   ephemeralSession: EphemeralSession | null;
@@ -100,6 +132,9 @@ export interface DocumentState {
   readOnly: boolean;
   writerLockCleanup: (() => void) | null;
   pendingSaveTimeout: ReturnType<typeof setTimeout> | null;
+  _pendingSaveWatchdogKind: "update" | "snapshot" | null;
+  _pendingSaveWatchdogStartedAt: number | null;
+  _recentSaveEvents: SaveEventDiagnostic[];
   publicationState: PublicationState;
   canSyncPublication: boolean;
   lastPublicationContentHash: string | null;

@@ -25,6 +25,10 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
       candidate_user_event_head_sequence: %Schema{type: :integer},
       candidate_user_event_head_hash: %Schema{type: :string},
       candidate_user_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope,
+      candidate_user_checkpoint_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
       candidate_user_event_ancestry: %Schema{
         type: :array,
         items: RefMDWeb.Schemas.KeyDirectoryEnvelope
@@ -36,7 +40,15 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
           additionalProperties: false,
           properties: %{
             workspace_id: %Schema{type: :string, format: :uuid},
-            checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
+            checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope,
+            checkpoint_ancestry: %Schema{
+              type: :array,
+              items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+            },
+            event_ancestry: %Schema{
+              type: :array,
+              items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+            }
           },
           required: [:workspace_id, :checkpoint]
         }

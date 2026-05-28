@@ -6,6 +6,7 @@ import type { WorkspaceRotationInfo } from "@/shared/api/devices";
 import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { authState } from "@/entities/session";
 import { removeWorkspaceMemberWithKeyDirectory } from "../../lib/members/remove-member";
+import { changeWorkspaceMemberRoleWithKeyDirectory } from "../../lib/members/change-role";
 import { distributeWorkspaceMemberEnvelopes } from "../../lib/members/distribute-member-envelopes";
 
 type WorkspaceMember = components["schemas"]["MemberInfo"];
@@ -16,6 +17,8 @@ interface UseWorkspaceMemberManagementOptions {
   setError: (value: string | null) => void;
   setInfo: (value: string | null) => void;
   triggerKekRotation: (rotationList: WorkspaceRotationInfo[]) => Promise<void>;
+  closePluginRuntimeByWorkspace?: (workspaceId: string, reason?: string) => void | Promise<void>;
+  releasePluginRuntimeWorkspaceRevocation?: (workspaceId: string) => void;
 }
 
 export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManagementOptions) {
@@ -64,6 +67,7 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     user_id: WorkspaceMember["user_id"];
     name: WorkspaceMember["name"];
     current_role_id: WorkspaceMember["role_id"];
+    current_base_role: WorkspaceMember["base_role"];
   } | null>(null);
   const [selectedRoleId, setSelectedRoleId] = createSignal("");
   const [changingRole, setChangingRole] = createSignal(false);
@@ -80,12 +84,15 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     setRemoveTarget(null);
   };
 
-  const openRoleChangeDialog = (member: Pick<WorkspaceMember, "user_id" | "name" | "role_id">) => {
+  const openRoleChangeDialog = (
+    member: Pick<WorkspaceMember, "user_id" | "name" | "role_id" | "base_role">,
+  ) => {
     options.setError(null);
     setRoleChangeTarget({
       user_id: member.user_id,
       name: member.name,
       current_role_id: member.role_id,
+      current_base_role: member.base_role,
     });
     setSelectedRoleId(member.role_id);
   };
@@ -102,6 +109,9 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     setRemoving(true);
     options.setError(null);
     try {
+      if (target.user_id === currentUserId()) {
+        await options.closePluginRuntimeByWorkspace?.(id, "workspace_left");
+      }
       const response = (await removeWorkspaceMemberWithKeyDirectory(
         id,
         target.user_id,
@@ -124,6 +134,9 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
         invalidateMemberViews();
       }
     } catch (err) {
+      if (target.user_id === currentUserId()) {
+        options.releasePluginRuntimeWorkspaceRevocation?.(id);
+      }
       options.setError(err instanceof Error ? err.message : "Failed to remove member");
     } finally {
       setRemoving(false);
@@ -139,7 +152,13 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     setChangingRole(true);
     options.setError(null);
     try {
-      await workspacesApi.changeMemberRole(id, target.user_id, roleId);
+      await changeWorkspaceMemberRoleWithKeyDirectory({
+        workspaceId: id,
+        targetUserId: target.user_id,
+        previousRoleId: target.current_role_id,
+        previousBaseRole: target.current_base_role,
+        roleId,
+      });
       setRoleChangeTarget(null);
       invalidateMemberViews();
     } catch (err) {

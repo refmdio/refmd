@@ -1,5 +1,4 @@
 import { Match, Show, Switch } from "solid-js";
-import { useNavigate } from "@solidjs/router";
 import { KeyRoundIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -7,11 +6,14 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
+import { returnToLogin } from "@/entities/session";
 import { usePasswordResetPage } from "../../model/password-reset/use-password-reset-page";
 
 export function PasswordResetPage() {
-  const navigate = useNavigate();
   const state = usePasswordResetPage();
+  const backToLogin = () => {
+    void returnToLogin();
+  };
 
   return (
     <main class="min-h-screen flex items-center justify-center p-4">
@@ -58,12 +60,14 @@ export function PasswordResetPage() {
                   )}
                 </Button>
                 <div class="text-center">
-                  <a
-                    href="/auth/login"
+                  <button
+                    type="button"
                     class="text-sm text-muted-foreground hover:text-primary underline"
+                    onClick={backToLogin}
+                    disabled={state.loading()}
                   >
                     Back to Login
-                  </a>
+                  </button>
                 </div>
               </form>
             </Match>
@@ -75,7 +79,7 @@ export function PasswordResetPage() {
                   If an account exists with that email, we sent a password reset link. Check your
                   inbox and click the link to continue.
                 </p>
-                <Button variant="outline" onClick={() => navigate("/auth/login")}>
+                <Button variant="outline" onClick={backToLogin}>
                   Back to Login
                 </Button>
               </div>

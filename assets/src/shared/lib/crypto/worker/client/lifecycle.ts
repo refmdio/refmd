@@ -18,6 +18,7 @@ export interface LifecycleWorkerClientMethods {
   isReady(): Promise<boolean>;
   getPublicKeys(): Promise<PublicKeys>;
   getDeviceId(): Promise<string>;
+  hasStoredDeviceKeys(): Promise<boolean>;
   hasStoredDsk(): Promise<boolean>;
   deleteWrappedUmkWithDsk(): Promise<void>;
   deleteAuthBootstrapWithDsk(): Promise<void>;
@@ -69,6 +70,13 @@ export const lifecycleWorkerClientMethods: LifecycleWorkerClientMethods &
 
   async hasStoredDsk() {
     const result = (await this[workerSend]("has-stored-dsk", {})) as { available: boolean };
+    return result.available;
+  },
+
+  async hasStoredDeviceKeys() {
+    const result = (await this[workerSend]("has-stored-device-keys", {})) as {
+      available: boolean;
+    };
     return result.available;
   },
 

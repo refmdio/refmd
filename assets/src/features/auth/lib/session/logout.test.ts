@@ -157,7 +157,8 @@ describe("logout", () => {
       redirectPath: "/auth/login?logout_incomplete=true",
     });
 
-    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(1);
+    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(2);
+    expect(mocks.clearStoredShareParticipantSessions).toHaveBeenCalledTimes(1);
     expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
     expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
@@ -172,9 +173,9 @@ describe("logout", () => {
       redirectPath: "/auth/login?logout_incomplete=true",
     });
 
-    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(1);
+    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(2);
     expect(mocks.clearStoredShareParticipantSessions).toHaveBeenCalledTimes(1);
-    expect(mocks.clearMountTrustAnchorsWithDsk).toHaveBeenCalledTimes(1);
+    expect(mocks.clearMountTrustAnchorsWithDsk).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
     expect(mocks.clearSession).toHaveBeenCalledTimes(1);
   });
@@ -206,9 +207,9 @@ describe("logout", () => {
       clearMountSession: true,
       sessionScope: "share",
     });
-    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(1);
+    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(2);
     expect(mocks.clearStoredShareParticipantSessions).toHaveBeenCalledTimes(1);
-    expect(mocks.clearMountTrustAnchorsWithDsk).toHaveBeenCalledTimes(1);
+    expect(mocks.clearMountTrustAnchorsWithDsk).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
   });
 

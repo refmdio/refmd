@@ -5,7 +5,14 @@ defmodule RefMD.Documents do
 
   import Ecto.{Changeset, Query}
 
-  alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate, Ordering}
+  alias RefMD.Documents.{
+    Document,
+    DocumentSnapshot,
+    DocumentUpdate,
+    Ordering,
+    WriteStateAdmission
+  }
+
   alias RefMD.Encryption
   alias RefMD.Repo
   alias RefMD.Sharing
@@ -219,6 +226,7 @@ defmodule RefMD.Documents do
         'key_checkpoint_sequence', du.key_checkpoint_sequence,
         'key_checkpoint_hash', du.key_checkpoint_hash,
         'admission_event_hash', du.admission_event_hash,
+        'write_session_counter', du.write_session_counter,
         'timestamp', du.timestamp
       ) ORDER BY du.version
     ) AS updates_json
@@ -334,6 +342,7 @@ defmodule RefMD.Documents do
         'key_checkpoint_sequence', du.key_checkpoint_sequence,
         'key_checkpoint_hash', du.key_checkpoint_hash,
         'admission_event_hash', du.admission_event_hash,
+        'write_session_counter', du.write_session_counter,
         'timestamp', du.timestamp
       ) ORDER BY du.version
     ) AS updates_json
@@ -483,6 +492,7 @@ defmodule RefMD.Documents do
           key_checkpoint_sequence: u["key_checkpoint_sequence"],
           key_checkpoint_hash: u["key_checkpoint_hash"],
           admission_event_hash: u["admission_event_hash"],
+          write_session_counter: u["write_session_counter"],
           timestamp: u["timestamp"]
         }
       end)
@@ -535,20 +545,26 @@ defmodule RefMD.Documents do
   # ── Update ───────────────────────────────────────
 
   @spec update_document(Document.t(), map()) ::
-          {:ok, Document.t()} | {:error, Ecto.Changeset.t() | :document_archived}
-  def update_document(%Document{archived_at: archived_at}, _attrs)
-      when not is_nil(archived_at) do
-    {:error, :document_archived}
-  end
-
+          {:ok, Document.t()}
+          | {:error,
+             Ecto.Changeset.t()
+             | :document_archived
+             | :document_read_only
+             | :document_write_disabled}
   def update_document(%Document{} = document, attrs) do
-    changeset =
-      document
-      |> Document.changeset(attrs)
-      |> validate_parent_constraints()
-      |> validate_parent_change(document.id)
+    case writable_document?(document) do
+      :ok ->
+        changeset =
+          document
+          |> Document.changeset(attrs)
+          |> validate_parent_constraints()
+          |> validate_parent_change(document.id)
 
-    update_document_result(document, changeset)
+        update_document_result(document, changeset)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # ── Delete ───────────────────────────────────────
@@ -627,63 +643,309 @@ defmodule RefMD.Documents do
     Ordering.normalize_combined_siblings!(updated.workspace_id, updated.parent_id)
   end
 
-  # ── Archive / Unarchive ──────────────────────────
+  # ── Write State ───────────────────────────────────
 
-  @spec archive_document(Document.t()) ::
-          {:ok, Document.t()} | {:error, :already_archived}
-  def archive_document(%Document{} = document) do
-    if document.archived_at do
+  @spec archive_document(Document.t(), map()) ::
+          {:ok, Document.t()} | {:error, :already_archived | :invalid_key_directory}
+  def archive_document(%Document{} = document, write_state_admission) do
+    if document_write_state(document) == "archived" do
       {:error, :already_archived}
     else
-      now = DateTime.utc_now()
-
-      Repo.query!(
-        """
-        WITH RECURSIVE descendants AS (
-          SELECT id FROM documents WHERE id = $1
-          UNION ALL
-          SELECT d.id FROM documents d
-          INNER JOIN descendants ds ON d.parent_id = ds.id
-        )
-        UPDATE documents SET archived_at = $2, updated_at = $2
-        WHERE id IN (SELECT id FROM descendants)
-        """,
-        [Ecto.UUID.dump!(document.id), now]
-      )
-
-      {:ok, %{document | archived_at: now, updated_at: now}}
+      archive_document_with_admission(document, write_state_admission)
     end
   end
 
-  @spec unarchive_document(Document.t()) ::
-          {:ok, Document.t()} | {:error, :not_archived | :ancestor_archived}
-  def unarchive_document(%Document{} = document) do
+  @spec unarchive_document(Document.t(), map()) ::
+          {:ok, Document.t()}
+          | {:error, :not_archived | :ancestor_archived | :invalid_key_directory}
+  def unarchive_document(%Document{} = document, write_state_admission) do
     cond do
-      is_nil(document.archived_at) ->
+      document_write_state(document) != "archived" ->
         {:error, :not_archived}
 
       has_archived_ancestor?(document.id) ->
         {:error, :ancestor_archived}
 
       true ->
-        now = DateTime.utc_now()
+        unarchive_document_with_admission(document, write_state_admission)
+    end
+  end
 
-        Repo.query!(
-          """
-          WITH RECURSIVE descendants AS (
-            SELECT id FROM documents WHERE id = $1
-            UNION ALL
-            SELECT d.id FROM documents d
-            INNER JOIN descendants ds ON d.parent_id = ds.id
-          )
-          UPDATE documents SET archived_at = NULL, updated_at = $2
-          WHERE id IN (SELECT id FROM descendants)
-          """,
-          [Ecto.UUID.dump!(document.id), now]
+  @spec enable_document_read_only(Document.t(), map()) ::
+          {:ok, Document.t()}
+          | {:error,
+             :already_read_only
+             | :document_archived
+             | :document_write_disabled
+             | :invalid_key_directory
+             | :invalid_write_state_transition}
+  def enable_document_read_only(%Document{} = document, write_state_admission) do
+    update_single_document_write_state(
+      document,
+      write_state_admission,
+      "read_only",
+      "read_only_enabled"
+    )
+  end
+
+  @spec disable_document_read_only(Document.t(), map()) ::
+          {:ok, Document.t()}
+          | {:error,
+             :not_read_only
+             | :document_archived
+             | :document_write_disabled
+             | :invalid_key_directory
+             | :invalid_write_state_transition}
+  def disable_document_read_only(%Document{} = document, write_state_admission) do
+    update_single_document_write_state(
+      document,
+      write_state_admission,
+      "writable",
+      "read_only_disabled"
+    )
+  end
+
+  @spec disable_document_writes_by_policy(Document.t(), map()) ::
+          {:ok, Document.t()}
+          | {:error,
+             :already_write_disabled
+             | :document_archived
+             | :invalid_key_directory
+             | :invalid_write_state_transition}
+  def disable_document_writes_by_policy(%Document{} = document, write_state_admission) do
+    update_single_document_write_state(
+      document,
+      write_state_admission,
+      "write_disabled",
+      "policy"
+    )
+  end
+
+  defp archive_document_with_admission(document, write_state_admission) do
+    case Repo.transaction(
+           fn ->
+             now = DateTime.utc_now()
+             affected = archive_write_state_changes(document.id)
+
+             :ok =
+               WriteStateAdmission.append!(
+                 document,
+                 write_state_admission,
+                 affected,
+                 "archive"
+               )
+
+             affected
+             |> affected_document_ids()
+             |> update_archived_documents(now)
+
+             %{document | archived_at: now, write_state: "archived", updated_at: now}
+           end,
+           isolation: :serializable
+         ) do
+      {:ok, updated} -> {:ok, updated}
+      {:error, :invalid_key_directory} -> {:error, :invalid_key_directory}
+    end
+  end
+
+  defp unarchive_document_with_admission(document, write_state_admission) do
+    case Repo.transaction(
+           fn ->
+             now = DateTime.utc_now()
+             affected = unarchive_write_state_changes(document.id)
+
+             :ok =
+               WriteStateAdmission.append!(
+                 document,
+                 write_state_admission,
+                 affected,
+                 "unarchive"
+               )
+
+             affected
+             |> affected_document_ids()
+             |> update_unarchived_documents(now)
+
+             %{document | archived_at: nil, write_state: "writable", updated_at: now}
+           end,
+           isolation: :serializable
+         ) do
+      {:ok, updated} -> {:ok, updated}
+      {:error, :invalid_key_directory} -> {:error, :invalid_key_directory}
+    end
+  end
+
+  defp update_single_document_write_state(document, write_state_admission, target_state, reason) do
+    case Repo.transaction(
+           fn ->
+             update_single_document_write_state_tx(
+               document,
+               write_state_admission,
+               target_state,
+               reason
+             )
+           end,
+           isolation: :serializable
+         ) do
+      {:ok, updated} -> {:ok, updated}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_single_document_write_state_tx(
+         document,
+         write_state_admission,
+         target_state,
+         reason
+       ) do
+    locked = lock_document_for_write_state!(document.id)
+    previous_state = document_write_state(locked)
+
+    case allowed_single_write_state_transition(previous_state, target_state, reason) do
+      :ok ->
+        append_single_write_state_admission!(
+          locked,
+          write_state_admission,
+          previous_state,
+          target_state,
+          reason
         )
 
-        {:ok, %{document | archived_at: nil, updated_at: now}}
+        persist_single_document_write_state!(locked, target_state)
+
+      {:error, transition_reason} ->
+        Repo.rollback(transition_reason)
     end
+  end
+
+  defp lock_document_for_write_state!(document_id) do
+    Document
+    |> where([d], d.id == ^document_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
+  end
+
+  defp append_single_write_state_admission!(
+         document,
+         write_state_admission,
+         previous_state,
+         target_state,
+         reason
+       ) do
+    affected = [
+      %{id: document.id, previous_write_state: previous_state, write_state: target_state}
+    ]
+
+    WriteStateAdmission.append!(document, write_state_admission, affected, reason)
+  end
+
+  defp persist_single_document_write_state!(document, target_state) do
+    now = DateTime.utc_now()
+    archived_at = if target_state == "archived", do: now, else: nil
+
+    {1, nil} =
+      Document
+      |> where([d], d.id == ^document.id)
+      |> Repo.update_all(
+        set: [
+          write_state: target_state,
+          archived_at: archived_at,
+          updated_at: now
+        ]
+      )
+
+    %{document | write_state: target_state, archived_at: archived_at, updated_at: now}
+  end
+
+  defp allowed_single_write_state_transition("writable", "read_only", "read_only_enabled"),
+    do: :ok
+
+  defp allowed_single_write_state_transition("read_only", "writable", "read_only_disabled"),
+    do: :ok
+
+  defp allowed_single_write_state_transition(state, "write_disabled", "policy")
+       when state in ["writable", "read_only"],
+       do: :ok
+
+  defp allowed_single_write_state_transition("read_only", "read_only", "read_only_enabled"),
+    do: {:error, :already_read_only}
+
+  defp allowed_single_write_state_transition("writable", "writable", "read_only_disabled"),
+    do: {:error, :not_read_only}
+
+  defp allowed_single_write_state_transition(
+         "write_disabled",
+         "write_disabled",
+         "policy"
+       ),
+       do: {:error, :already_write_disabled}
+
+  defp allowed_single_write_state_transition("archived", _target_state, _reason),
+    do: {:error, :document_archived}
+
+  defp allowed_single_write_state_transition("write_disabled", _target_state, _reason),
+    do: {:error, :document_write_disabled}
+
+  defp allowed_single_write_state_transition(_previous_state, _target_state, _reason),
+    do: {:error, :invalid_write_state_transition}
+
+  defp affected_document_ids(affected), do: Enum.map(affected, & &1.id)
+
+  defp update_archived_documents(document_ids, now) do
+    Document
+    |> where([d], d.id in ^document_ids)
+    |> Repo.update_all(set: [archived_at: now, write_state: "archived", updated_at: now])
+  end
+
+  defp update_unarchived_documents(document_ids, now) do
+    Document
+    |> where([d], d.id in ^document_ids)
+    |> Repo.update_all(set: [archived_at: nil, write_state: "writable", updated_at: now])
+  end
+
+  defp archive_write_state_changes(document_id) do
+    document_id
+    |> descendant_archive_rows()
+    |> Enum.reject(& &1.archived?)
+    |> Enum.map(fn row ->
+      %{id: row.id, previous_write_state: row.write_state, write_state: "archived"}
+    end)
+  end
+
+  defp unarchive_write_state_changes(document_id) do
+    document_id
+    |> descendant_archive_rows()
+    |> Enum.filter(& &1.archived?)
+    |> Enum.map(fn row ->
+      %{id: row.id, previous_write_state: "archived", write_state: "writable"}
+    end)
+  end
+
+  defp descendant_archive_rows(document_id) do
+    result =
+      Repo.query!(
+        """
+        WITH RECURSIVE descendants AS (
+          SELECT id, archived_at, write_state FROM documents WHERE id = $1
+          UNION ALL
+          SELECT d.id, d.archived_at, d.write_state FROM documents d
+          INNER JOIN descendants ds ON d.parent_id = ds.id
+        )
+        SELECT
+          id::text,
+          archived_at IS NOT NULL OR write_state = 'archived',
+          CASE
+            WHEN archived_at IS NOT NULL THEN 'archived'
+            ELSE COALESCE(write_state, 'writable')
+          END
+        FROM descendants
+        """,
+        [Ecto.UUID.dump!(document_id)]
+      )
+
+    Enum.map(result.rows, fn [id, archived?, write_state] ->
+      %{id: id, archived?: archived?, write_state: write_state}
+    end)
   end
 
   defp has_archived_ancestor?(document_id) do
@@ -700,7 +962,7 @@ defmodule RefMD.Documents do
         SELECT EXISTS(
           SELECT 1 FROM documents d
           INNER JOIN ancestors a ON d.id = a.parent_id
-          WHERE d.archived_at IS NOT NULL
+          WHERE d.archived_at IS NOT NULL OR d.write_state = 'archived'
         )
         """,
         [Ecto.UUID.dump!(document_id)]
@@ -708,6 +970,23 @@ defmodule RefMD.Documents do
 
     result.rows |> hd() |> hd()
   end
+
+  defp writable_document?(%Document{} = document) do
+    case document_write_state(document) do
+      "writable" -> :ok
+      "archived" -> {:error, :document_archived}
+      "read_only" -> {:error, :document_read_only}
+      "write_disabled" -> {:error, :document_write_disabled}
+    end
+  end
+
+  defp document_write_state(%Document{archived_at: %DateTime{}}), do: "archived"
+  defp document_write_state(%Document{archived_at: %NaiveDateTime{}}), do: "archived"
+
+  defp document_write_state(%Document{write_state: state})
+       when state in ["writable", "read_only", "archived", "write_disabled"], do: state
+
+  defp document_write_state(%Document{}), do: "writable"
 
   # ── Hierarchy Helpers (shared with Reordering) ──
 
@@ -790,7 +1069,7 @@ defmodule RefMD.Documents do
   end
 
   defp validate_parent_not_archived(changeset, parent) do
-    if parent.archived_at do
+    if document_write_state(parent) == "archived" do
       add_error(changeset, :parent_id, "parent is archived")
     else
       changeset

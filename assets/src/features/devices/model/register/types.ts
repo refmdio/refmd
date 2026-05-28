@@ -1,6 +1,6 @@
 import type { DeviceHybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
 import type { DeviceHybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
-import type { InitialAkeResponderPrekeyRecord } from "@/shared/lib/crypto/initial-ake";
+import type { RegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 
 export type DeviceRegistrationPhase =
   | "generating"
@@ -19,12 +19,5 @@ export interface DeviceRegistrationPublicKeys {
   encryptionKeyId: string;
   hybridSigningPublicKeyMaterial: DeviceHybridSigningPublicKeyMaterial;
   signingKeyId: string;
-  initialAkeResponderPrekeys?: {
-    umk_distribution: InitialAkeResponderPrekeyRecord;
-    trust_transfer: InitialAkeResponderPrekeyRecord;
-    device_approval_kek_initial: Array<{
-      workspace_id: string;
-      prekey: InitialAkeResponderPrekeyRecord;
-    }>;
-  };
+  initialAkeResponderPrekeys?: RegistrationInitialAkeResponderPrekeys;
 }

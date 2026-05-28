@@ -30,6 +30,7 @@ import {
 import { hasUnsavedCanonicalText, refreshSavedBaselineToCurrent } from "./outbound-canonical";
 import { queuePublicationSaveSync } from "./outbound-publication";
 import { clearSaveAckWatchdog } from "./outbound-save-watchdog";
+import { recordSyncPerf } from "./perf";
 
 function getPinKey(state: DocumentState, documentId: string): string {
   return state.access.kind === "share"
@@ -66,7 +67,27 @@ function pendingUpdatePublicData(state: DocumentState): {
   };
 }
 
+function recordSaveEvent(
+  state: DocumentState,
+  event: string,
+  details: Omit<DocumentState["_recentSaveEvents"][number], "event" | "at"> = {},
+): void {
+  state._recentSaveEvents.push({
+    event,
+    at: Date.now(),
+    ...details,
+  });
+  if (state._recentSaveEvents.length > 12) {
+    state._recentSaveEvents.splice(0, state._recentSaveEvents.length - 12);
+  }
+}
+
 function rejectInvalidAck(state: DocumentState): void {
+  recordSaveEvent(state, "update_ack_rejected", {
+    activeSnapshotId: state.activeSnapshotId,
+    hasPendingUpdateBytes: state.pendingUpdateBytes !== null,
+    hasPendingUpdateEnvelope: state.pendingUpdateEnvelope !== null,
+  });
   if (state.pendingUpdateEnvelope) {
     state.localClock = state.preSendLocalClock;
   }
@@ -87,9 +108,19 @@ async function rememberAcceptedAdmissionCheckpoint(
     keyDirectoryAdvanceSymbol
   ];
   if (advance) {
-    await advanceKeyDirectoryPinWithProof(advance);
+    try {
+      await advanceKeyDirectoryPinWithProof(advance);
+    } catch (err) {
+      if (!(err instanceof Error) || err.message !== "key_directory_checkpoint_rollback") {
+        throw err;
+      }
+      // Another socket event may already have advanced the local key-directory pin
+      // past this locally-sent operation. The accepted operation remains covered
+      // by its signed admission; do not fail-closed for this benign ACK race.
+    }
   }
   rememberDocumentAdmissionCheckpoint(state, envelope);
+  state._admissionDirectoryRefreshRequired = false;
 }
 
 export async function handleUpdateSaved(
@@ -100,6 +131,13 @@ export async function handleUpdateSaved(
   clearSaveAckWatchdog(state);
   const pending = pendingUpdatePublicData(state);
   const acceptedEnvelope = state.pendingUpdateEnvelope;
+  recordSaveEvent(state, "update_saved_received", {
+    payload,
+    pending,
+    activeSnapshotId: state.activeSnapshotId,
+    hasPendingUpdateBytes: state.pendingUpdateBytes !== null,
+    hasPendingUpdateEnvelope: state.pendingUpdateEnvelope !== null,
+  });
   if (
     !pending ||
     payload.snapshotId !== pending.refSnapshotId ||
@@ -111,6 +149,13 @@ export async function handleUpdateSaved(
   }
 
   if (state.activeSnapshotId && payload.snapshotId !== state.activeSnapshotId) {
+    recordSaveEvent(state, "update_saved_snapshot_mismatch", {
+      payload,
+      pending,
+      activeSnapshotId: state.activeSnapshotId,
+      hasPendingUpdateBytes: state.pendingUpdateBytes !== null,
+      hasPendingUpdateEnvelope: state.pendingUpdateEnvelope !== null,
+    });
     state.pendingUpdateBytes = null;
     state.pendingUpdateEnvelope = null;
     state.sending = false;
@@ -121,6 +166,10 @@ export async function handleUpdateSaved(
   }
 
   await rememberAcceptedAdmissionCheckpoint(acceptedEnvelope, state);
+  recordSyncPerf("update_saved_ack", {
+    documentId,
+    updateHash: pending.updateHash,
+  });
 
   const signingKeyId = getLocalSigningKeyId(state) ?? deviceState()?.deviceSigningKeyId;
   if (signingKeyId) {
@@ -178,7 +227,9 @@ export async function handleUpdateSaved(
 
   const hasUnsavedChanges = hasUnsavedLocalChanges(state);
   if (state.autoSync && hasUnsavedChanges) {
-    state.autoSync.notifyLocalEdit();
+    state.autoSync.flushNow().catch((err) => {
+      clientError("auto_sync_flush_after_update_ack_failed", { documentId, error: err });
+    });
   } else if (!hasUnsavedChanges) {
     refreshSavedBaselineToCurrent(state);
   }
@@ -189,6 +240,12 @@ export function handleUpdateSaveFailed(
   state: DocumentState,
 ): void {
   clearSaveAckWatchdog(state);
+  recordSaveEvent(state, "update_save_failed", {
+    payload,
+    activeSnapshotId: state.activeSnapshotId,
+    hasPendingUpdateBytes: state.pendingUpdateBytes !== null,
+    hasPendingUpdateEnvelope: state.pendingUpdateEnvelope !== null,
+  });
   const sentClock = state.preSendLocalClock;
   if (state.localClock === sentClock + 1) {
     state.localClock = sentClock;

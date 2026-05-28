@@ -14,8 +14,10 @@ import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   documentOperationAuthorityBoundary,
+  documentWriteSessionAuthorityBoundaryForDocument,
   verifyDocumentOperationAdmission,
   verifyDocumentOperationAdmissionAncestry,
+  verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
 import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import * as Y from "yjs";
@@ -263,10 +265,11 @@ async function cacheDocumentSilently(
                 actorUserId: signingKey.ownerId,
                 workspaceId,
                 publicData: update.publicData,
-                authorityBoundary: documentOperationAuthorityBoundary(
-                  update.admission,
-                  "document_update_accepted",
-                ),
+                authorityBoundary: documentWriteSessionAuthorityBoundaryForDocument({
+                  publicData: update.publicData,
+                  workspaceId,
+                  documentId,
+                }),
                 ciphertext: update.ciphertext,
                 nonce: update.nonce,
               });
@@ -284,14 +287,11 @@ async function cacheDocumentSilently(
               if (updateHash !== update.publicData.updateHash) {
                 throw new Error("Update hash verification failed");
               }
-              await verifyDocumentOperationAdmission({
+              await verifyDocumentWriteSessionAdmission({
                 admission: update.admission,
-                eventType: "document_update_accepted",
                 publicData: update.publicData,
                 workspaceId,
                 documentId,
-                operationHash: updateHash,
-                signature: update.signature,
                 actorUserId: signingKey.ownerId,
               });
               await verifyDocumentOperationAdmissionAncestry({

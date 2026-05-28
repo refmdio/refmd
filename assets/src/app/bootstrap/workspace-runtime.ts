@@ -26,6 +26,9 @@ export function initializeWorkspaceRuntime(documentWorkspace: DocumentWorkspace)
     focusPanel: (panelId) => documentWorkspace.focusPanel(panelId),
     setMosaicState: (state) => documentWorkspace.setMosaicState(state),
     mosaicState: () => documentWorkspace.mosaicState(),
+    openWorkspaceTile: (panelId, documentId) =>
+      documentWorkspace.openWorkspaceTile(panelId, documentId),
+    closeWorkspaceTiles: (tileIds) => documentWorkspace.closeWorkspaceTiles(tileIds),
   });
 
   createWorkspaceBridge(workspaceManager, documentEvents, {

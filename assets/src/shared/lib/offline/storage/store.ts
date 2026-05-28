@@ -19,7 +19,11 @@ export {
   putOfflineDek,
   putOfflineKek,
 } from "./keys";
-export type { OfflineCreatedDocument, OfflineCreatedSyncBlockReason } from "./meta";
+export type {
+  OfflineCreatedDocument,
+  OfflineCreatedSyncBlockReason,
+  OfflineDocumentWriteState,
+} from "./meta";
 export {
   blockOfflineCreatedSync,
   deleteOfflineCreated,

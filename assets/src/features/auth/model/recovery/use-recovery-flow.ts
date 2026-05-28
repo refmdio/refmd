@@ -1,6 +1,12 @@
 import { createSignal } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { authState, setAuthState, setDeviceState, setCryptoWorkerReady } from "@/entities/session";
+import {
+  authState,
+  returnToLogin,
+  setAuthState,
+  setDeviceState,
+  setCryptoWorkerReady,
+} from "@/entities/session";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { recoverAccount } from "../../lib/recovery/recover";
 import { setRecoveryPassword } from "../../lib/recovery/password-set";
@@ -70,6 +76,10 @@ export function useRecoveryFlow(): RecoveryFlowState {
     setWords(createEmptyWords());
     setError(null);
     setPhase("input");
+  };
+
+  const backToLogin = () => {
+    void returnToLogin();
   };
 
   const submitRecovery = async (event: Event) => {
@@ -189,6 +199,7 @@ export function useRecoveryFlow(): RecoveryFlowState {
       setPhase("input");
       setError(null);
     },
+    backToLogin,
     submitRecovery,
     submitPasswordSet,
   };

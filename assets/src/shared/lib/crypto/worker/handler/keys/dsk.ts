@@ -5,6 +5,7 @@ import {
   buildDskDeviceEcdhAad,
   buildDskDeviceMlkem768Aad,
   buildDskDeviceSigningAad,
+  buildDskPluginCredentialAad,
   buildDskShareParticipantDeviceEcdhAad,
   buildDskShareParticipantDeviceMlkem768Aad,
   buildDskStoreValueAad,
@@ -91,6 +92,9 @@ const SHARE_PARTICIPANT_SESSION_KEY_PREFIX = "refmd-share-participant-session:";
 const SHARE_SESSION_TRUST_ANCHOR_KEY_PREFIX = "refmd-share-access:trust-anchor:";
 const SHARE_SECRET_KEY_PREFIX = "share-secret:";
 const MOUNT_TRUST_ANCHOR_KEY_PREFIX = "refmd-mount-trust-anchor:";
+const PLUGIN_USER_LOCAL_KEY_PREFIX = "refmd-plugin-user-local:";
+const PLUGIN_CACHE_KEY_PREFIX = "refmd-plugin-cache:";
+const PLUGIN_CREDENTIAL_KEY_PREFIX = "refmd-plugin-credential:";
 
 type DskWrappedBlob = {
   ciphertext: ArrayBuffer;
@@ -183,6 +187,79 @@ export async function handleLoadUiStateWithDsk(
   const storageKey = requiredString(payload.storageKey, "storage_key");
   const aadRecord = requiredRecord(payload.aadRecord, "aad_record");
   return loadDskWrappedValue(state, storageKey, buildDskUiStateAad(aadRecord));
+}
+
+export async function handleDeleteUiStateWithDsk(payload: HandlerPayload): Promise<unknown> {
+  const storageKey = requiredString(payload.storageKey, "storage_key");
+  await deleteDskStoreValueInWorker(storageKey);
+  return {};
+}
+
+export async function handleStorePluginCredentialWithDsk(
+  state: WorkerKeyState,
+  payload: HandlerPayload,
+): Promise<unknown> {
+  const params = pluginCredentialParams(payload);
+  await storeDskWrappedValue(
+    state,
+    pluginCredentialStorageKey(params),
+    payload.plaintext as Uint8Array,
+    buildDskPluginCredentialAad(params),
+  );
+  return { stored: true };
+}
+
+export async function handleLoadPluginCredentialWithDsk(
+  state: WorkerKeyState,
+  payload: HandlerPayload,
+): Promise<unknown> {
+  const params = pluginCredentialParams(payload);
+  return loadDskWrappedValue(
+    state,
+    pluginCredentialStorageKey(params),
+    buildDskPluginCredentialAad(params),
+  );
+}
+
+export async function handleDeletePluginCredentialWithDsk(
+  payload: HandlerPayload,
+): Promise<unknown> {
+  await deleteDskStoreValueInWorker(pluginCredentialStorageKey(pluginCredentialParams(payload)));
+  return {};
+}
+
+export async function handleClearPluginDataWithDsk(): Promise<unknown> {
+  await Promise.all([
+    deleteDskStoreValuesByPrefixInWorker(PLUGIN_USER_LOCAL_KEY_PREFIX),
+    deleteDskStoreValuesByPrefixInWorker(PLUGIN_CACHE_KEY_PREFIX),
+    deleteDskStoreValuesByPrefixInWorker(PLUGIN_CREDENTIAL_KEY_PREFIX),
+  ]);
+  return {};
+}
+
+export async function handleClearPluginApplicationDataWithDsk(
+  payload: HandlerPayload,
+): Promise<unknown> {
+  const workspaceId = requiredString(payload.workspaceId, "workspace_id");
+  const packageId = requiredString(payload.packageId, "package_id");
+  const applicationId = requiredString(payload.applicationId, "application_id");
+  const activationId = requiredString(payload.activationId, "activation_id");
+  const userId = requiredString(payload.userId, "user_id");
+  const deviceId = requiredString(payload.deviceId, "device_id");
+  const keyPrefixes = pluginApplicationStorageKeyPrefixes({
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+    userId,
+    deviceId,
+  });
+  await Promise.all([
+    deleteDskStoreValuesByPrefixInWorker(keyPrefixes.userLocal),
+    deleteDskStoreValuesByPrefixInWorker(keyPrefixes.cache),
+    deleteDskStoreValuesByPrefixInWorker(keyPrefixes.credential),
+  ]);
+  return {};
 }
 
 export async function handleStoreGuestInvitationMaterialWithDsk(
@@ -449,6 +526,71 @@ async function loadDskWrappedValue(
 
 function shareManagementTokenKey(documentId: string, shareId: string): string {
   return `refmd-share-access:${documentId}:${shareId}`;
+}
+
+function pluginCredentialParams(payload: HandlerPayload): {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  userId: string;
+  deviceId: string;
+  credentialId: string;
+} {
+  return {
+    workspaceId: requiredString(payload.workspaceId, "workspace_id"),
+    packageId: requiredString(payload.packageId, "package_id"),
+    applicationId: requiredString(payload.applicationId, "application_id"),
+    activationId: requiredString(payload.activationId, "activation_id"),
+    userId: requiredString(payload.userId, "user_id"),
+    deviceId: requiredString(payload.deviceId, "device_id"),
+    credentialId: requiredString(payload.credentialId, "credential_id"),
+  };
+}
+
+export function pluginCredentialStorageKey(params: {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  userId: string;
+  deviceId: string;
+  credentialId: string;
+}): string {
+  return [
+    PLUGIN_CREDENTIAL_KEY_PREFIX.slice(0, -1),
+    params.packageId,
+    params.applicationId,
+    params.activationId,
+    params.workspaceId,
+    params.userId,
+    params.deviceId,
+    params.credentialId,
+  ].join(":");
+}
+
+export function pluginApplicationStorageKeyPrefixes(params: {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  userId: string;
+  deviceId: string;
+}): { userLocal: string; cache: string; credential: string } {
+  const namespace = [
+    params.packageId,
+    params.applicationId,
+    params.activationId,
+    params.workspaceId,
+    params.userId,
+    params.deviceId,
+  ].join(":");
+
+  return {
+    userLocal: `${PLUGIN_USER_LOCAL_KEY_PREFIX}${namespace}:`,
+    cache: `${PLUGIN_CACHE_KEY_PREFIX}${namespace}:`,
+    credential: `${PLUGIN_CREDENTIAL_KEY_PREFIX}${namespace}:`,
+  };
 }
 
 function mountTrustAnchorKey(mountId: string): string {

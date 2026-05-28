@@ -18,6 +18,7 @@ interface RecoveryPhraseFormProps {
   onSubmit: (event: Event) => Promise<void>;
   onClear: () => void;
   onTryAgain: () => void;
+  onBackToLogin: () => void;
 }
 
 export function RecoveryPhraseForm(props: RecoveryPhraseFormProps) {
@@ -118,9 +119,14 @@ export function RecoveryPhraseForm(props: RecoveryPhraseFormProps) {
         </div>
 
         <div class="text-center">
-          <a href="/auth/login" class="text-sm text-muted-foreground hover:text-primary underline">
+          <button
+            type="button"
+            class="text-sm text-muted-foreground hover:text-primary underline"
+            onClick={props.onBackToLogin}
+            disabled={props.loading}
+          >
             Back to Login
-          </a>
+          </button>
         </div>
       </form>
 

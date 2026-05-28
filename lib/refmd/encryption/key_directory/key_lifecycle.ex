@@ -59,6 +59,26 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
     A.assert_exact_keys!(body, Enum.sort(["base_role", "role_id", "user_id", "workspace_id"]))
   end
 
+  def assert!("member_role_changed", body) do
+    A.assert_exact_keys!(
+      body,
+      Enum.sort([
+        "base_role",
+        "changed_at_event_sequence",
+        "previous_base_role",
+        "previous_role_id",
+        "role_id",
+        "user_id",
+        "workspace_id"
+      ])
+    )
+
+    A.assert_positive_integer!(
+      body["changed_at_event_sequence"],
+      "member_role_changed_sequence_invalid"
+    )
+  end
+
   def assert!("member_removed", body) do
     A.assert_exact_keys!(
       body,

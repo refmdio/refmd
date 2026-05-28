@@ -8,7 +8,7 @@ defmodule RefMDWeb.Channels.Document.Access do
   @spec check_ephemeral(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def check_ephemeral(socket) do
     if share_context?(socket) do
-      if is_nil(socket.assigns.document.archived_at) and
+      if writable_document?(socket.assigns.document) and
            Sharing.can_write_document?(
              effective_share_id(socket),
              socket.assigns.document.id
@@ -25,6 +25,11 @@ defmodule RefMDWeb.Channels.Document.Access do
       end
     end
   end
+
+  defp writable_document?(%{archived_at: archived_at}) when not is_nil(archived_at), do: false
+  defp writable_document?(%{write_state: "writable"}), do: true
+  defp writable_document?(%{write_state: nil}), do: true
+  defp writable_document?(%{}), do: false
 
   @spec check_broadcast(Phoenix.Socket.t()) :: :ok | :evict | :skip
   def check_broadcast(socket) do

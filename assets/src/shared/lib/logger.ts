@@ -1,5 +1,21 @@
 export type ClientLogContext = Record<string, unknown> | readonly unknown[] | unknown;
 
+function serializeClientLogContext(context: ClientLogContext): ClientLogContext {
+  if (context instanceof Error) {
+    return {
+      name: context.name,
+      message: context.message,
+      code: "code" in context ? (context as { code?: unknown }).code : undefined,
+      stack: context.stack,
+    };
+  }
+  if (Array.isArray(context)) return context.map(serializeClientLogContext);
+  if (typeof context !== "object" || context === null) return context;
+  return Object.fromEntries(
+    Object.entries(context).map(([key, value]) => [key, serializeClientLogContext(value)]),
+  );
+}
+
 function emitClientLog(level: "warn" | "error", message: string, context?: ClientLogContext): void {
   if (typeof window === "undefined") return;
 
@@ -8,7 +24,7 @@ function emitClientLog(level: "warn" | "error", message: string, context?: Clien
       detail: {
         level,
         message,
-        context,
+        context: serializeClientLogContext(context),
         at: new Date().toISOString(),
       },
     }),

@@ -74,10 +74,13 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
   const [inviteLink, setInviteLink] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
   const [settingsEnabled, setSettingsEnabled] = createSignal(false);
+  const [appliedGuestInvitesEnabled, setAppliedGuestInvitesEnabled] = createSignal(false);
   const [settingsLimit, setSettingsLimit] = createSignal("");
+  const [settingsDirty, setSettingsDirty] = createSignal(false);
   const [updatingSettings, setUpdatingSettings] = createSignal(false);
 
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  let syncedWorkspaceId: string | null | undefined;
 
   const invalidate = () => {
     const id = workspaceId();
@@ -115,8 +118,24 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
   };
 
   const syncSettings = () => {
-    setSettingsEnabled(options.guestInvitesEnabled());
+    const id = workspaceId();
+    if (id === syncedWorkspaceId && settingsDirty()) return;
+    syncedWorkspaceId = id;
+    const enabled = options.guestInvitesEnabled();
+    setSettingsEnabled(enabled);
+    setAppliedGuestInvitesEnabled(enabled);
     setSettingsLimit(options.guestMemberLimit()?.toString() ?? "");
+    setSettingsDirty(false);
+  };
+
+  const updateSettingsEnabled = (value: boolean) => {
+    setSettingsDirty(true);
+    setSettingsEnabled(value);
+  };
+
+  const updateSettingsLimit = (value: string) => {
+    setSettingsDirty(true);
+    setSettingsLimit(value);
   };
 
   const updateSettings = async () => {
@@ -128,10 +147,14 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     try {
       const limit = settingsLimit().trim();
       const parsedLimit = parseOptionalPositiveInteger(limit, "Guest member limit");
-      await workspacesApi.update(id, {
-        guest_invites_enabled: settingsEnabled(),
+      const nextEnabled = settingsEnabled();
+      const updatedWorkspace = await workspacesApi.update(id, {
+        guest_invites_enabled: nextEnabled,
         ...(parsedLimit == null ? {} : { guest_member_limit: parsedLimit }),
       });
+      queryClient.setQueryData(["workspace", id], updatedWorkspace);
+      setAppliedGuestInvitesEnabled(nextEnabled);
+      setSettingsDirty(false);
       options.refetchWorkspace();
     } catch (err) {
       options.setError(err instanceof Error ? err.message : "Failed to update guest settings");
@@ -400,7 +423,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     invitations,
     canManageGuestInvitations,
     canUpdateWorkspace: options.canUpdateWorkspace,
-    guestInvitesEnabled: options.guestInvitesEnabled,
+    guestInvitesEnabled: appliedGuestInvitesEnabled,
     dialogOpen,
     openDialog,
     resetDialog,
@@ -417,9 +440,9 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     createInvitation,
     revokeInvitation,
     settingsEnabled,
-    setSettingsEnabled,
+    setSettingsEnabled: updateSettingsEnabled,
     settingsLimit,
-    setSettingsLimit,
+    setSettingsLimit: updateSettingsLimit,
     updatingSettings,
     updateSettings,
     syncSettings,

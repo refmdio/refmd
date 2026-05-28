@@ -115,6 +115,26 @@ defmodule RefMD.Crypto.Signature.Core do
       "subject_protocol",
       "subject_version"
     ],
+    {"plugin_bundle_approval", "none"} => [
+      "actor",
+      "approval",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"plugin_consent_event", "none"} => [
+      "actor",
+      "consent",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"plugin_network_proxy_request", "none"} => [
+      "subject",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
     {"device_approval", "none"} => [
       "approval_signature_surface",
       "approved_device_registration_sas_hash",
@@ -387,6 +407,91 @@ defmodule RefMD.Crypto.Signature.Core do
         "wrap_event_hash"
       ]
     },
+    {"plugin_bundle_approval", "none"} => %{
+      "actor" => [
+        "device_id",
+        "key_checkpoint_hash",
+        "key_checkpoint_sequence",
+        "key_scope_id",
+        "key_scope_kind",
+        "signer_kind",
+        "signing_key_id",
+        "user_id"
+      ],
+      "approval" => [
+        "approval_epoch",
+        "approver_device_id",
+        "approver_user_id",
+        "archive_hash",
+        "bundle_hash",
+        "created_at_ms",
+        "document_scope_hash",
+        "endpoint_hash",
+        "application_scope_kind",
+        "main_js_hash",
+        "manifest_hash",
+        "owner_scope_kind",
+        "owner_workspace_id",
+        "owner_user_id",
+        "package_id",
+        "permissions_hash",
+        "plugin_id",
+        "previous_approval_event_hash",
+        "renderer_slots_hash",
+        "resource_manifest_hash",
+        "source_kind",
+        "source_url_hash",
+        "styles_css_hash",
+        "version",
+        "workspace_id"
+      ]
+    },
+    {"plugin_consent_event", "none"} => %{
+      "actor" => [
+        "device_id",
+        "key_checkpoint_hash",
+        "key_checkpoint_sequence",
+        "key_scope_id",
+        "key_scope_kind",
+        "signer_kind",
+        "signing_key_id",
+        "user_id"
+      ],
+      "consent" => [
+        "bundle_hash",
+        "consent_epoch",
+        "decision",
+        "device_id",
+        "document_scope_hash",
+        "endpoint_hash",
+        "activation_id",
+        "application_id",
+        "application_scope_kind",
+        "manifest_hash",
+        "owner_scope_kind",
+        "package_id",
+        "permissions_hash",
+        "plugin_id",
+        "previous_event_hash",
+        "resource_manifest_hash",
+        "signer_device_id",
+        "signer_user_id",
+        "user_id",
+        "version",
+        "workspace_id"
+      ]
+    },
+    {"plugin_network_proxy_request", "none"} => %{
+      "subject" => [
+        "endpoint",
+        "protocol",
+        "proxy",
+        "request_id",
+        "runtime",
+        "target",
+        "version"
+      ]
+    },
     {"genesis_device_bootstrap", "none"} => %{
       "bootstrap_authority" => [
         "authority_kind",
@@ -603,12 +708,11 @@ defmodule RefMD.Crypto.Signature.Core do
         "user_id"
       ],
       "authority_boundary" => [
-        "admission_event_type",
-        "admission_nonce",
         "document_permission_proof_hash",
         "min_dek_version",
-        "previous_workspace_event_hash",
-        "previous_workspace_event_sequence"
+        "write_session_counter",
+        "write_session_event_hash",
+        "write_session_id"
       ],
       "public_data" => [
         "authorityContextKey",
@@ -621,12 +725,16 @@ defmodule RefMD.Crypto.Signature.Core do
         "keyCheckpointHash",
         "keyCheckpointSequence",
         "keyVersion",
+        "minDekVersion",
         "ownerId",
         "ownerKind",
         "refSnapshotId",
         "signingKeyId",
         "timestamp",
-        "updateHash"
+        "updateHash",
+        "writeSessionCounter",
+        "writeSessionEventHash",
+        "writeSessionId"
       ]
     },
     {"document_update", "share_participant_device"} => %{
@@ -642,12 +750,11 @@ defmodule RefMD.Crypto.Signature.Core do
         "signing_key_id"
       ],
       "authority_boundary" => [
-        "admission_event_type",
-        "admission_nonce",
         "document_permission_proof_hash",
         "min_dek_version",
-        "previous_workspace_event_hash",
-        "previous_workspace_event_sequence"
+        "write_session_counter",
+        "write_session_event_hash",
+        "write_session_id"
       ],
       "public_data" => [
         "authorityContextKey",
@@ -660,12 +767,16 @@ defmodule RefMD.Crypto.Signature.Core do
         "keyCheckpointHash",
         "keyCheckpointSequence",
         "keyVersion",
+        "minDekVersion",
         "ownerId",
         "ownerKind",
         "refSnapshotId",
         "signingKeyId",
         "timestamp",
-        "updateHash"
+        "updateHash",
+        "writeSessionCounter",
+        "writeSessionEventHash",
+        "writeSessionId"
       ]
     },
     {"document_snapshot", "*"} => %{
@@ -1104,6 +1215,24 @@ defmodule RefMD.Crypto.Signature.Core do
        do: ["required_authority"]
 
   defp nested_expected_keys(
+         %{"surface_id" => "plugin_bundle_approval"},
+         "approval",
+         %{"owner_scope_kind" => "workspace"},
+         keys
+       ) do
+    Enum.reject(keys, &(&1 == "owner_user_id"))
+  end
+
+  defp nested_expected_keys(
+         %{"surface_id" => "plugin_bundle_approval"},
+         "approval",
+         %{"owner_scope_kind" => "user"},
+         keys
+       ) do
+    Enum.reject(keys, &(&1 in ["application_scope_kind", "owner_workspace_id", "workspace_id"]))
+  end
+
+  defp nested_expected_keys(
          %{"surface_id" => "key_directory_checkpoint"},
          "authority_boundary",
          %{"required_authority" => "invitation_redeem_authority"},
@@ -1202,6 +1331,12 @@ defmodule RefMD.Crypto.Signature.Core do
 
   defp nested_field_type("session", "is_recovery", _), do: :boolean
   defp nested_field_type("session", "counter", _), do: :positive_integer
+  defp nested_field_type("subject", "version", _), do: :positive_integer
+
+  defp nested_field_type("subject", key, _)
+       when key in ["proxy", "target", "endpoint", "runtime"],
+       do: :map
+
   defp nested_field_type(_field, key, _) when key == "password_protected", do: :boolean
   defp nested_field_type(_field, "sequence", _), do: :positive_integer
   defp nested_field_type("public_data", key, _) when key in ["clock"], do: :non_negative_integer
@@ -1214,6 +1349,8 @@ defmodule RefMD.Crypto.Signature.Core do
               "authorityPermissionVersion",
               "keyCheckpointSequence",
               "keyVersion",
+              "minDekVersion",
+              "writeSessionCounter",
               "timestamp"
             ],
        do: :positive_integer
@@ -1223,12 +1360,19 @@ defmodule RefMD.Crypto.Signature.Core do
        do: :blake3
 
   defp nested_field_type(_field, "min_suite_rank", _), do: :positive_integer
+  defp nested_field_type("approval", "approval_epoch", _), do: :positive_integer
+  defp nested_field_type("approval", "created_at_ms", _), do: :positive_integer
+  defp nested_field_type("approval", "source_url_hash", _), do: :source_url_hash
+  defp nested_field_type("approval", "previous_approval_event_hash", _), do: :chain_hash
+  defp nested_field_type("consent", "consent_epoch", _), do: :positive_integer
+  defp nested_field_type("consent", "previous_event_hash", _), do: :chain_hash
 
   defp nested_field_type(_field, key, _) do
     cond do
       String.ends_with?(key, "_material") -> :map
       String.ends_with?(key, "_hash") -> :blake3
       String.ends_with?(key, "_sequence") -> :positive_integer
+      String.ends_with?(key, "_counter") -> :positive_integer
       String.ends_with?(key, "_version") -> :positive_integer
       true -> :non_empty_string
     end
@@ -1247,6 +1391,20 @@ defmodule RefMD.Crypto.Signature.Core do
   end
 
   defp assert_nested_field_type!(:blake3, value, error) do
+    assert_non_empty_string!(value, error)
+    Hash.assert_blake3_base64url!(value)
+  end
+
+  defp assert_nested_field_type!(:source_url_hash, "NO_SOURCE_URL", _error), do: :ok
+
+  defp assert_nested_field_type!(:source_url_hash, value, error) do
+    assert_non_empty_string!(value, error)
+    Hash.assert_blake3_base64url!(value)
+  end
+
+  defp assert_nested_field_type!(:chain_hash, "GENESIS", _error), do: :ok
+
+  defp assert_nested_field_type!(:chain_hash, value, error) do
     assert_non_empty_string!(value, error)
     Hash.assert_blake3_base64url!(value)
   end

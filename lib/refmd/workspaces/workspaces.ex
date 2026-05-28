@@ -49,8 +49,14 @@ defmodule RefMD.Workspaces do
     |> Repo.exists?()
   end
 
-  defdelegate change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id),
-    to: RefMD.Workspaces.Members
+  defdelegate change_member_role(
+                workspace_id,
+                target_user_id,
+                new_role_id,
+                actor_user_id,
+                key_directory
+              ),
+              to: RefMD.Workspaces.Members
 
   defdelegate remove_member(workspace_id, target_user_id, actor_user_id, key_directory),
     to: RefMD.Workspaces.Members
@@ -246,7 +252,21 @@ defmodule RefMD.Workspaces do
     workspace
     |> Workspace.update_changeset(attrs)
     |> Repo.update()
+    |> maybe_recompute_plugin_user_policy(attrs)
   end
+
+  defp maybe_recompute_plugin_user_policy({:ok, workspace}, attrs) do
+    if Map.has_key?(attrs, :plugin_user_policy) do
+      case RefMD.Plugins.recompute_workspace_user_plugin_policy(workspace.id) do
+        :ok -> {:ok, workspace}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, workspace}
+    end
+  end
+
+  defp maybe_recompute_plugin_user_policy(result, _attrs), do: result
 
   @spec delete_workspace(Workspace.t()) :: {:ok, Workspace.t()} | {:error, Ecto.Changeset.t()}
   def delete_workspace(%Workspace{} = workspace) do

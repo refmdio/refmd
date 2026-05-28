@@ -50,6 +50,7 @@ export function eventSignatureAuthorityPayload(
   }
 
   return event.payload.event_type === "document_update_accepted" ||
+    event.payload.event_type === "document_write_session_admitted" ||
     event.payload.event_type === "document_snapshot_accepted"
     ? candidatePayload
     : replayPayload;
@@ -114,6 +115,14 @@ export function verifyEventSemantics(
         throw new Error("member_added_scope_mismatch");
       }
       break;
+    case "member_role_changed":
+      if (body.workspace_id !== event.payload.scope_id) {
+        throw new Error("member_role_changed_scope_mismatch");
+      }
+      if (body.changed_at_event_sequence !== event.payload.sequence) {
+        throw new Error("member_role_changed_sequence_mismatch");
+      }
+      break;
     case "member_removed":
       if (body.removed_at_event_sequence !== event.payload.sequence) {
         throw new Error("member_removed_sequence_mismatch");
@@ -144,7 +153,11 @@ export function verifyEventSemantics(
       break;
     case "document_snapshot_accepted":
     case "document_update_accepted":
+    case "document_write_session_admitted":
       assertDocumentAdmissionSemantics(event, checkpointPayload, body);
+      break;
+    case "document_write_state_changed":
+      assertDocumentWriteStateSemantics(event, checkpointPayload, body);
       break;
     case "signing_key_revoked":
     case "encryption_key_revoked":
@@ -289,6 +302,39 @@ function assertDocumentAdmissionSemantics(
   }
 }
 
+function assertDocumentWriteStateSemantics(
+  event: SignedKeyDirectoryEnvelope,
+  checkpointPayload: Record<string, unknown>,
+  body: Record<string, unknown>,
+): void {
+  if (
+    body.event_type !== "document_write_state_changed" ||
+    body.workspace_id !== event.payload.scope_id
+  ) {
+    throw new Error("document_write_state_scope_mismatch");
+  }
+  if (
+    body.previous_workspace_event_sequence !==
+      numberField(event.payload.sequence, "event_sequence_invalid") - 1 ||
+    body.previous_workspace_event_hash !== event.payload.previous_event_hash
+  ) {
+    throw new Error("document_write_state_previous_head_mismatch");
+  }
+
+  const actor = event.payload.actor as Record<string, unknown> | undefined;
+  if (!actor || actor.signer_kind !== "device") {
+    throw new Error("document_write_state_actor_kind_invalid");
+  }
+  const signingKeyId = stringField(actor.signing_key_id, "signing_key_id_invalid");
+  const entry = keyEntryById(checkpointPayload, signingKeyId);
+  assertKeyEntryActiveAtSequence(
+    checkpointPayload,
+    signingKeyId,
+    numberField(event.payload.sequence, "event_sequence_invalid"),
+  );
+  assertOwner(entry.key_material, "device", stringField(actor.device_id, "device_id_invalid"));
+}
+
 export function applyEventToCheckpointPayload(
   replayPayload: Record<string, unknown>,
   event: SignedKeyDirectoryEnvelope,
@@ -339,10 +385,14 @@ export function applyEventToCheckpointPayload(
       );
     case "document_snapshot_accepted":
     case "document_update_accepted":
+    case "document_write_session_admitted":
       return applyDocumentAdmissionEventToCheckpointPayload(replayPayload, event, candidatePayload);
+    case "document_write_state_changed":
+      return replayPayload;
     case "suite_policy_changed":
       return applySuitePolicyChangedEventToCheckpointPayload(replayPayload, event);
     case "member_added":
+    case "member_role_changed":
     case "member_removed":
       return replayPayload;
     case "guest_invitation_created":

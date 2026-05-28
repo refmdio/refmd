@@ -1,4 +1,8 @@
-export { currentWorkspaceId, setCurrentWorkspaceId } from "./model/selection/selection";
+export {
+  currentWorkspaceId,
+  setCurrentWorkspaceId,
+  discardWorkspaceSelection,
+} from "./model/selection/selection";
 export { useWorkspaces } from "./model/query/use-workspaces";
 export {
   ALL_PERMISSIONS,

@@ -12,6 +12,10 @@ export function canonicalizeStrictBytes(value: StrictJsonValue): Uint8Array {
   return encoder.encode(canonicalizeStrict(value));
 }
 
+export function canonicalizeStrictValueBytes(value: StrictJsonValue): Uint8Array {
+  return encoder.encode(canonicalizeValue(value));
+}
+
 export function canonicalizeStrict(value: StrictJsonValue): string {
   if (!isPlainObject(value)) {
     throw new Error("jcs_root_must_be_object");

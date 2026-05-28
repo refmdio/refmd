@@ -2,7 +2,7 @@ import type { MosaicNode } from "solid-mosaic-component";
 
 export type PanelType = "markdown" | "wysiwyg";
 
-export interface DocumentPanelTarget {
+export interface WorkspaceTileTarget {
   source: "document";
   targetKey: string;
   documentId: string;
@@ -11,7 +11,7 @@ export interface DocumentPanelTarget {
   workspaceId?: string | null;
 }
 
-export interface ShareLinkDocumentPanelTarget {
+export interface ShareLinkWorkspaceTileTarget {
   source: "share-link-document";
   targetKey: string;
   documentId: string;
@@ -21,7 +21,7 @@ export interface ShareLinkDocumentPanelTarget {
   workspaceId?: string | null;
 }
 
-export interface MountedShareDocumentPanelTarget {
+export interface MountedShareWorkspaceTileTarget {
   source: "mounted-share-document";
   targetKey: string;
   mountId: string;
@@ -33,9 +33,9 @@ export interface MountedShareDocumentPanelTarget {
 }
 
 export type PanelTarget =
-  | DocumentPanelTarget
-  | ShareLinkDocumentPanelTarget
-  | MountedShareDocumentPanelTarget;
+  | WorkspaceTileTarget
+  | ShareLinkWorkspaceTileTarget
+  | MountedShareWorkspaceTileTarget;
 
 export type OpenPanelTargetInput =
   | {
@@ -52,12 +52,21 @@ export interface PanelId {
   instanceId: string;
   scrollGroupId: string;
 }
+
+export interface WorkspacePluginTileId {
+  source: "plugin-workspace-tile";
+  tileId: string;
+  documentId?: string;
+  instanceId: string;
+  actionId?: string;
+}
+
 let instanceCounter = 0;
 function generateInstanceId(): string {
   return `${Date.now()}-${++instanceCounter}`;
 }
 
-export function createDocumentPanelTarget(documentId: string, title?: string): DocumentPanelTarget {
+export function createWorkspaceTileTarget(documentId: string, title?: string): WorkspaceTileTarget {
   return {
     source: "document",
     targetKey: documentId,
@@ -67,13 +76,13 @@ export function createDocumentPanelTarget(documentId: string, title?: string): D
   };
 }
 
-export function createShareLinkDocumentPanelTarget(args: {
+export function createShareLinkWorkspaceTileTarget(args: {
   documentToken: string;
   documentId: string;
   routePath?: string;
   title?: string;
   workspaceId?: string | null;
-}): ShareLinkDocumentPanelTarget {
+}): ShareLinkWorkspaceTileTarget {
   return {
     source: "share-link-document",
     targetKey: `share:d:${args.documentToken}`,
@@ -85,14 +94,14 @@ export function createShareLinkDocumentPanelTarget(args: {
   };
 }
 
-export function createMountedShareDocumentPanelTarget(args: {
+export function createMountedShareWorkspaceTileTarget(args: {
   mountId: string;
   shareId: string;
   documentId: string;
   routePath?: string;
   title?: string;
   workspaceId?: string | null;
-}): MountedShareDocumentPanelTarget {
+}): MountedShareWorkspaceTileTarget {
   return {
     source: "mounted-share-document",
     targetKey: `mount:${args.mountId}:${args.shareId}`,
@@ -109,7 +118,7 @@ export function normalizePanelTarget(input: OpenPanelTargetInput): PanelTarget {
   if ("targetKey" in input) {
     return input;
   }
-  return createDocumentPanelTarget(input.id, input.title);
+  return createWorkspaceTileTarget(input.id, input.title);
 }
 
 export function encodePanelId(
@@ -119,7 +128,7 @@ export function encodePanelId(
   scrollGroupId?: string,
 ): string {
   return encodePanelIdForTarget(
-    createDocumentPanelTarget(documentId),
+    createWorkspaceTileTarget(documentId),
     type,
     instanceId,
     scrollGroupId,
@@ -141,6 +150,46 @@ export function encodePanelIdForTarget(
     return `mount:${target.mountId}:${target.shareId}:${target.documentId}:${type}:${id}:${sg}`;
   }
   return `${target.documentId}:${type}:${id}:${sg}`;
+}
+
+export function encodeWorkspacePluginTileId(
+  tileId: string,
+  documentId?: string,
+  instanceId?: string,
+  actionId?: string,
+): string {
+  const id = instanceId ?? generateInstanceId();
+  const encodedTileId = encodeURIComponent(tileId);
+  const encodedDocumentId = documentId ? encodeURIComponent(documentId) : "_";
+  const encodedActionId = actionId ? encodeURIComponent(actionId) : "_";
+  return `plugin:workspace:${encodedTileId}:${encodedDocumentId}:${id}:${encodedActionId}`;
+}
+
+export function decodeWorkspacePluginTileId(panelId: string): WorkspacePluginTileId | null {
+  const parts = panelId.split(":");
+  if (
+    parts[0] !== "plugin" ||
+    parts[1] !== "workspace" ||
+    (parts.length !== 5 && parts.length !== 6)
+  ) {
+    return null;
+  }
+  const [, , encodedTileId, encodedDocumentId, instanceId, encodedActionId] = parts;
+  if (!encodedTileId || !encodedDocumentId || !instanceId) return null;
+  try {
+    return {
+      source: "plugin-workspace-tile",
+      tileId: decodeURIComponent(encodedTileId),
+      documentId: encodedDocumentId === "_" ? undefined : decodeURIComponent(encodedDocumentId),
+      instanceId,
+      actionId:
+        encodedActionId && encodedActionId !== "_"
+          ? decodeURIComponent(encodedActionId)
+          : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function decodePanelId(panelId: string): PanelId | null {
@@ -249,9 +298,38 @@ export function findFirstPanelId(
   return findFirstPanelId(node.first, documentId) ?? findFirstPanelId(node.second, documentId);
 }
 
-export function hasDocumentPanels(node: MosaicNode<string>, documentId: string): boolean {
+export function hasWorkspaceTiles(node: MosaicNode<string>, documentId: string): boolean {
   if (typeof node === "string") return decodePanelId(node)?.documentId === documentId;
-  return hasDocumentPanels(node.first, documentId) || hasDocumentPanels(node.second, documentId);
+  return hasWorkspaceTiles(node.first, documentId) || hasWorkspaceTiles(node.second, documentId);
+}
+
+export function findFirstDocumentResourcePanelId(
+  node: MosaicNode<string> | null,
+  documentId: string,
+): string | null {
+  if (!node) return null;
+  if (typeof node === "string") {
+    const panel = decodePanelId(node);
+    if (panel?.documentId === documentId) return node;
+    const pluginTile = decodeWorkspacePluginTileId(node);
+    return pluginTile?.documentId === documentId ? node : null;
+  }
+  return (
+    findFirstDocumentResourcePanelId(node.first, documentId) ??
+    findFirstDocumentResourcePanelId(node.second, documentId)
+  );
+}
+
+export function hasDocumentResourcePanels(node: MosaicNode<string>, documentId: string): boolean {
+  if (typeof node === "string") {
+    const panel = decodePanelId(node);
+    if (panel?.documentId === documentId) return true;
+    return decodeWorkspacePluginTileId(node)?.documentId === documentId;
+  }
+  return (
+    hasDocumentResourcePanels(node.first, documentId) ||
+    hasDocumentResourcePanels(node.second, documentId)
+  );
 }
 
 export function hasScrollGroupPeer(

@@ -35,6 +35,7 @@ export type OfflineCreatedSyncBlockReason =
   | "not_a_member"
   | "permission_denied"
   | "workspace_unavailable";
+export type OfflineDocumentWriteState = "writable" | "read_only" | "archived" | "write_disabled";
 interface OfflineWorkspace {
   id: string;
   name: string;
@@ -51,7 +52,11 @@ interface OfflineDocumentIndexEntry {
   position: number;
   docType: "document" | "folder";
   folderTitle: string | null;
+  encryptedTitle?: string | null;
+  encryptedTitleNonce?: string | null;
+  encryptedTitleKeyVersion?: number | null;
   archivedAt: string | null;
+  writeState?: OfflineDocumentWriteState | null;
   isEncrypted: boolean;
   updatedAt: string;
 }

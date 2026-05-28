@@ -7,8 +7,10 @@ import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-r
 import type { TitleDecryptItem } from "@/shared/lib/crypto/worker/types";
 import { clientError } from "@/shared/lib/logger";
 import type { DocumentResponse } from "../document/types";
-import { getOfflineDek } from "@/shared/lib/offline/storage/store";
+import { getOfflineDek, getOfflineDocumentMeta } from "@/shared/lib/offline/storage/store";
 import { cacheOfflineTitle, recoverKekFromCache } from "@/shared/lib/offline/cache/manager/keys";
+import { shouldPreferOfflineCache } from "@/shared/lib/offline/offline-state";
+import { toArrayBuffer } from "@/shared/lib/storage/idb";
 
 const titleCache = new Map<string, { title: string; nonce: string | null }>();
 const pendingBatches = new Map<string, Promise<void>>();
@@ -174,18 +176,31 @@ async function decryptBatch(
   }
 
   // Resolve DEK only for documents that are not yet cached
+  const offlineTitleRecoveredIds = new Set<string>();
   for (const doc of docs) {
     if (doc.encrypted_title_key_version == null) continue;
     if (cachedMap.get(doc.id)) continue;
+    if (shouldPreferOfflineCache()) {
+      const offlineTitle = await recoverOfflineTitle(worker, doc.id);
+      if (offlineTitle !== null) {
+        onDecrypted(doc.id, offlineTitle, doc.encrypted_title_nonce ?? null);
+        offlineTitleRecoveredIds.add(doc.id);
+        continue;
+      }
+    }
     await fetchAndUnwrapDekForTitle(worker, doc, workspaceId);
   }
 
-  const items: TitleDecryptItem[] = docs.map((doc) => ({
-    documentId: doc.id,
-    keyVersion: doc.encrypted_title_key_version!,
-    encrypted: base64UrlDecode(doc.encrypted_title!),
-    nonce: base64UrlDecode(doc.encrypted_title_nonce!),
-  }));
+  const items: TitleDecryptItem[] = docs
+    .filter((doc) => !offlineTitleRecoveredIds.has(doc.id))
+    .map((doc) => ({
+      documentId: doc.id,
+      keyVersion: doc.encrypted_title_key_version!,
+      encrypted: base64UrlDecode(doc.encrypted_title!),
+      nonce: base64UrlDecode(doc.encrypted_title_nonce!),
+    }));
+
+  if (items.length === 0) return;
 
   try {
     const results = await worker.decryptTitleBatch(items);
@@ -196,7 +211,41 @@ async function decryptBatch(
       }
     }
   } catch (e) {
+    for (const doc of docs) {
+      if (offlineTitleRecoveredIds.has(doc.id)) continue;
+      const offlineTitle = await recoverOfflineTitle(worker, doc.id);
+      if (offlineTitle !== null) {
+        onDecrypted(doc.id, offlineTitle, doc.encrypted_title_nonce ?? null);
+        offlineTitleRecoveredIds.add(doc.id);
+      }
+    }
     clientError("title_batch_decrypt_failed", { error: e });
+  }
+}
+
+async function recoverOfflineTitle(
+  worker: ReturnType<typeof getCryptoWorker>,
+  documentId: string,
+): Promise<string | null> {
+  try {
+    const meta = await getOfflineDocumentMeta(documentId);
+    if (
+      !meta?.encryptedTitle ||
+      !meta.encryptedTitleNonce ||
+      meta.encryptedTitle.byteLength === 0 ||
+      meta.encryptedTitleNonce.byteLength === 0
+    ) {
+      return null;
+    }
+    const plaintext = await worker.unwrapOfflineDocumentTitleWithDsk({
+      ciphertext: toArrayBuffer(meta.encryptedTitle),
+      iv: toArrayBuffer(meta.encryptedTitleNonce),
+      documentId,
+      keyVersion: 0,
+    });
+    return new TextDecoder().decode(plaintext);
+  } catch {
+    return null;
   }
 }
 

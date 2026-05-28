@@ -35,6 +35,7 @@ import {
   setIdentityFromDecrypted,
 } from "./utils";
 import {
+  hasStoredDeviceKeysInWorker,
   hasStoredDskInWorker,
   loadDskStoreValueInWorker,
   loadStoredDskInitDataInWorker,
@@ -402,6 +403,9 @@ export function handleGetDeviceId(state: WorkerKeyState): unknown {
 }
 export async function handleHasStoredDsk(): Promise<unknown> {
   return { available: await hasStoredDskInWorker() };
+}
+export async function handleHasStoredDeviceKeys(): Promise<unknown> {
+  return { available: await hasStoredDeviceKeysInWorker() };
 }
 export async function handleLoadStoredDsk(state: WorkerKeyState): Promise<unknown> {
   const stored = await loadStoredDskInitDataInWorker();

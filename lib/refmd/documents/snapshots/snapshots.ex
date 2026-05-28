@@ -3,7 +3,7 @@ defmodule RefMD.Documents.Snapshots do
 
   import Ecto.Query
 
-  alias RefMD.Crypto.{Blake3, Encoding, JCS, Signature}
+  alias RefMD.Crypto.{Blake3, Encoding, Hash, JCS, Signature}
   alias RefMD.Devices.Device
   alias RefMD.Documents.{Admission, Document, DocumentSnapshot, DocumentUpdate}
   alias RefMD.Documents.Snapshots.{ProofChain, SignerKeys}
@@ -28,10 +28,10 @@ defmodule RefMD.Documents.Snapshots do
   def save_update(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
-      validate_not_archived!(document)
+      validate_writable!(document)
       validate_write_permission!(document, actor_id, attrs)
       validate_device_active!(actor_id, attrs)
-      verify_document_operation_signature!("document_update", actor_id, attrs, document)
+      verify_document_operation_signature_once!("document_update", actor_id, attrs, document)
       validate_update_preconditions!(document, attrs)
 
       case get_existing_by_hash(document_id, attrs.update_hash) do
@@ -101,10 +101,10 @@ defmodule RefMD.Documents.Snapshots do
   def save_snapshot(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
-      validate_not_archived!(document)
+      validate_writable!(document)
       validate_write_permission!(document, actor_id, attrs)
       validate_device_active!(actor_id, attrs)
-      verify_document_operation_signature!("document_snapshot", actor_id, attrs, document)
+      verify_document_operation_signature_once!("document_snapshot", actor_id, attrs, document)
 
       latest_version = validate_snapshot_preconditions!(document, attrs)
 
@@ -155,11 +155,11 @@ defmodule RefMD.Documents.Snapshots do
     update_hash, hybrid_signature, owner_kind, owner_id,
     authority_kind, authority_id, authority_context_key, authority_scope_id,
     authority_permission_version, key_checkpoint_sequence, key_checkpoint_hash,
-    admission_event_hash, timestamp, created_at
+    admission_event_hash, write_session_counter, timestamp, created_at
   )
   SELECT $1, $2, $3,
     COALESCE((SELECT MAX(version) FROM document_updates WHERE document_id = $1), 0) + 1,
-    $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW()
+    $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW()
   WHERE $3 = COALESCE(
     (
       SELECT MAX(clock) + 1
@@ -195,6 +195,7 @@ defmodule RefMD.Documents.Snapshots do
           attrs.key_checkpoint_sequence,
           attrs.key_checkpoint_hash,
           attrs.admission_event_hash,
+          attrs.write_session_counter,
           attrs.timestamp
         ]
       )
@@ -398,7 +399,7 @@ defmodule RefMD.Documents.Snapshots do
 
   defp lock_document(document_id) do
     case Repo.query(
-           "SELECT id, workspace_id, active_snapshot_id, archived_at, min_dek_version, needs_dek_rotation, needs_rotation_snapshot FROM documents WHERE id = $1 FOR UPDATE",
+           "SELECT id, workspace_id, active_snapshot_id, archived_at, write_state, min_dek_version, needs_dek_rotation, needs_rotation_snapshot FROM documents WHERE id = $1 FOR UPDATE",
            [Ecto.UUID.dump!(document_id)]
          ) do
       {:ok, %{rows: [row]}} ->
@@ -407,6 +408,7 @@ defmodule RefMD.Documents.Snapshots do
           workspace_id,
           active_snapshot_id,
           archived_at,
+          write_state,
           min_dek_version,
           needs_dek_rotation,
           needs_rotation_snapshot
@@ -418,6 +420,7 @@ defmodule RefMD.Documents.Snapshots do
           workspace_id: Ecto.UUID.load!(workspace_id),
           active_snapshot_id: if(active_snapshot_id, do: Ecto.UUID.load!(active_snapshot_id)),
           archived_at: archived_at,
+          write_state: write_state || "writable",
           min_dek_version: min_dek_version,
           needs_dek_rotation: needs_dek_rotation,
           needs_rotation_snapshot: needs_rotation_snapshot
@@ -428,8 +431,17 @@ defmodule RefMD.Documents.Snapshots do
     end
   end
 
-  defp validate_not_archived!(%{archived_at: nil}), do: :ok
-  defp validate_not_archived!(%{archived_at: _}), do: Repo.rollback(:document_archived)
+  defp validate_writable!(%{archived_at: archived_at}) when not is_nil(archived_at),
+    do: Repo.rollback(:document_archived)
+
+  defp validate_writable!(%{write_state: "writable"}), do: :ok
+  defp validate_writable!(%{write_state: "read_only"}), do: Repo.rollback(:document_read_only)
+  defp validate_writable!(%{write_state: "archived"}), do: Repo.rollback(:document_archived)
+
+  defp validate_writable!(%{write_state: "write_disabled"}),
+    do: Repo.rollback(:document_write_disabled)
+
+  defp validate_writable!(_document), do: :ok
 
   defp validate_device_active!(_actor_id, %{session_kind: :share_participant} = attrs) do
     principal_id = Map.fetch!(attrs, :principal_id)
@@ -460,7 +472,15 @@ defmodule RefMD.Documents.Snapshots do
     end
   end
 
-  defp verify_document_operation_signature!(purpose, actor_id, attrs, document) do
+  defp verify_document_operation_signature_once!(
+         _purpose,
+         _actor_id,
+         %{signature_verified: true},
+         _document
+       ),
+       do: :ok
+
+  defp verify_document_operation_signature_once!(purpose, actor_id, attrs, document) do
     public_material = document_operation_public_material!(attrs)
     ciphertext = Encoding.encode_base64url(document_operation_ciphertext!(purpose, attrs))
     nonce = Encoding.encode_base64url(Map.fetch!(attrs, :nonce))
@@ -476,7 +496,7 @@ defmodule RefMD.Documents.Snapshots do
             actor_device_id: owner_id!(attrs),
             signing_key_id: Map.fetch!(attrs, :signing_key_id),
             public_data: Map.fetch!(attrs, :public_data),
-            authority_boundary: authority_boundary!(attrs, "document_update_accepted"),
+            authority_boundary: authority_boundary!(attrs, "document_write_session_admitted"),
             ciphertext: ciphertext,
             nonce: nonce
           })
@@ -574,24 +594,44 @@ defmodule RefMD.Documents.Snapshots do
   defp owner_id!(attrs), do: Map.fetch!(attrs, :owner_id)
 
   defp authority_boundary!(attrs, event_type) do
-    admission =
-      attrs
-      |> Map.fetch!(:admission)
-      |> Map.fetch!("workspaceKeyDirectoryEvents")
-      |> Enum.find_value(fn
-        %{"payload" => %{"event_type" => ^event_type, "body" => body}} -> body
-        _ -> nil
-      end)
+    payload = admission_payload!(attrs, event_type)
+    body = Map.fetch!(payload, "body")
 
-    %{
-      "admission_event_type" => event_type,
-      "admission_nonce" => Map.fetch!(admission, "admission_nonce"),
-      "document_permission_proof_hash" => Map.fetch!(admission, "document_permission_proof_hash"),
-      "min_dek_version" => Map.fetch!(admission, "min_dek_version"),
-      "previous_workspace_event_hash" => Map.fetch!(admission, "previous_workspace_event_hash"),
-      "previous_workspace_event_sequence" =>
-        Map.fetch!(admission, "previous_workspace_event_sequence")
-    }
+    if event_type == "document_write_session_admitted" do
+      %{
+        "document_permission_proof_hash" => Map.fetch!(body, "document_permission_proof_hash"),
+        "min_dek_version" => Map.fetch!(body, "min_dek_version"),
+        "write_session_counter" => Map.fetch!(attrs, :write_session_counter),
+        "write_session_event_hash" =>
+          get_in(attrs, [:public_data, "writeSessionEventHash"]) ||
+            Hash.blake3_base64url(JCS.canonical_bytes!(payload)),
+        "write_session_id" => body["session_id"] || Map.fetch!(body, "write_session_id")
+      }
+    else
+      %{
+        "admission_event_type" => event_type,
+        "admission_nonce" => Map.fetch!(body, "admission_nonce"),
+        "document_permission_proof_hash" => Map.fetch!(body, "document_permission_proof_hash"),
+        "min_dek_version" => Map.fetch!(body, "min_dek_version"),
+        "previous_workspace_event_hash" => Map.fetch!(body, "previous_workspace_event_hash"),
+        "previous_workspace_event_sequence" =>
+          Map.fetch!(body, "previous_workspace_event_sequence")
+      }
+    end
+  end
+
+  defp admission_payload!(attrs, event_type) do
+    attrs
+    |> Map.fetch!(:admission)
+    |> Map.fetch!("workspaceKeyDirectoryEvents")
+    |> Enum.find_value(fn
+      %{"payload" => %{"event_type" => ^event_type} = payload} -> payload
+      _ -> nil
+    end)
+    |> case do
+      nil -> raise ArgumentError, "document_admission_event_missing"
+      payload -> payload
+    end
   end
 
   @rbac_write_check_sql """

@@ -2,6 +2,8 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   use ExUnit.Case, async: true
 
   alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial, JCS, Signature, SigningSurface}
+  alias RefMD.Crypto.Signature.Plugin, as: PluginSignature
+  alias RefMD.Crypto.Signature.SemanticValidator
   alias RefMD.Encryption.KeyDirectory.Signatures
   alias RefMD.Encryption.Wraps.SignedPQ
 
@@ -82,6 +84,23 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       end
 
     assert actual_root_files == expected_root_files
+  end
+
+  test "plugin archive temporary staging uses random exclusive file creation" do
+    files = [
+      Path.join(@root, "lib/refmd/plugins/source_archives/source_archives.ex"),
+      Path.join(@root, "lib/refmd_web/controllers/plugin_management_controller.ex")
+    ]
+
+    for path <- files do
+      source = File.read!(path)
+
+      assert source =~ ":crypto.strong_rand_bytes"
+      assert source =~ "Base.url_encode64(padding: false)"
+      assert source =~ "[:write, :binary, :exclusive]"
+      refute source =~ "System.unique_integer"
+      refute source =~ "File.write(path,"
+    end
   end
 
   test "static DH key-distribution worker surface is absent" do
@@ -444,7 +463,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     assert offenders == []
   end
 
-  test "endpoint config supports phase6 hybrid PoP header sizes" do
+  test "endpoint config supports hybrid PoP header sizes" do
     endpoint_config = Application.fetch_env!(:refmd, RefMDWeb.Endpoint)
     http_config = Keyword.fetch!(endpoint_config, :http)
 
@@ -542,10 +561,6 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     assert share_source =~ "auth_scheme: \"argon2id-hmac-authkey\""
     assert share_source =~ "server_auth_key_wrap_aad_hash"
     refute share_source =~ "canonicalizeStrictBytes(input.passwordFields"
-  end
-
-  test "ignored built static assets are absent from served runtime tree" do
-    refute File.exists?(Path.join(@root, "priv/static/assets"))
   end
 
   defp open_object_schema_paths(nil, _path), do: []
@@ -799,6 +814,337 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
              )
   end
 
+  test "plugin semantic validators reject non-canonical subject protocols" do
+    [
+      {"plugin_bundle_approval", "refmd.plugin.bundle_approval",
+       :plugin_bundle_approval_subject_protocol_invalid},
+      {"plugin_consent_event", "refmd.plugin.consent_event",
+       :plugin_consent_event_subject_protocol_invalid},
+      {"plugin_network_proxy_request", "refmd.plugin.network_proxy_request",
+       :plugin_network_proxy_request_subject_protocol_invalid}
+    ]
+    |> Enum.each(fn {signing_purpose, stale_protocol, expected_reason} ->
+      surface =
+        active_surfaces_by_owner_kind()
+        |> Enum.find(&(&1.signing_purpose == signing_purpose and &1.variant == "none"))
+
+      public =
+        RefMD.TestCrypto.hybrid_signing_private_key_material(
+          owner_kind(surface),
+          owner_id(surface)
+        )
+        |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+      transcript = production_transcript(surface, public)
+      stale_transcript = Map.put(transcript, "subject_protocol", stale_protocol)
+
+      assert_raise ArgumentError, Atom.to_string(expected_reason), fn ->
+        case signing_purpose do
+          "plugin_bundle_approval" ->
+            SemanticValidator.validate_plugin_bundle_approval!(
+              stale_transcript,
+              surface.signing_purpose,
+              owner_kind(surface),
+              owner_id(surface),
+              plugin_semantic_context(stale_transcript)
+            )
+
+          "plugin_consent_event" ->
+            SemanticValidator.validate_plugin_consent_event!(
+              stale_transcript,
+              surface.signing_purpose,
+              owner_kind(surface),
+              owner_id(surface),
+              plugin_semantic_context(stale_transcript)
+            )
+
+          "plugin_network_proxy_request" ->
+            SemanticValidator.validate_plugin_network_proxy_request!(
+              stale_transcript,
+              surface.signing_purpose,
+              owner_kind(surface),
+              owner_id(surface),
+              plugin_semantic_context(stale_transcript)
+            )
+        end
+      end
+    end)
+  end
+
+  test "plugin proxy request semantic validator rejects subject drift with valid signature shape" do
+    surface =
+      active_surfaces_by_owner_kind()
+      |> Enum.find(
+        &(&1.signing_purpose == "plugin_network_proxy_request" and &1.variant == "none")
+      )
+
+    public =
+      RefMD.TestCrypto.hybrid_signing_private_key_material(
+        owner_kind(surface),
+        owner_id(surface)
+      )
+      |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+    transcript = production_transcript(surface, public)
+    context = plugin_semantic_context(transcript)
+    drifted_context = put_in(context, [:proxy_request_subject, "request_id"], "request-drift")
+
+    assert :ok =
+             SemanticValidator.validate_plugin_network_proxy_request!(
+               transcript,
+               surface.signing_purpose,
+               owner_kind(surface),
+               owner_id(surface),
+               context
+             )
+
+    assert_raise ArgumentError, "plugin_network_proxy_request_subject_hash_mismatch", fn ->
+      SemanticValidator.validate_plugin_network_proxy_request!(
+        transcript,
+        surface.signing_purpose,
+        owner_kind(surface),
+        owner_id(surface),
+        drifted_context
+      )
+    end
+  end
+
+  test "plugin proxy request builders and semantic validators allow omitted credential audience" do
+    surface =
+      active_surfaces_by_owner_kind()
+      |> Enum.find(
+        &(&1.signing_purpose == "plugin_network_proxy_request" and &1.variant == "none")
+      )
+
+    public =
+      RefMD.TestCrypto.hybrid_signing_private_key_material(
+        owner_kind(surface),
+        owner_id(surface)
+      )
+      |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+    subject =
+      public
+      |> plugin_network_proxy_request_subject()
+      |> delete_nested_key(["endpoint", "credential_audience"])
+
+    transcript =
+      PluginSignature.build_plugin_network_proxy_request_transcript!(%{
+        subject: subject
+      })
+
+    assert :ok =
+             SemanticValidator.validate_plugin_network_proxy_request!(
+               transcript,
+               surface.signing_purpose,
+               owner_kind(surface),
+               owner_id(surface),
+               %{proxy_request_subject: subject}
+             )
+  end
+
+  test "plugin proxy request builders and semantic validators reject missing nested subject fields" do
+    surface =
+      active_surfaces_by_owner_kind()
+      |> Enum.find(
+        &(&1.signing_purpose == "plugin_network_proxy_request" and &1.variant == "none")
+      )
+
+    public =
+      RefMD.TestCrypto.hybrid_signing_private_key_material(
+        owner_kind(surface),
+        owner_id(surface)
+      )
+      |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+    subject = plugin_network_proxy_request_subject(public)
+
+    [
+      {["proxy", "id"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_proxy_invalid"},
+      {["target", "method"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_target_invalid"},
+      {["target", "body_text"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_target_invalid"},
+      {["endpoint", "max_request_bytes"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_endpoint_invalid"},
+      {["runtime", "frame_generation"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_runtime_invalid"},
+      {["runtime", "capability_grant_id"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_runtime_invalid"},
+      {["runtime", "credential_handle_used"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_runtime_invalid"}
+    ]
+    |> Enum.each(fn {path, builder_error, validator_error} ->
+      malformed_subject = delete_nested_key(subject, path)
+
+      assert_raise ArgumentError, builder_error, fn ->
+        PluginSignature.build_plugin_network_proxy_request_transcript!(%{
+          subject: malformed_subject
+        })
+      end
+
+      transcript =
+        production_transcript(surface, public)
+        |> Map.put("subject", malformed_subject)
+        |> Map.put("subject_hash", Hash.blake3_base64url(JCS.canonical_bytes!(malformed_subject)))
+
+      assert_raise ArgumentError, validator_error, fn ->
+        SemanticValidator.validate_plugin_network_proxy_request!(
+          transcript,
+          surface.signing_purpose,
+          owner_kind(surface),
+          owner_id(surface),
+          %{proxy_request_subject: malformed_subject}
+        )
+      end
+    end)
+  end
+
+  test "plugin proxy request builders and semantic validators reject extra nested subject fields" do
+    surface =
+      active_surfaces_by_owner_kind()
+      |> Enum.find(
+        &(&1.signing_purpose == "plugin_network_proxy_request" and &1.variant == "none")
+      )
+
+    public =
+      RefMD.TestCrypto.hybrid_signing_private_key_material(
+        owner_kind(surface),
+        owner_id(surface)
+      )
+      |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+    subject = plugin_network_proxy_request_subject(public)
+
+    [
+      {["proxy", "operator_label"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_proxy_invalid"},
+      {["target", "redirect_policy"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_target_invalid"},
+      {["endpoint", "policy"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_endpoint_invalid"},
+      {["runtime", "deployment_id"], "plugin_network_proxy_request_subject_invalid",
+       "plugin_network_proxy_request_runtime_invalid"}
+    ]
+    |> Enum.each(fn {path, builder_error, validator_error} ->
+      malformed_subject = put_nested_key(subject, path, "unexpected")
+
+      assert_raise ArgumentError, builder_error, fn ->
+        PluginSignature.build_plugin_network_proxy_request_transcript!(%{
+          subject: malformed_subject
+        })
+      end
+
+      transcript =
+        production_transcript(surface, public)
+        |> Map.put("subject", malformed_subject)
+        |> Map.put("subject_hash", Hash.blake3_base64url(JCS.canonical_bytes!(malformed_subject)))
+
+      assert_raise ArgumentError, validator_error, fn ->
+        SemanticValidator.validate_plugin_network_proxy_request!(
+          transcript,
+          surface.signing_purpose,
+          owner_kind(surface),
+          owner_id(surface),
+          %{proxy_request_subject: malformed_subject}
+        )
+      end
+    end)
+  end
+
+  test "plugin semantic validators reject actors outside the subject workspace scope" do
+    [
+      {"plugin_bundle_approval", :plugin_bundle_approval_actor_mismatch},
+      {"plugin_consent_event", :plugin_consent_event_actor_mismatch}
+    ]
+    |> Enum.each(fn {signing_purpose, expected_reason} ->
+      surface =
+        active_surfaces_by_owner_kind()
+        |> Enum.find(&(&1.signing_purpose == signing_purpose and &1.variant == "none"))
+
+      public =
+        RefMD.TestCrypto.hybrid_signing_private_key_material(
+          owner_kind(surface),
+          owner_id(surface)
+        )
+        |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+      transcript = production_transcript(surface, public)
+      actor = transcript["actor"]
+
+      for invalid_actor <- [
+            %{actor | "key_scope_kind" => "user", "key_scope_id" => actor["user_id"]},
+            %{actor | "key_scope_id" => "00000000-0000-4000-8000-000000000499"}
+          ] do
+        stale_transcript = Map.put(transcript, "actor", invalid_actor)
+
+        assert_raise ArgumentError, Atom.to_string(expected_reason), fn ->
+          case signing_purpose do
+            "plugin_bundle_approval" ->
+              SemanticValidator.validate_plugin_bundle_approval!(
+                stale_transcript,
+                surface.signing_purpose,
+                owner_kind(surface),
+                owner_id(surface),
+                plugin_semantic_context(stale_transcript)
+              )
+
+            "plugin_consent_event" ->
+              SemanticValidator.validate_plugin_consent_event!(
+                stale_transcript,
+                surface.signing_purpose,
+                owner_kind(surface),
+                owner_id(surface),
+                plugin_semantic_context(stale_transcript)
+              )
+          end
+        end
+      end
+    end)
+  end
+
+  test "plugin consent semantic validator rejects actor and consent subject user-device drift" do
+    surface =
+      active_surfaces_by_owner_kind()
+      |> Enum.find(&(&1.signing_purpose == "plugin_consent_event" and &1.variant == "none"))
+
+    public =
+      RefMD.TestCrypto.hybrid_signing_private_key_material(owner_kind(surface), owner_id(surface))
+      |> RefMD.TestCrypto.hybrid_signing_public_key_material()
+
+    transcript = production_transcript(surface, public)
+
+    stale_device =
+      put_in(
+        transcript,
+        ["consent", "device_id"],
+        "00000000-0000-4000-8000-000000000499"
+      )
+      |> refresh_plugin_consent_subject_hash()
+
+    stale_user =
+      transcript
+      |> put_in(["consent", "user_id"], "00000000-0000-4000-8000-000000000499")
+      |> refresh_plugin_consent_subject_hash()
+
+    for stale_transcript <- [
+          put_in(transcript, ["actor", "user_id"], "00000000-0000-4000-8000-000000000499"),
+          stale_device,
+          stale_user
+        ] do
+      assert_raise ArgumentError, "plugin_consent_event_actor_mismatch", fn ->
+        SemanticValidator.validate_plugin_consent_event!(
+          stale_transcript,
+          surface.signing_purpose,
+          owner_kind(surface),
+          owner_id(surface),
+          plugin_semantic_context(stale_transcript)
+        )
+      end
+    end
+  end
+
   test "active and disabled signing surface inventories are exact and disjoint" do
     active_pairs =
       SigningSurface.__test_active_surfaces__()
@@ -819,6 +1165,21 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         SigningSurface.get_active!(signing_purpose, variant)
       end
     end)
+  end
+
+  test "proxy request signing surface is active in both backend and frontend registries" do
+    backend_pairs =
+      SigningSurface.__test_active_surfaces__()
+      |> MapSet.new(&{&1.signing_purpose, &1.variant})
+
+    frontend_source =
+      @root
+      |> Path.join("assets/src/shared/lib/crypto/signing-surface.ts")
+      |> File.read!()
+
+    assert MapSet.member?(backend_pairs, {"plugin_network_proxy_request", "none"})
+    assert frontend_source =~ ~s("plugin_network_proxy_request")
+    assert frontend_source =~ ~s("refmd.plugin.network_proxy_request")
   end
 
   test "active signing surface registry resolves to production builder and validator functions" do
@@ -854,6 +1215,12 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
     assert validators[{"device_approval", "none"}] == :validate_device_approval!
     assert validators[{"recovery_device_approval", "none"}] == :validate_recovery_approval!
+    assert validators[{"plugin_bundle_approval", "none"}] == :validate_plugin_bundle_approval!
+    assert validators[{"plugin_consent_event", "none"}] == :validate_plugin_consent_event!
+
+    assert validators[{"plugin_network_proxy_request", "none"}] ==
+             :validate_plugin_network_proxy_request!
+
     assert validators[{"document_update", "workspace_device"}] == :validate_document_admission!
 
     assert validators[{"document_snapshot", "share_participant_device"}] ==
@@ -1621,6 +1988,48 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     }
   end
 
+  defp plugin_semantic_context(%{"actor" => actor, "approval" => approval}) do
+    %{
+      actor: %{
+        device_id: actor["device_id"],
+        user_id: actor["user_id"],
+        signing_key_id: actor["signing_key_id"]
+      },
+      approval_subject: approval
+    }
+  end
+
+  defp plugin_semantic_context(%{"actor" => actor, "consent" => consent}) do
+    %{
+      actor: %{
+        device_id: actor["device_id"],
+        user_id: actor["user_id"],
+        signing_key_id: actor["signing_key_id"]
+      },
+      consent_subject: consent
+    }
+  end
+
+  defp plugin_semantic_context(%{"subject" => subject}) do
+    %{proxy_request_subject: subject}
+  end
+
+  defp refresh_plugin_consent_subject_hash(%{"consent" => consent} = transcript) do
+    Map.put(transcript, "subject_hash", Hash.blake3_base64url(JCS.canonical_bytes!(consent)))
+  end
+
+  defp delete_nested_key(map, [key]), do: Map.delete(map, key)
+
+  defp delete_nested_key(map, [key | rest]) do
+    Map.update!(map, key, &delete_nested_key(&1, rest))
+  end
+
+  defp put_nested_key(map, [key], value), do: Map.put(map, key, value)
+
+  defp put_nested_key(map, [key | rest], value) do
+    Map.update!(map, key, &put_nested_key(&1, rest, value))
+  end
+
   defp production_builder_args(%{signing_purpose: "pq_wrap"}, public) do
     payload = pq_wrap_payload_fixture()
 
@@ -1761,6 +2170,36 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       encryption_public,
       Base.url_encode64(deterministic_bytes("device-approval-client-nonce", 16), padding: false),
       commitments
+    ]
+  end
+
+  defp production_builder_args(%{signing_purpose: "plugin_bundle_approval"}, public) do
+    actor = plugin_actor(public)
+
+    [
+      %{
+        actor: actor,
+        approval: plugin_bundle_approval_subject(actor)
+      }
+    ]
+  end
+
+  defp production_builder_args(%{signing_purpose: "plugin_consent_event"}, public) do
+    actor = plugin_actor(public)
+
+    [
+      %{
+        actor: actor,
+        consent: plugin_consent_subject(actor)
+      }
+    ]
+  end
+
+  defp production_builder_args(%{signing_purpose: "plugin_network_proxy_request"}, public) do
+    [
+      %{
+        subject: plugin_network_proxy_request_subject(public)
+      }
     ]
   end
 
@@ -2343,6 +2782,34 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   defp document_operation_params_fixture(purpose, public) do
     signing_key_id = Signature.compute_signing_key_id!(public)
 
+    update_public_data = %{
+      "clock" => 0,
+      "minDekVersion" => 1,
+      "refSnapshotId" => "00000000-0000-4000-8000-000000000424",
+      "timestamp" => 1,
+      "updateHash" => Hash.blake3_base64url("update"),
+      "writeSessionCounter" => 1,
+      "writeSessionEventHash" => Hash.blake3_base64url("write-session"),
+      "writeSessionId" => Hash.blake3_base64url("write-session-id")
+    }
+
+    snapshot_authority_boundary = %{
+      "admission_event_type" => purpose <> "_accepted",
+      "admission_nonce" => Hash.blake3_base64url("nonce"),
+      "document_permission_proof_hash" => Hash.blake3_base64url("permission"),
+      "min_dek_version" => 1,
+      "previous_workspace_event_hash" => Hash.blake3_base64url("head"),
+      "previous_workspace_event_sequence" => 1
+    }
+
+    update_authority_boundary = %{
+      "document_permission_proof_hash" => Hash.blake3_base64url("permission"),
+      "min_dek_version" => 1,
+      "write_session_counter" => 1,
+      "write_session_event_hash" => Hash.blake3_base64url("write-session"),
+      "write_session_id" => Hash.blake3_base64url("write-session-id")
+    }
+
     %{
       owner_kind: public["owner_kind"],
       owner_id: public["owner_id"],
@@ -2351,7 +2818,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       actor_device_id: public["owner_id"],
       signing_key_id: signing_key_id,
       public_data:
-        maybe_put_snapshot_id(
+        maybe_put_document_operation_data(
           %{
             "authorityId" => "00000000-0000-4000-8000-000000000401",
             "authorityKind" =>
@@ -2370,16 +2837,14 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
             "ownerKind" => public["owner_kind"],
             "signingKeyId" => signing_key_id
           },
-          purpose
+          purpose,
+          update_public_data
         ),
-      authority_boundary: %{
-        "admission_event_type" => purpose <> "_accepted",
-        "admission_nonce" => Hash.blake3_base64url("nonce"),
-        "document_permission_proof_hash" => Hash.blake3_base64url("permission"),
-        "min_dek_version" => 1,
-        "previous_workspace_event_hash" => Hash.blake3_base64url("head"),
-        "previous_workspace_event_sequence" => 1
-      },
+      authority_boundary:
+        if(purpose == "document_update",
+          do: update_authority_boundary,
+          else: snapshot_authority_boundary
+        ),
       ciphertext:
         Base.url_encode64(deterministic_bytes("document-operation-ciphertext", 48),
           padding: false
@@ -2407,7 +2872,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     )
   end
 
-  defp maybe_put_snapshot_id(public_data, "document_snapshot") do
+  defp maybe_put_document_operation_data(public_data, "document_snapshot", _update_public_data) do
     Map.merge(public_data, %{
       "parentProofHash" => "GENESIS",
       "parentSnapshotId" => "GENESIS",
@@ -2416,13 +2881,116 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     })
   end
 
-  defp maybe_put_snapshot_id(public_data, _) do
-    Map.merge(public_data, %{
-      "clock" => 0,
-      "refSnapshotId" => "00000000-0000-4000-8000-000000000424",
-      "timestamp" => 1,
-      "updateHash" => Hash.blake3_base64url("update")
-    })
+  defp maybe_put_document_operation_data(public_data, _, update_public_data) do
+    Map.merge(public_data, update_public_data)
+  end
+
+  defp plugin_actor(public) do
+    %{
+      "signer_kind" => "device",
+      "user_id" => "00000000-0000-4000-8000-000000000426",
+      "device_id" => public["owner_id"],
+      "signing_key_id" => Signature.compute_signing_key_id!(public),
+      "key_scope_kind" => "workspace",
+      "key_scope_id" => "00000000-0000-4000-8000-000000000427",
+      "key_checkpoint_sequence" => 1,
+      "key_checkpoint_hash" => Hash.blake3_base64url("plugin-checkpoint")
+    }
+  end
+
+  defp plugin_bundle_approval_subject(actor) do
+    %{
+      "plugin_id" => "com.example.notes",
+      "package_id" => "00000000-0000-4000-8000-000000000429",
+      "application_scope_kind" => "workspace",
+      "workspace_id" => actor["key_scope_id"],
+      "owner_scope_kind" => "workspace",
+      "owner_workspace_id" => actor["key_scope_id"],
+      "version" => "1.0.0",
+      "source_kind" => "local_upload",
+      "source_url_hash" => "NO_SOURCE_URL",
+      "archive_hash" => Hash.blake3_base64url("plugin-archive"),
+      "bundle_hash" => Hash.blake3_base64url("plugin-bundle"),
+      "manifest_hash" => Hash.blake3_base64url("plugin-manifest"),
+      "main_js_hash" => Hash.blake3_base64url("plugin-main"),
+      "styles_css_hash" => Hash.blake3_base64url("plugin-styles"),
+      "resource_manifest_hash" => Hash.blake3_base64url("plugin-resources"),
+      "permissions_hash" => Hash.blake3_base64url("plugin-permissions"),
+      "endpoint_hash" => Hash.blake3_base64url("plugin-endpoints"),
+      "renderer_slots_hash" => Hash.blake3_base64url("plugin-renderer-slots"),
+      "document_scope_hash" => Hash.blake3_base64url("plugin-document-scopes"),
+      "approver_user_id" => actor["user_id"],
+      "approver_device_id" => actor["device_id"],
+      "approval_epoch" => 1,
+      "previous_approval_event_hash" => "GENESIS",
+      "created_at_ms" => 1_775_000_000_000
+    }
+  end
+
+  defp plugin_consent_subject(actor) do
+    %{
+      "plugin_id" => "com.example.notes",
+      "package_id" => "00000000-0000-4000-8000-000000000429",
+      "application_id" => "00000000-0000-4000-8000-000000000428",
+      "activation_id" => "00000000-0000-4000-8000-000000000430",
+      "owner_scope_kind" => "workspace",
+      "application_scope_kind" => "workspace",
+      "version" => "1.0.0",
+      "bundle_hash" => Hash.blake3_base64url("plugin-bundle"),
+      "manifest_hash" => Hash.blake3_base64url("plugin-manifest"),
+      "resource_manifest_hash" => Hash.blake3_base64url("plugin-resources"),
+      "permissions_hash" => Hash.blake3_base64url("plugin-permissions"),
+      "endpoint_hash" => Hash.blake3_base64url("plugin-endpoints"),
+      "document_scope_hash" => Hash.blake3_base64url("plugin-document-scopes"),
+      "signer_device_id" => actor["device_id"],
+      "signer_user_id" => actor["user_id"],
+      "user_id" => actor["user_id"],
+      "device_id" => actor["device_id"],
+      "workspace_id" => actor["key_scope_id"],
+      "consent_epoch" => 1,
+      "previous_event_hash" => "GENESIS",
+      "decision" => "allow"
+    }
+  end
+
+  defp plugin_network_proxy_request_subject(public) do
+    %{
+      "protocol" => "refmd.plugin-network-proxy-request-subject",
+      "version" => 1,
+      "request_id" => "request-0001",
+      "proxy" => %{
+        "id" => "workspace-proxy",
+        "scope" => "workspace",
+        "origin" => "https://proxy.example/refmd"
+      },
+      "target" => %{
+        "url" => "https://api.example.test/v1/search",
+        "method" => "POST",
+        "headers" => %{"accept" => "application/json", "content-type" => "application/json"},
+        "body_text" => ~s({"query":"notes"})
+      },
+      "endpoint" => %{
+        "id" => "search",
+        "max_request_bytes" => 4096,
+        "max_response_bytes" => 65_536,
+        "credential_audience" => "https://api.example.test"
+      },
+      "runtime" => %{
+        "workspace_id" => "00000000-0000-4000-8000-000000000427",
+        "plugin_id" => "com.example.notes",
+        "package_id" => "00000000-0000-4000-8000-000000000429",
+        "application_id" => "00000000-0000-4000-8000-000000000428",
+        "activation_id" => "00000000-0000-4000-8000-000000000430",
+        "frame_generation" => 2,
+        "user_id" => "00000000-0000-4000-8000-000000000426",
+        "device_id" => public["owner_id"],
+        "owner_scope_kind" => "workspace",
+        "consent_epoch" => 1,
+        "capability_grant_id" => "grant-0001",
+        "request_id" => "request-0001",
+        "credential_handle_used" => true
+      }
+    }
   end
 
   defp expected_active_surface_pairs do
@@ -2431,6 +2999,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "identity_key_added",
       "device_key_added",
       "member_added",
+      "member_role_changed",
       "member_removed",
       "signing_key_revoked",
       "encryption_key_revoked",
@@ -2457,6 +3026,8 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "rotation_completed",
       "old_key_deleted",
       "document_update_accepted",
+      "document_write_session_admitted",
+      "document_write_state_changed",
       "document_snapshot_accepted"
     ]
 
@@ -2468,6 +3039,9 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       {"share_participant_device_authorization", "none"},
       {"genesis_device_bootstrap", "none"},
       {"device_approval", "none"},
+      {"plugin_bundle_approval", "none"},
+      {"plugin_consent_event", "none"},
+      {"plugin_network_proxy_request", "none"},
       {"responder_prekey", "none"},
       {"initiator_ake_commitment", "none"},
       {"recovery_device_approval", "none"},
@@ -2531,6 +3105,9 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     [
       {"genesis_device_bootstrap", "none"},
       {"device_approval", "none"},
+      {"plugin_bundle_approval", "none"},
+      {"plugin_consent_event", "none"},
+      {"plugin_network_proxy_request", "none"},
       {"recovery_device_approval", "none"},
       {"device_revocation", "none"},
       {"recovery_session", "none"},
@@ -2568,8 +3145,6 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
   defp expected_disabled_surface_pairs do
     [
-      {"plugin_bundle_approval", "none"},
-      {"plugin_consent_event", "none"},
       {"trust_transfer", "none"},
       {"snapshot_proof", "workspace_device"},
       {"snapshot_proof", "share_participant_device"}

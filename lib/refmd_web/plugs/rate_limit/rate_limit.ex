@@ -14,11 +14,17 @@ defmodule RefMDWeb.Plugs.RateLimit do
 
   alias RefMD.Sharing
 
-  @ip_limit 300
-  @session_limit 120
+  @ip_limit 1200
+  @session_limit 180
   @transport_auth_ip_limit 1200
   @transport_auth_session_limit 600
-  @auth_limit 20
+  @plugin_runtime_control_ip_limit 2400
+  @plugin_runtime_control_session_limit 1200
+  @plugin_runtime_audit_ip_limit 2400
+  @plugin_runtime_audit_session_limit 1200
+  @plugin_runtime_sandbox_document_ip_limit 2400
+  @plugin_runtime_sandbox_document_session_limit 1200
+  @auth_limit 60
   @auth_target_limit 20
   @period_ms 60_000
   @user_session_cookie "_refmd_session"
@@ -99,19 +105,63 @@ defmodule RefMDWeb.Plugs.RateLimit do
   defp local_request?(_), do: false
 
   defp throttle_results(conn, now) do
-    if transport_auth_request?(conn) do
-      [
-        check_throttle({:transport_ip, conn.remote_ip}, @transport_auth_ip_limit, now),
-        check_throttle(
-          {:transport_session, session_key(conn)},
-          @transport_auth_session_limit,
-          now
-        )
-      ]
-    else
-      [check_throttle({:ip, conn.remote_ip}, @ip_limit, now)] ++
-        [check_throttle(session_key(conn), @session_limit, now)] ++
-        auth_throttle_results(conn, now)
+    cond do
+      transport_auth_request?(conn) ->
+        [
+          check_throttle({:transport_ip, conn.remote_ip}, @transport_auth_ip_limit, now),
+          check_throttle(
+            {:transport_session, session_key(conn)},
+            @transport_auth_session_limit,
+            now
+          )
+        ]
+
+      plugin_runtime_audit_request?(conn) ->
+        [
+          check_throttle(
+            {:plugin_runtime_audit_ip, conn.remote_ip},
+            @plugin_runtime_audit_ip_limit,
+            now
+          ),
+          check_throttle(
+            {:plugin_runtime_audit_session, session_key(conn)},
+            @plugin_runtime_audit_session_limit,
+            now
+          )
+        ]
+
+      plugin_runtime_sandbox_document_request?(conn) ->
+        [
+          check_throttle(
+            {:plugin_runtime_sandbox_document_ip, conn.remote_ip},
+            @plugin_runtime_sandbox_document_ip_limit,
+            now
+          ),
+          check_throttle(
+            {:plugin_runtime_sandbox_document_session, session_key(conn)},
+            @plugin_runtime_sandbox_document_session_limit,
+            now
+          )
+        ]
+
+      plugin_runtime_control_request?(conn) ->
+        [
+          check_throttle(
+            {:plugin_runtime_control_ip, conn.remote_ip},
+            @plugin_runtime_control_ip_limit,
+            now
+          ),
+          check_throttle(
+            {:plugin_runtime_control_session, session_key(conn)},
+            @plugin_runtime_control_session_limit,
+            now
+          )
+        ]
+
+      true ->
+        [check_throttle({:ip, conn.remote_ip}, @ip_limit, now)] ++
+          [check_throttle(session_key(conn), @session_limit, now)] ++
+          auth_throttle_results(conn, now)
     end
   end
 
@@ -195,6 +245,29 @@ defmodule RefMDWeb.Plugs.RateLimit do
   end
 
   defp transport_auth_request?(conn), do: conn.request_path in @transport_auth_paths
+
+  defp plugin_runtime_audit_request?(conn) do
+    String.match?(
+      conn.request_path,
+      ~r<^/api/workspaces/[^/]+/plugin-runtime-audit$>
+    )
+  end
+
+  defp plugin_runtime_control_request?(conn) do
+    conn.method == "GET" and
+      String.match?(
+        conn.request_path,
+        ~r<^/api/workspaces/[^/]+/plugin-runtime(?:/consent-required)?$>
+      )
+  end
+
+  defp plugin_runtime_sandbox_document_request?(conn) do
+    conn.method == "GET" and
+      String.match?(
+        conn.request_path,
+        ~r<^/api/plugin-runtime/sandbox-documents/[^/]+$>
+      )
+  end
 
   defp check_throttle(key, limit, now) do
     table = RefMDWeb.Plugs.RateLimit.Storage

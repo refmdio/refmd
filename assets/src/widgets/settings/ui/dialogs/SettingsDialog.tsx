@@ -9,6 +9,7 @@ import {
   PuzzleIcon,
   PaletteIcon,
   LinkIcon,
+  PackagePlusIcon,
 } from "lucide-solid";
 import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
@@ -21,6 +22,14 @@ import { CorePluginsSection } from "../sections/CorePluginsSection";
 import { ThemeSection } from "../sections/ThemeSection";
 import { ExternalAccessSection } from "../sections/ExternalAccessSection";
 import { workspaceManager } from "@/features/panel";
+import { CommunityPluginsSection } from "@/features/plugin-management";
+import {
+  getDefaultPluginHostCredentialStore,
+  listPluginRuntimeApplications,
+  purgePluginApplicationLocalData,
+  requestPluginRuntimeApplicationsRefresh,
+  submitPluginConsentDecision,
+} from "@/features/plugin-runtime";
 
 type TabEntry = { id: string; label: string; icon: () => JSX.Element };
 
@@ -33,6 +42,11 @@ const optionsTabs: TabEntry[] = [
 
 const managementTabs: TabEntry[] = [
   { id: "workspace", label: "Workspace", icon: () => <UsersIcon class="size-4" /> },
+  {
+    id: "community-plugins",
+    label: "Community Plugins",
+    icon: () => <PackagePlusIcon class="size-4" />,
+  },
   { id: "external-access", label: "External", icon: () => <LinkIcon class="size-4" /> },
   { id: "security", label: "Security", icon: () => <ShieldIcon class="size-4" /> },
   { id: "account", label: "Account", icon: () => <UserIcon class="size-4" /> },
@@ -41,6 +55,15 @@ const managementTabs: TabEntry[] = [
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTab?: string;
+  closePluginRuntimeByApplication?: (
+    applicationId: string,
+    reason?: string,
+  ) => void | Promise<void>;
+  beginPluginRuntimeApplicationRevocation?: (applicationId: string) => void;
+  releasePluginRuntimeApplicationRevocation?: (applicationId: string) => void;
+  closePluginRuntimeByWorkspace?: (workspaceId: string, reason?: string) => void | Promise<void>;
+  releasePluginRuntimeWorkspaceRevocation?: (workspaceId: string) => void;
 }
 
 function TabButton(props: { tab: TabEntry }) {
@@ -49,17 +72,30 @@ function TabButton(props: { tab: TabEntry }) {
       value={props.tab.id}
       class="h-auto w-full flex-none justify-start gap-3 border-0 px-3 py-2 text-sm normal-case tracking-normal data-[selected]:bg-foreground data-[selected]:text-background"
     >
-      {props.tab.icon()}
-      {props.tab.label}
+      <span class="shrink-0">{props.tab.icon()}</span>
+      <span class="min-w-0 truncate whitespace-nowrap">{props.tab.label}</span>
     </TabsTrigger>
   );
 }
 
 export function SettingsDialog(props: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = createSignal("about");
+  const [activeTab, setActiveTab] = createSignal(props.initialTab ?? "about");
   const pluginTabs = workspaceManager.getSettingTabs();
 
   let prevPluginTabId: string | null = null;
+  let prevOpen = false;
+  let prevInitialTab = props.initialTab ?? "about";
+
+  createEffect(() => {
+    const open = props.open;
+    const initialTab = props.initialTab ?? "about";
+    if (open && (!prevOpen || initialTab !== prevInitialTab)) {
+      setActiveTab(initialTab);
+    }
+    prevOpen = open;
+    prevInitialTab = initialTab;
+  });
+
   createEffect(() => {
     const current = activeTab();
     const tabs = pluginTabs();
@@ -131,7 +167,28 @@ export function SettingsDialog(props: SettingsDialogProps) {
                 <ThemeSection />
               </Show>
               <Show when={activeTab() === "workspace"}>
-                <WorkspaceSection />
+                <WorkspaceSection
+                  closePluginRuntimeByWorkspace={props.closePluginRuntimeByWorkspace}
+                  releasePluginRuntimeWorkspaceRevocation={
+                    props.releasePluginRuntimeWorkspaceRevocation
+                  }
+                />
+              </Show>
+              <Show when={activeTab() === "community-plugins"}>
+                <CommunityPluginsSection
+                  purgeLocalData={purgePluginApplicationLocalData}
+                  listRuntimeApplications={listPluginRuntimeApplications}
+                  requestRuntimeApplicationsRefresh={requestPluginRuntimeApplicationsRefresh}
+                  beginRuntimeApplicationRevocation={props.beginPluginRuntimeApplicationRevocation}
+                  closeRuntimeByApplication={props.closePluginRuntimeByApplication}
+                  releaseRuntimeApplicationRevocation={
+                    props.releasePluginRuntimeApplicationRevocation
+                  }
+                  storeCredential={(registration) =>
+                    getDefaultPluginHostCredentialStore().storeCredential(registration)
+                  }
+                  submitConsentDecision={submitPluginConsentDecision}
+                />
               </Show>
               <Show when={activeTab() === "external-access"}>
                 <ExternalAccessSection />

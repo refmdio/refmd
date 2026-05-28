@@ -29,6 +29,7 @@ defmodule RefMD.Documents.DocumentUpdate do
     field :key_checkpoint_sequence, :integer
     field :key_checkpoint_hash, :string
     field :admission_event_hash, :string
+    field :write_session_counter, :integer
     field :timestamp, :integer
     field :created_at, :utc_datetime_usec
   end
@@ -59,6 +60,7 @@ defmodule RefMD.Documents.DocumentUpdate do
       :key_checkpoint_sequence,
       :key_checkpoint_hash,
       :admission_event_hash,
+      :write_session_counter,
       :timestamp
     ])
     |> validate_required([
@@ -79,6 +81,9 @@ defmodule RefMD.Documents.DocumentUpdate do
     |> unique_constraint([:document_id, :update_hash],
       name: :document_updates_document_id_update_hash_index
     )
+    |> unique_constraint([:admission_event_hash, :signing_key_id, :write_session_counter],
+      name: :document_updates_admission_event_hash_signing_key_id_write_session_counter_index
+    )
   end
 
   defp validate_update_auth_fields(changeset) do
@@ -96,7 +101,8 @@ defmodule RefMD.Documents.DocumentUpdate do
       :authority_permission_version,
       :key_checkpoint_sequence,
       :key_checkpoint_hash,
-      :admission_event_hash
+      :admission_event_hash,
+      :write_session_counter
     ])
   end
 

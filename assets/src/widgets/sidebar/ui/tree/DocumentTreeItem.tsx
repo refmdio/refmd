@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, createSignal, onCleanup } from "solid-js";
 import {
   ChevronRightIcon,
   ChevronDownIcon,
@@ -24,6 +24,16 @@ import {
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
 import { Spinner } from "@/shared/ui/spinner";
+import {
+  getDefaultPluginUiContributionRegistry,
+  pluginUiCommandId,
+  pluginUiCommandResourcePayload,
+  pluginUiEntryCommandEnabled,
+  pluginUiEntryMatchesResource,
+  type PluginUiRegistryEntry,
+  type PluginUiResourceContext,
+} from "@/features/plugin-runtime";
+import { workspaceManager } from "@/features/panel";
 import { buildMountChildRows, type SidebarTreeNode } from "../../model/tree/rows";
 import type { SidebarDragTarget, SidebarDropTarget } from "../../model/tree/use-tree-drag";
 
@@ -57,6 +67,7 @@ interface DocumentTreeItemProps {
 }
 
 const MAX_VISUAL_DEPTH = 10;
+const uiRegistry = getDefaultPluginUiContributionRegistry();
 
 function mountTitle(mount: ResolvedShareMount): string {
   if (mount.resolved_title) return mount.resolved_title;
@@ -88,14 +99,51 @@ function DocumentRow(
     node: Extract<SidebarTreeNode, { kind: "document" | "folder" }>;
   },
 ) {
+  const registryEntries = useUiRegistryEntries();
   const doc = () => props.node.document;
   const isFolder = () => props.node.kind === "folder";
   const isArchived = () => doc().archived_at != null;
   const isSelected = () => props.selectedId === doc().id;
   const isDragged = () => props.draggedId === doc().id;
   const isReady = () => props.isTitleReady(doc());
+  const resourceContext = (entry: PluginUiRegistryEntry): PluginUiResourceContext => ({
+    resourceKind: isFolder() ? "folder" : "document",
+    workspaceId: doc().workspace_id,
+    documentId: isFolder() ? undefined : doc().id,
+    folderId: isFolder() ? doc().id : undefined,
+    documentOpen: !isFolder() && isSelected(),
+    selectionPresent: false,
+    capabilities: entry.capabilities,
+  });
   const depth = () => Math.min(props.node.depth, MAX_VISUAL_DEPTH);
   const children = () => (props.node.kind === "folder" ? props.node.children : []);
+  const prefixDecorations = () =>
+    registryEntries("document_tree_decoration").filter(
+      (entry) =>
+        entry.contribution.surface === "document_tree_decoration" &&
+        entry.contribution.placement === "row_prefix" &&
+        pluginUiEntryMatchesResource(entry, resourceContext(entry)),
+    );
+  const suffixDecorations = () =>
+    registryEntries("document_tree_decoration").filter(
+      (entry) =>
+        entry.contribution.surface === "document_tree_decoration" &&
+        entry.contribution.placement === "row_suffix" &&
+        pluginUiEntryMatchesResource(entry, resourceContext(entry)),
+    );
+  const badges = () =>
+    registryEntries("document_tree_badge").filter(
+      (entry) =>
+        entry.contribution.surface === "document_tree_badge" &&
+        pluginUiEntryMatchesResource(entry, resourceContext(entry)),
+    );
+  const inlineActions = () =>
+    registryEntries("document_tree_action").filter(
+      (entry) =>
+        entry.contribution.surface === "document_tree_action" &&
+        entry.contribution.placement === "row_inline_action" &&
+        pluginUiEntryCommandEnabled(entry, resourceContext(entry), uiRegistry),
+    );
 
   const dropIndicator = () => {
     const target = props.dropTarget;
@@ -104,7 +152,6 @@ function DocumentRow(
   };
 
   const handleClick = () => {
-    if (!isFolder() && !isReady()) return;
     props.onSelect(doc().id);
   };
 
@@ -175,7 +222,49 @@ function DocumentRow(
               <FolderIcon class="size-4 text-muted-foreground" />
             </Show>
           </span>
+          <For each={prefixDecorations()}>
+            {(entry) => (
+              <span class="shrink-0 text-[10px] text-muted-foreground">
+                {decorationLabel(entry)}
+              </span>
+            )}
+          </For>
           <span class="truncate">{props.getTitle(doc())}</span>
+          <For each={suffixDecorations()}>
+            {(entry) => (
+              <span class="shrink-0 text-[10px] text-muted-foreground">
+                {decorationLabel(entry)}
+              </span>
+            )}
+          </For>
+          <For each={badges()}>
+            {(entry) => (
+              <span class="shrink-0 rounded border border-sidebar-border px-1 text-[10px] leading-4 text-sidebar-foreground/70">
+                {badgeLabel(entry)}
+              </span>
+            )}
+          </For>
+          <For each={inlineActions()}>
+            {(entry) => (
+              <span
+                role="button"
+                tabIndex={0}
+                class="shrink-0 rounded px-1 text-[10px] leading-4 text-sidebar-foreground/70 opacity-0 hover:bg-sidebar-accent group-hover:opacity-100"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  runDocumentTreeAction(entry, resourceContext(entry), uiRegistry);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  runDocumentTreeAction(entry, resourceContext(entry), uiRegistry);
+                }}
+              >
+                {actionLabel(entry)}
+              </span>
+            )}
+          </For>
         </button>
         <Show when={dropIndicator() === "after"}>
           <div
@@ -220,6 +309,48 @@ function DocumentRow(
       </Show>
     </div>
   );
+}
+
+function useUiRegistryEntries() {
+  const [version, setVersion] = createSignal(0);
+  const unsubscribe = uiRegistry.subscribe(() => setVersion((value) => value + 1));
+  onCleanup(unsubscribe);
+  return (surface: Parameters<typeof uiRegistry.list>[0]) => {
+    version();
+    return uiRegistry.list(surface);
+  };
+}
+
+function badgeLabel(entry: PluginUiRegistryEntry): string {
+  const contribution = entry.contribution;
+  if (contribution.surface !== "document_tree_badge") return "";
+  return entry.display?.text ?? contribution.text ?? contribution.icon ?? "";
+}
+
+function decorationLabel(entry: PluginUiRegistryEntry): string {
+  const contribution = entry.contribution;
+  if (contribution.surface !== "document_tree_decoration") return "";
+  return contribution.icon ?? "";
+}
+
+function actionLabel(entry: PluginUiRegistryEntry): string {
+  const contribution = entry.contribution;
+  if (contribution.surface !== "document_tree_action") return "";
+  return contribution.icon ?? contribution.title;
+}
+
+function runDocumentTreeAction(
+  entry: PluginUiRegistryEntry,
+  context: PluginUiResourceContext,
+  registry: ReturnType<typeof getDefaultPluginUiContributionRegistry>,
+): void {
+  const contribution = entry.contribution;
+  if (contribution.surface !== "document_tree_action") return;
+  const payload = pluginUiCommandResourcePayload(entry, context, registry);
+  if (!payload) return;
+  const commandId = pluginUiCommandId(entry, contribution.command_ref);
+  const command = workspaceManager.listCommands().find((item) => item.id === commandId);
+  command?.callback?.(payload);
 }
 
 function MountTreeItem(

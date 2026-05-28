@@ -15,6 +15,8 @@ defmodule RefMD.Application do
       RefMDWeb.Telemetry,
       RefMD.Repo,
       RefMDWeb.Plugs.RateLimit.Storage,
+      RefMD.Plugins.SandboxDocumentArtifacts,
+      RefMD.Plugins.SandboxDocuments,
       {Cluster.Supervisor, [topologies, [name: RefMD.ClusterSupervisor]]},
       {Phoenix.PubSub, name: RefMD.PubSub},
       {Oban, Application.fetch_env!(:refmd, Oban)},

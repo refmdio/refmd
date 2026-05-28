@@ -1,8 +1,8 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { CopyIcon, ExternalLinkIcon, Globe2Icon, LinkIcon, SettingsIcon } from "lucide-solid";
 import { useDocuments, useDocumentTitles, type DocumentResponse } from "@/entities/document";
-import { currentWorkspaceId } from "@/entities/workspace";
+import { currentWorkspaceId, useWorkspaces } from "@/entities/workspace";
 import { getPublication, PublishDialog, type Publication } from "@/features/publication";
 import {
   listDocumentShares,
@@ -12,6 +12,7 @@ import {
 } from "@/features/share";
 import { useDocumentSharePermissions } from "@/features/workspace";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { workspacesApi } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
 
@@ -111,6 +112,7 @@ function ExternalAccessRow(props: {
 
 export function ExternalAccessSection() {
   const workspaceId = () => currentWorkspaceId();
+  const { allWorkspaces } = useWorkspaces();
   const { flatDocuments, query: documentsQuery } = useDocuments(workspaceId);
   const { getTitle } = useDocumentTitles(flatDocuments, workspaceId);
   const permissions = useDocumentSharePermissions(workspaceId);
@@ -120,6 +122,17 @@ export function ExternalAccessSection() {
   const [copiedDocumentId, setCopiedDocumentId] = createSignal<string | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = createSignal(false);
   const [publishDialogOpen, setPublishDialogOpen] = createSignal(false);
+  const [proxySaving, setProxySaving] = createSignal(false);
+  const [proxyEnabled, setProxyEnabled] = createSignal(true);
+  const [proxyId, setProxyId] = createSignal("");
+  const [proxyLabel, setProxyLabel] = createSignal("");
+  const [proxyBaseUrl, setProxyBaseUrl] = createSignal("");
+  const [proxyOperatorLabel, setProxyOperatorLabel] = createSignal("");
+  const [proxyAllowedWorkspaceIds, setProxyAllowedWorkspaceIds] = createSignal("");
+  const [proxyAllowedUserIds, setProxyAllowedUserIds] = createSignal("");
+  const [proxyVerificationMaterial, setProxyVerificationMaterial] = createSignal("{}");
+  const [proxyPolicy, setProxyPolicy] = createSignal("{}");
+  const [proxyRevoked, setProxyRevoked] = createSignal(false);
   const [selectedShareDocument, setSelectedShareDocument] = createSignal<DocumentResponse | null>(
     null,
   );
@@ -190,6 +203,39 @@ export function ExternalAccessSection() {
     ),
   );
 
+  const workspaceProxy = createMemo(() => {
+    const id = workspaceId();
+    return workspacePluginNetworkProxy(allWorkspaces().find((workspace) => workspace.id === id));
+  });
+
+  createEffect(() => {
+    const proxy = workspaceProxy();
+    if (!proxy) {
+      setProxyEnabled(true);
+      setProxyId("");
+      setProxyLabel("");
+      setProxyBaseUrl("");
+      setProxyOperatorLabel("");
+      setProxyAllowedWorkspaceIds("");
+      setProxyAllowedUserIds("");
+      setProxyVerificationMaterial("{}");
+      setProxyPolicy("{}");
+      setProxyRevoked(false);
+      return;
+    }
+
+    setProxyEnabled(proxy.enabled !== false);
+    setProxyId(typeof proxy.id === "string" ? proxy.id : "");
+    setProxyLabel(typeof proxy.label === "string" ? proxy.label : "");
+    setProxyBaseUrl(typeof proxy.base_url === "string" ? proxy.base_url : "");
+    setProxyOperatorLabel(typeof proxy.operator_label === "string" ? proxy.operator_label : "");
+    setProxyAllowedWorkspaceIds(stringListInput(proxy.allowed_workspace_ids));
+    setProxyAllowedUserIds(stringListInput(proxy.allowed_user_ids));
+    setProxyVerificationMaterial(jsonInput(proxy.verification_material));
+    setProxyPolicy(jsonInput(proxy.policy));
+    setProxyRevoked(proxy.revoked === true);
+  });
+
   const refetchExternalAccess = () => {
     const id = workspaceId();
     void sharedPages.refetch();
@@ -209,6 +255,39 @@ export function ExternalAccessSection() {
     setPublishDialogOpen(true);
   };
 
+  const saveNetworkProxy = async () => {
+    const id = workspaceId();
+    if (!id) return;
+
+    setProxySaving(true);
+    setError(null);
+    try {
+      const registration =
+        proxyId().trim() && proxyLabel().trim() && proxyBaseUrl().trim()
+          ? {
+              id: proxyId().trim(),
+              label: proxyLabel().trim(),
+              base_url: proxyBaseUrl().trim(),
+              scope: "workspace" as const,
+              enabled: proxyEnabled(),
+              operator_label: proxyOperatorLabel().trim() || proxyLabel().trim(),
+              allowed_workspace_ids: parseStringList(proxyAllowedWorkspaceIds()),
+              allowed_user_ids: parseStringList(proxyAllowedUserIds()),
+              verification_material: parseObject(proxyVerificationMaterial()),
+              revoked: proxyRevoked(),
+              policy: parseObject(proxyPolicy()),
+            }
+          : null;
+
+      await workspacesApi.updateFeatures(id, { plugin_network_proxy: registration });
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    } catch {
+      setError("Failed to save network proxy settings.");
+    } finally {
+      setProxySaving(false);
+    }
+  };
+
   return (
     <div class="p-6 space-y-6">
       <div>
@@ -225,6 +304,102 @@ export function ExternalAccessSection() {
           </Alert>
         )}
       </Show>
+
+      <section>
+        <h4 class="mb-3 flex items-center gap-2 text-sm font-medium">
+          <ExternalLinkIcon class="size-4" />
+          Network Proxy
+        </h4>
+        <div class="border border-border/60 bg-card p-4">
+          <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <label class="space-y-1 text-sm">
+              <span class="text-xs text-muted-foreground">Proxy ID</span>
+              <input
+                class="h-9 w-full border border-input bg-background px-3 text-sm"
+                value={proxyId()}
+                onInput={(event) => setProxyId(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span class="text-xs text-muted-foreground">Label</span>
+              <input
+                class="h-9 w-full border border-input bg-background px-3 text-sm"
+                value={proxyLabel()}
+                onInput={(event) => setProxyLabel(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm md:col-span-2">
+              <span class="text-xs text-muted-foreground">Base URL</span>
+              <input
+                class="h-9 w-full border border-input bg-background px-3 font-mono text-sm"
+                value={proxyBaseUrl()}
+                onInput={(event) => setProxyBaseUrl(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm md:col-span-2">
+              <span class="text-xs text-muted-foreground">Operator</span>
+              <input
+                class="h-9 w-full border border-input bg-background px-3 text-sm"
+                value={proxyOperatorLabel()}
+                onInput={(event) => setProxyOperatorLabel(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span class="text-xs text-muted-foreground">Allowed Workspaces</span>
+              <textarea
+                class="min-h-16 w-full border border-input bg-background px-3 py-2 font-mono text-xs"
+                value={proxyAllowedWorkspaceIds()}
+                onInput={(event) => setProxyAllowedWorkspaceIds(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span class="text-xs text-muted-foreground">Allowed Users</span>
+              <textarea
+                class="min-h-16 w-full border border-input bg-background px-3 py-2 font-mono text-xs"
+                value={proxyAllowedUserIds()}
+                onInput={(event) => setProxyAllowedUserIds(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span class="text-xs text-muted-foreground">Verification Material</span>
+              <textarea
+                class="min-h-20 w-full border border-input bg-background px-3 py-2 font-mono text-xs"
+                value={proxyVerificationMaterial()}
+                onInput={(event) => setProxyVerificationMaterial(event.currentTarget.value)}
+              />
+            </label>
+            <label class="space-y-1 text-sm">
+              <span class="text-xs text-muted-foreground">Policy</span>
+              <textarea
+                class="min-h-20 w-full border border-input bg-background px-3 py-2 font-mono text-xs"
+                value={proxyPolicy()}
+                onInput={(event) => setProxyPolicy(event.currentTarget.value)}
+              />
+            </label>
+          </div>
+          <div class="mt-4 flex items-center justify-between gap-3">
+            <label class="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={proxyEnabled()}
+                onChange={(event) => setProxyEnabled(event.currentTarget.checked)}
+              />
+              Enabled
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={proxyRevoked()}
+                onChange={(event) => setProxyRevoked(event.currentTarget.checked)}
+              />
+              Revoked
+            </label>
+            <Button size="sm" onClick={saveNetworkProxy} disabled={proxySaving()}>
+              {proxySaving() ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </section>
 
       <Show
         when={!documentsQuery.isLoading}
@@ -411,4 +586,36 @@ export function ExternalAccessSection() {
       />
     </div>
   );
+}
+
+function workspacePluginNetworkProxy(workspace: unknown): Record<string, unknown> | null {
+  if (!workspace || typeof workspace !== "object") return null;
+  const proxy = (workspace as { plugin_network_proxy?: unknown }).plugin_network_proxy;
+  return proxy && typeof proxy === "object" ? (proxy as Record<string, unknown>) : null;
+}
+
+function stringListInput(value: unknown): string {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === "string").join("\n") : "";
+}
+
+function jsonInput(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "{}";
+  return JSON.stringify(value, null, 2);
+}
+
+function parseStringList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseObject(value: string): Record<string, unknown> {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  const parsed: unknown = JSON.parse(trimmed);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("proxy_json_object_required");
+  }
+  return parsed as Record<string, unknown>;
 }

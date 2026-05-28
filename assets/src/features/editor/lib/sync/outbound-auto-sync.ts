@@ -20,10 +20,12 @@ import { armSaveAckWatchdog, clearSaveAckWatchdog } from "./outbound-save-watchd
 import { createSyncGapError } from "./inbound-verify-decrypt";
 import {
   buildDocumentOperationAdmission,
+  ensureDocumentWriteSession,
   hashSnapshotOperation,
   keyDirectoryAdvanceSymbol,
   prepareDocumentOperationAdmissionAuthority,
 } from "./outbound-admission";
+import { recordSyncPerf } from "./perf";
 
 const THROTTLE_MS = 25;
 const BLOCKED_RETRY_MS = 1_000;
@@ -77,12 +79,12 @@ export function startAutoSync(
           !state.initialized ||
           !state.channel ||
           getChannelState(state.channel) !== "joined" ||
-          state.sending ||
           state._reconnecting
         ) {
           scheduleBlockedRetry();
           return;
         }
+        if (state.sending) return;
         dirty = false;
         await sendPendingChanges(documentId, state, options).catch((err) => {
           dirty = true;
@@ -168,12 +170,12 @@ export function startAutoSync(
         !state.initialized ||
         !state.channel ||
         getChannelState(state.channel) !== "joined" ||
-        state.sending ||
         state._reconnecting
       ) {
         scheduleSend();
         return;
       }
+      if (state.sending) return;
       dirty = false;
       await sendPendingChanges(documentId, state, options).catch((err) => {
         dirty = true;
@@ -199,6 +201,26 @@ function retryAfterDisconnectedSend(documentId: string, state: DocumentState): v
   state.autoSync?.notifyLocalEdit();
 }
 
+function pushFailureReason(resp: unknown): string | null {
+  return typeof resp === "object" && resp !== null && "reason" in resp
+    ? String((resp as { reason: unknown }).reason)
+    : null;
+}
+
+function handleAdmissionPushFailure(resp: unknown, state: DocumentState): boolean {
+  const reason = pushFailureReason(resp);
+  if (
+    reason === "admission_invalid" ||
+    reason === "write_session_invalid" ||
+    reason === "write_session_expired"
+  ) {
+    state._admissionDirectoryRefreshRequired = true;
+    state.writeSession = null;
+    return true;
+  }
+  return false;
+}
+
 async function sendPendingChanges(
   documentId: string,
   state: DocumentState,
@@ -214,6 +236,7 @@ async function sendPendingChanges(
 
   state.sending = true;
   try {
+    const sendStartedAt = performance.now();
     // Genesis snapshot (first snapshot for new document)
     if (state.activeSnapshotId === null) {
       if (state.pendingSnapshot) {
@@ -265,6 +288,11 @@ async function sendPendingChanges(
         return;
       }
     }
+    recordSyncPerf("update_encoded", {
+      documentId,
+      elapsedMs: performance.now() - sendStartedAt,
+      bytes: updateBytes.length,
+    });
 
     const worker = getDocumentCryptoWorker(state);
     if (state.access.kind === "share") {
@@ -277,6 +305,10 @@ async function sendPendingChanges(
       documentId,
       keyVersion: state.keyVersion,
       cacheKey: getDocumentDekCacheKey(state, documentId),
+    });
+    recordSyncPerf("update_encrypted", {
+      documentId,
+      elapsedMs: performance.now() - sendStartedAt,
     });
     const ciphertextB64 = base64UrlEncode(ciphertext);
     const nonceB64 = base64UrlEncode(nonce);
@@ -295,14 +327,25 @@ async function sendPendingChanges(
       ref_snapshot_id: state.activeSnapshotId,
       timestamp,
     });
-
-    const admissionAuthority = await prepareDocumentOperationAdmissionAuthority(
-      state,
+    recordSyncPerf("update_hashed", {
       documentId,
-      deviceSigningKeyId,
-      "document_update_accepted",
-      state.keyVersion,
-    );
+      updateHash,
+      elapsedMs: performance.now() - sendStartedAt,
+    });
+
+    const writeSession = await ensureDocumentWriteSession({
+      documentId,
+      state,
+      signingKeyId: deviceSigningKeyId,
+      keyVersion: state.keyVersion,
+      nextCiphertextBytes: ciphertext.length,
+    });
+    recordSyncPerf("update_authority_ready", {
+      documentId,
+      updateHash,
+      elapsedMs: performance.now() - sendStartedAt,
+    });
+    const writeSessionCounter = writeSession.usedUpdateCount + 1;
 
     // 3. Build public data
     const publicData: Record<string, unknown> = {
@@ -313,7 +356,12 @@ async function sendPendingChanges(
       clock,
       timestamp,
       updateHash,
-      ...admissionAuthority.publicDataFields,
+      ...writeSession.publicDataFields,
+      writeSessionCounter,
+    };
+    const authorityBoundary = {
+      ...writeSession.authorityBoundary,
+      write_session_counter: writeSessionCounter,
     };
 
     // 4. Sign
@@ -322,16 +370,17 @@ async function sendPendingChanges(
       nonce: nonceB64,
       workspaceId: state.workspaceId,
       publicData,
-      authorityBoundary: admissionAuthority.authorityBoundary,
+      authorityBoundary,
     });
-    const { admission, keyDirectoryAdvance } = await buildDocumentOperationAdmission({
+    recordSyncPerf("update_signed", {
       documentId,
-      state,
-      eventType: "document_update_accepted",
-      operationHash: updateHash,
-      signature,
-      keyVersion: state.keyVersion,
-      authority: admissionAuthority,
+      updateHash,
+      elapsedMs: performance.now() - sendStartedAt,
+    });
+    recordSyncPerf("update_admission_built", {
+      documentId,
+      updateHash,
+      elapsedMs: performance.now() - sendStartedAt,
     });
 
     // 5. Send
@@ -339,13 +388,15 @@ async function sendPendingChanges(
       ciphertext: ciphertextB64,
       nonce: nonceB64,
       signature,
-      admission,
+      admission: writeSession.admission,
       publicData,
     };
     Object.defineProperty(envelope, keyDirectoryAdvanceSymbol, {
-      value: keyDirectoryAdvance,
+      value: writeSession.keyDirectoryAdvance,
       enumerable: false,
     });
+    writeSession.usedUpdateCount = writeSessionCounter;
+    writeSession.usedCiphertextBytes += ciphertext.length;
     state.pendingUpdateBytes = updateBytes;
     state.pendingUpdateEnvelope = envelope;
     state.preSendLocalClock = state.localClock;
@@ -358,6 +409,11 @@ async function sendPendingChanges(
       retryAfterDisconnectedSend(documentId, state);
       return;
     }
+    recordSyncPerf("update_push_start", {
+      documentId,
+      updateHash,
+      elapsedMs: performance.now() - sendStartedAt,
+    });
 
     const pushed = pushUpdate(
       documentId,
@@ -366,6 +422,19 @@ async function sendPendingChanges(
         // Only reset on actual server error (not timeout — timeout fires
         // even on success because server uses {:noreply} + separate event)
         if (resp !== "timeout" && state.pendingUpdateBytes) {
+          state._recentSaveEvents.push({
+            event: "update_push_rejected",
+            at: Date.now(),
+            reason: resp,
+            activeSnapshotId: state.activeSnapshotId,
+            hasPendingUpdateBytes: state.pendingUpdateBytes !== null,
+            hasPendingUpdateEnvelope: state.pendingUpdateEnvelope !== null,
+          });
+          if (state._recentSaveEvents.length > 12) {
+            state._recentSaveEvents.splice(0, state._recentSaveEvents.length - 12);
+          }
+          clearSaveAckWatchdog(state);
+          handleAdmissionPushFailure(resp, state);
           state.sending = false;
           state.pendingUpdateBytes = null;
           state.pendingUpdateEnvelope = null;
@@ -399,7 +468,10 @@ async function createAndSendGenesisSnapshot(
   const worker = getDocumentCryptoWorker(state);
   const device = deviceState();
   const deviceSigningKeyId = getLocalSigningKeyId(state) ?? device?.deviceSigningKeyId ?? undefined;
-  if (!deviceSigningKeyId) return;
+  if (!deviceSigningKeyId) {
+    state.sending = false;
+    return;
+  }
   if (state.access.kind === "share") {
     await ensureSharedDekCached(state, documentId, state.keyVersion);
   }
@@ -499,10 +571,13 @@ async function createAndSendGenesisSnapshot(
     snapshotEnvelope,
     (resp: unknown) => {
       if (resp === "timeout") return;
+      const shouldRefreshAdmission = handleAdmissionPushFailure(resp, state);
       state.pendingSnapshot = null;
       state.pendingSnapshotEnvelope = null;
       state.sending = false;
-      if (isPermanentPushFailure(resp)) {
+      if (shouldRefreshAdmission) {
+        state.autoSync?.notifyLocalEdit();
+      } else if (isPermanentPushFailure(resp)) {
         state.pendingRotationSnapshot = false;
       } else {
         scheduleSnapshotRetryIfNeeded(state);
@@ -540,7 +615,10 @@ async function createAndSendSnapshot(
   const worker = getDocumentCryptoWorker(state);
   const device = deviceState();
   const deviceSigningKeyId = getLocalSigningKeyId(state) ?? device?.deviceSigningKeyId ?? undefined;
-  if (!deviceSigningKeyId) return;
+  if (!deviceSigningKeyId) {
+    state.sending = false;
+    return;
+  }
   // Encode full Y.Doc state (V2 format)
   const yjsState = Y.encodeStateAsUpdateV2(state.yDoc);
 
@@ -639,10 +717,13 @@ async function createAndSendSnapshot(
     snapshotEnvelope,
     (resp: unknown) => {
       if (resp === "timeout") return;
+      const shouldRefreshAdmission = handleAdmissionPushFailure(resp, state);
       state.pendingSnapshot = null;
       state.pendingSnapshotEnvelope = null;
       state.sending = false;
-      if (isPermanentPushFailure(resp)) {
+      if (shouldRefreshAdmission) {
+        state.autoSync?.notifyLocalEdit();
+      } else if (isPermanentPushFailure(resp)) {
         state.pendingRotationSnapshot = false;
       } else {
         scheduleSnapshotRetryIfNeeded(state);
@@ -661,13 +742,17 @@ async function createAndSendSnapshot(
 
 // ── Snapshot push failure handling ───────────────────────────
 
-const PERMANENT_PUSH_ERRORS = new Set(["permission_denied", "device_revoked", "document_archived"]);
+const PERMANENT_PUSH_ERRORS = new Set([
+  "permission_denied",
+  "device_revoked",
+  "document_archived",
+  "document_read_only",
+  "document_write_disabled",
+]);
 
 function isPermanentPushFailure(resp: unknown): boolean {
-  if (typeof resp === "object" && resp !== null && "reason" in resp) {
-    return PERMANENT_PUSH_ERRORS.has((resp as { reason: string }).reason);
-  }
-  return false;
+  const reason = pushFailureReason(resp);
+  return reason ? PERMANENT_PUSH_ERRORS.has(reason) : false;
 }
 
 function scheduleSnapshotRetryIfNeeded(state: DocumentState): void {

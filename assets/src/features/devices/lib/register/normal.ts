@@ -1,5 +1,5 @@
-import { authApi, encryptionApi } from "@/shared/api";
-import { getKeyDirectoryPin } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { authApi } from "@/shared/api";
+import { prepareRegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { ensureDskInWorker, persistCurrentDeviceKeys } from "./session-keys";
@@ -58,50 +58,10 @@ export async function prepareNormalRegistration(
 
   const hasDsk = await ensureDskInWorker();
   const publicKeys = await worker.generateDeviceKeys({ deviceId });
-  const { workspace_ids: workspaceIds } = await encryptionApi.getWorkspaceIds();
-  const userKeyDirectoryPin = await getKeyDirectoryPin("user", userId);
-  const issuedAtEventSequence =
-    typeof me.candidate_user_event_head_sequence === "number"
-      ? me.candidate_user_event_head_sequence
-      : (userKeyDirectoryPin?.eventHeadSequence ?? 1);
-  const expiresEventSequence = issuedAtEventSequence + 1;
-  const umkDistribution = await worker.generateInitialAkeResponderPrekey({
-    operationId: deviceId,
+  const initialAkeResponderPrekeys = await prepareRegistrationInitialAkeResponderPrekeys({
     userId,
     deviceId,
-    purpose: "umk_distribution",
-    issuedAtEventSequence,
-    expiresEventSequence,
   });
-  const trustTransfer = await worker.generateInitialAkeResponderPrekey({
-    operationId: crypto.randomUUID(),
-    userId,
-    deviceId,
-    purpose: "trust_transfer",
-    issuedAtEventSequence,
-    expiresEventSequence,
-  });
-  const deviceApprovalKekInitial: NonNullable<
-    DeviceRegistrationPublicKeys["initialAkeResponderPrekeys"]
-  >["device_approval_kek_initial"] = [];
-  for (const workspaceId of workspaceIds) {
-    deviceApprovalKekInitial.push({
-      workspace_id: workspaceId,
-      prekey: await worker.generateInitialAkeResponderPrekey({
-        operationId: deviceId,
-        userId,
-        deviceId,
-        purpose: "device_approval_kek_initial",
-        issuedAtEventSequence,
-        expiresEventSequence,
-      }),
-    });
-  }
-  const initialAkeResponderPrekeys = {
-    umk_distribution: umkDistribution,
-    trust_transfer: trustTransfer,
-    device_approval_kek_initial: deviceApprovalKekInitial,
-  };
   const deviceKeysPersisted = hasDsk ? await persistCurrentDeviceKeys(userId) : false;
 
   return {

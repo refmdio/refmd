@@ -36,6 +36,18 @@ defmodule RefMDWeb.Router do
     plug RefMDWeb.Plugs.RequireRecoveryOrPoP
   end
 
+  pipeline :sandbox_document do
+    plug RefMDWeb.Plugs.RateLimit
+    plug RefMDWeb.Plugs.RequireAuth
+    plug RefMDWeb.Plugs.VerifyOrigin
+  end
+
+  pipeline :network_executor_session do
+    plug RefMDWeb.Plugs.RateLimit
+    plug RefMDWeb.Plugs.RequireAuth
+    plug RefMDWeb.Plugs.VerifyOrigin
+  end
+
   scope "/api" do
     pipe_through :api
     get "/openapi.json", OpenApiSpex.Plug.RenderSpec, []
@@ -89,6 +101,31 @@ defmodule RefMDWeb.Router do
     pipe_through [:api, :verify_origin]
 
     get "/lookup", InvitationController, :lookup
+  end
+
+  # Plugin acquisition/update and sandbox arming are user-device PoP protected.
+  scope "/api", RefMDWeb do
+    pipe_through [:api, :require_pop, :verify_origin]
+
+    post "/workspaces/:workspace_id/plugin-packages",
+         PluginManagementController,
+         :create_candidate
+
+    post "/plugin-packages",
+         PluginManagementController,
+         :create_user_candidate
+
+    post "/plugin-candidates",
+         PluginManagementController,
+         :create_manifest_routed_candidate
+
+    post "/plugin-candidates/:candidate_id/approval",
+         PluginManagementController,
+         :promote_candidate_resource
+
+    post "/workspaces/:workspace_id/plugin-runtime/:application_id/sandbox-documents",
+         PluginRuntimeController,
+         :create_sandbox_document
   end
 
   # Session-only endpoints (no PoP required, Origin-verified for CSRF defense)
@@ -186,6 +223,9 @@ defmodule RefMDWeb.Router do
     delete "/documents/:document_id", DocumentController, :delete
     post "/documents/:document_id/archive", DocumentController, :archive
     post "/documents/:document_id/unarchive", DocumentController, :unarchive
+    post "/documents/:document_id/read-only/enable", DocumentController, :enable_read_only
+    post "/documents/:document_id/read-only/disable", DocumentController, :disable_read_only
+    post "/documents/:document_id/write-disable", DocumentController, :disable_writes_by_policy
     get "/documents/:document_id/shares", DocumentShareController, :index
     post "/documents/:document_id/shares", DocumentShareController, :create
     patch "/documents/:document_id/shares/:share_id", DocumentShareController, :update
@@ -232,6 +272,97 @@ defmodule RefMDWeb.Router do
     patch "/workspaces/:workspace_id", WorkspaceController, :update
     patch "/workspaces/:workspace_id/features", WorkspaceController, :update_features
     delete "/workspaces/:workspace_id", WorkspaceController, :delete
+
+    get "/security/notifications", SecurityNotificationController, :index
+    patch "/security/notifications/:notification_id/read", SecurityNotificationController, :read
+
+    patch "/security/notifications/:notification_id/dismiss",
+          SecurityNotificationController,
+          :dismiss
+
+    get "/workspaces/:workspace_id/plugin-runtime",
+        PluginRuntimeController,
+        :index
+
+    get "/workspaces/:workspace_id/plugin-runtime/consent-required",
+        PluginManagementController,
+        :consent_required
+
+    get "/workspaces/:workspace_id/plugin-applications",
+        PluginManagementController,
+        :index_plugins
+
+    post "/workspaces/:workspace_id/plugin-applications",
+         PluginManagementController,
+         :apply_plugin
+
+    get "/plugin-activations",
+        PluginManagementController,
+        :index_activations
+
+    patch "/plugin-activations/:activation_id",
+          PluginManagementController,
+          :update_activation
+
+    delete "/plugin-activations/:activation_id",
+           PluginManagementController,
+           :delete_activation
+
+    get "/workspaces/:workspace_id/plugin-packages",
+        PluginManagementController,
+        :index_workspace_packages
+
+    get "/plugin-packages",
+        PluginManagementController,
+        :index_user_packages
+
+    get "/plugin-candidates/:candidate_id",
+        PluginManagementController,
+        :show_candidate_resource
+
+    patch "/workspaces/:workspace_id/plugin-applications/:application_id",
+          PluginManagementController,
+          :update_plugin
+
+    delete "/workspaces/:workspace_id/plugin-applications/:application_id",
+           PluginManagementController,
+           :delete_plugin
+
+    post "/workspaces/:workspace_id/plugin-applications/:application_id/consent-events",
+         PluginManagementController,
+         :append_consent
+
+    get "/workspaces/:workspace_id/plugin-runtime/:application_id/storage/:surface",
+        PluginStorageController,
+        :show
+
+    get "/workspaces/:workspace_id/plugin-runtime/:application_id/bundle",
+        PluginRuntimeController,
+        :removed_bundle_endpoint
+
+    post "/workspaces/:workspace_id/plugin-runtime-audit",
+         PluginRuntimeController,
+         :audit
+
+    put "/workspaces/:workspace_id/plugin-runtime/:application_id/storage/:surface",
+        PluginStorageController,
+        :upsert
+
+    delete "/workspaces/:workspace_id/plugin-runtime/:application_id/storage/:surface",
+           PluginStorageController,
+           :delete
+
+    post "/workspaces/:workspace_id/plugin-runtime/:application_id/records/:surface",
+         PluginStorageController,
+         :create_record
+
+    get "/workspaces/:workspace_id/plugin-runtime/:application_id/records/:surface/:record_id",
+        PluginStorageController,
+        :show_record
+
+    delete "/workspaces/:workspace_id/plugin-runtime/:application_id/records/:surface/:record_id",
+           PluginStorageController,
+           :delete_record
 
     # Members
     get "/workspaces/:workspace_id/members", MemberController, :index
@@ -294,6 +425,14 @@ defmodule RefMDWeb.Router do
         :get_member_envelope
   end
 
+  scope "/api", RefMDWeb do
+    pipe_through [:sandbox_document]
+
+    get "/plugin-runtime/sandbox-documents/:session_id",
+        PluginRuntimeController,
+        :show_sandbox_document
+  end
+
   if Application.compile_env(:refmd, :dev_routes) do
     scope "/dev" do
       forward "/mailbox", Plug.Swoosh.MailboxPreview
@@ -302,6 +441,16 @@ defmodule RefMDWeb.Router do
 
   scope "/" do
     get "/health", RefMDWeb.HealthController, :index
+  end
+
+  scope "/api", RefMDWeb do
+    pipe_through [:network_executor_session]
+
+    post "/plugin-network-executor-sessions", PluginNetworkExecutorController, :create_session
+  end
+
+  scope "/", RefMDWeb do
+    get "/plugin-network-executor", PluginNetworkExecutorController, :show
   end
 
   scope "/", RefMDWeb do

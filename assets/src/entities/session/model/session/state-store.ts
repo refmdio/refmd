@@ -1,5 +1,6 @@
 import { batch, createRoot, createSignal, type Accessor, type Setter } from "solid-js";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
+import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
 
 interface AuthUser {
   id: string;
@@ -20,6 +21,8 @@ export interface AuthState {
 export interface DeviceState {
   deviceId: string;
   deviceSigningKeyId: string | null;
+  deviceKeyCheckpointSequence?: number | null;
+  deviceKeyCheckpointHash?: string | null;
   deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
   deviceEcdhPublic: Uint8Array | null;
 }
@@ -96,7 +99,22 @@ class SessionStateStore {
     this.signals.setTofuErrorsRaw(errors);
   }
 
+  private resetTransportIfSessionBoundaryChanged(
+    nextAuth: AuthState | null,
+    nextDevice: DeviceState | null,
+  ): void {
+    const currentAuth = this.signals.authState();
+    const currentDevice = this.signals.deviceState();
+    if (
+      currentAuth?.sessionId !== nextAuth?.sessionId ||
+      currentDevice?.deviceId !== nextDevice?.deviceId
+    ) {
+      resetPhoenixConnection();
+    }
+  }
+
   setAuthState(state: AuthState | null): void {
+    this.resetTransportIfSessionBoundaryChanged(state, null);
     this.signals.setAuthStateRaw(state);
     if (!state) {
       this.signals.setDeviceStateRaw(null);
@@ -109,6 +127,7 @@ class SessionStateStore {
   }
 
   setFullSession(auth: AuthState, device: DeviceState): void {
+    this.resetTransportIfSessionBoundaryChanged(auth, device);
     batch(() => {
       this.signals.setAuthStateRaw(auth);
       this.signals.setDeviceStateRaw(device);
@@ -116,6 +135,7 @@ class SessionStateStore {
   }
 
   clearSession(): void {
+    this.resetTransportIfSessionBoundaryChanged(null, null);
     this.signals.setAuthStateRaw(null);
     this.signals.setDeviceStateRaw(null);
     this.signals.setCryptoWorkerReadyRaw(false);

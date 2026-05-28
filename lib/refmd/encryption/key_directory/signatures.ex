@@ -369,8 +369,31 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         authority_payload,
         previous_payload
       ) do
+    verify_checkpoint_signatures!(
+      payload,
+      signatures,
+      expected_signer_kind,
+      authority_payload,
+      previous_payload,
+      []
+    )
+  end
+
+  @spec verify_checkpoint_signatures!(map(), [map()], String.t(), map(), map() | nil, keyword()) ::
+          :ok
+  def verify_checkpoint_signatures!(
+        payload,
+        signatures,
+        expected_signer_kind,
+        authority_payload,
+        previous_payload,
+        opts
+      ) do
     signing_keys = signing_key_material_by_id!(authority_payload)
     checkpoint_signing_keys = signing_key_material_by_id!(payload)
+
+    allowed_inactive_signing_key_ids =
+      opts |> Keyword.get(:allowed_inactive_signing_key_ids, []) |> MapSet.new()
 
     required_signature_results =
       Enum.map(signatures, fn signature_envelope ->
@@ -394,11 +417,21 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
 
         active_head = active_payload["covered_event_head"]
 
-        State.assert_key_entry_active_at_sequence!(
-          active_payload,
-          signer["signing_key_id"],
-          active_head["head_sequence"]
-        )
+        if MapSet.member?(allowed_inactive_signing_key_ids, signer["signing_key_id"]) do
+          authority_head = authority_payload["covered_event_head"]
+
+          State.assert_key_entry_active_at_sequence!(
+            authority_payload,
+            signer["signing_key_id"],
+            authority_head["head_sequence"]
+          )
+        else
+          State.assert_key_entry_active_at_sequence!(
+            active_payload,
+            signer["signing_key_id"],
+            active_head["head_sequence"]
+          )
+        end
 
         variant = checkpoint_signature_variant!(payload, signer, previous_payload)
 
@@ -710,7 +743,11 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         checkpoint_payload,
         authorized_share_participant_keys
       )
-      when event_type in ["document_update_accepted", "document_snapshot_accepted"],
+      when event_type in [
+             "document_update_accepted",
+             "document_write_session_admitted",
+             "document_snapshot_accepted"
+           ],
       do:
         document_event_signature_checkpoint_payload(
           signatures,

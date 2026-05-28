@@ -1,6 +1,6 @@
 import { createEffect, createSignal, untrack } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
-import { setSelectedDocumentId } from "@/entities/document";
+import { setSelectedDocumentId, useDocuments } from "@/entities/document";
 import { authState, cryptoWorkerReady } from "@/entities/session";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "@/entities/workspace";
 import {
@@ -16,6 +16,7 @@ export function DocumentWorkspaceRouteSync() {
   const navigate = useNavigate();
   const params = useParams<{ documentId?: string }>();
   const documentWorkspace = usePanelWorkspace();
+  const { flatDocuments } = useDocuments(() => currentWorkspaceId());
   const [pendingRouteOpen, setPendingRouteOpen] = createSignal<ResolvedDocument | null>(null);
   let routeRequestVersion = 0;
 
@@ -62,6 +63,21 @@ export function DocumentWorkspaceRouteSync() {
         });
         return;
       }
+    }
+
+    const localDoc = flatDocuments().find((candidate) => candidate.id === routeDocId);
+    if (localDoc) {
+      if (localDoc.doc_type !== "document") {
+        new Notice("Folders cannot be opened in the editor.");
+        navigate("/dashboard", { replace: true, scroll: false });
+        return;
+      }
+      setPendingRouteOpen({
+        documentId: localDoc.id,
+        workspaceId: localDoc.workspace_id,
+        title: localDoc.title,
+      });
+      return;
     }
 
     const requestVersion = ++routeRequestVersion;

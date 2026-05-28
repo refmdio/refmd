@@ -22,6 +22,8 @@ interface IdentityPublicKeys {
 
 interface ApprovedDeviceRestorationResult {
   identityPublicKeys: IdentityPublicKeys | null;
+  deviceKeyCheckpointSequence: number | null;
+  deviceKeyCheckpointHash: string | null;
   requiresPasswordReentry: boolean;
   dskUnavailableOAuth: boolean;
 }
@@ -60,6 +62,8 @@ export async function completeApprovedRegistration(params: {
     {
       deviceId: params.deviceId,
       deviceSigningKeyId: params.publicKeys.signingKeyId,
+      deviceKeyCheckpointSequence: restorationResult.deviceKeyCheckpointSequence,
+      deviceKeyCheckpointHash: restorationResult.deviceKeyCheckpointHash,
       deviceHybridSigningPublicKeyMaterial: params.publicKeys.hybridSigningPublicKeyMaterial,
       deviceEcdhPublic: params.publicKeys.ecdhPublic,
     },
@@ -190,6 +194,8 @@ async function restoreApprovedDeviceSession(params: {
 
   return {
     identityPublicKeys,
+    deviceKeyCheckpointSequence: me.device_key_checkpoint_sequence ?? null,
+    deviceKeyCheckpointHash: me.device_key_checkpoint_hash ?? null,
     requiresPasswordReentry,
     dskUnavailableOAuth,
   };

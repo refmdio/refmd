@@ -7,6 +7,8 @@ export function clearSaveAckWatchdog(state: DocumentState): void {
     clearTimeout(state.pendingSaveTimeout);
     state.pendingSaveTimeout = null;
   }
+  state._pendingSaveWatchdogKind = null;
+  state._pendingSaveWatchdogStartedAt = null;
 }
 
 export function armSaveAckWatchdog(
@@ -15,8 +17,13 @@ export function armSaveAckWatchdog(
   kind: "update" | "snapshot",
 ): void {
   clearSaveAckWatchdog(state);
+  if (!state.sending) return;
+  state._pendingSaveWatchdogKind = kind;
+  state._pendingSaveWatchdogStartedAt = Date.now();
   state.pendingSaveTimeout = setTimeout(() => {
     state.pendingSaveTimeout = null;
+    state._pendingSaveWatchdogKind = null;
+    state._pendingSaveWatchdogStartedAt = null;
     if (!state.sending) return;
     state.sending = false;
     onTimeout(kind);

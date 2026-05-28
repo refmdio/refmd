@@ -29,6 +29,22 @@ defmodule RefMD.Auth do
     |> Enum.map(&%{payload: &1.payload, signatures: &1.signatures})
   end
 
+  @spec user_key_directory_checkpoint_ancestry(Ecto.UUID.t(), map() | nil) :: [map()]
+  def user_key_directory_checkpoint_ancestry(_user_id, nil), do: []
+
+  def user_key_directory_checkpoint_ancestry(_user_id, %{checkpoint_sequence: sequence})
+      when sequence <= 1,
+      do: []
+
+  def user_key_directory_checkpoint_ancestry(user_id, user_pin) do
+    Encryption.user_key_directory_checkpoints_between(
+      user_id,
+      1,
+      user_pin.checkpoint_sequence - 1
+    )
+    |> Enum.map(&%{payload: &1.payload, signatures: &1.signatures})
+  end
+
   @session_ttl_default 24 * 60 * 60
   @session_ttl_remember 30 * 24 * 60 * 60
 

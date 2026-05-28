@@ -11,7 +11,7 @@ defmodule RefMDWeb.UserSocket do
   alias RefMDWeb.Channels.SocketAuth
 
   channel "document:*", RefMDWeb.DocumentChannel
-  channel "devices:*", RefMDWeb.DeviceEventsChannel
+  channel "security:*", RefMDWeb.SecurityChannel
 
   @spec connect(map(), Phoenix.Socket.t(), map()) :: {:ok, Phoenix.Socket.t()} | :error
   def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do

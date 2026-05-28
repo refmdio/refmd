@@ -13,3 +13,4 @@ export {
   clearSession,
 } from "./model/auth/state";
 export { restoreSessionContext, setSessionContextRestorer } from "./model/session/context-restorer";
+export { returnToLogin } from "./model/session/back-to-login";

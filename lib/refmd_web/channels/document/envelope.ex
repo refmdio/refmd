@@ -8,6 +8,7 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   @key_checkpoint_public_data_keys ~w(keyCheckpointSequence keyCheckpointHash)
   @authority_public_data_keys ~w(ownerKind ownerId authorityKind authorityId authorityContextKey authorityScopeId authorityPermissionVersion)
   @update_public_data_keys ~w(docId signingKeyId clock keyVersion timestamp refSnapshotId updateHash) ++
+                             ~w(minDekVersion writeSessionEventHash writeSessionId writeSessionCounter) ++
                              @authority_public_data_keys ++
                              @key_checkpoint_public_data_keys
   @snapshot_public_data_keys ~w(docId signingKeyId snapshotId keyVersion parentSnapshotId parentProofHash parentSnapshotUpdateClocks) ++
@@ -42,6 +43,10 @@ defmodule RefMDWeb.Channels.Document.Envelope do
          :ok <- validate_integer_field(public_data, "clock"),
          :ok <- validate_integer_field(public_data, "keyVersion"),
          :ok <- validate_integer_field(public_data, "timestamp"),
+         :ok <- validate_integer_field(public_data, "minDekVersion"),
+         :ok <- validate_hash_field(public_data, "writeSessionEventHash"),
+         :ok <- validate_string_field(public_data, "writeSessionId"),
+         :ok <- validate_integer_field(public_data, "writeSessionCounter"),
          :ok <- validate_key_checkpoint_fields(public_data),
          :ok <- validate_uuid_field(public_data, "refSnapshotId"),
          :ok <- validate_string_field(public_data, "updateHash"),
@@ -134,7 +139,11 @@ defmodule RefMDWeb.Channels.Document.Envelope do
              actor_device_id: socket.assigns.device_id,
              signing_key_id: signing_key_id,
              public_data: parsed.public_data,
-             authority_boundary: authority_boundary(parsed, "document_update_accepted"),
+             authority_boundary:
+               write_session_authority_boundary(
+                 socket.assigns.document.workspace_id,
+                 parsed
+               ),
              ciphertext: payload["ciphertext"],
              nonce: payload["nonce"]
            }),
@@ -353,6 +362,17 @@ defmodule RefMDWeb.Channels.Document.Envelope do
 
   @spec format_update(RefMD.Documents.DocumentUpdate.t()) :: map()
   def format_update(update) do
+    signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
+
+    admission =
+      format_admission!(
+        update.document_id,
+        "document_write_session_admitted",
+        update.admission_event_hash
+      )
+
+    body = admission_event_body!(admission, "document_write_session_admitted")
+
     base = %{
       ciphertext: Base.url_encode64(update.update_data, padding: false),
       nonce: Base.url_encode64(update.nonce, padding: false),
@@ -373,22 +393,17 @@ defmodule RefMDWeb.Channels.Document.Envelope do
         authorityScopeId: update.authority_scope_id,
         authorityPermissionVersion: update.authority_permission_version,
         keyCheckpointSequence: update.key_checkpoint_sequence,
-        keyCheckpointHash: update.key_checkpoint_hash
+        keyCheckpointHash: update.key_checkpoint_hash,
+        minDekVersion: body["min_dek_version"],
+        writeSessionEventHash: update.admission_event_hash,
+        writeSessionId: body["session_id"],
+        writeSessionCounter: update.write_session_counter
       }
     }
 
-    signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
-
     base
     |> Map.put(:signature, signature)
-    |> Map.put(
-      :admission,
-      format_admission!(
-        update.document_id,
-        "document_update_accepted",
-        update.admission_event_hash
-      )
-    )
+    |> Map.put(:admission, admission)
   end
 
   defp format_admission!(document_id, event_type, admission_event_hash) do
@@ -644,6 +659,56 @@ defmodule RefMDWeb.Channels.Document.Envelope do
       "min_dek_version" => body["min_dek_version"],
       "document_permission_proof_hash" => body["document_permission_proof_hash"]
     }
+  end
+
+  defp write_session_authority_boundary(workspace_id, parsed) do
+    payload = admission_payload!(parsed.admission, "document_write_session_admitted")
+    body = Map.fetch!(payload, "body")
+
+    %{
+      "write_session_event_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(payload)),
+      "write_session_id" => body["session_id"],
+      "write_session_counter" => parsed.public_data["writeSessionCounter"],
+      "min_dek_version" => body["min_dek_version"],
+      "document_permission_proof_hash" =>
+        document_permission_proof_hash(workspace_id, parsed.public_data)
+    }
+  end
+
+  defp admission_event_body!(admission, event_type) do
+    admission
+    |> admission_payload!(event_type)
+    |> Map.fetch!("body")
+  end
+
+  defp admission_payload!(admission, event_type) do
+    (admission["workspaceKeyDirectoryEvents"] || admission[:workspaceKeyDirectoryEvents])
+    |> Enum.find_value(fn
+      %{"payload" => %{"event_type" => ^event_type} = payload} -> payload
+      %{payload: %{"event_type" => ^event_type} = payload} -> payload
+      _ -> nil
+    end)
+    |> case do
+      nil -> raise ArgumentError, "document_admission_event_missing"
+      payload -> payload
+    end
+  end
+
+  defp document_permission_proof_hash(workspace_id, public_data) do
+    %{
+      "protocol" => "refmd.document-permission-proof",
+      "version" => 1,
+      "workspace_id" => workspace_id,
+      "document_id" => public_data["docId"],
+      "authority_kind" => public_data["authorityKind"],
+      "authority_id" => public_data["authorityId"],
+      "authority_context_key" => public_data["authorityContextKey"],
+      "authority_scope_id" => public_data["authorityScopeId"],
+      "authority_permission_version" => public_data["authorityPermissionVersion"],
+      "permission" => "edit"
+    }
+    |> JCS.canonical_bytes!()
+    |> Hash.blake3_base64url()
   end
 
   defp ephemeral_authority_boundary(workspace_id, public_data) do

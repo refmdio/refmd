@@ -18,6 +18,7 @@ defmodule RefMD.Crypto.SigningSurface do
     "identity_key_added",
     "device_key_added",
     "member_added",
+    "member_role_changed",
     "member_removed",
     "signing_key_revoked",
     "encryption_key_revoked",
@@ -44,6 +45,8 @@ defmodule RefMD.Crypto.SigningSurface do
     "rotation_completed",
     "old_key_deleted",
     "document_update_accepted",
+    "document_write_session_admitted",
+    "document_write_state_changed",
     "document_snapshot_accepted"
   ]
   @pop_request_variants [
@@ -123,6 +126,7 @@ defmodule RefMD.Crypto.SigningSurface do
       key_directory_event_surface("identity_key_added"),
       key_directory_event_surface("device_key_added"),
       key_directory_event_surface("member_added"),
+      key_directory_event_surface("member_role_changed"),
       key_directory_event_surface("member_removed"),
       key_directory_event_surface("signing_key_revoked"),
       key_directory_event_surface("encryption_key_revoked"),
@@ -149,6 +153,8 @@ defmodule RefMD.Crypto.SigningSurface do
       key_directory_event_surface("rotation_completed"),
       key_directory_event_surface("old_key_deleted"),
       key_directory_event_surface("document_update_accepted"),
+      key_directory_event_surface("document_write_session_admitted"),
+      key_directory_event_surface("document_write_state_changed"),
       key_directory_event_surface("document_snapshot_accepted"),
       surface(
         "recipient_bound_authorization",
@@ -210,6 +216,27 @@ defmodule RefMD.Crypto.SigningSurface do
         "device_approval",
         "device_approval",
         "refmd.device.approval",
+        "none",
+        @owner_device
+      ),
+      surface(
+        "plugin_bundle_approval",
+        "plugin_bundle_approval",
+        "refmd.plugin.bundle_approval",
+        "none",
+        @owner_device
+      ),
+      surface(
+        "plugin_consent_event",
+        "plugin_consent_event",
+        "refmd.plugin.consent_event",
+        "none",
+        @owner_device
+      ),
+      surface(
+        "plugin_network_proxy_request",
+        "plugin_network_proxy_request",
+        "refmd.plugin.network_proxy_request",
         "none",
         @owner_device
       ),
@@ -492,6 +519,15 @@ defmodule RefMD.Crypto.SigningSurface do
   defp semantic_validator_for_explicit!("recovery_device_approval:none:semantic"),
     do: {:validate_recovery_approval!, 5}
 
+  defp semantic_validator_for_explicit!("plugin_bundle_approval:none:semantic"),
+    do: {:validate_plugin_bundle_approval!, 5}
+
+  defp semantic_validator_for_explicit!("plugin_consent_event:none:semantic"),
+    do: {:validate_plugin_consent_event!, 5}
+
+  defp semantic_validator_for_explicit!("plugin_network_proxy_request:none:semantic"),
+    do: {:validate_plugin_network_proxy_request!, 5}
+
   defp semantic_validator_for_explicit!(id)
        when id in [
               "document_update:workspace_device:semantic",
@@ -559,7 +595,11 @@ defmodule RefMD.Crypto.SigningSurface do
   end
 
   defp key_directory_event_surface(event_type)
-       when event_type in ["document_update_accepted", "document_snapshot_accepted"] do
+       when event_type in [
+              "document_update_accepted",
+              "document_write_session_admitted",
+              "document_snapshot_accepted"
+            ] do
     surface(
       "key_directory_event",
       "key_directory_event",
@@ -625,6 +665,7 @@ defmodule RefMD.Crypto.SigningSurface do
               "identity_key_added",
               "device_key_added",
               "member_added",
+              "member_role_changed",
               "member_removed",
               "signing_key_revoked",
               "encryption_key_revoked",
@@ -651,6 +692,8 @@ defmodule RefMD.Crypto.SigningSurface do
               "rotation_completed",
               "old_key_deleted",
               "document_update_accepted",
+              "document_write_session_admitted",
+              "document_write_state_changed",
               "document_snapshot_accepted"
             ],
        do: {RefMD.Crypto.Signature.KeyDirectory, :build_key_directory_event_transcript!, 4}
@@ -679,6 +722,15 @@ defmodule RefMD.Crypto.SigningSurface do
 
   defp transcript_builder_for!("device_approval", "none"),
     do: {RefMD.Crypto.Signature.Device, :build_device_approval_transcript!, 7}
+
+  defp transcript_builder_for!("plugin_bundle_approval", "none"),
+    do: {RefMD.Crypto.Signature.Plugin, :build_plugin_bundle_approval_transcript!, 1}
+
+  defp transcript_builder_for!("plugin_consent_event", "none"),
+    do: {RefMD.Crypto.Signature.Plugin, :build_plugin_consent_event_transcript!, 1}
+
+  defp transcript_builder_for!("plugin_network_proxy_request", "none"),
+    do: {RefMD.Crypto.Signature.Plugin, :build_plugin_network_proxy_request_transcript!, 1}
 
   defp transcript_builder_for!("responder_prekey", "none"),
     do: {RefMD.Crypto.Signature.KeyDirectory, :build_responder_prekey_transcript!, 4}

@@ -4,9 +4,13 @@ import { Events, type EventRef } from "@/shared/lib/events";
 import type {
   App,
   AppWorkspace,
+  AuxiliaryPaneConfig,
   Command,
   SettingTabConfig,
   SidebarPanelConfig,
+  StatusBarItemConfig,
+  WorkspaceTileConfig,
+  WorkspaceSurfaceOwnerPredicate,
 } from "@/shared/lib/workspace/app";
 import type { DocumentView } from "@/shared/lib/document/manager";
 import type { ViewCreator, WorkspaceLeaf, View } from "@/shared/lib/workspace/view";
@@ -21,6 +25,8 @@ type MosaicOps = {
   focusPanel: (panelId: string) => void;
   setMosaicState: (state: MosaicNode<string> | null) => void;
   mosaicState: () => MosaicNode<string> | null;
+  openWorkspaceTile: (panelId: string, documentId?: string) => void;
+  closeWorkspaceTiles: (tileIds: readonly string[]) => void;
 };
 
 class WorkspaceManagerImpl extends Events implements AppWorkspace {
@@ -155,6 +161,15 @@ class WorkspaceManagerImpl extends Events implements AppWorkspace {
     this.shell.removeSettingTab(id);
   }
 
+  removeSurfacesByOwner(predicate: WorkspaceSurfaceOwnerPredicate): void {
+    this.commands.removeByOwner(predicate);
+    const removed = this.shell.removeSurfacesByOwner(predicate);
+    for (const viewType of removed.sidebarViewTypes) {
+      this.leafs.detachSidebarLeavesOfType(viewType);
+    }
+    this.leafs.closeWorkspaceTiles(removed.workspaceTileIds);
+  }
+
   getSettingTabs(): Accessor<SettingTabConfig[]> {
     return this.shell.settingTabsAccessor;
   }
@@ -179,8 +194,8 @@ class WorkspaceManagerImpl extends Events implements AppWorkspace {
     this.shell.setStatusBarContainer(el);
   }
 
-  addStatusBarItem(): HTMLElement {
-    return this.shell.addStatusBarItem();
+  addStatusBarItem(config?: StatusBarItemConfig): HTMLElement {
+    return this.shell.addStatusBarItem(config);
   }
 
   // --- Sidebar Panels ---
@@ -194,12 +209,45 @@ class WorkspaceManagerImpl extends Events implements AppWorkspace {
     this.leafs.detachSidebarLeavesOfType(viewType);
   }
 
+  addWorkspaceTile(config: WorkspaceTileConfig): void {
+    this.shell.addWorkspaceTile(config);
+  }
+
+  removeWorkspaceTile(id: string): void {
+    this.shell.removeWorkspaceTile(id);
+    this.leafs.closeWorkspaceTiles([id]);
+  }
+
+  getWorkspaceTiles(): WorkspaceTileConfig[] {
+    return this.shell.workspaceTilesAccessor();
+  }
+
+  openWorkspaceTile(tileId: string, documentId?: string): void {
+    this.leafs.openWorkspaceTile(tileId, documentId);
+  }
+
+  addAuxiliaryPane(config: AuxiliaryPaneConfig): void {
+    this.shell.addAuxiliaryPane(config);
+  }
+
+  removeAuxiliaryPane(id: string): void {
+    this.shell.removeAuxiliaryPane(id);
+  }
+
+  getAuxiliaryPanes(): AuxiliaryPaneConfig[] {
+    return this.shell.auxiliaryPanesAccessor();
+  }
+
   getSidebarPanels(): Accessor<SidebarPanelConfig[]> {
     return this.shell.sidebarPanelsAccessor;
   }
 
   getActiveSidebarPanelId(): Accessor<string | null> {
     return this.shell.activeSidebarPanelIdAccessor;
+  }
+
+  setActiveSidebarPanel(id: string): void {
+    this.shell.setActiveSidebarPanel(id);
   }
 
   getSidebarLeaf(viewType: string): WorkspaceLeaf | null {

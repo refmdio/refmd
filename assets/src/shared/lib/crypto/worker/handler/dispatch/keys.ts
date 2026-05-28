@@ -1,14 +1,19 @@
 import {
   handleDeleteGuestInvitationMaterialWithDsk,
   handleDeleteMountTrustAnchorWithDsk,
+  handleDeletePluginCredentialWithDsk,
   handleDeleteShareManagementTokenWithDsk,
   handleDeleteShareParticipantSessionWithDsk,
   handleDeleteShareSessionTrustAnchorWithDsk,
+  handleDeleteUiStateWithDsk,
+  handleClearPluginApplicationDataWithDsk,
+  handleClearPluginDataWithDsk,
   handleClearMountTrustAnchorsWithDsk,
   handleClearShareParticipantSessionsWithDsk,
   handleGenerateDskKey,
   handleLoadGuestInvitationMaterialWithDsk,
   handleLoadMountTrustAnchorWithDsk,
+  handleLoadPluginCredentialWithDsk,
   handleUnwrapOfflineDocumentTitleWithDsk,
   handleLoadShareManagementTokenWithDsk,
   handleListShareParticipantSessionsWithDsk,
@@ -19,6 +24,7 @@ import {
   handleUnwrapUmkFromDsk,
   handleStoreGuestInvitationMaterialWithDsk,
   handleStoreMountTrustAnchorWithDsk,
+  handleStorePluginCredentialWithDsk,
   handleWrapOfflineDocumentTitleWithDsk,
   handleStoreShareManagementTokenWithDsk,
   handleStoreShareParticipantSessionWithDsk,
@@ -80,6 +86,8 @@ export const keyRequestHandlers = {
     handleDeleteGuestInvitationMaterialWithDsk(payload),
   "delete-mount-trust-anchor-with-dsk": (_state, payload) =>
     handleDeleteMountTrustAnchorWithDsk(payload),
+  "delete-plugin-credential-with-dsk": (_state, payload) =>
+    handleDeletePluginCredentialWithDsk(payload),
   "clear-mount-trust-anchors-with-dsk": () => handleClearMountTrustAnchorsWithDsk(),
   "delete-share-management-token-with-dsk": (_state, payload) =>
     handleDeleteShareManagementTokenWithDsk(payload),
@@ -87,6 +95,10 @@ export const keyRequestHandlers = {
     handleDeleteShareParticipantSessionWithDsk(state, payload),
   "delete-share-session-trust-anchor-with-dsk": (_state, payload) =>
     handleDeleteShareSessionTrustAnchorWithDsk(payload),
+  "delete-ui-state-with-dsk": (_state, payload) => handleDeleteUiStateWithDsk(payload),
+  "clear-plugin-data-with-dsk": () => handleClearPluginDataWithDsk(),
+  "clear-plugin-application-data-with-dsk": (_state, payload) =>
+    handleClearPluginApplicationDataWithDsk(payload),
   "clear-share-participant-sessions-with-dsk": () => handleClearShareParticipantSessionsWithDsk(),
   "load-guest-invitation-material-with-dsk": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
@@ -95,6 +107,10 @@ export const keyRequestHandlers = {
   "load-mount-trust-anchor-with-dsk": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
       handleLoadMountTrustAnchorWithDsk(state, payload),
+    ),
+  "load-plugin-credential-with-dsk": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleLoadPluginCredentialWithDsk(state, payload),
     ),
   "unwrap-offline-document-title-with-dsk": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
@@ -124,6 +140,8 @@ export const keyRequestHandlers = {
     handleWrapIdentityKeysForServer(state, payload),
   "store-mount-trust-anchor-with-dsk": (state, payload) =>
     handleStoreMountTrustAnchorWithDsk(state, payload),
+  "store-plugin-credential-with-dsk": (state, payload) =>
+    handleStorePluginCredentialWithDsk(state, payload),
   "wrap-offline-document-title-with-dsk": (state, payload) =>
     handleWrapOfflineDocumentTitleWithDsk(state, payload),
   "store-share-management-token-with-dsk": (state, payload) =>

@@ -82,6 +82,11 @@ defmodule RefMDWeb.Schemas.MeResponse do
       session_id: %Schema{type: :string, format: :uuid},
       device_id: %Schema{type: :string, format: :uuid, nullable: true},
       device_verified: %Schema{type: :boolean},
+      device_key_checkpoint_sequence: %Schema{type: :integer, minimum: 1, nullable: true},
+      device_key_checkpoint_hash: %Schema{
+        allOf: [RefMDWeb.Schemas.Blake3Base64Url],
+        nullable: true
+      },
       is_recovery: %Schema{type: :boolean},
       expires_at: %Schema{type: :string, format: :"date-time"},
       auth_type: %Schema{type: :string, nullable: true},

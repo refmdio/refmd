@@ -59,6 +59,12 @@ config :refmd, token_secret_key_base: secret_key_base
 config :refmd, dummy_salt_secret: "dev-dummy-salt-secret-do-not-use-in-production"
 config :refmd, e2e_rate_limit_bypass: true
 
+if System.get_env("REFMD_E2E_DISABLE_OBAN") == "1" do
+  config :refmd, Oban,
+    queues: false,
+    plugins: false
+end
+
 config :refmd,
   share_server_key_id: "dev-share-key",
   share_server_keys: %{

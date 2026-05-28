@@ -17,7 +17,8 @@ export function useDeviceManagement() {
     queryFn: listDevices,
   }));
   const refetchDevices = () => queryClient.invalidateQueries({ queryKey: DEVICES_QUERY_KEY });
-  const { pendingDevices, showApprovalDialog, kekRotationsNeeded } = usePendingDevices();
+  const { pendingDevices, showApprovalDialog, kekRotationsNeeded, refetchPending } =
+    usePendingDevices();
   const [revokeTarget, setRevokeTarget] = createSignal<DeviceInfo | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
@@ -86,6 +87,7 @@ export function useDeviceManagement() {
     kekRotationsNeeded,
     openRevokeDialog,
     pendingDevices,
+    refetchPending,
     refetchDevices,
     renameDeviceMutation,
     revokeTarget,

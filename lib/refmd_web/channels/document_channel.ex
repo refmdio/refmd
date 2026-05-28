@@ -450,6 +450,7 @@ defmodule RefMDWeb.DocumentChannel do
       key_version: parsed.public_data["keyVersion"],
       update_hash: parsed.public_data["updateHash"],
       hybrid_signature: parsed.signature,
+      signature_verified: true,
       public_data: parsed.public_data,
       owner_kind: parsed.public_data["ownerKind"],
       owner_id: parsed.public_data["ownerId"],
@@ -460,6 +461,7 @@ defmodule RefMDWeb.DocumentChannel do
       authority_permission_version: parsed.public_data["authorityPermissionVersion"],
       key_checkpoint_sequence: key_checkpoint_sequence(parsed),
       key_checkpoint_hash: key_checkpoint_hash(parsed),
+      write_session_counter: parsed.public_data["writeSessionCounter"],
       timestamp: parsed.public_data["timestamp"]
     }
     |> Map.put(:admission, parsed.admission)
@@ -476,6 +478,7 @@ defmodule RefMDWeb.DocumentChannel do
       nonce: parsed.nonce_raw,
       key_version: parsed.public_data["keyVersion"],
       hybrid_signature: parsed.signature,
+      signature_verified: true,
       public_data: parsed.public_data,
       parent_proof_hash: parsed.public_data["parentProofHash"],
       parent_snapshot_update_clocks: parsed.public_data["parentSnapshotUpdateClocks"],
@@ -593,6 +596,8 @@ defmodule RefMDWeb.DocumentChannel do
   defp handle_update_result({:error, reason}, _parsed, _payload, socket)
        when reason in [
               :document_archived,
+              :document_read_only,
+              :document_write_disabled,
               :permission_denied,
               :device_revoked,
               :admission_invalid
@@ -659,6 +664,8 @@ defmodule RefMDWeb.DocumentChannel do
   defp handle_snapshot_result({:error, reason, _recovery}, _parsed, socket)
        when reason in [
               :document_archived,
+              :document_read_only,
+              :document_write_disabled,
               :permission_denied,
               :device_revoked,
               :admission_invalid

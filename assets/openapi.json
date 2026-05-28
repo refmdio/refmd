@@ -62,6 +62,16 @@
         "title": "InitialAkeDeliveryPair",
         "type": "object"
       },
+      "PluginActivationUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "title": "PluginActivationUpdateRequest",
+        "type": "object"
+      },
       "InitialAkeApprovalTranscript": {
         "additionalProperties": false,
         "properties": {
@@ -180,10 +190,21 @@
           "role_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "workspace_key_directory_checkpoint": {
+            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+          },
+          "workspace_key_directory_events": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "role_id"
+          "role_id",
+          "workspace_key_directory_events",
+          "workspace_key_directory_checkpoint"
         ],
         "title": "ChangeMemberRoleRequest",
         "type": "object"
@@ -339,6 +360,9 @@
           "locale": {
             "type": "string"
           },
+          "plugin_network_proxy": {
+            "$ref": "#/components/schemas/PluginNetworkProxyRegistration"
+          },
           "theme": {
             "enum": [
               "light",
@@ -375,6 +399,37 @@
           "error"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "PluginUserPolicy": {
+        "additionalProperties": false,
+        "nullable": true,
+        "properties": {
+          "allowed_plugin_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default_mode": {
+            "enum": [
+              "allow_safe",
+              "allow_all",
+              "deny_all"
+            ],
+            "type": "string"
+          },
+          "denied_plugin_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "require_admin_approval": {
+            "type": "boolean"
+          }
+        },
+        "title": "PluginUserPolicy",
         "type": "object"
       },
       "UserInfo": {
@@ -1046,6 +1101,62 @@
         "title": "ShareParticipantDeviceEncryptionPublicKeyMaterial",
         "type": "object"
       },
+      "PluginStorageEntryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "application_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ciphertext": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "plugin_id": {
+            "type": "string"
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "surface": {
+            "enum": [
+              "workspace",
+              "document"
+            ],
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "application_id",
+          "activation_id",
+          "workspace_id",
+          "surface",
+          "scope_id",
+          "key",
+          "ciphertext",
+          "nonce",
+          "key_version"
+        ],
+        "title": "PluginStorageEntryResponse",
+        "type": "object"
+      },
       "InitialAkeApprovalArtifact": {
         "additionalProperties": false,
         "properties": {
@@ -1233,6 +1344,472 @@
           "signature"
         ],
         "title": "DeviceKeyDeletionProof",
+        "type": "object"
+      },
+      "PluginRuntimeAuditRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "frame_generation": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "payloadKind": {
+            "type": "string"
+          },
+          "plugin_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sensitivity": {
+            "additionalProperties": false,
+            "properties": {
+              "debug": {
+                "type": "string"
+              },
+              "egress_bytes": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "plaintext_bytes": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "plaintext_scope_kind": {
+                "type": "string"
+              },
+              "storage_bytes": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "plaintext_scope_kind",
+              "plaintext_bytes",
+              "egress_bytes",
+              "storage_bytes"
+            ],
+            "type": "object"
+          },
+          "owner_scope_kind": {
+            "enum": [
+              "workspace",
+              "user"
+            ],
+            "type": "string"
+          },
+          "plaintext_scope_kind": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "manifest_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "consent_head_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "execution_context_id": {
+            "type": "string"
+          },
+          "package_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "resource_ref": {
+            "additionalProperties": false,
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "context_range": {
+                "additionalProperties": false,
+                "properties": {
+                  "anchor": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "head": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "anchor",
+                  "head"
+                ],
+                "type": "object"
+              },
+              "document_id": {
+                "type": "string"
+              },
+              "editor_id": {
+                "type": "string"
+              },
+              "max_bytes": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_documents": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "selected_document_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "selection_range": {
+                "additionalProperties": false,
+                "properties": {
+                  "anchor": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "head": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "anchor",
+                  "head"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "class": {
+            "enum": [
+              "security_runtime"
+            ],
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "correlation": {
+            "additionalProperties": false,
+            "properties": {
+              "authority_event_ref": {
+                "type": "string"
+              },
+              "capability_id": {
+                "type": "string"
+              },
+              "execution_context_id": {
+                "type": "string"
+              },
+              "request_body": {
+                "type": "string"
+              },
+              "request_id": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "nested": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "request_id",
+              "capability_id",
+              "execution_context_id",
+              "authority_event_ref"
+            ],
+            "type": "object"
+          },
+          "scope": {
+            "additionalProperties": false,
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "share_id": {
+                "type": "string"
+              },
+              "workspace_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "workspace_id",
+              "document_id",
+              "share_id"
+            ],
+            "type": "object"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "activation_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "application_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "bundle_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "payload_kind": {
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.security-audit-event"
+            ],
+            "type": "string"
+          },
+          "contextKind": {
+            "type": "string"
+          },
+          "plaintext_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "capability_grant_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "frame_scope": {
+            "enum": [
+              "primary",
+              "secondary"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "resource": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "plugin",
+                  "credential",
+                  "network_endpoint",
+                  "document"
+                ],
+                "type": "string"
+              },
+              "version_hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "version_hash"
+            ],
+            "type": "object"
+          },
+          "state_head_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "actor": {
+            "additionalProperties": false,
+            "properties": {
+              "device_id": {
+                "type": "string"
+              },
+              "principal_id": {
+                "type": "string"
+              },
+              "principal_kind": {
+                "enum": [
+                  "user",
+                  "share_participant",
+                  "system",
+                  "worker"
+                ],
+                "type": "string"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id",
+              "device_id",
+              "session_id",
+              "principal_kind",
+              "principal_id"
+            ],
+            "type": "object"
+          },
+          "action": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "credential_handle_used": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "endpoint_id": {
+                "type": "string"
+              },
+              "fallback_reason": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "string"
+              },
+              "proxy_id": {
+                "type": "string"
+              },
+              "raw": {
+                "type": "string"
+              },
+              "reason_code": {
+                "type": "string"
+              },
+              "request_body": {
+                "type": "string"
+              },
+              "request_bytes": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "response_bytes": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "result": {
+                "enum": [
+                  "allowed",
+                  "denied",
+                  "failed",
+                  "completed"
+                ],
+                "type": "string"
+              },
+              "route": {
+                "type": "string"
+              },
+              "target_origin": {
+                "type": "string"
+              },
+              "target_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "result"
+            ],
+            "type": "object"
+          },
+          "event_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "context_kind": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "reasonCode": {
+            "type": "string"
+          },
+          "consent_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "plugin_id",
+          "package_id",
+          "application_id",
+          "activation_id",
+          "owner_scope_kind",
+          "capability_grant_id",
+          "consent_epoch",
+          "frame_generation",
+          "workspace_id",
+          "bundle_hash",
+          "manifest_hash"
+        ],
+        "title": "PluginRuntimeAuditRequest",
         "type": "object"
       },
       "ShareMountFolderMountSummary": {
@@ -1684,6 +2261,26 @@
         "title": "DeviceRegistrationInfo",
         "type": "object"
       },
+      "DocumentWriteStateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "workspace_key_directory_checkpoint": {
+            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+          },
+          "workspace_key_directory_events": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "workspace_key_directory_events",
+          "workspace_key_directory_checkpoint"
+        ],
+        "title": "DocumentWriteStateRequest",
+        "type": "object"
+      },
       "RemoveMemberResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1984,6 +2581,24 @@
         "title": "InitialAkeApprovalContext",
         "type": "object"
       },
+      "PluginApplicationUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "workspace_policy_result": {
+            "enum": [
+              "allowed",
+              "denied",
+              "needs_admin_review"
+            ],
+            "type": "string"
+          }
+        },
+        "title": "PluginApplicationUpdateRequest",
+        "type": "object"
+      },
       "DeviceApprovalKekInitialDeliveryCommitment": {
         "additionalProperties": false,
         "properties": {
@@ -2205,6 +2820,19 @@
             "nullable": true,
             "type": "string"
           },
+          "device_key_checkpoint_hash": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Blake3Base64Url"
+              }
+            ],
+            "nullable": true
+          },
+          "device_key_checkpoint_sequence": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
           "device_verified": {
             "type": "boolean"
           },
@@ -2416,6 +3044,12 @@
           "owner_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "plugin_network_proxy": {
+            "$ref": "#/components/schemas/PluginNetworkProxyRegistration"
+          },
+          "plugin_user_policy": {
+            "$ref": "#/components/schemas/PluginUserPolicy"
           },
           "public_author_profile": {
             "$ref": "#/components/schemas/PublicAuthorProfile"
@@ -2791,6 +3425,35 @@
         "title": "MemberDevicesResponse",
         "type": "object"
       },
+      "PluginStorageWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ciphertext": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "key_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nonce": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "plugin_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "ciphertext",
+          "nonce",
+          "key_version"
+        ],
+        "title": "PluginStorageWriteRequest",
+        "type": "object"
+      },
       "RotationDeletionEvidence": {
         "additionalProperties": false,
         "properties": {
@@ -2857,6 +3520,136 @@
           "status"
         ],
         "title": "BootstrapDeviceResponse",
+        "type": "object"
+      },
+      "PluginConsentEventRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "application_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "application_scope_kind": {
+            "enum": [
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "bundle_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "consent_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "decision": {
+            "enum": [
+              "allow",
+              "deny",
+              "revoke"
+            ],
+            "type": "string"
+          },
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "document_scope_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "endpoint_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "event_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "hybrid_signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          },
+          "manifest_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_scope_kind": {
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "package_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "permissions_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "plugin_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "previous_event_hash": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resource_manifest_hash": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "signer_device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signer_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "package_id",
+          "application_id",
+          "activation_id",
+          "owner_scope_kind",
+          "application_scope_kind",
+          "workspace_id",
+          "version",
+          "bundle_hash",
+          "manifest_hash",
+          "resource_manifest_hash",
+          "permissions_hash",
+          "endpoint_hash",
+          "document_scope_hash",
+          "signer_user_id",
+          "signer_device_id",
+          "decision",
+          "consent_epoch",
+          "previous_event_hash",
+          "event_hash",
+          "hybrid_signature"
+        ],
+        "title": "PluginConsentEventRequest",
         "type": "object"
       },
       "InitialKeyDeliveryApprovalMetadata": {
@@ -2928,22 +3721,22 @@
           }
         },
         "required": [
-          "recipient_device_id",
           "signing_key_id",
-          "suite_rank",
-          "suite_id",
-          "key_checkpoint_hash",
-          "resource_hash",
-          "sender_device_id",
-          "context_hash",
-          "initiator_commitment_hash",
-          "delivery_id",
           "key_version",
+          "key_checkpoint_hash",
+          "recipient_device_id",
           "recipient_encryption_key_id",
+          "resource_hash",
+          "suite_id",
+          "suite_rank",
+          "payload_kind",
+          "sender_device_id",
+          "initiator_commitment_hash",
+          "context_hash",
+          "delivery_id",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
-          "payload_kind",
           "key_kind",
           "workspace_id"
         ],
@@ -26678,6 +27471,709 @@
                         "type": "object"
                       }
                     ]
+                  },
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "actor": {
+                            "oneOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "identity"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "user_id": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "user_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "device_id": {
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "device"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "user_id": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "user_id",
+                                  "device_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "share_id": {
+                                    "type": "string"
+                                  },
+                                  "share_participant_device_id": {
+                                    "type": "string"
+                                  },
+                                  "share_participant_principal_id": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "share_participant_device"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "share_id",
+                                  "share_participant_principal_id",
+                                  "share_participant_device_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "invitation_id": {
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "invitation_redeem_authority"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "invitation_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          "body": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "document_id": {
+                                "type": "string"
+                              },
+                              "event_type": {
+                                "type": "string"
+                              },
+                              "issued_at_ms": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "previous_workspace_event_hash": {
+                                "maxLength": 43,
+                                "minLength": 43,
+                                "pattern": "^[A-Za-z0-9_-]{43}$",
+                                "type": "string"
+                              },
+                              "previous_workspace_event_sequence": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "previous_write_state": {
+                                "enum": [
+                                  "writable",
+                                  "read_only",
+                                  "archived",
+                                  "write_disabled"
+                                ],
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "workspace_id": {
+                                "type": "string"
+                              },
+                              "write_state": {
+                                "enum": [
+                                  "writable",
+                                  "read_only",
+                                  "archived",
+                                  "write_disabled"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "document_id",
+                              "event_type",
+                              "issued_at_ms",
+                              "previous_workspace_event_hash",
+                              "previous_workspace_event_sequence",
+                              "previous_write_state",
+                              "reason",
+                              "workspace_id",
+                              "write_state"
+                            ],
+                            "type": "object"
+                          },
+                          "event_type": {
+                            "enum": [
+                              "document_write_state_changed"
+                            ],
+                            "type": "string"
+                          },
+                          "protocol": {
+                            "enum": [
+                              "refmd.key-directory-event"
+                            ],
+                            "type": "string"
+                          },
+                          "scope_id": {
+                            "type": "string"
+                          },
+                          "scope_kind": {
+                            "enum": [
+                              "user",
+                              "workspace"
+                            ],
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "enum": [
+                              1
+                            ],
+                            "type": "integer"
+                          },
+                          "version": {
+                            "enum": [
+                              1
+                            ],
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "protocol",
+                          "version",
+                          "scope_kind",
+                          "scope_id",
+                          "sequence",
+                          "event_type",
+                          "actor",
+                          "body"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "actor": {
+                            "oneOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "identity"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "user_id": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "user_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "device_id": {
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "device"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "user_id": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "user_id",
+                                  "device_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "share_id": {
+                                    "type": "string"
+                                  },
+                                  "share_participant_device_id": {
+                                    "type": "string"
+                                  },
+                                  "share_participant_principal_id": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "share_participant_device"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "share_id",
+                                  "share_participant_principal_id",
+                                  "share_participant_device_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authorizing_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "authorizing_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "invitation_id": {
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_hash": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  },
+                                  "key_checkpoint_sequence": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "key_scope_id": {
+                                    "type": "string"
+                                  },
+                                  "key_scope_kind": {
+                                    "type": "string"
+                                  },
+                                  "role_at_event": {
+                                    "type": "string"
+                                  },
+                                  "signer_kind": {
+                                    "enum": [
+                                      "invitation_redeem_authority"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "signing_key_id": {
+                                    "maxLength": 43,
+                                    "minLength": 43,
+                                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "signer_kind",
+                                  "invitation_id",
+                                  "signing_key_id"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          "body": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "document_id": {
+                                "type": "string"
+                              },
+                              "event_type": {
+                                "type": "string"
+                              },
+                              "issued_at_ms": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "previous_workspace_event_hash": {
+                                "maxLength": 43,
+                                "minLength": 43,
+                                "pattern": "^[A-Za-z0-9_-]{43}$",
+                                "type": "string"
+                              },
+                              "previous_workspace_event_sequence": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "previous_write_state": {
+                                "enum": [
+                                  "writable",
+                                  "read_only",
+                                  "archived",
+                                  "write_disabled"
+                                ],
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "workspace_id": {
+                                "type": "string"
+                              },
+                              "write_state": {
+                                "enum": [
+                                  "writable",
+                                  "read_only",
+                                  "archived",
+                                  "write_disabled"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "document_id",
+                              "event_type",
+                              "issued_at_ms",
+                              "previous_workspace_event_hash",
+                              "previous_workspace_event_sequence",
+                              "previous_write_state",
+                              "reason",
+                              "workspace_id",
+                              "write_state"
+                            ],
+                            "type": "object"
+                          },
+                          "event_type": {
+                            "enum": [
+                              "document_write_state_changed"
+                            ],
+                            "type": "string"
+                          },
+                          "previous_event_hash": {
+                            "maxLength": 43,
+                            "minLength": 43,
+                            "pattern": "^[A-Za-z0-9_-]{43}$",
+                            "type": "string"
+                          },
+                          "protocol": {
+                            "enum": [
+                              "refmd.key-directory-event"
+                            ],
+                            "type": "string"
+                          },
+                          "scope_id": {
+                            "type": "string"
+                          },
+                          "scope_kind": {
+                            "enum": [
+                              "user",
+                              "workspace"
+                            ],
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "minimum": 2,
+                            "type": "integer"
+                          },
+                          "version": {
+                            "enum": [
+                              1
+                            ],
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "previous_event_hash",
+                          "protocol",
+                          "version",
+                          "scope_kind",
+                          "scope_id",
+                          "sequence",
+                          "event_type",
+                          "actor",
+                          "body"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 ]
               },
@@ -27808,6 +29304,20 @@
         "title": "ShareLinkMountListResponse",
         "type": "object"
       },
+      "PluginApplicationApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "package_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "package_id"
+        ],
+        "title": "PluginApplicationApplyRequest",
+        "type": "object"
+      },
       "CreateFolderShareKeyItem": {
         "additionalProperties": false,
         "properties": {
@@ -27937,6 +29447,45 @@
           "keys"
         ],
         "title": "DocumentKeysResponse",
+        "type": "object"
+      },
+      "PluginRecordWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "encrypted_data": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "kind": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "nonce": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "plugin_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "plugin_id",
+          "kind",
+          "encrypted_data",
+          "nonce",
+          "key_version"
+        ],
+        "title": "PluginRecordWriteRequest",
         "type": "object"
       },
       "ShareMountBootstrapRequest": {
@@ -28995,6 +30544,67 @@
           "signature"
         ],
         "title": "InitialKeyDeliveryUmkRecord",
+        "type": "object"
+      },
+      "PluginRecordResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "application_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_data": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "plugin_id": {
+            "type": "string"
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "surface": {
+            "enum": [
+              "workspace",
+              "document"
+            ],
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "plugin_id",
+          "application_id",
+          "activation_id",
+          "workspace_id",
+          "surface",
+          "scope_id",
+          "kind",
+          "encrypted_data",
+          "nonce",
+          "key_version"
+        ],
+        "title": "PluginRecordResponse",
         "type": "object"
       },
       "MemberEnvelopeItem": {
@@ -31140,6 +32750,9 @@
           },
           "locale": {
             "type": "string"
+          },
+          "plugin_network_proxy": {
+            "$ref": "#/components/schemas/PluginNetworkProxyRegistration"
           },
           "theme": {
             "enum": [
@@ -33701,6 +35314,15 @@
           "workspace_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "write_state": {
+            "enum": [
+              "writable",
+              "read_only",
+              "archived",
+              "write_disabled"
+            ],
+            "type": "string"
           }
         },
         "required": [
@@ -33716,6 +35338,7 @@
           "min_dek_version",
           "is_published",
           "can_sync_publication",
+          "write_state",
           "created_at",
           "updated_at"
         ],
@@ -34089,6 +35712,105 @@
           "identity_signing_key_id"
         ],
         "title": "LoginKeys",
+        "type": "object"
+      },
+      "PluginNetworkProxyRegistration": {
+        "additionalProperties": false,
+        "nullable": true,
+        "properties": {
+          "allowed_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowed_workspace_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "operator_label": {
+            "type": "string"
+          },
+          "policy": {
+            "additionalProperties": false,
+            "properties": {
+              "allowed_endpoint_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "allowed_route_classes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "denied_endpoint_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "max_request_size": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_response_size": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "verification_material": {
+            "additionalProperties": false,
+            "properties": {
+              "response_key_id": {
+                "type": "string"
+              },
+              "response_signature_protocol": {
+                "type": "string"
+              },
+              "response_signing_key": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "base_url",
+          "scope",
+          "enabled"
+        ],
+        "title": "PluginNetworkProxyRegistration",
         "type": "object"
       },
       "WorkspaceInvitationBootstrapAad": {
@@ -35155,22 +36877,22 @@
           }
         },
         "required": [
-          "recipient_device_id",
           "signing_key_id",
-          "suite_rank",
-          "suite_id",
-          "key_checkpoint_hash",
-          "resource_hash",
-          "sender_device_id",
-          "context_hash",
-          "initiator_commitment_hash",
-          "delivery_id",
           "key_version",
+          "key_checkpoint_hash",
+          "recipient_device_id",
           "recipient_encryption_key_id",
+          "resource_hash",
+          "suite_id",
+          "suite_rank",
+          "payload_kind",
+          "sender_device_id",
+          "initiator_commitment_hash",
+          "context_hash",
+          "delivery_id",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
-          "payload_kind",
           "key_kind"
         ],
         "title": "InitialKeyDeliveryMetadata",
@@ -35188,6 +36910,12 @@
         "properties": {
           "candidate_user_checkpoint": {
             "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+          },
+          "candidate_user_checkpoint_ancestry": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
           },
           "candidate_user_checkpoint_hash": {
             "type": "string"
@@ -35213,6 +36941,18 @@
               "properties": {
                 "checkpoint": {
                   "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+                },
+                "checkpoint_ancestry": {
+                  "items": {
+                    "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+                  },
+                  "type": "array"
+                },
+                "event_ancestry": {
+                  "items": {
+                    "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+                  },
+                  "type": "array"
                 },
                 "workspace_id": {
                   "format": "uuid",
@@ -37605,6 +39345,12 @@
             "nullable": true,
             "type": "integer"
           },
+          "plugin_network_proxy": {
+            "$ref": "#/components/schemas/PluginNetworkProxyRegistration"
+          },
+          "plugin_user_policy": {
+            "$ref": "#/components/schemas/PluginUserPolicy"
+          },
           "public_author_bio": {
             "nullable": true,
             "type": "string"
@@ -37862,22 +39608,22 @@
           }
         },
         "required": [
-          "recipient_device_id",
           "signing_key_id",
-          "suite_rank",
-          "suite_id",
-          "key_checkpoint_hash",
-          "resource_hash",
-          "sender_device_id",
-          "context_hash",
-          "initiator_commitment_hash",
-          "delivery_id",
           "key_version",
+          "key_checkpoint_hash",
+          "recipient_device_id",
           "recipient_encryption_key_id",
+          "resource_hash",
+          "suite_id",
+          "suite_rank",
+          "payload_kind",
+          "sender_device_id",
+          "initiator_commitment_hash",
+          "context_hash",
+          "delivery_id",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
-          "payload_kind",
           "key_kind",
           "document_rollback_pin_set_hash"
         ],
@@ -38222,6 +39968,128 @@
         },
         "security": [],
         "summary": "Establish a recovery session via Identity signature",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-applications/{application_id}/consent-events": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_plugin_applications_by_application_id_consent_events",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginConsentEventRequest"
+              }
+            }
+          },
+          "description": "Plugin consent event",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin consent event"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Pinned state mismatch"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Append a plugin consent event",
         "tags": []
       }
     },
@@ -40191,6 +42059,164 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/plugin-runtime": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_runtime",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin runtime descriptors"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List runnable plugin runtime descriptors",
+        "tags": []
+      }
+    },
+    "/api/plugin-runtime/sandbox-documents/{session_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_plugin_runtime_sandbox_documents_by_session_id",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Plugin sandbox document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Pinned state mismatch"
+          }
+        },
+        "security": [
+          {
+            "user_session": []
+          }
+        ],
+        "summary": "Load a single-use plugin sandbox document",
+        "tags": []
+      }
+    },
     "/api/workspaces/{workspace_id}/member-keys": {
       "get": {
         "callbacks": {},
@@ -40340,6 +42366,17 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentWriteStateRequest"
+              }
+            }
+          },
+          "description": "Document write-state admission",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -40561,6 +42598,108 @@
           }
         ],
         "summary": "Request a PoP challenge nonce",
+        "tags": []
+      }
+    },
+    "/api/plugin-candidates/{candidate_id}/approval": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_plugin_candidates_by_candidate_id_approval",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin package"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Pinned state mismatch"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Promote an approved plugin bundle candidate",
         "tags": []
       }
     },
@@ -40797,6 +42936,97 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/bundle": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_bundle",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Removed endpoint"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Reject removed plugin runtime bundle endpoint",
+        "tags": []
+      }
+    },
     "/api/shares/{share_slug}/bootstrap": {
       "post": {
         "callbacks": {},
@@ -40857,6 +43087,169 @@
         },
         "security": [],
         "summary": "Bootstrap a share participant session",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/sandbox-documents": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_sandbox_documents",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "capability_grant_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "consent_head_hash": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "frame_scope": {
+                    "enum": [
+                      "primary",
+                      "secondary"
+                    ],
+                    "type": "string"
+                  },
+                  "state_head_hash": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "wasm_browser_target": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state_head_hash",
+                  "consent_head_hash",
+                  "capability_grant_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Sandbox document request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Sandbox document session"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Pinned state mismatch"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Create a single-use plugin sandbox document session",
         "tags": []
       }
     },
@@ -41150,6 +43543,303 @@
         "tags": []
       }
     },
+    "/api/security/notifications/{notification_id}/read": {
+      "patch": {
+        "callbacks": {},
+        "operationId": "patch_api_security_notifications_by_notification_id_read",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Security notification"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Mark security notification read",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-runtime-audit": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_plugin_runtime_audit",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginRuntimeAuditRequest"
+              }
+            }
+          },
+          "description": "Plugin runtime audit event",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Recorded"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Record a plugin runtime audit event",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-runtime/consent-required": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_runtime_consent_required",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin consent-required descriptors"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List plugin applications requiring member consent",
+        "tags": []
+      }
+    },
     "/api/devices/registrations/{device_id}": {
       "delete": {
         "callbacks": {},
@@ -41193,6 +43883,599 @@
           }
         ],
         "summary": "Reject (delete) a device registration",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/storage/{surface}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "surface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "plugin_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "capability_grant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_epoch",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "frame_generation",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Delete encrypted plugin storage",
+        "tags": []
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "surface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "plugin_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "capability_grant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_epoch",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "frame_generation",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginStorageEntryResponse"
+                }
+              }
+            },
+            "description": "Encrypted plugin storage"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Get encrypted plugin storage",
+        "tags": []
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "put_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "surface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "plugin_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "capability_grant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_epoch",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "frame_generation",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginStorageWriteRequest"
+              }
+            }
+          },
+          "description": "Encrypted plugin storage",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginStorageEntryResponse"
+                }
+              }
+            },
+            "description": "Encrypted plugin storage"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Save encrypted plugin storage",
         "tags": []
       }
     },
@@ -41321,6 +44604,98 @@
         },
         "security": [],
         "summary": "Verify password reset token and create session",
+        "tags": []
+      }
+    },
+    "/api/security/notifications/{notification_id}/dismiss": {
+      "patch": {
+        "callbacks": {},
+        "operationId": "patch_api_security_notifications_by_notification_id_dismiss",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Security notification"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Dismiss security notification",
         "tags": []
       }
     },
@@ -41724,6 +45099,129 @@
           }
         ],
         "summary": "List a member's devices",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/write-disable": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_documents_by_document_id_write_disable",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentWriteStateRequest"
+              }
+            }
+          },
+          "description": "Document write-state admission",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Write-disabled document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot change write state"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Disable document writes by policy",
         "tags": []
       }
     },
@@ -42255,6 +45753,108 @@
         "tags": []
       }
     },
+    "/api/plugin-candidates/{candidate_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_plugin_candidates_by_candidate_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin bundle candidate"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Show a plugin bundle candidate approval summary",
+        "tags": []
+      }
+    },
     "/api/shares/{share_slug}/mounts": {
       "get": {
         "callbacks": {},
@@ -42539,6 +46139,217 @@
           }
         ],
         "summary": "Set password after recovery (recovery session required)",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-applications/{application_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "delete_api_workspaces_by_workspace_id_plugin_applications_by_application_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Deleted plugin application"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Uninstall a plugin",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "patch_api_workspaces_by_workspace_id_plugin_applications_by_application_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginApplicationUpdateRequest"
+              }
+            }
+          },
+          "description": "Plugin application update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Updated plugin application"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Update an installed plugin",
         "tags": []
       }
     },
@@ -43864,6 +47675,209 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/plugin-applications": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_applications",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin applications"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List installed plugins",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_plugin_applications",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginApplicationApplyRequest"
+              }
+            }
+          },
+          "description": "Plugin application",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Applied plugin application"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Apply a plugin package to a workspace",
+        "tags": []
+      }
+    },
     "/api/encryption/workspaces/{workspace_id}/keys": {
       "get": {
         "callbacks": {},
@@ -44877,6 +48891,160 @@
         "tags": []
       }
     },
+    "/api/plugin-packages": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_plugin_packages",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin packages"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List user-owned plugin packages",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_plugin_packages",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin bundle candidate"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Create a user-owned plugin package candidate",
+        "tags": []
+      }
+    },
     "/api/workspaces": {
       "get": {
         "callbacks": {},
@@ -45526,6 +49694,129 @@
         "tags": []
       }
     },
+    "/api/documents/{document_id}/read-only/disable": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_documents_by_document_id_read_only_disable",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentWriteStateRequest"
+              }
+            }
+          },
+          "description": "Document write-state admission",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Writable document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot change write state"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Clear document read-only state",
+        "tags": []
+      }
+    },
     "/api/workspaces/{workspace_id}/members/{user_id}": {
       "delete": {
         "callbacks": {},
@@ -45825,6 +50116,17 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentWriteStateRequest"
+              }
+            }
+          },
+          "description": "Document write-state admission",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -46184,6 +50486,321 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/plugin-packages": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_packages",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin packages"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List workspace-owned plugin packages",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_plugin_packages",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin bundle candidate"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Create a plugin bundle candidate",
+        "tags": []
+      }
+    },
+    "/api/documents/{document_id}/read-only/enable": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_documents_by_document_id_read_only_enable",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentWriteStateRequest"
+              }
+            }
+          },
+          "description": "Document write-state admission",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponse"
+                }
+              }
+            },
+            "description": "Read-only document"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot change write state"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Mark a document read-only",
+        "tags": []
+      }
+    },
     "/api/auth/recovery": {
       "get": {
         "callbacks": {},
@@ -46217,6 +50834,79 @@
           }
         ],
         "summary": "Get recovery data (encrypted UMK, identity keys)",
+        "tags": []
+      }
+    },
+    "/api/plugin-activations": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_plugin_activations",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin activations"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List current user plugin activations",
         "tags": []
       }
     },
@@ -46602,6 +51292,388 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/records/{surface}/{record_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "surface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "plugin_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "capability_grant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_epoch",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "frame_generation",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Delete encrypted plugin record storage",
+        "tags": []
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "surface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "plugin_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "capability_grant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_epoch",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "frame_generation",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginRecordResponse"
+                }
+              }
+            },
+            "description": "Encrypted plugin record storage"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Get encrypted plugin record storage",
+        "tags": []
+      }
+    },
     "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
       "post": {
         "callbacks": {},
@@ -46823,6 +51895,99 @@
           }
         ],
         "summary": "Prepare KEK rotation completion manifest hashes",
+        "tags": []
+      }
+    },
+    "/api/plugin-candidates": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_plugin_candidates",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Plugin bundle candidate"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Create a plugin package candidate through the manifest-routed add flow",
         "tags": []
       }
     },
@@ -47059,6 +52224,97 @@
         "tags": []
       }
     },
+    "/api/security/notifications": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_security_notifications",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "recipient_kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "recipient_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Security notifications"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "List security notifications",
+        "tags": []
+      }
+    },
     "/api/documents/{document_id}/shares/{share_id}/exclusions": {
       "patch": {
         "callbacks": {},
@@ -47188,6 +52444,239 @@
           }
         ],
         "summary": "Update folder share exclusions",
+        "tags": []
+      }
+    },
+    "/api/plugin-activations/{activation_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "delete_api_plugin_activations_by_activation_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Deleted plugin activation"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Delete current user plugin activation",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "patch_api_plugin_activations_by_activation_id",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginActivationUpdateRequest"
+              }
+            }
+          },
+          "description": "Plugin activation update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Updated plugin activation"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Update current user plugin activation",
         "tags": []
       }
     },
@@ -47427,6 +52916,210 @@
           }
         ],
         "summary": "Update folder share keys",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/records/{surface}": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface",
+        "parameters": [
+          {
+            "description": "PoP signing device id.",
+            "in": "header",
+            "name": "x-pop-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url PoP challenge.",
+            "in": "header",
+            "name": "x-pop-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical PoP signature transport.",
+            "in": "header",
+            "name": "x-pop-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "PoP actor variant.",
+            "in": "header",
+            "name": "x-pop-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "surface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "plugin_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "state_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_head_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "capability_grant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "consent_epoch",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "frame_generation",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginRecordWriteRequest"
+              }
+            }
+          },
+          "description": "Encrypted plugin record storage",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginRecordResponse"
+                }
+              }
+            },
+            "description": "Encrypted plugin record storage"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "proof_of_possession": [],
+            "proof_of_possession_actor_variant": [],
+            "proof_of_possession_challenge": [],
+            "proof_of_possession_device": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Create encrypted plugin record storage",
         "tags": []
       }
     },

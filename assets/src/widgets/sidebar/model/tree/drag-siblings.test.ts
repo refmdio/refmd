@@ -25,6 +25,7 @@ function documentFixture(
     slug: id,
     title: id,
     updated_at: "2026-01-01T00:00:00Z",
+    write_state: attrs.archived_at ? "archived" : "writable",
     workspace_id: "workspace-1",
     ...attrs,
   };

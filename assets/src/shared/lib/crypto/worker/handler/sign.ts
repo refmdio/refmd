@@ -19,6 +19,9 @@ import {
   buildGenesisDeviceBootstrapTranscript,
   buildKeyDirectoryCheckpointTranscript,
   buildKeyDirectoryEventTranscript,
+  buildPluginBundleApprovalTranscript,
+  buildPluginConsentEventTranscript,
+  buildPluginNetworkProxyRequestTranscript,
   buildWorkspacePinBootstrapTranscript,
   buildPendingRegistrationBindingHash,
   buildPopTranscript,
@@ -43,6 +46,9 @@ import {
   signGenesisDeviceBootstrapSignature,
   signKeyDirectoryCheckpointSignature,
   signKeyDirectoryEventSignature,
+  signPluginBundleApprovalSignature,
+  signPluginConsentEventSignature,
+  signPluginNetworkProxyRequestSignature,
   signWorkspacePinBootstrapSignature,
   signRecipientBoundAuthorizationSignature,
   signRecoveryAuthorizationProofSignature,
@@ -278,6 +284,78 @@ export function handleCreatePopSignature(state: WorkerKeyState, p: HandlerPayloa
   });
 
   return signedSurfaceArtifact(privateMaterial, transcript, signature);
+}
+
+export function handleSignPluginConsentEvent(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const privateMaterial = requireDeviceHybridSigningPrivateKeyMaterial(state);
+  const userId = requireUserId(state);
+  const deviceId = requireDeviceId(state);
+  const publicMaterial = publicKeyMaterialFromPrivate(privateMaterial);
+  const consent = p.consent as Record<string, StrictJsonValue>;
+  const workspaceId = consent.workspace_id;
+  if (typeof workspaceId !== "string" || workspaceId.length === 0) {
+    throw new Error("plugin_consent_event_actor_invalid");
+  }
+  const keyCheckpointSequence = p.keyCheckpointSequence;
+  const keyCheckpointHash = p.keyCheckpointHash;
+  if (
+    typeof keyCheckpointSequence !== "number" ||
+    !Number.isInteger(keyCheckpointSequence) ||
+    keyCheckpointSequence < 1 ||
+    typeof keyCheckpointHash !== "string" ||
+    keyCheckpointHash.length === 0
+  ) {
+    throw new Error("plugin_consent_event_key_checkpoint_required");
+  }
+  const actor = {
+    signer_kind: "device",
+    user_id: userId,
+    device_id: deviceId,
+    key_scope_kind: "workspace",
+    key_scope_id: workspaceId,
+    signing_key_id: computeSigningKeyId(publicMaterial),
+    key_checkpoint_sequence: keyCheckpointSequence,
+    key_checkpoint_hash: keyCheckpointHash,
+  };
+  const transcript = buildPluginConsentEventTranscript({
+    actor,
+    consent,
+  });
+  const signature = signPluginConsentEventSignature({
+    privateKeyMaterial: privateMaterial,
+    transcript,
+  });
+
+  return {
+    actor,
+    ...signedSurfaceArtifact(privateMaterial, transcript, signature),
+  };
+}
+
+export function handleSignPluginBundleApproval(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const privateMaterial = requireDeviceHybridSigningPrivateKeyMaterial(state);
+  const userId = requireUserId(state);
+  const deviceId = requireDeviceId(state);
+  const actor = p.actor as Record<string, StrictJsonValue>;
+  const approval = p.approval as Record<string, StrictJsonValue>;
+
+  if (actor.user_id !== userId || actor.device_id !== deviceId) {
+    throw new Error("plugin_bundle_approval_actor_mismatch");
+  }
+
+  const transcript = buildPluginBundleApprovalTranscript({
+    actor,
+    approval,
+  });
+  const signature = signPluginBundleApprovalSignature({
+    privateKeyMaterial: privateMaterial,
+    transcript,
+  });
+
+  return {
+    actor,
+    ...signedSurfaceArtifact(privateMaterial, transcript, signature),
+  };
 }
 
 function signDocumentEnvelope(
@@ -721,6 +799,23 @@ export function handleSignWorkspacePinBootstrap(state: WorkerKeyState, p: Handle
     signing_key_id: signingKeyId,
     hybrid_signing_public_key_material: publicMaterial,
   };
+}
+
+export function handleSignPluginNetworkProxyRequest(
+  state: WorkerKeyState,
+  p: HandlerPayload,
+): unknown {
+  const privateMaterial = requireDeviceHybridSigningPrivateKeyMaterial(state);
+  const subject = p.subject as Record<string, StrictJsonValue>;
+  const transcript = buildPluginNetworkProxyRequestTranscript({
+    subject,
+  });
+  const signature = signPluginNetworkProxyRequestSignature({
+    privateKeyMaterial: privateMaterial,
+    transcript,
+  });
+
+  return signedSurfaceArtifact(privateMaterial, transcript, signature);
 }
 
 export function handleSignRecipientBoundAuthorization(

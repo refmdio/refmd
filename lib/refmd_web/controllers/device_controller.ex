@@ -2,8 +2,9 @@ defmodule RefMDWeb.DeviceController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.{Auth, Devices}
   alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial}
-  alias RefMD.Devices
+  alias RefMD.Security
 
   alias RefMDWeb.Payloads.DeviceRegistration, as: RegistrationPayload
   alias RefMDWeb.Schemas
@@ -120,7 +121,7 @@ defmodule RefMDWeb.DeviceController do
            conn.assigns.current_session.id
          ) do
       {:ok, device} ->
-        Devices.broadcast_registration_approved(user_id, device.id)
+        Security.record_registration_approved(user_id, device.id)
 
         conn
         |> put_status(:created)
@@ -212,10 +213,10 @@ defmodule RefMDWeb.DeviceController do
          {:ok, %{removed_ids: removed_ids, pending: device_registration}} <-
            Devices.replace_user_device_registration(user_id, session.id, attrs) do
       for removed_id <- removed_ids do
-        Devices.broadcast_device_registration_removed(user_id, removed_id)
+        Security.record_device_registration_removed(user_id, removed_id)
       end
 
-      Devices.broadcast_device_registration_created(user_id, device_registration)
+      Security.record_device_registration_created(user_id, device_registration)
 
       conn
       |> put_status(:created)
@@ -341,8 +342,8 @@ defmodule RefMDWeb.DeviceController do
     case Devices.get_valid_device_registration(id) do
       %{user_id: ^user_id} ->
         Devices.delete_device_registration(id)
-        Devices.broadcast_device_registration_removed(user_id, id)
-        Devices.broadcast_registration_rejected(user_id, id)
+        Security.record_device_registration_removed(user_id, id)
+        Security.record_registration_rejected(user_id, id)
         json(conn, %{ok: true})
 
       _ ->
@@ -715,28 +716,64 @@ defmodule RefMDWeb.DeviceController do
                workspace_appends: params["workspace_key_directory_appends"]
              }
            ) do
-      case result do
-        {:ok, device} ->
-          conn
-          |> put_status(:ok)
-          |> json(%{device: approval_device_response(device)})
-
-        {:error, :invalid_signature} ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "invalid_signature"})
-
-        {:error, reason} when is_atom(reason) ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: Atom.to_string(reason)})
-      end
+      approval_registration_result_response(conn, result, session)
     else
       {:error, :invalid_approval_commitments} ->
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "invalid_approval_commitments"})
     end
+  end
+
+  defp approval_registration_result_response(conn, {:ok, device}, session) do
+    case bind_recovery_session_after_approval(conn, session, device) do
+      {:ok, conn} ->
+        conn
+        |> put_status(:ok)
+        |> json(%{device: approval_device_response(device)})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: Atom.to_string(reason)})
+    end
+  end
+
+  defp approval_registration_result_response(conn, {:error, :invalid_signature}, _session) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "invalid_signature"})
+  end
+
+  defp approval_registration_result_response(conn, {:error, reason}, _session)
+       when is_atom(reason) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: Atom.to_string(reason)})
+  end
+
+  defp bind_recovery_session_after_approval(conn, %{is_recovery: true} = session, device) do
+    case Auth.bind_session_to_device(session.id, device.id) do
+      {1, _} ->
+        {:ok, assign_recovered_device_session(conn, session, device.id)}
+
+      {0, _} ->
+        case Auth.get_session(session.id) do
+          %{device_id: device_id, is_recovery: false} when device_id == device.id ->
+            {:ok, assign_recovered_device_session(conn, session, device.id)}
+
+          _ ->
+            {:error, :recovery_session_device_bind_failed}
+        end
+    end
+  end
+
+  defp bind_recovery_session_after_approval(conn, _session, _device), do: {:ok, conn}
+
+  defp assign_recovered_device_session(conn, session, device_id) do
+    conn
+    |> assign(:current_session, %{session | device_id: device_id, is_recovery: false})
+    |> assign(:device_verified, true)
   end
 
   defp decode_hybrid_signature(signature, _field) when is_map(signature) do

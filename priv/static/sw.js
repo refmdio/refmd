@@ -1,5 +1,6 @@
 const CACHE_NAME = "app-shell-v1";
-const MAX_CACHE_ENTRIES = 200;
+const MAX_CACHE_ENTRIES = 50;
+const APP_SHELL_NAVIGATION_EXCLUDE_PATHS = new Set(["/plugin-network-executor"]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -69,6 +70,7 @@ self.addEventListener("fetch", (event) => {
 
   // Skip API, WebSocket, and extension requests
   if (url.pathname.startsWith("/api/")) return;
+  if (APP_SHELL_NAVIGATION_EXCLUDE_PATHS.has(url.pathname)) return;
   if (url.protocol !== "http:" && url.protocol !== "https:") return;
 
   // Navigation requests: network-first, always cache as /index.html for offline fallback
@@ -76,7 +78,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok) {
+          const cacheControl = response.headers.get("cache-control") || "";
+          if (response.ok && !cacheControl.toLowerCase().includes("no-store")) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(new Request("/index.html"), clone).then(() => trimCache(cache));

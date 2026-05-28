@@ -8,8 +8,36 @@ import {
 } from "@/shared/lib/glass";
 import { cn, omniMonoText } from "@/shared/lib/utils";
 
+function clearStaleDialogPointerLock(): void {
+  if (typeof document === "undefined") return;
+  const hasVisibleDialog = document.querySelector(
+    '[data-slot="dialog-content"]:not([aria-hidden="true"])',
+  );
+  if (hasVisibleDialog) return;
+  for (const element of [document.documentElement, document.body]) {
+    if (element?.style.pointerEvents === "none") {
+      element.style.pointerEvents = "";
+    }
+  }
+}
+
+function queueDialogPointerLockCleanup(): void {
+  window.setTimeout(clearStaleDialogPointerLock, 0);
+  window.setTimeout(clearStaleDialogPointerLock, 250);
+}
+
 function Dialog(props: ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+  const [local, rest] = splitProps(props, ["onOpenChange"]);
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      onOpenChange={(open) => {
+        local.onOpenChange?.(open);
+        if (!open) queueDialogPointerLockCleanup();
+      }}
+      {...rest}
+    />
+  );
 }
 
 function DialogTrigger(props: ComponentProps<typeof DialogPrimitive.Trigger>) {
@@ -31,7 +59,7 @@ function DialogOverlay(props: ComponentProps<typeof DialogPrimitive.Overlay>) {
       data-slot="dialog-overlay"
       class={cn(
         glassOverlayBackdropClass,
-        "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[closed]:animate-out data-[closed]:fade-out-0",
+        "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[closed]:pointer-events-none data-[closed]:animate-out data-[closed]:fade-out-0",
         local.class,
       )}
       {...rest}

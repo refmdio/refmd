@@ -161,7 +161,10 @@ function blockChildrenToProseMirror(children: Content[], schema: Schema): ProseM
       }
       case "code": {
         blockNodes.push(
-          schema.nodes.code_block.create(null, child.value ? schema.text(child.value) : undefined),
+          schema.nodes.code_block.create(
+            { language: typeof child.lang === "string" ? child.lang : null },
+            child.value ? schema.text(child.value) : undefined,
+          ),
         );
         break;
       }

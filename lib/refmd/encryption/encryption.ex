@@ -216,6 +216,13 @@ defmodule RefMD.Encryption do
   @spec current_user_key_directory_pin(Ecto.UUID.t()) :: struct() | nil
   def current_user_key_directory_pin(user_id), do: KeyDirectory.current_pin("user", user_id)
 
+  @spec user_key_directory_checkpoints_between(Ecto.UUID.t(), pos_integer(), pos_integer()) ::
+          [
+            struct()
+          ]
+  def user_key_directory_checkpoints_between(user_id, first_sequence, last_sequence),
+    do: KeyDirectory.checkpoints_between("user", user_id, first_sequence, last_sequence)
+
   @spec current_workspace_key_directory_pin(Ecto.UUID.t()) :: struct() | nil
   def current_workspace_key_directory_pin(workspace_id),
     do: KeyDirectory.current_pin("workspace", workspace_id)

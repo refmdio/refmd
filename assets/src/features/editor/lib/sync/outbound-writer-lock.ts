@@ -303,11 +303,13 @@ export function acquireDocumentWriterLock(
     broadcast?.removeEventListener("message", onBroadcast);
     window.removeEventListener("pagehide", releaseOwnedLock);
     window.removeEventListener("beforeunload", releaseOwnedLock);
+    window.removeEventListener("unload", releaseOwnedLock);
     hideWriterLockNotice(false);
     broadcast?.close();
   }
   window.addEventListener("pagehide", releaseOwnedLock);
   window.addEventListener("beforeunload", releaseOwnedLock);
+  window.addEventListener("unload", releaseOwnedLock);
 
   if (!tryAcquire()) {
     setDocumentReadOnly(state.stateKey, true);
@@ -325,6 +327,7 @@ export function acquireDocumentWriterLock(
       broadcast?.removeEventListener("message", onBroadcast);
       window.removeEventListener("pagehide", releaseOwnedLock);
       window.removeEventListener("beforeunload", releaseOwnedLock);
+      window.removeEventListener("unload", releaseOwnedLock);
       hideWriterLockNotice(false);
       releaseOwnedLock();
       broadcast?.close();

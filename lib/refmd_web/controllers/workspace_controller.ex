@@ -294,6 +294,14 @@ defmodule RefMDWeb.WorkspaceController do
         |> maybe_put_parsed_param("public_publishing_enabled", public_publishing_enabled)
         |> maybe_put_parsed_param("guest_invites_enabled", guest_invites_enabled)
         |> maybe_put_parsed_param("guest_member_limit", guest_member_limit)
+        |> maybe_put_parsed_param(
+          "plugin_network_proxy",
+          Map.get(params, "plugin_network_proxy", :missing)
+        )
+        |> maybe_put_parsed_param(
+          "plugin_user_policy",
+          Map.get(params, "plugin_user_policy", :missing)
+        )
         |> Enum.into(%{}, fn {k, v} -> {String.to_existing_atom(k), v} end)
 
       {:ok, attrs}
@@ -352,6 +360,8 @@ defmodule RefMDWeb.WorkspaceController do
       public_author_profile: Public.get_author_profile(workspace.id),
       guest_invites_enabled: workspace.guest_invites_enabled,
       guest_member_limit: workspace.guest_member_limit,
+      plugin_network_proxy: workspace.plugin_network_proxy,
+      plugin_user_policy: workspace.plugin_user_policy,
       current_kek_version: workspace.current_kek_version,
       needs_kek_rotation: workspace.needs_kek_rotation,
       kek_rotation_initiator_user_id: workspace.kek_rotation_initiator_user_id,

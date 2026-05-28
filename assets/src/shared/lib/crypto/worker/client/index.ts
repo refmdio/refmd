@@ -24,6 +24,7 @@ export class CryptoWorkerClient {
   declare isReady: LifecycleWorkerClientMethods["isReady"];
   declare getPublicKeys: LifecycleWorkerClientMethods["getPublicKeys"];
   declare getDeviceId: LifecycleWorkerClientMethods["getDeviceId"];
+  declare hasStoredDeviceKeys: LifecycleWorkerClientMethods["hasStoredDeviceKeys"];
   declare hasStoredDsk: LifecycleWorkerClientMethods["hasStoredDsk"];
   declare deleteWrappedUmkWithDsk: LifecycleWorkerClientMethods["deleteWrappedUmkWithDsk"];
   declare deleteAuthBootstrapWithDsk: LifecycleWorkerClientMethods["deleteAuthBootstrapWithDsk"];
@@ -67,6 +68,12 @@ export class CryptoWorkerClient {
   declare restoreShareParticipantKeysFromDsk: KeyWorkerClientMethods["restoreShareParticipantKeysFromDsk"];
   declare storeUiStateWithDsk: KeyWorkerClientMethods["storeUiStateWithDsk"];
   declare loadUiStateWithDsk: KeyWorkerClientMethods["loadUiStateWithDsk"];
+  declare deleteUiStateWithDsk: KeyWorkerClientMethods["deleteUiStateWithDsk"];
+  declare storePluginCredentialWithDsk: KeyWorkerClientMethods["storePluginCredentialWithDsk"];
+  declare loadPluginCredentialWithDsk: KeyWorkerClientMethods["loadPluginCredentialWithDsk"];
+  declare deletePluginCredentialWithDsk: KeyWorkerClientMethods["deletePluginCredentialWithDsk"];
+  declare clearPluginDataWithDsk: KeyWorkerClientMethods["clearPluginDataWithDsk"];
+  declare clearPluginApplicationDataWithDsk: KeyWorkerClientMethods["clearPluginApplicationDataWithDsk"];
   declare storeShareManagementTokenWithDsk: KeyWorkerClientMethods["storeShareManagementTokenWithDsk"];
   declare loadShareManagementTokenWithDsk: KeyWorkerClientMethods["loadShareManagementTokenWithDsk"];
   declare deleteShareManagementTokenWithDsk: KeyWorkerClientMethods["deleteShareManagementTokenWithDsk"];
@@ -88,6 +95,8 @@ export class CryptoWorkerClient {
   declare decryptTitleBatch: DekWorkerClientMethods["decryptTitleBatch"];
   declare encryptContent: DekWorkerClientMethods["encryptContent"];
   declare decryptContent: DekWorkerClientMethods["decryptContent"];
+  declare encryptPluginStorage: DekWorkerClientMethods["encryptPluginStorage"];
+  declare decryptPluginStorage: DekWorkerClientMethods["decryptPluginStorage"];
   declare encryptSnapshot: DekWorkerClientMethods["encryptSnapshot"];
   declare decryptSnapshot: DekWorkerClientMethods["decryptSnapshot"];
   declare hasDek: DekWorkerClientMethods["hasDek"];
@@ -163,6 +172,9 @@ export class CryptoWorkerClient {
   declare signDeviceKeyDirectoryEvent: SignWorkerClientMethods["signDeviceKeyDirectoryEvent"];
   declare signShareParticipantDeviceKeyDirectoryEvent: SignWorkerClientMethods["signShareParticipantDeviceKeyDirectoryEvent"];
   declare signWorkspacePinBootstrap: SignWorkerClientMethods["signWorkspacePinBootstrap"];
+  declare signPluginConsentEvent: SignWorkerClientMethods["signPluginConsentEvent"];
+  declare signPluginBundleApproval: SignWorkerClientMethods["signPluginBundleApproval"];
+  declare signPluginNetworkProxyRequest: SignWorkerClientMethods["signPluginNetworkProxyRequest"];
   declare signRecipientBoundAuthorization: SignWorkerClientMethods["signRecipientBoundAuthorization"];
   declare signRecoverySession: SignWorkerClientMethods["signRecoverySession"];
   declare signShareCapabilityAuthorization: SignWorkerClientMethods["signShareCapabilityAuthorization"];

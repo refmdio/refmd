@@ -1,5 +1,4 @@
 import { createSignal, Show } from "solid-js";
-import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -18,7 +17,6 @@ import { performLogout } from "@/features/auth";
 import { clearAllDocumentStates } from "@/features/editor";
 
 export function AccountSection() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showLogoutDialog, setShowLogoutDialog] = createSignal(false);
   const [keepCredentials, setKeepCredentials] = createSignal(true);
@@ -31,7 +29,7 @@ export function AccountSection() {
       const result = await performLogout(keepCredentials());
       queryClient.clear();
       setShowLogoutDialog(false);
-      navigate(result.redirectPath);
+      window.location.replace(result.redirectPath);
     } finally {
       setIsLoggingOut(false);
     }

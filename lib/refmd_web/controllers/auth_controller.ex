@@ -294,6 +294,8 @@ defmodule RefMDWeb.AuthController do
       identity_pub = Encryption.get_user_identity_public_key(user.id)
       user_pin = Encryption.current_user_key_directory_pin(user.id)
 
+      device_checkpoint = current_device_checkpoint(user.id, session.device_id)
+
       key_restore_available = device_verified and not is_nil(session.device_id)
 
       response = %{
@@ -305,6 +307,8 @@ defmodule RefMDWeb.AuthController do
         session_id: session.id,
         device_id: session.device_id,
         device_verified: device_verified,
+        device_key_checkpoint_sequence: device_checkpoint.sequence,
+        device_key_checkpoint_hash: device_checkpoint.hash,
         is_recovery: session.is_recovery,
         remember_me: session.remember_me,
         expires_at: session.expires_at,
@@ -319,6 +323,18 @@ defmodule RefMDWeb.AuthController do
       }
 
       json(conn, response)
+    end
+  end
+
+  defp current_device_checkpoint(_user_id, nil), do: %{sequence: nil, hash: nil}
+
+  defp current_device_checkpoint(user_id, device_id) do
+    case Devices.get_device(device_id) do
+      %{user_id: ^user_id, revoked_at: nil} = device ->
+        %{sequence: device.key_checkpoint_sequence, hash: device.key_checkpoint_hash}
+
+      _ ->
+        %{sequence: nil, hash: nil}
     end
   end
 
@@ -830,6 +846,8 @@ defmodule RefMDWeb.AuthController do
             payload: user_checkpoint.payload,
             signatures: user_checkpoint.signatures
           },
+      candidate_user_checkpoint_ancestry:
+        Auth.user_key_directory_checkpoint_ancestry(user_id, user_pin),
       candidate_user_event_ancestry: Auth.user_key_directory_event_ancestry(user_id, user_pin),
       candidate_workspace_checkpoints: candidate_workspace_checkpoints(user_id)
     }
@@ -839,21 +857,51 @@ defmodule RefMDWeb.AuthController do
     user_id
     |> RefMD.Workspaces.get_user_workspace_ids()
     |> Enum.map(fn workspace_id ->
-      case Encryption.current_workspace_key_directory_checkpoint(workspace_id) do
-        nil ->
+      case {
+        Encryption.current_workspace_key_directory_pin(workspace_id),
+        Encryption.current_workspace_key_directory_checkpoint(workspace_id)
+      } do
+        {nil, _} ->
           nil
 
-        checkpoint ->
+        {_, nil} ->
+          nil
+
+        {pin, checkpoint} ->
           %{
             workspace_id: workspace_id,
             checkpoint: %{
               payload: checkpoint.payload,
               signatures: checkpoint.signatures
-            }
+            },
+            checkpoint_ancestry: workspace_key_directory_checkpoint_ancestry(workspace_id, pin),
+            event_ancestry: workspace_key_directory_event_ancestry(workspace_id, pin)
           }
       end
     end)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp workspace_key_directory_checkpoint_ancestry(_workspace_id, %{checkpoint_sequence: sequence})
+       when sequence <= 1,
+       do: []
+
+  defp workspace_key_directory_checkpoint_ancestry(workspace_id, pin) do
+    Encryption.workspace_key_directory_checkpoints_between(
+      workspace_id,
+      1,
+      pin.checkpoint_sequence - 1
+    )
+    |> Enum.map(&%{payload: &1.payload, signatures: &1.signatures})
+  end
+
+  defp workspace_key_directory_event_ancestry(workspace_id, pin) do
+    Encryption.workspace_key_directory_events_after_until(
+      workspace_id,
+      0,
+      pin.event_head_sequence
+    )
+    |> Enum.map(&%{payload: &1.payload, signatures: &1.signatures})
   end
 
   defp struct_field(nil, _field), do: nil

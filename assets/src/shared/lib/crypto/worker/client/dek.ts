@@ -25,6 +25,7 @@ export interface ShareCanonicalBootstrapFields {
 }
 
 type BootstrapAuthScope = "share" | "user-pop";
+type PluginSyncedStorageSurface = "workspace" | "document";
 
 export interface DekWorkerClientMethods {
   generateDek(
@@ -78,6 +79,30 @@ export interface DekWorkerClientMethods {
     documentId: string;
     keyVersion: number;
     cacheKey?: string;
+  }): Promise<Uint8Array>;
+  encryptPluginStorage(params: {
+    plaintext: Uint8Array;
+    surface: PluginSyncedStorageSurface;
+    workspaceId: string;
+    packageId: string;
+    applicationId: string;
+    activationId: string;
+    pluginId: string;
+    scopeId: string;
+    key: string;
+  }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number }>;
+  decryptPluginStorage(params: {
+    ciphertext: Uint8Array;
+    nonce: Uint8Array;
+    surface: PluginSyncedStorageSurface;
+    workspaceId: string;
+    packageId: string;
+    applicationId: string;
+    activationId: string;
+    pluginId: string;
+    scopeId: string;
+    key: string;
+    keyVersion: number;
   }): Promise<Uint8Array>;
   encryptSnapshot(params: {
     plaintext: Uint8Array;
@@ -303,6 +328,21 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
 
   async decryptContent(params) {
     const result = (await this[workerSend]("decrypt-content", params)) as { plaintext: Uint8Array };
+    return result.plaintext;
+  },
+
+  async encryptPluginStorage(params) {
+    return (await this[workerSend]("encrypt-plugin-storage", params)) as {
+      ciphertext: Uint8Array;
+      nonce: Uint8Array;
+      keyVersion: number;
+    };
+  },
+
+  async decryptPluginStorage(params) {
+    const result = (await this[workerSend]("decrypt-plugin-storage", params)) as {
+      plaintext: Uint8Array;
+    };
     return result.plaintext;
   },
 

@@ -44,7 +44,7 @@ type DeviceKeyCacheResult =
     }
   | { status: "key_changed"; warning: TofuKeyChangeWarning };
 
-type ResolveSigningKeyResult =
+export type ResolveSigningKeyResult =
   | { status: "found"; key: HybridSigningPublicKeyMaterial; ownerId: string }
   | { status: "not_found" }
   | { status: "key_changed"; warning: TofuKeyChangeWarning };
@@ -777,7 +777,7 @@ export async function resolveSigningKey(
   return { status: "not_found" };
 }
 
-function lookupCachedSigningKey(
+export function lookupCachedSigningKey(
   pubKeyB64: string,
   state: DocumentState,
   options: { includeHistorical?: boolean },

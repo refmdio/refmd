@@ -6,7 +6,11 @@ import { encryptionApi } from "@/shared/api/encryption";
 import { documentsApi } from "@/shared/api/documents";
 import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapshot-proof";
-import { resolveSigningKey } from "./inbound-signing-keys";
+import {
+  lookupCachedSigningKey,
+  resolveSigningKey,
+  type ResolveSigningKeyResult,
+} from "./inbound-signing-keys";
 import { getDocumentState } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { DocumentSyncError } from "./error";
@@ -15,9 +19,11 @@ import { ensureSharedDekCached, getDocumentDekCacheKey } from "./share-access";
 import { getDocumentCryptoWorker } from "./crypto-worker";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
-  documentOperationAuthorityBoundary,
-  verifyDocumentOperationAdmission,
+  documentWriteSessionAuthorityBoundaryForDocument,
+  verifyDocumentWriteSessionNotInvalidated,
+  resolveDocumentWriteSessionSigningKeyFromAdmission,
   verifyDocumentOperationAdmissionAncestry,
+  verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
 function createProcessingCancelledError(): Error {
   const error = new Error("document_processing_cancelled");
@@ -48,6 +54,21 @@ interface DecryptedUpdate {
   deviceKey: string;
   clock: number;
 }
+
+function writeSessionCounterKey(update: UpdatePayload): string {
+  return `${update.publicData.writeSessionEventHash}:${update.publicData.signingKeyId}`;
+}
+
+export function commitWriteSessionCounter(update: UpdatePayload, state: DocumentState): void {
+  const key = writeSessionCounterKey(update);
+  const counter = update.publicData.writeSessionCounter;
+  const lastCounter = state.writeSessionCounters[key];
+  if (lastCounter !== undefined && counter <= lastCounter) {
+    throw createVerificationFailedError("Write session counter replay detected");
+  }
+  state.writeSessionCounters[key] = counter;
+}
+
 export async function verifyAndDecryptUpdates(
   updates: UpdatePayload[],
   state: DocumentState,
@@ -81,9 +102,45 @@ export async function verifyAndDecryptSingleUpdate(
   throwIfDocumentProcessingCancelled(state);
   const worker = getDocumentCryptoWorker(state);
   // signingKeyId membership confirmation + TOFU
-  const keyResult = await resolveSigningKey(update.publicData.signingKeyId, state, {
-    includeHistorical: includeHistoricalSigners,
-  });
+  let admissionAncestryVerified = false;
+  let keyResult: ResolveSigningKeyResult = lookupCachedSigningKey(
+    update.publicData.signingKeyId,
+    state,
+    {
+      includeHistorical: includeHistoricalSigners,
+    },
+  ) ?? { status: "not_found" };
+  if (keyResult.status === "not_found") {
+    try {
+      await verifyDocumentOperationAdmissionAncestry({
+        admission: update.admission,
+        workspaceId: state.workspaceId,
+      });
+      admissionAncestryVerified = true;
+      const admittedKey = resolveDocumentWriteSessionSigningKeyFromAdmission({
+        admission: update.admission,
+        publicData: update.publicData,
+      });
+      if (admittedKey) {
+        state.signingKeys.set(update.publicData.signingKeyId, admittedKey.key);
+        state.signingKeyOwners.set(update.publicData.signingKeyId, admittedKey.actorUserId);
+        keyResult = {
+          status: "found",
+          key: admittedKey.key,
+          ownerId: admittedKey.actorUserId,
+        };
+      }
+    } catch (err) {
+      throw createVerificationFailedError(
+        err instanceof Error ? err.message : "Update admission verification failed",
+      );
+    }
+  }
+  if (keyResult.status === "not_found") {
+    keyResult = await resolveSigningKey(update.publicData.signingKeyId, state, {
+      includeHistorical: includeHistoricalSigners,
+    });
+  }
   if (keyResult.status === "key_changed") {
     throw createVerificationFailedError(`TOFU key change: device ${keyResult.warning.deviceId}`);
   }
@@ -131,19 +188,25 @@ export async function verifyAndDecryptSingleUpdate(
     throw createVerificationFailedError("Update hash verification failed");
   }
   try {
-    await verifyDocumentOperationAdmission({
+    await verifyDocumentWriteSessionAdmission({
       admission: update.admission,
-      eventType: "document_update_accepted",
       publicData: update.publicData,
       workspaceId: state.workspaceId,
       documentId,
-      operationHash: recomputedHash,
-      signature: update.signature,
       actorUserId: keyResult.status === "found" ? keyResult.ownerId : "",
     });
-    await verifyDocumentOperationAdmissionAncestry({
+    if (!admissionAncestryVerified) {
+      await verifyDocumentOperationAdmissionAncestry({
+        admission: update.admission,
+        workspaceId: state.workspaceId,
+      });
+    }
+    await verifyDocumentWriteSessionNotInvalidated({
       admission: update.admission,
+      publicData: update.publicData,
       workspaceId: state.workspaceId,
+      documentId,
+      keyVersion: update.publicData.keyVersion,
     });
   } catch (err) {
     throw createVerificationFailedError(
@@ -192,6 +255,7 @@ export async function verifyAndDecryptSingleUpdate(
     checkRotationSnapshot(documentId, state);
   }
   // Commit clocks after successful decrypt
+  commitWriteSessionCounter(update, state);
   state.knownClocks[deviceKey] = update.publicData.clock;
   state.confirmedClocks[deviceKey] = update.publicData.clock;
   return { decrypted, deviceKey, clock: update.publicData.clock };
@@ -209,10 +273,11 @@ export async function verifyDocumentUpdateSignature(
     actorUserId,
     workspaceId,
     publicData: update.publicData,
-    authorityBoundary: documentOperationAuthorityBoundary(
-      update.admission,
-      "document_update_accepted",
-    ),
+    authorityBoundary: documentWriteSessionAuthorityBoundaryForDocument({
+      publicData: update.publicData,
+      workspaceId,
+      documentId: update.publicData.docId,
+    }),
     ciphertext: update.ciphertext,
     nonce: update.nonce,
   });

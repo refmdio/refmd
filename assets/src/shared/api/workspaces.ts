@@ -54,11 +54,15 @@ export const workspacesApi = {
       }),
     ),
 
-  changeMemberRole: async (workspaceId: string, userId: string, roleId: string) =>
+  changeMemberRole: async (
+    workspaceId: string,
+    userId: string,
+    body: components["schemas"]["ChangeMemberRoleRequest"],
+  ) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/members/{user_id}", {
         params: withUserPopParams({ path: { workspace_id: workspaceId, user_id: userId } }),
-        body: { role_id: roleId },
+        body,
       }),
     ),
 

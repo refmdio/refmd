@@ -13,12 +13,14 @@ import { Field, FieldLabel } from "@/shared/ui/field";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Spinner } from "@/shared/ui/spinner";
 import { AlertTriangleIcon } from "lucide-solid";
+import { returnToLogin } from "@/entities/session";
 import { restoreKeysFromPassword } from "../../lib/session/restore-keys-from-password";
 
 export default function PasswordReentryDialog(props: { open: boolean; onComplete: () => void }) {
   const [password, setPassword] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  const [leaving, setLeaving] = createSignal(false);
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -32,6 +34,17 @@ export default function PasswordReentryDialog(props: { open: boolean; onComplete
       setError(err instanceof Error ? err.message : "Key restoration failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBackToLogin = async () => {
+    setError(null);
+    setLeaving(true);
+    try {
+      await returnToLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not return to login");
+      setLeaving(false);
     }
   };
 
@@ -69,8 +82,18 @@ export default function PasswordReentryDialog(props: { open: boolean; onComplete
             />
           </Field>
 
-          <DialogFooter>
-            <Button type="submit" disabled={loading()}>
+          <DialogFooter class="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading() || leaving()}
+              onClick={() => {
+                void handleBackToLogin();
+              }}
+            >
+              {leaving() ? "Resetting..." : "Back to Login"}
+            </Button>
+            <Button type="submit" disabled={loading() || leaving()}>
               {loading() ? (
                 <span class="flex items-center gap-2">
                   <Spinner class="size-3" /> Restoring keys...

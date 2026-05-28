@@ -40,6 +40,7 @@ function createDocumentState(
     localClock: 0,
     knownClocks: {},
     confirmedClocks: {},
+    writeSessionCounters: {},
     snapshotBaseClocks: {},
     lastSavedState: null,
     snapshotUpdatesCount: 0,
@@ -61,6 +62,8 @@ function createDocumentState(
     pendingUpdateBytes: null,
     pendingUpdateEnvelope: null,
     pendingSnapshotEnvelope: null,
+    _admissionDirectoryRefreshRequired: false,
+    writeSession: null,
     _onDocumentMessage: null,
     _retryDekRotation: null,
     ephemeralSession: null,
@@ -83,6 +86,9 @@ function createDocumentState(
     readOnly: access.kind === "share" ? !canSharedAccessWriteDurably(access) : false,
     writerLockCleanup: null,
     pendingSaveTimeout: null,
+    _pendingSaveWatchdogKind: null,
+    _pendingSaveWatchdogStartedAt: null,
+    _recentSaveEvents: [],
     publicationState: { isPublished: false, updatedAt: null },
     canSyncPublication: false,
     lastPublicationContentHash: null,
@@ -122,11 +128,14 @@ export async function acquireDocumentState(
       existing.activeSnapshotId = null;
       existing.knownClocks = {};
       existing.confirmedClocks = {};
+      existing.writeSessionCounters = {};
       existing.snapshotBaseClocks = {};
       existing.lastSavedState = null;
       existing.snapshotUpdatesCount = 0;
       existing.localClock = 0;
       existing.latestVersion = 0;
+      existing._admissionDirectoryRefreshRequired = false;
+      existing.writeSession = null;
       existing.awarenessClientOwners.clear();
       existing._pendingOutOfOrderUpdates = [];
       existing._drainingOutOfOrderUpdates = false;

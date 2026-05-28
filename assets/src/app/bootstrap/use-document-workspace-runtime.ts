@@ -1,7 +1,7 @@
-import { onCleanup } from "solid-js";
+import { createEffect, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import type { QueryClient } from "@tanstack/solid-query";
-import { attachActiveLeafRouteSync, usePanelWorkspace } from "@/features/panel";
+import { attachActiveLeafRouteSync, decodePanelId, usePanelWorkspace } from "@/features/panel";
 import {
   setupFlushHooks,
   setFocusedPanelIdAccessor,
@@ -23,10 +23,21 @@ export function useDocumentWorkspaceRuntime(
   setFocusedPanelIdAccessor(() => documentWorkspace.focusedPanelId());
   setOnEditorRegistered(() => documentEvents.flushPendingOpens());
   initializeDocumentRuntime(documentWorkspace, navigate, queryClient);
+  onCleanup(attachActiveLeafRouteSync(navigate, () => documentWorkspace.openDocuments()));
+  createEffect(() => {
+    const panelId = documentWorkspace.focusedPanelId();
+    if (!panelId) return;
+    const panel = decodePanelId(panelId);
+    if (!panel) return;
+    const nextPath =
+      documentWorkspace.openDocuments().get(panel.targetKey)?.routePath ??
+      `/document/${panel.documentId}`;
+    if (window.location.pathname !== nextPath) {
+      navigate(nextPath, { replace: true, scroll: false });
+    }
+  });
   const app = initializeWorkspaceRuntime(documentWorkspace);
   onCleanup(setupFlushHooks());
-
-  onCleanup(attachActiveLeafRouteSync(navigate, () => documentWorkspace.openDocuments()));
 
   return app;
 }

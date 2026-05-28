@@ -19,6 +19,15 @@ type DskUnwrapParams = {
 
 type DskWrapResult = { ciphertext: ArrayBuffer; iv: ArrayBuffer };
 type DskAadRecord = Record<string, unknown>;
+type PluginCredentialDskParams = {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  userId: string;
+  deviceId: string;
+  credentialId: string;
+};
 type ShareParticipantSessionRecord = object;
 
 export interface KeyWorkerClientMethods {
@@ -128,6 +137,17 @@ export interface KeyWorkerClientMethods {
     storageKey: string;
     aadRecord: DskAadRecord;
   }): Promise<Uint8Array | null>;
+  deleteUiStateWithDsk(storageKey: string): Promise<void>;
+  storePluginCredentialWithDsk(params: DskWrapParams & PluginCredentialDskParams): Promise<void>;
+  loadPluginCredentialWithDsk(params: PluginCredentialDskParams): Promise<Uint8Array | null>;
+  deletePluginCredentialWithDsk(params: PluginCredentialDskParams): Promise<void>;
+  clearPluginDataWithDsk(): Promise<void>;
+  clearPluginApplicationDataWithDsk(params: {
+    workspaceId: string;
+    applicationId: string;
+    userId: string;
+    deviceId: string;
+  }): Promise<void>;
   storeShareManagementTokenWithDsk(
     params: DskWrapParams & { documentId: string; shareId: string },
   ): Promise<void>;
@@ -350,6 +370,32 @@ export const keyWorkerClientMethods: KeyWorkerClientMethods &
 
   async loadUiStateWithDsk(params) {
     return unwrapNullableDskPlaintext(await this[workerSend]("load-ui-state-with-dsk", params));
+  },
+
+  async deleteUiStateWithDsk(storageKey) {
+    await this[workerSend]("delete-ui-state-with-dsk", { storageKey });
+  },
+
+  async storePluginCredentialWithDsk(params) {
+    await this[workerSend]("store-plugin-credential-with-dsk", params);
+  },
+
+  async loadPluginCredentialWithDsk(params) {
+    return unwrapNullableDskPlaintext(
+      await this[workerSend]("load-plugin-credential-with-dsk", params),
+    );
+  },
+
+  async deletePluginCredentialWithDsk(params) {
+    await this[workerSend]("delete-plugin-credential-with-dsk", params);
+  },
+
+  async clearPluginDataWithDsk() {
+    await this[workerSend]("clear-plugin-data-with-dsk", {});
+  },
+
+  async clearPluginApplicationDataWithDsk(params) {
+    await this[workerSend]("clear-plugin-application-data-with-dsk", params);
   },
 
   async storeShareManagementTokenWithDsk(params) {

@@ -34,6 +34,11 @@ defmodule RefMDWeb.ConnCase do
 
   setup tags do
     RefMD.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+
+    conn =
+      Phoenix.ConnTest.build_conn()
+      |> Plug.Conn.put_req_header("x-refmd-e2e-rate-limit-bypass", "1")
+
+    {:ok, conn: conn}
   end
 end

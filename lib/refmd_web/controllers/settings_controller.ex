@@ -65,7 +65,8 @@ defmodule RefMDWeb.SettingsController do
       editor_vim_mode: settings.editor_vim_mode,
       editor_font_size: settings.editor_font_size,
       editor_default_mode: settings.editor_default_mode,
-      editor_layout_mode: settings.editor_layout_mode
+      editor_layout_mode: settings.editor_layout_mode,
+      plugin_network_proxy: settings.plugin_network_proxy
     }
   end
 end

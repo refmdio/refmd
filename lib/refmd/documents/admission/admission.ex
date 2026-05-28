@@ -4,13 +4,17 @@ defmodule RefMD.Documents.Admission do
   import Ecto.Query
 
   alias RefMD.Crypto.{Blake3, Hash, JCS, Signature}
+  alias RefMD.Documents.DocumentUpdate
   alias RefMD.Encryption
+  alias RefMD.Encryption.KeyDirectory.Envelope
   alias RefMD.Repo
   alias RefMD.Sharing
   alias RefMD.Workspaces.WorkspaceMember
 
-  @update_event_type "document_update_accepted"
+  @update_event_type "document_write_session_admitted"
   @snapshot_event_type "document_snapshot_accepted"
+  @max_write_session_lifetime_ms 60_000
+  @write_session_failure_reasons [:write_session_expired, :write_session_invalid]
 
   @spec append_update!(map(), map()) :: String.t()
   def append_update!(document, attrs) do
@@ -53,6 +57,9 @@ defmodule RefMD.Documents.Admission do
 
       event_hash(event_payload)
     else
+      {:error, reason} when reason in @write_session_failure_reasons ->
+        Repo.rollback(reason)
+
       _error ->
         Repo.rollback(:admission_invalid)
     end
@@ -94,9 +101,10 @@ defmodule RefMD.Documents.Admission do
 
   defp admission_artifacts(_), do: {:error, :admission_required}
 
-  defp document_operation_event([%{"payload" => %{"body" => body} = payload} = envelope], _attrs)
-       when is_map(body),
-       do: {:ok, envelope, payload, body}
+  defp document_operation_event([envelope], _attrs) do
+    payload = Envelope.payload!(envelope, :event)
+    {:ok, envelope, payload, payload["body"]}
+  end
 
   defp document_operation_event(_events, _attrs), do: {:error, :admission_event_invalid}
 
@@ -195,6 +203,14 @@ defmodule RefMD.Documents.Admission do
     do: {:error, :admission_semantic_mismatch}
 
   defp validate_event(event_type, document, attrs, operation_hash, payload, body) do
+    if event_type == @update_event_type do
+      validate_write_session_event(event_type, document, attrs, payload, body)
+    else
+      validate_operation_event(event_type, document, attrs, operation_hash, payload, body)
+    end
+  end
+
+  defp validate_operation_event(event_type, document, attrs, operation_hash, payload, body) do
     expected_actor = Map.fetch!(attrs, :admission_actor)
 
     signature_hash =
@@ -236,6 +252,327 @@ defmodule RefMD.Documents.Admission do
     else
       {:error, :admission_semantic_mismatch}
     end
+  end
+
+  defp validate_write_session_event(event_type, document, attrs, payload, body) do
+    expected_actor = Map.fetch!(attrs, :admission_actor)
+    actor_hash = Hash.blake3_base64url(JCS.canonical_bytes!(expected_actor))
+    now_ms = System.system_time(:millisecond)
+    session_hash = event_hash(payload)
+    time_window_status = write_session_time_window_status(body, now_ms)
+
+    {session_update_count, session_ciphertext_bytes} =
+      write_session_usage_with_current(document.id, session_hash, Map.fetch!(attrs, :update_data))
+
+    checks = [
+      scope_kind: payload["scope_kind"] == "workspace",
+      scope_id: payload["scope_id"] == document.workspace_id,
+      event_type: payload["event_type"] == event_type,
+      actor: payload["actor"] == expected_actor,
+      previous_event_hash:
+        payload["previous_event_hash"] == body["previous_workspace_event_hash"],
+      previous_event_sequence:
+        body["previous_workspace_event_sequence"] == payload["sequence"] - 1,
+      body_event_type: body["event_type"] == event_type,
+      workspace_id: body["workspace_id"] == document.workspace_id,
+      document_id: body["document_id"] == document.id,
+      document_permission_proof_hash:
+        body["document_permission_proof_hash"] == document_permission_proof_hash(document, attrs),
+      body_authority_kind: body["authority_kind"] == Map.fetch!(attrs, :authority_kind),
+      body_authority_scope_id:
+        body["authority_scope_id"] == Map.fetch!(attrs, :authority_scope_id),
+      authority_scope:
+        Map.fetch!(attrs, :authority_scope_id) == expected_authority_scope_id(document, attrs),
+      authority_permission_version:
+        Map.fetch!(attrs, :authority_permission_version) ==
+          expected_authority_permission_version(document, attrs),
+      actor_hash: body["actor_hash"] == actor_hash,
+      min_dek_version: body["min_dek_version"] == document.min_dek_version,
+      public_min_dek_version: attrs.public_data["minDekVersion"] == body["min_dek_version"],
+      public_session_id: attrs.public_data["writeSessionId"] == body["session_id"],
+      public_session_hash: attrs.public_data["writeSessionEventHash"] == event_hash(payload),
+      session_counter:
+        is_integer(Map.fetch!(attrs, :write_session_counter)) and
+          Map.fetch!(attrs, :write_session_counter) > 0 and
+          Map.fetch!(attrs, :write_session_counter) <= body["max_update_count"],
+      session_counter_unused:
+        write_session_counter_unused?(
+          session_hash,
+          Map.fetch!(attrs, :signing_key_id),
+          Map.fetch!(attrs, :write_session_counter)
+        ),
+      update_count_budget: session_update_count <= body["max_update_count"],
+      ciphertext_budget:
+        is_integer(body["max_ciphertext_bytes"]) and
+          session_ciphertext_bytes <= body["max_ciphertext_bytes"],
+      session_not_invalidated:
+        write_session_not_invalidated?(document, attrs, payload, session_hash)
+    ]
+
+    cond do
+      time_window_status == :expired -> {:error, :write_session_expired}
+      time_window_status == :invalid -> {:error, :write_session_invalid}
+      Enum.all?(checks, fn {_label, ok?} -> ok? end) -> :ok
+      true -> {:error, :write_session_invalid}
+    end
+  end
+
+  defp write_session_not_invalidated?(document, attrs, payload, session_hash) do
+    case write_session_replay_events(document.workspace_id, payload, session_hash) do
+      {:ok, replay_events} ->
+        not Enum.any?(replay_events, fn event ->
+          write_session_invalidating_event?(event, document, attrs, payload)
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  defp write_session_replay_events(workspace_id, payload, session_hash) do
+    session_sequence = payload["sequence"]
+    pin = Encryption.current_workspace_key_directory_pin(workspace_id)
+
+    cond do
+      is_nil(pin) or not is_integer(session_sequence) ->
+        {:error, :write_session_invalid}
+
+      pin.event_head_sequence == session_sequence - 1 and
+          pin.event_head_hash == payload["previous_event_hash"] ->
+        {:ok, []}
+
+      pin.event_head_sequence < session_sequence ->
+        {:error, :write_session_invalid}
+
+      true ->
+        case Encryption.workspace_key_directory_event_by_hash(workspace_id, session_hash) do
+          %{event_type: @update_event_type, sequence: ^session_sequence} ->
+            {:ok,
+             Encryption.workspace_key_directory_events_after_until(
+               workspace_id,
+               session_sequence,
+               pin.event_head_sequence
+             )}
+
+          _ ->
+            {:error, :write_session_invalid}
+        end
+    end
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "signing_key_revoked", payload: %{"body" => body}},
+         _document,
+         attrs,
+         _session_payload
+       )
+       when is_map(body) do
+    body["key_id"] == Map.fetch!(attrs, :signing_key_id)
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "member_removed", payload: %{"body" => body}},
+         document,
+         attrs,
+         session_payload
+       )
+       when is_map(body) do
+    actor = Map.get(session_payload, "actor", %{})
+
+    document_session_owner?(attrs, actor) and body["user_id"] == actor["user_id"] and
+      body["workspace_id"] == document.workspace_id
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "member_role_changed", payload: %{"body" => body}},
+         document,
+         attrs,
+         session_payload
+       )
+       when is_map(body) do
+    actor = Map.get(session_payload, "actor", %{})
+
+    document_session_owner?(attrs, actor) and body["user_id"] == actor["user_id"] and
+      body["workspace_id"] == document.workspace_id and
+      not base_role_can_write_document?(body["base_role"])
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "share_revoked", payload: %{"body" => body}},
+         _document,
+         attrs,
+         session_payload
+       )
+       when is_map(body) do
+    actor = Map.get(session_payload, "actor", %{})
+    share_session_owner?(attrs, actor) and body["share_id"] == actor["share_id"]
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "share_key_scope_removed", payload: %{"body" => body}},
+         document,
+         attrs,
+         session_payload
+       )
+       when is_map(body) do
+    actor = Map.get(session_payload, "actor", %{})
+
+    share_session_owner?(attrs, actor) and body["share_id"] == actor["share_id"] and
+      body["workspace_id"] == document.workspace_id and
+      share_scope_removal_targets_document?(body, document)
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "guest_grant_revoked", payload: %{"body" => body}},
+         document,
+         attrs,
+         session_payload
+       )
+       when is_map(body) do
+    actor = Map.get(session_payload, "actor", %{})
+
+    share_session_owner?(attrs, actor) and
+      body["guest_user_id"] == actor["share_participant_principal_id"] and
+      guest_grant_revocation_targets_session?(body, document, actor)
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "guest_device_revoked", payload: %{"body" => body}},
+         _document,
+         attrs,
+         session_payload
+       )
+       when is_map(body) do
+    actor = Map.get(session_payload, "actor", %{})
+
+    share_session_owner?(attrs, actor) and
+      body["guest_user_id"] == actor["share_participant_principal_id"] and
+      guest_device_revocation_targets_actor?(body, actor)
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: event_type, payload: %{"body" => body}},
+         document,
+         attrs,
+         _session_payload
+       )
+       when event_type in ["rotation_started", "rotation_completed"] and is_map(body) do
+    dek_floor_invalidates_session?(body, document.id, Map.fetch!(attrs, :key_version))
+  end
+
+  defp write_session_invalidating_event?(
+         %{event_type: "document_write_state_changed", payload: %{"body" => body}},
+         document,
+         _attrs,
+         _session_payload
+       )
+       when is_map(body) do
+    body["workspace_id"] == document.workspace_id and body["document_id"] == document.id and
+      body["write_state"] in ["archived", "read_only", "write_disabled"]
+  end
+
+  defp write_session_invalidating_event?(_event, _document, _attrs, _session_payload),
+    do: false
+
+  defp share_scope_removal_targets_document?(
+         %{"scope_kind" => "document", "scope_id" => scope_id},
+         document
+       ),
+       do: scope_id == document.id
+
+  defp share_scope_removal_targets_document?(
+         %{"scope_kind" => "folder", "scope_id" => scope_id},
+         document
+       )
+       when is_binary(scope_id) do
+    RefMD.Sharing.Access.descendant_of?(document.id, scope_id)
+  rescue
+    _ -> false
+  end
+
+  defp share_scope_removal_targets_document?(_body, _document), do: false
+
+  defp guest_grant_revocation_targets_session?(%{"scope_kind" => "workspace"}, _document, _actor),
+    do: true
+
+  defp guest_grant_revocation_targets_session?(
+         %{"scope_kind" => "share", "scope_id" => scope_id},
+         _document,
+         actor
+       ),
+       do: scope_id == actor["share_id"]
+
+  defp guest_grant_revocation_targets_session?(body, document, _actor),
+    do: share_scope_removal_targets_document?(body, document)
+
+  defp guest_device_revocation_targets_actor?(body, actor) do
+    body["guest_device_id"] == actor["share_participant_device_id"] or
+      body["guest_signing_key_id"] == actor["signing_key_id"]
+  end
+
+  defp document_session_owner?(attrs, actor),
+    do: attrs.public_data["ownerKind"] == "device" and is_map(actor)
+
+  defp share_session_owner?(attrs, actor),
+    do: attrs.public_data["ownerKind"] == "share_participant_device" and is_map(actor)
+
+  if Mix.env() == :test do
+    @doc false
+    @spec __test_write_session_invalidating_event?(map(), map(), map(), map()) :: boolean()
+    def __test_write_session_invalidating_event?(event, document, attrs, session_payload),
+      do: write_session_invalidating_event?(event, document, attrs, session_payload)
+  end
+
+  defp base_role_can_write_document?(role),
+    do: role in ["owner", "admin", "editor", "guest"]
+
+  defp dek_floor_invalidates_session?(body, document_id, key_version) do
+    body["rotation_kind"] == "dek" and body["scope_kind"] == "document" and
+      body["scope_id"] == document_id and is_integer(body["new_key_version"]) and
+      body["new_key_version"] > key_version
+  end
+
+  defp write_session_time_window_status(body, now_ms) do
+    issued_at_ms = body["issued_at_ms"]
+    expires_at_ms = body["expires_at_ms"]
+
+    cond do
+      not is_integer(issued_at_ms) or not is_integer(expires_at_ms) ->
+        :invalid
+
+      expires_at_ms < now_ms ->
+        :expired
+
+      issued_at_ms > now_ms or expires_at_ms <= issued_at_ms or
+        expires_at_ms > now_ms + @max_write_session_lifetime_ms or
+          expires_at_ms - issued_at_ms > @max_write_session_lifetime_ms ->
+        :invalid
+
+      true ->
+        :ok
+    end
+  end
+
+  defp write_session_usage_with_current(document_id, admission_event_hash, update_data) do
+    {count, bytes} =
+      from(u in DocumentUpdate,
+        where: u.document_id == ^document_id and u.admission_event_hash == ^admission_event_hash,
+        select: {count(u.id), coalesce(sum(fragment("octet_length(?)", u.update_data)), 0)}
+      )
+      |> Repo.one()
+
+    {count + 1, bytes + byte_size(update_data)}
+  end
+
+  defp write_session_counter_unused?(admission_event_hash, signing_key_id, counter) do
+    not Repo.exists?(
+      from(u in DocumentUpdate,
+        where:
+          u.admission_event_hash == ^admission_event_hash and
+            u.signing_key_id == ^signing_key_id and
+            u.write_session_counter == ^counter
+      )
+    )
   end
 
   defp document_permission_proof_hash(document, attrs) do

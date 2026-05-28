@@ -1,12 +1,12 @@
 defmodule RefMD.Workers.KekRotationReminder do
   @moduledoc """
   Periodic check for incomplete KEK rotations.
-  Broadcasts device notifications to workspace members via PubSub.
+  Records security notifications for workspace members.
   """
 
   use Oban.Worker, queue: :default
 
-  alias RefMD.Devices
+  alias RefMD.Security
 
   require Logger
 
@@ -30,7 +30,7 @@ defmodule RefMD.Workers.KekRotationReminder do
     user_ids = RefMD.Workspaces.list_workspace_member_user_ids(workspace.workspace_id)
 
     Enum.each(user_ids, fn user_id ->
-      Devices.broadcast_kek_rotation_needed(
+      Security.record_kek_rotation_needed(
         user_id,
         workspace.workspace_id,
         workspace.current_kek_version

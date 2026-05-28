@@ -257,6 +257,33 @@ function getPopChallengeRetryMs(error: unknown): number | null {
   }
   return Math.max(1, error.retryAfterSeconds) * 1000;
 }
+
+async function createReplayableRequestFactory(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<() => Request> {
+  const source = new Request(input, init);
+  const headers = Array.from(source.headers.entries());
+  const canHaveBody = !["GET", "HEAD"].includes(source.method.toUpperCase());
+  const body = canHaveBody ? await source.clone().arrayBuffer() : undefined;
+
+  return () =>
+    new Request(source.url, {
+      method: source.method,
+      headers: new Headers(headers),
+      body: body && body.byteLength > 0 ? body.slice(0) : undefined,
+      cache: source.cache,
+      credentials: source.credentials,
+      integrity: source.integrity,
+      keepalive: source.keepalive,
+      mode: source.mode,
+      redirect: source.redirect,
+      referrer: source.referrer,
+      referrerPolicy: source.referrerPolicy,
+      signal: source.signal,
+    });
+}
+
 export function initializeApiClient(config: {
   getDeviceId: () => string | null;
   onUnauthorized?: (scope: AuthSessionScope) => void;
@@ -268,11 +295,12 @@ export const client = createClient<paths>({
   baseUrl: "/",
   credentials: "include",
   fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const createRequest = await createReplayableRequestFactory(input, init);
     let lastResponse: Response | null = null;
     for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
       await waitForAuthTransport();
       await waitForGlobalRateLimit();
-      const request = new Request(input, init);
+      const request = createRequest();
       const requiresPop = !isSessionOnlyEndpoint(request.url, request.method);
       let releasePopSlot: (() => void) | null = null;
       try {

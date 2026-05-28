@@ -262,6 +262,118 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     end
   end
 
+  test "allows active members to authorize only their own member removal" do
+    state = %{
+      members: %{"member-user" => "viewer", "other-user" => "viewer"},
+      invitations: %{},
+      guest_grants: %{},
+      shares: %{},
+      rotations: %{},
+      key_owners: %{},
+      self_removed_members: %{}
+    }
+
+    assert :ok =
+             Authority.assert_event_authority!(state, %{
+               "scope_kind" => "workspace",
+               "event_type" => "member_removed",
+               "actor" => %{
+                 "signer_kind" => "device",
+                 "user_id" => "member-user",
+                 "device_id" => "member-device"
+               },
+               "body" => %{"user_id" => "member-user"}
+             })
+
+    assert_raise ArgumentError, "key_directory_workspace_admin_required", fn ->
+      Authority.assert_event_authority!(state, %{
+        "scope_kind" => "workspace",
+        "event_type" => "member_removed",
+        "actor" => %{
+          "signer_kind" => "device",
+          "user_id" => "member-user",
+          "device_id" => "member-device"
+        },
+        "body" => %{"user_id" => "other-user"}
+      })
+    end
+  end
+
+  test "limits self-removed member key revocation authority to member removal keys" do
+    state = %{
+      members: %{"member-user" => "viewer"},
+      invitations: %{},
+      guest_grants: %{},
+      shares: %{},
+      rotations: %{},
+      key_owners: %{
+        "member-encryption-key" => %{user_id: "member-user", device_id: "member-device"},
+        "other-encryption-key" => %{user_id: "other-user", device_id: "other-device"}
+      },
+      self_removed_members: %{}
+    }
+
+    removal_payload = %{
+      "scope_kind" => "workspace",
+      "event_type" => "member_removed",
+      "actor" => %{
+        "signer_kind" => "device",
+        "user_id" => "member-user",
+        "device_id" => "member-device",
+        "signing_key_id" => "member-signing-key"
+      },
+      "body" => %{"user_id" => "member-user"}
+    }
+
+    state = Authority.assert_and_apply_event!(state, removal_payload)
+
+    assert :ok =
+             Authority.assert_event_authority!(state, %{
+               "scope_kind" => "workspace",
+               "event_type" => "signing_key_revoked",
+               "actor" => removal_payload["actor"],
+               "body" => %{
+                 "key_id" => "member-signing-key",
+                 "reason" => "member_removed"
+               }
+             })
+
+    assert :ok =
+             Authority.assert_event_authority!(state, %{
+               "scope_kind" => "workspace",
+               "event_type" => "encryption_key_revoked",
+               "actor" => removal_payload["actor"],
+               "body" => %{
+                 "key_id" => "member-encryption-key",
+                 "reason" => "member_removed"
+               }
+             })
+
+    assert_raise ArgumentError, "key_directory_active_member_required", fn ->
+      Authority.assert_event_authority!(state, %{
+        "scope_kind" => "workspace",
+        "event_type" => "encryption_key_revoked",
+        "actor" => removal_payload["actor"],
+        "body" => %{
+          "key_id" => "other-encryption-key",
+          "reason" => "member_removed"
+        }
+      })
+    end
+
+    assert_raise ArgumentError, "key_directory_active_member_required", fn ->
+      Authority.assert_event_authority!(state, %{
+        "scope_kind" => "workspace",
+        "event_type" => "encryption_key_revoked",
+        "actor" => removal_payload["actor"],
+        "body" => %{
+          "key_id" => "member-encryption-key",
+          "reason" => "device_revoked"
+        }
+      })
+    end
+  end
+
   test "guest invitation redemption does not create workspace member authority" do
     guest_user_id = Ecto.UUID.generate()
     guest_device_id = Ecto.UUID.generate()
@@ -907,6 +1019,134 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     end
   end
 
+  test "accepts self member removal checkpoint signed by the key revoked in the same append" do
+    %{
+      user_id: user_id,
+      workspace_id: workspace_id,
+      bootstrap: bootstrap,
+      device_private: device_private
+    } =
+      directory_fixture()
+
+    %{checkpoint: checkpoint} =
+      KeyDirectory.insert_signed_initial_scope!(
+        "workspace",
+        workspace_id,
+        bootstrap.workspace_events,
+        bootstrap.workspace_checkpoint,
+        checkpoint_signer_kind: "device"
+      )
+
+    device_id = device_private["owner_id"]
+    signing_entry = device_key_entry!(checkpoint.payload, "refmd.hybrid-signing-key-material")
+
+    encryption_entry =
+      device_key_entry!(checkpoint.payload, "refmd.hybrid-encryption-key-material")
+
+    actor = workspace_device_actor(user_id, device_id, signing_entry["key_id"])
+    removal_sequence = checkpoint.covered_event_head_sequence + 1
+
+    removal_event =
+      key_directory_event_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => removal_sequence,
+        "event_type" => "member_removed",
+        "actor" => actor,
+        "previous_event_hash" => checkpoint.covered_event_head_hash,
+        "body" => %{
+          "workspace_id" => workspace_id,
+          "user_id" => user_id,
+          "removed_at_event_sequence" => removal_sequence
+        }
+      })
+
+    encryption_revoke_sequence = removal_sequence + 1
+
+    encryption_revoke_event =
+      key_directory_event_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => encryption_revoke_sequence,
+        "event_type" => "encryption_key_revoked",
+        "actor" => actor,
+        "previous_event_hash" => KeyDirectory.event_hash(removal_event),
+        "body" => %{
+          "key_id" => encryption_entry["key_id"],
+          "reason" => "member_removed",
+          "revoked_at_event_sequence" => encryption_revoke_sequence
+        }
+      })
+
+    signing_revoke_sequence = encryption_revoke_sequence + 1
+
+    signing_revoke_event =
+      key_directory_event_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => signing_revoke_sequence,
+        "event_type" => "signing_key_revoked",
+        "actor" => actor,
+        "previous_event_hash" => KeyDirectory.event_hash(encryption_revoke_event),
+        "body" => %{
+          "key_id" => signing_entry["key_id"],
+          "reason" => "member_removed",
+          "revoked_at_event_sequence" => signing_revoke_sequence
+        }
+      })
+
+    revoked_encryption_entry =
+      Map.put(
+        encryption_entry,
+        "revoked_at",
+        key_directory_event_ref("workspace", workspace_id, encryption_revoke_event)
+      )
+
+    revoked_signing_entry =
+      Map.put(
+        signing_entry,
+        "revoked_at",
+        key_directory_event_ref("workspace", workspace_id, signing_revoke_event)
+      )
+
+    checkpoint_payload =
+      key_directory_checkpoint_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => checkpoint.sequence + 1,
+        "issued_at" =>
+          DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601(),
+        "previous_checkpoint_hash" => checkpoint.checkpoint_hash,
+        "covered_event_head" => key_directory_event_head(signing_revoke_event),
+        "identity_keys" => checkpoint.payload["identity_keys"],
+        "device_keys" =>
+          checkpoint.payload["device_keys"]
+          |> replace_key_entry(revoked_encryption_entry)
+          |> replace_key_entry(revoked_signing_entry),
+        "revoked_key_ids" => [encryption_entry["key_id"], signing_entry["key_id"]]
+      })
+
+    assert %{checkpoint: appended_checkpoint} =
+             KeyDirectory.append_signed_scope!(
+               "workspace",
+               workspace_id,
+               [
+                 signed_key_directory_event_envelope(removal_event, device_private),
+                 signed_key_directory_event_envelope(encryption_revoke_event, device_private),
+                 signed_key_directory_event_envelope(signing_revoke_event, device_private)
+               ],
+               signed_key_directory_checkpoint_envelope(
+                 checkpoint_payload,
+                 "workspace_authorized",
+                 device_private,
+                 user_id
+               ),
+               checkpoint_signer_kind: "device"
+             )
+
+    assert appended_checkpoint.covered_event_head_sequence == signing_revoke_sequence
+  end
+
   test "rejects workspace event signed before signer key is active" do
     %{workspace_id: workspace_id, bootstrap: bootstrap} = directory_fixture()
 
@@ -926,6 +1166,138 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         checkpoint_signer_kind: "device"
       )
     end
+  end
+
+  test "allows active member identity to authorize adding a recovered device key" do
+    %{
+      user_id: user_id,
+      workspace_id: workspace_id,
+      bootstrap: bootstrap,
+      identity_private: identity_private,
+      device_private: device_private
+    } =
+      directory_fixture()
+
+    %{checkpoint: checkpoint} =
+      KeyDirectory.insert_signed_initial_scope!(
+        "workspace",
+        workspace_id,
+        bootstrap.workspace_events,
+        bootstrap.workspace_checkpoint,
+        checkpoint_signer_kind: "device"
+      )
+
+    identity_public = hybrid_signing_public_key_material(identity_private)
+    identity_signing_key_id = Signature.compute_signing_key_id!(identity_public)
+    device_id = device_private["owner_id"]
+
+    device_signing_entry =
+      device_key_entry!(checkpoint.payload, "refmd.hybrid-signing-key-material")
+
+    identity_event =
+      key_directory_event_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => checkpoint.covered_event_head_sequence + 1,
+        "event_type" => "identity_key_added",
+        "actor" => workspace_device_actor(user_id, device_id, device_signing_entry["key_id"]),
+        "previous_event_hash" => checkpoint.covered_event_head_hash,
+        "body" => %{
+          "key_id" => identity_signing_key_id,
+          "key_material_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(identity_public))
+        }
+      })
+
+    identity_event_ref = key_directory_event_ref("workspace", workspace_id, identity_event)
+
+    identity_checkpoint_payload =
+      key_directory_checkpoint_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => checkpoint.sequence + 1,
+        "issued_at" =>
+          DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601(),
+        "previous_checkpoint_hash" => checkpoint.checkpoint_hash,
+        "covered_event_head" => key_directory_event_head(identity_event),
+        "identity_keys" => [Payload.key_entry!(identity_public, identity_event_ref)],
+        "device_keys" => checkpoint.payload["device_keys"]
+      })
+
+    %{checkpoint: identity_checkpoint} =
+      KeyDirectory.append_signed_scope!(
+        "workspace",
+        workspace_id,
+        [signed_key_directory_event_envelope(identity_event, device_private)],
+        signed_key_directory_checkpoint_envelope(
+          identity_checkpoint_payload,
+          "workspace_authorized",
+          device_private,
+          user_id
+        ),
+        checkpoint_signer_kind: "device"
+      )
+
+    recovered_device_id = Ecto.UUID.generate()
+    recovered_device_private = hybrid_signing_private_key_material("device", recovered_device_id)
+    recovered_device_public = hybrid_signing_public_key_material(recovered_device_private)
+    recovered_signing_key_id = Signature.compute_signing_key_id!(recovered_device_public)
+    {recovered_ecdh_public, _} = :crypto.generate_key(:ecdh, :x25519)
+
+    recovered_device_encryption =
+      hybrid_encryption_public_key_material("device", recovered_device_id, recovered_ecdh_public)
+
+    event =
+      key_directory_event_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => identity_checkpoint.covered_event_head_sequence + 1,
+        "event_type" => "device_key_added",
+        "actor" => identity_actor(user_id, identity_signing_key_id),
+        "previous_event_hash" => identity_checkpoint.covered_event_head_hash,
+        "body" => %{
+          "user_id" => user_id,
+          "device_id" => recovered_device_id,
+          "signing_key_id" => recovered_signing_key_id,
+          "encryption_key_id" => recovered_device_encryption.encryption_key_id
+        }
+      })
+
+    event_ref = key_directory_event_ref("workspace", workspace_id, event)
+
+    checkpoint_payload =
+      key_directory_checkpoint_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => identity_checkpoint.sequence + 1,
+        "issued_at" =>
+          DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601(),
+        "previous_checkpoint_hash" => identity_checkpoint.checkpoint_hash,
+        "covered_event_head" => key_directory_event_head(event),
+        "identity_keys" => identity_checkpoint.payload["identity_keys"],
+        "device_keys" =>
+          identity_checkpoint.payload["device_keys"] ++
+            [
+              Payload.key_entry!(recovered_device_public, event_ref),
+              Payload.key_entry!(recovered_device_encryption.public, event_ref)
+            ]
+      })
+
+    assert %{checkpoint: appended_checkpoint} =
+             KeyDirectory.append_signed_scope!(
+               "workspace",
+               workspace_id,
+               [signed_key_directory_event_envelope(event, identity_private)],
+               signed_key_directory_checkpoint_envelope(
+                 checkpoint_payload,
+                 "device_authorized",
+                 recovered_device_private,
+                 user_id
+               ),
+               checkpoint_signer_kind: "device"
+             )
+
+    assert appended_checkpoint.covered_event_head_sequence ==
+             identity_checkpoint.covered_event_head_sequence + 1
   end
 
   test "rejects wrap issued to an encryption key revoked at the wrap event sequence" do

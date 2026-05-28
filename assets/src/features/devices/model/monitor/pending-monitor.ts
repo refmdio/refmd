@@ -6,10 +6,14 @@ import {
   useContext,
   type Accessor,
 } from "solid-js";
+import {
+  joinUserSecurityNotifications,
+  SecurityNotificationsJoinError,
+} from "@/shared/lib/security/notification-channel";
 import type { DeviceRegistrationInfo } from "@/shared/api/devices";
-import { devicesApi } from "@/shared/api";
+import { devicesApi, securityNotificationsApi } from "@/shared/api";
+import type { SecurityNotificationInfo } from "@/shared/api/security-notifications";
 import { authState, deviceState } from "@/entities/session";
-import { DeviceEventsJoinError, joinUserDeviceEvents } from "../../lib/events/channel";
 import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
 
 interface KekRotationNeeded {
@@ -46,18 +50,21 @@ export function usePendingDevices(): PendingDeviceContextValue {
 
 export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
   const [pendingDevices, setPendingDevices] = createSignal<DeviceRegistrationInfo[]>([]);
+  const [securityNotifications, setSecurityNotifications] = createSignal<
+    readonly SecurityNotificationInfo[]
+  >([]);
   const [currentDialog, setCurrentDialog] = createSignal<DeviceRegistrationInfo | null>(null);
   const [approvalError, setApprovalError] = createSignal<string | null>(null);
   const [kekRotationsNeeded, setKekRotationsNeeded] = createSignal<KekRotationNeeded[]>([]);
   const dismissed = new Set<string>();
   const seen = new Set<string>();
 
-  let deviceEvents: { dispose: () => void } | undefined;
+  let securityNotificationChannel: { dispose: () => void } | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let expiryTimers: ReturnType<typeof setTimeout>[] = [];
   let connectionGeneration = 0;
 
-  const pendingCount = () => pendingDevices().length;
+  const pendingCount = () => actionRequiredSecurityNotificationCount(securityNotifications());
 
   const refetchPending = async () => {
     try {
@@ -66,6 +73,12 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
       setKekRotationsNeeded([]);
     } catch {
       // Silently ignore. Device events will keep state updated.
+    }
+
+    try {
+      setSecurityNotifications(await securityNotificationsApi.list());
+    } catch {
+      // Realtime events remain a fast path; the next reconnect/startup will retry the durable inbox.
     }
   };
 
@@ -76,8 +89,8 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
 
   const clearConnectionState = () => {
     connectionGeneration += 1;
-    const activeEvents = deviceEvents;
-    deviceEvents = undefined;
+    const activeEvents = securityNotificationChannel;
+    securityNotificationChannel = undefined;
     activeEvents?.dispose();
     if (retryTimer) {
       clearTimeout(retryTimer);
@@ -93,17 +106,20 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
       retryTimer = setTimeout(() => {
         retryTimer = undefined;
         if (generation === connectionGeneration) {
-          connectDeviceEvents();
+          connectSecurityNotifications();
         }
       }, delay);
     }
   };
 
-  const connectDeviceEvents = () => {
+  const connectSecurityNotifications = () => {
     clearConnectionState();
     const generation = connectionGeneration;
 
-    joinUserDeviceEvents({
+    const auth = authState();
+    if (!auth) return;
+
+    joinUserSecurityNotifications(auth.user.id, {
       onPendingDeviceCreated: () => {
         void refetchPending();
       },
@@ -111,20 +127,28 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
         void refetchPending();
       },
       onKekRotationNeeded: (data) => {
-        if (data.workspace_id) {
+        void refetchPending();
+        const workspaceId = typeof data.workspace_id === "string" ? data.workspace_id : null;
+        const currentKekVersion =
+          typeof data.current_kek_version === "number" ? data.current_kek_version : 0;
+
+        if (workspaceId) {
           setKekRotationsNeeded((prev) => {
-            if (prev.some((rotation) => rotation.workspace_id === data.workspace_id)) {
+            if (prev.some((rotation) => rotation.workspace_id === workspaceId)) {
               return prev;
             }
             return [
               ...prev,
               {
-                workspace_id: data.workspace_id!,
-                current_kek_version: data.current_kek_version ?? 0,
+                workspace_id: workspaceId,
+                current_kek_version: currentKekVersion,
               },
             ];
           });
         }
+      },
+      onPluginConsentRequired: () => {
+        void refetchPending();
       },
       onClose: () => scheduleReconnect(generation),
       onError: () => scheduleReconnect(generation),
@@ -134,10 +158,13 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
           handle.dispose();
           return;
         }
-        deviceEvents = handle;
+        securityNotificationChannel = handle;
       })
       .catch((error) => {
-        if (error instanceof DeviceEventsJoinError && error.reason === "existing_device_required") {
+        if (
+          error instanceof SecurityNotificationsJoinError &&
+          error.reason === "existing_device_required"
+        ) {
           return;
         }
         scheduleReconnect(generation);
@@ -153,7 +180,7 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
     }
 
     void refetchPending();
-    connectDeviceEvents();
+    connectSecurityNotifications();
 
     onCleanup(() => {
       clearConnectionState();
@@ -240,4 +267,16 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
     handleApproved,
     handleApprovalError,
   };
+}
+
+export function actionRequiredSecurityNotificationCount(
+  notifications: readonly SecurityNotificationInfo[],
+  nowMs = Date.now(),
+): number {
+  return notifications.filter((notification) => {
+    if (notification.severity !== "action_required") return false;
+    if (notification.read_at || notification.dismissed_at || notification.acted_at) return false;
+    if (!notification.expires_at) return true;
+    return new Date(notification.expires_at).getTime() > nowMs;
+  }).length;
 }

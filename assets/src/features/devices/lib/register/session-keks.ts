@@ -5,7 +5,6 @@ import { persistWorkspaceKekLocally } from "@/shared/lib/crypto/workspace-kek-pe
 import type { SignedPqWrapRecord } from "@/shared/lib/crypto/signed-pq-wrap";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { assertKeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
 
 interface KekRestoreResults {
   restored: string[];
@@ -109,14 +108,6 @@ async function restoreKekFromMemberEnvelope(
     throw new Error("recovery_device_key_material_missing");
   }
 
-  const keyDirectoryCheckpoint =
-    envelope.workspace_key_directory_checkpoint === null ||
-    envelope.workspace_key_directory_checkpoint === undefined
-      ? undefined
-      : assertKeyDirectoryEnvelope(
-          envelope.workspace_key_directory_checkpoint,
-          "workspace_key_directory_checkpoint_invalid",
-        );
   await persistWorkspaceKekLocally({
     workspaceId,
     userId,
@@ -125,7 +116,6 @@ async function restoreKekFromMemberEnvelope(
     keyVersion: envelope.key_version,
     isActive: true,
     ignoreConflict: true,
-    keyDirectoryCheckpoint,
   });
 
   return "restored";

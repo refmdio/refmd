@@ -46,6 +46,8 @@ export function useRegisterPage() {
         {
           deviceId: result.deviceId,
           deviceSigningKeyId: result.deviceSigningKeyId,
+          deviceKeyCheckpointSequence: result.deviceKeyCheckpointSequence,
+          deviceKeyCheckpointHash: result.deviceKeyCheckpointHash,
           deviceHybridSigningPublicKeyMaterial: result.deviceHybridSigningPublicKeyMaterial,
           deviceEcdhPublic: result.deviceEcdhPublic,
         },

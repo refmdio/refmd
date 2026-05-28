@@ -1,5 +1,6 @@
 import type { App } from "@/shared/lib/workspace/app";
 import type { EventRef } from "@/shared/lib/events";
+import { corePluginSurfaceOwner, type CorePluginLoadContext } from "@/features/plugin-runtime";
 
 let currentApp: App | null = null;
 let statusBarEl: HTMLElement | null = null;
@@ -19,9 +20,13 @@ function updateCount(): void {
   statusBarEl.textContent = `${words} words, ${chars} chars`;
 }
 
-export function loadWordCount(app: App): void {
+export function loadWordCount(app: App, context: CorePluginLoadContext): void {
   currentApp = app;
-  statusBarEl = app.workspace.addStatusBarItem();
+  statusBarEl = app.workspace.addStatusBarItem({
+    id: "word-count",
+    owner: corePluginSurfaceOwner(context),
+    label: "Word count",
+  });
 
   wsRefs = [
     app.workspace.on("editor-change", updateCount),

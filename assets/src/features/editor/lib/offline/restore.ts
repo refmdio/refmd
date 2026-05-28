@@ -134,6 +134,8 @@ function activateOfflineEditingSession(
   });
   if (!forceOfflineMode && isNetworkOnline()) {
     resumeWhenServerReady();
+  } else if (forceOfflineMode && isNetworkOnline()) {
+    resumeWaitTimer = setTimeout(resumeWhenServerReady, 1_000);
   }
   state.offlineResumeCleanup = () => {
     resumeDisposed = true;

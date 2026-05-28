@@ -1,0 +1,20 @@
+{
+  "id": "io.refmd.document-demo",
+  "version": "0.1.0",
+  "scope": {
+    "supportedOwnerScopes": ["user"],
+    "defaultOwnerScope": "user",
+    "workspaceApplication": "optional"
+  },
+  "permissions": [
+    "ui:command",
+    "document:read:active",
+    "document:read:workspace",
+    "document:write"
+  ],
+  "network": {
+    "endpoints": []
+  },
+  "rendererSlots": [],
+  "documentScopes": [{ "kind": "active" }, { "kind": "workspace" }]
+}

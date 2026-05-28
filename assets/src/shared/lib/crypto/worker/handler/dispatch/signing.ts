@@ -21,6 +21,9 @@ import {
   handleSignIdentityKeyDirectoryEvent,
   handleSignInvitationRedeemKeyDirectoryCheckpoint,
   handleSignInvitationRedeemKeyDirectoryEvent,
+  handleSignPluginConsentEvent,
+  handleSignPluginBundleApproval,
+  handleSignPluginNetworkProxyRequest,
   handleSignShareParticipantDeviceKeyDirectoryCheckpoint,
   handleSignShareParticipantDeviceKeyDirectoryEvent,
   handleSignWorkspacePinBootstrap,
@@ -93,6 +96,18 @@ export const signingRequestHandlers = {
   "sign-workspace-pin-bootstrap": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
       handleSignWorkspacePinBootstrap(state, payload),
+    ),
+  "sign-plugin-consent-event": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignPluginConsentEvent(state, payload),
+    ),
+  "sign-plugin-bundle-approval": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignPluginBundleApproval(state, payload),
+    ),
+  "sign-plugin-network-proxy-request": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignPluginNetworkProxyRequest(state, payload),
     ),
   "generate-invitation-redeem-authority": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>

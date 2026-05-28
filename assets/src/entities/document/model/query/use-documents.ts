@@ -1,15 +1,33 @@
 import { type Accessor } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { documentsApi } from "@/shared/api";
-import { authState, cryptoWorkerReady } from "@/entities/session";
+import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
 import {
   deleteOfflineCreated,
   putOfflineDocumentIndex,
   getOfflineDocumentIndex,
   getOfflineDocumentMeta,
+  getOfflineDek,
+  type OfflineDocumentWriteState,
 } from "@/shared/lib/offline/storage/store";
 import { shouldPreferOfflineCache } from "@/shared/lib/offline/offline-state";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { toArrayBuffer } from "@/shared/lib/storage/idb";
+import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
+
+export function offlineDocumentWriteState(entry: {
+  archivedAt: string | null;
+  writeState?: OfflineDocumentWriteState | null;
+}): OfflineDocumentWriteState {
+  return entry.writeState ?? (entry.archivedAt ? "archived" : "writable");
+}
+
+export function documentWriteStateForOfflineIndex(doc: {
+  archived_at?: string | null;
+  write_state?: OfflineDocumentWriteState | null;
+}): OfflineDocumentWriteState {
+  return doc.write_state ?? (doc.archived_at ? "archived" : "writable");
+}
 
 async function loadOfflineDocuments(wsId: string) {
   let cached: Awaited<ReturnType<typeof getOfflineDocumentIndex>> | null = null;
@@ -26,19 +44,52 @@ async function loadOfflineDocuments(wsId: string) {
     const worker = getCryptoWorker();
     for (const entry of cached) {
       if (entry.isEncrypted) {
+        let recovered = false;
         try {
           const meta = await getOfflineDocumentMeta(entry.documentId);
-          if (meta?.encryptedTitle && meta.encryptedTitleNonce) {
+          if (
+            meta?.encryptedTitle &&
+            meta.encryptedTitleNonce &&
+            meta.encryptedTitle.byteLength > 0 &&
+            meta.encryptedTitleNonce.byteLength > 0
+          ) {
             const plaintext = await worker.unwrapOfflineDocumentTitleWithDsk({
-              ciphertext: meta.encryptedTitle.buffer as ArrayBuffer,
-              iv: meta.encryptedTitleNonce.buffer as ArrayBuffer,
+              ciphertext: toArrayBuffer(meta.encryptedTitle),
+              iv: toArrayBuffer(meta.encryptedTitleNonce),
               documentId: entry.documentId,
               keyVersion: 0,
             });
             titleMap.set(entry.documentId, new TextDecoder().decode(plaintext));
+            recovered = true;
           }
         } catch {
           // DSK not available or decryption failed.
+        }
+        if (
+          !recovered &&
+          entry.encryptedTitle &&
+          entry.encryptedTitleNonce &&
+          entry.encryptedTitleKeyVersion != null
+        ) {
+          try {
+            const offlineDek = await getOfflineDek(entry.documentId);
+            if (offlineDek) {
+              await worker.restoreDekFromOffline({
+                documentId: entry.documentId,
+                keyVersion: offlineDek.keyVersion,
+                isActive: true,
+              });
+            }
+            const title = await worker.decryptTitle({
+              encrypted: base64UrlDecode(entry.encryptedTitle),
+              nonce: base64UrlDecode(entry.encryptedTitleNonce),
+              documentId: entry.documentId,
+              keyVersion: entry.encryptedTitleKeyVersion,
+            });
+            titleMap.set(entry.documentId, title);
+          } catch {
+            // Offline DEK or title decryption failed.
+          }
         }
       }
     }
@@ -58,12 +109,13 @@ async function loadOfflineDocuments(wsId: string) {
       is_encrypted: entry.isEncrypted,
       is_published: false,
       can_sync_publication: false,
+      write_state: offlineDocumentWriteState(entry),
       updated_at: entry.updatedAt,
       created_at: entry.updatedAt,
       created_by: null,
-      encrypted_title: null,
-      encrypted_title_nonce: null,
-      encrypted_title_key_version: null,
+      encrypted_title: entry.encryptedTitle ?? null,
+      encrypted_title_nonce: entry.encryptedTitleNonce ?? null,
+      encrypted_title_key_version: entry.encryptedTitleKeyVersion ?? null,
       active_snapshot_id: null,
       latest_snapshot_at: null,
       latest_update_at: null,
@@ -100,7 +152,11 @@ export function useDocuments(workspaceId: Accessor<string | null>) {
             position: doc.position,
             docType: doc.doc_type,
             folderTitle: doc.doc_type === "folder" ? (doc.title ?? null) : null,
+            encryptedTitle: doc.encrypted_title ?? null,
+            encryptedTitleNonce: doc.encrypted_title_nonce ?? null,
+            encryptedTitleKeyVersion: doc.encrypted_title_key_version ?? null,
             archivedAt: doc.archived_at ?? null,
+            writeState: documentWriteStateForOfflineIndex(doc),
             isEncrypted: doc.is_encrypted,
             updatedAt: doc.updated_at,
           })),
@@ -113,7 +169,10 @@ export function useDocuments(workspaceId: Accessor<string | null>) {
       }
     },
     enabled:
-      !!authState() && !!workspaceId() && (cryptoWorkerReady() || shouldPreferOfflineCache()),
+      !!authState() &&
+      !!deviceState() &&
+      !!workspaceId() &&
+      (cryptoWorkerReady() || shouldPreferOfflineCache()),
   }));
 
   const flatDocuments = () => query.data?.documents ?? [];

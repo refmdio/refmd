@@ -1,4 +1,5 @@
 import type { Command } from "@/shared/lib/workspace/app";
+import type { WorkspaceSurfaceOwnerPredicate } from "@/shared/lib/workspace/app";
 import { matchesHotkey } from "./hotkeys";
 
 type EditorContext = { editor: unknown; doc: unknown } | null;
@@ -30,12 +31,21 @@ export class CommandsState {
   }
 
   add(command: Command): Command {
+    if (!command.owner) {
+      throw new Error(`Command ${command.id} is missing a workspace surface owner`);
+    }
     this.commands.set(command.id, command);
     return command;
   }
 
   remove(commandId: string): void {
     this.commands.delete(commandId);
+  }
+
+  removeByOwner(predicate: WorkspaceSurfaceOwnerPredicate): void {
+    for (const [commandId, command] of this.commands) {
+      if (predicate(command.owner)) this.commands.delete(commandId);
+    }
   }
 
   list(): Command[] {
@@ -75,7 +85,13 @@ export class CommandsState {
     }
     if (command.checkCallback) {
       const canRun = command.checkCallback(true);
-      if (canRun) command.checkCallback(false);
+      if (canRun) {
+        if (command.callback) {
+          command.callback();
+        } else {
+          command.checkCallback(false);
+        }
+      }
       return;
     }
     command.callback?.();

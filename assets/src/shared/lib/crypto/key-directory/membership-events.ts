@@ -25,6 +25,7 @@ import type {
   DeviceRevocationKeyDirectoryAppendInput,
   KeyDirectoryAppendArtifacts,
   WorkspaceMemberRemovalKeyDirectoryAppendInput,
+  WorkspaceMemberRoleChangeKeyDirectoryAppendInput,
 } from "./types";
 
 export async function buildDeviceRevocationKeyDirectoryAppend(
@@ -161,35 +162,35 @@ export async function buildWorkspaceMemberRemovalKeyDirectoryAppend(
   const events = revocableDeviceKeys.reduce<Record<string, unknown>[]>(
     (acc, deviceKeys) => {
       const previous = acc[acc.length - 1] ?? memberRemovedEvent;
-      const signingSequence = startingSequence + acc.length;
-      const signingEvent = keyDirectoryEvent({
-        scopeKind: "workspace",
-        scopeId: input.workspaceId,
-        sequence: signingSequence,
-        eventType: "signing_key_revoked",
-        actor,
-        previousEventHash: eventHash(previous),
-        body: {
-          key_id: deviceKeys.signingKeyId,
-          reason: "member_removed",
-          revoked_at_event_sequence: signingSequence,
-        },
-      });
-      const encryptionSequence = signingSequence + 1;
+      const encryptionSequence = startingSequence + acc.length;
       const encryptionEvent = keyDirectoryEvent({
         scopeKind: "workspace",
         scopeId: input.workspaceId,
         sequence: encryptionSequence,
         eventType: "encryption_key_revoked",
         actor,
-        previousEventHash: eventHash(signingEvent),
+        previousEventHash: eventHash(previous),
         body: {
           key_id: deviceKeys.encryptionKeyId,
           reason: "member_removed",
           revoked_at_event_sequence: encryptionSequence,
         },
       });
-      return [...acc, signingEvent, encryptionEvent];
+      const signingSequence = encryptionSequence + 1;
+      const signingEvent = keyDirectoryEvent({
+        scopeKind: "workspace",
+        scopeId: input.workspaceId,
+        sequence: signingSequence,
+        eventType: "signing_key_revoked",
+        actor,
+        previousEventHash: eventHash(encryptionEvent),
+        body: {
+          key_id: deviceKeys.signingKeyId,
+          reason: "member_removed",
+          revoked_at_event_sequence: signingSequence,
+        },
+      });
+      return [...acc, encryptionEvent, signingEvent];
     },
     [memberRemovedEvent],
   );
@@ -226,4 +227,59 @@ export async function buildWorkspaceMemberRemovalKeyDirectoryAppend(
   });
   const signedCheckpoint = await signCheckpoint("device", "workspace_authorized", checkpoint);
   return { events: signedEvents, checkpoint: signedCheckpoint };
+}
+
+export async function buildWorkspaceMemberRoleChangeKeyDirectoryAppend(
+  input: WorkspaceMemberRoleChangeKeyDirectoryAppendInput,
+): Promise<KeyDirectoryAppendArtifacts> {
+  const checkpointPayload = input.checkpointEnvelope.payload as Record<string, unknown> | undefined;
+  if (!checkpointPayload) throw new Error("key_directory_checkpoint_payload_invalid");
+  const coveredHead = checkpointPayload.covered_event_head as Record<string, unknown> | undefined;
+  if (!coveredHead) throw new Error("key_directory_checkpoint_head_invalid");
+
+  const actor = actorWithCheckpointAuthority(
+    deviceActor(
+      input.actorUserId,
+      input.actorDeviceId,
+      activeDeviceSigningKeyId(checkpointPayload, input.actorDeviceId),
+    ),
+    "workspace",
+    input.workspaceId,
+    checkpointPayload,
+  );
+  const sequence = numberField(coveredHead.head_sequence) + 1;
+  const event = keyDirectoryEvent({
+    scopeKind: "workspace",
+    scopeId: input.workspaceId,
+    sequence,
+    eventType: "member_role_changed",
+    actor,
+    previousEventHash: stringField(coveredHead.head_hash),
+    body: {
+      workspace_id: input.workspaceId,
+      user_id: input.targetUserId,
+      previous_role_id: input.previousRoleId,
+      previous_base_role: input.previousBaseRole,
+      role_id: input.roleId,
+      base_role: input.baseRole,
+      changed_at_event_sequence: sequence,
+    },
+  });
+  const signedEvent = await signEvent("device", event);
+  const checkpoint = keyDirectoryCheckpoint({
+    scopeKind: "workspace",
+    scopeId: input.workspaceId,
+    sequence: numberField(checkpointPayload.sequence) + 1,
+    issuedAt: new Date().toISOString(),
+    previousCheckpointHash: blake3Base64Url(
+      canonicalizeStrictBytes(checkpointPayload as StrictJsonValue),
+    ),
+    coveredEventHead: eventHead(event),
+    identityKeys: (checkpointPayload.identity_keys as Record<string, unknown>[] | undefined) ?? [],
+    deviceKeys: (checkpointPayload.device_keys as Record<string, unknown>[] | undefined) ?? [],
+    shareParticipantKeys: checkpointShareParticipantKeys(checkpointPayload),
+    revokedKeyIds: (checkpointPayload.revoked_key_ids as string[] | undefined) ?? [],
+  });
+  const signedCheckpoint = await signCheckpoint("device", "workspace_authorized", checkpoint);
+  return { events: [signedEvent], checkpoint: signedCheckpoint };
 }

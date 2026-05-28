@@ -26,7 +26,11 @@ export function useWorkspaceRoleManagement(options: UseWorkspaceRoleManagementOp
   const roles = createQuery(() => ({
     queryKey: ["workspace-roles", workspaceId()],
     queryFn: () => workspacesApi.listRoles(workspaceId()!),
-    enabled: !!authState() && !!deviceState() && !!workspaceId(),
+    enabled:
+      !!authState() &&
+      !!deviceState() &&
+      !!workspaceId() &&
+      authState()?.user.accountType !== "guest",
   }));
 
   const invalidateRoles = () => {

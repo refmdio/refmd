@@ -12,9 +12,9 @@ defmodule RefMDWeb.Plugs.RateLimit.RateLimitTest do
   @user_cookie "_refmd_session"
   @share_cookie "_refmd_share_session"
 
-  setup do
+  setup %{conn: conn} do
     :ets.delete_all_objects(RefMDWeb.Plugs.RateLimit.Storage)
-    :ok
+    {:ok, conn: delete_req_header(conn, "x-refmd-e2e-rate-limit-bypass")}
   end
 
   test "uses the share session cookie for canonical share bootstrap", %{conn: conn} do
@@ -102,6 +102,155 @@ defmodule RefMDWeb.Plugs.RateLimit.RateLimitTest do
     refute_general_ip_counter_present()
   end
 
+  test "allows general REST bursts up to the session fairness quota", %{conn: conn} do
+    token = "user-session-token"
+
+    for _ <- 1..180 do
+      conn =
+        conn
+        |> Map.put(:request_path, "/api/documents")
+        |> put_req_header("cookie", "#{@user_cookie}=#{token}")
+        |> RateLimit.call([])
+
+      refute conn.halted
+    end
+
+    conn =
+      conn
+      |> Map.put(:request_path, "/api/documents")
+      |> put_req_header("cookie", "#{@user_cookie}=#{token}")
+      |> RateLimit.call([])
+
+    assert conn.halted
+    assert conn.status == 429
+  end
+
+  test "keeps the general IP safety net above shared-IP normal use", %{conn: conn} do
+    for index <- 1..1200 do
+      conn =
+        conn
+        |> Map.put(:request_path, "/api/documents")
+        |> put_req_header("cookie", "#{@user_cookie}=shared-ip-session-#{index}")
+        |> RateLimit.call([])
+
+      refute conn.halted
+    end
+
+    conn =
+      conn
+      |> Map.put(:request_path, "/api/documents")
+      |> put_req_header("cookie", "#{@user_cookie}=shared-ip-session-over-limit")
+      |> RateLimit.call([])
+
+    assert conn.halted
+    assert conn.status == 429
+  end
+
+  test "allows shared-IP auth bursts up to the auth throttle quota", %{conn: conn} do
+    for _ <- 1..60 do
+      conn =
+        conn
+        |> Map.put(:request_path, "/api/auth/login")
+        |> RateLimit.call([])
+
+      refute conn.halted
+    end
+
+    conn =
+      conn
+      |> Map.put(:request_path, "/api/auth/login")
+      |> RateLimit.call([])
+
+    assert conn.halted
+    assert conn.status == 429
+  end
+
+  test "uses dedicated plugin runtime audit quota", %{conn: conn} do
+    token = "user-session-token"
+
+    conn =
+      conn
+      |> Map.put(:method, "POST")
+      |> Map.put(
+        :request_path,
+        "/api/workspaces/00000000-0000-4000-8000-000000000001/plugin-runtime-audit"
+      )
+      |> put_req_header("cookie", "#{@user_cookie}=#{token}")
+      |> RateLimit.call([])
+
+    refute conn.halted
+
+    assert_plugin_runtime_audit_counter_present(token)
+    assert_plugin_runtime_audit_ip_counter_present()
+    refute_general_session_counter_present(token)
+    refute_general_ip_counter_present()
+  end
+
+  test "uses dedicated plugin runtime control quota for descriptor refresh", %{conn: conn} do
+    token = "user-session-token"
+
+    conn =
+      conn
+      |> Map.put(:method, "GET")
+      |> Map.put(
+        :request_path,
+        "/api/workspaces/00000000-0000-4000-8000-000000000001/plugin-runtime"
+      )
+      |> put_req_header("cookie", "#{@user_cookie}=#{token}")
+      |> RateLimit.call([])
+
+    refute conn.halted
+
+    assert_plugin_runtime_control_counter_present(token)
+    assert_plugin_runtime_control_ip_counter_present()
+    refute_general_session_counter_present(token)
+    refute_general_ip_counter_present()
+  end
+
+  test "uses dedicated plugin runtime control quota for consent-required refresh", %{conn: conn} do
+    token = "user-session-token"
+
+    conn =
+      conn
+      |> Map.put(:method, "GET")
+      |> Map.put(
+        :request_path,
+        "/api/workspaces/00000000-0000-4000-8000-000000000001/plugin-runtime/consent-required"
+      )
+      |> put_req_header("cookie", "#{@user_cookie}=#{token}")
+      |> RateLimit.call([])
+
+    refute conn.halted
+
+    assert_plugin_runtime_control_counter_present(token)
+    assert_plugin_runtime_control_ip_counter_present()
+    refute_general_session_counter_present(token)
+    refute_general_ip_counter_present()
+  end
+
+  test "uses dedicated plugin runtime sandbox document quota for iframe delivery", %{
+    conn: conn
+  } do
+    token = "user-session-token"
+
+    conn =
+      conn
+      |> Map.put(:method, "GET")
+      |> Map.put(
+        :request_path,
+        "/api/plugin-runtime/sandbox-documents/00000000-0000-4000-8000-000000000001"
+      )
+      |> put_req_header("cookie", "#{@user_cookie}=#{token}")
+      |> RateLimit.call([])
+
+    refute conn.halted
+
+    assert_plugin_runtime_sandbox_document_counter_present(token)
+    assert_plugin_runtime_sandbox_document_ip_counter_present()
+    refute_general_session_counter_present(token)
+    refute_general_ip_counter_present()
+  end
+
   test "applies auth throttling to share password challenge requests", %{conn: conn} do
     get_conn =
       conn
@@ -178,6 +327,63 @@ defmodule RefMDWeb.Plugs.RateLimit.RateLimitTest do
     assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
              {{{:transport_ip, {127, 0, 0, 1}}, _window}, _count} -> true
              _ -> false
+           end)
+  end
+
+  defp assert_plugin_runtime_audit_counter_present(token) do
+    hashed = :crypto.hash(:sha256, token)
+
+    assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
+             {{{:plugin_runtime_audit_session, {:session, ^hashed}}, _window}, _count} -> true
+             _ -> false
+           end)
+  end
+
+  defp assert_plugin_runtime_audit_ip_counter_present do
+    assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
+             {{{:plugin_runtime_audit_ip, {127, 0, 0, 1}}, _window}, _count} -> true
+             _ -> false
+           end)
+  end
+
+  defp assert_plugin_runtime_control_counter_present(token) do
+    hashed = :crypto.hash(:sha256, token)
+
+    assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
+             {{{:plugin_runtime_control_session, {:session, ^hashed}}, _window}, _count} ->
+               true
+
+             _ ->
+               false
+           end)
+  end
+
+  defp assert_plugin_runtime_control_ip_counter_present do
+    assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
+             {{{:plugin_runtime_control_ip, {127, 0, 0, 1}}, _window}, _count} -> true
+             _ -> false
+           end)
+  end
+
+  defp assert_plugin_runtime_sandbox_document_counter_present(token) do
+    hashed = :crypto.hash(:sha256, token)
+
+    assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
+             {{{:plugin_runtime_sandbox_document_session, {:session, ^hashed}}, _window}, _count} ->
+               true
+
+             _ ->
+               false
+           end)
+  end
+
+  defp assert_plugin_runtime_sandbox_document_ip_counter_present do
+    assert Enum.any?(:ets.tab2list(RefMDWeb.Plugs.RateLimit.Storage), fn
+             {{{:plugin_runtime_sandbox_document_ip, {127, 0, 0, 1}}, _window}, _count} ->
+               true
+
+             _ ->
+               false
            end)
   end
 

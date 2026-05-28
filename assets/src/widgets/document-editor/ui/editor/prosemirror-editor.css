@@ -65,6 +65,18 @@
   font-size: inherit;
 }
 
+.ProseMirror .refmd-plugin-renderer-source-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Inline code */
 .ProseMirror code {
   background: hsl(var(--muted));
@@ -133,6 +145,25 @@
 .ProseMirror del {
   text-decoration: line-through;
   opacity: 0.65;
+}
+
+.ProseMirror .refmd-plugin-editor-decoration-highlight {
+  background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.ProseMirror .refmd-plugin-editor-decoration-underline {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+.ProseMirror .refmd-plugin-editor-decoration-gutter_marker {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ProseMirror .refmd-plugin-editor-decoration-warning {
+  background-color: color-mix(in srgb, #f59e0b 24%, transparent);
+  text-decoration-color: #d97706;
 }
 
 /* Gap cursor */

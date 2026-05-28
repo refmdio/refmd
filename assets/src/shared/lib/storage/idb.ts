@@ -6,7 +6,7 @@ export function openIdb(
   name: string,
   version: number,
   onUpgrade: (db: IDBDatabase, oldVersion: number) => void,
-  timeoutMs = 5000,
+  timeoutMs = 30_000,
 ): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
     return Promise.reject(new Error("IndexedDB is not available in this environment"));
@@ -22,7 +22,9 @@ export function openIdb(
     };
     request.onsuccess = () => {
       clearTimeout(timer);
-      resolve(request.result);
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
     };
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
@@ -63,6 +65,20 @@ export function idbPut(
     const tx = db.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
     const request = key !== undefined ? store.put(value, key) : store.put(value);
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => {
+      resolve();
+      db.close();
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export function idbDelete(db: IDBDatabase, storeName: string, key: IDBValidKey): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.delete(key);
     request.onerror = () => reject(request.error);
     tx.oncomplete = () => {
       resolve();

@@ -8,7 +8,7 @@ import {
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "@/entities/workspace";
 import { activateSharedDocumentRoute } from "@/features/editor";
-import { createMountedShareDocumentPanelTarget, usePanelWorkspace } from "@/features/panel";
+import { createMountedShareWorkspaceTileTarget, usePanelWorkspace } from "@/features/panel";
 import {
   getShareMountForRoute,
   openMountedShareDocument,
@@ -51,7 +51,7 @@ export function MountedShareWorkspace(props: { fallback: JSX.Element }) {
 
     const routeShare = routeShareId();
     const opened = await openMountedShareDocument(mountId, detail, document);
-    const target = createMountedShareDocumentPanelTarget({
+    const target = createMountedShareWorkspaceTileTarget({
       mountId,
       shareId: document.share_id,
       documentId: document.document_id,

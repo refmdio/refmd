@@ -18,6 +18,7 @@ import {
   computeHybridEncryptionKeyId,
   type HybridEncryptionPublicKeyMaterial,
 } from "@/shared/lib/crypto/hybrid-encryption";
+import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   persistWorkspaceKekForDevice,
@@ -42,6 +43,7 @@ async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Prom
   const auth = authState();
   const device = deviceState();
   if (!cryptoWorkerReady() || !auth || !device?.deviceId) return;
+  if (auth.user.accountType === "guest") return;
 
   const [{ kekVersion }, memberKeys, members] = await Promise.all([
     resolveActiveKek(workspaceId, getKekResolverSession()),
@@ -90,12 +92,17 @@ async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Prom
       | HybridEncryptionPublicKeyMaterial
       | undefined;
     if (!material) continue;
+    const signingMaterial = member.hybrid_signing_public_key_material as unknown as
+      | HybridSigningPublicKeyMaterial
+      | undefined;
+    if (!signingMaterial) continue;
     const directory = await ensureWorkspaceIdentityKey({
       workspaceId,
       ownerUserId: auth.user.id,
       ownerDeviceId: device.deviceId,
       targetUserId: member.user_id,
       targetIdentityHybridEncryptionPublicKeyMaterial: material,
+      targetIdentityHybridSigningPublicKeyMaterial: signingMaterial,
     }).catch(() => null);
     if (!directory) continue;
 
@@ -119,6 +126,7 @@ async function ensureWorkspaceIdentityKey(params: {
   ownerDeviceId: string;
   targetUserId: string;
   targetIdentityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  targetIdentityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
 }): Promise<{ checkpoint: KeyDirectoryEnvelope }> {
   let directory = await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
@@ -128,7 +136,13 @@ async function ensureWorkspaceIdentityKey(params: {
   const targetKeyId = computeHybridEncryptionKeyId(
     params.targetIdentityHybridEncryptionPublicKeyMaterial,
   );
-  if (checkpointHasIdentityKey(directory.checkpoint, targetKeyId)) {
+  const targetSigningKeyId = computeSigningKeyId(
+    params.targetIdentityHybridSigningPublicKeyMaterial,
+  );
+  if (
+    checkpointHasIdentityKey(directory.checkpoint, targetKeyId) &&
+    checkpointHasIdentityKey(directory.checkpoint, targetSigningKeyId)
+  ) {
     return directory;
   }
 
@@ -140,6 +154,7 @@ async function ensureWorkspaceIdentityKey(params: {
     checkpointEnvelope: directory.checkpoint,
     recipientHybridEncryptionPublicKeyMaterial:
       params.targetIdentityHybridEncryptionPublicKeyMaterial,
+    recipientHybridSigningPublicKeyMaterial: params.targetIdentityHybridSigningPublicKeyMaterial,
   });
   await appendWorkspaceKeyDirectory({
     workspaceId: params.workspaceId,

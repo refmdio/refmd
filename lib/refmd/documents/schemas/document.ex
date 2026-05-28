@@ -24,6 +24,7 @@ defmodule RefMD.Documents.Document do
     field :needs_rotation_snapshot, :boolean, default: false
     field :min_dek_version, :integer, default: 1
     field :archived_at, :utc_datetime_usec
+    field :write_state, :string, default: "writable"
 
     has_many :children, RefMD.Documents.Document, foreign_key: :parent_id
 
@@ -53,6 +54,7 @@ defmodule RefMD.Documents.Document do
     ])
     |> validate_required([:workspace_id, :slug, :doc_type, :is_encrypted])
     |> validate_inclusion(:doc_type, ~w(document folder))
+    |> validate_inclusion(:write_state, ~w(writable read_only archived write_disabled))
     |> validate_number(:position, greater_than_or_equal_to: 0)
     |> validate_title_encryption()
     |> validate_encrypted_title_update_consistency()

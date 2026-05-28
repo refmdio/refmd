@@ -1,0 +1,24 @@
+{
+  "id": "io.refmd.renderer-demo",
+  "version": "0.1.0",
+  "scope": {
+    "supportedOwnerScopes": ["user"],
+    "defaultOwnerScope": "user",
+    "workspaceApplication": "optional"
+  },
+  "permissions": ["plaintext:render:block:refmd-renderer-demo", "plaintext:render:inline:code"],
+  "network": {
+    "endpoints": []
+  },
+  "rendererSlots": [
+    {
+      "kind": "block",
+      "type": "refmd-renderer-demo"
+    },
+    {
+      "kind": "inline",
+      "type": "code"
+    }
+  ],
+  "documentScopes": []
+}

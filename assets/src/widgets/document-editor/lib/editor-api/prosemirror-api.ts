@@ -1,7 +1,14 @@
-import { TextSelection } from "prosemirror-state";
-import { EditorView as PMEditorView } from "prosemirror-view";
+import { Plugin, PluginKey, TextSelection } from "prosemirror-state";
+import {
+  Decoration,
+  DecorationSet,
+  EditorView as PMEditorView,
+  type DecorationSource,
+} from "prosemirror-view";
+import type { Node as ProseMirrorNode } from "prosemirror-model";
 import type {
   EditorLike,
+  EditorPluginDecoration,
   EditorPosition,
   EditorRange,
   EditorSelection,
@@ -37,6 +44,95 @@ interface YTextWritable {
   delete(offset: number, length: number): void;
   readonly length: number;
   readonly doc: { transact(fn: () => void): void } | null;
+}
+
+interface PluginDecorationMeta {
+  kind: "set" | "clear";
+  sourceId: string;
+  decorations?: readonly EditorPluginDecoration[];
+}
+
+interface PluginDecorationState {
+  sources: Map<string, readonly EditorPluginDecoration[]>;
+  decorations: DecorationSet;
+}
+
+const pluginDecorationsKey = new PluginKey<PluginDecorationState>(
+  "refmd-plugin-editor-decorations",
+);
+
+function pluginDecorationClass(decoration: EditorPluginDecoration): string {
+  return [
+    "refmd-plugin-editor-decoration",
+    `refmd-plugin-editor-decoration-${decoration.style}`,
+    `refmd-plugin-editor-decoration-${decoration.tone}`,
+  ].join(" ");
+}
+
+function buildPluginDecorations(
+  doc: PMEditorView["state"]["doc"],
+  sources: Map<string, readonly EditorPluginDecoration[]>,
+): DecorationSet {
+  const decorations = [...sources.values()]
+    .flat()
+    .filter((decoration) => decoration.range.to > decoration.range.from)
+    .sort(
+      (a, b) => a.range.from - b.range.from || a.range.to - b.range.to || a.id.localeCompare(b.id),
+    )
+    .map((decoration) =>
+      Decoration.inline(
+        textOffsetToProseMirrorPos(doc, decoration.range.from),
+        textOffsetToProseMirrorPos(doc, decoration.range.to),
+        { class: pluginDecorationClass(decoration) },
+      ),
+    );
+  return DecorationSet.create(doc, decorations);
+}
+
+function textOffsetToProseMirrorPos(doc: ProseMirrorNode, offset: number): number {
+  const target = Math.max(0, offset);
+  let consumed = 0;
+  let position = doc.content.size;
+  doc.descendants((node, pos) => {
+    if (!node.isText) return true;
+    const length = node.text?.length ?? 0;
+    if (consumed + length >= target) {
+      position = pos + (target - consumed);
+      return false;
+    }
+    consumed += length;
+    return true;
+  });
+  return Math.max(0, Math.min(doc.content.size, position));
+}
+
+export function pluginEditorDecorationsPlugin(): Plugin {
+  return new Plugin<PluginDecorationState>({
+    key: pluginDecorationsKey,
+    state: {
+      init(_config, state) {
+        const sources = new Map<string, readonly EditorPluginDecoration[]>();
+        return { sources, decorations: buildPluginDecorations(state.doc, sources) };
+      },
+      apply(tr, value, _oldState, newState) {
+        const meta = tr.getMeta(pluginDecorationsKey) as PluginDecorationMeta | undefined;
+        if (!meta && !tr.docChanged) return value;
+        if (!meta) {
+          const sources = new Map<string, readonly EditorPluginDecoration[]>();
+          return { sources, decorations: DecorationSet.empty };
+        }
+        const sources = new Map(value.sources);
+        if (meta.kind === "set") sources.set(meta.sourceId, [...(meta.decorations ?? [])]);
+        if (meta.kind === "clear") sources.delete(meta.sourceId);
+        return { sources, decorations: buildPluginDecorations(newState.doc, sources) };
+      },
+    },
+    props: {
+      decorations(state): DecorationSource | null | undefined {
+        return pluginDecorationsKey.getState(state)?.decorations;
+      },
+    },
+  });
 }
 
 export class ProseMirrorEditorApi implements EditorLike {
@@ -272,5 +368,24 @@ export class ProseMirrorEditorApi implements EditorLike {
 
   offsetToPos(offset: number): EditorPosition {
     return offsetToPosition(this.getValue(), offset);
+  }
+
+  setPluginDecorations(sourceId: string, decorations: readonly EditorPluginDecoration[]): void {
+    this.pm.dispatch(
+      this.pm.state.tr.setMeta(pluginDecorationsKey, {
+        kind: "set",
+        sourceId,
+        decorations,
+      } satisfies PluginDecorationMeta),
+    );
+  }
+
+  clearPluginDecorations(sourceId: string): void {
+    this.pm.dispatch(
+      this.pm.state.tr.setMeta(pluginDecorationsKey, {
+        kind: "clear",
+        sourceId,
+      } satisfies PluginDecorationMeta),
+    );
   }
 }

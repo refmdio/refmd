@@ -5,7 +5,7 @@ import {
   getCorePlugins,
   isCorePluginEnabled,
   setCorePluginEnabled,
-} from "@/shared/lib/plugin/core-registry";
+} from "@/features/plugin-runtime";
 import { getApp } from "@/shared/lib/workspace/app";
 
 export function CorePluginsSection() {

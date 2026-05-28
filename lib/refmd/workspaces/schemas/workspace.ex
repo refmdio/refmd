@@ -2,6 +2,8 @@ defmodule RefMD.Workspaces.Workspace do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias RefMD.Plugins.{NetworkProxyRegistration, UserPluginWorkspacePolicy}
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
@@ -24,6 +26,8 @@ defmodule RefMD.Workspaces.Workspace do
     field :public_publishing_enabled, :boolean, default: false
     field :guest_invites_enabled, :boolean, default: false
     field :guest_member_limit, :integer
+    field :plugin_network_proxy, :map
+    field :plugin_user_policy, :map
     field :current_kek_version, :integer, default: 0
     field :min_kek_version, :integer, default: 0
     field :needs_kek_rotation, :boolean, default: false
@@ -58,8 +62,12 @@ defmodule RefMD.Workspaces.Workspace do
       :share_links_enabled,
       :public_publishing_enabled,
       :guest_invites_enabled,
-      :guest_member_limit
+      :guest_member_limit,
+      :plugin_network_proxy,
+      :plugin_user_policy
     ])
+    |> normalize_plugin_network_proxy()
+    |> normalize_plugin_user_policy()
     |> validate_required([:name, :slug, :owner_id])
     |> validate_number(:guest_member_limit, greater_than: 0)
     |> validate_slug()
@@ -86,8 +94,12 @@ defmodule RefMD.Workspaces.Workspace do
       :share_links_enabled,
       :public_publishing_enabled,
       :guest_invites_enabled,
-      :guest_member_limit
+      :guest_member_limit,
+      :plugin_network_proxy,
+      :plugin_user_policy
     ])
+    |> normalize_plugin_network_proxy()
+    |> normalize_plugin_user_policy()
     |> validate_length(:name, min: 1, max: 100)
     |> validate_length(:description, max: 500)
     |> validate_number(:guest_member_limit, greater_than: 0)
@@ -106,6 +118,38 @@ defmodule RefMD.Workspaces.Workspace do
         else
           add_error(changeset, :slug, "must contain only lowercase letters, numbers, and hyphens")
         end
+    end
+  end
+
+  defp normalize_plugin_network_proxy(changeset) do
+    case fetch_change(changeset, :plugin_network_proxy) do
+      {:ok, value} ->
+        case NetworkProxyRegistration.normalize(value, "workspace") do
+          {:ok, normalized} ->
+            put_change(changeset, :plugin_network_proxy, normalized)
+
+          {:error, _reason} ->
+            add_error(changeset, :plugin_network_proxy, "is invalid")
+        end
+
+      :error ->
+        changeset
+    end
+  end
+
+  defp normalize_plugin_user_policy(changeset) do
+    case fetch_change(changeset, :plugin_user_policy) do
+      {:ok, value} ->
+        case UserPluginWorkspacePolicy.normalize(value) do
+          {:ok, normalized} ->
+            put_change(changeset, :plugin_user_policy, normalized)
+
+          {:error, _reason} ->
+            add_error(changeset, :plugin_user_policy, "is invalid")
+        end
+
+      :error ->
+        changeset
     end
   end
 end

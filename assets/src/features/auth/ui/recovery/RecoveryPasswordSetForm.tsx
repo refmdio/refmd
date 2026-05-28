@@ -14,6 +14,7 @@ interface RecoveryPasswordSetFormProps {
   onNewPasswordInput: (value: string) => void;
   onConfirmPasswordInput: (value: string) => void;
   onSubmit: (event: Event) => Promise<void>;
+  onBackToLogin: () => void;
 }
 
 export function RecoveryPasswordSetForm(props: RecoveryPasswordSetFormProps) {
@@ -59,6 +60,15 @@ export function RecoveryPasswordSetForm(props: RecoveryPasswordSetFormProps) {
         ) : (
           "Set New Password"
         )}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        class="w-full"
+        disabled={props.loading}
+        onClick={props.onBackToLogin}
+      >
+        Back to Login
       </Button>
     </form>
   );

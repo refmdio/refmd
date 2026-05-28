@@ -72,6 +72,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/plugin-applications/{application_id}/consent-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a plugin consent event */
+        post: operations["post_api_workspaces_by_workspace_id_plugin_applications_by_application_id_consent_events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -365,6 +382,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/plugin-runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List runnable plugin runtime descriptors */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_runtime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-runtime/sandbox-documents/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Load a single-use plugin sandbox document */
+        get: operations["get_api_plugin_runtime_sandbox_documents_by_session_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/member-keys": {
         parameters: {
             query?: never;
@@ -450,6 +501,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugin-candidates/{candidate_id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote an approved plugin bundle candidate */
+        post: operations["post_api_plugin_candidates_by_candidate_id_approval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/guest-invitations": {
         parameters: {
             query?: never;
@@ -468,6 +536,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reject removed plugin runtime bundle endpoint */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_bundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shares/{share_slug}/bootstrap": {
         parameters: {
             query?: never;
@@ -479,6 +564,23 @@ export interface paths {
         put?: never;
         /** Bootstrap a share participant session */
         post: operations["post_api_shares_by_share_slug_bootstrap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/sandbox-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a single-use plugin sandbox document session */
+        post: operations["post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_sandbox_documents"];
         delete?: never;
         options?: never;
         head?: never;
@@ -537,6 +639,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/security/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark security notification read */
+        patch: operations["patch_api_security_notifications_by_notification_id_read"];
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plugin-runtime-audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a plugin runtime audit event */
+        post: operations["post_api_workspaces_by_workspace_id_plugin_runtime_audit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plugin-runtime/consent-required": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List plugin applications requiring member consent */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_runtime_consent_required"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/registrations/{device_id}": {
         parameters: {
             query?: never;
@@ -549,6 +702,25 @@ export interface paths {
         post?: never;
         /** Reject (delete) a device registration */
         delete: operations["delete_api_devices_registrations_by_device_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/storage/{surface}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get encrypted plugin storage */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface"];
+        /** Save encrypted plugin storage */
+        put: operations["put_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface"];
+        post?: never;
+        /** Delete encrypted plugin storage */
+        delete: operations["delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface"];
         options?: never;
         head?: never;
         patch?: never;
@@ -605,6 +777,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/security/notifications/{notification_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Dismiss security notification */
+        patch: operations["patch_api_security_notifications_by_notification_id_dismiss"];
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}": {
         parameters: {
             query?: never;
@@ -635,6 +824,23 @@ export interface paths {
         get: operations["get_api_workspaces_by_workspace_id_members_by_user_id_devices"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/write-disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable document writes by policy */
+        post: operations["post_api_documents_by_document_id_write_disable"];
         delete?: never;
         options?: never;
         head?: never;
@@ -743,6 +949,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugin-candidates/{candidate_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a plugin bundle candidate approval summary */
+        get: operations["get_api_plugin_candidates_by_candidate_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shares/{share_slug}/mounts": {
         parameters: {
             query?: never;
@@ -809,6 +1032,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plugin-applications/{application_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Uninstall a plugin */
+        delete: operations["delete_api_workspaces_by_workspace_id_plugin_applications_by_application_id"];
+        options?: never;
+        head?: never;
+        /** Update an installed plugin */
+        patch: operations["patch_api_workspaces_by_workspace_id_plugin_applications_by_application_id"];
         trace?: never;
     };
     "/api/auth/recovery-key": {
@@ -1002,6 +1243,24 @@ export interface paths {
         patch: operations["patch_api_documents_by_document_id_shares_by_share_id"];
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/plugin-applications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List installed plugins */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_applications"];
+        put?: never;
+        /** Apply a plugin package to a workspace */
+        post: operations["post_api_workspaces_by_workspace_id_plugin_applications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/keys": {
         parameters: {
             query?: never;
@@ -1108,6 +1367,24 @@ export interface paths {
         patch: operations["patch_api_documents_reorder"];
         trace?: never;
     };
+    "/api/plugin-packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List user-owned plugin packages */
+        get: operations["get_api_plugin_packages"];
+        put?: never;
+        /** Create a user-owned plugin package candidate */
+        post: operations["post_api_plugin_packages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces": {
         parameters: {
             query?: never;
@@ -1195,6 +1472,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/read-only/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear document read-only state */
+        post: operations["post_api_documents_by_document_id_read_only_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/members/{user_id}": {
         parameters: {
             query?: never;
@@ -1264,6 +1558,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/plugin-packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace-owned plugin packages */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_packages"];
+        put?: never;
+        /** Create a plugin bundle candidate */
+        post: operations["post_api_workspaces_by_workspace_id_plugin_packages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/read-only/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a document read-only */
+        post: operations["post_api_documents_by_document_id_read_only_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/recovery": {
         parameters: {
             query?: never;
@@ -1273,6 +1602,23 @@ export interface paths {
         };
         /** Get recovery data (encrypted UMK, identity keys) */
         get: operations["get_api_auth_recovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugin-activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List current user plugin activations */
+        get: operations["get_api_plugin_activations"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1317,6 +1663,24 @@ export interface paths {
         patch: operations["patch_api_devices_by_device_id"];
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/records/{surface}/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get encrypted plugin record storage */
+        get: operations["get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id"];
+        put?: never;
+        post?: never;
+        /** Delete encrypted plugin record storage */
+        delete: operations["delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
         parameters: {
             query?: never;
@@ -1351,6 +1715,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugin-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a plugin package candidate through the manifest-routed add flow */
+        post: operations["post_api_plugin_candidates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/documents/{document_id}/keys": {
         parameters: {
             query?: never;
@@ -1363,6 +1744,23 @@ export interface paths {
         put?: never;
         /** Register a DEK for a document */
         post: operations["post_api_encryption_documents_by_document_id_keys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/security/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List security notifications */
+        get: operations["get_api_security_notifications"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1384,6 +1782,24 @@ export interface paths {
         head?: never;
         /** Update folder share exclusions */
         patch: operations["patch_api_documents_by_document_id_shares_by_share_id_exclusions"];
+        trace?: never;
+    };
+    "/api/plugin-activations/{activation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete current user plugin activation */
+        delete: operations["delete_api_plugin_activations_by_activation_id"];
+        options?: never;
+        head?: never;
+        /** Update current user plugin activation */
+        patch: operations["patch_api_plugin_activations_by_activation_id"];
         trace?: never;
     };
     "/api/encryption/setup-complete": {
@@ -1436,6 +1852,23 @@ export interface paths {
         head?: never;
         /** Update folder share keys */
         patch: operations["patch_api_documents_by_document_id_shares_by_share_id_keys"];
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/records/{surface}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create encrypted plugin record storage */
+        post: operations["post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/documents/{document_id}/publication": {
@@ -1496,6 +1929,10 @@ export interface components {
             initial_ake: components["schemas"]["InitialAkeArtifact"];
             initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
         };
+        /** PluginActivationUpdateRequest */
+        PluginActivationUpdateRequest: {
+            enabled?: boolean;
+        };
         /** InitialAkeApprovalTranscript */
         InitialAkeApprovalTranscript: {
             /** @enum {string} */
@@ -1528,6 +1965,8 @@ export interface components {
         ChangeMemberRoleRequest: {
             /** Format: uuid */
             role_id: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** ShareMountConflictResponse */
         ShareMountConflictResponse: {
@@ -1571,6 +2010,7 @@ export interface components {
             editor_layout_mode?: "tiling" | "horizontal" | "vertical";
             editor_vim_mode?: boolean;
             locale?: string;
+            plugin_network_proxy?: components["schemas"]["PluginNetworkProxyRegistration"];
             /** @enum {string} */
             theme?: "light" | "dark" | "system";
         };
@@ -1579,6 +2019,14 @@ export interface components {
             details?: components["schemas"]["ErrorDetail"][] | components["schemas"]["ErrorContextDetails"];
             error: string;
         };
+        /** PluginUserPolicy */
+        PluginUserPolicy: {
+            allowed_plugin_ids?: string[];
+            /** @enum {string} */
+            default_mode?: "allow_safe" | "allow_all" | "deny_all";
+            denied_plugin_ids?: string[];
+            require_admin_approval?: boolean;
+        } | null;
         /** UserInfo */
         UserInfo: {
             /** Format: email */
@@ -1745,6 +2193,23 @@ export interface components {
             version: 1;
             x25519_public: string;
         };
+        /** PluginStorageEntryResponse */
+        PluginStorageEntryResponse: {
+            /** Format: uuid */
+            activation_id: string;
+            /** Format: uuid */
+            application_id: string;
+            ciphertext: string;
+            key: string;
+            key_version: number;
+            nonce: string;
+            plugin_id: string;
+            scope_id: string;
+            /** @enum {string} */
+            surface: "workspace" | "document";
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** InitialAkeApprovalArtifact */
         InitialAkeApprovalArtifact: {
             /** @enum {string} */
@@ -1798,6 +2263,120 @@ export interface components {
             payload: components["schemas"]["DeviceKeyDeletionPayload"];
             signature: components["schemas"]["HybridSignature"];
             transcript: components["schemas"]["DeviceKeyDeletionTranscript"];
+        };
+        /** PluginRuntimeAuditRequest */
+        PluginRuntimeAuditRequest: {
+            frame_generation: number;
+            payloadKind?: string;
+            plugin_id: string;
+            sensitivity?: {
+                debug?: string;
+                egress_bytes: number;
+                plaintext_bytes: number | string;
+                plaintext_scope_kind: string;
+                storage_bytes: number;
+            };
+            /** @enum {string} */
+            owner_scope_kind: "workspace" | "user";
+            plaintext_scope_kind?: string;
+            created_at?: string;
+            manifest_hash: string;
+            consent_head_hash?: string;
+            execution_context_id?: string;
+            package_id: string;
+            request_id?: string;
+            resource_ref?: {
+                block_id?: string;
+                context_range?: {
+                    anchor: number;
+                    head: number;
+                };
+                document_id?: string;
+                editor_id?: string;
+                max_bytes?: number;
+                max_documents?: number;
+                selected_document_ids?: string[];
+                selection_range?: {
+                    anchor: number;
+                    head: number;
+                };
+            };
+            /** @enum {string} */
+            class?: "security_runtime";
+            /** @enum {string} */
+            result?: "allow" | "deny";
+            type: string;
+            correlation?: {
+                authority_event_ref: string;
+                capability_id: string;
+                execution_context_id: string;
+                request_body?: string;
+                request_id: string | {
+                    nested?: string;
+                };
+            };
+            scope?: {
+                document_id: string;
+                share_id: string;
+                /** Format: uuid */
+                workspace_id: string;
+            };
+            /** Format: uuid */
+            workspace_id: string;
+            activation_id: string;
+            application_id: string;
+            bundle_hash: string;
+            operation?: string;
+            payload_kind?: string;
+            /** @enum {string} */
+            protocol?: "refmd.security-audit-event";
+            contextKind?: string;
+            plaintext_bytes?: number;
+            capability_grant_id: string;
+            /** @enum {string} */
+            frame_scope?: "primary" | "secondary";
+            /** @enum {integer} */
+            version?: 1;
+            resource?: {
+                id: string;
+                /** @enum {string} */
+                kind: "plugin" | "credential" | "network_endpoint" | "document";
+                version_hash: string;
+            };
+            state_head_hash?: string;
+            actor?: {
+                device_id: string;
+                principal_id: string;
+                /** @enum {string} */
+                principal_kind: "user" | "share_participant" | "system" | "worker";
+                session_id: string;
+                user_id: string;
+            };
+            action?: {
+                content?: string;
+                credential_handle_used?: boolean | string;
+                endpoint_id?: string;
+                fallback_reason?: string;
+                method?: string;
+                operation: string;
+                payload?: string;
+                proxy_id?: string;
+                raw?: string;
+                reason_code?: string;
+                request_body?: string;
+                request_bytes?: number | string;
+                response_bytes?: number | string;
+                /** @enum {string} */
+                result: "allowed" | "denied" | "failed" | "completed";
+                route?: string;
+                target_origin?: string;
+                target_path?: string;
+            };
+            event_id?: string;
+            context_kind?: string;
+            capability_id?: string;
+            reasonCode?: string;
+            consent_epoch: number;
         };
         /** ShareMountFolderMountSummary */
         ShareMountFolderMountSummary: {
@@ -1930,6 +2509,11 @@ export interface components {
             pending_registration_challenge_hash?: string | null;
             signing_key_id: components["schemas"]["Blake3Base64Url"];
         };
+        /** DocumentWriteStateRequest */
+        DocumentWriteStateRequest: {
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
         /** RemoveMemberResponse */
         RemoveMemberResponse: {
             ok: boolean;
@@ -2020,6 +2604,12 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** PluginApplicationUpdateRequest */
+        PluginApplicationUpdateRequest: {
+            enabled?: boolean;
+            /** @enum {string} */
+            workspace_policy_result?: "allowed" | "denied" | "needs_admin_review";
+        };
         /** DeviceApprovalKekInitialDeliveryCommitment */
         DeviceApprovalKekInitialDeliveryCommitment: {
             delivery_id: string;
@@ -2071,6 +2661,8 @@ export interface components {
             candidate_user_event_head_sequence?: number | null;
             /** Format: uuid */
             device_id?: string | null;
+            device_key_checkpoint_hash?: components["schemas"]["Blake3Base64Url"] | null;
+            device_key_checkpoint_sequence?: number | null;
             device_verified: boolean;
             /** Format: email */
             email: string;
@@ -2135,6 +2727,8 @@ export interface components {
             needs_kek_rotation: boolean;
             /** Format: uuid */
             owner_id: string;
+            plugin_network_proxy?: components["schemas"]["PluginNetworkProxyRegistration"];
+            plugin_user_policy?: components["schemas"]["PluginUserPolicy"];
             public_author_profile?: components["schemas"]["PublicAuthorProfile"];
             public_publishing_enabled: boolean;
             share_links_enabled: boolean;
@@ -2227,6 +2821,13 @@ export interface components {
         MemberDevicesResponse: {
             devices: components["schemas"]["MemberDeviceInfo"][];
         };
+        /** PluginStorageWriteRequest */
+        PluginStorageWriteRequest: {
+            ciphertext: string;
+            key_version: number;
+            nonce: string;
+            plugin_id: string;
+        };
         /** RotationDeletionEvidence */
         RotationDeletionEvidence: {
             deletion_manifest: components["schemas"]["OldKeyDeletionManifest"];
@@ -2244,6 +2845,43 @@ export interface components {
         /** BootstrapDeviceResponse */
         BootstrapDeviceResponse: {
             status: string;
+        };
+        /** PluginConsentEventRequest */
+        PluginConsentEventRequest: {
+            /** Format: uuid */
+            activation_id: string;
+            /** Format: uuid */
+            application_id: string;
+            /** @enum {string} */
+            application_scope_kind: "workspace";
+            bundle_hash: string;
+            consent_epoch: number;
+            /** @enum {string} */
+            decision: "allow" | "deny" | "revoke";
+            /** Format: uuid */
+            device_id?: string;
+            document_scope_hash: string;
+            endpoint_hash: string;
+            event_hash: string;
+            hybrid_signature: components["schemas"]["HybridSignature"];
+            manifest_hash: string;
+            /** @enum {string} */
+            owner_scope_kind: "user" | "workspace";
+            /** Format: uuid */
+            package_id: string;
+            permissions_hash: string;
+            plugin_id: string;
+            previous_event_hash: string | null;
+            resource_manifest_hash: string;
+            /** Format: uuid */
+            signer_device_id: string;
+            /** Format: uuid */
+            signer_user_id: string;
+            /** Format: uuid */
+            user_id?: string;
+            version: string;
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** InitialKeyDeliveryApprovalMetadata */
         InitialKeyDeliveryApprovalMetadata: {
@@ -7528,6 +8166,160 @@ export interface components {
                 sequence: number;
                 /** @enum {integer} */
                 version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    document_id: string;
+                    event_type: string;
+                    issued_at_ms: number;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    /** @enum {string} */
+                    previous_write_state: "writable" | "read_only" | "archived" | "write_disabled";
+                    reason: string;
+                    workspace_id: string;
+                    /** @enum {string} */
+                    write_state: "writable" | "read_only" | "archived" | "write_disabled";
+                };
+                /** @enum {string} */
+                event_type: "document_write_state_changed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    document_id: string;
+                    event_type: string;
+                    issued_at_ms: number;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    /** @enum {string} */
+                    previous_write_state: "writable" | "read_only" | "archived" | "write_disabled";
+                    reason: string;
+                    workspace_id: string;
+                    /** @enum {string} */
+                    write_state: "writable" | "read_only" | "archived" | "write_disabled";
+                };
+                /** @enum {string} */
+                event_type: "document_write_state_changed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
             })) | ({
                 allowed_suite_ids: string[];
                 covered_event_head: {
@@ -7757,6 +8549,11 @@ export interface components {
         ShareLinkMountListResponse: {
             mounts: components["schemas"]["ShareLinkMountListItem"][];
         };
+        /** PluginApplicationApplyRequest */
+        PluginApplicationApplyRequest: {
+            /** Format: uuid */
+            package_id: string;
+        };
         /** CreateFolderShareKeyItem */
         CreateFolderShareKeyItem: {
             /** Format: uuid */
@@ -7793,6 +8590,16 @@ export interface components {
         /** DocumentKeysResponse */
         DocumentKeysResponse: {
             keys: components["schemas"]["DocumentKeyResponse"][];
+        };
+        /** PluginRecordWriteRequest */
+        PluginRecordWriteRequest: {
+            encrypted_data: string;
+            /** Format: uuid */
+            id: string;
+            key_version: number;
+            kind: string;
+            nonce: string;
+            plugin_id: string;
         };
         /** ShareMountBootstrapRequest */
         ShareMountBootstrapRequest: {
@@ -8076,6 +8883,25 @@ export interface components {
             variant: "umk_distribution";
             /** @enum {integer} */
             version: 1;
+        };
+        /** PluginRecordResponse */
+        PluginRecordResponse: {
+            /** Format: uuid */
+            activation_id: string;
+            /** Format: uuid */
+            application_id: string;
+            encrypted_data: string;
+            /** Format: uuid */
+            id: string;
+            key_version: number;
+            kind: string;
+            nonce: string;
+            plugin_id: string;
+            scope_id: string;
+            /** @enum {string} */
+            surface: "workspace" | "document";
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** MemberEnvelopeItem */
         MemberEnvelopeItem: {
@@ -8622,6 +9448,7 @@ export interface components {
             editor_layout_mode: "tiling" | "horizontal" | "vertical";
             editor_vim_mode: boolean;
             locale: string;
+            plugin_network_proxy?: components["schemas"]["PluginNetworkProxyRegistration"];
             /** @enum {string} */
             theme: "light" | "dark" | "system";
         };
@@ -9273,6 +10100,8 @@ export interface components {
             updated_at: string;
             /** Format: uuid */
             workspace_id: string;
+            /** @enum {string} */
+            write_state: "writable" | "read_only" | "archived" | "write_disabled";
         };
         /** DeviceRegistrationsResponse */
         DeviceRegistrationsResponse: {
@@ -9373,6 +10202,31 @@ export interface components {
             identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
             identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
             umk_nonce?: string;
+        } | null;
+        /** PluginNetworkProxyRegistration */
+        PluginNetworkProxyRegistration: {
+            allowed_user_ids?: string[];
+            allowed_workspace_ids?: string[];
+            base_url: string;
+            enabled: boolean;
+            id: string;
+            label: string;
+            operator_label?: string;
+            policy?: {
+                allowed_endpoint_ids?: string[];
+                allowed_route_classes?: string[];
+                denied_endpoint_ids?: string[];
+                max_request_size?: number;
+                max_response_size?: number;
+            };
+            revoked?: boolean;
+            /** @enum {string} */
+            scope: "user" | "workspace";
+            verification_material?: {
+                response_key_id?: string;
+                response_signature_protocol?: string;
+                response_signing_key?: string;
+            };
         } | null;
         /** WorkspaceInvitationBootstrapAad */
         WorkspaceInvitationBootstrapAad: {
@@ -9675,6 +10529,7 @@ export interface components {
         /** RecoveryDataResponse */
         RecoveryDataResponse: {
             candidate_user_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            candidate_user_checkpoint_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
             candidate_user_checkpoint_hash?: string;
             candidate_user_checkpoint_sequence?: number;
             candidate_user_event_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
@@ -9682,6 +10537,8 @@ export interface components {
             candidate_user_event_head_sequence?: number;
             candidate_workspace_checkpoints?: {
                 checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+                checkpoint_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
+                event_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
                 /** Format: uuid */
                 workspace_id: string;
             }[];
@@ -10276,6 +11133,8 @@ export interface components {
         UpdateWorkspaceFeaturesRequest: {
             guest_invites_enabled?: boolean;
             guest_member_limit?: number | null;
+            plugin_network_proxy?: components["schemas"]["PluginNetworkProxyRegistration"];
+            plugin_user_policy?: components["schemas"]["PluginUserPolicy"];
             public_author_bio?: string | null;
             public_author_display_name?: string | null;
             public_author_slug?: string | null;
@@ -10526,6 +11385,61 @@ export interface operations {
             };
             /** @description Invalid recovery */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_plugin_applications_by_application_id_consent_events: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Plugin consent event */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginConsentEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Plugin consent event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Pinned state mismatch */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11613,6 +12527,95 @@ export interface operations {
             };
         };
     };
+    get_api_workspaces_by_workspace_id_plugin_runtime: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin runtime descriptors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_plugin_runtime_sandbox_documents_by_session_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin sandbox document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Pinned state mismatch */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces_by_workspace_id_member_keys: {
         parameters: {
             query?: never;
@@ -11671,7 +12674,12 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Document write-state admission */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentWriteStateRequest"];
+            };
+        };
         responses: {
             /** @description Archived document */
             200: {
@@ -11815,6 +12823,55 @@ export interface operations {
             };
         };
     };
+    post_api_plugin_candidates_by_candidate_id_approval: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin package */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Pinned state mismatch */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces_by_workspace_id_guest_invitations: {
         parameters: {
             query?: never;
@@ -11936,6 +12993,38 @@ export interface operations {
             };
         };
     };
+    get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_bundle: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed endpoint */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_shares_by_share_slug_bootstrap: {
         parameters: {
             query?: never;
@@ -11972,6 +13061,77 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_sandbox_documents: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Sandbox document request */
+        requestBody: {
+            content: {
+                "application/json": {
+                    capability_grant_id: string;
+                    consent_head_hash: string;
+                    /** @enum {string} */
+                    frame_scope?: "primary" | "secondary";
+                    state_head_hash: string;
+                    wasm_browser_target?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sandbox document session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Pinned state mismatch */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12135,6 +13295,140 @@ export interface operations {
             };
         };
     };
+    patch_api_security_notifications_by_notification_id_read: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Security notification */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_plugin_runtime_audit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Plugin runtime audit event */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginRuntimeAuditRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id_plugin_runtime_consent_required: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin consent-required descriptors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     delete_api_devices_registrations_by_device_id: {
         parameters: {
             query?: never;
@@ -12153,6 +13447,200 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface: {
+        parameters: {
+            query: {
+                plugin_id?: string;
+                state_head_hash: string;
+                consent_head_hash: string;
+                capability_grant_id: string;
+                consent_epoch: number;
+                frame_generation: number;
+                key: string;
+                document_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+                surface: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted plugin storage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginStorageEntryResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    put_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface: {
+        parameters: {
+            query: {
+                plugin_id?: string;
+                state_head_hash: string;
+                consent_head_hash: string;
+                capability_grant_id: string;
+                consent_epoch: number;
+                frame_generation: number;
+                key: string;
+                document_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+                surface: string;
+            };
+            cookie?: never;
+        };
+        /** @description Encrypted plugin storage */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginStorageWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Encrypted plugin storage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginStorageEntryResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_storage_by_surface: {
+        parameters: {
+            query: {
+                plugin_id?: string;
+                state_head_hash: string;
+                consent_head_hash: string;
+                capability_grant_id: string;
+                consent_epoch: number;
+                frame_generation: number;
+                key: string;
+                document_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+                surface: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not found */
@@ -12256,6 +13744,46 @@ export interface operations {
             };
             /** @description Invalid token */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_security_notifications_by_notification_id_dismiss: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Security notification */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12433,6 +13961,69 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_documents_by_document_id_write_disable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Document write-state admission */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentWriteStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Write-disabled document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot change write state */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12717,6 +14308,55 @@ export interface operations {
             };
         };
     };
+    get_api_plugin_candidates_by_candidate_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin bundle candidate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_shares_by_share_slug_mounts: {
         parameters: {
             query?: never;
@@ -12893,6 +14533,93 @@ export interface operations {
             };
             /** @description Update failed */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id_plugin_applications_by_application_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted plugin application */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_workspaces_by_workspace_id_plugin_applications_by_application_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Plugin application update */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginApplicationUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated plugin application */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13618,6 +15345,100 @@ export interface operations {
             };
         };
     };
+    get_api_workspaces_by_workspace_id_plugin_applications: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin applications */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_plugin_applications: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Plugin application */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginApplicationApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Applied plugin application */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_encryption_workspaces_by_workspace_id_keys: {
         parameters: {
             query: {
@@ -14159,6 +15980,73 @@ export interface operations {
             };
         };
     };
+    get_api_plugin_packages: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    post_api_plugin_packages: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin bundle candidate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces: {
         parameters: {
             query?: never;
@@ -14516,6 +16404,69 @@ export interface operations {
             };
         };
     };
+    post_api_documents_by_document_id_read_only_disable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Document write-state admission */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentWriteStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Writable document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot change write state */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     delete_api_workspaces_by_workspace_id_members_by_user_id: {
         parameters: {
             query?: never;
@@ -14644,7 +16595,12 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Document write-state admission */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentWriteStateRequest"];
+            };
+        };
         responses: {
             /** @description Unarchived document */
             200: {
@@ -14821,6 +16777,158 @@ export interface operations {
             };
         };
     };
+    get_api_workspaces_by_workspace_id_plugin_packages: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_plugin_packages: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin bundle candidate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_documents_by_document_id_read_only_enable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Document write-state admission */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentWriteStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Read-only document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot change write state */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_auth_recovery: {
         parameters: {
             query?: never;
@@ -14846,6 +16954,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_plugin_activations: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin activations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
@@ -15057,6 +17194,126 @@ export interface operations {
             };
         };
     };
+    get_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id: {
+        parameters: {
+            query: {
+                plugin_id?: string;
+                state_head_hash: string;
+                consent_head_hash: string;
+                capability_grant_id: string;
+                consent_epoch: number;
+                frame_generation: number;
+                document_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+                surface: string;
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted plugin record storage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginRecordResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id: {
+        parameters: {
+            query: {
+                plugin_id?: string;
+                state_head_hash: string;
+                consent_head_hash: string;
+                capability_grant_id: string;
+                consent_epoch: number;
+                frame_generation: number;
+                document_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+                surface: string;
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_encryption_workspaces_by_workspace_id_kek_rotation_complete: {
         parameters: {
             query?: never;
@@ -15152,6 +17409,53 @@ export interface operations {
                 };
             };
             /** @description Preconditions not met */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_plugin_candidates: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin bundle candidate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -15283,6 +17587,38 @@ export interface operations {
             };
         };
     };
+    get_api_security_notifications: {
+        parameters: {
+            query?: {
+                recipient_kind?: string;
+                recipient_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Security notifications */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
     patch_api_documents_by_document_id_shares_by_share_id_exclusions: {
         parameters: {
             query?: never;
@@ -15320,6 +17656,127 @@ export interface operations {
             };
             /** @description Invalid */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_plugin_activations_by_activation_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                activation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted plugin activation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_api_plugin_activations_by_activation_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                activation_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Plugin activation update */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginActivationUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated plugin activation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15467,6 +17924,79 @@ export interface operations {
             };
             /** @description Invalid */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface: {
+        parameters: {
+            query: {
+                plugin_id?: string;
+                state_head_hash: string;
+                consent_head_hash: string;
+                capability_grant_id: string;
+                consent_epoch: number;
+                frame_generation: number;
+                document_id?: string;
+            };
+            header: {
+                /** @description PoP signing device id. */
+                "x-pop-device-id": string;
+                /** @description Strict base64url PoP challenge. */
+                "x-pop-challenge": string;
+                /** @description Base64url encoded canonical PoP signature transport. */
+                "x-pop-signature-transport": string;
+                /** @description PoP actor variant. */
+                "x-pop-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                application_id: string;
+                surface: string;
+            };
+            cookie?: never;
+        };
+        /** @description Encrypted plugin record storage */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginRecordWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Encrypted plugin record storage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginRecordResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -91,7 +91,10 @@ function CommandPaletteInner() {
       return;
     }
     if (cmd.checkCallback) {
-      if (cmd.checkCallback(true)) {
+      if (!cmd.checkCallback(true)) return;
+      if (cmd.callback) {
+        cmd.callback();
+      } else {
         cmd.checkCallback(false);
       }
       return;

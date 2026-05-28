@@ -120,6 +120,366 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
+  @spec validate_plugin_bundle_approval!(map(), binary(), binary(), binary()) :: :ok
+  def validate_plugin_bundle_approval!(transcript, signing_purpose, owner_kind, owner_id) do
+    :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
+
+    assert_literal!(
+      transcript["subject_protocol"],
+      "refmd.plugin-bundle-approval",
+      "plugin_bundle_approval_subject_protocol_invalid"
+    )
+
+    Core.assert_map!(transcript["actor"], "plugin_bundle_approval_actor_invalid")
+    Core.assert_map!(transcript["approval"], "plugin_bundle_approval_subject_invalid")
+  end
+
+  @spec validate_plugin_bundle_approval!(map(), binary(), binary(), binary(), map()) :: :ok
+  def validate_plugin_bundle_approval!(
+        transcript,
+        signing_purpose,
+        owner_kind,
+        owner_id,
+        semantic_context
+      ) do
+    :ok = validate_plugin_bundle_approval!(transcript, signing_purpose, owner_kind, owner_id)
+
+    approval =
+      required_context_map!(
+        semantic_context,
+        :approval_subject,
+        "plugin_bundle_approval_context_missing"
+      )
+
+    actor =
+      required_context_map!(semantic_context, :actor, "plugin_bundle_approval_context_missing")
+
+    assert_hash_of!(
+      transcript["subject_hash"],
+      approval,
+      "plugin_bundle_approval_subject_hash_mismatch"
+    )
+
+    assert_literal!(
+      transcript["approval"],
+      approval,
+      "plugin_bundle_approval_subject_mismatch"
+    )
+
+    assert_literal!(
+      transcript["actor"]["device_id"],
+      context_value(actor, :device_id),
+      "plugin_bundle_approval_actor_mismatch"
+    )
+
+    assert_literal!(
+      transcript["actor"]["user_id"],
+      context_value(actor, :user_id),
+      "plugin_bundle_approval_actor_mismatch"
+    )
+
+    assert_literal!(
+      transcript["actor"]["signing_key_id"],
+      context_value(actor, :signing_key_id),
+      "plugin_bundle_approval_signing_key_mismatch"
+    )
+
+    assert_plugin_owner_actor!(
+      transcript["actor"],
+      approval,
+      "plugin_bundle_approval_actor_mismatch"
+    )
+  end
+
+  @spec validate_plugin_consent_event!(map(), binary(), binary(), binary()) :: :ok
+  def validate_plugin_consent_event!(transcript, signing_purpose, owner_kind, owner_id) do
+    :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
+
+    assert_literal!(
+      transcript["subject_protocol"],
+      "refmd.plugin-consent-event",
+      "plugin_consent_event_subject_protocol_invalid"
+    )
+
+    Core.assert_map!(transcript["actor"], "plugin_consent_event_actor_invalid")
+    Core.assert_map!(transcript["consent"], "plugin_consent_event_subject_invalid")
+  end
+
+  @spec validate_plugin_consent_event!(map(), binary(), binary(), binary(), map()) :: :ok
+  def validate_plugin_consent_event!(
+        transcript,
+        signing_purpose,
+        owner_kind,
+        owner_id,
+        semantic_context
+      ) do
+    :ok = validate_plugin_consent_event!(transcript, signing_purpose, owner_kind, owner_id)
+
+    consent =
+      required_context_map!(
+        semantic_context,
+        :consent_subject,
+        "plugin_consent_event_context_missing"
+      )
+
+    actor =
+      required_context_map!(semantic_context, :actor, "plugin_consent_event_context_missing")
+
+    assert_hash_of!(
+      transcript["subject_hash"],
+      consent,
+      "plugin_consent_event_subject_hash_mismatch"
+    )
+
+    assert_literal!(
+      transcript["consent"],
+      consent,
+      "plugin_consent_event_subject_mismatch"
+    )
+
+    assert_literal!(
+      transcript["actor"]["device_id"],
+      context_value(actor, :device_id),
+      "plugin_consent_event_actor_mismatch"
+    )
+
+    assert_literal!(
+      transcript["actor"]["user_id"],
+      context_value(actor, :user_id),
+      "plugin_consent_event_actor_mismatch"
+    )
+
+    assert_literal!(
+      transcript["actor"]["signing_key_id"],
+      context_value(actor, :signing_key_id),
+      "plugin_consent_event_signing_key_mismatch"
+    )
+
+    assert_plugin_workspace_actor!(
+      transcript["actor"],
+      consent["workspace_id"],
+      "plugin_consent_event_actor_mismatch"
+    )
+
+    assert_plugin_consent_actor_subject!(
+      transcript["actor"],
+      consent,
+      "plugin_consent_event_actor_mismatch"
+    )
+  end
+
+  @spec validate_plugin_network_proxy_request!(map(), binary(), binary(), binary()) :: :ok
+  def validate_plugin_network_proxy_request!(transcript, signing_purpose, owner_kind, owner_id) do
+    :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
+
+    assert_literal!(
+      transcript["subject_protocol"],
+      "refmd.plugin-network-proxy-request-subject",
+      "plugin_network_proxy_request_subject_protocol_invalid"
+    )
+
+    subject =
+      required_map!(
+        transcript["subject"],
+        "plugin_network_proxy_request_subject_invalid"
+      )
+
+    assert_exact_keys!(
+      subject,
+      ["endpoint", "protocol", "proxy", "request_id", "runtime", "target", "version"],
+      "plugin_network_proxy_request_subject_invalid"
+    )
+
+    assert_literal!(
+      subject["protocol"],
+      "refmd.plugin-network-proxy-request-subject",
+      "plugin_network_proxy_request_subject_protocol_invalid"
+    )
+
+    assert_literal!(
+      subject["version"],
+      1,
+      "plugin_network_proxy_request_subject_version_invalid"
+    )
+
+    runtime = required_map!(subject["runtime"], "plugin_network_proxy_request_runtime_invalid")
+    proxy = required_map!(subject["proxy"], "plugin_network_proxy_request_proxy_invalid")
+    target = required_map!(subject["target"], "plugin_network_proxy_request_target_invalid")
+    endpoint = required_map!(subject["endpoint"], "plugin_network_proxy_request_endpoint_invalid")
+
+    assert_proxy_request_proxy!(proxy)
+    assert_proxy_request_target!(target)
+    assert_proxy_request_endpoint!(endpoint)
+    assert_proxy_request_runtime!(runtime)
+
+    assert_literal!(
+      runtime["device_id"],
+      owner_id,
+      "plugin_network_proxy_request_actor_mismatch"
+    )
+  end
+
+  @spec validate_plugin_network_proxy_request!(map(), binary(), binary(), binary(), map()) :: :ok
+  def validate_plugin_network_proxy_request!(
+        transcript,
+        signing_purpose,
+        owner_kind,
+        owner_id,
+        semantic_context
+      ) do
+    :ok =
+      validate_plugin_network_proxy_request!(transcript, signing_purpose, owner_kind, owner_id)
+
+    subject =
+      required_context_map!(
+        semantic_context,
+        :proxy_request_subject,
+        "plugin_network_proxy_request_context_missing"
+      )
+
+    assert_hash_of!(
+      transcript["subject_hash"],
+      subject,
+      "plugin_network_proxy_request_subject_hash_mismatch"
+    )
+
+    assert_literal!(
+      transcript["subject"],
+      subject,
+      "plugin_network_proxy_request_subject_mismatch"
+    )
+  end
+
+  defp assert_plugin_workspace_actor!(actor, workspace_id, error) do
+    assert_literal!(actor["key_scope_kind"], "workspace", error)
+    assert_literal!(actor["key_scope_id"], workspace_id, error)
+  end
+
+  defp assert_plugin_consent_actor_subject!(actor, consent, error) do
+    assert_literal!(actor["user_id"], consent["user_id"], error)
+    assert_literal!(actor["device_id"], consent["device_id"], error)
+  end
+
+  defp assert_proxy_request_proxy!(proxy) do
+    assert_exact_keys!(
+      proxy,
+      ["id", "origin", "scope"],
+      "plugin_network_proxy_request_proxy_invalid"
+    )
+
+    assert_binary!(proxy["id"], "plugin_network_proxy_request_proxy_invalid")
+    assert_binary!(proxy["scope"], "plugin_network_proxy_request_proxy_invalid")
+    assert_binary!(proxy["origin"], "plugin_network_proxy_request_proxy_invalid")
+  end
+
+  defp assert_proxy_request_target!(target) do
+    assert_exact_keys!(
+      target,
+      ["body_text", "headers", "method", "url"],
+      "plugin_network_proxy_request_target_invalid"
+    )
+
+    assert_binary!(target["url"], "plugin_network_proxy_request_target_invalid")
+    assert_binary!(target["method"], "plugin_network_proxy_request_target_invalid")
+    required_map!(target["headers"], "plugin_network_proxy_request_target_invalid")
+    assert_binary_present!(target["body_text"], "plugin_network_proxy_request_target_invalid")
+  end
+
+  defp assert_proxy_request_endpoint!(endpoint) do
+    assert_exact_keys!(
+      endpoint,
+      proxy_request_endpoint_keys(endpoint),
+      "plugin_network_proxy_request_endpoint_invalid"
+    )
+
+    assert_binary!(endpoint["id"], "plugin_network_proxy_request_endpoint_invalid")
+
+    assert_positive_integer!(
+      endpoint["max_request_bytes"],
+      "plugin_network_proxy_request_endpoint_invalid"
+    )
+
+    assert_positive_integer!(
+      endpoint["max_response_bytes"],
+      "plugin_network_proxy_request_endpoint_invalid"
+    )
+
+    if Map.has_key?(endpoint, "credential_audience") do
+      assert_binary!(
+        endpoint["credential_audience"],
+        "plugin_network_proxy_request_endpoint_invalid"
+      )
+    end
+  end
+
+  defp proxy_request_endpoint_keys(endpoint) do
+    keys = ["id", "max_request_bytes", "max_response_bytes"]
+
+    if Map.has_key?(endpoint, "credential_audience"),
+      do: ["credential_audience" | keys],
+      else: keys
+  end
+
+  defp assert_proxy_request_runtime!(runtime) do
+    assert_exact_keys!(
+      runtime,
+      [
+        "activation_id",
+        "application_id",
+        "capability_grant_id",
+        "consent_epoch",
+        "credential_handle_used",
+        "device_id",
+        "frame_generation",
+        "owner_scope_kind",
+        "package_id",
+        "plugin_id",
+        "request_id",
+        "user_id",
+        "workspace_id"
+      ],
+      "plugin_network_proxy_request_runtime_invalid"
+    )
+
+    assert_binary!(runtime["workspace_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["plugin_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["package_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["application_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["activation_id"], "plugin_network_proxy_request_runtime_invalid")
+
+    assert_positive_integer!(
+      runtime["frame_generation"],
+      "plugin_network_proxy_request_runtime_invalid"
+    )
+
+    assert_binary!(runtime["user_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["device_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["owner_scope_kind"], "plugin_network_proxy_request_runtime_invalid")
+
+    assert_positive_integer!(
+      runtime["consent_epoch"],
+      "plugin_network_proxy_request_runtime_invalid"
+    )
+
+    assert_binary!(runtime["capability_grant_id"], "plugin_network_proxy_request_runtime_invalid")
+    assert_binary!(runtime["request_id"], "plugin_network_proxy_request_runtime_invalid")
+
+    assert_boolean!(
+      runtime["credential_handle_used"],
+      "plugin_network_proxy_request_runtime_invalid"
+    )
+  end
+
+  defp assert_plugin_owner_actor!(actor, %{"owner_scope_kind" => "workspace"} = approval, error) do
+    assert_literal!(actor["key_scope_kind"], "workspace", error)
+    assert_literal!(actor["key_scope_id"], approval["owner_workspace_id"], error)
+  end
+
+  defp assert_plugin_owner_actor!(actor, %{"owner_scope_kind" => "user"} = approval, error) do
+    assert_literal!(actor["key_scope_kind"], "user", error)
+    assert_literal!(actor["key_scope_id"], approval["owner_user_id"], error)
+  end
+
   @spec validate_genesis_device_bootstrap!(map(), binary(), binary(), binary()) :: :ok
   def validate_genesis_device_bootstrap!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
@@ -940,8 +1300,25 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
 
   defp assert_binary!(_, message), do: raise(ArgumentError, message)
 
+  defp assert_binary_present!(value, _message) when is_binary(value), do: :ok
+  defp assert_binary_present!(_, message), do: raise(ArgumentError, message)
+
+  defp assert_positive_integer!(value, _message) when is_integer(value) and value >= 1,
+    do: :ok
+
+  defp assert_positive_integer!(_, message), do: raise(ArgumentError, message)
+
+  defp assert_boolean!(value, _message) when is_boolean(value), do: :ok
+  defp assert_boolean!(_, message), do: raise(ArgumentError, message)
+
   defp assert_in!(value, allowed, message) do
     if value in allowed,
+      do: :ok,
+      else: raise(ArgumentError, message)
+  end
+
+  defp assert_exact_keys!(value, expected_keys, message) do
+    if Enum.sort(Map.keys(value)) == Enum.sort(expected_keys),
       do: :ok,
       else: raise(ArgumentError, message)
   end

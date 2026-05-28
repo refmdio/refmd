@@ -86,6 +86,7 @@ export interface IdentityKeyDirectoryAppendInput {
   actorDeviceId: string;
   checkpointEnvelope: KeyDirectoryEnvelope;
   recipientHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  recipientHybridSigningPublicKeyMaterial?: HybridSigningPublicKeyMaterial;
 }
 
 export interface DeviceRevocationKeyDirectoryAppendInput {
@@ -109,6 +110,18 @@ export interface WorkspaceMemberRemovalKeyDirectoryAppendInput {
     signingKeyId: string;
     encryptionKeyId: string;
   }>;
+}
+
+export interface WorkspaceMemberRoleChangeKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  targetUserId: string;
+  previousRoleId: string;
+  previousBaseRole: string;
+  roleId: string;
+  baseRole: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
 }
 
 export interface WrapIssuedKeyDirectoryAppendInput {
@@ -187,13 +200,35 @@ export interface DocumentAdmissionKeyDirectoryAppendInput {
         signingKeyId: string;
         hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
       };
-  eventType: "document_update_accepted" | "document_snapshot_accepted";
-  operationHash: string;
-  operationSignatureHash: string;
-  dekVersion: number;
+  eventType:
+    | "document_update_accepted"
+    | "document_snapshot_accepted"
+    | "document_write_session_admitted";
+  operationHash?: string;
+  operationSignatureHash?: string;
+  dekVersion?: number;
   minDekVersion: number;
-  admissionNonce: string;
+  admissionNonce?: string;
   documentPermissionProofHash: string;
+  sessionId?: string;
+  sessionNonce?: string;
+  issuedAtMs?: number;
+  expiresAtMs?: number;
+  maxUpdateCount?: number;
+  maxCiphertextBytes?: number;
+}
+
+export interface DocumentWriteStateKeyDirectoryAppendInput {
+  workspaceId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  changes: Array<{
+    documentId: string;
+    previousWriteState: "writable" | "read_only" | "archived" | "write_disabled";
+    writeState: "writable" | "read_only" | "archived" | "write_disabled";
+  }>;
+  reason: "archive" | "unarchive" | "read_only_enabled" | "read_only_disabled" | "policy";
 }
 
 export interface WorkspaceInvitationCreatedKeyDirectoryAppendInput {

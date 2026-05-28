@@ -114,6 +114,7 @@ export function DeviceRegistrationPhaseContent(props: DeviceRegistrationPhaseCon
           fieldId="password-reentry-password"
           onInput={props.setPasswordReentryPassword}
           onSubmit={props.submitPasswordReentry}
+          onCancel={props.backToLogin}
         />
       </Match>
 
@@ -126,6 +127,7 @@ export function DeviceRegistrationPhaseContent(props: DeviceRegistrationPhaseCon
           fieldId="reauth-password"
           onInput={props.setReauthPassword}
           onSubmit={props.submitReauth}
+          onCancel={props.backToLogin}
         />
       </Match>
 

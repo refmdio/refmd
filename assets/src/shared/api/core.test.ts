@@ -110,4 +110,39 @@ describe("auth unauthorized handler", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("replays request bodies with a fresh Request across rate-limit retries", async () => {
+    initializeApiClient({ getDeviceId: () => null });
+    const bodies: string[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async (request: Request) => {
+        bodies.push(await request.text());
+        return new Response(JSON.stringify({ error: "rate_limit_exceeded", retry_after: 1 }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "1" },
+        });
+      })
+      .mockImplementationOnce(async (request: Request) => {
+        bodies.push(await request.text());
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await client.POST("/api/auth/register", {
+      baseUrl: "http://localhost",
+      body: {
+        email: "retry@example.com",
+        password: "correct horse battery staple",
+      },
+    } as Parameters<typeof client.POST>[1]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(bodies).toHaveLength(2);
+    expect(JSON.parse(bodies[0] ?? "{}")).toMatchObject({ email: "retry@example.com" });
+    expect(JSON.parse(bodies[1] ?? "{}")).toMatchObject({ email: "retry@example.com" });
+  });
 });

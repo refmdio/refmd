@@ -2,6 +2,8 @@ import type { EventRef } from "../events";
 
 export interface EditorLike {
   getValue(): string;
+  setValue?(value: string): void;
+  replaceSelection?(text: string): void;
 }
 
 export interface DocumentView {

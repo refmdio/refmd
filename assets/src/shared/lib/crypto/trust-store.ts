@@ -1,10 +1,19 @@
-import { idbConditionalPut, idbGet, openIdb, toArrayBuffer } from "@/shared/lib/storage/idb";
+import {
+  idbConditionalPut,
+  idbDelete,
+  idbGet,
+  idbPut,
+  openIdb,
+  toArrayBuffer,
+} from "@/shared/lib/storage/idb";
 import { canonicalizeStrict, type StrictJsonValue } from "./jcs";
 import type { HybridSigningPublicKeyMaterial } from "./signature-types";
 
 const DB_NAME = "refmd-trust";
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 const STORE_NAME = "tofu-entries";
+const PLUGIN_CONSENT_PIN_STORE = "plugin-consent-pins";
+const PLUGIN_STATE_PIN_STORE = "plugin-state-pins";
 const TOFU_NAMESPACE_SEPARATOR = "\u0000";
 export const DEFAULT_TOFU_NAMESPACE = "default";
 
@@ -26,13 +35,53 @@ interface SerializedTofuEntry {
   lastSeenAt: number;
 }
 
+export interface PluginConsentPin {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  userId: string;
+  consentEpoch: number;
+  latestEventHash: string;
+  updatedAtMs: number;
+}
+
+export interface PluginStatePin {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  latestEventHash: string;
+  bundleHash: string;
+  approvalEventHash: string;
+  updatedAtMs: number;
+}
+
 function openDb(): Promise<IDBDatabase> {
-  return openIdb(DB_NAME, DB_VERSION, (db) => {
+  return openIdb(DB_NAME, DB_VERSION, (db, oldVersion) => {
     if (!db.objectStoreNames.contains(STORE_NAME)) {
       const store = db.createObjectStore(STORE_NAME, {
         keyPath: ["userId", "deviceId"],
       });
       store.createIndex("by-user", "userId", { unique: false });
+    }
+    if (oldVersion > 0 && oldVersion < 3) {
+      if (db.objectStoreNames.contains(PLUGIN_CONSENT_PIN_STORE)) {
+        db.deleteObjectStore(PLUGIN_CONSENT_PIN_STORE);
+      }
+      if (db.objectStoreNames.contains(PLUGIN_STATE_PIN_STORE)) {
+        db.deleteObjectStore(PLUGIN_STATE_PIN_STORE);
+      }
+    }
+    if (!db.objectStoreNames.contains(PLUGIN_CONSENT_PIN_STORE)) {
+      db.createObjectStore(PLUGIN_CONSENT_PIN_STORE, {
+        keyPath: ["workspaceId", "packageId", "applicationId", "activationId", "userId"],
+      });
+    }
+    if (!db.objectStoreNames.contains(PLUGIN_STATE_PIN_STORE)) {
+      db.createObjectStore(PLUGIN_STATE_PIN_STORE, {
+        keyPath: ["workspaceId", "packageId", "applicationId", "activationId"],
+      });
     }
   });
 }
@@ -118,6 +167,72 @@ export async function getTofuEntry(
     compositeKey(qualifyUserId(namespace, userId), deviceId),
   );
   return result ? deserialize(result) : null;
+}
+
+export async function savePluginConsentPin(pin: PluginConsentPin): Promise<void> {
+  const db = await openDb();
+  await idbPut(db, PLUGIN_CONSENT_PIN_STORE, pin);
+}
+
+export async function getPluginConsentPin(
+  workspaceId: string,
+  packageId: string,
+  applicationId: string,
+  activationId: string,
+  userId: string,
+): Promise<PluginConsentPin | null> {
+  const db = await openDb();
+  const result = await idbGet<PluginConsentPin>(db, PLUGIN_CONSENT_PIN_STORE, [
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+    userId,
+  ]);
+  return result ?? null;
+}
+
+export async function savePluginStatePin(pin: PluginStatePin): Promise<void> {
+  const db = await openDb();
+  await idbPut(db, PLUGIN_STATE_PIN_STORE, pin);
+}
+
+export async function getPluginStatePin(
+  workspaceId: string,
+  packageId: string,
+  applicationId: string,
+  activationId: string,
+): Promise<PluginStatePin | null> {
+  const db = await openDb();
+  const result = await idbGet<PluginStatePin>(db, PLUGIN_STATE_PIN_STORE, [
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+  ]);
+  return result ?? null;
+}
+
+export async function deletePluginRuntimePins(
+  workspaceId: string,
+  packageId: string,
+  applicationId: string,
+  activationId: string,
+  userId: string,
+): Promise<void> {
+  await idbDelete(await openDb(), PLUGIN_STATE_PIN_STORE, [
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+  ]);
+  await idbDelete(await openDb(), PLUGIN_CONSENT_PIN_STORE, [
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+    userId,
+  ]);
 }
 
 export async function updateLastSeen(

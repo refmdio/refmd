@@ -1,0 +1,23 @@
+body {
+  color: #1f2933;
+  font-family: system-ui, sans-serif;
+  margin: 0;
+}
+
+main {
+  background: #ffffff;
+  border: 1px solid #d9dee6;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+
+h2,
+p {
+  font-size: 13px;
+  margin: 0;
+}

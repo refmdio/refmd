@@ -40,7 +40,11 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
         },
         _checkpoint_payload
       )
-      when type in ["document_update_accepted", "document_snapshot_accepted"] do
+      when type in [
+             "document_update_accepted",
+             "document_write_session_admitted",
+             "document_snapshot_accepted"
+           ] do
     Assertions.assert_literal!(body["event_type"], type, "event_body_type_mismatch")
 
     Assertions.assert_literal!(
@@ -65,6 +69,64 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
       body["previous_workspace_event_hash"],
       previous_event_hash,
       "document_admission_previous_hash_mismatch"
+    )
+  end
+
+  def assert_event_semantics_against_checkpoint!(
+        %{
+          "event_type" => "document_write_state_changed",
+          "scope_kind" => "workspace",
+          "scope_id" => scope_id,
+          "sequence" => sequence,
+          "actor" => actor,
+          "previous_event_hash" => previous_event_hash,
+          "body" => body
+        },
+        checkpoint_payload
+      ) do
+    Assertions.assert_literal!(
+      body["workspace_id"],
+      scope_id,
+      "document_write_state_workspace_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["previous_workspace_event_sequence"],
+      sequence - 1,
+      "document_write_state_previous_sequence_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["previous_workspace_event_hash"],
+      previous_event_hash,
+      "document_write_state_previous_hash_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      actor["signer_kind"],
+      "device",
+      "document_write_state_actor_kind_invalid"
+    )
+
+    assert_key_entry_active_at_sequence!(
+      checkpoint_payload,
+      actor["signing_key_id"],
+      sequence
+    )
+
+    entry = key_entry_by_id!(checkpoint_payload, actor["signing_key_id"])
+    material = entry["key_material"]
+
+    Assertions.assert_literal!(
+      material["owner_kind"],
+      "device",
+      "document_write_state_actor_owner_kind_invalid"
+    )
+
+    Assertions.assert_literal!(
+      material["owner_id"],
+      actor["device_id"],
+      "document_write_state_actor_owner_id_invalid"
     )
   end
 
@@ -119,6 +181,28 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
         _checkpoint_payload
       ) do
     Assertions.assert_literal!(body["workspace_id"], scope_id, "member_added_scope_mismatch")
+  end
+
+  def assert_event_semantics_against_checkpoint!(
+        %{
+          "event_type" => "member_role_changed",
+          "sequence" => sequence,
+          "scope_id" => scope_id,
+          "body" => body
+        },
+        _checkpoint_payload
+      ) do
+    Assertions.assert_literal!(
+      body["workspace_id"],
+      scope_id,
+      "member_role_changed_scope_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["changed_at_event_sequence"],
+      sequence,
+      "member_role_changed_sequence_mismatch"
+    )
   end
 
   def assert_event_semantics_against_checkpoint!(

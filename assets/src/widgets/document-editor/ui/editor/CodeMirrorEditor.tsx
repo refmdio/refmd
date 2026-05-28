@@ -31,7 +31,8 @@ import {
   releaseYDoc,
   unregisterEditor,
 } from "@/features/editor";
-import { EditorApi } from "../../lib/editor-api/codemirror-api";
+import { EditorApi, pluginEditorDecorationsExtension } from "../../lib/editor-api/codemirror-api";
+import { pluginRendererSlotExtension } from "../../lib/codemirror/plugin-renderer-slots";
 import "./codemirror-cursors.css";
 
 interface ThemeColors {
@@ -94,6 +95,24 @@ function createEditorTheme(dark: boolean) {
       ".cm-lineNumbers .cm-gutterElement": {
         color: "var(--muted-foreground)",
       },
+      ".refmd-plugin-editor-decoration-highlight": {
+        backgroundColor: "color-mix(in srgb, var(--accent) 28%, transparent)",
+      },
+      ".refmd-plugin-editor-decoration-underline": {
+        textDecoration: "underline",
+        textDecorationThickness: "2px",
+        textUnderlineOffset: "2px",
+      },
+      ".refmd-plugin-editor-decoration-gutter_marker": {
+        boxShadow: "inset 2px 0 0 var(--accent)",
+      },
+      ".refmd-plugin-editor-decoration-info": {
+        outlineColor: "color-mix(in srgb, var(--accent) 72%, transparent)",
+      },
+      ".refmd-plugin-editor-decoration-warning": {
+        backgroundColor: "color-mix(in srgb, #f59e0b 24%, transparent)",
+        textDecorationColor: "#d97706",
+      },
     },
     { dark },
   );
@@ -141,6 +160,7 @@ function createBaseExtensions(): Extension[] {
     indentOnInput(),
     bracketMatching(),
     highlightActiveLine(),
+    pluginEditorDecorationsExtension,
     keymap.of([...yUndoManagerKeymap, ...defaultKeymap]),
   ];
 }
@@ -149,6 +169,7 @@ interface CodeMirrorEditorProps {
   documentId: string;
   stateKey: string;
   panelId: string;
+  workspaceId?: string | null;
   scrollGroupId?: string;
   onDocChange?: () => void;
   onEditorPaste?: (evt: ClipboardEvent) => void;
@@ -196,6 +217,10 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       extensions: [
         ...createBaseExtensions(),
         markdown(),
+        pluginRendererSlotExtension({
+          documentId: props.documentId,
+          workspaceId: props.workspaceId,
+        }),
         themeCompartment.of([
           dark ? darkTheme : lightTheme,
           syntaxHighlighting(dark ? darkHighlighting : lightHighlighting),

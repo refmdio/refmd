@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { offlineMode } from "@/shared/lib/offline/offline-state";
 import { Notice } from "@/shared/lib/notice";
 import { FilePlusIcon, FolderPlusIcon } from "lucide-solid";
@@ -14,7 +14,7 @@ import {
 } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { CreateDocumentDialog, CreateFolderDialog } from "@/features/document";
-import { decodePanelId, usePanelWorkspace } from "@/features/panel";
+import { decodePanelId, usePanelWorkspace, workspaceManager } from "@/features/panel";
 import { useShareMountTree } from "@/features/share";
 import { useDocumentSharePermissions } from "@/features/workspace";
 import { useSidebarDocumentTreeHandlers } from "../../model/tree/use-document-tree-handlers";
@@ -31,8 +31,20 @@ import {
 } from "@/shared/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
+import {
+  getDefaultPluginUiContributionRegistry,
+  pluginUiCommandId,
+  pluginUiCommandResourcePayload,
+  pluginUiEntryCommandEnabled,
+  pluginUiEntryMatchesResource,
+  type PluginUiRegistryEntry,
+  type PluginUiResourceContext,
+} from "@/features/plugin-runtime";
+
+const uiRegistry = getDefaultPluginUiContributionRegistry();
 
 export function DocumentTreePanel() {
+  const registryEntries = useUiRegistryEntries();
   const workspaceId = () => currentWorkspaceId();
   const panelWorkspace = usePanelWorkspace();
   const mountedShareOpen = useSidebarMountedShareOpen();
@@ -175,6 +187,9 @@ export function DocumentTreePanel() {
             }}
           >
             <div class="flex-1 overflow-y-auto">
+              <For each={virtualSections(registryEntries, "before_tree")}>
+                {(entry) => <VirtualSectionButton entry={entry} />}
+              </For>
               <DocumentTree
                 tree={sidebarTree()}
                 isLoading={query.isLoading || shareMountTree.mountsQuery.isLoading}
@@ -225,6 +240,9 @@ export function DocumentTreePanel() {
                 onMountEntryAddToTile={mountedShareOpen.addMountEntryToTile}
                 onMountUnmount={(mount) => void shareMountTree.unmount(mount)}
               />
+              <For each={virtualSections(registryEntries, "after_tree")}>
+                {(entry) => <VirtualSectionButton entry={entry} />}
+              </For>
             </div>
           </DocumentContextMenu>
         </Show>
@@ -303,5 +321,66 @@ export function DocumentTreePanel() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function useUiRegistryEntries() {
+  const [version, setVersion] = createSignal(0);
+  const unsubscribe = uiRegistry.subscribe(() => setVersion((value) => value + 1));
+  onCleanup(unsubscribe);
+  return (surface: Parameters<typeof uiRegistry.list>[0]) => {
+    version();
+    return uiRegistry.list(surface);
+  };
+}
+
+function virtualSections(
+  registryEntries: ReturnType<typeof useUiRegistryEntries>,
+  placement: "before_tree" | "after_tree",
+): PluginUiRegistryEntry[] {
+  return registryEntries("document_tree_virtual_section").filter(
+    (entry) =>
+      entry.contribution.surface === "document_tree_virtual_section" &&
+      entry.contribution.placement === placement &&
+      pluginUiEntryMatchesResource(entry, virtualSectionContext(entry)),
+  );
+}
+
+function virtualSectionContext(entry: PluginUiRegistryEntry): PluginUiResourceContext {
+  return {
+    resourceKind: "workspace",
+    workspaceId: currentWorkspaceId() ?? undefined,
+    documentOpen: selectedDocumentId() !== null,
+    selectionPresent: false,
+    capabilities: entry.capabilities,
+  };
+}
+
+function VirtualSectionButton(props: { entry: PluginUiRegistryEntry }) {
+  const contribution = () => props.entry.contribution;
+  const title = () => {
+    const current = contribution();
+    return current.surface === "document_tree_virtual_section" ? current.title : "";
+  };
+  const run = () => {
+    const current = contribution();
+    if (current.surface !== "document_tree_virtual_section") return;
+    const context = virtualSectionContext(props.entry);
+    if (!pluginUiEntryCommandEnabled(props.entry, context, uiRegistry)) return;
+    const payload = pluginUiCommandResourcePayload(props.entry, context, uiRegistry);
+    if (!payload) return;
+    const commandId = pluginUiCommandId(props.entry, current.source_command_ref);
+    const command = workspaceManager.listCommands().find((item) => item.id === commandId);
+    command?.callback?.(payload);
+  };
+
+  return (
+    <button
+      type="button"
+      class="mx-2 my-1 flex w-[calc(100%-1rem)] items-center rounded px-2 py-1 text-left text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent"
+      onClick={run}
+    >
+      <span class="truncate">{title()}</span>
+    </button>
   );
 }

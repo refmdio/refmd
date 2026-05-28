@@ -10,7 +10,7 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
-  installTransferredKeyDirectoryCheckpoint,
+  pinInitialKeyDirectoryCheckpoint,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { buildRecoveryWorkspaceDeviceKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory/device-events";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
@@ -41,6 +41,20 @@ type RecoveryRegistrationResult =
       redirectPath: string;
       dskUnavailableOAuth: boolean;
     };
+
+export type RecoveryApproveDeviceRequest = Extract<
+  ApproveDeviceRequest,
+  { approval_signature_surface: "recovery_device_approval" }
+>;
+
+interface RecoveryWorkspaceKeyDirectoryAppend {
+  workspaceId: string;
+  baseCheckpoint: KeyDirectoryEnvelope;
+  baseCheckpointAncestry: KeyDirectoryEnvelope[];
+  baseEventAncestry: KeyDirectoryEnvelope[];
+  events: KeyDirectoryEnvelope[];
+  checkpoint: KeyDirectoryEnvelope;
+}
 
 function signingPublicMaterialJson(material: HybridSigningPublicKeyMaterial): StrictJsonValue {
   return {
@@ -134,68 +148,71 @@ export async function registerRecoveredDevice(params: {
   await assertRecoveryWorkspaceCandidatesMatchLocalPins(pending.candidateWorkspaceCheckpoints);
 
   const userKeyDirectory = pending.userKeyDirectory;
-  const workspaceAppends = await Promise.all(
-    pending.candidateWorkspaceCheckpoints.map(async ({ workspaceId, checkpoint }) => {
-      const append = await buildRecoveryWorkspaceDeviceKeyDirectoryAppend({
-        workspaceId,
-        userId: auth.user.id,
-        checkpointEnvelope: checkpoint,
-        recipientDeviceId: deviceId,
-        recipientHybridSigningPublicKeyMaterial: deviceHybridSigningPublicKeyMaterial,
-        recipientHybridEncryptionPublicKeyMaterial: deviceHybridEncryptionPublicKeyMaterial,
-      });
-      return {
-        workspace_id: workspaceId,
-        base_checkpoint: checkpoint,
-        events: append.events,
-        checkpoint: append.checkpoint,
-      };
-    }),
-  );
-  const approveBody: ApproveDeviceRequest = {
-    approval_signature_surface: "recovery_device_approval",
-    approval_signature: deviceSignature,
-    approval_proof: {
-      protocol: "refmd.device-approval-proof",
-      version: 1,
-      approval_signature_surface: "recovery_device_approval",
-      approval_transcript_hash: deviceSignature.transcript_hash,
-      approval_transcript_owner: "refmd.device.recovery_approval",
-      approval_surface_id: "recovery_device_approval",
-      approval_surface_variant: "none",
-      approving_owner_kind: "identity",
-      approving_owner_id: auth.user.id,
-      approving_signing_key_id: deviceSignature.signing_key_id,
-      approving_key_checkpoint_sequence: pending.candidateUserCheckpointSequence,
-      approving_key_checkpoint_hash: pending.candidateUserCheckpointHash,
-      target_device_id: deviceId,
-      target_device_signing_key_id: publicKeys.deviceSigningKeyId,
-      target_device_hybrid_signing_public_key_material_hash: blake3Base64Url(
-        canonicalizeStrictBytes(signingPublicMaterialJson(deviceHybridSigningPublicKeyMaterial)),
-      ),
-      target_device_hybrid_encryption_public_key_material_hash: blake3Base64Url(
-        canonicalizeStrictBytes(
-          encryptionPublicMaterialJson(deviceHybridEncryptionPublicKeyMaterial),
-        ),
-      ),
-      target_device_encryption_key_id: publicKeys.deviceEncryptionKeyId,
-      target_device_client_nonce_hash: blake3Base64Url(clientNonce),
-      target_key_checkpoint_sequence: pending.targetKeyCheckpointSequence,
-      target_key_checkpoint_hash: pending.targetKeyCheckpointHash,
-      surface_details: {
-        kind: "recovery_device_approval",
-        pending_registration_id: pending.pendingRegistrationId,
-        pending_registration_challenge_hash: pending.pendingRegistrationChallengeHash,
-        recovery_session_transcript_hash: pending.recoverySessionTranscriptHash,
-        recovery_capability_hash: pending.recoveryCapabilityHash,
-        pending_registration_binding_hash: pending.pendingRegistrationBindingHash,
+  const workspaceAppends: RecoveryWorkspaceKeyDirectoryAppend[] = await Promise.all(
+    pending.candidateWorkspaceCheckpoints.map(
+      async ({ workspaceId, checkpoint, checkpointAncestry, eventAncestry }) => {
+        const append = await buildRecoveryWorkspaceDeviceKeyDirectoryAppend({
+          workspaceId,
+          userId: auth.user.id,
+          checkpointEnvelope: checkpoint,
+          recipientDeviceId: deviceId,
+          recipientHybridSigningPublicKeyMaterial: deviceHybridSigningPublicKeyMaterial,
+          recipientHybridEncryptionPublicKeyMaterial: deviceHybridEncryptionPublicKeyMaterial,
+        });
+        return {
+          workspaceId,
+          baseCheckpoint: checkpoint,
+          baseCheckpointAncestry: checkpointAncestry,
+          baseEventAncestry: eventAncestry,
+          events: append.events,
+          checkpoint: append.checkpoint,
+        };
       },
+    ),
+  );
+  const approvalProof: RecoveryApproveDeviceRequest["approval_proof"] = {
+    protocol: "refmd.device-approval-proof",
+    version: 1,
+    approval_signature_surface: "recovery_device_approval",
+    approval_transcript_hash: deviceSignature.transcript_hash,
+    approval_transcript_owner: "refmd.device.recovery_approval",
+    approval_surface_id: "recovery_device_approval",
+    approval_surface_variant: "none",
+    approving_owner_kind: "identity",
+    approving_owner_id: auth.user.id,
+    approving_signing_key_id: deviceSignature.signing_key_id,
+    approving_key_checkpoint_sequence: pending.candidateUserCheckpointSequence,
+    approving_key_checkpoint_hash: pending.candidateUserCheckpointHash,
+    target_device_id: deviceId,
+    target_device_signing_key_id: publicKeys.deviceSigningKeyId,
+    target_device_hybrid_signing_public_key_material_hash: blake3Base64Url(
+      canonicalizeStrictBytes(signingPublicMaterialJson(deviceHybridSigningPublicKeyMaterial)),
+    ),
+    target_device_hybrid_encryption_public_key_material_hash: blake3Base64Url(
+      canonicalizeStrictBytes(
+        encryptionPublicMaterialJson(deviceHybridEncryptionPublicKeyMaterial),
+      ),
+    ),
+    target_device_encryption_key_id: publicKeys.deviceEncryptionKeyId,
+    target_device_client_nonce_hash: blake3Base64Url(clientNonce),
+    target_key_checkpoint_sequence: pending.targetKeyCheckpointSequence,
+    target_key_checkpoint_hash: pending.targetKeyCheckpointHash,
+    surface_details: {
+      kind: "recovery_device_approval",
+      pending_registration_id: pending.pendingRegistrationId,
+      pending_registration_challenge_hash: pending.pendingRegistrationChallengeHash,
+      recovery_session_transcript_hash: pending.recoverySessionTranscriptHash,
+      recovery_capability_hash: pending.recoveryCapabilityHash,
+      pending_registration_binding_hash: pending.pendingRegistrationBindingHash,
     },
-    user_key_directory_events: userKeyDirectory.events,
-    user_key_directory_checkpoint: userKeyDirectory.checkpoint,
-    workspace_key_directory_appends: workspaceAppends,
   };
-  const approval = await devicesApi.approve(deviceId, approveBody);
+  const approveBody = buildRecoveryApproveDeviceRequest({
+    approvalSignature: deviceSignature,
+    approvalProof,
+    userKeyDirectory,
+    workspaceAppends,
+  });
+  const approval = await devicesApi.approveRecovered(deviceId, approveBody);
   const approvedDeviceId = approval.device.id;
 
   if (approvedDeviceId !== deviceId) {
@@ -207,6 +224,8 @@ export async function registerRecoveredDevice(params: {
     scopeKind: "user",
     scopeId: auth.user.id,
     baseCheckpointEnvelope: pending.candidateUserCheckpoint,
+    baseCheckpointAncestry: pending.candidateUserCheckpointAncestry,
+    baseEventAncestry: pending.candidateUserEventAncestry,
     eventEnvelopes: userKeyDirectory.events,
     checkpointEnvelope: userKeyDirectory.checkpoint,
   });
@@ -214,8 +233,10 @@ export async function registerRecoveredDevice(params: {
     workspaceAppends.map((append) =>
       pinRecoveredCheckpoint({
         scopeKind: "workspace",
-        scopeId: append.workspace_id,
-        baseCheckpointEnvelope: append.base_checkpoint,
+        scopeId: append.workspaceId,
+        baseCheckpointEnvelope: append.baseCheckpoint,
+        baseCheckpointAncestry: append.baseCheckpointAncestry,
+        baseEventAncestry: append.baseEventAncestry,
         eventEnvelopes: append.events,
         checkpointEnvelope: append.checkpoint,
       }),
@@ -225,6 +246,18 @@ export async function registerRecoveredDevice(params: {
 
   if (hasDsk) {
     await persistCurrentKeysWithDsk(auth.user.id);
+    await worker
+      .storeAuthBootstrap({
+        userId: auth.user.id,
+        email: auth.user.email,
+        name: auth.user.name,
+        deviceId,
+        deviceSigningKeyId: publicKeys.deviceSigningKeyId,
+        cachedAt: Date.now(),
+      })
+      .catch(() => {
+        // Auth bootstrap is a reload shortcut; the recovered device state is already live.
+      });
   }
 
   setFullSession(
@@ -238,6 +271,8 @@ export async function registerRecoveredDevice(params: {
     {
       deviceId,
       deviceSigningKeyId: publicKeys.deviceSigningKeyId,
+      deviceKeyCheckpointSequence: approval.device.key_checkpoint_sequence,
+      deviceKeyCheckpointHash: approval.device.key_checkpoint_hash,
       deviceHybridSigningPublicKeyMaterial,
       deviceEcdhPublic: publicKeys.deviceEcdhPublic,
     },
@@ -251,6 +286,9 @@ export async function registerRecoveredDevice(params: {
     auth.identityHybridSigningPublicKeyMaterial,
     auth.identityEcdhPublic,
   );
+  if (kekResults.failed.length > 0) {
+    throw new Error("recovery_workspace_key_restore_failed");
+  }
 
   await worker.clearTransientKeys();
   sessionStorage.removeItem(RECOVERY_PENDING_DEVICE_STORAGE_KEY);
@@ -260,6 +298,31 @@ export async function registerRecoveredDevice(params: {
     statusMessage: formatRecoveryCompletionMessage(kekResults.restored.length),
     redirectPath: completionRedirectPath,
     dskUnavailableOAuth: !hasDsk,
+  };
+}
+
+export function buildRecoveryApproveDeviceRequest(params: {
+  approvalSignature: RecoveryApproveDeviceRequest["approval_signature"];
+  approvalProof: RecoveryApproveDeviceRequest["approval_proof"];
+  userKeyDirectory: {
+    events: KeyDirectoryEnvelope[];
+    checkpoint: KeyDirectoryEnvelope;
+  };
+  workspaceAppends: RecoveryWorkspaceKeyDirectoryAppend[];
+}): RecoveryApproveDeviceRequest {
+  return {
+    approval_signature_surface: "recovery_device_approval",
+    approval_signature: params.approvalSignature,
+    approval_proof: params.approvalProof,
+    user_key_directory_events: params.userKeyDirectory.events,
+    user_key_directory_checkpoint: params.userKeyDirectory.checkpoint,
+    workspace_key_directory_appends: params.workspaceAppends.map(
+      ({ workspaceId, events, checkpoint }) => ({
+        workspace_id: workspaceId,
+        events,
+        checkpoint,
+      }),
+    ),
   };
 }
 
@@ -307,17 +370,14 @@ async function pinRecoveredCheckpoint(params: {
   scopeKind: "user" | "workspace";
   scopeId: string;
   baseCheckpointEnvelope: KeyDirectoryEnvelope;
+  baseCheckpointAncestry: KeyDirectoryEnvelope[];
+  baseEventAncestry: KeyDirectoryEnvelope[];
   eventEnvelopes: KeyDirectoryEnvelope[];
   checkpointEnvelope: KeyDirectoryEnvelope;
 }): Promise<void> {
   const existing = await getKeyDirectoryPin(params.scopeKind, params.scopeId);
   if (!existing) {
-    await installTransferredKeyDirectoryCheckpoint({
-      scopeKind: params.scopeKind,
-      scopeId: params.scopeId,
-      checkpointEnvelope: params.checkpointEnvelope,
-    });
-    return;
+    await bootstrapRecoveredBaseCheckpoint(params);
   }
   await advanceKeyDirectoryPinWithProof({
     scopeKind: params.scopeKind,
@@ -325,6 +385,51 @@ async function pinRecoveredCheckpoint(params: {
     checkpointEnvelope: params.checkpointEnvelope,
     checkpointAncestry: [params.baseCheckpointEnvelope],
     eventAncestry: params.eventEnvelopes,
+  });
+}
+
+async function bootstrapRecoveredBaseCheckpoint(params: {
+  scopeKind: "user" | "workspace";
+  scopeId: string;
+  baseCheckpointEnvelope: KeyDirectoryEnvelope;
+  baseCheckpointAncestry: KeyDirectoryEnvelope[];
+  baseEventAncestry: KeyDirectoryEnvelope[];
+}): Promise<void> {
+  const basePin = checkpointPin(params.baseCheckpointEnvelope);
+  if (basePin.checkpointSequence === 1) {
+    await pinInitialKeyDirectoryCheckpoint({
+      scopeKind: params.scopeKind,
+      scopeId: params.scopeId,
+      eventEnvelopes: params.baseEventAncestry,
+      checkpointEnvelope: params.baseCheckpointEnvelope,
+    });
+    return;
+  }
+
+  const initialCheckpoint = params.baseCheckpointAncestry[0];
+  if (!initialCheckpoint) {
+    throw new Error("recovery_candidate_key_directory_checkpoint_ancestry_missing");
+  }
+  const initialPin = checkpointPin(initialCheckpoint);
+  const initialEvents = params.baseEventAncestry.filter(
+    (event) => eventSequence(event) <= initialPin.eventHeadSequence,
+  );
+  const advanceEvents = params.baseEventAncestry.filter(
+    (event) => eventSequence(event) > initialPin.eventHeadSequence,
+  );
+
+  await pinInitialKeyDirectoryCheckpoint({
+    scopeKind: params.scopeKind,
+    scopeId: params.scopeId,
+    eventEnvelopes: initialEvents,
+    checkpointEnvelope: initialCheckpoint,
+  });
+  await advanceKeyDirectoryPinWithProof({
+    scopeKind: params.scopeKind,
+    scopeId: params.scopeId,
+    checkpointEnvelope: params.baseCheckpointEnvelope,
+    checkpointAncestry: params.baseCheckpointAncestry,
+    eventAncestry: advanceEvents,
   });
 }
 
@@ -342,6 +447,8 @@ function readPendingRecoveryDevice(): {
   candidateUserCheckpointSequence: number;
   candidateUserCheckpointHash: string;
   candidateUserCheckpoint: KeyDirectoryEnvelope;
+  candidateUserCheckpointAncestry: KeyDirectoryEnvelope[];
+  candidateUserEventAncestry: KeyDirectoryEnvelope[];
   userKeyDirectory: {
     events: KeyDirectoryEnvelope[];
     checkpoint: KeyDirectoryEnvelope;
@@ -349,6 +456,8 @@ function readPendingRecoveryDevice(): {
   candidateWorkspaceCheckpoints: Array<{
     workspaceId: string;
     checkpoint: KeyDirectoryEnvelope;
+    checkpointAncestry: KeyDirectoryEnvelope[];
+    eventAncestry: KeyDirectoryEnvelope[];
   }>;
 } {
   const raw = sessionStorage.getItem(RECOVERY_PENDING_DEVICE_STORAGE_KEY);
@@ -371,6 +480,10 @@ function readPendingRecoveryDevice(): {
       parsed.candidateUserCheckpoint,
       "recovery_context_invalid",
     ),
+    candidateUserCheckpointAncestry: optionalKeyDirectoryEnvelopes(
+      parsed.candidateUserCheckpointAncestry,
+    ),
+    candidateUserEventAncestry: optionalKeyDirectoryEnvelopes(parsed.candidateUserEventAncestry),
     userKeyDirectory: requireKeyDirectoryAppend(parsed.userKeyDirectory),
     candidateWorkspaceCheckpoints: requireWorkspaceCheckpoints(
       parsed.candidateWorkspaceCheckpoints,
@@ -391,9 +504,17 @@ function requireKeyDirectoryAppend(value: unknown): {
   };
 }
 
+function optionalKeyDirectoryEnvelopes(value: unknown): KeyDirectoryEnvelope[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error("recovery_context_invalid");
+  return value.map((entry) => assertKeyDirectoryEnvelope(entry, "recovery_context_invalid"));
+}
+
 function requireWorkspaceCheckpoints(value: unknown): Array<{
   workspaceId: string;
   checkpoint: KeyDirectoryEnvelope;
+  checkpointAncestry: KeyDirectoryEnvelope[];
+  eventAncestry: KeyDirectoryEnvelope[];
 }> {
   if (!Array.isArray(value)) throw new Error("recovery_context_invalid");
   return value.map((entry) => {
@@ -401,6 +522,8 @@ function requireWorkspaceCheckpoints(value: unknown): Array<{
     return {
       workspaceId: requireString(record.workspaceId),
       checkpoint: assertKeyDirectoryEnvelope(record.checkpoint, "recovery_context_invalid"),
+      checkpointAncestry: optionalKeyDirectoryEnvelopes(record.checkpointAncestry),
+      eventAncestry: optionalKeyDirectoryEnvelopes(record.eventAncestry),
     };
   });
 }
@@ -422,6 +545,10 @@ function requireRecord(value: unknown): Record<string, unknown> {
     throw new Error("recovery_context_invalid");
   }
   return value as Record<string, unknown>;
+}
+
+function eventSequence(eventEnvelope: KeyDirectoryEnvelope): number {
+  return requireNumber(requireRecord(eventEnvelope.payload).sequence);
 }
 
 function formatRecoveryCompletionMessage(restoredCount: number): string {

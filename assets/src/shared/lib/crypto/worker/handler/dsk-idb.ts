@@ -110,6 +110,26 @@ export async function hasStoredDskInWorker(): Promise<boolean> {
   }
 }
 
+export async function hasStoredDeviceKeysInWorker(): Promise<boolean> {
+  try {
+    const db = await openDskDb();
+    try {
+      const dsk = await idbGet<CryptoKey>(db, DSK_KEY);
+      const wrappedDeviceEcdh = await idbGet<WrappedBlob>(db, WRAPPED_DEVICE_ECDH_KEY);
+      const wrappedDeviceMlkem = await idbGet<WrappedBlob>(db, WRAPPED_DEVICE_MLKEM_KEY);
+      const wrappedDeviceSigning = await idbGet<WrappedBlob & { signingKeyId: string }>(
+        db,
+        WRAPPED_DEVICE_SIGNING_KEY,
+      );
+      return Boolean(dsk && wrappedDeviceEcdh && wrappedDeviceMlkem && wrappedDeviceSigning);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 export async function loadStoredDskInitDataInWorker(): Promise<StoredDskInitData | null> {
   try {
     const db = await openDskDb();

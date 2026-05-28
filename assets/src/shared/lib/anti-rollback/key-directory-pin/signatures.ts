@@ -193,6 +193,7 @@ export function assertShareParticipantCheckpointAdvance(
   for (const event of events) {
     if (
       event.payload.event_type !== "document_update_accepted" &&
+      event.payload.event_type !== "document_write_session_admitted" &&
       event.payload.event_type !== "document_snapshot_accepted"
     ) {
       const deviceSigned = event.signatures.some(

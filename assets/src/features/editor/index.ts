@@ -2,6 +2,7 @@ export { PresenceAvatars } from "./ui/presence/PresenceAvatars";
 export {
   getEditor,
   getActiveEditor,
+  getActiveEditorEntry,
   getEditorForDocument,
   registerEditor,
   setFocusedPanelIdAccessor,
@@ -10,6 +11,9 @@ export {
 } from "./model/editor/editor-api";
 export type {
   EditorLike,
+  EditorPluginDecoration,
+  EditorPluginDecorationStyle,
+  EditorPluginDecorationTone,
   EditorPosition,
   EditorRange,
   EditorSelection,
@@ -38,7 +42,7 @@ export {
   setDocumentSyncPaused,
 } from "./model/document-state/signals";
 export { initializeDocumentSync } from "./lib/sync/initialize";
-export { initializeDocumentPanel } from "./lib/sync/bootstrap-panel-lifecycle";
+export { initializeDocumentTile } from "./lib/sync/bootstrap-tile-lifecycle";
 export { canBufferDisconnectedChanges, isDocumentSyncReady } from "./lib/sync/readiness";
 export { retainUxLimitNotice } from "./lib/sync/ux-limit-notice";
 export { installPublicationRenameAutoSync } from "./lib/sync/outbound-publication";

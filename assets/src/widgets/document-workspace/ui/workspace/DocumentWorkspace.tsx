@@ -1,14 +1,20 @@
-import { Show, createEffect, createSignal } from "solid-js";
+import { Show, createEffect, createMemo, createSignal } from "solid-js";
 import { Mosaic } from "solid-mosaic-component";
 import type { MosaicBranch } from "solid-mosaic-component";
 import { FileTextIcon } from "lucide-solid";
 import { useDocuments, useDocumentTitles } from "@/entities/document";
 import { currentWorkspaceId } from "@/entities/workspace";
 import { OfflineIndicator } from "@/features/editor";
-import { decodePanelId, usePanelWorkspace } from "@/features/panel";
+import { decodePanelId, decodeWorkspacePluginTileId, usePanelWorkspace } from "@/features/panel";
+import {
+  auxiliaryPanePreferredLocation,
+  type AuxiliaryPaneLocation,
+} from "@/shared/lib/workspace/app";
 import { workspaceManager } from "@/features/panel";
 import { CustomTile } from "../tile/CustomTile";
 import { DocumentTile } from "../tile/DocumentTile";
+import { PluginWorkspaceTile } from "../tile/PluginWorkspaceTile";
+import { AuxiliaryPaneColumn } from "./AuxiliaryPaneColumn";
 
 import "solid-mosaic-component/solid-mosaic-component.css";
 import "./mosaic-theme.css";
@@ -35,6 +41,18 @@ export function DocumentWorkspace(props: DocumentWorkspaceProps = {}) {
   };
   const { flatDocuments } = useDocuments(workspaceId);
   const { getTitle: getTitleFromDoc } = useDocumentTitles(flatDocuments, workspaceId);
+  const auxiliaryPanesByLocation = (location: AuxiliaryPaneLocation) =>
+    workspaceManager
+      .getAuxiliaryPanes()
+      .filter((pane) => auxiliaryPanePreferredLocation(pane) === location);
+  const leftAuxiliaryPanes = createMemo(() => auxiliaryPanesByLocation("left"));
+  const documentLeftAuxiliaryPanes = createMemo(() => auxiliaryPanesByLocation("document_left"));
+  const documentRightAuxiliaryPanes = createMemo(() => auxiliaryPanesByLocation("document_right"));
+  const rightAuxiliaryPanes = createMemo(() => auxiliaryPanesByLocation("right"));
+  const [focusedAuxiliaryPaneId, setFocusedAuxiliaryPaneId] = createSignal<string | null>(null);
+  const [auxiliaryPaneWidths, setAuxiliaryPaneWidths] = createSignal<
+    Partial<Record<AuxiliaryPaneLocation, number>>
+  >({});
 
   createEffect(() => {
     const pid = workspace.focusedPanelId();
@@ -50,6 +68,9 @@ export function DocumentWorkspace(props: DocumentWorkspaceProps = {}) {
     const panel = decodePanelId(panelId);
 
     if (!panel) {
+      if (decodeWorkspacePluginTileId(panelId)) {
+        return <PluginWorkspaceTile panelId={panelId} path={path} workspace={workspace} />;
+      }
       const leaf = workspaceManager.getLeafById(panelId);
       if (leaf?.view) return <CustomTile panelId={panelId} path={path} workspace={workspace} />;
       return <div />;
@@ -67,33 +88,75 @@ export function DocumentWorkspace(props: DocumentWorkspaceProps = {}) {
         title={title}
         archivedAt={doc?.archived_at}
         workspace={workspace}
-        workspaceId={target?.workspaceId}
+        workspaceId={target?.workspaceId ?? workspaceId()}
       />
     );
   };
 
   return (
     <div class="h-full flex flex-col">
-      <div class="flex-1 overflow-hidden">
-        <Show
-          when={workspace.mosaicState()}
-          fallback={
-            <div class="flex items-center justify-center h-full text-muted-foreground">
-              <div class="text-center">
-                <FileTextIcon class="size-12 mx-auto mb-4 opacity-50" />
-                <p>No documents open</p>
-                <p class="text-sm">Select a document from the sidebar or drag one here</p>
-              </div>
+      <div class="flex min-h-0 flex-1 overflow-hidden">
+        <AuxiliaryPaneColumn
+          location="left"
+          panes={leftAuxiliaryPanes()}
+          focusedPaneId={focusedAuxiliaryPaneId()}
+          setFocusedPaneId={setFocusedAuxiliaryPaneId}
+          width={auxiliaryPaneWidths().left}
+          setWidth={(width) => setAuxiliaryPaneWidths((current) => ({ ...current, left: width }))}
+        />
+        <div class="min-w-0 flex-1 overflow-hidden">
+          <div class="flex h-full min-w-0 overflow-hidden">
+            <AuxiliaryPaneColumn
+              location="document_left"
+              panes={documentLeftAuxiliaryPanes()}
+              focusedPaneId={focusedAuxiliaryPaneId()}
+              setFocusedPaneId={setFocusedAuxiliaryPaneId}
+              width={auxiliaryPaneWidths().document_left}
+              setWidth={(width) =>
+                setAuxiliaryPaneWidths((current) => ({ ...current, document_left: width }))
+              }
+            />
+            <div class="min-w-0 flex-1 overflow-hidden">
+              <Show
+                when={workspace.mosaicState()}
+                fallback={
+                  <div class="flex items-center justify-center h-full text-muted-foreground">
+                    <div class="text-center">
+                      <FileTextIcon class="size-12 mx-auto mb-4 opacity-50" />
+                      <p>No documents open</p>
+                      <p class="text-sm">Select a document from the sidebar or drag one here</p>
+                    </div>
+                  </div>
+                }
+              >
+                <Mosaic<string>
+                  renderTile={renderTile}
+                  value={workspace.mosaicState()}
+                  onChange={workspace.handleMosaicChange}
+                  className="mosaic-blueprint-theme"
+                />
+              </Show>
             </div>
-          }
-        >
-          <Mosaic<string>
-            renderTile={renderTile}
-            value={workspace.mosaicState()}
-            onChange={workspace.handleMosaicChange}
-            className="mosaic-blueprint-theme"
-          />
-        </Show>
+            <AuxiliaryPaneColumn
+              location="document_right"
+              panes={documentRightAuxiliaryPanes()}
+              focusedPaneId={focusedAuxiliaryPaneId()}
+              setFocusedPaneId={setFocusedAuxiliaryPaneId}
+              width={auxiliaryPaneWidths().document_right}
+              setWidth={(width) =>
+                setAuxiliaryPaneWidths((current) => ({ ...current, document_right: width }))
+              }
+            />
+          </div>
+        </div>
+        <AuxiliaryPaneColumn
+          location="right"
+          panes={rightAuxiliaryPanes()}
+          focusedPaneId={focusedAuxiliaryPaneId()}
+          setFocusedPaneId={setFocusedAuxiliaryPaneId}
+          width={auxiliaryPaneWidths().right}
+          setWidth={(width) => setAuxiliaryPaneWidths((current) => ({ ...current, right: width }))}
+        />
       </div>
       <div
         ref={setStatusBarEl}

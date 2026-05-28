@@ -4,10 +4,13 @@ import type { MosaicNode } from "solid-mosaic-component";
 import { createBalancedTreeFromLeaves } from "solid-mosaic-component";
 import { authState } from "@/entities/session";
 import type { SettingsResponse } from "@/shared/api";
+import type { WorkspaceDocumentQueryConfig } from "@/shared/lib/workspace/app";
 import {
-  createDocumentPanelTarget,
+  createWorkspaceTileTarget,
   decodePanelId,
+  decodeWorkspacePluginTileId,
   encodePanelIdForTarget,
+  encodeWorkspacePluginTileId,
   extractDocumentSubtrees,
   findFirstDocumentId,
   findFirstPanelId,
@@ -25,6 +28,16 @@ import {
 
 type EditorMode = "markdown" | "wysiwyg" | "split";
 type QueryClient = ReturnType<typeof useQueryClient>;
+export interface WorkspaceTileActionRecord {
+  actionId: string;
+  tileId: string;
+  tileInstanceId: string;
+  documentId?: string;
+  kind?: "tile_action";
+  tileActionId?: string;
+  documentQuery?: WorkspaceDocumentQueryConfig;
+  issuedAtMs: number;
+}
 function getPrimaryPanelId(node: MosaicNode<string>): string {
   return typeof node === "string" ? node : getPrimaryPanelId(node.first);
 }
@@ -32,6 +45,7 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
   const [openDocuments, setOpenDocuments] = createSignal<Map<string, PanelTarget>>(new Map());
   const [mosaicState, setMosaicState] = createSignal<MosaicNode<string> | null>(null);
   const [focusedPanelIdSignal, setFocusedPanelIdSignal] = createSignal<string | null>(null);
+  const workspaceTileActions = new Map<string, WorkspaceTileActionRecord>();
   let scrollGroupCounter = 0;
   function generateScrollGroupId(): string {
     return `sg-${Date.now()}-${++scrollGroupCounter}`;
@@ -40,6 +54,7 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     setOpenDocuments(new Map());
     setMosaicState(null);
     setFocusedPanelIdSignal(null);
+    workspaceTileActions.clear();
   }
   function dispose() {
     resetWorkspace();
@@ -78,7 +93,9 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
   const focusedDocumentId = () => {
     const panelId = focusedPanelIdSignal();
     if (!panelId) return null;
-    return decodePanelId(panelId)?.documentId ?? null;
+    return (
+      decodePanelId(panelId)?.documentId ?? decodeWorkspacePluginTileId(panelId)?.documentId ?? null
+    );
   };
   const focusedPanelType = (): PanelType => {
     const panelId = focusedPanelIdSignal();
@@ -176,10 +193,91 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     }
     setFocusedPanelIdSignal(getPrimaryPanelId(splitNode));
   }
+  function openWorkspaceTile(tileId: string, documentId?: string) {
+    const state = mosaicState();
+    const existingPanelId = state ? findWorkspacePluginTileId(state, tileId, documentId) : null;
+    if (existingPanelId) {
+      const existingPanel = decodeWorkspacePluginTileId(existingPanelId);
+      if (!existingPanel) {
+        setFocusedPanelIdSignal(existingPanelId);
+        return;
+      }
+      discardWorkspaceTileAction(existingPanelId, workspaceTileActions);
+      const workspaceTileId = createWorkspaceTileActionPanelId(
+        tileId,
+        documentId,
+        existingPanel.instanceId,
+      );
+      setMosaicState(replacePanelIdInMosaic(state!, existingPanelId, workspaceTileId));
+      setFocusedPanelIdSignal(workspaceTileId);
+      return;
+    }
+
+    const workspaceTileId = createWorkspaceTileActionPanelId(tileId, documentId);
+    if (!state) {
+      setMosaicState(workspaceTileId);
+      setFocusedPanelIdSignal(workspaceTileId);
+      return;
+    }
+    setMosaicState({
+      direction: "row",
+      first: state,
+      second: workspaceTileId,
+      splitPercentage: 70,
+    });
+    setFocusedPanelIdSignal(workspaceTileId);
+  }
+  function createWorkspaceTileActionPanelId(
+    tileId: string,
+    documentId?: string,
+    instanceId?: string,
+    options: {
+      kind?: "tile_action";
+      tileActionId?: string;
+      documentQuery?: WorkspaceDocumentQueryConfig;
+    } = {},
+  ): string {
+    const actionId = generateWorkspaceTileActionId();
+    const workspaceTileId = encodeWorkspacePluginTileId(tileId, documentId, instanceId, actionId);
+    workspaceTileActions.set(actionId, {
+      actionId,
+      tileId,
+      tileInstanceId: workspaceTileId,
+      documentId,
+      ...(options.kind ? { kind: options.kind } : {}),
+      ...(options.tileActionId ? { tileActionId: options.tileActionId } : {}),
+      ...(options.documentQuery ? { documentQuery: options.documentQuery } : {}),
+      issuedAtMs: Date.now(),
+    });
+    return workspaceTileId;
+  }
+  function invokeWorkspaceTileAction(
+    panelId: string,
+    options: { tileActionId?: string; documentQuery?: WorkspaceDocumentQueryConfig } = {},
+  ) {
+    const state = mosaicState();
+    if (!state) return;
+    const decoded = decodeWorkspacePluginTileId(panelId);
+    if (!decoded) return;
+    discardWorkspaceTileAction(panelId, workspaceTileActions);
+    const workspaceTileId = createWorkspaceTileActionPanelId(
+      decoded.tileId,
+      decoded.documentId,
+      decoded.instanceId,
+      {
+        kind: "tile_action",
+        tileActionId: options.tileActionId,
+        documentQuery: options.documentQuery,
+      },
+    );
+    setMosaicState(replacePanelIdInMosaic(state, panelId, workspaceTileId));
+    setFocusedPanelIdSignal(workspaceTileId);
+  }
   function closePanel(panelId: string) {
     const state = mosaicState();
     if (!state) return;
     const newState = removeFromMosaic(state, panelId);
+    discardWorkspaceTileAction(panelId, workspaceTileActions);
     setMosaicState(newState);
     if (!newState) {
       setOpenDocuments(new Map());
@@ -202,17 +300,84 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
       }
     }
   }
+  function closeWorkspaceTiles(tileIds: readonly string[]) {
+    if (tileIds.length === 0) return;
+    const state = mosaicState();
+    if (!state) return;
+
+    const targetTileIds = new Set(tileIds);
+    const panelIds: string[] = [];
+    collectWorkspacePluginTilePanelIds(state, targetTileIds, panelIds);
+    if (panelIds.length === 0) return;
+
+    let newState: MosaicNode<string> | null = state;
+    for (const panelId of panelIds) {
+      if (!newState) break;
+      newState = removeFromMosaic(newState, panelId);
+    }
+    for (const [actionId, action] of workspaceTileActions) {
+      if (targetTileIds.has(action.tileId)) workspaceTileActions.delete(actionId);
+    }
+    setMosaicState(newState);
+    if (!newState) {
+      setOpenDocuments(new Map());
+      setFocusedPanelIdSignal(null);
+      return;
+    }
+    setOpenDocuments((targets) => {
+      const next = new Map(targets);
+      for (const targetKey of next.keys()) {
+        if (!hasTargetPanels(newState!, targetKey)) next.delete(targetKey);
+      }
+      return next;
+    });
+    const focusedPanelId = focusedPanelIdSignal();
+    if (focusedPanelId && panelIds.includes(focusedPanelId)) {
+      setFocusedPanelIdSignal(getPrimaryPanelId(newState));
+    }
+  }
   function splitPanel(panelId: string, direction: "row" | "column") {
+    const workspaceTile = decodeWorkspacePluginTileId(panelId);
+    if (workspaceTile) {
+      splitWorkspaceTilePanel(panelId, workspaceTile, direction);
+      return;
+    }
     const panel = decodePanelId(panelId);
     if (!panel) return;
     const newType: PanelType = panel.type === "markdown" ? "wysiwyg" : "markdown";
     const pairGroupId = generateScrollGroupId();
     const target =
-      openDocuments().get(panel.targetKey) ?? createDocumentPanelTarget(panel.documentId);
+      openDocuments().get(panel.targetKey) ?? createWorkspaceTileTarget(panel.documentId);
     const updatedPanelId = encodePanelIdForTarget(target, panel.type, undefined, pairGroupId);
     const newPanelId = encodePanelIdForTarget(target, newType, undefined, pairGroupId);
     const state = mosaicState();
     if (!state) return;
+    setMosaicState(
+      replacePanelInMosaic(state, panelId, {
+        direction,
+        first: updatedPanelId,
+        second: newPanelId,
+        splitPercentage: 50,
+      }),
+    );
+    if (focusedPanelIdSignal() === panelId) {
+      setFocusedPanelIdSignal(updatedPanelId);
+    }
+  }
+  function splitWorkspaceTilePanel(
+    panelId: string,
+    panel: NonNullable<ReturnType<typeof decodeWorkspacePluginTileId>>,
+    direction: "row" | "column",
+  ) {
+    const state = mosaicState();
+    if (!state) return;
+    discardWorkspaceTileAction(panelId, workspaceTileActions);
+    const updatedPanelId = createWorkspaceTileActionPanelId(
+      panel.tileId,
+      panel.documentId,
+      panel.instanceId,
+    );
+    const newPanelId = createWorkspaceTileActionPanelId(panel.tileId, panel.documentId);
     setMosaicState(
       replacePanelInMosaic(state, panelId, {
         direction,
@@ -230,7 +395,7 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     if (!panel) return;
     const pairGroupId = generateScrollGroupId();
     const target =
-      openDocuments().get(panel.targetKey) ?? createDocumentPanelTarget(panel.documentId);
+      openDocuments().get(panel.targetKey) ?? createWorkspaceTileTarget(panel.documentId);
     const markdownPanelId = encodePanelIdForTarget(target, "markdown", undefined, pairGroupId);
     const wysiwygPanelId = encodePanelIdForTarget(target, "wysiwyg", undefined, pairGroupId);
     const state = mosaicState();
@@ -252,7 +417,7 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     if (!panel) return;
     const newType: PanelType = panel.type === "markdown" ? "wysiwyg" : "markdown";
     const target =
-      openDocuments().get(panel.targetKey) ?? createDocumentPanelTarget(panel.documentId);
+      openDocuments().get(panel.targetKey) ?? createWorkspaceTileTarget(panel.documentId);
     const newPanelId = encodePanelIdForTarget(
       target,
       newType,
@@ -284,6 +449,25 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
   function focusPanel(panelId: string) {
     setFocusedPanelIdSignal(panelId);
   }
+  function consumeWorkspaceTileAction(
+    actionId: string | undefined,
+    tileId: string,
+    tileInstanceId: string,
+    documentId?: string,
+  ): WorkspaceTileActionRecord | undefined {
+    if (!actionId) return undefined;
+    const action = workspaceTileActions.get(actionId);
+    workspaceTileActions.delete(actionId);
+    if (!action) return undefined;
+    if (
+      action.tileId !== tileId ||
+      action.tileInstanceId !== tileInstanceId ||
+      action.documentId !== documentId
+    ) {
+      return undefined;
+    }
+    return action;
+  }
   function handleMosaicChange(newState: MosaicNode<string> | null) {
     setMosaicState(newState);
   }
@@ -305,15 +489,73 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     resetWorkspace,
     setMosaicState,
     splitPanel,
+    invokeWorkspaceTileAction,
     switchPanelType,
     switchToSplit,
+    closeWorkspaceTiles,
+    openWorkspaceTile,
+    consumeWorkspaceTileAction,
   };
 }
+
+function collectWorkspacePluginTilePanelIds(
+  node: MosaicNode<string>,
+  tileIds: ReadonlySet<string>,
+  panelIds: string[],
+): void {
+  if (typeof node === "string") {
+    const panel = decodeWorkspacePluginTileId(node);
+    if (panel && tileIds.has(panel.tileId)) panelIds.push(node);
+    return;
+  }
+  collectWorkspacePluginTilePanelIds(node.first, tileIds, panelIds);
+  collectWorkspacePluginTilePanelIds(node.second, tileIds, panelIds);
+}
+
+function findWorkspacePluginTileId(
+  node: MosaicNode<string>,
+  tileId: string,
+  documentId?: string,
+): string | null {
+  if (typeof node === "string") {
+    const panel = decodeWorkspacePluginTileId(node);
+    if (panel?.tileId === tileId && panel.documentId === documentId) return node;
+    return null;
+  }
+
+  return (
+    findWorkspacePluginTileId(node.first, tileId, documentId) ??
+    findWorkspacePluginTileId(node.second, tileId, documentId)
+  );
+}
+
+function discardWorkspaceTileAction(
+  panelId: string,
+  actions: Map<string, WorkspaceTileActionRecord>,
+): void {
+  const panel = decodeWorkspacePluginTileId(panelId);
+  if (!panel) return;
+  if (panel.actionId) {
+    actions.delete(panel.actionId);
+    return;
+  }
+  for (const [actionId, action] of actions) {
+    if (action.tileInstanceId === panelId) actions.delete(actionId);
+  }
+}
+
 type PanelWorkspaceContext = ReturnType<typeof createPanelWorkspaceContext>;
 let panelWorkspaceContext: PanelWorkspaceContext | null = null;
+let panelWorkspaceRetainCount = 0;
+let panelWorkspaceDisposeTimer: ReturnType<typeof setTimeout> | null = null;
 export function disposePanelWorkspace(): void {
+  if (panelWorkspaceDisposeTimer) {
+    clearTimeout(panelWorkspaceDisposeTimer);
+    panelWorkspaceDisposeTimer = null;
+  }
   panelWorkspaceContext?.dispose();
   panelWorkspaceContext = null;
+  panelWorkspaceRetainCount = 0;
 }
 export function usePanelWorkspace() {
   const queryClient = useQueryClient();
@@ -326,4 +568,43 @@ export function usePanelWorkspace() {
     );
   }
   return panelWorkspaceContext;
+}
+
+export function retainPanelWorkspace(): {
+  workspace: PanelWorkspaceContext;
+  release: () => void;
+} {
+  const workspace = usePanelWorkspace();
+  if (panelWorkspaceDisposeTimer) {
+    clearTimeout(panelWorkspaceDisposeTimer);
+    panelWorkspaceDisposeTimer = null;
+  }
+  let released = false;
+  panelWorkspaceRetainCount += 1;
+
+  return {
+    workspace,
+    release() {
+      if (released) return;
+      released = true;
+      panelWorkspaceRetainCount = Math.max(0, panelWorkspaceRetainCount - 1);
+      if (panelWorkspaceRetainCount === 0 && panelWorkspaceContext === workspace) {
+        panelWorkspaceDisposeTimer = setTimeout(() => {
+          panelWorkspaceDisposeTimer = null;
+          if (panelWorkspaceRetainCount === 0 && panelWorkspaceContext === workspace) {
+            disposePanelWorkspace();
+          }
+        }, 0);
+      }
+    },
+  };
+}
+
+function generateWorkspaceTileActionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `wpa-${crypto.randomUUID()}`;
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `wpa-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }

@@ -23,6 +23,7 @@ export interface RecoveryFlowState {
   handleFileUpload: (event: Event) => Promise<void>;
   clear: () => void;
   resetInputError: () => void;
+  backToLogin: () => void;
   submitRecovery: (event: Event) => Promise<void>;
   submitPasswordSet: (event: Event) => Promise<void>;
 }

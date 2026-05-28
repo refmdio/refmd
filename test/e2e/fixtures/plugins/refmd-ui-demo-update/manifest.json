@@ -1,0 +1,26 @@
+{
+  "id": "io.refmd.ui-demo",
+  "version": "0.2.0",
+  "scope": {
+    "supportedOwnerScopes": ["user"],
+    "defaultOwnerScope": "user",
+    "workspaceApplication": "optional"
+  },
+  "permissions": [
+    "ui:command",
+    "ui:menu_item",
+    "ui:statusbar",
+    "ui:sidebar",
+    "ui:workspace_tile",
+    "ui:auxiliary_pane",
+    "ui:document_tree:*",
+    "ui:settings_iframe",
+    "ui:settings_declarative",
+    "ui:declarative_modal"
+  ],
+  "network": {
+    "endpoints": []
+  },
+  "rendererSlots": [],
+  "documentScopes": []
+}

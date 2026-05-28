@@ -168,9 +168,23 @@ export async function buildIdentityKeyDirectoryAppend(
   if (!checkpointPayload) throw new Error("key_directory_checkpoint_payload_invalid");
   const coveredHead = checkpointPayload.covered_event_head as Record<string, unknown> | undefined;
   if (!coveredHead) throw new Error("key_directory_checkpoint_head_invalid");
+  const existingIdentityKeys =
+    (checkpointPayload.identity_keys as Record<string, unknown>[] | undefined) ?? [];
   const encryptionKeyId = computeHybridEncryptionKeyId(
     input.recipientHybridEncryptionPublicKeyMaterial,
   );
+  const signingKeyId = input.recipientHybridSigningPublicKeyMaterial
+    ? computeSigningKeyId(input.recipientHybridSigningPublicKeyMaterial)
+    : null;
+  const eventKeyId =
+    !checkpointHasKey(existingIdentityKeys, encryptionKeyId) || !signingKeyId
+      ? encryptionKeyId
+      : signingKeyId;
+  const eventKeyMaterial =
+    eventKeyId === encryptionKeyId
+      ? input.recipientHybridEncryptionPublicKeyMaterial
+      : input.recipientHybridSigningPublicKeyMaterial;
+  if (!eventKeyMaterial) throw new Error("key_directory_identity_key_material_missing");
   const actor = actorWithCheckpointAuthority(
     deviceActor(
       input.userId,
@@ -190,16 +204,20 @@ export async function buildIdentityKeyDirectoryAppend(
     actor,
     previousEventHash: stringField(coveredHead.head_hash),
     body: {
-      key_id: encryptionKeyId,
+      key_id: eventKeyId,
       key_material_hash: blake3Base64Url(
-        canonicalizeStrictBytes(
-          input.recipientHybridEncryptionPublicKeyMaterial as unknown as StrictJsonValue,
-        ),
+        canonicalizeStrictBytes(eventKeyMaterial as unknown as StrictJsonValue),
       ),
     },
   });
   const eventRefValue = eventRef(input.scopeKind, input.scopeId, event);
   const signedEvent = await signEvent("device", event);
+  const identityKeys = appendKeyEntriesIfMissing(existingIdentityKeys, [
+    keyEntry(encryptionKeyId, input.recipientHybridEncryptionPublicKeyMaterial, eventRefValue),
+    ...(input.recipientHybridSigningPublicKeyMaterial && signingKeyId
+      ? [keyEntry(signingKeyId, input.recipientHybridSigningPublicKeyMaterial, eventRefValue)]
+      : []),
+  ]);
   const checkpoint = keyDirectoryCheckpoint({
     scopeKind: input.scopeKind,
     scopeId: input.scopeId,
@@ -209,14 +227,25 @@ export async function buildIdentityKeyDirectoryAppend(
       canonicalizeStrictBytes(checkpointPayload as StrictJsonValue),
     ),
     coveredEventHead: eventHead(event),
-    identityKeys: [
-      ...((checkpointPayload.identity_keys as Record<string, unknown>[] | undefined) ?? []),
-      keyEntry(encryptionKeyId, input.recipientHybridEncryptionPublicKeyMaterial, eventRefValue),
-    ],
+    identityKeys,
     deviceKeys: (checkpointPayload.device_keys as Record<string, unknown>[] | undefined) ?? [],
     shareParticipantKeys: checkpointShareParticipantKeys(checkpointPayload),
     revokedKeyIds: (checkpointPayload.revoked_key_ids as string[] | undefined) ?? [],
   });
   const signedCheckpoint = await signCheckpoint("device", "workspace_authorized", checkpoint);
   return { events: [signedEvent], checkpoint: signedCheckpoint };
+}
+
+function checkpointHasKey(entries: Record<string, unknown>[], keyId: string): boolean {
+  return entries.some((entry) => entry.key_id === keyId && !("revoked_at" in entry));
+}
+
+function appendKeyEntriesIfMissing(
+  entries: Record<string, unknown>[],
+  candidates: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return candidates.reduce((acc, candidate) => {
+    const keyId = stringField(candidate.key_id);
+    return checkpointHasKey(acc, keyId) ? acc : [...acc, candidate];
+  }, entries);
 }

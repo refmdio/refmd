@@ -1,0 +1,26 @@
+{
+  "id": "io.refmd.network-demo",
+  "version": "0.1.0",
+  "scope": {
+    "supportedOwnerScopes": ["user"],
+    "defaultOwnerScope": "user",
+    "workspaceApplication": "optional"
+  },
+  "permissions": ["ui:command", "ui:statusbar", "network:fetch"],
+  "network": {
+    "endpoints": [
+      {
+        "id": "network-demo-api",
+        "url": "https://api.refmd-e2e.example/v1/network-demo",
+        "routes": ["proxy"],
+        "methods": ["POST"],
+        "headers": ["content-type"],
+        "bodySchema": "json",
+        "maxRequestBytes": 2048,
+        "maxResponseBytes": 4096
+      }
+    ]
+  },
+  "rendererSlots": [],
+  "documentScopes": []
+}

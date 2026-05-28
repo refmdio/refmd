@@ -28,6 +28,70 @@ end
 config :refmd, RefMDWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))] ++ pop_http_header_options
 
+require_env = fn name ->
+  case System.get_env(name) do
+    value when is_binary(value) and value != "" ->
+      value
+
+    _ ->
+      raise "environment variable #{name} is missing."
+  end
+end
+
+optional_env = fn name, default ->
+  case System.get_env(name) do
+    value when is_binary(value) and value != "" -> value
+    _ -> default
+  end
+end
+
+storage_mode =
+  if config_env() == :prod do
+    require_env.("REFMD_STORAGE_MODE")
+  else
+    optional_env.("REFMD_STORAGE_MODE", "local")
+  end
+
+storage_config =
+  case storage_mode do
+    "local" ->
+      local_base_path =
+        if config_env() == :prod do
+          require_env.("REFMD_STORAGE_LOCAL_BASE_PATH")
+        else
+          optional_env.(
+            "REFMD_STORAGE_LOCAL_BASE_PATH",
+            Path.join(System.tmp_dir!(), "refmd-storage")
+          )
+        end
+
+      [
+        mode: "local",
+        local: [
+          base_path: local_base_path
+        ]
+      ]
+
+    "s3" ->
+      [
+        mode: "s3",
+        s3: [
+          endpoint: optional_env.("S3_ENDPOINT", "https://s3.amazonaws.com"),
+          bucket: require_env.("S3_BUCKET"),
+          access_key_id: require_env.("S3_ACCESS_KEY_ID"),
+          secret_access_key: require_env.("S3_SECRET_ACCESS_KEY"),
+          region: optional_env.("S3_REGION", "ap-northeast-1"),
+          session_token: System.get_env("S3_SESSION_TOKEN"),
+          path_style: System.get_env("S3_PATH_STYLE", "false") in ["1", "true", "TRUE"]
+        ]
+      ]
+
+    _ ->
+      raise "REFMD_STORAGE_MODE must be local or s3"
+  end
+
+config :refmd, :storage, storage_config
+
 if config_env() == :prod do
   dummy_salt_secret =
     System.get_env("DUMMY_SALT_SECRET") ||

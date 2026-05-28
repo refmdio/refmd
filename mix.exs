@@ -29,7 +29,7 @@ defmodule RefMD.MixProject do
   def application do
     [
       mod: {RefMD.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :inets, :ssl]
     ]
   end
 

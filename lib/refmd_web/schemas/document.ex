@@ -25,6 +25,10 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       is_published: %Schema{type: :boolean},
       can_sync_publication: %Schema{type: :boolean},
       created_by: %Schema{type: :string, format: :uuid, nullable: true},
+      write_state: %Schema{
+        type: :string,
+        enum: ["writable", "read_only", "archived", "write_disabled"]
+      },
       archived_at: %Schema{type: :string, format: :"date-time", nullable: true},
       created_at: %Schema{type: :string, format: :"date-time"},
       updated_at: %Schema{type: :string, format: :"date-time"}
@@ -42,6 +46,7 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       :min_dek_version,
       :is_published,
       :can_sync_publication,
+      :write_state,
       :created_at,
       :updated_at
     ]
@@ -116,5 +121,23 @@ defmodule RefMDWeb.Schemas.ReorderDocumentRequest do
       position: %Schema{type: :integer, minimum: 0}
     },
     required: [:workspace_id, :document_id, :position]
+  })
+end
+
+defmodule RefMDWeb.Schemas.DocumentWriteStateRequest do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "DocumentWriteStateRequest",
+    type: :object,
+    properties: %{
+      workspace_key_directory_events: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
+    },
+    required: [:workspace_key_directory_events, :workspace_key_directory_checkpoint]
   })
 end

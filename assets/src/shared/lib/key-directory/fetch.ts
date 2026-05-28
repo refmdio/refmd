@@ -18,6 +18,16 @@ function envelopeRecords(values: unknown[] | undefined): Record<string, unknown>
   return (values ?? []).map((value) => value as Record<string, unknown>);
 }
 
+function isRetryablePinRace(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "key_directory_pin_conflict" ||
+      error.message === "key_directory_checkpoint_anchor_mismatch" ||
+      error.message === "key_directory_checkpoint_rollback" ||
+      error.message === "key_directory_checkpoint_fork")
+  );
+}
+
 export async function fetchVerifiedKeyDirectory(params: {
   scopeKind: "user" | "workspace";
   scopeId: string;
@@ -88,27 +98,30 @@ export async function fetchVerifiedKeyDirectory(params: {
   };
 
   const serverPin = body.pin;
+  const cachedLineage = lookupVerifiedKeyDirectoryLineage(params.scopeKind, params.scopeId, pin);
+  const rememberResponseLineage = () =>
+    advanceKeyDirectoryPinWithProof({
+      scopeKind: params.scopeKind,
+      scopeId: params.scopeId,
+      checkpointEnvelope: body.checkpoint,
+      checkpointAncestry: body.checkpoint_ancestry ?? [],
+      eventAncestry: body.event_ancestry ?? [],
+      authorityEventAncestry: [
+        ...envelopeRecords(cachedLineage?.events),
+        ...(body.event_ancestry ?? []),
+      ],
+      rotationDeletionEvidences: body.rotation_deletion_evidences ?? [],
+    });
+
   if (
     serverPin &&
     ((serverPin.checkpoint_sequence ?? pin.checkpointSequence) > pin.checkpointSequence ||
       (serverPin.event_head_sequence ?? pin.eventHeadSequence) > pin.eventHeadSequence)
   ) {
-    const cachedLineage = lookupVerifiedKeyDirectoryLineage(params.scopeKind, params.scopeId, pin);
     try {
-      await advanceKeyDirectoryPinWithProof({
-        scopeKind: params.scopeKind,
-        scopeId: params.scopeId,
-        checkpointEnvelope: body.checkpoint,
-        checkpointAncestry: body.checkpoint_ancestry ?? [],
-        eventAncestry: body.event_ancestry ?? [],
-        authorityEventAncestry: [
-          ...envelopeRecords(cachedLineage?.events),
-          ...(body.event_ancestry ?? []),
-        ],
-        rotationDeletionEvidences: body.rotation_deletion_evidences ?? [],
-      });
+      await rememberResponseLineage();
     } catch (error) {
-      if (error instanceof Error && error.message === "key_directory_pin_conflict") {
+      if (isRetryablePinRace(error)) {
         return fetchVerifiedKeyDirectory(params);
       }
       throw error;
@@ -129,6 +142,15 @@ export async function fetchVerifiedKeyDirectory(params: {
     hashKeyDirectoryCheckpointEnvelope(body.checkpoint) !== pin.checkpointHash
   ) {
     throw new Error("key_directory_pin_mismatch");
+  } else {
+    try {
+      await rememberResponseLineage();
+    } catch (error) {
+      if (isRetryablePinRace(error)) {
+        return fetchVerifiedKeyDirectory(params);
+      }
+      throw error;
+    }
   }
 
   return { checkpoint: body.checkpoint };

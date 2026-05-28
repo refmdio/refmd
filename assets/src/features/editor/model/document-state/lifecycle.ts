@@ -33,6 +33,8 @@ function teardownState(
   if (state.pendingSaveTimeout) {
     clearTimeout(state.pendingSaveTimeout);
     state.pendingSaveTimeout = null;
+    state._pendingSaveWatchdogKind = null;
+    state._pendingSaveWatchdogStartedAt = null;
   }
   if (state._syncGapTimer) {
     clearTimeout(state._syncGapTimer);

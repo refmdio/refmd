@@ -205,7 +205,8 @@ defmodule RefMDWeb.ApiSpec do
     {"/api/settings", :get} => @user_session_security,
     {"/api/auth/logout", :post} => @user_or_share_session_security,
     {"/api/auth/pop-challenge", :post} => @user_or_share_session_security,
-    {"/api/auth/ws-token", :post} => @user_or_share_session_security
+    {"/api/auth/ws-token", :post} => @user_or_share_session_security,
+    {"/api/plugin-runtime/sandbox-documents/{session_id}", :get} => @user_session_security
   }
 
   @user_or_share_pop_routes %{

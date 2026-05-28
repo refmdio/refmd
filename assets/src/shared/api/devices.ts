@@ -22,16 +22,26 @@ export const devicesApi = {
   bootstrap: async (body: components["schemas"]["BootstrapDeviceRequest"]) =>
     throwIfError(await client.POST("/api/devices/bootstrap", { body })),
 
-  registrationChallenge: async () =>
-    throwIfError(await client.POST("/api/devices/registrations/challenge", {})),
+  registrationChallenge: async (init?: Pick<RequestInit, "signal">) =>
+    throwIfError(await client.POST("/api/devices/registrations/challenge", { ...init })),
 
-  createRegistration: async (body: CreateDeviceRegistrationRequest) =>
-    throwIfError(await client.POST("/api/devices/registrations", { body })),
+  createRegistration: async (
+    body: CreateDeviceRegistrationRequest,
+    init?: Pick<RequestInit, "signal">,
+  ) => throwIfError(await client.POST("/api/devices/registrations", { body, ...init })),
 
   approve: async (id: string, body: ApproveDeviceRequest) =>
     throwIfError(
       await client.POST("/api/devices/registrations/{device_id}/approve", {
         params: withUserPopParams({ path: { device_id: id } }),
+        body,
+      }),
+    ),
+
+  approveRecovered: async (id: string, body: ApproveDeviceRequest) =>
+    throwIfError(
+      await client.POST("/api/devices/registrations/{device_id}/approve", {
+        params: { path: { device_id: id } },
         body,
       }),
     ),

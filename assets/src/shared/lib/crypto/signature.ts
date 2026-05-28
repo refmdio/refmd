@@ -10,6 +10,7 @@ import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "./suite
 import {
   SIGNATURE_TRANSCRIPT_LABEL,
   SIGNATURE_TRANSCRIPT_PROTOCOL,
+  transcriptBase,
   type SigningOwnerKind,
 } from "./signature-transcript-core";
 import type {
@@ -401,6 +402,104 @@ export function verifyDeviceApprovalSignature(params: VerifySurfaceSignaturePara
   return verifySurfaceSignature("device_approval", params);
 }
 
+export function buildPluginBundleApprovalTranscript(params: {
+  actor: StrictJsonValue;
+  approval: StrictJsonValue;
+}): StrictJsonValue {
+  const actor = assertStrictRecord(params.actor, "plugin_bundle_approval_actor_invalid");
+  const approval = assertStrictRecord(params.approval, "plugin_bundle_approval_subject_invalid");
+  assertPluginActorOwnerScope(actor, approval, "plugin_bundle_approval_actor_invalid");
+  const ownerId = stringRecordValue(actor, "device_id", "plugin_bundle_approval_actor_invalid");
+  const surface = getActiveSigningSurface("plugin_bundle_approval", "none");
+
+  return transcriptBase("plugin_bundle_approval", surface, "device", ownerId, {
+    subject_hash: blake3Base64Url(canonicalizeStrictBytes(approval)),
+    subject_protocol: "refmd.plugin-bundle-approval",
+    subject_version: CURRENT_PROTOCOL_VERSION,
+    actor,
+    approval,
+  });
+}
+
+export function verifyPluginBundleApprovalSignature(params: VerifySurfaceSignatureParams): boolean {
+  return verifySurfaceSignature("plugin_bundle_approval", params);
+}
+
+export function signPluginBundleApprovalSignature(
+  params: SignSurfaceSignatureParams,
+): HybridSignature {
+  return signSurfaceSignature("plugin_bundle_approval", params);
+}
+
+export function buildPluginConsentEventTranscript(params: {
+  actor: StrictJsonValue;
+  consent: StrictJsonValue;
+}): StrictJsonValue {
+  const actor = assertStrictRecord(params.actor, "plugin_consent_event_actor_invalid");
+  const consent = assertStrictRecord(params.consent, "plugin_consent_event_subject_invalid");
+  assertPluginActorWorkspaceScope(actor, consent, "plugin_consent_event_actor_invalid");
+  assertPluginConsentActorSubjectBinding(actor, consent, "plugin_consent_event_actor_invalid");
+  const ownerId = stringRecordValue(actor, "device_id", "plugin_consent_event_actor_invalid");
+  const surface = getActiveSigningSurface("plugin_consent_event", "none");
+
+  return transcriptBase("plugin_consent_event", surface, "device", ownerId, {
+    subject_hash: blake3Base64Url(canonicalizeStrictBytes(consent)),
+    subject_protocol: "refmd.plugin-consent-event",
+    subject_version: CURRENT_PROTOCOL_VERSION,
+    actor,
+    consent,
+  });
+}
+
+export function verifyPluginConsentEventSignature(params: VerifySurfaceSignatureParams): boolean {
+  return verifySurfaceSignature("plugin_consent_event", params);
+}
+
+export function signPluginConsentEventSignature(
+  params: SignSurfaceSignatureParams,
+): HybridSignature {
+  return signSurfaceSignature("plugin_consent_event", params);
+}
+
+export function buildPluginNetworkProxyRequestTranscript(params: {
+  subject: StrictJsonValue;
+}): StrictJsonValue {
+  const subject = assertStrictRecord(
+    params.subject,
+    "plugin_network_proxy_request_subject_invalid",
+  );
+  assertPluginNetworkProxyRequestSubject(subject, "plugin_network_proxy_request_subject_invalid");
+  const runtime = assertStrictRecord(
+    subject.runtime,
+    "plugin_network_proxy_request_subject_invalid",
+  );
+  const ownerId = stringRecordValue(
+    runtime,
+    "device_id",
+    "plugin_network_proxy_request_subject_invalid",
+  );
+  const surface = getActiveSigningSurface("plugin_network_proxy_request", "none");
+
+  return transcriptBase("plugin_network_proxy_request", surface, "device", ownerId, {
+    subject_hash: blake3Base64Url(canonicalizeStrictBytes(subject)),
+    subject_protocol: "refmd.plugin-network-proxy-request-subject",
+    subject_version: CURRENT_PROTOCOL_VERSION,
+    subject,
+  });
+}
+
+export function verifyPluginNetworkProxyRequestSignature(
+  params: VerifySurfaceSignatureParams,
+): boolean {
+  return verifySurfaceSignature("plugin_network_proxy_request", params);
+}
+
+export function signPluginNetworkProxyRequestSignature(
+  params: SignSurfaceSignatureParams,
+): HybridSignature {
+  return signSurfaceSignature("plugin_network_proxy_request", params);
+}
+
 export function signRecoveryDeviceApprovalSignature(
   params: SignSurfaceSignatureParams,
 ): HybridSignature {
@@ -759,6 +858,13 @@ function assertOwnerExactTranscriptPayload(
   if ("subject_version" in transcript && transcript.subject_version !== CURRENT_PROTOCOL_VERSION) {
     throw new Error("subject_version_invalid");
   }
+  if (signingPurpose === "plugin_network_proxy_request") {
+    const subject = assertStrictRecord(
+      transcript.subject as StrictJsonValue,
+      "plugin_network_proxy_request_subject_invalid",
+    );
+    assertPluginNetworkProxyRequestSubject(subject, "plugin_network_proxy_request_subject_invalid");
+  }
   if (signingPurpose === "pop_request") {
     assertNonEmptyString(transcript.challenge, "challenge_invalid");
     if (transcript.pop_variant !== variant) {
@@ -955,6 +1061,23 @@ function nestedExpectedKeys(
     return ["event_type", "invitation_id", "required_authority"];
   }
   if (
+    field === "approval" &&
+    transcript.surface_id === "plugin_bundle_approval" &&
+    value.owner_scope_kind === "workspace"
+  ) {
+    return keys.filter((key) => key !== "owner_user_id");
+  }
+  if (
+    field === "approval" &&
+    transcript.surface_id === "plugin_bundle_approval" &&
+    value.owner_scope_kind === "user"
+  ) {
+    return keys.filter(
+      (key) =>
+        key !== "application_scope_kind" && key !== "owner_workspace_id" && key !== "workspace_id",
+    );
+  }
+  if (
     (field === "signer" || field === "actor") &&
     (transcript.surface_id === "key_directory_checkpoint" ||
       transcript.surface_id === "key_directory_event")
@@ -1023,14 +1146,21 @@ function assertNestedFieldValues(field: string, value: Record<string, unknown>):
       if (typeof nestedValue !== "string") {
         throw new Error(`${field}_${key}_invalid`);
       }
+    } else if (key.startsWith("previous_") && key.endsWith("_hash") && nestedValue === "GENESIS") {
+      continue;
+    } else if (key === "source_url_hash" && nestedValue === "NO_SOURCE_URL") {
+      continue;
     } else if (key.endsWith("_hash") || publicDataBlake3Field(field, key)) {
       assertNonEmptyString(nestedValue, `${field}_${key}_invalid`);
       assertBlake3Base64Url(nestedValue);
     } else if (
       key.endsWith("_sequence") ||
+      key.endsWith("_epoch") ||
       key === "sequence" ||
       key === "counter" ||
+      key.endsWith("_counter") ||
       key.endsWith("_version") ||
+      key === "created_at_ms" ||
       key === "min_suite_rank" ||
       publicDataPositiveIntegerField(field, key)
     ) {
@@ -1076,6 +1206,8 @@ function publicDataPositiveIntegerField(field: string, key: string): boolean {
     (key === "authorityPermissionVersion" ||
       key === "keyCheckpointSequence" ||
       key === "keyVersion" ||
+      key === "minDekVersion" ||
+      key === "writeSessionCounter" ||
       key === "timestamp")
   );
 }
@@ -1139,6 +1271,187 @@ function assertPlainObject(
   }
 }
 
+function assertStrictRecord(
+  value: StrictJsonValue,
+  error: string,
+): Record<string, StrictJsonValue> {
+  assertPlainObject(value, error);
+  return value as Record<string, StrictJsonValue>;
+}
+
+function stringRecordValue(
+  value: Record<string, StrictJsonValue>,
+  key: string,
+  error: string,
+): string {
+  const result = value[key];
+  if (typeof result !== "string" || result.length === 0) throw new Error(error);
+  return result;
+}
+
+function stringPresentRecordValue(
+  value: Record<string, StrictJsonValue>,
+  key: string,
+  error: string,
+): string {
+  const result = value[key];
+  if (typeof result !== "string") throw new Error(error);
+  return result;
+}
+
+function positiveIntegerRecordValue(
+  value: Record<string, StrictJsonValue>,
+  key: string,
+  error: string,
+): number {
+  const result = value[key];
+  if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 1) {
+    throw new Error(error);
+  }
+  return result;
+}
+
+function booleanRecordValue(
+  value: Record<string, StrictJsonValue>,
+  key: string,
+  error: string,
+): boolean {
+  const result = value[key];
+  if (typeof result !== "boolean") throw new Error(error);
+  return result;
+}
+
+function strictRecordValue(
+  value: Record<string, StrictJsonValue>,
+  key: string,
+  error: string,
+): Record<string, StrictJsonValue> {
+  return assertStrictRecord(value[key], error);
+}
+
+function assertPluginActorWorkspaceScope(
+  actor: Record<string, StrictJsonValue>,
+  subject: Record<string, StrictJsonValue>,
+  error: string,
+): void {
+  const workspaceId = stringRecordValue(subject, "workspace_id", error);
+  if (actor.key_scope_kind !== "workspace" || actor.key_scope_id !== workspaceId) {
+    throw new Error(error);
+  }
+}
+
+function assertPluginConsentActorSubjectBinding(
+  actor: Record<string, StrictJsonValue>,
+  consent: Record<string, StrictJsonValue>,
+  error: string,
+): void {
+  const actorUserId = stringRecordValue(actor, "user_id", error);
+  const actorDeviceId = stringRecordValue(actor, "device_id", error);
+  const consentUserId = stringRecordValue(consent, "user_id", error);
+  const consentDeviceId = stringRecordValue(consent, "device_id", error);
+
+  if (actorUserId !== consentUserId || actorDeviceId !== consentDeviceId) {
+    throw new Error(error);
+  }
+}
+
+function assertPluginNetworkProxyRequestSubject(
+  subject: Record<string, StrictJsonValue>,
+  error: string,
+): void {
+  assertExactRecordKeys(
+    subject,
+    ["endpoint", "protocol", "proxy", "request_id", "runtime", "target", "version"],
+    error,
+  );
+  stringRecordValue(subject, "protocol", error);
+  positiveIntegerRecordValue(subject, "version", error);
+  stringRecordValue(subject, "request_id", error);
+
+  const proxy = strictRecordValue(subject, "proxy", error);
+  assertExactRecordKeys(proxy, ["id", "origin", "scope"], error);
+  stringRecordValue(proxy, "id", error);
+  stringRecordValue(proxy, "scope", error);
+  stringRecordValue(proxy, "origin", error);
+
+  const target = strictRecordValue(subject, "target", error);
+  assertExactRecordKeys(target, ["body_text", "headers", "method", "url"], error);
+  stringRecordValue(target, "url", error);
+  stringRecordValue(target, "method", error);
+  strictRecordValue(target, "headers", error);
+  stringPresentRecordValue(target, "body_text", error);
+
+  const endpoint = strictRecordValue(subject, "endpoint", error);
+  assertExactRecordKeys(endpoint, pluginNetworkProxyEndpointKeys(endpoint), error);
+  stringRecordValue(endpoint, "id", error);
+  positiveIntegerRecordValue(endpoint, "max_request_bytes", error);
+  positiveIntegerRecordValue(endpoint, "max_response_bytes", error);
+  if (Object.hasOwn(endpoint, "credential_audience")) {
+    stringRecordValue(endpoint, "credential_audience", error);
+  }
+
+  const runtime = strictRecordValue(subject, "runtime", error);
+  assertExactRecordKeys(
+    runtime,
+    [
+      "activation_id",
+      "application_id",
+      "capability_grant_id",
+      "consent_epoch",
+      "credential_handle_used",
+      "device_id",
+      "frame_generation",
+      "owner_scope_kind",
+      "package_id",
+      "plugin_id",
+      "request_id",
+      "user_id",
+      "workspace_id",
+    ],
+    error,
+  );
+  stringRecordValue(runtime, "workspace_id", error);
+  stringRecordValue(runtime, "plugin_id", error);
+  stringRecordValue(runtime, "package_id", error);
+  stringRecordValue(runtime, "application_id", error);
+  stringRecordValue(runtime, "activation_id", error);
+  positiveIntegerRecordValue(runtime, "frame_generation", error);
+  stringRecordValue(runtime, "user_id", error);
+  stringRecordValue(runtime, "device_id", error);
+  stringRecordValue(runtime, "owner_scope_kind", error);
+  positiveIntegerRecordValue(runtime, "consent_epoch", error);
+  stringRecordValue(runtime, "capability_grant_id", error);
+  stringRecordValue(runtime, "request_id", error);
+  booleanRecordValue(runtime, "credential_handle_used", error);
+}
+
+function pluginNetworkProxyEndpointKeys(endpoint: Record<string, StrictJsonValue>): string[] {
+  const keys = ["id", "max_request_bytes", "max_response_bytes"];
+  if (Object.hasOwn(endpoint, "credential_audience")) keys.push("credential_audience");
+  return keys;
+}
+
+function assertPluginActorOwnerScope(
+  actor: Record<string, StrictJsonValue>,
+  subject: Record<string, StrictJsonValue>,
+  error: string,
+): void {
+  const ownerScopeKind = stringRecordValue(subject, "owner_scope_kind", error);
+  const ownerScopeId =
+    ownerScopeKind === "workspace"
+      ? stringRecordValue(subject, "owner_workspace_id", error)
+      : ownerScopeKind === "user"
+        ? stringRecordValue(subject, "owner_user_id", error)
+        : null;
+  if (
+    !ownerScopeId ||
+    actor.key_scope_kind !== ownerScopeKind ||
+    actor.key_scope_id !== ownerScopeId
+  ) {
+    throw new Error(error);
+  }
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
     value !== null &&
@@ -1154,6 +1467,18 @@ function assertExactKeys(value: Record<string, unknown>, expectedKeys: string[])
   if (keys.length !== expected.length) throw new Error("unexpected_keys");
   for (let i = 0; i < keys.length; i += 1) {
     if (keys[i] !== expected[i]) throw new Error("unexpected_keys");
+  }
+}
+
+function assertExactRecordKeys(
+  value: Record<string, unknown>,
+  expectedKeys: string[],
+  error: string,
+): void {
+  try {
+    assertExactKeys(value, expectedKeys);
+  } catch {
+    throw new Error(error);
   }
 }
 

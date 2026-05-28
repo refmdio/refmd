@@ -179,6 +179,26 @@ export interface SignWorkerClientMethods {
     workspaceId: string;
     bootstrapPayload: Record<string, unknown>;
   }): Promise<KeyDirectorySignedArtifact>;
+  signPluginConsentEvent(params: {
+    consent: Record<string, StrictJsonValue>;
+    keyCheckpointSequence: number;
+    keyCheckpointHash: string;
+  }): Promise<
+    {
+      actor: Record<string, StrictJsonValue>;
+    } & SignedSurfaceArtifact
+  >;
+  signPluginBundleApproval(params: {
+    actor: Record<string, StrictJsonValue>;
+    approval: Record<string, StrictJsonValue>;
+  }): Promise<
+    {
+      actor: Record<string, StrictJsonValue>;
+    } & SignedSurfaceArtifact
+  >;
+  signPluginNetworkProxyRequest(params: {
+    subject: Record<string, StrictJsonValue>;
+  }): Promise<SignedSurfaceArtifact>;
   signRecipientBoundAuthorization(params: {
     authorizationPayload: Record<string, unknown>;
   }): Promise<{
@@ -457,6 +477,24 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
   async signWorkspacePinBootstrap(params) {
     return (await this[workerSend]("sign-workspace-pin-bootstrap", params)) as Awaited<
       ReturnType<SignWorkerClientMethods["signWorkspacePinBootstrap"]>
+    >;
+  },
+
+  async signPluginConsentEvent(params) {
+    return (await this[workerSend]("sign-plugin-consent-event", params)) as Awaited<
+      ReturnType<SignWorkerClientMethods["signPluginConsentEvent"]>
+    >;
+  },
+
+  async signPluginBundleApproval(params) {
+    return (await this[workerSend]("sign-plugin-bundle-approval", params)) as Awaited<
+      ReturnType<SignWorkerClientMethods["signPluginBundleApproval"]>
+    >;
+  },
+
+  async signPluginNetworkProxyRequest(params) {
+    return (await this[workerSend]("sign-plugin-network-proxy-request", params)) as Awaited<
+      ReturnType<SignWorkerClientMethods["signPluginNetworkProxyRequest"]>
     >;
   },
 

@@ -1,0 +1,15 @@
+{
+  "id": "io.refmd.isolation-demo",
+  "version": "0.1.0",
+  "scope": {
+    "supportedOwnerScopes": ["user", "workspace"],
+    "defaultOwnerScope": "user",
+    "workspaceApplication": "optional"
+  },
+  "permissions": ["ui:statusbar"],
+  "network": {
+    "endpoints": []
+  },
+  "rendererSlots": [],
+  "documentScopes": []
+}

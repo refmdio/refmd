@@ -3,11 +3,12 @@ defmodule RefMDWeb.DocumentChannelShareTest do
 
   import Phoenix.ChannelTest
 
-  alias RefMD.Crypto.{Blake3, Hash, JCS, Signature}
+  alias RefMD.Crypto.{Blake3, Hash, JCS, Signature, Suite}
   alias RefMD.Devices.Device
   alias RefMD.Documents
   alias RefMD.Documents.{Document, DocumentSignerKey, DocumentSnapshot, DocumentUpdate}
   alias RefMD.Encryption.KeyDirectory
+  alias RefMD.Encryption.KeyDirectory.{Checkpoint, Event}
   alias RefMD.Repo
   alias RefMD.Sharing
   alias RefMD.Users.User
@@ -339,6 +340,10 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       "authorityPermissionVersion" => 1,
       "keyCheckpointSequence" => 1,
       "keyCheckpointHash" => Hash.blake3_base64url("checkpoint"),
+      "minDekVersion" => 1,
+      "writeSessionEventHash" => Hash.blake3_base64url("write-session"),
+      "writeSessionId" => Hash.blake3_base64url("write-session-id"),
+      "writeSessionCounter" => 1,
       "updateHash" =>
         RefMD.Crypto.compute_update_hash(%{
           "clock" => 0,
@@ -360,7 +365,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
         ciphertext_b64,
         nonce_b64,
         public_data,
-        test_authority_boundary(public_data, "document_update_accepted"),
+        test_authority_boundary(public_data, "document_write_session_admitted"),
         workspace_id
       )
 
@@ -423,14 +428,24 @@ defmodule RefMDWeb.DocumentChannelShareTest do
   end
 
   defp test_authority_boundary(public_data, event_type) do
-    %{
-      "previous_workspace_event_sequence" => public_data["keyCheckpointSequence"],
-      "previous_workspace_event_hash" => public_data["keyCheckpointHash"],
-      "admission_event_type" => event_type,
-      "admission_nonce" => public_data["keyCheckpointHash"],
-      "min_dek_version" => public_data["keyVersion"],
-      "document_permission_proof_hash" => public_data["keyCheckpointHash"]
-    }
+    if event_type == "document_write_session_admitted" do
+      %{
+        "write_session_event_hash" => public_data["writeSessionEventHash"],
+        "write_session_id" => public_data["writeSessionId"],
+        "write_session_counter" => public_data["writeSessionCounter"],
+        "min_dek_version" => public_data["minDekVersion"],
+        "document_permission_proof_hash" => public_data["keyCheckpointHash"]
+      }
+    else
+      %{
+        "previous_workspace_event_sequence" => public_data["keyCheckpointSequence"],
+        "previous_workspace_event_hash" => public_data["keyCheckpointHash"],
+        "admission_event_type" => event_type,
+        "admission_nonce" => public_data["keyCheckpointHash"],
+        "min_dek_version" => public_data["keyVersion"],
+        "document_permission_proof_hash" => public_data["keyCheckpointHash"]
+      }
+    end
   end
 
   defp share_participant_material do
@@ -902,6 +917,282 @@ defmodule RefMDWeb.DocumentChannelShareTest do
              Documents.save_update(document.id, owner_id, attrs)
   end
 
+  test "document update persistence rejects write session counter replay" do
+    owner_id = create_user("owner-update-counter-replay@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Update Counter Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    first =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+
+    assert {:ok, %{clock: 0}} = Documents.save_update(document.id, owner_id, first)
+
+    replay =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        admission: first.admission,
+        clock: 1,
+        write_session_counter: 1
+      )
+
+    assert {:error, :write_session_invalid} = Documents.save_update(document.id, owner_id, replay)
+
+    next =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        admission: first.admission,
+        clock: 1,
+        write_session_counter: 2
+      )
+
+    assert {:ok, %{clock: 1}} = Documents.save_update(document.id, owner_id, next)
+  end
+
+  test "document update persistence accepts write session after unrelated workspace head movement" do
+    owner_id = create_user("owner-update-unrelated-head@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Unrelated Head Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    first =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+
+    assert {:ok, %{clock: 0}} = Documents.save_update(document.id, owner_id, first)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    next =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        admission: first.admission,
+        clock: 1,
+        write_session_counter: 2
+      )
+
+    assert {:ok, %{clock: 1}} = Documents.save_update(document.id, owner_id, next)
+  end
+
+  test "document update persistence rejects write session invalidated after session head" do
+    owner_id = create_user("owner-update-session-invalidated@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Invalidated Session Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    first =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+
+    assert {:ok, %{clock: 0}} = Documents.save_update(document.id, owner_id, first)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "signing_key_revoked",
+      fn sequence ->
+        %{
+          "key_id" => first.signing_key_id,
+          "reason" => "test",
+          "revoked_at_event_sequence" => sequence
+        }
+      end
+    )
+
+    invalidated =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        admission: first.admission,
+        clock: 1,
+        write_session_counter: 2
+      )
+
+    assert {:error, :write_session_invalid} =
+             Documents.save_update(document.id, owner_id, invalidated)
+  end
+
+  test "document update persistence rejects write session invalidated by document write state" do
+    owner_id = create_user("owner-update-document-state-invalidated@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Document State Invalidated Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    first =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+
+    assert {:ok, %{clock: 0}} = Documents.save_update(document.id, owner_id, first)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "document_write_state_changed",
+      fn sequence, previous_hash ->
+        %{
+          "document_id" => document.id,
+          "event_type" => "document_write_state_changed",
+          "issued_at_ms" => System.system_time(:millisecond),
+          "previous_workspace_event_hash" => previous_hash,
+          "previous_workspace_event_sequence" => sequence - 1,
+          "previous_write_state" => "writable",
+          "reason" => "archive",
+          "workspace_id" => workspace.id,
+          "write_state" => "archived"
+        }
+      end
+    )
+
+    invalidated =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        admission: first.admission,
+        clock: 1,
+        write_session_counter: 2
+      )
+
+    assert {:error, :write_session_invalid} =
+             Documents.save_update(document.id, owner_id, invalidated)
+  end
+
+  test "document update persistence rejects future-issued write sessions" do
+    owner_id = create_user("owner-update-future-session@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Future Session Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    attrs =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        issued_at_ms: System.system_time(:millisecond) + 86_400_000,
+        write_session_counter: 1
+      )
+
+    assert {:error, :write_session_invalid} = Documents.save_update(document.id, owner_id, attrs)
+  end
+
+  test "document update persistence rejects expired write sessions with typed reason" do
+    owner_id = create_user("owner-update-expired-session@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Expired Session Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+    issued_at_ms = System.system_time(:millisecond) - 60_000
+
+    attrs =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        expires_at_ms: issued_at_ms + 30_000,
+        issued_at_ms: issued_at_ms,
+        write_session_counter: 1
+      )
+
+    assert {:error, :write_session_expired} = Documents.save_update(document.id, owner_id, attrs)
+  end
+
+  test "document update persistence rejects malformed write session body" do
+    owner_id = create_user("owner-update-malformed-session@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Malformed Session Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    attrs =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+      |> update_write_session_body(&Map.delete(&1, "session_nonce"))
+
+    assert {:error, :admission_invalid} = Documents.save_update(document.id, owner_id, attrs)
+  end
+
+  test "document update persistence rejects write session authority mismatches" do
+    owner_id = create_user("owner-update-authority-session@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Authority Session Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    attrs =
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+      |> update_write_session_body(fn body ->
+        %{body | "authority_scope_id" => Ecto.UUID.generate()}
+      end)
+
+    assert {:error, :write_session_invalid} = Documents.save_update(document.id, owner_id, attrs)
+  end
+
+  test "document write session admission rejects overlong lifetimes" do
+    owner_id = create_user("owner-update-overlong-session@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Overlong Session Workspace")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+    issued_at_ms = System.system_time(:millisecond) - 1_000
+
+    assert_raise ArgumentError, "expires_at_ms_invalid", fn ->
+      workspace_write_session_update_attrs(document, owner_id, signer, snapshot_id, workspace.id,
+        clock: 0,
+        expires_at_ms: issued_at_ms + 60_001,
+        issued_at_ms: issued_at_ms,
+        write_session_counter: 1
+      )
+    end
+  end
+
   test "document snapshot persistence preserves semantic verifier failures" do
     owner_id = create_user("owner-snapshot-semantic@example.com")
 
@@ -951,6 +1242,10 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       "authorityPermissionVersion" => 1,
       "keyCheckpointSequence" => 1,
       "keyCheckpointHash" => key_checkpoint_hash,
+      "minDekVersion" => 1,
+      "writeSessionEventHash" => Hash.blake3_base64url("write-session"),
+      "writeSessionId" => Hash.blake3_base64url("write-session-id"),
+      "writeSessionCounter" => 1,
       "updateHash" =>
         RefMD.Crypto.compute_update_hash(%{
           "clock" => 0,
@@ -964,7 +1259,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
         })
     }
 
-    boundary = test_authority_boundary(public_data, "document_update_accepted")
+    boundary = test_authority_boundary(public_data, "document_write_session_admitted")
 
     %{
       ref_snapshot_id: ref_snapshot_id,
@@ -996,8 +1291,223 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       authority_permission_version: 1,
       key_checkpoint_sequence: 1,
       key_checkpoint_hash: key_checkpoint_hash,
+      write_session_counter: 1,
       timestamp: timestamp,
-      admission: minimal_document_operation_admission("document_update_accepted", boundary)
+      admission: minimal_document_operation_admission("document_write_session_admitted", boundary)
+    }
+  end
+
+  defp workspace_write_session_update_attrs(
+         document,
+         actor_user_id,
+         signer,
+         ref_snapshot_id,
+         workspace_id,
+         opts
+       ) do
+    ciphertext = Keyword.get(opts, :ciphertext, <<13, 13, 13>>)
+    nonce = Keyword.get(opts, :nonce, :crypto.strong_rand_bytes(24))
+    clock = Keyword.fetch!(opts, :clock)
+    write_session_counter = Keyword.fetch!(opts, :write_session_counter)
+    ciphertext_b64 = Base.url_encode64(ciphertext, padding: false)
+    nonce_b64 = Base.url_encode64(nonce, padding: false)
+    timestamp = Keyword.get(opts, :timestamp, System.system_time(:millisecond))
+    signing_key_id = Signature.compute_signing_key_id!(signer.signing_public)
+    issued_at_ms = Keyword.get(opts, :issued_at_ms, timestamp - 1_000)
+    expires_at_ms = Keyword.get(opts, :expires_at_ms, issued_at_ms + 60_000)
+    session_id = Keyword.get(opts, :write_session_id, Hash.blake3_base64url("write-session-id"))
+
+    admission =
+      Keyword.get_lazy(opts, :admission, fn ->
+        document_operation_admission(%{
+          workspace_id: workspace_id,
+          document_id: document.id,
+          user_id: actor_user_id,
+          device_id: signer.device_id,
+          private_material: signer.signing_private,
+          event_type: "document_write_session_admitted",
+          key_version: 1,
+          min_dek_version: 1,
+          session_id: session_id,
+          issued_at_ms: issued_at_ms,
+          expires_at_ms: expires_at_ms,
+          max_update_count: 8,
+          max_ciphertext_bytes: 1024
+        })
+      end)
+
+    [admission_event] = admission["workspaceKeyDirectoryEvents"]
+    admission_payload = admission_event["payload"]
+    admission_body = admission_payload["body"]
+    write_session_event_hash = KeyDirectory.event_hash(admission_payload)
+
+    public_data = %{
+      "docId" => document.id,
+      "signingKeyId" => signing_key_id,
+      "clock" => clock,
+      "keyVersion" => 1,
+      "timestamp" => timestamp,
+      "refSnapshotId" => ref_snapshot_id,
+      "ownerKind" => "device",
+      "ownerId" => signer.device_id,
+      "authorityKind" => "workspace_device",
+      "authorityId" => workspace_id,
+      "authorityContextKey" => signing_key_id,
+      "authorityScopeId" => workspace_id,
+      "authorityPermissionVersion" => 1,
+      "keyCheckpointSequence" => admission_payload["actor"]["key_checkpoint_sequence"],
+      "keyCheckpointHash" => admission_payload["actor"]["key_checkpoint_hash"],
+      "minDekVersion" => 1,
+      "writeSessionEventHash" => write_session_event_hash,
+      "writeSessionId" => admission_body["session_id"],
+      "writeSessionCounter" => write_session_counter,
+      "updateHash" =>
+        RefMD.Crypto.compute_update_hash(%{
+          "clock" => clock,
+          "signing_key_id" => signing_key_id,
+          "document_id" => document.id,
+          "encrypted_content" => ciphertext_b64,
+          "key_version" => 1,
+          "nonce" => nonce_b64,
+          "ref_snapshot_id" => ref_snapshot_id,
+          "timestamp" => timestamp
+        })
+    }
+
+    boundary = %{
+      "document_permission_proof_hash" => admission_body["document_permission_proof_hash"],
+      "min_dek_version" => admission_body["min_dek_version"],
+      "write_session_counter" => write_session_counter,
+      "write_session_event_hash" => write_session_event_hash,
+      "write_session_id" => admission_body["session_id"]
+    }
+
+    %{
+      ref_snapshot_id: ref_snapshot_id,
+      workspace_id: workspace_id,
+      clock: clock,
+      signing_key_id: signing_key_id,
+      update_data: ciphertext,
+      nonce: nonce,
+      key_version: 1,
+      update_hash: public_data["updateHash"],
+      hybrid_signature:
+        sign_document_update(
+          signer.signing_private,
+          actor_user_id,
+          signer.device_id,
+          ciphertext_b64,
+          nonce_b64,
+          public_data,
+          boundary,
+          workspace_id
+        ),
+      public_data: public_data,
+      owner_kind: "device",
+      owner_id: signer.device_id,
+      authority_kind: "workspace_device",
+      authority_id: workspace_id,
+      authority_context_key: signing_key_id,
+      authority_scope_id: workspace_id,
+      authority_permission_version: 1,
+      key_checkpoint_sequence: admission_payload["actor"]["key_checkpoint_sequence"],
+      key_checkpoint_hash: admission_payload["actor"]["key_checkpoint_hash"],
+      write_session_counter: write_session_counter,
+      timestamp: timestamp,
+      admission: admission,
+      admission_actor: admission_payload["actor"]
+    }
+  end
+
+  defp update_write_session_body(attrs, fun) do
+    admission = Map.fetch!(attrs, :admission)
+    [event] = Map.fetch!(admission, "workspaceKeyDirectoryEvents")
+    body = get_in(event, ["payload", "body"])
+    event = put_in(event, ["payload", "body"], fun.(body))
+
+    Map.put(attrs, :admission, %{admission | "workspaceKeyDirectoryEvents" => [event]})
+  end
+
+  defp append_workspace_key_directory_event!(workspace_id, event_type, body_or_fun) do
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+    next_sequence = checkpoint.covered_event_head_sequence + 1
+
+    body =
+      cond do
+        is_function(body_or_fun, 2) ->
+          body_or_fun.(next_sequence, checkpoint.covered_event_head_hash)
+
+        is_function(body_or_fun, 1) ->
+          body_or_fun.(next_sequence)
+
+        true ->
+          body_or_fun
+      end
+
+    event_payload =
+      KeyDirectory.build_event_payload!(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => next_sequence,
+        "event_type" => event_type,
+        "actor" => %{"signer_kind" => "device"},
+        "previous_event_hash" => checkpoint.covered_event_head_hash,
+        "body" => body
+      })
+
+    Repo.insert!(
+      Event.changeset(%Event{}, %{
+        scope_kind: "workspace",
+        scope_id: workspace_id,
+        sequence: event_payload["sequence"],
+        event_type: event_payload["event_type"],
+        event_hash: KeyDirectory.event_hash(event_payload),
+        event_body_hash: KeyDirectory.event_body_hash(event_payload["body"]),
+        previous_event_hash: event_payload["previous_event_hash"],
+        payload: event_payload,
+        signatures: [%{"test" => "post-session-head"}]
+      })
+    )
+
+    checkpoint_payload =
+      checkpoint.payload
+      |> Map.put("sequence", checkpoint.sequence + 1)
+      |> Map.put(
+        "issued_at",
+        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+      )
+      |> Map.put("previous_checkpoint_hash", checkpoint.checkpoint_hash)
+      |> Map.put("covered_event_head", %{
+        "head_sequence" => event_payload["sequence"],
+        "head_hash" => KeyDirectory.event_hash(event_payload)
+      })
+      |> KeyDirectory.build_checkpoint_payload!()
+
+    Repo.insert!(
+      Checkpoint.changeset(%Checkpoint{}, %{
+        scope_kind: "workspace",
+        scope_id: workspace_id,
+        sequence: checkpoint_payload["sequence"],
+        checkpoint_hash: KeyDirectory.checkpoint_hash(checkpoint_payload),
+        previous_checkpoint_hash: Map.get(checkpoint_payload, "previous_checkpoint_hash"),
+        covered_event_head_sequence: checkpoint_payload["covered_event_head"]["head_sequence"],
+        covered_event_head_hash: checkpoint_payload["covered_event_head"]["head_hash"],
+        suite_policy_version: checkpoint_payload["suite_policy_version"],
+        min_suite_rank: checkpoint_payload["min_suite_rank"],
+        allowed_suite_ids_hash: Suite.canonical_allowed_suite_ids_hash(checkpoint_payload),
+        payload: checkpoint_payload,
+        signatures: [%{"test" => "post-session-head"}]
+      })
+    )
+  end
+
+  defp suite_policy_changed_body do
+    policy = Suite.current_suite_policy()
+
+    %{
+      "suite_policy_version" => policy["suite_policy_version"],
+      "min_suite_rank" => policy["min_suite_rank"],
+      "allowed_suite_ids" => policy["allowed_suite_ids"]
     }
   end
 

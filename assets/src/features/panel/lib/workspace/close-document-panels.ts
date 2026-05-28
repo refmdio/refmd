@@ -1,19 +1,19 @@
 import type { MosaicNode } from "solid-mosaic-component";
-import { findFirstPanelId, hasDocumentPanels } from "./panel-utils";
+import { findFirstDocumentResourcePanelId, hasDocumentResourcePanels } from "./panel-utils";
 
-interface DocumentPanelWorkspace {
+interface WorkspaceTileWorkspace {
   mosaicState: () => MosaicNode<string> | null;
   closePanel: (panelId: string) => void;
 }
 
-export function closeDocumentPanels(workspace: DocumentPanelWorkspace, documentId: string): void {
+export function closeWorkspaceTiles(workspace: WorkspaceTileWorkspace, documentId: string): void {
   const state = workspace.mosaicState();
-  if (!state || !hasDocumentPanels(state, documentId)) return;
+  if (!state || !hasDocumentResourcePanels(state, documentId)) return;
 
-  let panelId = findFirstPanelId(state, documentId);
+  let panelId = findFirstDocumentResourcePanelId(state, documentId);
   while (panelId) {
     workspace.closePanel(panelId);
     const next = workspace.mosaicState();
-    panelId = next ? findFirstPanelId(next, documentId) : null;
+    panelId = next ? findFirstDocumentResourcePanelId(next, documentId) : null;
   }
 }

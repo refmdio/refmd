@@ -10,6 +10,7 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
   @checkpoint_noop_event_types [
     "suite_policy_changed",
     "member_added",
+    "member_role_changed",
     "member_removed",
     "wrap_issued",
     "rotation_started",
@@ -34,6 +35,8 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     "guest_grant_revoked",
     "guest_device_revoked",
     "document_update_accepted",
+    "document_write_session_admitted",
+    "document_write_state_changed",
     "document_snapshot_accepted"
   ]
 
@@ -116,7 +119,11 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
         candidate_payload,
         authorized_share_participant_keys
       )
-      when event_type in ["document_update_accepted", "document_snapshot_accepted"] do
+      when event_type in [
+             "document_update_accepted",
+             "document_write_session_admitted",
+             "document_snapshot_accepted"
+           ] do
     assert_event_semantics_against_checkpoint!(payload, candidate_payload)
 
     apply_document_admission_event_to_checkpoint_payload!(

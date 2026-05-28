@@ -36,10 +36,22 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
 
   let logoutIncomplete = false;
 
+  if (!shareScopedLogout) {
+    clearDocumentKeyCache();
+    runSessionCleanup();
+    clearSession();
+    setCurrentWorkspaceId(null);
+  }
+
   if (!shareScopedLogout && !keepCredentials) {
     try {
+      await clearStoredShareParticipantSessions();
+    } catch {
+      logoutIncomplete = true;
+    }
+
+    try {
       await clearAllPersistedKeys();
-      await clearShareParticipantState();
     } catch {
       logoutIncomplete = true;
     }
@@ -107,10 +119,14 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
   } catch {
     logoutIncomplete = true;
   }
-  clearDocumentKeyCache();
-  runSessionCleanup();
-  clearSession();
-  setCurrentWorkspaceId(null);
+
+  if (!keepCredentials) {
+    try {
+      await clearAllPersistedKeys();
+    } catch {
+      logoutIncomplete = true;
+    }
+  }
 
   return {
     logoutIncomplete,

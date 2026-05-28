@@ -1,5 +1,8 @@
 import type { AuthState } from "@/entities/session";
 import { authApi, devicesApi } from "@/shared/api";
+import { ApiError } from "@/shared/api/core";
+import type { components } from "@/shared/api/schema";
+import { prepareRegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
@@ -36,6 +39,38 @@ type RecoveryAttemptResult =
       identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
       identityEcdhPublic: Uint8Array | null;
     };
+type RecoveryDevicePublicKeys = Awaited<
+  ReturnType<ReturnType<typeof getCryptoWorker>["generateDeviceKeys"]>
+>;
+type CreateDeviceRegistrationRequest = components["schemas"]["CreateDeviceRegistrationRequest"];
+type RegistrationRequestWithAke = Extract<
+  CreateDeviceRegistrationRequest,
+  { ake_responder_prekeys: unknown }
+>;
+
+export function buildRecoveryDeviceRegistrationRequest(params: {
+  deviceId: string;
+  identitySigningKeyId: string;
+  publicKeys: RecoveryDevicePublicKeys;
+  clientNonce: Uint8Array;
+  registrationChallenge: string;
+  initialAkeResponderPrekeys: RegistrationRequestWithAke["ake_responder_prekeys"];
+}): CreateDeviceRegistrationRequest {
+  return {
+    name: getDeviceName(),
+    device_type: getDeviceType(),
+    device_id: params.deviceId,
+    identity_signing_key_id: params.identitySigningKeyId,
+    device_hybrid_encryption_public_key_material:
+      params.publicKeys.hybridEncryptionPublicKeyMaterial,
+    device_encryption_key_id: params.publicKeys.encryptionKeyId,
+    device_hybrid_signing_public_key_material: params.publicKeys.hybridSigningPublicKeyMaterial,
+    device_signing_key_id: params.publicKeys.signingKeyId,
+    client_nonce: base64UrlEncode(params.clientNonce),
+    registration_challenge: params.registrationChallenge,
+    ake_responder_prekeys: params.initialAkeResponderPrekeys,
+  };
+}
 
 export async function recoverAccount(
   params: RecoveryAttemptParams,
@@ -85,22 +120,19 @@ export async function recoverAccount(
   await worker.setUserContext(params.auth.user.id, deviceId);
   const publicKeys = await worker.generateDeviceKeys({ deviceId });
   const clientNonce = await worker.generateClientNonce();
-  const registrationChallenge = await devicesApi.registrationChallenge();
-  const pendingRegistrationChallengeHash = blake3Base64Url(
-    base64UrlDecode(registrationChallenge.registration_challenge),
-  );
-  const pendingRegistration = await devicesApi.createRegistration({
-    name: getDeviceName(),
-    device_type: getDeviceType(),
-    device_id: deviceId,
-    identity_signing_key_id: recovery.identity_signing_key_id!,
-    device_hybrid_encryption_public_key_material: publicKeys.hybridEncryptionPublicKeyMaterial,
-    device_encryption_key_id: publicKeys.encryptionKeyId,
-    device_hybrid_signing_public_key_material: publicKeys.hybridSigningPublicKeyMaterial,
-    device_signing_key_id: publicKeys.signingKeyId,
-    client_nonce: base64UrlEncode(clientNonce),
-    registration_challenge: registrationChallenge.registration_challenge,
+  const initialAkeResponderPrekeys = await prepareRegistrationInitialAkeResponderPrekeys({
+    userId: params.auth.user.id,
+    deviceId,
   });
+  const { pendingRegistration, pendingRegistrationChallengeHash } =
+    await createRecoveryDeviceRegistration({
+      deviceId,
+      identitySigningKeyId: recovery.identity_signing_key_id!,
+      publicKeys,
+      clientNonce,
+      initialAkeResponderPrekeys:
+        initialAkeResponderPrekeys as unknown as RegistrationRequestWithAke["ake_responder_prekeys"],
+    });
   if (pendingRegistration.status !== "pending")
     throw new Error("recovery_registration_not_pending");
 
@@ -195,6 +227,7 @@ export async function recoverAccount(
       candidateUserCheckpointSequence: candidate.candidateUserCheckpointSequence,
       candidateUserCheckpointHash: candidate.candidateUserCheckpointHash,
       candidateUserCheckpoint: candidate.candidateUserCheckpoint,
+      candidateUserCheckpointAncestry: candidate.candidateUserCheckpointAncestry,
       candidateUserEventAncestry: candidate.candidateUserEventAncestry,
       candidateWorkspaceCheckpoints: candidate.candidateWorkspaceCheckpoints,
     }),
@@ -216,6 +249,50 @@ export async function recoverAccount(
     identityHybridSigningPublicKeyMaterial,
     identityEcdhPublic: identityPublic.identityEcdhPublic,
   };
+}
+
+async function createRecoveryDeviceRegistration(params: {
+  deviceId: string;
+  identitySigningKeyId: string;
+  publicKeys: RecoveryDevicePublicKeys;
+  clientNonce: Uint8Array;
+  initialAkeResponderPrekeys: RegistrationRequestWithAke["ake_responder_prekeys"];
+}): Promise<{
+  pendingRegistration: Awaited<ReturnType<typeof devicesApi.createRegistration>>;
+  pendingRegistrationChallengeHash: string;
+}> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const registrationChallenge = await devicesApi.registrationChallenge();
+    const pendingRegistrationChallengeHash = blake3Base64Url(
+      base64UrlDecode(registrationChallenge.registration_challenge),
+    );
+
+    try {
+      const pendingRegistration = await devicesApi.createRegistration(
+        buildRecoveryDeviceRegistrationRequest({
+          ...params,
+          registrationChallenge: registrationChallenge.registration_challenge,
+        }),
+      );
+      return { pendingRegistration, pendingRegistrationChallengeHash };
+    } catch (error) {
+      if (attempt === 0 && isInvalidRegistrationChallenge(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("recovery_registration_challenge_retry_exhausted");
+}
+
+function isInvalidRegistrationChallenge(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 422) return false;
+  if (error.code !== "invalid_device") return false;
+  const details = error.body.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return false;
+  const base = (details as Record<string, unknown>).base;
+  return Array.isArray(base) && base.includes("invalid_registration_challenge");
 }
 
 async function assertRecoveryCandidateMatchesLocalPin(
@@ -255,6 +332,9 @@ function recoveryCandidateFromServer(recovery: Record<string, unknown>) {
     recovery.candidate_user_checkpoint,
     "candidate_user_checkpoint_missing",
   );
+  const candidateUserCheckpointAncestry = optionalKeyDirectoryEnvelopes(
+    recovery.candidate_user_checkpoint_ancestry,
+  );
   const candidateUserEventAncestry = requiredKeyDirectoryEnvelopes(
     recovery.candidate_user_event_ancestry,
     "candidate_user_event_ancestry_missing",
@@ -268,6 +348,7 @@ function recoveryCandidateFromServer(recovery: Record<string, unknown>) {
     candidateUserEventHeadSequence,
     candidateUserEventHeadHash,
     candidateUserCheckpoint,
+    candidateUserCheckpointAncestry,
     candidateUserEventAncestry,
     candidateWorkspaceCheckpoints,
   };
@@ -278,9 +359,16 @@ function requiredKeyDirectoryEnvelopes(value: unknown, code: string): KeyDirecto
   return value.map((entry) => assertKeyDirectoryEnvelope(entry, code));
 }
 
+function optionalKeyDirectoryEnvelopes(value: unknown): KeyDirectoryEnvelope[] {
+  if (value === undefined || value === null) return [];
+  return requiredKeyDirectoryEnvelopes(value, "key_directory_ancestry_invalid");
+}
+
 function requiredWorkspaceCheckpoints(value: unknown): Array<{
   workspaceId: string;
   checkpoint: KeyDirectoryEnvelope;
+  checkpointAncestry: KeyDirectoryEnvelope[];
+  eventAncestry: KeyDirectoryEnvelope[];
 }> {
   if (!Array.isArray(value)) throw new Error("candidate_workspace_checkpoints_missing");
   return value.map((entry) => {
@@ -288,6 +376,8 @@ function requiredWorkspaceCheckpoints(value: unknown): Array<{
     return {
       workspaceId: requiredString(record.workspace_id, "workspace_id"),
       checkpoint: assertKeyDirectoryEnvelope(record.checkpoint, "workspace_checkpoint_missing"),
+      checkpointAncestry: optionalKeyDirectoryEnvelopes(record.checkpoint_ancestry),
+      eventAncestry: optionalKeyDirectoryEnvelopes(record.event_ancestry),
     };
   });
 }

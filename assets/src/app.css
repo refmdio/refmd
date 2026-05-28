@@ -2,6 +2,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+[data-slot="dialog-overlay"][aria-hidden="true"] {
+  pointer-events: none !important;
+}
+
+html:has([data-slot="dialog-overlay"][aria-hidden="true"]),
+body:has([data-slot="dialog-overlay"][aria-hidden="true"]) {
+  pointer-events: auto !important;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

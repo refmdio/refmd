@@ -13,6 +13,7 @@ defmodule RefMDWeb.EndpointHeaderSizeTest do
     url = String.to_charlist("http://127.0.0.1:#{port}/api/openapi.json")
 
     headers = [
+      {~c"x-refmd-e2e-rate-limit-bypass", ~c"1"},
       {~c"x-pop-signature-transport",
        String.duplicate("A", @pop_signature_transport_size) |> String.to_charlist()},
       {~c"cookie", String.to_charlist("_refmd_key=" <> String.duplicate("c", @cookie_size))}

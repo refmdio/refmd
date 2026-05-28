@@ -23,7 +23,11 @@ export function DeviceRegistrationFlow() {
             ) : (
               <>
                 Verify this device from an existing device, or{" "}
-                <A href="/auth/recovery" class="text-primary underline underline-offset-4">
+                <A
+                  href="/auth/recovery"
+                  class="text-primary underline underline-offset-4"
+                  onClick={flow.openRecovery}
+                >
                   use your recovery key
                 </A>
                 .

@@ -36,30 +36,6 @@ function WorkspaceRoute(props: ParentProps) {
   );
 }
 
-function DashboardWorkspaceRoute() {
-  return (
-    <WorkspaceRoute>
-      <DashboardPage />
-    </WorkspaceRoute>
-  );
-}
-
-function DocumentWorkspaceRoute() {
-  return (
-    <WorkspaceRoute>
-      <DocumentPage />
-    </WorkspaceRoute>
-  );
-}
-
-function MountWorkspaceRoute() {
-  return (
-    <WorkspaceRoute>
-      <MountPage />
-    </WorkspaceRoute>
-  );
-}
-
 function RootRedirect() {
   const location = useLocation();
   return location.pathname === "/" ? <Navigate href="/dashboard" /> : null;
@@ -91,9 +67,11 @@ export function AppRoutes() {
         matchFilters={publicAuthorRouteFilters}
       />
 
-      <Route path="/dashboard" component={DashboardWorkspaceRoute} />
-      <Route path="/document/:documentId" component={DocumentWorkspaceRoute} />
-      <Route path="/mounts/:mountId" component={MountWorkspaceRoute} />
+      <Route component={WorkspaceRoute}>
+        <Route path="/dashboard" component={DashboardPage} />
+        <Route path="/document/:documentId" component={DocumentPage} />
+        <Route path="/mounts/:mountId" component={MountPage} />
+      </Route>
       <Route path="/" component={RootRedirect} />
     </Router>
   );

@@ -1,7 +1,8 @@
-import { createEffect, getOwner, onCleanup, type JSX } from "solid-js";
+import { createEffect, For, getOwner, onCleanup, Show, type JSX } from "solid-js";
 import { UserMenu } from "../user-menu/UserMenu";
 import { workspaceManager } from "@/features/panel";
-import { withPluginRenderOwner } from "@/shared/lib/plugin/render";
+import { withPluginRenderOwner } from "@/features/plugin-runtime";
+import { Button } from "@/shared/ui/button";
 
 interface Workspace {
   id: string;
@@ -22,14 +23,20 @@ export function Sidebar(props: SidebarProps) {
   const panels = workspaceManager.getSidebarPanels();
   const activePanelId = workspaceManager.getActiveSidebarPanelId();
   let containerRef: HTMLDivElement | undefined;
-  let mountedEl: HTMLElement | null = null;
+  let mountedNodes: Node[] = [];
+  let mountedCleanup: (() => void) | undefined;
   let mountToken = 0;
 
   function clearMounted() {
-    if (mountedEl && containerRef?.contains(mountedEl)) {
-      containerRef.removeChild(mountedEl);
+    mountedCleanup?.();
+    mountedCleanup = undefined;
+    const container = containerRef;
+    for (const node of mountedNodes) {
+      if (container?.contains(node)) {
+        container.removeChild(node);
+      }
     }
-    mountedEl = null;
+    mountedNodes = [];
   }
 
   function mountPanel() {
@@ -44,12 +51,18 @@ export function Sidebar(props: SidebarProps) {
 
     withPluginRenderOwner(pluginOwner, () => {
       if (activePanel.render) {
-        activePanel.render(container);
+        const slot = document.createElement("div");
+        slot.className = "flex-1 min-h-0 overflow-hidden flex flex-col";
+        slot.dataset.sidebarPanelSlot = activePanel.id;
+        container.appendChild(slot);
+        mountedNodes = [slot];
+        mountedCleanup = activePanel.hide;
+        activePanel.render(slot);
       } else if (activePanel.viewType) {
         const leaf = workspaceManager.getSidebarLeaf(activePanel.viewType);
         if (leaf?.view?.containerEl) {
           container.appendChild(leaf.view.containerEl);
-          mountedEl = leaf.view.containerEl;
+          mountedNodes = [leaf.view.containerEl];
         }
       }
     });
@@ -72,6 +85,25 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <aside class="w-64 border-r border-border h-full flex flex-col bg-sidebar">
+      <Show when={panels().length > 1}>
+        <div class="flex shrink-0 items-center gap-1 border-b border-sidebar-border px-2 py-1">
+          <For each={panels()}>
+            {(panel) => (
+              <Button
+                type="button"
+                variant={activePanelId() === panel.id ? "secondary" : "ghost"}
+                size="sm"
+                class="h-7 min-w-0 flex-1 px-2 text-xs"
+                title={panel.title ?? panel.id}
+                aria-label={panel.title ?? panel.id}
+                onClick={() => workspaceManager.setActiveSidebarPanel(panel.id)}
+              >
+                <span class="truncate">{panel.title ?? panel.id}</span>
+              </Button>
+            )}
+          </For>
+        </div>
+      </Show>
       <div
         ref={(el) => {
           containerRef = el;

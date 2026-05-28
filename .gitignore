@@ -12,6 +12,7 @@
 
 # Local
 /local
+/storage/
 /.env
 /.env.*
 !/.env.example

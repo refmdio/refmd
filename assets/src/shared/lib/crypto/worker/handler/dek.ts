@@ -10,6 +10,7 @@ import {
   buildOfflineDekCacheAad,
   buildOfflineDocumentCacheAad,
   buildOfflinePendingChangesAad,
+  buildPluginStorageAad,
 } from "../../aad";
 import { decryptTitle, encryptTitle, generateDek, unwrapDek, wrapDek } from "../../dek";
 import {
@@ -995,6 +996,77 @@ export function handleDecryptContent(state: WorkerKeyState, p: HandlerPayload): 
   const aad = buildDocumentContentAad(documentId, keyVersion);
   const cipher = xchacha20poly1305(dek, nonce, aad);
   const plaintext = cipher.decrypt(ciphertext);
+
+  return { plaintext };
+}
+
+export function handleEncryptPluginStorage(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const plaintext = p.plaintext as Uint8Array;
+  const surface = p.surface as "workspace" | "document";
+  const workspaceId = p.workspaceId as string;
+  const packageId = p.packageId as string;
+  const applicationId = p.applicationId as string;
+  const activationId = p.activationId as string;
+  const pluginId = p.pluginId as string;
+  const scopeId = p.scopeId as string;
+  const key = p.key as string;
+
+  const { encryptionKey, keyVersion } =
+    surface === "workspace"
+      ? (() => {
+          const { kek, keyVersion } = requireKekForWorkspace(state, workspaceId);
+          return { encryptionKey: kek, keyVersion };
+        })()
+      : (() => {
+          const { dek, keyVersion } = requireDekForDocument(state, scopeId);
+          return { encryptionKey: dek, keyVersion };
+        })();
+
+  const nonce = randomBytes(24);
+  const aad = buildPluginStorageAad({
+    scope: surface,
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+    pluginId,
+    scopeId,
+    key,
+  });
+  const ciphertext = xchacha20poly1305(encryptionKey, nonce, aad).encrypt(plaintext);
+
+  return { ciphertext, nonce, keyVersion };
+}
+
+export function handleDecryptPluginStorage(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const ciphertext = p.ciphertext as Uint8Array;
+  const nonce = p.nonce as Uint8Array;
+  const surface = p.surface as "workspace" | "document";
+  const workspaceId = p.workspaceId as string;
+  const packageId = p.packageId as string;
+  const applicationId = p.applicationId as string;
+  const activationId = p.activationId as string;
+  const pluginId = p.pluginId as string;
+  const scopeId = p.scopeId as string;
+  const key = p.key as string;
+  const keyVersion = p.keyVersion as number;
+
+  const encryptionKey =
+    surface === "workspace"
+      ? requireKekForWorkspace(state, workspaceId, keyVersion).kek
+      : requireDekForDocument(state, scopeId, keyVersion).dek;
+
+  const aad = buildPluginStorageAad({
+    scope: surface,
+    workspaceId,
+    packageId,
+    applicationId,
+    activationId,
+    pluginId,
+    scopeId,
+    key,
+  });
+  const plaintext = xchacha20poly1305(encryptionKey, nonce, aad).decrypt(ciphertext);
 
   return { plaintext };
 }

@@ -384,7 +384,9 @@ defmodule RefMD.Encryption.KeyDirectory do
       checkpoint_signatures,
       expected_signer_kind,
       checkpoint_signature_authority_payload,
-      previous_checkpoint.payload
+      previous_checkpoint.payload,
+      allowed_inactive_signing_key_ids:
+        inactive_checkpoint_signers_allowed_by_append(expected_signer_kind, events)
     )
 
     checkpoint = Store.insert_checkpoint!(checkpoint_payload, checkpoint_signatures)
@@ -392,6 +394,56 @@ defmodule RefMD.Encryption.KeyDirectory do
 
     %{events: events, checkpoint: checkpoint, pin: pin}
   end
+
+  defp inactive_checkpoint_signers_allowed_by_append(
+         "device",
+         [
+           %Event{
+             payload: %{
+               "event_type" => "member_removed",
+               "actor" => %{
+                 "signer_kind" => "device",
+                 "user_id" => user_id,
+                 "signing_key_id" => signing_key_id
+               },
+               "body" => %{"user_id" => user_id}
+             }
+           }
+           | revocation_events
+         ]
+       )
+       when is_binary(signing_key_id) do
+    if Enum.all?(revocation_events, &member_removal_key_revocation?/1) and
+         Enum.any?(
+           revocation_events,
+           &match?(
+             %Event{
+               payload: %{
+                 "event_type" => "signing_key_revoked",
+                 "body" => %{"key_id" => ^signing_key_id, "reason" => "member_removed"}
+               }
+             },
+             &1
+           )
+         ) do
+      [signing_key_id]
+    else
+      []
+    end
+  end
+
+  defp inactive_checkpoint_signers_allowed_by_append(_expected_signer_kind, _events), do: []
+
+  defp member_removal_key_revocation?(%Event{
+         payload: %{
+           "event_type" => event_type,
+           "body" => %{"key_id" => key_id, "reason" => "member_removed"}
+         }
+       })
+       when event_type in ["signing_key_revoked", "encryption_key_revoked"] and is_binary(key_id),
+       do: true
+
+  defp member_removal_key_revocation?(_event), do: false
 
   @spec verify_complete_replay!(binary(), Ecto.UUID.t(), [map()], map(), keyword()) :: :ok
   def verify_complete_replay!(

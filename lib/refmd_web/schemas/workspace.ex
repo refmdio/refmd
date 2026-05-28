@@ -1,3 +1,20 @@
+defmodule RefMDWeb.Schemas.PluginUserPolicy do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "PluginUserPolicy",
+    type: :object,
+    nullable: true,
+    properties: %{
+      default_mode: %Schema{type: :string, enum: ["allow_safe", "allow_all", "deny_all"]},
+      allowed_plugin_ids: %Schema{type: :array, items: %Schema{type: :string}},
+      denied_plugin_ids: %Schema{type: :array, items: %Schema{type: :string}},
+      require_admin_approval: %Schema{type: :boolean}
+    }
+  })
+end
+
 defmodule RefMDWeb.Schemas.WorkspaceResponse do
   alias OpenApiSpex.Schema
   require OpenApiSpex
@@ -26,6 +43,8 @@ defmodule RefMDWeb.Schemas.WorkspaceResponse do
       public_author_profile: RefMDWeb.Schemas.PublicAuthorProfile,
       guest_invites_enabled: %Schema{type: :boolean},
       guest_member_limit: %Schema{type: :integer, nullable: true},
+      plugin_network_proxy: RefMDWeb.Schemas.PluginNetworkProxyRegistration,
+      plugin_user_policy: RefMDWeb.Schemas.PluginUserPolicy,
       current_kek_version: %Schema{type: :integer},
       needs_kek_rotation: %Schema{type: :boolean},
       kek_rotation_initiator_user_id: %Schema{type: :string, format: :uuid, nullable: true},
@@ -132,6 +151,8 @@ defmodule RefMDWeb.Schemas.UpdateWorkspaceFeaturesRequest do
       public_publishing_enabled: %Schema{type: :boolean},
       guest_invites_enabled: %Schema{type: :boolean},
       guest_member_limit: %Schema{type: :integer, nullable: true},
+      plugin_network_proxy: RefMDWeb.Schemas.PluginNetworkProxyRegistration,
+      plugin_user_policy: RefMDWeb.Schemas.PluginUserPolicy,
       public_author_display_name: %Schema{type: :string, nullable: true},
       public_author_slug: %Schema{type: :string, nullable: true},
       public_author_bio: %Schema{type: :string, nullable: true}

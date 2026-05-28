@@ -95,9 +95,14 @@ defmodule RefMDWeb.Schemas.ChangeMemberRoleRequest do
     title: "ChangeMemberRoleRequest",
     type: :object,
     properties: %{
-      role_id: %Schema{type: :string, format: :uuid}
+      role_id: %Schema{type: :string, format: :uuid},
+      workspace_key_directory_events: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
     },
-    required: [:role_id]
+    required: [:role_id, :workspace_key_directory_events, :workspace_key_directory_checkpoint]
   })
 end
 

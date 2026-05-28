@@ -28,11 +28,15 @@ export interface SessionRestoreResult {
   identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
   identityEcdhPublic: Uint8Array | null;
   deviceSigningKeyId: string | null;
+  deviceKeyCheckpointSequence: number | null;
+  deviceKeyCheckpointHash: string | null;
   deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
   deviceEcdhPublic: Uint8Array | null;
   workerReady: boolean;
 }
 type SessionRestoreError = "rate_limited" | "transient_error";
+let restoreSessionInFlight: Promise<SessionRestoreResult | SessionRestoreError | null> | null =
+  null;
 
 export function applyRestoredSessionState(result: SessionRestoreResult): void {
   const auth = {
@@ -53,6 +57,8 @@ export function applyRestoredSessionState(result: SessionRestoreResult): void {
     setFullSession(auth, {
       deviceId: result.deviceId,
       deviceSigningKeyId: result.deviceSigningKeyId,
+      deviceKeyCheckpointSequence: result.deviceKeyCheckpointSequence,
+      deviceKeyCheckpointHash: result.deviceKeyCheckpointHash,
       deviceHybridSigningPublicKeyMaterial: result.deviceHybridSigningPublicKeyMaterial,
       deviceEcdhPublic: result.deviceEcdhPublic,
     });
@@ -67,6 +73,17 @@ export function applyRestoredSessionState(result: SessionRestoreResult): void {
   setTofuErrors(result.tofuWarnings);
 }
 export async function restoreSession(): Promise<SessionRestoreResult | SessionRestoreError | null> {
+  if (restoreSessionInFlight) return restoreSessionInFlight;
+
+  restoreSessionInFlight = restoreSessionInternal().finally(() => {
+    restoreSessionInFlight = null;
+  });
+  return restoreSessionInFlight;
+}
+
+async function restoreSessionInternal(): Promise<
+  SessionRestoreResult | SessionRestoreError | null
+> {
   try {
     const me = await authApi.me();
     const worker = getCryptoWorker();
@@ -78,19 +95,22 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
     const cachedBootstrap = hasStoredDsk
       ? await worker.loadAuthBootstrap().catch(() => null)
       : null;
-    if (
-      hasStoredDsk &&
-      deviceId &&
-      cachedBootstrap?.userId === me.user_id &&
-      cachedBootstrap.deviceId === deviceId
-    ) {
+    const trustedCachedBootstrap =
+      cachedBootstrap?.userId === me.user_id && cachedBootstrap.deviceId === deviceId
+        ? cachedBootstrap
+        : null;
+    const hasStoredDeviceKeys =
+      hasStoredDsk && deviceId && trustedCachedBootstrap
+        ? await worker.hasStoredDeviceKeys().catch(() => false)
+        : false;
+    if (hasStoredDeviceKeys && deviceId && trustedCachedBootstrap) {
       try {
         await worker.init({
           dsk: null,
           useStoredDsk: true,
           userId: me.user_id,
           deviceId,
-          deviceSigningKeyId: cachedBootstrap.deviceSigningKeyId,
+          deviceSigningKeyId: trustedCachedBootstrap.deviceSigningKeyId,
           keyRestoreEndpointRef: me.key_restore_endpoint_ref ?? null,
         });
         workerReady = await worker.isReady();
@@ -99,11 +119,12 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       }
     }
     if (!workerReady && me.device_verified) {
-      if (me.auth_type === "password" && hasStoredDsk) {
+      if (me.auth_type === "password" && hasStoredDeviceKeys) {
         needsPasswordReentry = true;
       } else if (me.auth_type === "password") {
-        // Password user without DSK: re-login required for PUK-based restore
-        return null;
+        // The server session is still authenticated, but this browser cannot prove the
+        // current device after local key loss. Keep the session and force device recovery.
+        me.device_verified = false;
       } else {
         // OAuth without DSK: treat as new device (approval or recovery required)
         me.device_verified = false;
@@ -112,7 +133,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
     // Get public keys from Worker (if ready)
     let identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null = null;
     let identityEcdhPublic: Uint8Array | null = null;
-    let deviceSigningKeyId: string | null = null;
+    let deviceSigningKeyId: string | null = trustedCachedBootstrap?.deviceSigningKeyId ?? null;
     let deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null = null;
     let deviceEcdhPublic: Uint8Array | null = null;
     if (workerReady) {
@@ -183,6 +204,8 @@ export async function restoreSession(): Promise<SessionRestoreResult | SessionRe
       identityHybridSigningPublicKeyMaterial,
       identityEcdhPublic,
       deviceSigningKeyId,
+      deviceKeyCheckpointSequence: me.device_key_checkpoint_sequence ?? null,
+      deviceKeyCheckpointHash: me.device_key_checkpoint_hash ?? null,
       deviceHybridSigningPublicKeyMaterial,
       deviceEcdhPublic,
       workerReady,

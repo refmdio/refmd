@@ -10,6 +10,8 @@ type MosaicOps = {
   focusPanel: (panelId: string) => void;
   setMosaicState: (state: MosaicNode<string> | null) => void;
   mosaicState: () => MosaicNode<string> | null;
+  openWorkspaceTile: (panelId: string, documentId?: string) => void;
+  closeWorkspaceTiles: (tileIds: readonly string[]) => void;
 };
 
 export class LeafsState {
@@ -193,6 +195,14 @@ export class LeafsState {
       second: leaf.id,
       splitPercentage: 70,
     });
+  }
+
+  openWorkspaceTile(panelId: string, documentId?: string): void {
+    this.mosaicOps?.openWorkspaceTile(panelId, documentId);
+  }
+
+  closeWorkspaceTiles(tileIds: readonly string[]): void {
+    this.mosaicOps?.closeWorkspaceTiles(tileIds);
   }
 
   detachLeavesOfType(viewType: string): void {

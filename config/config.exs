@@ -45,6 +45,7 @@ config :refmd, Oban,
      crontab: [
        {"*/5 * * * *", RefMD.Workers.CleanupPopChallenges},
        {"*/15 * * * *", RefMD.Workers.CleanupSessions},
+       {"*/30 * * * *", RefMD.Workers.CleanupPluginPackageStorage},
        {"0 * * * *", RefMD.Workers.KekRotationReminder},
        {"0 3 * * *", RefMD.Workers.CleanupInvitations}
      ]}

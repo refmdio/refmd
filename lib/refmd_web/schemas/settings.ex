@@ -11,7 +11,8 @@ defmodule RefMDWeb.Schemas.SettingsResponse do
       editor_vim_mode: %Schema{type: :boolean},
       editor_font_size: %Schema{type: :integer},
       editor_default_mode: %Schema{type: :string, enum: ["markdown", "wysiwyg", "split"]},
-      editor_layout_mode: %Schema{type: :string, enum: ["tiling", "horizontal", "vertical"]}
+      editor_layout_mode: %Schema{type: :string, enum: ["tiling", "horizontal", "vertical"]},
+      plugin_network_proxy: RefMDWeb.Schemas.PluginNetworkProxyRegistration
     },
     required: [
       :theme,
@@ -37,7 +38,8 @@ defmodule RefMDWeb.Schemas.UpdateSettingsRequest do
       editor_vim_mode: %Schema{type: :boolean},
       editor_font_size: %Schema{type: :integer},
       editor_default_mode: %Schema{type: :string, enum: ["markdown", "wysiwyg", "split"]},
-      editor_layout_mode: %Schema{type: :string, enum: ["tiling", "horizontal", "vertical"]}
+      editor_layout_mode: %Schema{type: :string, enum: ["tiling", "horizontal", "vertical"]},
+      plugin_network_proxy: RefMDWeb.Schemas.PluginNetworkProxyRegistration
     }
   })
 end

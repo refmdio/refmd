@@ -6,6 +6,7 @@ import {
   type OfflineSessionResult,
 } from "@/features/auth";
 import {
+  authState,
   clearSession,
   setAuthState,
   setCryptoWorkerReady,
@@ -55,6 +56,7 @@ export function useSessionBootstrap() {
 
   const attemptRestore = async () => {
     setTransientError(null);
+    const sessionIdAtStart = authState()?.sessionId ?? null;
 
     try {
       const result = await restoreSession();
@@ -76,13 +78,9 @@ export function useSessionBootstrap() {
       }
 
       if (!result) {
-        const { offlineMode } = await import("@/shared/lib/offline/offline-state");
-        if (offlineMode()) {
-          const offlineResult = await restoreOfflineSession();
-          if (offlineResult) {
-            applyOfflineSession(offlineResult);
-            return;
-          }
+        const currentSessionId = authState()?.sessionId ?? null;
+        if (currentSessionId && currentSessionId !== sessionIdAtStart) {
+          return;
         }
         clearSession();
         setCurrentWorkspaceId(null);
@@ -111,9 +109,14 @@ export function useSessionBootstrap() {
   };
 
   setSessionContextRestorer(async () => {
+    const sessionIdAtStart = authState()?.sessionId ?? null;
     const result = await restoreSession();
     if (!result || result === "rate_limited" || result === "transient_error") {
       if (!result) {
+        const currentSessionId = authState()?.sessionId ?? null;
+        if (currentSessionId && currentSessionId !== sessionIdAtStart) {
+          return;
+        }
         clearSession();
         setCurrentWorkspaceId(null);
       }

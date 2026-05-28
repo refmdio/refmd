@@ -39,17 +39,52 @@ export const documentsApi = {
       }),
     ),
 
-  archive: async (documentId: string) =>
+  archive: async (documentId: string, body: components["schemas"]["DocumentWriteStateRequest"]) =>
     throwIfError(
       await client.POST("/api/documents/{document_id}/archive", {
         params: withUserPopParams({ path: { document_id: documentId } }),
+        body,
       }),
     ),
 
-  unarchive: async (documentId: string) =>
+  unarchive: async (documentId: string, body: components["schemas"]["DocumentWriteStateRequest"]) =>
     throwIfError(
       await client.POST("/api/documents/{document_id}/unarchive", {
         params: withUserPopParams({ path: { document_id: documentId } }),
+        body,
+      }),
+    ),
+
+  enableReadOnly: async (
+    documentId: string,
+    body: components["schemas"]["DocumentWriteStateRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/documents/{document_id}/read-only/enable", {
+        params: withUserPopParams({ path: { document_id: documentId } }),
+        body,
+      }),
+    ),
+
+  disableReadOnly: async (
+    documentId: string,
+    body: components["schemas"]["DocumentWriteStateRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/documents/{document_id}/read-only/disable", {
+        params: withUserPopParams({ path: { document_id: documentId } }),
+        body,
+      }),
+    ),
+
+  disableWritesByPolicy: async (
+    documentId: string,
+    body: components["schemas"]["DocumentWriteStateRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/documents/{document_id}/write-disable", {
+        params: withUserPopParams({ path: { document_id: documentId } }),
+        body,
       }),
     ),
 

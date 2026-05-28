@@ -107,4 +107,196 @@ defmodule RefMDWeb.WorkspaceControllerTest do
              "field" => "guest_member_limit"
            }
   end
+
+  test "updates workspace plugin network proxy setting", %{
+    conn: conn,
+    owner_id: owner_id,
+    workspace: workspace,
+    owner_device: owner_device
+  } do
+    path = "/api/workspaces/#{workspace.id}/features"
+
+    body = %{
+      "plugin_network_proxy" => %{
+        "id" => "workspace-proxy",
+        "label" => "Workspace Proxy",
+        "base_url" => "https://proxy.example/refmd/",
+        "scope" => "workspace",
+        "enabled" => true,
+        "operator_label" => "Example NetOps",
+        "allowed_workspace_ids" => [workspace.id],
+        "allowed_user_ids" => [owner_id],
+        "verification_material" => %{"response_signing_key" => "proxy-key-1"},
+        "revoked" => false,
+        "policy" => %{"max_response_size" => 65_536}
+      }
+    }
+
+    conn =
+      conn
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_pop_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "PATCH",
+        path,
+        body
+      )
+      |> patch(path, test_json_body(body))
+
+    proxy = json_response(conn, 200)["plugin_network_proxy"]
+    assert proxy["id"] == "workspace-proxy"
+    assert proxy["label"] == "Workspace Proxy"
+    assert proxy["base_url"] == "https://proxy.example/refmd"
+    assert proxy["scope"] == "workspace"
+    assert proxy["enabled"] == true
+    assert proxy["operator_label"] == "Example NetOps"
+    assert proxy["allowed_workspace_ids"] == [workspace.id]
+    assert proxy["allowed_user_ids"] == [owner_id]
+    assert proxy["verification_material"] == %{"response_signing_key" => "proxy-key-1"}
+    assert proxy["revoked"] == false
+    assert proxy["policy"] == %{"max_response_size" => 65_536}
+  end
+
+  test "rejects invalid workspace plugin network proxy enforcement metadata", %{
+    conn: conn,
+    owner_id: owner_id,
+    workspace: workspace,
+    owner_device: owner_device
+  } do
+    path = "/api/workspaces/#{workspace.id}/features"
+
+    body = %{
+      "plugin_network_proxy" => %{
+        "id" => "workspace-proxy",
+        "label" => "Workspace Proxy",
+        "base_url" => "https://proxy.example/refmd",
+        "scope" => "workspace",
+        "enabled" => true,
+        "operator_label" => "Example NetOps",
+        "allowed_workspace_ids" => [workspace.id, 42]
+      }
+    }
+
+    conn =
+      conn
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_pop_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "PATCH",
+        path,
+        body
+      )
+      |> patch(path, test_json_body(body))
+
+    assert %{"error" => "invalid_request_schema"} = json_response(conn, 422)
+  end
+
+  test "rejects invalid workspace plugin network proxy scope", %{
+    conn: conn,
+    owner_id: owner_id,
+    workspace: workspace,
+    owner_device: owner_device
+  } do
+    path = "/api/workspaces/#{workspace.id}/features"
+
+    body = %{
+      "plugin_network_proxy" => %{
+        "id" => "user-proxy",
+        "label" => "User Proxy",
+        "base_url" => "https://proxy.example/refmd",
+        "scope" => "user",
+        "enabled" => true
+      }
+    }
+
+    conn =
+      conn
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_pop_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "PATCH",
+        path,
+        body
+      )
+      |> patch(path, test_json_body(body))
+
+    assert %{"error" => "validation_error"} = json_response(conn, 422)
+  end
+
+  test "updates workspace user plugin policy setting", %{
+    conn: conn,
+    owner_id: owner_id,
+    workspace: workspace,
+    owner_device: owner_device
+  } do
+    path = "/api/workspaces/#{workspace.id}/features"
+
+    body = %{
+      "plugin_user_policy" => %{
+        "default_mode" => "deny_all",
+        "allowed_plugin_ids" => ["com.example.allowed"],
+        "denied_plugin_ids" => ["com.example.denied"],
+        "require_admin_approval" => false
+      }
+    }
+
+    conn =
+      conn
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_pop_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "PATCH",
+        path,
+        body
+      )
+      |> patch(path, test_json_body(body))
+
+    assert %{
+             "plugin_user_policy" => %{
+               "default_mode" => "deny_all",
+               "allowed_plugin_ids" => ["com.example.allowed"],
+               "denied_plugin_ids" => ["com.example.denied"],
+               "require_admin_approval" => false
+             }
+           } = json_response(conn, 200)
+  end
+
+  test "rejects invalid workspace user plugin policy", %{
+    conn: conn,
+    owner_id: owner_id,
+    workspace: workspace,
+    owner_device: owner_device
+  } do
+    path = "/api/workspaces/#{workspace.id}/features"
+
+    body = %{
+      "plugin_user_policy" => %{
+        "allowed_plugin_ids" => ["com.example.same"],
+        "denied_plugin_ids" => ["com.example.same"]
+      }
+    }
+
+    conn =
+      conn
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_pop_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "PATCH",
+        path,
+        body
+      )
+      |> patch(path, test_json_body(body))
+
+    assert %{"error" => "validation_error"} = json_response(conn, 422)
+  end
 end

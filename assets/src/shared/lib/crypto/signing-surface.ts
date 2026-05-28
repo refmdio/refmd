@@ -25,6 +25,9 @@ export type SemanticValidator =
   | "key_directory_checkpoint"
   | "key_directory_event"
   | "pin_gossip"
+  | "plugin_bundle_approval"
+  | "plugin_consent_event"
+  | "plugin_network_proxy_request"
   | "pop_request"
   | "pq_wrap"
   | "recipient_bound_authorization"
@@ -78,6 +81,7 @@ const ACTIVE_SIGNING_SURFACES = [
     "identity_key_added",
     "device_key_added",
     "member_added",
+    "member_role_changed",
     "member_removed",
     "signing_key_revoked",
     "encryption_key_revoked",
@@ -104,6 +108,8 @@ const ACTIVE_SIGNING_SURFACES = [
     "rotation_completed",
     "old_key_deleted",
     "document_update_accepted",
+    "document_write_session_admitted",
+    "document_write_state_changed",
     "document_snapshot_accepted",
   ].map((eventType) =>
     surface(
@@ -111,7 +117,9 @@ const ACTIVE_SIGNING_SURFACES = [
       "key_directory_event",
       `refmd.key_directory.event.${eventType}`,
       eventType,
-      eventType === "document_update_accepted" || eventType === "document_snapshot_accepted"
+      eventType === "document_update_accepted" ||
+        eventType === "document_write_session_admitted" ||
+        eventType === "document_snapshot_accepted"
         ? OWNER_KEY_DIRECTORY_DOCUMENT_EVENT
         : eventType === "workspace_invitation_redeemed" || eventType === "guest_invitation_redeemed"
           ? OWNER_KEY_DIRECTORY_INVITATION_REDEEM_EVENT
@@ -182,6 +190,27 @@ const ACTIVE_SIGNING_SURFACES = [
     OWNER_IDENTITY,
   ),
   surface("device_approval", "device_approval", "refmd.device.approval", "none", OWNER_DEVICE),
+  surface(
+    "plugin_bundle_approval",
+    "plugin_bundle_approval",
+    "refmd.plugin.bundle_approval",
+    "none",
+    OWNER_DEVICE,
+  ),
+  surface(
+    "plugin_consent_event",
+    "plugin_consent_event",
+    "refmd.plugin.consent_event",
+    "none",
+    OWNER_DEVICE,
+  ),
+  surface(
+    "plugin_network_proxy_request",
+    "plugin_network_proxy_request",
+    "refmd.plugin.network_proxy_request",
+    "none",
+    OWNER_DEVICE,
+  ),
   surface(
     "responder_prekey",
     "responder_prekey",
@@ -370,6 +399,10 @@ function semanticValidatorName(entry: ActiveSigningSurface): SemanticValidator {
   if (entry.signing_purpose === "pop_request") return "pop_request";
   if (entry.signing_purpose === "genesis_device_bootstrap") return "genesis_device_bootstrap";
   if (entry.signing_purpose === "device_approval") return "device_approval";
+  if (entry.signing_purpose === "plugin_bundle_approval") return "plugin_bundle_approval";
+  if (entry.signing_purpose === "plugin_consent_event") return "plugin_consent_event";
+  if (entry.signing_purpose === "plugin_network_proxy_request")
+    return "plugin_network_proxy_request";
   if (entry.signing_purpose === "responder_prekey") return "ake_prekey";
   if (entry.signing_purpose === "initiator_ake_commitment") return "ake_commitment";
   if (entry.signing_purpose === "initial_key_delivery") return "initial_key_delivery";

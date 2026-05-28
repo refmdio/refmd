@@ -1,0 +1,11 @@
+body {
+  color: #111827;
+  font: 13px system-ui, sans-serif;
+  margin: 0;
+  padding: 12px;
+}
+
+main {
+  display: grid;
+  gap: 8px;
+}

@@ -1,0 +1,27 @@
+{
+  "id": "io.refmd.credential-demo",
+  "version": "0.1.0",
+  "scope": {
+    "supportedOwnerScopes": ["user"],
+    "defaultOwnerScope": "user",
+    "workspaceApplication": "optional"
+  },
+  "permissions": ["ui:command", "ui:statusbar", "credential:use", "network:fetch"],
+  "network": {
+    "endpoints": [
+      {
+        "id": "credential-demo-api",
+        "url": "https://api.refmd-e2e.example/v1/credential-demo",
+        "routes": ["proxy"],
+        "methods": ["POST"],
+        "headers": ["content-type"],
+        "bodySchema": "json",
+        "maxRequestBytes": 2048,
+        "maxResponseBytes": 4096,
+        "credentialAudience": "api.refmd-e2e.example"
+      }
+    ]
+  },
+  "rendererSlots": [],
+  "documentScopes": []
+}

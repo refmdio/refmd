@@ -10,6 +10,9 @@ defmodule RefMD.Crypto.JCS do
   @spec canonical_bytes!(map()) :: binary()
   def canonical_bytes!(value), do: canonicalize!(value)
 
+  @spec canonical_value_bytes!(term()) :: binary()
+  def canonical_value_bytes!(value), do: encode_value(value, false)
+
   @spec parse_json_strict!(binary()) :: map()
   def parse_json_strict!(raw) when is_binary(raw) do
     {value, rest} = parse_value(raw)

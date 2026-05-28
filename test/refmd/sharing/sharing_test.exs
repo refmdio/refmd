@@ -361,14 +361,33 @@ defmodule RefMD.Sharing.SharingTest do
     {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
     insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
     Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
 
     %{
       owner_id: owner_id,
       workspace: workspace,
       document: document,
       folder: folder,
-      owner_role: role
+      owner_role: role,
+      signer: signer
     }
+  end
+
+  defp archive_for_test(document, owner_id, signer) do
+    append =
+      document_write_state_key_directory_append(
+        document.workspace_id,
+        owner_id,
+        signer.device_id,
+        signer.signing_private,
+        [
+          %{document_id: document.id, previous_write_state: "writable", write_state: "archived"}
+        ],
+        "archive"
+      )
+
+    {:ok, admission} = Documents.WriteStateAdmission.parse_append(append)
+    Documents.archive_document(document, admission)
   end
 
   test "create_share/3 creates a landing share and canonical token", %{
@@ -564,15 +583,23 @@ defmodule RefMD.Sharing.SharingTest do
     end
   end
 
-  test "create_share/3 rejects archived root documents", %{document: document, owner_id: owner_id} do
-    assert {:ok, archived_document} = Documents.archive_document(document)
+  test "create_share/3 rejects archived root documents", %{
+    document: document,
+    owner_id: owner_id,
+    signer: signer
+  } do
+    assert {:ok, archived_document} = archive_for_test(document, owner_id, signer)
 
     assert {:error, {:invalid_value, :document_id}} =
              create_share(archived_document, owner_id, create_share_attrs())
   end
 
-  test "create_share/3 rejects archived root folders", %{folder: folder, owner_id: owner_id} do
-    assert {:ok, archived_folder} = Documents.archive_document(folder)
+  test "create_share/3 rejects archived root folders", %{
+    folder: folder,
+    owner_id: owner_id,
+    signer: signer
+  } do
+    assert {:ok, archived_folder} = archive_for_test(folder, owner_id, signer)
 
     assert {:error, {:invalid_value, :document_id}} =
              create_share(archived_folder, owner_id, create_folder_share_attrs([]))

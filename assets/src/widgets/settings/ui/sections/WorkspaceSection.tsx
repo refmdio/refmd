@@ -4,8 +4,16 @@ import { useWorkspaceSection } from "../../model/workspace-section/use-section";
 import { WorkspaceSectionContent } from "../workspace-section/Content";
 import { WorkspaceSectionDialogs } from "../workspace-section/Dialogs";
 
-export function WorkspaceSection() {
-  const state = useWorkspaceSection();
+interface WorkspaceSectionProps {
+  closePluginRuntimeByWorkspace?: (workspaceId: string, reason?: string) => void | Promise<void>;
+  releasePluginRuntimeWorkspaceRevocation?: (workspaceId: string) => void;
+}
+
+export function WorkspaceSection(props: WorkspaceSectionProps = {}) {
+  const state = useWorkspaceSection({
+    closePluginRuntimeByWorkspace: props.closePluginRuntimeByWorkspace,
+    releasePluginRuntimeWorkspaceRevocation: props.releasePluginRuntimeWorkspaceRevocation,
+  });
 
   return (
     <div class="p-6 space-y-6">

@@ -47,6 +47,10 @@ interface UpdatePublicData {
   clock: number;
   timestamp: number;
   updateHash: string;
+  minDekVersion: number;
+  writeSessionEventHash: string;
+  writeSessionId: string;
+  writeSessionCounter: number;
 }
 interface EphemeralPublicData {
   docId: string;

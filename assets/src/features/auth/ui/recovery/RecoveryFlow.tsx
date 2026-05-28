@@ -46,6 +46,7 @@ export function RecoveryFlow() {
                 onNewPasswordInput={flow.setNewPassword}
                 onConfirmPasswordInput={flow.setConfirmPassword}
                 onSubmit={flow.submitPasswordSet}
+                onBackToLogin={flow.backToLogin}
               />
             </Match>
 
@@ -67,6 +68,7 @@ export function RecoveryFlow() {
                 onSubmit={flow.submitRecovery}
                 onClear={flow.clear}
                 onTryAgain={flow.resetInputError}
+                onBackToLogin={flow.backToLogin}
               />
             </Match>
           </Switch>

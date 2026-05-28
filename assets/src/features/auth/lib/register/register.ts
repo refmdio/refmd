@@ -25,6 +25,8 @@ interface RegisterResult {
   deviceId: string;
   recoveryMnemonic: string;
   deviceSigningKeyId: string;
+  deviceKeyCheckpointSequence: number;
+  deviceKeyCheckpointHash: string;
   deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   deviceEcdhPublic: Uint8Array;
   identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
@@ -133,6 +135,7 @@ export async function register(
       deviceHybridSigningPublicKeyMaterial: devicePublic.hybridSigningPublicKeyMaterial,
       deviceHybridEncryptionPublicKeyMaterial: devicePublic.hybridEncryptionPublicKeyMaterial,
     });
+    const deviceCheckpoint = deviceCheckpointFromEnvelope(initialKeyDirectory.userCheckpoint);
     // Step 7b: Bootstrap first device (dedicated endpoint)
     const bootstrapRes = await devicesApi.bootstrap({
       name: getDeviceName(),
@@ -186,6 +189,8 @@ export async function register(
     setDeviceState({
       deviceId,
       deviceSigningKeyId: devicePublic.signingKeyId,
+      deviceKeyCheckpointSequence: deviceCheckpoint.sequence,
+      deviceKeyCheckpointHash: deviceCheckpoint.hash,
       deviceHybridSigningPublicKeyMaterial: devicePublic.hybridSigningPublicKeyMaterial,
       deviceEcdhPublic: devicePublic.ecdhPublic,
     });
@@ -223,6 +228,8 @@ export async function register(
       deviceId,
       recoveryMnemonic: recovery.mnemonic,
       deviceSigningKeyId: devicePublic.signingKeyId,
+      deviceKeyCheckpointSequence: deviceCheckpoint.sequence,
+      deviceKeyCheckpointHash: deviceCheckpoint.hash,
       deviceHybridSigningPublicKeyMaterial: devicePublic.hybridSigningPublicKeyMaterial,
       deviceEcdhPublic: devicePublic.ecdhPublic,
       identityHybridSigningPublicKeyMaterial: identityPublic.hybridSigningPublicKeyMaterial,
@@ -235,4 +242,18 @@ export async function register(
       // Transient registration keys expire with the worker/session and are regenerated on retry.
     });
   }
+}
+
+function deviceCheckpointFromEnvelope(envelope: { payload: Record<string, unknown> }): {
+  sequence: number;
+  hash: string;
+} {
+  const sequence = envelope.payload.sequence;
+  if (typeof sequence !== "number" || !Number.isInteger(sequence) || sequence < 1) {
+    throw new Error("device_key_checkpoint_invalid");
+  }
+  return {
+    sequence,
+    hash: blake3Base64Url(canonicalizeStrictBytes(envelope.payload as StrictJsonValue)),
+  };
 }

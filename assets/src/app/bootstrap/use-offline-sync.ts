@@ -119,11 +119,12 @@ export function useOfflineSync(): void {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2_000);
     try {
-      await fetch("/api/auth/me", {
+      const response = await fetch("/health", {
         credentials: "same-origin",
         cache: "no-store",
         signal: controller.signal,
       });
+      if (!response.ok) return false;
       const { clearAuthTransportNetworkFailure } =
         await import("@/shared/lib/ws/transport-coordinator");
       clearAuthTransportNetworkFailure();

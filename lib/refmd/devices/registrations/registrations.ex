@@ -8,6 +8,7 @@ defmodule RefMD.Devices.Registrations do
   alias RefMD.Devices.{Device, DeviceEncryptedUMK, DeviceRegistration}
   alias RefMD.Encryption
   alias RefMD.Repo
+  alias RefMD.Security
 
   @spec user_owns_device_registration?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_owns_device_registration?(user_id, device_id) do
@@ -293,7 +294,7 @@ defmodule RefMD.Devices.Registrations do
     insert_approved_device(device_registration, changeset, key_directory)
     |> case do
       {:ok, device} ->
-        RefMD.Devices.broadcast_device_registration_removed(device.user_id, device.id)
+        Security.record_device_registration_removed(device.user_id, device.id)
         {:ok, device}
 
       {:error, reason} ->
@@ -365,7 +366,7 @@ defmodule RefMD.Devices.Registrations do
     end)
     |> case do
       {:ok, device} ->
-        RefMD.Devices.broadcast_device_registration_removed(device.user_id, device.id)
+        Security.record_device_registration_removed(device.user_id, device.id)
         {:ok, device}
 
       {:error, reason} ->

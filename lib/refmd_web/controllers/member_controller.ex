@@ -127,7 +127,11 @@ defmodule RefMDWeb.MemberController do
            workspace_id,
            target_user_id,
            new_role_id,
-           actor_user_id
+           actor_user_id,
+           %{
+             workspace_events: conn.body_params["workspace_key_directory_events"],
+             workspace_checkpoint: conn.body_params["workspace_key_directory_checkpoint"]
+           }
          ) do
       {:ok, _member} ->
         json(conn, %{ok: true})

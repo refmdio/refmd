@@ -20,7 +20,7 @@ import {
   setFocusedPanelIdAccessor,
 } from "@/features/editor";
 import {
-  createShareLinkDocumentPanelTarget,
+  createShareLinkWorkspaceTileTarget,
   disposePanelWorkspace,
   usePanelWorkspace,
 } from "@/features/panel";
@@ -193,7 +193,7 @@ export function ShareWorkspaceShell(props: ShareWorkspaceShellProps) {
         }
       }
 
-      const target = createShareLinkDocumentPanelTarget(resolved.target);
+      const target = createShareLinkWorkspaceTileTarget(resolved.target);
       activateSharedDocumentRoute(target.targetKey, resolved.access);
       workspace.openDocument(target);
       rememberTargetKey(target.targetKey);

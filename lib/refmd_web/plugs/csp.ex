@@ -58,7 +58,7 @@ defmodule RefMDWeb.Plugs.CSP do
       "font-src 'self'",
       "connect-src 'self' #{ws_origins}",
       "worker-src 'self'",
-      "frame-src 'self' blob:",
+      "frame-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

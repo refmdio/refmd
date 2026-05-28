@@ -12,14 +12,30 @@ defmodule RefMDWeb.DocumentController do
        [permission: "document:write"] when action in [:create, :reorder]
 
   plug RefMDWeb.Plugs.ResolveDocumentWorkspace
-       when action in [:show, :update, :delete, :archive, :unarchive]
+       when action in [
+              :show,
+              :update,
+              :delete,
+              :archive,
+              :unarchive,
+              :enable_read_only,
+              :disable_read_only,
+              :disable_writes_by_policy
+            ]
 
   plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:read"] when action in [:show]
   plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:write"] when action in [:update]
   plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:delete"] when action in [:delete]
 
   plug RefMDWeb.Plugs.RequireRBAC,
-       [permission: "document:archive"] when action in [:archive, :unarchive]
+       [permission: "document:archive"]
+       when action in [
+              :archive,
+              :unarchive,
+              :enable_read_only,
+              :disable_read_only,
+              :disable_writes_by_policy
+            ]
 
   # ── GET /api/documents?workspace_id=... ─────────
 
@@ -171,6 +187,16 @@ defmodule RefMDWeb.DocumentController do
             |> put_status(:unprocessable_entity)
             |> json(%{error: "document_archived"})
 
+          {:error, :document_read_only} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "document_read_only"})
+
+          {:error, :document_write_disabled} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "document_write_disabled"})
+
           {:error, changeset} ->
             conn
             |> put_status(:unprocessable_entity)
@@ -226,6 +252,8 @@ defmodule RefMDWeb.DocumentController do
     parameters: [
       document_id: [in: :path, type: :string, required: true]
     ],
+    request_body:
+      {"Document write-state admission", "application/json", Schemas.DocumentWriteStateRequest},
     responses: [
       ok: {"Archived document", "application/json", Schemas.DocumentResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
@@ -235,10 +263,13 @@ defmodule RefMDWeb.DocumentController do
   )
 
   @spec archive(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def archive(conn, _params) do
+  def archive(conn, params) do
     document = conn.assigns.document
 
-    case Documents.archive_document(document) do
+    with {:ok, write_state_admission} <- Documents.WriteStateAdmission.parse_append(params) do
+      Documents.archive_document(document, write_state_admission)
+    end
+    |> case do
       {:ok, updated} ->
         json(conn, serialize_document(conn, updated))
 
@@ -246,6 +277,11 @@ defmodule RefMDWeb.DocumentController do
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "already_archived"})
+
+      {:error, :invalid_key_directory} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_key_directory"})
     end
   end
 
@@ -256,6 +292,8 @@ defmodule RefMDWeb.DocumentController do
     parameters: [
       document_id: [in: :path, type: :string, required: true]
     ],
+    request_body:
+      {"Document write-state admission", "application/json", Schemas.DocumentWriteStateRequest},
     responses: [
       ok: {"Unarchived document", "application/json", Schemas.DocumentResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
@@ -266,10 +304,13 @@ defmodule RefMDWeb.DocumentController do
   )
 
   @spec unarchive(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def unarchive(conn, _params) do
+  def unarchive(conn, params) do
     document = conn.assigns.document
 
-    case Documents.unarchive_document(document) do
+    with {:ok, write_state_admission} <- Documents.WriteStateAdmission.parse_append(params) do
+      Documents.unarchive_document(document, write_state_admission)
+    end
+    |> case do
       {:ok, updated} ->
         json(conn, serialize_document(conn, updated))
 
@@ -282,7 +323,81 @@ defmodule RefMDWeb.DocumentController do
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "ancestor_archived"})
+
+      {:error, :invalid_key_directory} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_key_directory"})
     end
+  end
+
+  # ── POST /api/documents/:document_id/read-only/enable
+
+  operation(:enable_read_only,
+    summary: "Mark a document read-only",
+    parameters: [
+      document_id: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Document write-state admission", "application/json", Schemas.DocumentWriteStateRequest},
+    responses: [
+      ok: {"Read-only document", "application/json", Schemas.DocumentResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Cannot change write state", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec enable_read_only(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def enable_read_only(conn, params) do
+    handle_write_state_transition(conn, params, &Documents.enable_document_read_only/2)
+  end
+
+  # ── POST /api/documents/:document_id/read-only/disable
+
+  operation(:disable_read_only,
+    summary: "Clear document read-only state",
+    parameters: [
+      document_id: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Document write-state admission", "application/json", Schemas.DocumentWriteStateRequest},
+    responses: [
+      ok: {"Writable document", "application/json", Schemas.DocumentResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Cannot change write state", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec disable_read_only(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def disable_read_only(conn, params) do
+    handle_write_state_transition(conn, params, &Documents.disable_document_read_only/2)
+  end
+
+  # ── POST /api/documents/:document_id/write-disable
+
+  operation(:disable_writes_by_policy,
+    summary: "Disable document writes by policy",
+    parameters: [
+      document_id: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Document write-state admission", "application/json", Schemas.DocumentWriteStateRequest},
+    responses: [
+      ok: {"Write-disabled document", "application/json", Schemas.DocumentResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity:
+        {"Cannot change write state", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec disable_writes_by_policy(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def disable_writes_by_policy(conn, params) do
+    handle_write_state_transition(conn, params, &Documents.disable_document_writes_by_policy/2)
   end
 
   # ── PATCH /api/documents/reorder ─────────────────
@@ -344,11 +459,47 @@ defmodule RefMDWeb.DocumentController do
       can_sync_publication:
         Documents.publication_sync_allowed?(document, conn.assigns.current_user_id, nil, nil),
       created_by: document.created_by,
+      write_state: serialized_write_state(document),
       archived_at: document.archived_at,
       created_at: document.created_at,
       updated_at: document.updated_at
     }
   end
+
+  defp handle_write_state_transition(conn, params, transition) do
+    document = conn.assigns.document
+
+    with {:ok, write_state_admission} <- Documents.WriteStateAdmission.parse_append(params) do
+      transition.(document, write_state_admission)
+    end
+    |> case do
+      {:ok, updated} ->
+        json(conn, serialize_document(conn, updated))
+
+      {:error, reason}
+      when reason in [
+             :already_read_only,
+             :not_read_only,
+             :already_write_disabled,
+             :document_archived,
+             :document_write_disabled,
+             :invalid_key_directory,
+             :invalid_write_state_transition
+           ] ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: to_string(reason)})
+    end
+  end
+
+  defp serialized_write_state(%{archived_at: archived_at}) when not is_nil(archived_at),
+    do: "archived"
+
+  defp serialized_write_state(%{write_state: state})
+       when state in ["writable", "read_only", "archived", "write_disabled"],
+       do: state
+
+  defp serialized_write_state(_document), do: "writable"
 
   defp decode_binary_fields(attrs) do
     with {:ok, attrs} <- decode_binary_field(attrs, "encrypted_title") do

@@ -22,6 +22,8 @@ type LoginResult =
       identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
       identityEcdhPublic: Uint8Array | null;
       deviceSigningKeyId: string | null;
+      deviceKeyCheckpointSequence: number | null;
+      deviceKeyCheckpointHash: string | null;
       deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
       deviceEcdhPublic: Uint8Array | null;
     }
@@ -226,8 +228,10 @@ export async function login(
     await worker.setInitialized();
     // Step 9: TOFU verification (in Worker)
     let tofuWarnings: string[] = [];
+    let currentDevice: DeviceInfo | null = null;
     try {
       const { devices } = await devicesApi.list({ popDeviceId: deviceId! });
+      currentDevice = devices.find((d: DeviceInfo) => d.id === deviceId) ?? null;
       const tofuResult = await worker.tofuVerifyAllDevices({
         devices: devices.map((d: DeviceInfo) => ({
           name: d.name,
@@ -282,6 +286,8 @@ export async function login(
       identityHybridSigningPublicKeyMaterial,
       identityEcdhPublic: pubKeys.identityEcdhPublic,
       deviceSigningKeyId: pubKeys.deviceSigningKeyId,
+      deviceKeyCheckpointSequence: currentDevice?.key_checkpoint_sequence ?? null,
+      deviceKeyCheckpointHash: currentDevice?.key_checkpoint_hash ?? null,
       deviceHybridSigningPublicKeyMaterial,
       deviceEcdhPublic: pubKeys.deviceEcdhPublic,
     };

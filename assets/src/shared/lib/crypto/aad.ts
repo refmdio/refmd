@@ -23,6 +23,8 @@ export const AAD_PURPOSE = {
   DSK_AUTH_BOOTSTRAP: "dsk_auth_bootstrap",
   DSK_STORE_VALUE: "dsk_store_value",
   DSK_UI_STATE: "dsk_ui_state",
+  DSK_PLUGIN_CREDENTIAL: "dsk_plugin_credential",
+  PLUGIN_DATA: "plugin_data",
   SHARE_DEK_WRAP: "share_dek_wrap",
   SHARE_MANAGE_ACCESS: "share_manage_access",
   GUEST_INVITE_REDEEM_MATERIAL: "guest_invite_redeem_material",
@@ -327,5 +329,47 @@ export function buildDskStoreValueAad(key: string): Uint8Array {
 }
 export function buildDskUiStateAad(aadRecord: Record<string, unknown>): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.DSK_UI_STATE, ...aadRecord });
+}
+export function buildDskPluginCredentialAad(params: {
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  userId: string;
+  deviceId: string;
+  credentialId: string;
+}): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.DSK_PLUGIN_CREDENTIAL,
+    workspace_id: params.workspaceId,
+    package_id: params.packageId,
+    application_id: params.applicationId,
+    activation_id: params.activationId,
+    user_id: params.userId,
+    device_id: params.deviceId,
+    credential_id: params.credentialId,
+  });
+}
+export function buildPluginStorageAad(params: {
+  scope: "workspace" | "document";
+  workspaceId: string;
+  packageId: string;
+  applicationId: string;
+  activationId: string;
+  pluginId: string;
+  scopeId: string;
+  key: string;
+}): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.PLUGIN_DATA,
+    workspace_id: params.workspaceId,
+    package_id: params.packageId,
+    application_id: params.applicationId,
+    activation_id: params.activationId,
+    plugin_id: params.pluginId,
+    scope: params.scope,
+    scope_id: params.scopeId,
+    key: params.key,
+  });
 }
 import { canonicalizeStrictBytes, type StrictJsonValue } from "./jcs";

@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onMount, onCleanup, type Accessor } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
-import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
+import { authState, cryptoWorkerReady, deviceState, returnToLogin } from "@/entities/session";
 import { authApi } from "@/shared/api";
 import { resolvePostAuthRedirect } from "@/shared/lib/invite/redirect";
 import { completeApprovedRegistration } from "../../lib/register/approval-complete";
@@ -39,6 +39,7 @@ interface DeviceRegistrationFlowState {
   setReauthPassword: (value: string) => void;
   submitPasswordReentry: (event: Event) => Promise<void>;
   submitReauth: (event: Event) => Promise<void>;
+  openRecovery: (event: MouseEvent) => void;
   backToLogin: () => void;
   reloadPage: () => void;
 }
@@ -48,6 +49,7 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
   const isRecoveryFromState = () => (location.state as Record<string, unknown>)?.recovery === true;
   const [machine, setMachine] = createSignal(createInitialDeviceRegistrationMachineState());
   let disposeRegistrationWaiter: (() => void) | undefined;
+  let registrationAbortController: AbortController | undefined;
   let redirectTimer: ReturnType<typeof setTimeout> | undefined;
   const phase = () => machine().phase;
   const error = () => machine().error;
@@ -77,6 +79,7 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     }));
   };
   onCleanup(() => {
+    registrationAbortController?.abort();
     if (disposeRegistrationWaiter) disposeRegistrationWaiter();
     if (redirectTimer) clearTimeout(redirectTimer);
   });
@@ -113,6 +116,7 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
         await startNormalRegistration(auth);
       }
     } catch (setupError) {
+      if (setupError instanceof Error && setupError.name === "AbortError") return;
       applyEvent({
         type: "flow_failed",
         message: setupError instanceof Error ? setupError.message : "Setup failed",
@@ -135,9 +139,13 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     await createRegistrationAndWait(prepared.publicKeys);
   };
   const createRegistrationAndWait = async (publicKeys: DeviceRegistrationPublicKeys) => {
+    registrationAbortController?.abort();
+    const abortController = new AbortController();
+    registrationAbortController = abortController;
     const result = await startRegistrationApproval({
       publicKeys,
       identityHybridSigningPublicKeyMaterial: identityHybridSigningPublicKeyMaterial()!,
+      signal: abortController.signal,
       shouldKeepWaiting: () => phase() === "waiting",
       onReauthRequired: () => {},
       onApproved: async (deviceId) => {
@@ -157,6 +165,9 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
         });
       },
     });
+    if (registrationAbortController === abortController) {
+      registrationAbortController = undefined;
+    }
     if (result.status === "reauth_required") {
       applyEvent({
         type: "approval_reauth_required",
@@ -170,6 +181,16 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
       clientNonce: result.clientNonce,
     });
     disposeRegistrationWaiter = result.dispose;
+  };
+  const openRecovery = (event: MouseEvent) => {
+    event.preventDefault();
+    registrationAbortController?.abort();
+    registrationAbortController = undefined;
+    if (disposeRegistrationWaiter) {
+      disposeRegistrationWaiter();
+      disposeRegistrationWaiter = undefined;
+    }
+    navigate("/auth/recovery");
   };
   const startRecoveryRegistration = async (auth: NonNullable<ReturnType<typeof authState>>) => {
     applyEvent({
@@ -307,6 +328,9 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
       });
     }
   };
+  const backToLogin = () => {
+    void returnToLogin();
+  };
   return {
     phase,
     error,
@@ -326,7 +350,8 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     setReauthPassword: (value) => patchMachine({ reauthPassword: value }),
     submitPasswordReentry,
     submitReauth,
-    backToLogin: () => navigate("/auth/login"),
+    openRecovery,
+    backToLogin,
     reloadPage: () => window.location.reload(),
   };
 }

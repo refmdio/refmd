@@ -14,6 +14,7 @@ defmodule RefMD.Encryption.KeyDirectory.Body do
     "encryption_key_revoked",
     "suite_policy_changed",
     "member_added",
+    "member_role_changed",
     "member_removed",
     "wrap_issued"
   ]
@@ -43,7 +44,12 @@ defmodule RefMD.Encryption.KeyDirectory.Body do
   ]
 
   @rotation_types ["rotation_started", "rotation_completed", "old_key_deleted"]
-  @document_admission_types ["document_update_accepted", "document_snapshot_accepted"]
+  @document_admission_types [
+    "document_update_accepted",
+    "document_write_session_admitted",
+    "document_write_state_changed",
+    "document_snapshot_accepted"
+  ]
 
   @spec assert!(binary(), map()) :: :ok
   def assert!(type, body) when type in @key_lifecycle_types,

@@ -30,6 +30,25 @@ nodes = nodes.update("image", {
   },
 });
 
+nodes = nodes.update("code_block", {
+  ...basicSchema.spec.nodes.get("code_block")!,
+  attrs: { language: { default: null } },
+  parseDOM: [
+    {
+      tag: "pre",
+      preserveWhitespace: "full",
+      getAttrs(dom: HTMLElement) {
+        const code = dom.querySelector("code");
+        return { language: code?.getAttribute("data-language") ?? null };
+      },
+    },
+  ],
+  toDOM(node) {
+    const language = typeof node.attrs.language === "string" ? node.attrs.language : null;
+    return ["pre", ["code", language ? { "data-language": language } : {}, 0]];
+  },
+});
+
 let marks = basicSchema.spec.marks;
 
 // Override link: add XSS sanitization + rel attr

@@ -10,12 +10,16 @@ import {
   releaseYDoc,
   unregisterEditor,
 } from "@/features/editor";
-import { ProseMirrorEditorApi } from "../../lib/editor-api/prosemirror-api";
+import {
+  ProseMirrorEditorApi,
+  pluginEditorDecorationsPlugin,
+} from "../../lib/editor-api/prosemirror-api";
 import { markdownSchema } from "../../lib/prosemirror/schema";
 import { buildCollabPlugins } from "../../lib/prosemirror/plugin-base";
 import { setupCollabPlugins } from "../../lib/prosemirror/plugin-collab";
 import { blockHandlePlugin } from "../../lib/prosemirror/plugin-block-handle";
 import { placeholderPlugin } from "../../lib/prosemirror/plugin-placeholder";
+import { pluginRendererSlotPlugin } from "../../lib/prosemirror/plugin-renderer-slots";
 import { INACTIVE, slashCommandsPlugin } from "../../lib/prosemirror/plugin-slash-commands";
 import type { SlashCommand, SlashMenuState } from "../../lib/prosemirror/plugin-slash-commands";
 import { SlashMenu } from "./SlashMenu";
@@ -27,6 +31,7 @@ interface ProseMirrorEditorProps {
   documentId: string;
   stateKey: string;
   panelId: string;
+  workspaceId?: string | null;
   scrollGroupId?: string;
   onDocChange?: () => void;
   onEditorPaste?: (evt: ClipboardEvent) => void;
@@ -88,7 +93,15 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
     let destroyed = false;
 
-    const editorPlugins = [...collab.plugins, ...buildCollabPlugins(markdownSchema)];
+    const editorPlugins = [
+      ...collab.plugins,
+      ...buildCollabPlugins(markdownSchema),
+      pluginRendererSlotPlugin({
+        documentId: props.documentId,
+        workspaceId: props.workspaceId,
+      }),
+      pluginEditorDecorationsPlugin(),
+    ];
     if (!props.readOnly) {
       editorPlugins.push(placeholderPlugin(), sp, blockHandlePlugin());
     }

@@ -42,6 +42,9 @@ import {
   buildKeyDirectoryCheckpointTranscript,
   buildKeyDirectoryEventTranscript,
   buildPinGossipStatementTranscript,
+  buildPluginBundleApprovalTranscript,
+  buildPluginConsentEventTranscript,
+  buildPluginNetworkProxyRequestTranscript,
   buildPopTranscript,
   buildPqWrapTranscript,
   buildRecipientBoundAuthorizationTranscript,
@@ -60,6 +63,9 @@ import {
   signInitialKeyDeliverySignature,
   signInitiatorAkeCommitmentSignature,
   signPinGossipStatementSignature,
+  signPluginBundleApprovalSignature,
+  signPluginConsentEventSignature,
+  signPluginNetworkProxyRequestSignature,
   signKeyDirectoryCheckpointSignature,
   signKeyDirectoryEventSignature,
   signPqWrapSignature,
@@ -83,6 +89,9 @@ import {
   verifyKeyDirectoryCheckpointSignature,
   verifyKeyDirectoryEventSignature,
   verifyPinGossipStatementSignature,
+  verifyPluginBundleApprovalSignature,
+  verifyPluginConsentEventSignature,
+  verifyPluginNetworkProxyRequestSignature,
   verifyPopRequestSignature,
   verifyPqWrapSignature,
   verifyRecipientBoundAuthorizationSignature,
@@ -116,6 +125,7 @@ function expectedActiveSigningSurfacePairs(): string[][] {
     "identity_key_added",
     "device_key_added",
     "member_added",
+    "member_role_changed",
     "member_removed",
     "signing_key_revoked",
     "encryption_key_revoked",
@@ -142,6 +152,8 @@ function expectedActiveSigningSurfacePairs(): string[][] {
     "rotation_completed",
     "old_key_deleted",
     "document_update_accepted",
+    "document_write_session_admitted",
+    "document_write_state_changed",
     "document_snapshot_accepted",
   ];
 
@@ -153,6 +165,9 @@ function expectedActiveSigningSurfacePairs(): string[][] {
     ["share_participant_device_authorization", "none"],
     ["genesis_device_bootstrap", "none"],
     ["device_approval", "none"],
+    ["plugin_bundle_approval", "none"],
+    ["plugin_consent_event", "none"],
+    ["plugin_network_proxy_request", "none"],
     ["responder_prekey", "none"],
     ["initiator_ake_commitment", "none"],
     ["recovery_device_approval", "none"],
@@ -526,8 +541,6 @@ describe("active signing surface inventory", () => {
       inventoryPairKey(signingPurpose, variant),
     );
     const disabledPairs = [
-      ["plugin_bundle_approval", "none"],
-      ["plugin_consent_event", "none"],
       ["snapshot_proof", "share_participant_device"],
       ["snapshot_proof", "workspace_device"],
       ["trust_transfer", "none"],
@@ -552,8 +565,8 @@ describe("active signing surface inventory", () => {
       expect(getActiveSigningSurface(entry.signing_purpose, entry.variant)).toBe(entry);
     }
 
-    expect(() => getActiveSigningSurface("plugin_bundle_approval", "none")).toThrow(
-      "signing_surface_not_active",
+    expect(getActiveSigningSurface("plugin_bundle_approval", "none").surface_id).toBe(
+      "plugin_bundle_approval",
     );
     expect(() => getActiveSigningSurface("trust_transfer", "none")).toThrow(
       "signing_surface_not_active",
@@ -586,6 +599,18 @@ describe("active signing surface inventory", () => {
       const publicKeyMaterial = publicKeyMaterialForOwner(privateKeyMaterial);
       const transcript = coverage.buildTranscript(publicKeyMaterial);
       const signature = coverage.sign({ transcript, privateKeyMaterial });
+
+      if (coverage.signingPurpose === "plugin_bundle_approval") {
+        expect((transcript as Record<string, StrictJsonValue>).subject_protocol).toBe(
+          "refmd.plugin-bundle-approval",
+        );
+      }
+
+      if (coverage.signingPurpose === "plugin_consent_event") {
+        expect((transcript as Record<string, StrictJsonValue>).subject_protocol).toBe(
+          "refmd.plugin-consent-event",
+        );
+      }
 
       expect(coverage.verify({ transcript, signature, publicKeyMaterial })).toBe(true);
       expect(
@@ -647,6 +672,164 @@ describe("active signing surface inventory", () => {
         }),
       ).toBe(false);
     }
+  }, 60_000);
+
+  it("requires plugin actors to be scoped to the subject workspace", () => {
+    const privateKeyMaterial = generateHybridSigningPrivateKeyMaterial("device", testUuid(401));
+    const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+    const actor = pluginDeviceActorFixture(publicKeyMaterial) as Record<string, StrictJsonValue>;
+    const approval = pluginBundleApprovalSubjectFixture(publicKeyMaterial);
+    const consent = pluginConsentSubjectFixture(publicKeyMaterial);
+
+    expect(() =>
+      buildPluginBundleApprovalTranscript({
+        actor: { ...actor, key_scope_kind: "user", key_scope_id: actor.user_id },
+        approval,
+      }),
+    ).toThrow("plugin_bundle_approval_actor_invalid");
+    expect(() =>
+      buildPluginBundleApprovalTranscript({
+        actor: { ...actor, key_scope_id: testUuid(599) },
+        approval,
+      }),
+    ).toThrow("plugin_bundle_approval_actor_invalid");
+    expect(() =>
+      buildPluginConsentEventTranscript({
+        actor: { ...actor, key_scope_kind: "user", key_scope_id: actor.user_id },
+        consent,
+      }),
+    ).toThrow("plugin_consent_event_actor_invalid");
+    expect(() =>
+      buildPluginConsentEventTranscript({
+        actor: { ...actor, key_scope_id: testUuid(599) },
+        consent,
+      }),
+    ).toThrow("plugin_consent_event_actor_invalid");
+    expect(() =>
+      buildPluginConsentEventTranscript({
+        actor: { ...actor, user_id: testUuid(599) },
+        consent,
+      }),
+    ).toThrow("plugin_consent_event_actor_invalid");
+    expect(() =>
+      buildPluginConsentEventTranscript({
+        actor,
+        consent: {
+          ...(consent as Record<string, StrictJsonValue>),
+          device_id: testUuid(599),
+        },
+      }),
+    ).toThrow("plugin_consent_event_actor_invalid");
+    expect(() =>
+      buildPluginConsentEventTranscript({
+        actor,
+        consent: { ...(consent as Record<string, StrictJsonValue>), user_id: testUuid(599) },
+      }),
+    ).toThrow("plugin_consent_event_actor_invalid");
+  });
+
+  it("requires plugin proxy request nested subject fields before signing", () => {
+    const privateKeyMaterial = generateHybridSigningPrivateKeyMaterial("device", testUuid(401));
+    const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+    const subject = pluginNetworkProxyRequestSubjectFixture(publicKeyMaterial);
+
+    const missingPaths = [
+      ["proxy", "id"],
+      ["target", "method"],
+      ["target", "body_text"],
+      ["endpoint", "max_request_bytes"],
+      ["runtime", "frame_generation"],
+      ["runtime", "capability_grant_id"],
+      ["runtime", "credential_handle_used"],
+    ];
+
+    for (const path of missingPaths) {
+      expect(() =>
+        buildPluginNetworkProxyRequestTranscript({
+          subject: deleteNestedKey(subject, path),
+        }),
+      ).toThrow("plugin_network_proxy_request_subject_invalid");
+    }
+  });
+
+  it("allows plugin proxy request subjects without optional credential audience", () => {
+    const privateKeyMaterial = generateHybridSigningPrivateKeyMaterial("device", testUuid(401));
+    const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+    const subject = deleteNestedKey(pluginNetworkProxyRequestSubjectFixture(publicKeyMaterial), [
+      "endpoint",
+      "credential_audience",
+    ]);
+
+    expect(() =>
+      buildPluginNetworkProxyRequestTranscript({
+        subject,
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects plugin proxy request extra nested subject fields before signing", () => {
+    const privateKeyMaterial = generateHybridSigningPrivateKeyMaterial("device", testUuid(401));
+    const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+    const subject = pluginNetworkProxyRequestSubjectFixture(publicKeyMaterial);
+    const transcript = buildPluginNetworkProxyRequestTranscript({ subject });
+
+    const extraPaths = [
+      ["proxy", "operator_label"],
+      ["target", "redirect_policy"],
+      ["endpoint", "policy"],
+      ["runtime", "deployment_id"],
+    ];
+
+    for (const path of extraPaths) {
+      const malformedSubject = setNestedKey(subject, path, "unexpected");
+      expect(() =>
+        buildPluginNetworkProxyRequestTranscript({
+          subject: malformedSubject,
+        }),
+      ).toThrow("plugin_network_proxy_request_subject_invalid");
+      expect(() =>
+        signPluginNetworkProxyRequestSignature({
+          transcript: {
+            ...(transcript as Record<string, StrictJsonValue>),
+            subject: malformedSubject,
+          },
+          privateKeyMaterial,
+        }),
+      ).toThrow("plugin_network_proxy_request_subject_invalid");
+    }
+  });
+
+  it("rejects workspace fields on user-owned package approval subjects", () => {
+    const privateKeyMaterial = generateHybridSigningPrivateKeyMaterial("device", testUuid(401));
+    const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+    const actor = {
+      signer_kind: "device",
+      user_id: testUuid(417),
+      device_id: publicKeyMaterial.owner_id,
+      signing_key_id: computeSigningKeyId(publicKeyMaterial),
+      key_scope_kind: "user",
+      key_scope_id: testUuid(417),
+      key_checkpoint_sequence: 1,
+      key_checkpoint_hash: hash("plugin-checkpoint"),
+    } satisfies StrictJsonValue;
+    const approval: Record<string, StrictJsonValue> = {
+      ...(pluginBundleApprovalSubjectFixture(publicKeyMaterial) as Record<string, StrictJsonValue>),
+      owner_scope_kind: "user",
+      owner_user_id: testUuid(417),
+    };
+    delete approval.owner_workspace_id;
+
+    const transcript = buildPluginBundleApprovalTranscript({
+      actor,
+      approval,
+    });
+
+    expect(() =>
+      signPluginBundleApprovalSignature({
+        transcript,
+        privateKeyMaterial,
+      }),
+    ).toThrow("unexpected_keys");
   });
 
   it("rejects forbidden owner kinds and surface-owner combinations", () => {
@@ -680,6 +863,14 @@ describe("active signing surface inventory", () => {
     expect(documentUpdateSurface.owner_kind).toBe("device");
     expect(() =>
       assertSigningSurfaceOwner(documentUpdateSurface, "share_participant_device"),
+    ).not.toThrow();
+    const documentWriteSessionSurface = getActiveSigningSurface(
+      "key_directory_event",
+      "document_write_session_admitted",
+    );
+    expect(documentWriteSessionSurface.owner_kind).toBe("device");
+    expect(() =>
+      assertSigningSurfaceOwner(documentWriteSessionSurface, "share_participant_device"),
     ).not.toThrow();
     expect(
       getActiveSigningSurface("device_key_deletion_proof", "identity_key_deletion_proof")
@@ -867,6 +1058,20 @@ function buildSurfaceTranscript(
         ],
       });
     }
+    case "plugin_bundle_approval":
+      return buildPluginBundleApprovalTranscript({
+        actor: pluginDeviceActorFixture(publicKeyMaterial),
+        approval: pluginBundleApprovalSubjectFixture(publicKeyMaterial),
+      });
+    case "plugin_consent_event":
+      return buildPluginConsentEventTranscript({
+        actor: pluginDeviceActorFixture(publicKeyMaterial),
+        consent: pluginConsentSubjectFixture(publicKeyMaterial),
+      });
+    case "plugin_network_proxy_request":
+      return buildPluginNetworkProxyRequestTranscript({
+        subject: pluginNetworkProxyRequestSubjectFixture(publicKeyMaterial),
+      });
     case "responder_prekey":
       return buildResponderPrekeyTranscript({
         ownerDeviceId: publicKeyMaterial.owner_id,
@@ -1048,6 +1253,12 @@ function signerForPurpose(signingPurpose: string): (params: SurfaceSignParams) =
       return signGenesisDeviceBootstrapSignature;
     case "device_approval":
       return createDeviceApprovalSignature;
+    case "plugin_bundle_approval":
+      return signPluginBundleApprovalSignature;
+    case "plugin_consent_event":
+      return signPluginConsentEventSignature;
+    case "plugin_network_proxy_request":
+      return signPluginNetworkProxyRequestSignature;
     case "responder_prekey":
       return signResponderPrekeySignature;
     case "initiator_ake_commitment":
@@ -1101,6 +1312,12 @@ function verifierForPurpose(signingPurpose: string): (params: SurfaceVerifyParam
       return verifyGenesisDeviceBootstrapSignature;
     case "device_approval":
       return verifyDeviceApprovalSignature;
+    case "plugin_bundle_approval":
+      return verifyPluginBundleApprovalSignature;
+    case "plugin_consent_event":
+      return verifyPluginConsentEventSignature;
+    case "plugin_network_proxy_request":
+      return verifyPluginNetworkProxyRequestSignature;
     case "responder_prekey":
       return verifyResponderPrekeySignature;
     case "initiator_ake_commitment":
@@ -1253,6 +1470,148 @@ function keyDirectoryActorFixture(
     key_checkpoint_sequence: 1,
     key_checkpoint_hash: hash("checkpoint"),
   };
+}
+
+function pluginDeviceActorFixture(
+  publicKeyMaterial: AnyHybridSigningPublicKeyMaterial,
+): StrictJsonValue {
+  return {
+    signer_kind: "device",
+    user_id: testUuid(417),
+    device_id: publicKeyMaterial.owner_id,
+    signing_key_id: computeSigningKeyId(publicKeyMaterial),
+    key_scope_kind: "workspace",
+    key_scope_id: testUuid(502),
+    key_checkpoint_sequence: 1,
+    key_checkpoint_hash: hash("plugin-checkpoint"),
+  };
+}
+
+function pluginBundleApprovalSubjectFixture(
+  publicKeyMaterial: AnyHybridSigningPublicKeyMaterial,
+): StrictJsonValue {
+  return {
+    plugin_id: "com.example.signature",
+    package_id: testUuid(503),
+    application_scope_kind: "workspace",
+    workspace_id: testUuid(502),
+    owner_scope_kind: "workspace",
+    owner_workspace_id: testUuid(502),
+    version: "1.0.0",
+    source_kind: "local_upload",
+    source_url_hash: "NO_SOURCE_URL",
+    archive_hash: hash("archive"),
+    bundle_hash: hash("bundle"),
+    manifest_hash: hash("manifest"),
+    main_js_hash: hash("main-js"),
+    styles_css_hash: hash("styles-css"),
+    resource_manifest_hash: hash("resources"),
+    permissions_hash: hash("permissions"),
+    endpoint_hash: hash("endpoint"),
+    renderer_slots_hash: hash("renderer-slots"),
+    document_scope_hash: hash("document-scope"),
+    approver_user_id: testUuid(417),
+    approver_device_id: publicKeyMaterial.owner_id,
+    approval_epoch: 1,
+    previous_approval_event_hash: "GENESIS",
+    created_at_ms: 1_775_000_000_000,
+  };
+}
+
+function pluginConsentSubjectFixture(
+  publicKeyMaterial: AnyHybridSigningPublicKeyMaterial,
+): StrictJsonValue {
+  return {
+    plugin_id: "com.example.signature",
+    package_id: testUuid(503),
+    application_id: testUuid(501),
+    activation_id: testUuid(504),
+    owner_scope_kind: "workspace",
+    application_scope_kind: "workspace",
+    version: "1.0.0",
+    bundle_hash: hash("bundle"),
+    manifest_hash: hash("manifest"),
+    resource_manifest_hash: hash("resources"),
+    permissions_hash: hash("permissions"),
+    endpoint_hash: hash("endpoint"),
+    document_scope_hash: hash("document-scope"),
+    signer_device_id: publicKeyMaterial.owner_id,
+    signer_user_id: testUuid(417),
+    user_id: testUuid(417),
+    device_id: publicKeyMaterial.owner_id,
+    workspace_id: testUuid(502),
+    consent_epoch: 1,
+    previous_event_hash: "GENESIS",
+    decision: "allow",
+  };
+}
+
+function pluginNetworkProxyRequestSubjectFixture(
+  publicKeyMaterial: AnyHybridSigningPublicKeyMaterial,
+): StrictJsonValue {
+  return {
+    protocol: "refmd.plugin-network-proxy-request-subject",
+    version: CURRENT_PROTOCOL_VERSION,
+    request_id: "request-one",
+    proxy: {
+      id: "workspace-proxy",
+      scope: "workspace",
+      origin: "https://proxy.example/refmd",
+    },
+    target: {
+      url: "https://api.github.com/repos/refmdio/refmd/issues",
+      method: "GET",
+      headers: { accept: "application/json" },
+      body_text: "",
+    },
+    endpoint: {
+      id: "github-rest",
+      max_request_bytes: 1024,
+      max_response_bytes: 2048,
+      credential_audience: "api.github.com",
+    },
+    runtime: {
+      workspace_id: testUuid(502),
+      plugin_id: "com.example.signature",
+      package_id: testUuid(503),
+      application_id: testUuid(501),
+      activation_id: testUuid(504),
+      frame_generation: 1,
+      user_id: testUuid(417),
+      device_id: publicKeyMaterial.owner_id,
+      owner_scope_kind: "workspace",
+      consent_epoch: 1,
+      capability_grant_id: "capability-grant-one",
+      request_id: "request-one",
+      credential_handle_used: false,
+    },
+  };
+}
+
+function deleteNestedKey(value: StrictJsonValue, path: readonly string[]): StrictJsonValue {
+  if (path.length === 0) return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const [key, ...rest] = path;
+  const copy = { ...(value as Record<string, StrictJsonValue>) };
+  if (rest.length === 0) {
+    delete copy[key];
+  } else {
+    copy[key] = deleteNestedKey(copy[key], rest);
+  }
+  return copy;
+}
+
+function setNestedKey(
+  value: StrictJsonValue,
+  path: readonly string[],
+  nextValue: StrictJsonValue,
+): StrictJsonValue {
+  if (path.length === 0) return nextValue;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const [key, ...rest] = path;
+  const copy = { ...(value as Record<string, StrictJsonValue>) };
+  copy[key] = setNestedKey(copy[key], rest, nextValue);
+  return copy;
 }
 
 function checkpointPayloadFixture(
@@ -1512,9 +1871,13 @@ function documentOperationParamsFixture(
   } else {
     Object.assign(publicData, {
       clock: 0,
+      minDekVersion: 1,
       refSnapshotId: testUuid(424),
       timestamp: 1,
       updateHash: hash("update"),
+      writeSessionCounter: 1,
+      writeSessionEventHash: hash("write-session"),
+      writeSessionId: hash("write-session-id"),
     });
   }
 
@@ -1526,14 +1889,23 @@ function documentOperationParamsFixture(
     actorDeviceId: publicKeyMaterial.owner_id,
     signingKeyId,
     publicData,
-    authorityBoundary: {
-      admission_event_type: `${purpose}_accepted`,
-      admission_nonce: hash("nonce"),
-      document_permission_proof_hash: hash("permission"),
-      min_dek_version: 1,
-      previous_workspace_event_hash: hash("head"),
-      previous_workspace_event_sequence: 1,
-    },
+    authorityBoundary:
+      purpose === "document_update"
+        ? {
+            document_permission_proof_hash: hash("permission"),
+            min_dek_version: 1,
+            write_session_counter: 1,
+            write_session_event_hash: hash("write-session"),
+            write_session_id: hash("write-session-id"),
+          }
+        : {
+            admission_event_type: `${purpose}_accepted`,
+            admission_nonce: hash("nonce"),
+            document_permission_proof_hash: hash("permission"),
+            min_dek_version: 1,
+            previous_workspace_event_hash: hash("head"),
+            previous_workspace_event_sequence: 1,
+          },
     ciphertext: encodeBase64Url(deterministicBytes("document-operation-ciphertext", 48)),
     nonce: encodeBase64Url(deterministicBytes("document-operation-nonce", 24)),
   };

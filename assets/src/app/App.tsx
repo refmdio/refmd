@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { For, Show } from "solid-js";
+import { createEffect, For, Show } from "solid-js";
 import { PasswordReentryDialog } from "@/features/auth";
 import { PendingDeviceMonitor } from "@/features/devices";
 import { authState, clearSession, deviceState, tofuErrors } from "@/entities/session";
@@ -12,7 +12,86 @@ import { isPublicPath, useSessionBootstrap } from "@/app/bootstrap/session";
 import { AppRoutes } from "@/app/router/AppRoutes";
 import "@/app.css";
 
+type SessionValidationResult =
+  | { status: "active"; sessionId: string | null }
+  | { status: "unauthenticated" }
+  | { status: "unknown" };
+
+let pendingUserUnauthorizedValidation: Promise<void> | null = null;
+let lastActiveSessionValidation: { sessionId: string; at: number } | null = null;
+let observedSessionId: string | null = null;
+let lastSessionActivation: { sessionId: string; at: number } | null = null;
+
+async function fetchCurrentSessionState(): Promise<SessionValidationResult> {
+  try {
+    const response = await fetch("/api/auth/me", {
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return { status: "unauthenticated" };
+    }
+
+    if (!response.ok) return { status: "unknown" };
+
+    const body = (await response.json().catch(() => null)) as { session_id?: unknown } | null;
+    return {
+      status: "active",
+      sessionId: typeof body?.session_id === "string" ? body.session_id : null,
+    };
+  } catch {
+    return { status: "unknown" };
+  }
+}
+
+function validateUserUnauthorizedBeforeClearing(sessionIdAtUnauthorized: string): void {
+  if (
+    lastSessionActivation?.sessionId === sessionIdAtUnauthorized &&
+    Date.now() - lastSessionActivation.at < 60_000
+  ) {
+    return;
+  }
+  if (
+    lastActiveSessionValidation?.sessionId === sessionIdAtUnauthorized &&
+    Date.now() - lastActiveSessionValidation.at < 15_000
+  ) {
+    return;
+  }
+  if (pendingUserUnauthorizedValidation) return;
+
+  pendingUserUnauthorizedValidation = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    const result = await fetchCurrentSessionState();
+    const currentSessionId = authState()?.sessionId;
+
+    if (!currentSessionId || currentSessionId !== sessionIdAtUnauthorized) return;
+    if (result.status === "unknown") return;
+    if (result.status === "active") {
+      lastActiveSessionValidation = { sessionId: sessionIdAtUnauthorized, at: Date.now() };
+      return;
+    }
+
+    clearSession();
+    resetPhoenixSocketState();
+    queryClient.clear();
+  })().finally(() => {
+    pendingUserUnauthorizedValidation = null;
+  });
+}
+
 export default function App() {
+  createEffect(() => {
+    const sessionId = authState()?.sessionId ?? null;
+    if (sessionId && sessionId !== observedSessionId) {
+      lastSessionActivation = { sessionId, at: Date.now() };
+    }
+    observedSessionId = sessionId;
+  });
+
   initializeApiClient({
     getDeviceId: () => deviceState()?.deviceId ?? null,
     onUnauthorized: (scope) => {
@@ -21,10 +100,9 @@ export default function App() {
         return;
       }
 
-      if (!authState()) return;
-      clearSession();
-      resetPhoenixSocketState();
-      queryClient.clear();
+      const sessionId = authState()?.sessionId;
+      if (!sessionId) return;
+      validateUserUnauthorizedBeforeClearing(sessionId);
     },
   });
 

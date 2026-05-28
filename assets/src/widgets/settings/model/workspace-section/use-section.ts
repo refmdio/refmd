@@ -14,7 +14,12 @@ import {
 import { createWorkspaceKekRotationTrigger } from "@/features/devices";
 import { currentWorkspaceId } from "@/entities/workspace";
 
-export function useWorkspaceSection() {
+interface UseWorkspaceSectionOptions {
+  closePluginRuntimeByWorkspace?: (workspaceId: string, reason?: string) => void | Promise<void>;
+  releasePluginRuntimeWorkspaceRevocation?: (workspaceId: string) => void;
+}
+
+export function useWorkspaceSection(options: UseWorkspaceSectionOptions = {}) {
   const queryClient = useQueryClient();
   const wsId = () => currentWorkspaceId();
 
@@ -29,6 +34,8 @@ export function useWorkspaceSection() {
     setError,
     setInfo,
     triggerKekRotation,
+    closePluginRuntimeByWorkspace: options.closePluginRuntimeByWorkspace,
+    releasePluginRuntimeWorkspaceRevocation: options.releasePluginRuntimeWorkspaceRevocation,
   });
   const currentUserId = () => memberManagement.currentUserId();
   const dangerZone = useWorkspaceDangerZone({
@@ -36,6 +43,8 @@ export function useWorkspaceSection() {
     currentUserId,
     setError,
     triggerKekRotation,
+    closePluginRuntimeByWorkspace: options.closePluginRuntimeByWorkspace,
+    releasePluginRuntimeWorkspaceRevocation: options.releasePluginRuntimeWorkspaceRevocation,
   });
   const currentMember = () => {
     const fromList = memberManagement.members.data?.members?.find(

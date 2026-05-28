@@ -122,7 +122,11 @@ function blockFromProseMirror(node: ProseMirrorNode): BlockContent | null {
       return { type: "blockquote", children };
     }
     case "code_block":
-      return { type: "code", lang: null, value: node.textContent };
+      return {
+        type: "code",
+        lang: typeof node.attrs.language === "string" ? node.attrs.language : null,
+        value: node.textContent,
+      };
     case "horizontal_rule":
       return { type: "thematicBreak" };
     case "bullet_list": {

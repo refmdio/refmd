@@ -63,6 +63,9 @@ vi.mock("@/shared/lib/storage/idb", () => ({
       return true;
     },
   ),
+  idbGet: vi.fn(async () => undefined),
+  idbPut: vi.fn(async () => undefined),
+  idbDelete: vi.fn(async () => undefined),
 }));
 
 describe("TOFU trust store", () => {

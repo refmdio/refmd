@@ -1,5 +1,5 @@
 import { ItemView } from "@/shared/lib/workspace/view";
-import { renderPluginContent } from "@/shared/lib/plugin/render";
+import { renderTrustedBuiltinContent } from "@/features/plugin-runtime";
 import { DocumentTreePanel } from "@/widgets/sidebar";
 
 export class DocumentTreeView extends ItemView {
@@ -19,7 +19,7 @@ export class DocumentTreeView extends ItemView {
     this.contentEl.style.overflow = "hidden";
     this.contentEl.style.display = "flex";
     this.contentEl.style.flexDirection = "column";
-    this.dispose = renderPluginContent(() => DocumentTreePanel(), this.contentEl);
+    this.dispose = renderTrustedBuiltinContent(() => DocumentTreePanel(), this.contentEl);
   }
 
   async onClose(): Promise<void> {

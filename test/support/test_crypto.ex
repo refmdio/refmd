@@ -760,7 +760,7 @@ defmodule RefMD.TestCrypto do
     |> Plug.Conn.put_req_header("x-pop-signature-transport", signature)
   end
 
-  defp ensure_test_user_pop_key_directory!(user_id, device) do
+  def ensure_test_user_pop_key_directory!(user_id, device) do
     checkpoint =
       case RefMD.Encryption.current_user_key_directory_checkpoint(user_id) do
         nil -> insert_test_user_key_directory!(user_id, device).checkpoint
@@ -830,7 +830,7 @@ defmodule RefMD.TestCrypto do
       ciphertext,
       nonce,
       public_data,
-      test_document_authority_boundary(public_data, "document_update_accepted")
+      test_document_authority_boundary(public_data, "document_write_session_admitted")
     )
     |> JCS.canonical_bytes!()
     |> Encoding.encode_base64url()
@@ -1060,14 +1060,24 @@ defmodule RefMD.TestCrypto do
   end
 
   defp test_document_authority_boundary(public_data, event_type) do
-    %{
-      "previous_workspace_event_sequence" => public_data["keyCheckpointSequence"],
-      "previous_workspace_event_hash" => public_data["keyCheckpointHash"],
-      "admission_event_type" => event_type,
-      "admission_nonce" => public_data["keyCheckpointHash"],
-      "min_dek_version" => public_data["keyVersion"],
-      "document_permission_proof_hash" => public_data["keyCheckpointHash"]
-    }
+    if event_type == "document_write_session_admitted" do
+      %{
+        "write_session_event_hash" => public_data["writeSessionEventHash"],
+        "write_session_id" => public_data["writeSessionId"],
+        "write_session_counter" => public_data["writeSessionCounter"],
+        "min_dek_version" => public_data["minDekVersion"],
+        "document_permission_proof_hash" => public_data["keyCheckpointHash"]
+      }
+    else
+      %{
+        "previous_workspace_event_sequence" => public_data["keyCheckpointSequence"],
+        "previous_workspace_event_hash" => public_data["keyCheckpointHash"],
+        "admission_event_type" => event_type,
+        "admission_nonce" => public_data["keyCheckpointHash"],
+        "min_dek_version" => public_data["keyVersion"],
+        "document_permission_proof_hash" => public_data["keyCheckpointHash"]
+      }
+    end
   end
 
   @spec sign_genesis_device_bootstrap(map(), binary(), map(), binary(), map(), binary()) :: map()
@@ -3076,10 +3086,12 @@ defmodule RefMD.TestCrypto do
     device_id = Map.fetch!(params, :device_id)
     private_material = Map.fetch!(params, :private_material)
     event_type = Map.fetch!(params, :event_type)
-    operation_hash = Map.fetch!(params, :operation_hash)
 
     signature_hash =
       cond do
+        event_type == "document_write_session_admitted" ->
+          nil
+
         Map.has_key?(params, :signature) ->
           params
           |> Map.fetch!(:signature)
@@ -3121,29 +3133,20 @@ defmodule RefMD.TestCrypto do
         "event_type" => event_type,
         "actor" => actor,
         "previous_event_hash" => pin.event_head_hash,
-        "body" => %{
-          "actor_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(actor)),
-          "admission_nonce" => Encoding.encode_base64url(:crypto.strong_rand_bytes(32)),
-          "dek_version" => key_version,
-          "document_id" => document_id,
-          "document_permission_proof_hash" =>
-            document_permission_proof_hash(
-              workspace_id,
-              document_id,
-              "workspace_device",
-              workspace_id,
-              signing_key_id,
-              workspace_id,
-              1
-            ),
-          "event_type" => event_type,
-          "min_dek_version" => min_dek_version,
-          "operation_hash" => operation_hash,
-          "operation_signature_hash" => signature_hash,
-          "previous_workspace_event_hash" => pin.event_head_hash,
-          "previous_workspace_event_sequence" => pin.event_head_sequence,
-          "workspace_id" => workspace_id
-        }
+        "body" =>
+          document_operation_admission_body(%{
+            params: params,
+            event_type: event_type,
+            workspace_id: workspace_id,
+            document_id: document_id,
+            signing_key_id: signing_key_id,
+            actor_hash: Hash.blake3_base64url(JCS.canonical_bytes!(actor)),
+            key_version: key_version,
+            min_dek_version: min_dek_version,
+            previous_event_hash: pin.event_head_hash,
+            previous_event_sequence: pin.event_head_sequence,
+            signature_hash: signature_hash
+          })
       })
 
     checkpoint_payload =
@@ -3170,6 +3173,65 @@ defmodule RefMD.TestCrypto do
     }
   end
 
+  defp document_operation_admission_body(%{event_type: "document_write_session_admitted"} = input) do
+    %{
+      "actor_hash" => Map.fetch!(input, :actor_hash),
+      "authority_kind" => "workspace_device",
+      "authority_scope_id" => Map.fetch!(input, :workspace_id),
+      "document_id" => Map.fetch!(input, :document_id),
+      "document_permission_proof_hash" =>
+        document_permission_proof_hash(
+          Map.fetch!(input, :workspace_id),
+          Map.fetch!(input, :document_id),
+          "workspace_device",
+          Map.fetch!(input, :workspace_id),
+          Map.fetch!(input, :signing_key_id),
+          Map.fetch!(input, :workspace_id),
+          1
+        ),
+      "event_type" => "document_write_session_admitted",
+      "expires_at_ms" => Map.fetch!(input.params, :expires_at_ms),
+      "issued_at_ms" => Map.fetch!(input.params, :issued_at_ms),
+      "max_ciphertext_bytes" => Map.fetch!(input.params, :max_ciphertext_bytes),
+      "max_update_count" => Map.fetch!(input.params, :max_update_count),
+      "min_dek_version" => Map.fetch!(input, :min_dek_version),
+      "previous_workspace_event_hash" => Map.fetch!(input, :previous_event_hash),
+      "previous_workspace_event_sequence" => Map.fetch!(input, :previous_event_sequence),
+      "session_id" => Map.fetch!(input.params, :session_id),
+      "session_nonce" =>
+        Map.get_lazy(input.params, :session_nonce, fn ->
+          Encoding.encode_base64url(:crypto.strong_rand_bytes(32))
+        end),
+      "workspace_id" => Map.fetch!(input, :workspace_id)
+    }
+  end
+
+  defp document_operation_admission_body(input) do
+    %{
+      "actor_hash" => Map.fetch!(input, :actor_hash),
+      "admission_nonce" => Encoding.encode_base64url(:crypto.strong_rand_bytes(32)),
+      "dek_version" => Map.fetch!(input, :key_version),
+      "document_id" => Map.fetch!(input, :document_id),
+      "document_permission_proof_hash" =>
+        document_permission_proof_hash(
+          Map.fetch!(input, :workspace_id),
+          Map.fetch!(input, :document_id),
+          "workspace_device",
+          Map.fetch!(input, :workspace_id),
+          Map.fetch!(input, :signing_key_id),
+          Map.fetch!(input, :workspace_id),
+          1
+        ),
+      "event_type" => Map.fetch!(input, :event_type),
+      "min_dek_version" => Map.fetch!(input, :min_dek_version),
+      "operation_hash" => Map.fetch!(input.params, :operation_hash),
+      "operation_signature_hash" => Map.fetch!(input, :signature_hash),
+      "previous_workspace_event_hash" => Map.fetch!(input, :previous_event_hash),
+      "previous_workspace_event_sequence" => Map.fetch!(input, :previous_event_sequence),
+      "workspace_id" => Map.fetch!(input, :workspace_id)
+    }
+  end
+
   defp document_permission_proof_hash(
          workspace_id,
          document_id,
@@ -3193,6 +3255,89 @@ defmodule RefMD.TestCrypto do
     }
     |> JCS.canonical_bytes!()
     |> Hash.blake3_base64url()
+  end
+
+  def document_write_state_key_directory_append(
+        workspace_id,
+        actor_user_id,
+        actor_device_id,
+        actor_private_material,
+        changes,
+        reason
+      )
+      when is_list(changes) and is_binary(reason) do
+    pin = KeyDirectory.current_pin("workspace", workspace_id)
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+
+    signing_key_id =
+      Signature.compute_signing_key_id!(
+        hybrid_signing_public_key_material(actor_private_material)
+      )
+
+    actor =
+      device_actor(actor_user_id, actor_device_id, signing_key_id)
+      |> Map.merge(%{
+        "key_scope_kind" => "workspace",
+        "key_scope_id" => workspace_id,
+        "key_checkpoint_sequence" => checkpoint.sequence,
+        "key_checkpoint_hash" => checkpoint.checkpoint_hash
+      })
+
+    {events, _sequence, _previous_hash} =
+      Enum.reduce(changes, {[], pin.event_head_sequence + 1, pin.event_head_hash}, fn change,
+                                                                                      {events,
+                                                                                       sequence,
+                                                                                       previous_hash} ->
+        event =
+          key_directory_event(%{
+            "scope_kind" => "workspace",
+            "scope_id" => workspace_id,
+            "sequence" => sequence,
+            "event_type" => "document_write_state_changed",
+            "actor" => actor,
+            "previous_event_hash" => previous_hash,
+            "body" => %{
+              "document_id" => Map.fetch!(change, :document_id),
+              "event_type" => "document_write_state_changed",
+              "issued_at_ms" => System.system_time(:millisecond),
+              "previous_workspace_event_hash" => previous_hash,
+              "previous_workspace_event_sequence" => sequence - 1,
+              "previous_write_state" => Map.fetch!(change, :previous_write_state),
+              "reason" => reason,
+              "workspace_id" => workspace_id,
+              "write_state" => Map.fetch!(change, :write_state)
+            }
+          })
+
+        {[event | events], sequence + 1, KeyDirectory.event_hash(event)}
+      end)
+
+    events = Enum.reverse(events)
+    last_event = List.last(events)
+
+    checkpoint_payload =
+      key_directory_checkpoint_payload!(
+        checkpoint.payload
+        |> Map.put("sequence", checkpoint.sequence + 1)
+        |> Map.put(
+          "issued_at",
+          DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+        )
+        |> Map.put("previous_checkpoint_hash", checkpoint.checkpoint_hash)
+        |> Map.put("covered_event_head", event_head(last_event))
+      )
+
+    %{
+      "workspace_key_directory_events" =>
+        Enum.map(events, &signed_key_directory_event(&1, actor_private_material)),
+      "workspace_key_directory_checkpoint" =>
+        signed_key_directory_checkpoint(
+          checkpoint_payload,
+          "workspace_authorized",
+          actor_private_material,
+          actor_user_id
+        )
+    }
   end
 
   def kek_rotation_start_key_directory_append(

@@ -1,12 +1,90 @@
-import { EditorSelection as CMEditorSelection, type ChangeSpec } from "@codemirror/state";
-import { EditorView as CMEditorView } from "@codemirror/view";
+import {
+  EditorSelection as CMEditorSelection,
+  RangeSetBuilder,
+  StateEffect,
+  StateField,
+  type ChangeSpec,
+} from "@codemirror/state";
+import { Decoration, EditorView as CMEditorView, type DecorationSet } from "@codemirror/view";
 import type {
   EditorLike,
+  EditorPluginDecoration,
   EditorPosition,
   EditorRange,
   EditorSelection,
   EditorTransaction,
 } from "@/features/editor";
+
+interface PluginDecorationFieldState {
+  sources: Map<string, readonly EditorPluginDecoration[]>;
+  decorations: DecorationSet;
+}
+
+const setPluginDecorationsEffect = StateEffect.define<{
+  sourceId: string;
+  decorations: readonly EditorPluginDecoration[];
+}>();
+const clearPluginDecorationsEffect = StateEffect.define<string>();
+
+function pluginDecorationClass(decoration: EditorPluginDecoration): string {
+  return [
+    "refmd-plugin-editor-decoration",
+    `refmd-plugin-editor-decoration-${decoration.style}`,
+    `refmd-plugin-editor-decoration-${decoration.tone}`,
+  ].join(" ");
+}
+
+function buildPluginDecorations(
+  docLength: number,
+  sources: Map<string, readonly EditorPluginDecoration[]>,
+): DecorationSet {
+  const ranges = [...sources.values()]
+    .flat()
+    .map((decoration) => ({
+      ...decoration,
+      from: Math.max(0, Math.min(docLength, decoration.range.from)),
+      to: Math.max(0, Math.min(docLength, decoration.range.to)),
+    }))
+    .filter((decoration) => decoration.to > decoration.from)
+    .sort((a, b) => a.from - b.from || a.to - b.to || a.id.localeCompare(b.id));
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const decoration of ranges) {
+    builder.add(
+      decoration.from,
+      decoration.to,
+      Decoration.mark({ class: pluginDecorationClass(decoration) }),
+    );
+  }
+  return builder.finish();
+}
+
+const pluginDecorationsField = StateField.define<PluginDecorationFieldState>({
+  create(state) {
+    const sources = new Map<string, readonly EditorPluginDecoration[]>();
+    return { sources, decorations: buildPluginDecorations(state.doc.length, sources) };
+  },
+  update(value, tr) {
+    let sources = value.sources;
+    let changed = false;
+    for (const effect of tr.effects) {
+      if (effect.is(setPluginDecorationsEffect)) {
+        if (!changed) sources = new Map(sources);
+        sources.set(effect.value.sourceId, [...effect.value.decorations]);
+        changed = true;
+      } else if (effect.is(clearPluginDecorationsEffect)) {
+        if (!changed) sources = new Map(sources);
+        sources.delete(effect.value);
+        changed = true;
+      }
+    }
+    if (!changed && !tr.docChanged) return value;
+    if (tr.docChanged && !changed) sources = new Map();
+    return { sources, decorations: buildPluginDecorations(tr.state.doc.length, sources) };
+  },
+  provide: (field) => CMEditorView.decorations.from(field, (value) => value.decorations),
+});
+
+export const pluginEditorDecorationsExtension = [pluginDecorationsField];
 
 export class EditorApi implements EditorLike {
   readonly cm: CMEditorView;
@@ -174,5 +252,17 @@ export class EditorApi implements EditorLike {
   offsetToPos(offset: number): EditorPosition {
     const line = this.cm.state.doc.lineAt(offset);
     return { line: line.number - 1, ch: offset - line.from };
+  }
+
+  setPluginDecorations(sourceId: string, decorations: readonly EditorPluginDecoration[]): void {
+    this.cm.dispatch({
+      effects: setPluginDecorationsEffect.of({ sourceId, decorations }),
+    });
+  }
+
+  clearPluginDecorations(sourceId: string): void {
+    this.cm.dispatch({
+      effects: clearPluginDecorationsEffect.of(sourceId),
+    });
   }
 }

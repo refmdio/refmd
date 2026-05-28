@@ -10,6 +10,7 @@ import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/cryp
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   documentOperationAuthorityBoundary,
+  resolveDocumentOperationSigningKeyFromAdmission,
   verifyDocumentOperationAdmission,
   verifyDocumentOperationAdmissionAncestry,
 } from "@/shared/lib/document/document-operation-admission";
@@ -18,7 +19,11 @@ import type {
   RemoteSnapshotPayload,
   UpdatePayload,
 } from "@/shared/lib/ws/document-payloads";
-import { resolveSigningKey } from "./inbound-signing-keys";
+import {
+  lookupCachedSigningKey,
+  resolveSigningKey,
+  type ResolveSigningKeyResult,
+} from "./inbound-signing-keys";
 import type { DocumentState } from "../../model/document-state/types";
 import { detectDocumentRollback, persistDocumentRollbackPin } from "./inbound-rollback";
 import { isRecoverableSyncGapError } from "./error";
@@ -28,6 +33,7 @@ import { getDocumentCryptoWorker } from "./crypto-worker";
 import { rememberDocumentAdmissionCheckpoint } from "./outbound-admission";
 import { applyInitialPublicationState, queuePublicationAutoSync } from "./outbound-publication";
 import { setDocumentReadOnly } from "../../model/document-state/signals";
+import { recordSyncPerf } from "./perf";
 import {
   checkRotationSnapshot,
   createRollbackAttackError,
@@ -73,8 +79,7 @@ export async function handleDocumentMessage(
     const snap = payload.snapshot;
     throwIfDocumentProcessingCancelled(state);
 
-    // Step 3a: signingKeyId membership confirmation
-    const keyResult = await resolveSigningKey(snap.publicData.signingKeyId, state, {
+    const { keyResult, admissionAncestryVerified } = await resolveSnapshotSigningKey(snap, state, {
       includeHistorical: true,
     });
     if (keyResult.status === "key_changed") {
@@ -126,10 +131,12 @@ export async function handleDocumentMessage(
         actorUserId: keyResult.ownerId,
         expectedAdmissionEventHash: payload.snapshotAdmissionEventHash,
       });
-      await verifyDocumentOperationAdmissionAncestry({
-        admission: snap.admission,
-        workspaceId: state.workspaceId,
-      });
+      if (!admissionAncestryVerified) {
+        await verifyDocumentOperationAdmissionAncestry({
+          admission: snap.admission,
+          workspaceId: state.workspaceId,
+        });
+      }
     } catch (err) {
       throw createVerificationFailedError(
         err instanceof Error ? err.message : "Snapshot admission verification failed",
@@ -211,6 +218,7 @@ export async function handleDocumentMessage(
   const prevActiveSnapshotId = state.activeSnapshotId;
   const prevKnownClocks = { ...state.knownClocks };
   const prevConfirmedClocks = { ...state.confirmedClocks };
+  const prevWriteSessionCounters = { ...state.writeSessionCounters };
   const prevSnapshotBaseClocks = { ...state.snapshotBaseClocks };
 
   if (snapshotMeta) {
@@ -237,6 +245,7 @@ export async function handleDocumentMessage(
     state.activeSnapshotId = prevActiveSnapshotId;
     state.knownClocks = prevKnownClocks;
     state.confirmedClocks = prevConfirmedClocks;
+    state.writeSessionCounters = prevWriteSessionCounters;
     state.snapshotBaseClocks = prevSnapshotBaseClocks;
     throw err;
   }
@@ -250,6 +259,7 @@ export async function handleDocumentMessage(
     state.activeSnapshotId = prevActiveSnapshotId;
     state.knownClocks = prevKnownClocks;
     state.confirmedClocks = prevConfirmedClocks;
+    state.writeSessionCounters = prevWriteSessionCounters;
     state.snapshotBaseClocks = prevSnapshotBaseClocks;
     throw createRollbackAttackError("Version regression detected");
   }
@@ -335,6 +345,12 @@ export async function handleRemoteUpdate(
   documentId: string,
   localDeviceSigningKeyId?: string,
 ): Promise<void> {
+  const receivedAt = performance.now();
+  recordSyncPerf("remote_update_received", {
+    documentId,
+    updateHash: payload.publicData.updateHash,
+    version: payload.version,
+  });
   if (!state.initialized) {
     state._pendingRemoteEvents.push({ type: "update", payload });
     return;
@@ -357,6 +373,11 @@ export async function handleRemoteUpdate(
     throw err;
   }
   if (!result) return; // stale/duplicate
+  recordSyncPerf("remote_update_verified", {
+    documentId,
+    updateHash: payload.publicData.updateHash,
+    elapsedMs: performance.now() - receivedAt,
+  });
 
   state._applyingRemote = true;
   try {
@@ -364,6 +385,11 @@ export async function handleRemoteUpdate(
   } finally {
     state._applyingRemote = false;
   }
+  recordSyncPerf("remote_update_applied", {
+    documentId,
+    updateHash: payload.publicData.updateHash,
+    elapsedMs: performance.now() - receivedAt,
+  });
 
   // Update clocks
   state.knownClocks[result.deviceKey] = result.clock;
@@ -498,8 +524,7 @@ export async function handleRemoteSnapshot(
     return;
   }
 
-  // Resolve and verify signing key membership + TOFU
-  const keyResult = await resolveSigningKey(snap.publicData.signingKeyId, state);
+  const { keyResult, admissionAncestryVerified } = await resolveSnapshotSigningKey(snap, state);
   if (keyResult.status === "key_changed") {
     throw createVerificationFailedError(`TOFU key change: device ${keyResult.warning.deviceId}`);
   }
@@ -564,10 +589,12 @@ export async function handleRemoteSnapshot(
       actorUserId: keyResult.ownerId,
       expectedAdmissionEventHash: payload.snapshotAdmissionEventHash,
     });
-    await verifyDocumentOperationAdmissionAncestry({
-      admission: snap.admission,
-      workspaceId: state.workspaceId,
-    });
+    if (!admissionAncestryVerified) {
+      await verifyDocumentOperationAdmissionAncestry({
+        admission: snap.admission,
+        workspaceId: state.workspaceId,
+      });
+    }
   } catch (err) {
     throw createVerificationFailedError(
       err instanceof Error ? err.message : "Remote snapshot admission verification failed",
@@ -623,6 +650,53 @@ export async function handleRemoteSnapshot(
   // Persist anti-rollback pin
   persistDocumentRollbackPin(documentId, state);
   rememberDocumentAdmissionCheckpoint(state, payload.snapshot);
+}
+
+async function resolveSnapshotSigningKey(
+  snap: NonNullable<DocumentPayload["snapshot"]>,
+  state: DocumentState,
+  options: { includeHistorical?: boolean } = {},
+): Promise<{ keyResult: ResolveSigningKeyResult; admissionAncestryVerified: boolean }> {
+  let admissionAncestryVerified = false;
+  let keyResult: ResolveSigningKeyResult = lookupCachedSigningKey(
+    snap.publicData.signingKeyId,
+    state,
+    options,
+  ) ?? { status: "not_found" };
+
+  if (keyResult.status === "not_found") {
+    try {
+      await verifyDocumentOperationAdmissionAncestry({
+        admission: snap.admission,
+        workspaceId: state.workspaceId,
+      });
+      admissionAncestryVerified = true;
+      const admittedKey = resolveDocumentOperationSigningKeyFromAdmission({
+        admission: snap.admission,
+        eventType: "document_snapshot_accepted",
+        publicData: snap.publicData,
+      });
+      if (admittedKey) {
+        state.signingKeys.set(snap.publicData.signingKeyId, admittedKey.key);
+        state.signingKeyOwners.set(snap.publicData.signingKeyId, admittedKey.actorUserId);
+        keyResult = {
+          status: "found",
+          key: admittedKey.key,
+          ownerId: admittedKey.actorUserId,
+        };
+      }
+    } catch (err) {
+      throw createVerificationFailedError(
+        err instanceof Error ? err.message : "Snapshot admission verification failed",
+      );
+    }
+  }
+
+  if (keyResult.status === "not_found") {
+    keyResult = await resolveSigningKey(snap.publicData.signingKeyId, state, options);
+  }
+
+  return { keyResult, admissionAncestryVerified };
 }
 
 async function computeReceivedSnapshotProof(

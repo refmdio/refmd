@@ -3,6 +3,7 @@ defmodule RefMDWeb.UmkController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Devices
+  alias RefMD.Security
   alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Schemas
 
@@ -102,7 +103,7 @@ defmodule RefMDWeb.UmkController do
     end
     |> case do
       {:ok, _} ->
-        Devices.broadcast_registration_approved(user_id, target_device_id)
+        Security.record_registration_approved(user_id, target_device_id)
         conn |> put_status(:created) |> json(%{ok: true})
 
       {:error, %Ecto.Changeset{} = changeset} when changeset.errors != [] ->

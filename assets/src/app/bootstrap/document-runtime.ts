@@ -63,8 +63,8 @@ export function initializeDocumentRuntime(
       return;
     }
 
+    documentWorkspace.openDocument({ id: documentId });
     documentNavigation.openDocument(documentId);
-    if (sameRoute) documentWorkspace.openDocument({ id: documentId });
   });
   documentRuntime.setCreateDocumentFn(async (wsId, title, parentId) => {
     return createDocumentWithOfflineFallback(createDocumentOffline, wsId, title, parentId);

@@ -270,6 +270,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         },
         required: [:kind, :email_hash]
       },
+      issued_at_ms: %Schema{type: :integer, minimum: 1},
       key_id: @hash_schema,
       key_checkpoint_hash: @hash_schema,
       key_checkpoint_sequence: %Schema{type: :integer, minimum: 1},
@@ -303,6 +304,10 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       previous_workspace_event_sequence: %Schema{type: :integer, minimum: 1},
       previous_share_key_version: %Schema{type: :integer, minimum: 1},
       previous_share_scope_event_hash: @hash_schema,
+      previous_write_state: %Schema{
+        type: :string,
+        enum: ["writable", "read_only", "archived", "write_disabled"]
+      },
       principal_id: %Schema{type: :string},
       purpose: %Schema{type: :string},
       reason: %Schema{type: :string},
@@ -363,6 +368,10 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       user_id: %Schema{type: :string},
       updated_at_event_sequence: %Schema{type: :integer, minimum: 1},
       workspace_id: %Schema{type: :string},
+      write_state: %Schema{
+        type: :string,
+        enum: ["writable", "read_only", "archived", "write_disabled"]
+      },
       wrap_body_hash: @hash_schema,
       wrap_protocol: %Schema{type: :string},
       wrap_suite_id: %Schema{type: :string},
@@ -577,6 +586,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :guest_user_id,
         :invitation_id,
         :invitee_binding,
+        :issued_at_ms,
         :kek_version,
         :key_id,
         :key_material_hash,
@@ -603,6 +613,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :previous_share_scope_event_hash,
         :previous_workspace_event_hash,
         :previous_workspace_event_sequence,
+        :previous_write_state,
         :purpose,
         :reason,
         :recipient,
@@ -641,6 +652,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :updated_at_event_sequence,
         :user_id,
         :workspace_id,
+        :write_state,
         :wrap_body_hash,
         :wrap_protocol,
         :wrap_suite_id,
@@ -1004,6 +1016,17 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "previous_workspace_event_hash",
         "previous_workspace_event_sequence",
         "workspace_id"
+      ]),
+      event_schema.("document_write_state_changed", [
+        "document_id",
+        "event_type",
+        "issued_at_ms",
+        "previous_workspace_event_hash",
+        "previous_workspace_event_sequence",
+        "previous_write_state",
+        "reason",
+        "workspace_id",
+        "write_state"
       ])
     ]
   }

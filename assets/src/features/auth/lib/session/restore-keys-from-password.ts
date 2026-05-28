@@ -11,6 +11,9 @@ import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { getCryptoWorker, isTofuHardFail } from "@/shared/lib/crypto/worker/client";
 import { persistCurrentKeysWithDsk } from "@/shared/lib/auth/key-persistence";
 
+const LOCAL_DEVICE_KEYS_UNAVAILABLE =
+  "Local device keys are unavailable. Return to login and register this device again.";
+
 export async function restoreKeysFromPassword(password: string): Promise<void> {
   const auth = authState();
   if (!auth) throw new Error("No session");
@@ -22,19 +25,31 @@ export async function restoreKeysFromPassword(password: string): Promise<void> {
     const device = deviceState();
     const resolvedDeviceId = device?.deviceId ?? meRes.device_id ?? "";
     const hadDsk = await worker.hasStoredDsk();
-    const deviceSigningKeyId = device?.deviceSigningKeyId ?? undefined;
+    const cachedBootstrap = hadDsk ? await worker.loadAuthBootstrap().catch(() => null) : null;
+    const cachedDeviceSigningKeyId =
+      cachedBootstrap?.userId === auth.user.id && cachedBootstrap.deviceId === resolvedDeviceId
+        ? cachedBootstrap.deviceSigningKeyId
+        : undefined;
+    const deviceSigningKeyId = device?.deviceSigningKeyId ?? cachedDeviceSigningKeyId;
 
-    await worker.initFromPassword({
-      password,
-      salt: base64UrlDecode(saltRes.salt),
-      kdfParams: saltRes.kdf_params,
-      dsk: null,
-      useStoredDsk: Boolean(deviceSigningKeyId),
-      userId: auth.user.id,
-      deviceId: resolvedDeviceId,
-      ...(deviceSigningKeyId ? { deviceSigningKeyId } : {}),
-      keyRestoreEndpointRef: meRes.key_restore_endpoint_ref ?? null,
-    });
+    try {
+      await worker.initFromPassword({
+        password,
+        salt: base64UrlDecode(saltRes.salt),
+        kdfParams: saltRes.kdf_params,
+        dsk: null,
+        useStoredDsk: Boolean(deviceSigningKeyId),
+        userId: auth.user.id,
+        deviceId: resolvedDeviceId,
+        ...(deviceSigningKeyId ? { deviceSigningKeyId } : {}),
+        keyRestoreEndpointRef: meRes.key_restore_endpoint_ref ?? null,
+      });
+    } catch (error) {
+      if (isLocalDeviceKeyRestoreError(error)) {
+        throw new Error(LOCAL_DEVICE_KEYS_UNAVAILABLE);
+      }
+      throw error;
+    }
 
     if (hadDsk) {
       await persistRestoredKeysWithDsk(auth.user.id, !!meRes.remember_me);
@@ -42,7 +57,7 @@ export async function restoreKeysFromPassword(password: string): Promise<void> {
 
     const finalReady = await worker.isReady();
     if (!finalReady) {
-      throw new Error("Key restoration failed. Please try again.");
+      throw new Error(LOCAL_DEVICE_KEYS_UNAVAILABLE);
     }
 
     const publicKeys = await worker.getPublicKeys();
@@ -62,6 +77,8 @@ export async function restoreKeysFromPassword(password: string): Promise<void> {
       {
         deviceId: resolvedDeviceId,
         deviceSigningKeyId: publicKeys.deviceSigningKeyId ?? null,
+        deviceKeyCheckpointSequence: meRes.device_key_checkpoint_sequence ?? null,
+        deviceKeyCheckpointHash: meRes.device_key_checkpoint_hash ?? null,
         deviceHybridSigningPublicKeyMaterial,
         deviceEcdhPublic: publicKeys.deviceEcdhPublic ?? null,
       },
@@ -79,6 +96,11 @@ export async function restoreKeysFromPassword(password: string): Promise<void> {
   } finally {
     await worker.clearTransientKeys().catch(() => undefined);
   }
+}
+
+function isLocalDeviceKeyRestoreError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.startsWith("device_") || error.message === "dsk_not_available";
 }
 
 async function persistRestoredKeysWithDsk(userId: string, rememberMe: boolean): Promise<void> {

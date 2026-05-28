@@ -408,7 +408,7 @@ function setGuestSession(
   persistDeviceId(response.guest_device_id, response.guest_user_id);
   setFullSession(
     {
-      user: { id: me.user_id, email: me.email, name: me.name, accountType: me.account_type },
+      user: { id: me.user_id, email: me.email, name: me.name, accountType: "guest" },
       sessionId: me.session_id,
       identityHybridSigningPublicKeyMaterial:
         material.publicKeys.identityHybridSigningPublicKeyMaterial,
@@ -418,6 +418,8 @@ function setGuestSession(
     {
       deviceId: response.guest_device_id,
       deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
+      deviceKeyCheckpointSequence: me.device_key_checkpoint_sequence ?? null,
+      deviceKeyCheckpointHash: me.device_key_checkpoint_hash ?? null,
       deviceHybridSigningPublicKeyMaterial:
         material.publicKeys.deviceHybridSigningPublicKeyMaterial,
       deviceEcdhPublic: base64UrlDecode(material.publicKeys.deviceEcdhPublic),

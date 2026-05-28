@@ -1,4 +1,4 @@
-import { createSignal, Show, type ParentProps } from "solid-js";
+import { createSignal, For, onCleanup, Show, type ParentProps } from "solid-js";
 import {
   PencilIcon,
   MoveIcon,
@@ -22,6 +22,15 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
+import {
+  getDefaultPluginUiContributionRegistry,
+  pluginUiCommandId,
+  pluginUiCommandResourcePayload,
+  pluginUiEntryCommandEnabled,
+  type PluginUiRegistryEntry,
+  type PluginUiResourceContext,
+} from "@/features/plugin-runtime";
+import { workspaceManager } from "@/features/panel";
 
 interface DocumentContextMenuProps {
   targetDoc: DocumentResponse | null;
@@ -43,6 +52,10 @@ interface DocumentContextMenuProps {
 }
 
 export function DocumentContextMenu(props: ParentProps<DocumentContextMenuProps>) {
+  const [registryVersion, setRegistryVersion] = createSignal(0);
+  const uiRegistry = getDefaultPluginUiContributionRegistry();
+  const unsubscribe = uiRegistry.subscribe(() => setRegistryVersion((value) => value + 1));
+  onCleanup(unsubscribe);
   const [renameOpen, setRenameOpen] = createSignal(false);
   const [moveOpen, setMoveOpen] = createSignal(false);
   const [deleteOpen, setDeleteOpen] = createSignal(false);
@@ -52,12 +65,43 @@ export function DocumentContextMenu(props: ParentProps<DocumentContextMenuProps>
   const workspace = useWorkspaceQuery(currentWorkspaceId);
 
   const doc = () => props.targetDoc;
+  const resourceContext = (entry: PluginUiRegistryEntry): PluginUiResourceContext => ({
+    resourceKind: doc()?.doc_type === "folder" ? "folder" : doc() ? "document" : "workspace",
+    workspaceId: doc()?.workspace_id ?? currentWorkspaceId() ?? undefined,
+    documentId: doc()?.doc_type === "document" ? doc()?.id : undefined,
+    folderId: doc()?.doc_type === "folder" ? doc()?.id : undefined,
+    documentOpen: doc()?.doc_type === "document",
+    selectionPresent: false,
+    capabilities: entry.capabilities,
+  });
   const isArchived = () => doc()?.archived_at != null;
   const canShare = () => props.canManageShares && workspace.data?.share_links_enabled === true;
   const canPublish = () =>
     props.canPublishPublic &&
     doc()?.doc_type === "document" &&
     workspace.data?.public_publishing_enabled === true;
+  const pluginMenuItems = () => {
+    registryVersion();
+    return uiRegistry
+      .list("menu_item")
+      .filter(
+        (entry) =>
+          entry.contribution.surface === "menu_item" &&
+          entry.contribution.placement === "document_tree_context_menu" &&
+          pluginUiEntryCommandEnabled(entry, resourceContext(entry), uiRegistry),
+      );
+  };
+  const pluginDocumentTreeActions = () => {
+    registryVersion();
+    return uiRegistry
+      .list("document_tree_action")
+      .filter(
+        (entry) =>
+          entry.contribution.surface === "document_tree_action" &&
+          entry.contribution.placement === "row_context_menu" &&
+          pluginUiEntryCommandEnabled(entry, resourceContext(entry), uiRegistry),
+      );
+  };
 
   const openRename = () => {
     setDialogDoc(doc());
@@ -160,6 +204,30 @@ export function DocumentContextMenu(props: ParentProps<DocumentContextMenuProps>
                 Unarchive
               </ContextMenuItem>
             </Show>
+            <For each={pluginMenuItems()}>
+              {(entry) => (
+                <ContextMenuItem
+                  onSelect={() => {
+                    runPluginMenuCommand(entry, resourceContext(entry), uiRegistry);
+                    props.onClose();
+                  }}
+                >
+                  {pluginMenuTitle(entry)}
+                </ContextMenuItem>
+              )}
+            </For>
+            <For each={pluginDocumentTreeActions()}>
+              {(entry) => (
+                <ContextMenuItem
+                  onSelect={() => {
+                    runPluginDocumentTreeAction(entry, resourceContext(entry), uiRegistry);
+                    props.onClose();
+                  }}
+                >
+                  {pluginDocumentTreeActionTitle(entry)}
+                </ContextMenuItem>
+              )}
+            </For>
             <ContextMenuSeparator />
             <ContextMenuItem variant="destructive" onSelect={openDelete}>
               <TrashIcon class="size-3.5" />
@@ -211,4 +279,48 @@ export function DocumentContextMenu(props: ParentProps<DocumentContextMenuProps>
       </Show>
     </>
   );
+}
+
+function pluginMenuTitle(entry: PluginUiRegistryEntry): string {
+  const contribution = entry.contribution;
+  return contribution.surface === "menu_item" ? contribution.title : "";
+}
+
+function pluginDocumentTreeActionTitle(entry: PluginUiRegistryEntry): string {
+  const contribution = entry.contribution;
+  return contribution.surface === "document_tree_action"
+    ? (contribution.icon ?? contribution.title)
+    : "";
+}
+
+function runPluginMenuCommand(
+  entry: PluginUiRegistryEntry,
+  context: PluginUiResourceContext,
+  registry: ReturnType<typeof getDefaultPluginUiContributionRegistry>,
+): void {
+  const contribution = entry.contribution;
+  if (contribution.surface !== "menu_item") return;
+  const payload = pluginUiCommandResourcePayload(entry, context, registry);
+  if (!payload) return;
+  const commandId = pluginUiCommandId(entry, contribution.command_ref);
+  workspaceManager
+    .listCommands()
+    .find((command) => command.id === commandId)
+    ?.callback?.(payload);
+}
+
+function runPluginDocumentTreeAction(
+  entry: PluginUiRegistryEntry,
+  context: PluginUiResourceContext,
+  registry: ReturnType<typeof getDefaultPluginUiContributionRegistry>,
+): void {
+  const contribution = entry.contribution;
+  if (contribution.surface !== "document_tree_action") return;
+  const payload = pluginUiCommandResourcePayload(entry, context, registry);
+  if (!payload) return;
+  const commandId = pluginUiCommandId(entry, contribution.command_ref);
+  workspaceManager
+    .listCommands()
+    .find((command) => command.id === commandId)
+    ?.callback?.(payload);
 }

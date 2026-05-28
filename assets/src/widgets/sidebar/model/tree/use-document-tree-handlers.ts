@@ -1,6 +1,6 @@
 import type { Accessor } from "solid-js";
 import { useDocumentTreeHandlers } from "@/features/document";
-import { closeDocumentPanels, usePanelWorkspace } from "@/features/panel";
+import { closeWorkspaceTiles, usePanelWorkspace } from "@/features/panel";
 import type { ShareMount } from "@/entities/mount";
 import { useSidebarTreeDrag } from "./use-tree-drag";
 
@@ -17,7 +17,7 @@ export function useSidebarDocumentTreeHandlers(options: SidebarDocumentTreeHandl
   const handlers = useDocumentTreeHandlers({
     ...options,
     onAddToTile: (doc) => workspace.addToTile({ id: doc.id, title: options.getTitle(doc) }),
-    onDeleteSuccess: (documentId) => closeDocumentPanels(workspace, documentId),
+    onDeleteSuccess: (documentId) => closeWorkspaceTiles(workspace, documentId),
   });
   const drag = useSidebarTreeDrag({
     workspaceId: options.workspaceId,

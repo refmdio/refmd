@@ -5,7 +5,7 @@ defmodule RefMD.Workspaces.Members do
 
   import Ecto.Query
 
-  alias RefMD.Encryption
+  alias RefMD.{Devices, Encryption}
   alias RefMD.Repo
 
   alias RefMD.Workspaces.{
@@ -98,9 +98,9 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.all()
   end
 
-  @spec change_member_role(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec change_member_role(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, WorkspaceMember.t()} | {:error, atom()}
-  def change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id) do
+  def change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id, key_directory) do
     Repo.transaction(fn ->
       owner_rows = lock_owner_rows(workspace_id)
 
@@ -119,6 +119,14 @@ defmodule RefMD.Workspaces.Members do
 
       with :ok <- check_rbac_permission(ctx.actor_role, "member:change_role"),
            :ok <- validate_role_change(ctx, workspace_id) do
+        append_member_role_change_key_directory!(
+          workspace_id,
+          target_user_id,
+          ctx.target_role,
+          ctx.new_role,
+          key_directory
+        )
+
         do_change_role(workspace_id, target_user_id, new_role_id)
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -339,6 +347,62 @@ defmodule RefMD.Workspaces.Members do
 
   defp count_owners(owner_user_ids), do: length(owner_user_ids)
 
+  defp append_member_role_change_key_directory!(
+         workspace_id,
+         target_user_id,
+         previous_role,
+         new_role,
+         %{
+           workspace_events: workspace_events,
+           workspace_checkpoint: workspace_checkpoint
+         }
+       )
+       when is_list(workspace_events) and is_map(workspace_checkpoint) do
+    assert_member_role_change_append!(
+      workspace_events,
+      workspace_id,
+      target_user_id,
+      previous_role,
+      new_role
+    )
+
+    Encryption.append_workspace_key_directory!(
+      workspace_id,
+      workspace_events,
+      workspace_checkpoint,
+      checkpoint_signer_kind: "device"
+    )
+  rescue
+    _ -> Repo.rollback(:invalid_key_directory)
+  end
+
+  defp append_member_role_change_key_directory!(_, _, _, _, _),
+    do: Repo.rollback(:missing_key_directory)
+
+  defp assert_member_role_change_append!(
+         [%{"payload" => %{"event_type" => "member_role_changed", "body" => body}}],
+         workspace_id,
+         target_user_id,
+         previous_role,
+         new_role
+       ) do
+    expected = %{
+      "workspace_id" => workspace_id,
+      "user_id" => target_user_id,
+      "previous_role_id" => previous_role.id,
+      "previous_base_role" => previous_role.base_role,
+      "role_id" => new_role.id,
+      "base_role" => new_role.base_role
+    }
+
+    unless Map.take(body, Map.keys(expected)) == expected do
+      raise ArgumentError, "key_directory_member_role_changed_event_mismatch"
+    end
+  end
+
+  defp assert_member_role_change_append!(_, _, _, _, _),
+    do: raise(ArgumentError, "key_directory_member_role_changed_event_mismatch")
+
   defp append_member_removal_key_directory!(
          workspace_id,
          target_user_id,
@@ -349,6 +413,7 @@ defmodule RefMD.Workspaces.Members do
        )
        when is_list(workspace_events) and is_map(workspace_checkpoint) do
     assert_member_removal_append!(workspace_events, workspace_id, target_user_id)
+    assert_member_removal_revocations!(workspace_events, workspace_id, target_user_id)
 
     Encryption.append_workspace_key_directory!(
       workspace_id,
@@ -396,6 +461,59 @@ defmodule RefMD.Workspaces.Members do
 
   defp assert_member_removal_append!(_, _, _),
     do: raise(ArgumentError, "key_directory_member_removed_event_mismatch")
+
+  defp assert_member_removal_revocations!(
+         [
+           %{"payload" => %{"event_type" => "member_removed"}} | revocation_events
+         ],
+         workspace_id,
+         target_user_id
+       ) do
+    actual =
+      revocation_events
+      |> Enum.map(fn %{"payload" => %{"event_type" => type, "body" => body}} ->
+        {type, body["key_id"]}
+      end)
+      |> Enum.sort()
+
+    expected =
+      target_user_id
+      |> Devices.get_user_devices(include_revoked: false)
+      |> Enum.filter(&workspace_checkpoint_device_keys_present?(workspace_id, &1))
+      |> Enum.flat_map(fn device ->
+        [
+          {"signing_key_revoked", device.signing_key_id},
+          {"encryption_key_revoked", device.encryption_key_id}
+        ]
+      end)
+      |> Enum.sort()
+
+    if actual == expected do
+      :ok
+    else
+      raise ArgumentError, "key_directory_member_key_revocation_mismatch"
+    end
+  end
+
+  defp assert_member_removal_revocations!(_, _, _),
+    do: raise(ArgumentError, "key_directory_member_key_revocation_mismatch")
+
+  defp workspace_checkpoint_device_keys_present?(workspace_id, device) do
+    match?(
+      {:ok, _},
+      Encryption.active_workspace_key_material_in_current_checkpoint(
+        workspace_id,
+        device.signing_key_id
+      )
+    ) and
+      match?(
+        {:ok, _},
+        Encryption.active_workspace_key_material_in_current_checkpoint(
+          workspace_id,
+          device.encryption_key_id
+        )
+      )
+  end
 
   defp do_change_role(workspace_id, user_id, new_role_id) do
     {1, _} =

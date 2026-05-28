@@ -14,6 +14,7 @@ interface PasswordPromptFormProps {
   fieldId: string;
   onInput: (value: string) => void;
   onSubmit: (event: Event) => Promise<void>;
+  onCancel: () => void;
 }
 
 export function PasswordPromptForm(props: PasswordPromptFormProps) {
@@ -49,6 +50,15 @@ export function PasswordPromptForm(props: PasswordPromptFormProps) {
         ) : (
           "Continue"
         )}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        class="w-full"
+        disabled={props.loading()}
+        onClick={props.onCancel}
+      >
+        Back to Login
       </Button>
     </form>
   );
