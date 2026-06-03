@@ -363,16 +363,17 @@ async function determineAuthState(
 
   try {
     const res = await fetchMe()
+    const setCookies = extractSetCookieHeaders(res)
     if (res.ok) {
       const user = (await res.json()) as AuthMiddlewareContext['user']
-      return { authenticated: true, user, hasRefreshToken, setCookies: [], resolved: true }
+      return { authenticated: true, user, hasRefreshToken, setCookies, resolved: true }
     }
     if (res.status !== 401) {
       return {
         authenticated: false,
         user: null,
         hasRefreshToken,
-        setCookies: [],
+        setCookies,
         resolved: hasRefreshToken ? false : true,
       }
     }
