@@ -71,6 +71,7 @@ pub struct RedisRealtimeConfig {
     pub min_message_lifetime_ms: u64,
     pub awareness_ttl_ms: u64,
     pub snapshot_archive_interval_secs: u64,
+    pub snapshot_keep_versions: i64,
     pub spawn_persistence_worker: bool,
 }
 
@@ -112,6 +113,7 @@ impl RedisRealtimeEngine {
             tagging_repo,
             archive_repo,
             storage_jobs,
+            Some(cfg.snapshot_keep_versions),
         ));
         let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
         let last_auto_archive: Arc<Mutex<HashMap<String, Instant>>> =

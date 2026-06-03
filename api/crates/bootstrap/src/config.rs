@@ -235,7 +235,7 @@ impl Config {
             .unwrap_or(300);
         let snapshot_keep_versions = env_var(&["SNAPSHOT_KEEP_VERSIONS"])
             .and_then(|s| s.parse().ok())
-            .unwrap_or(5);
+            .unwrap_or(50);
         let updates_keep_window = env_var(&["UPDATES_KEEP_WINDOW"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(500);

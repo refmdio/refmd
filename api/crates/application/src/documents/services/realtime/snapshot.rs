@@ -29,6 +29,7 @@ pub struct SnapshotService {
     tagging_repo: Arc<dyn TaggingRepository>,
     archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
+    default_prune_snapshots: Option<i64>,
 }
 
 #[derive(Default)]
@@ -109,6 +110,7 @@ impl SnapshotService {
         tagging_repo: Arc<dyn TaggingRepository>,
         archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,
+        default_prune_snapshots: Option<i64>,
     ) -> Self {
         Self {
             state_reader,
@@ -117,6 +119,7 @@ impl SnapshotService {
             tagging_repo,
             archive_repo,
             storage_jobs,
+            default_prune_snapshots,
         }
     }
 
@@ -127,6 +130,10 @@ impl SnapshotService {
         options: SnapshotPersistOptions,
     ) -> anyhow::Result<SnapshotPersistResult> {
         let snapshot_bin = encode_doc_snapshot(doc);
+        let prune_snapshots = options
+            .prune_snapshots
+            .or(self.default_prune_snapshots)
+            .filter(|keep| *keep > 0);
         let (current_version, previous_snapshot) = if options.skip_if_unchanged {
             match self.persistence.latest_snapshot_entry(doc_id).await? {
                 Some(SnapshotEntry { version, bytes }) => (version, Some(bytes)),
@@ -149,7 +156,7 @@ impl SnapshotService {
             if options.clear_updates {
                 self.persistence.clear_updates(doc_id).await?;
             }
-            if let Some(keep) = options.prune_snapshots {
+            if let Some(keep) = prune_snapshots {
                 self.persistence.prune_snapshots(doc_id, keep).await?;
             }
             if let Some(cutoff) = options.prune_updates_before {
@@ -170,7 +177,7 @@ impl SnapshotService {
         if options.clear_updates {
             self.persistence.clear_updates(doc_id).await?;
         }
-        if let Some(keep) = options.prune_snapshots {
+        if let Some(keep) = prune_snapshots {
             self.persistence.prune_snapshots(doc_id, keep).await?;
         }
         if let Some(cutoff) = options.prune_updates_before {
