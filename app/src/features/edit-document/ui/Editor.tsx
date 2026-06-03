@@ -16,6 +16,7 @@ import type { ViewMode } from '@/shared/types/view-mode'
 import { listDocuments } from '@/entities/document'
 
 import { useAwarenessStyles } from '@/features/edit-document/hooks/useAwarenessStyles'
+import { markDocumentContentDirty } from '@/features/edit-document/hooks/useCollaborativeDocument'
 import { useEditorUploads } from '@/features/edit-document/hooks/useEditorUploads'
 import { useMarkdownCommands, type MarkdownCommand } from '@/features/edit-document/hooks/useMarkdownCommands'
 import { useMonacoBinding } from '@/features/edit-document/hooks/useMonacoBinding'
@@ -316,6 +317,24 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     onMonacoMount(editor, monaco)
     ;(editor as any).__monaco = monaco
     setReadOnlyOverlay(editor as any, monaco as any, readOnly)
+    let userEditIntent = false
+    const markDirtyFromModel = () => {
+      if (readOnly) return
+      const value = editor.getModel()?.getValue()
+      if (typeof value === 'string') {
+        markDocumentContentDirty(documentId, value)
+      }
+    }
+    ;(editor as any).__refmdMarkDirty = markDirtyFromModel
+    try {
+      const modelChangeDispose = editor.onDidChangeModelContent(() => {
+        if (!userEditIntent) return
+        window.setTimeout(markDirtyFromModel, 0)
+      })
+      ;(editor as any).__disposeDirtyTracker = () => safeExecute('dispose dirty tracker', () => modelChangeDispose.dispose())
+    } catch (error) {
+      logEditorError('register dirty tracker', error)
+    }
     // Register wiki-link completion provider
     try {
       const disp = registerWikiLinkCompletion(monaco as any)
@@ -360,6 +379,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
           if (shouldWarnForKey(e)) {
             emitReadOnlyWarning()
             return
+          }
+          if (!readOnly) {
+            userEditIntent = true
+            ;(editor as any).__refmdUserEditIntent = true
           }
           const KeyCode = (monaco as any)?.KeyCode
           const isEnter = KeyCode ? e.keyCode === KeyCode.Enter : e.code === 'Enter' || e.keyCode === 13
@@ -461,7 +484,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     if (isVimMode) {
       void enableVimMode(editor)
     }
-  }, [onMonacoMount, isVimMode, syncScroll, handleEditorScroll, emitReadOnlyWarning, readOnly, setReadOnlyOverlay, enableVimMode, brandedMonacoTheme])
+  }, [onMonacoMount, isVimMode, syncScroll, handleEditorScroll, emitReadOnlyWarning, readOnly, setReadOnlyOverlay, enableVimMode, brandedMonacoTheme, documentId])
 
   useEffect(() => {
     const editorInstance = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | null
@@ -480,6 +503,11 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   useEffect(() => () => {
     const anyEditor = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | undefined
+    safeExecute('persist latest dirty content', () => {
+      if ((anyEditor as any)?.__refmdUserEditIntent) {
+        ;(anyEditor as any)?.__refmdMarkDirty?.()
+      }
+    })
     safeExecute('dispose change listener', () => (anyEditor as any)?.__disposeChange?.())
     safeExecute('dispose scroll listener', () => (anyEditor as any)?.__disposeScroll?.())
     safeExecute('dispose mosaic scroll listener', () => (anyEditor as any)?.__disposeMosaicScroll?.())
@@ -488,6 +516,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     safeExecute('dispose cursor handler', () => (anyEditor as any)?.__disposeCursor?.())
     safeExecute('dispose monaco markdown handler', () => (anyEditor as any)?.__disposeMonacoMd?.())
     safeExecute('dispose keydown handler', () => (anyEditor as any)?.__disposeKeydown?.())
+    safeExecute('dispose dirty tracker', () => (anyEditor as any)?.__disposeDirtyTracker?.())
     safeExecute('dispose read-only overlay', () => {
       if (anyEditor?.__readOnlyOverlay) {
         try { anyEditor.removeOverlayWidget(anyEditor.__readOnlyOverlay.widget) } catch {}

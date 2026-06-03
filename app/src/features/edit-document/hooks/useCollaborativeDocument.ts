@@ -6,7 +6,7 @@ import { useRealtime } from '@/shared/contexts/realtime-context'
 import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConnection'
 import type { YjsConnection } from '@/shared/lib/yjsConnection'
 
-import { fetchDocumentMeta } from '@/entities/document'
+import { fetchDocumentMeta, updateDocumentContent } from '@/entities/document'
 import { validateShareToken } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -32,8 +32,21 @@ type ConnectionCacheEntry = {
 
 const connectionCache = new Map<string, ConnectionCacheEntry>()
 const invalidShareTokenToastShown = new Set<string>()
+const pendingContentByDocumentId = new Map<string, string>()
 const SHARE_TOKEN_VALIDATION_STALE_MS = 5 * 60 * 1000
 const DOCUMENT_META_STALE_MS = 60 * 1000
+
+export function markDocumentContentDirty(documentId: string, content: string) {
+  if (!documentId) return
+  pendingContentByDocumentId.set(documentId, content)
+}
+
+function consumePendingDocumentContent(documentId: string) {
+  if (!pendingContentByDocumentId.has(documentId)) return undefined
+  const content = pendingContentByDocumentId.get(documentId) ?? ''
+  pendingContentByDocumentId.delete(documentId)
+  return content
+}
 
 function buildCollaborativeDocumentConnectionCacheKey(args: {
   documentId: string
@@ -409,6 +422,13 @@ export function useCollaborativeDocument(
     return () => {
       cancelled = true
       const provider = cleanupProvider ?? connectionRef.current?.provider
+      const pendingContent = disablePersistence ? undefined : consumePendingDocumentContent(id)
+      if (pendingContent !== undefined) {
+        const token = resolveShareToken(shareToken, useUrlShareTokenFallback)
+        void updateDocumentContent({ id, content: pendingContent, token }).catch((error) => {
+          console.warn('[collaboration] failed to persist pending document content', id, error)
+        })
+      }
       if (provider) {
         try {
           if (onStatus) provider.off('status', onStatus)
