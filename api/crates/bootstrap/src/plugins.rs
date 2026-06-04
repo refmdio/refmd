@@ -114,6 +114,7 @@ mod tests {
             session_refresh_remember_ttl_secs: 0,
             snapshot_interval_secs: 0,
             snapshot_keep_versions: 0,
+            snapshot_archive_keep_versions: 0,
             updates_keep_window: 0,
             storage_backend: StorageBackend::Filesystem,
             storage_root: "".into(),

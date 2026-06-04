@@ -103,6 +103,37 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         out.map_err(Into::into)
     }
 
+    async fn prune_for_document_kind(
+        &self,
+        doc_id: &Uuid,
+        kind: &str,
+        keep_latest: i64,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"DELETE FROM document_snapshot_archives
+                   WHERE document_id = $1
+                     AND kind = $2
+                     AND id NOT IN (
+                         SELECT id
+                         FROM document_snapshot_archives
+                         WHERE document_id = $1
+                           AND kind = $2
+                         ORDER BY version DESC
+                         LIMIT $3
+                     )"#,
+            )
+            .bind(doc_id)
+            .bind(kind)
+            .bind(keep_latest)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
     async fn get_by_id(&self, id: Uuid) -> PortResult<Option<SnapshotArchiveEntry>> {
         let out: anyhow::Result<Option<SnapshotArchiveEntry>> = async {
             let row = sqlx::query(

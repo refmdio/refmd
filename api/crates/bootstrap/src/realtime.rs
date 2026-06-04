@@ -44,6 +44,7 @@ pub async fn build_realtime_stack(
             awareness_ttl_ms: cfg.redis_awareness_ttl_ms,
             snapshot_archive_interval_secs: cfg.snapshot_archive_interval_secs,
             snapshot_keep_versions: cfg.snapshot_keep_versions,
+            snapshot_archive_keep_versions: cfg.snapshot_archive_keep_versions,
             spawn_persistence_worker: true,
         };
         let engine = Arc::new(
@@ -97,6 +98,7 @@ pub async fn build_realtime_stack(
         snapshot_archive_repo.clone(),
         storage_job_queue.clone(),
         Some(cfg.snapshot_keep_versions),
+        Some(cfg.snapshot_archive_keep_versions),
     ));
     let hub = infrastructure::documents::realtime::Hub::new(
         hydration_service,

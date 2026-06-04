@@ -30,6 +30,7 @@ pub struct SnapshotService {
     archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
     default_prune_snapshots: Option<i64>,
+    default_prune_auto_archives: Option<i64>,
 }
 
 #[derive(Default)]
@@ -76,7 +77,7 @@ impl MarkdownExportProvider for SnapshotService {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotArchiveKind {
     Manual,
     Automatic,
@@ -111,6 +112,7 @@ impl SnapshotService {
         archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,
         default_prune_snapshots: Option<i64>,
+        default_prune_auto_archives: Option<i64>,
     ) -> Self {
         Self {
             state_reader,
@@ -120,6 +122,7 @@ impl SnapshotService {
             archive_repo,
             storage_jobs,
             default_prune_snapshots,
+            default_prune_auto_archives,
         }
     }
 
@@ -269,6 +272,7 @@ impl SnapshotService {
     ) -> anyhow::Result<SnapshotArchiveRecord> {
         let byte_size = snapshot_bin.len() as i64;
         let hash = sha256_hex(snapshot_bin);
+        let kind = options.kind.as_str();
         let record = self
             .archive_repo
             .insert(SnapshotArchiveInsert {
@@ -277,12 +281,19 @@ impl SnapshotService {
                 snapshot: snapshot_bin,
                 label: options.label,
                 notes: options.notes,
-                kind: options.kind.as_str(),
+                kind,
                 created_by: options.created_by,
                 byte_size,
                 content_hash: &hash,
             })
             .await?;
+        if options.kind == SnapshotArchiveKind::Automatic
+            && let Some(keep) = self.default_prune_auto_archives.filter(|keep| *keep > 0)
+        {
+            self.archive_repo
+                .prune_for_document_kind(doc_id, kind, keep)
+                .await?;
+        }
         Ok(record)
     }
 

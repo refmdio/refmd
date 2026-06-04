@@ -42,6 +42,7 @@ pub struct Config {
     pub session_refresh_remember_ttl_secs: i64,
     pub snapshot_interval_secs: u64,
     pub snapshot_keep_versions: i64,
+    pub snapshot_archive_keep_versions: i64,
     pub updates_keep_window: i64,
     pub storage_backend: StorageBackend,
     pub storage_root: String,
@@ -153,6 +154,10 @@ impl fmt::Debug for Config {
             )
             .field("snapshot_interval_secs", &self.snapshot_interval_secs)
             .field("snapshot_keep_versions", &self.snapshot_keep_versions)
+            .field(
+                "snapshot_archive_keep_versions",
+                &self.snapshot_archive_keep_versions,
+            )
             .field("updates_keep_window", &self.updates_keep_window)
             .field("storage_backend", &self.storage_backend)
             .field("storage_root", &self.storage_root)
@@ -234,6 +239,9 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(300);
         let snapshot_keep_versions = env_var(&["SNAPSHOT_KEEP_VERSIONS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(50);
+        let snapshot_archive_keep_versions = env_var(&["SNAPSHOT_ARCHIVE_KEEP_VERSIONS"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(50);
         let updates_keep_window = env_var(&["UPDATES_KEEP_WINDOW"])
@@ -433,6 +441,7 @@ impl Config {
             session_refresh_remember_ttl_secs,
             snapshot_interval_secs,
             snapshot_keep_versions,
+            snapshot_archive_keep_versions,
             updates_keep_window,
             storage_backend,
             storage_root,

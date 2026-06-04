@@ -41,6 +41,13 @@ pub struct SnapshotArchiveEntry {
 pub trait DocumentSnapshotArchiveRepository: Send + Sync {
     async fn insert(&self, input: SnapshotArchiveInsert<'_>) -> PortResult<SnapshotArchiveRecord>;
 
+    async fn prune_for_document_kind(
+        &self,
+        doc_id: &Uuid,
+        kind: &str,
+        keep_latest: i64,
+    ) -> PortResult<()>;
+
     async fn get_by_id(&self, id: Uuid) -> PortResult<Option<SnapshotArchiveEntry>>;
 
     async fn list_for_document(
