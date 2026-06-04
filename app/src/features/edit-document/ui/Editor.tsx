@@ -25,6 +25,7 @@ import { ensureRefmdThemes, REFMD_DARK_THEME, REFMD_LIGHT_THEME } from '@/featur
 import { registerWikiLinkCompletion } from '@/features/edit-document/lib/monaco/wiki-link-provider'
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { useViewContext } from '@/features/edit-document/model/view-context'
+import { useDocumentEditorPlugins, type DocumentEditorApi, type DocumentEditorDocumentApi, type DocumentEditorPaneHostState, type DocumentEditorRange, type DocumentEditorSelection } from '@/features/plugins'
 
 import { loadMonacoVim } from '../lib/monaco/vim-loader'
 
@@ -63,6 +64,11 @@ export type MarkdownEditorProps = {
   userName?: string
   userId?: string
   documentId: string
+  documentTitle?: string | null
+  documentType?: string | null
+  documentEditorPluginsEnabled?: boolean
+  documentEditorPanePlacement?: 'extraRight' | 'mosaic'
+  onDocumentEditorPaneHostChange?: (host: DocumentEditorPaneHostState | null) => void
   readOnly?: boolean
   extraRight?: React.ReactNode
   conflictControls?: React.ReactNode
@@ -102,6 +108,11 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     userId,
     userName,
     documentId,
+    documentTitle,
+    documentType,
+    documentEditorPluginsEnabled = true,
+    documentEditorPanePlacement = 'extraRight',
+    onDocumentEditorPaneHostChange,
     readOnly = false,
     extraRight,
     conflictControls,
@@ -178,6 +189,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const unregisterEditorRef = useRef<null | (() => void)>(null)
   const focusDisposableRef = useRef<null | { dispose: () => void }>(null)
   const blurDisposableRef = useRef<null | { dispose: () => void }>(null)
+  const pluginDecorationIdsRef = useRef<Map<string, string[]>>(new Map())
+  const pluginHiddenRangeSourcesRef = useRef<Map<string, object>>(new Map())
 
   const isThisEditorActive = useCallback(() => {
     const ed = editorRef.current
@@ -517,6 +530,31 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     safeExecute('dispose monaco markdown handler', () => (anyEditor as any)?.__disposeMonacoMd?.())
     safeExecute('dispose keydown handler', () => (anyEditor as any)?.__disposeKeydown?.())
     safeExecute('dispose dirty tracker', () => (anyEditor as any)?.__disposeDirtyTracker?.())
+    safeExecute('dispose plugin decorations', () => {
+      for (const ids of pluginDecorationIdsRef.current.values()) {
+        try {
+          anyEditor?.deltaDecorations(ids, [])
+        } catch {
+          /* noop */
+        }
+      }
+      pluginDecorationIdsRef.current.clear()
+    })
+    safeExecute('dispose plugin hidden ranges', () => {
+      const setHiddenAreas = (anyEditor as any)?.setHiddenAreas
+      if (typeof setHiddenAreas !== 'function') {
+        pluginHiddenRangeSourcesRef.current.clear()
+        return
+      }
+      for (const source of pluginHiddenRangeSourcesRef.current.values()) {
+        try {
+          setHiddenAreas.call(anyEditor, [], source)
+        } catch {
+          /* noop */
+        }
+      }
+      pluginHiddenRangeSourcesRef.current.clear()
+    })
     safeExecute('dispose read-only overlay', () => {
       if (anyEditor?.__readOnlyOverlay) {
         try { anyEditor.removeOverlayWidget(anyEditor.__readOnlyOverlay.widget) } catch {}
@@ -770,6 +808,248 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     [ensureThisEditorActive, uploadFiles],
   )
 
+  const documentEditorApi = useMemo<DocumentEditorApi | null>(() => {
+    const editorInstance = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __monaco?: typeof monacoNs }) | null
+    const monacoInstance = editorInstance?.__monaco
+    if (!editorInstance || !monacoInstance) return null
+
+    const toRange = (range: DocumentEditorRange) =>
+      new monacoInstance.Range(
+        range.startLineNumber,
+        range.startColumn,
+        range.endLineNumber,
+        range.endColumn,
+      )
+
+    const toSelection = (): DocumentEditorSelection | null => {
+      const selection = editorInstance.getSelection()
+      const model = editorInstance.getModel()
+      if (!selection || !model) return null
+      return {
+        startLineNumber: selection.startLineNumber,
+        startColumn: selection.startColumn,
+        endLineNumber: selection.endLineNumber,
+        endColumn: selection.endColumn,
+        text: model.getValueInRange(selection),
+        isEmpty: selection.isEmpty(),
+      }
+    }
+
+    const applyEdits = (edits: Array<{ range: DocumentEditorRange; text: string; forceMoveMarkers?: boolean }>) => {
+      if (readOnly) {
+        emitReadOnlyWarning()
+        return false
+      }
+      const nextEdits = edits
+        .filter((edit) => edit && edit.range)
+        .map((edit) => ({
+          range: toRange(edit.range),
+          text: String(edit.text ?? ''),
+          forceMoveMarkers: edit.forceMoveMarkers !== false,
+        }))
+      if (!nextEdits.length) return false
+      const applied = editorInstance.executeEdits('refmd-plugin', nextEdits)
+      editorInstance.pushUndoStop()
+      try {
+        ;(editorInstance as any).__refmdUserEditIntent = true
+        ;(editorInstance as any).__refmdMarkDirty?.()
+      } catch {
+        /* noop */
+      }
+      return applied
+    }
+
+    const applyTextAtSelection = (text: string) => {
+      const selection = editorInstance.getSelection()
+      if (!selection) return false
+      return applyEdits([{ range: selection, text, forceMoveMarkers: true }])
+    }
+
+    return {
+      focus: () => editorInstance.focus(),
+      getSelection: toSelection,
+      setSelection: (range) => {
+        const next = toRange(range)
+        editorInstance.setSelection(next)
+        editorInstance.revealRangeInCenterIfOutsideViewport(next)
+      },
+      applyEdits,
+      replaceSelection: applyTextAtSelection,
+      insertText: applyTextAtSelection,
+      revealLine: (line) => {
+        if (!Number.isFinite(line)) return
+        editorInstance.revealLineInCenterIfOutsideViewport(Math.max(1, Math.floor(line)))
+      },
+      revealRange: (range) => {
+        editorInstance.revealRangeInCenterIfOutsideViewport(toRange(range))
+      },
+      getRangeFromOffset: (offset, length = 0) => {
+        const model = editorInstance.getModel()
+        if (!model) return null
+        const contentLength = model.getValueLength()
+        const startOffset = Math.max(0, Math.min(contentLength, Math.floor(offset)))
+        const endOffset = Math.max(startOffset, Math.min(contentLength, startOffset + Math.max(0, Math.floor(length))))
+        const start = model.getPositionAt(startOffset)
+        const end = model.getPositionAt(endOffset)
+        return {
+          startLineNumber: start.lineNumber,
+          startColumn: start.column,
+          endLineNumber: end.lineNumber,
+          endColumn: end.column,
+        }
+      },
+      getOffsetFromPosition: (position) => {
+        const model = editorInstance.getModel()
+        if (!model) return null
+        const lineNumber = Math.max(1, Math.floor(position.lineNumber))
+        const column = Math.max(1, Math.floor(position.column))
+        try {
+          return model.getOffsetAt({ lineNumber, column })
+        } catch {
+          return null
+        }
+      },
+      onSelectionChange: (callback) => {
+        const disposable = editorInstance.onDidChangeCursorSelection(() => {
+          callback(toSelection())
+        })
+        return () => {
+          try {
+            disposable.dispose()
+          } catch {
+            /* noop */
+          }
+        }
+      },
+      setDecorations: (ownerId, decorations) => {
+        const owner = String(ownerId || 'default')
+        const previous = pluginDecorationIdsRef.current.get(owner) ?? []
+        const nextDecorations = decorations.map((decoration) => ({
+          range: toRange(decoration.range),
+          options: {
+            className: decoration.className,
+            inlineClassName: decoration.inlineClassName,
+            glyphMarginClassName: decoration.glyphMarginClassName,
+            hoverMessage: decoration.hoverMessage ? { value: decoration.hoverMessage } : undefined,
+            overviewRuler: decoration.overviewRulerColor
+              ? {
+                  color: decoration.overviewRulerColor,
+                  position: monacoInstance.editor.OverviewRulerLane.Right,
+                }
+              : undefined,
+            minimap: decoration.minimapColor
+              ? {
+                  color: decoration.minimapColor,
+                  position: monacoInstance.editor.MinimapPosition.Inline,
+                }
+              : undefined,
+          },
+        }))
+        const nextIds = editorInstance.deltaDecorations(previous, nextDecorations)
+        pluginDecorationIdsRef.current.set(owner, nextIds)
+        return () => {
+          const current = pluginDecorationIdsRef.current.get(owner)
+          if (!current) return
+          try {
+            editorInstance.deltaDecorations(current, [])
+          } catch {
+            /* noop */
+          }
+          pluginDecorationIdsRef.current.delete(owner)
+        }
+      },
+      setHiddenRanges: (ownerId, ranges) => {
+        const owner = String(ownerId || 'default')
+        const setHiddenAreas = (editorInstance as any).setHiddenAreas
+        if (typeof setHiddenAreas !== 'function') {
+          return () => {
+            pluginHiddenRangeSourcesRef.current.delete(owner)
+          }
+        }
+
+        const model = editorInstance.getModel()
+        if (!model) return () => {}
+        let source = pluginHiddenRangeSourcesRef.current.get(owner)
+        if (!source) {
+          source = {}
+          pluginHiddenRangeSourcesRef.current.set(owner, source)
+        }
+
+        const lineCount = model.getLineCount()
+        const nextRanges = ranges
+          .map((item) => item?.range)
+          .filter((range): range is DocumentEditorRange => Boolean(range))
+          .map((range) => {
+            const startLine = Math.min(lineCount, Math.max(1, Math.floor(range.startLineNumber)))
+            const endLine = Math.min(lineCount, Math.max(startLine, Math.floor(range.endLineNumber || startLine)))
+            return new monacoInstance.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine))
+          })
+
+        try {
+          setHiddenAreas.call(editorInstance, nextRanges, source)
+        } catch {
+          return () => {}
+        }
+
+        return () => {
+          const current = pluginHiddenRangeSourcesRef.current.get(owner)
+          if (current !== source) return
+          try {
+            setHiddenAreas.call(editorInstance, [], source)
+          } catch {
+            /* noop */
+          }
+          pluginHiddenRangeSourcesRef.current.delete(owner)
+        }
+      },
+    }
+  }, [editorMountNonce, editorRef, emitReadOnlyWarning, readOnly])
+
+  const documentEditorDocument = useMemo<DocumentEditorDocumentApi>(() => {
+    const ytext = doc.getText('content')
+    return {
+      id: documentId,
+      type: documentType ?? 'markdown',
+      title: documentTitle ?? null,
+      token: shareToken ?? null,
+      readOnly,
+      getContent: () => ytext.toString(),
+      setContent: (value) => {
+        if (readOnly) {
+          emitReadOnlyWarning()
+          return false
+        }
+        const next = String(value ?? '')
+        doc.transact(() => {
+          ytext.delete(0, ytext.length)
+          ytext.insert(0, next)
+        })
+        markDocumentContentDirty(documentId, next)
+        return true
+      },
+      onContentChange: (callback) => {
+        const observer = () => callback(ytext.toString())
+        ytext.observe(observer)
+        return () => {
+          try {
+            ytext.unobserve(observer)
+          } catch {
+            /* noop */
+          }
+        }
+      },
+    }
+  }, [doc, documentId, documentTitle, documentType, emitReadOnlyWarning, readOnly, shareToken])
+
+  const pluginPanes = useDocumentEditorPlugins({
+    enabled: documentEditorPluginsEnabled && !conflictView,
+    document: documentEditorDocument,
+    editor: documentEditorApi,
+    onPaneHostChange: onDocumentEditorPaneHostChange,
+  })
+
+  const resolvedExtraRight = extraRight ?? (documentEditorPanePlacement === 'extraRight' ? pluginPanes.extraRight : undefined)
+
   
 
   return (
@@ -796,7 +1076,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       <EditorLayout
         isMobile={isMobile}
         view={view as ViewMode}
-        extraRight={extraRight}
+        extraRight={resolvedExtraRight}
         embedded={embedded}
         toolbar={Toolbar}
         toolbarOpen={toolbarOpen}

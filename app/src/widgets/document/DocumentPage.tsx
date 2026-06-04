@@ -1,11 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookmarkPlus, Download, History } from 'lucide-react'
+import { BookmarkPlus, Download, History, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { ApiError, type GitPullConflictItem, type GitPullResolution } from '@/shared/api'
 import { useRealtime } from '@/shared/contexts/realtime-context'
+import {
+  OPEN_DOCUMENT_PLUGIN_PANE_EVENT,
+  dispatchOpenDocumentPluginPane,
+} from '@/shared/lib/mosaic-events'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
 
@@ -24,6 +28,7 @@ import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/featu
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
+import type { DocumentEditorPaneHostState } from '@/features/plugins'
 import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
 
 export type DocumentLoaderData = {
@@ -78,6 +83,8 @@ const genHunkId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return Math.random().toString(36).slice(2)
 }
+
+const documentPluginPaneActionPrefix = 'document-plugin-pane:'
 
 const buildLineDiffSegments = (oursRaw: string, theirsRaw: string): { segments: ConflictSegments; hunks: ConflictHunk[] } => {
   const ours = oursRaw.split('\n')
@@ -268,6 +275,7 @@ function DocumentClient({
   const qc = useQueryClient()
   const { user } = useAuthContext()
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions, documentPluginId } = useRealtime()
+  const handlesDocumentPluginPanes = !render
   const pluginIdHintFromLoader = typeof loaderData?.createdByPlugin === 'string' ? loaderData.createdByPlugin.trim() : ''
   const pluginIdHintFromRealtime = typeof documentPluginId === 'string' ? documentPluginId.trim() : ''
   const pluginIdHint = pluginIdHintFromLoader || pluginIdHintFromRealtime
@@ -285,6 +293,8 @@ function DocumentClient({
   const [hunkChoices, setHunkChoices] = useState<Record<string, 'ours' | 'theirs'>>({})
   const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
+  const documentPaneHostRef = useRef<DocumentEditorPaneHostState | null>(null)
+  const [documentPanes, setDocumentPanes] = useState<DocumentEditorPaneHostState['panes']>([])
   const lastPayloadRef = useRef<GitPullResolution[]>([])
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const hasDoc = Boolean(doc)
@@ -293,6 +303,84 @@ function DocumentClient({
     const unsubscribe = subscribeSessionId((sid) => setSessionIdState(sid))
     return () => unsubscribe()
   }, [])
+
+  const handleDocumentPaneHostChange = useCallback((host: DocumentEditorPaneHostState | null) => {
+    documentPaneHostRef.current = host
+    const nextPanes = host?.panes ?? []
+    setDocumentPanes((current) => {
+      if (
+        current.length === nextPanes.length &&
+        current.every((pane, index) => {
+          const next = nextPanes[index]
+          return (
+            next &&
+            pane.key === next.key &&
+            pane.title === next.title &&
+            pane.badge === next.badge
+          )
+        })
+      ) {
+        return current
+      }
+      return nextPanes
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!handlesDocumentPluginPanes) return
+    const panes = documentPanes
+    const paneKeys = new Set(panes.map((pane) => `${documentPluginPaneActionPrefix}${id}:${pane.key}`))
+    const currentActions = documentActions ?? []
+    let next = currentActions.filter((action) => {
+      if (!action.id?.startsWith(documentPluginPaneActionPrefix)) return true
+      return paneKeys.has(action.id)
+    })
+
+    for (const pane of panes) {
+      const actionId = `${documentPluginPaneActionPrefix}${id}:${pane.key}`
+      const action = {
+        id: actionId,
+        label: pane.title,
+        icon: <MessageSquare className="h-4 w-4" />,
+        tooltip: `Open ${pane.title}`,
+        onSelect: () => {
+          dispatchOpenDocumentPluginPane(id, pane.key)
+        },
+      }
+      const existing = next.find((item) => item.id === actionId)
+      if (!existing) {
+        next = [...next, action]
+        continue
+      }
+      if (existing.label !== action.label || existing.tooltip !== action.tooltip) {
+        next = next.map((item) => (item.id === actionId ? action : item))
+      }
+    }
+
+    if (
+      next.length !== currentActions.length ||
+      next.some((action, index) => action !== currentActions[index])
+    ) {
+      setDocumentActions(next)
+    }
+  }, [documentActions, documentPanes, handlesDocumentPluginPanes, id, setDocumentActions])
+
+  useEffect(() => {
+    if (!handlesDocumentPluginPanes) return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; paneKey?: string }>).detail
+      const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
+      if (documentId !== id) return
+      const host = documentPaneHostRef.current
+      if (!host || !host.panes.length) return
+      const requested = typeof detail?.paneKey === 'string' ? detail.paneKey : ''
+      const pane = host.panes.find((item) => item.key === requested) ?? host.panes[0]
+      if (!pane) return
+      host.openPane(pane.key)
+    }
+    window.addEventListener(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, handler as EventListener)
+    return () => window.removeEventListener(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, handler as EventListener)
+  }, [handlesDocumentPluginPanes, id])
   const anonIdentity = useMemo(() => {
     if (user) return null
     try {
@@ -788,12 +876,15 @@ function DocumentClient({
         userId: user?.id || anonIdentity?.id,
         userName: user?.name || anonIdentity?.name,
         documentId: id,
+        documentTitle: resolvedTitle || loaderData?.title || null,
+        documentType: 'markdown',
         readOnly: isReadOnly || Boolean(activeConflict),
         conflictView,
         conflictHunkWidgets,
         conflictBadgeText,
         conflictControls,
         previewOverride: previewOverrideValue,
+        onDocumentEditorPaneHostChange: handlesDocumentPluginPanes ? handleDocumentPaneHostChange : undefined,
         extraRight: undefined,
         renderPreview: usePluginPreview ? renderPluginPreview : undefined,
       } satisfies Parameters<typeof MarkdownEditor>[0])

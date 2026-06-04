@@ -13,10 +13,13 @@ import {
 import type { DocumentHeaderAction } from '@/shared/types/document'
 
 import {
+  createPluginRecord as apiCreatePluginRecord,
+  deletePluginRecord as apiDeletePluginRecord,
   execPluginAction as apiExecPluginAction,
   getPluginKv as apiGetPluginKv,
   listPluginRecords as apiListPluginRecords,
   putPluginKv as apiPutPluginKv,
+  updatePluginRecord as apiUpdatePluginRecord,
 } from '@/entities/plugin/api'
 
 import {
@@ -488,6 +491,28 @@ async function executeHostAction(
         const token = (args?.token ?? ctx.token) || undefined
         const response = await apiListPluginRecords(ctx.pluginId, docId, kind, token)
         return ok(response)
+      }
+      case 'host.records.create': {
+        const docId = ensureDocId(args?.docId)
+        const kind = args?.kind
+        if (typeof kind !== 'string' || !kind) throw fail('BAD_REQUEST', 'kind required')
+        const token = (args?.token ?? ctx.token) || undefined
+        const response = await apiCreatePluginRecord(ctx.pluginId, docId, kind, args?.data ?? null, token)
+        return ok(response)
+      }
+      case 'host.records.update': {
+        const id = args?.id
+        if (typeof id !== 'string' || !id) throw fail('BAD_REQUEST', 'record id required')
+        const token = (args?.token ?? ctx.token) || undefined
+        const response = await apiUpdatePluginRecord(ctx.pluginId, id, args?.patch ?? {}, token)
+        return ok(response)
+      }
+      case 'host.records.delete': {
+        const id = args?.id
+        if (typeof id !== 'string' || !id) throw fail('BAD_REQUEST', 'record id required')
+        const token = (args?.token ?? ctx.token) || undefined
+        await apiDeletePluginRecord(ctx.pluginId, id, token)
+        return ok({})
       }
       case 'host.kv.get': {
         const docId = ensureDocId(args?.docId)

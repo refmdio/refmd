@@ -76,12 +76,14 @@ export async function createPluginRecord(
   )
 }
 
-export async function updatePluginRecord(pluginId: string, id: string, patch: unknown) {
-  return apiPluginsUpdateRecord({ plugin: pluginId, id, requestBody: { patch } })
+export async function updatePluginRecord(pluginId: string, id: string, patch: unknown, token?: string) {
+  return withShareAuthorization(token, () =>
+    apiPluginsUpdateRecord({ plugin: pluginId, id, requestBody: { patch } }),
+  )
 }
 
-export async function deletePluginRecord(pluginId: string, id: string) {
-  return apiPluginsDeleteRecord({ plugin: pluginId, id })
+export async function deletePluginRecord(pluginId: string, id: string, token?: string) {
+  return withShareAuthorization(token, () => apiPluginsDeleteRecord({ plugin: pluginId, id }))
 }
 
 export async function getPluginKv(

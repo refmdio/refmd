@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Columns2, Eye, FileCode, Loader2, Maximize2, MoreHorizontal, X } from 'lucide-react'
+import { Columns2, Eye, FileCode, Loader2, Maximize2, MessageSquare, MoreHorizontal, X } from 'lucide-react'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import {
   Mosaic,
@@ -20,13 +20,16 @@ import {
 } from 'react-mosaic-component'
 import { toast } from 'sonner'
 
+import { useRealtime } from '@/shared/contexts/realtime-context'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import {
   MOSAIC_SCROLL_SYNC_EVENT,
   OPEN_BACKLINKS_TILE_EVENT,
+  OPEN_DOCUMENT_PLUGIN_PANE_EVENT,
   OPEN_EDITOR_TILE_EVENT,
   OPEN_PREVIEW_TILE_EVENT,
   MOSAIC_SET_VIEW_MODE_EVENT,
+  dispatchOpenDocumentPluginPane,
   dispatchMosaicScrollSync,
   dispatchMosaicSetViewMode,
   dispatchMosaicCurrentViewMode,
@@ -39,18 +42,29 @@ import { browseShare } from '@/entities/share'
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
 import { EditorOverlay, MarkdownEditor, PreviewPane, useCollaborativeDocument } from '@/features/edit-document'
-import { mountResolvedPlugin, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentPluginMatch } from '@/features/plugins'
+import { DocumentEditorPanes, mountResolvedPlugin, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentEditorPaneHostState, type DocumentPluginMatch } from '@/features/plugins'
 import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorHost'
 
 import DocumentPage, { type DocumentLoaderData, type DocumentPageProps, type DocumentPageRenderContext } from './DocumentPage'
 
 type TileKey = `tile:${string}`
-type TileMode = 'editor' | 'preview' | 'backlinks'
-type TileSpec = {
+type TileMode = 'editor' | 'preview' | 'backlinks' | 'plugin-pane'
+type BaseTileSpec = {
   mode: TileMode
   documentId: string
+}
+type EditorPreviewTileSpec = BaseTileSpec & {
+  mode: 'editor' | 'preview'
   syncGroupId?: string
 }
+type BacklinksTileSpec = BaseTileSpec & {
+  mode: 'backlinks'
+}
+type PluginPaneTileSpec = BaseTileSpec & {
+  mode: 'plugin-pane'
+  pluginPaneKey: string
+}
+type TileSpec = EditorPreviewTileSpec | BacklinksTileSpec | PluginPaneTileSpec
 
 type MosaicState = {
   layout: MosaicNode<TileKey> | null
@@ -63,6 +77,7 @@ const STORAGE_KEY_PREFIX = 'refmd-document-mosaic-state-v3'
 const FORCE_FLOATING_TOC_MAX_WIDTH_PX = 1024
 const EXPAND_PERCENTAGE = 80
 const UNEXPAND_PERCENTAGE = 50
+const DOCUMENT_PLUGIN_PANE_SPLIT_PERCENTAGE = 72
 const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
 
 const splitCapablePluginDocIds = new Set<string>()
@@ -150,7 +165,7 @@ function tileControlsToggle(key = 'more') {
   )
 }
 
-function TileCloseButton() {
+function TileCloseButton({ onBeforeClose }: { onBeforeClose?: () => void } = {}) {
   const mosaic = useContext(MosaicContext)
   const mosaicWindow = useContext(MosaicWindowContext)
 
@@ -161,6 +176,7 @@ function TileCloseButton() {
       aria-label="Close tile"
       title="Close tile"
       onClick={() => {
+        onBeforeClose?.()
         try {
           mosaic.mosaicActions.remove(mosaicWindow.mosaicWindowActions.getPath())
         } catch {
@@ -242,6 +258,16 @@ function normalizeSplitPercentage(value: unknown): number {
 function insertLeafAtRight(layout: MosaicNode<TileKey> | null, leaf: TileKey): MosaicNode<TileKey> {
   if (!layout) return leaf
   return { direction: 'row', first: layout, second: leaf, splitPercentage: 50 }
+}
+
+function insertDocumentPluginPaneAtRight(layout: MosaicNode<TileKey> | null, leaf: TileKey): MosaicNode<TileKey> {
+  if (!layout) return leaf
+  return {
+    direction: 'row',
+    first: layout,
+    second: leaf,
+    splitPercentage: DOCUMENT_PLUGIN_PANE_SPLIT_PERCENTAGE,
+  }
 }
 
 type InsertSplitMode = 'auto' | 'row' | 'column'
@@ -567,8 +593,10 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
       }
 
       const nextSpec: TileSpec = { ...spec, documentId: trimmedId }
-      if (trimmedGroupId) nextSpec.syncGroupId = trimmedGroupId
-      else delete (nextSpec as any).syncGroupId
+      if (nextSpec.mode === 'editor' || nextSpec.mode === 'preview') {
+        if (trimmedGroupId) nextSpec.syncGroupId = trimmedGroupId
+        else delete (nextSpec as any).syncGroupId
+      }
       nextTiles[leaf] = nextSpec
     }
   }
@@ -593,8 +621,22 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
   for (const [, bucket] of byDoc) {
     if (bucket.editors.length === 0 || bucket.previews.length === 0) continue
 
-    const editorGroups = new Set(bucket.editors.map((key) => nextTiles[key]?.syncGroupId).filter(Boolean) as string[])
-    const previewGroups = new Set(bucket.previews.map((key) => nextTiles[key]?.syncGroupId).filter(Boolean) as string[])
+    const editorGroups = new Set(
+      bucket.editors
+        .map((key) => {
+          const spec = nextTiles[key]
+          return spec?.mode === 'editor' ? spec.syncGroupId : undefined
+        })
+        .filter(Boolean) as string[],
+    )
+    const previewGroups = new Set(
+      bucket.previews
+        .map((key) => {
+          const spec = nextTiles[key]
+          return spec?.mode === 'preview' ? spec.syncGroupId : undefined
+        })
+        .filter(Boolean) as string[],
+    )
 
     let groupId: string | null = null
     for (const candidate of editorGroups) {
@@ -611,6 +653,7 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
     for (const key of [...bucket.editors, ...bucket.previews]) {
       const spec = nextTiles[key]
       if (!spec) continue
+      if (spec.mode !== 'editor' && spec.mode !== 'preview') continue
       if (spec.syncGroupId !== groupId) {
         nextTiles[key] = { ...spec, syncGroupId: groupId }
         needsSyncUpdate = true
@@ -634,6 +677,23 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
     }
   }
   return { layout: prunedLayout, tiles: nextTiles }
+}
+
+function sameDocumentEditorPaneHost(a: DocumentEditorPaneHostState | null | undefined, b: DocumentEditorPaneHostState | null | undefined) {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.activePaneKey !== b.activePaneKey) return false
+  if (a.openPane !== b.openPane || a.closePane !== b.closePane) return false
+  if (a.panes.length !== b.panes.length) return false
+  return a.panes.every((pane, index) => {
+    const next = b.panes[index]
+    return Boolean(
+      next &&
+      pane.key === next.key &&
+      pane.title === next.title &&
+      pane.badge === next.badge,
+    )
+  })
 }
 
 function loadState(activeDocumentId: string, storageKey: string): MosaicState {
@@ -669,6 +729,7 @@ type Props = Pick<DocumentPageProps, 'id' | 'loaderData' | 'shareToken' | 'confl
 export default function DocumentMosaicWorkspace(props: Props) {
   const { id, loaderData, shareToken, shareScope: shareScopeProp, isShareMount = false, conflictMode } = props
   const navigate = useNavigate()
+  const { documentActions, setDocumentActions } = useRealtime()
   const { user, activeWorkspaceId } = useAuthContext()
   const shareLinkToken = shareToken && !isShareMount ? shareToken : undefined
   const mosaicStorageKey = useMemo(() => {
@@ -679,6 +740,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const [mosaicState, setMosaicState] = useState<MosaicState>(() => {
     return mosaicStorageKey ? loadState(id, mosaicStorageKey) : defaultState(id)
   })
+  const [documentPaneHosts, setDocumentPaneHosts] = useState<Record<string, DocumentEditorPaneHostState>>({})
   const [activeDocumentId, setActiveDocumentId] = useState(id)
   const activeDocumentIdRef = useRef(activeDocumentId)
   const activeTileRef = useRef<{ tileKey: TileKey; documentId: string; mode: TileMode } | null>(null)
@@ -703,6 +765,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const lastReportedViewModeRef = useRef<{ docId: string; mode: 'editor' | 'split' | 'preview' } | null>(null)
   const lastRouteDocIdRef = useRef<string>(id)
   const lastSeenRouteDocIdRef = useRef<string>(id)
+  const pluginPaneActionPrefix = 'document-plugin-pane:'
 
   useEffect(() => {
     insertSplitModeRef.current = insertSplitMode
@@ -884,7 +947,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
     }
     if (candidates.length === 0) return
 
-    const modeRank: Record<TileMode, number> = { editor: 0, preview: 1, backlinks: 2 }
+    const modeRank: Record<TileMode, number> = { editor: 0, preview: 1, backlinks: 2, 'plugin-pane': 3 }
     candidates.sort((a, b) => (modeRank[a.spec.mode] ?? 9) - (modeRank[b.spec.mode] ?? 9))
     const picked = candidates[0]
     if (!picked) return
@@ -1069,6 +1132,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
         const clearSync = (key: TileKey) => {
           const spec = nextTiles[key]
           if (!spec) return
+          if (spec.mode !== 'editor' && spec.mode !== 'preview') return
           if (!spec.syncGroupId) return
           nextTiles[key] = { ...spec, syncGroupId: undefined }
         }
@@ -1551,6 +1615,114 @@ export default function DocumentMosaicWorkspace(props: Props) {
     [canAccessSharedDocument, id, insertSplitMode, isSingleDocShare],
   )
 
+  const handleDocumentEditorPaneHostChange = useCallback(
+    (documentId: string, host: DocumentEditorPaneHostState | null) => {
+      const target = documentId.trim()
+      if (!target) return
+
+      setDocumentPaneHosts((prev) => {
+        if (!host || !host.panes.length) {
+          if (!prev[target]) return prev
+          const next = { ...prev }
+          delete next[target]
+          return next
+        }
+        if (sameDocumentEditorPaneHost(prev[target], host)) return prev
+        return { ...prev, [target]: host }
+      })
+
+      const activePaneKey = host?.activePaneKey ?? null
+      const hasActivePane = Boolean(activePaneKey && host?.panes.some((pane) => pane.key === activePaneKey))
+
+      setMosaicState((prev) => {
+        const safe = sanitizeState(prev, id)
+        const entries = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
+        const existing = entries.find(
+          ([, spec]) => spec.documentId === target && spec.mode === 'plugin-pane',
+        )
+
+        if (!hasActivePane || !activePaneKey) {
+          if (!existing) return safe
+          const nextTiles = { ...safe.tiles }
+          let nextLayout = safe.layout
+          for (const [key, spec] of entries) {
+            if (spec.documentId !== target || spec.mode !== 'plugin-pane') continue
+            delete nextTiles[key]
+            nextLayout = removeLeaf(nextLayout, key)
+          }
+          return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+        }
+
+        if (existing) {
+          const [key, spec] = existing
+          if (spec.mode === 'plugin-pane' && spec.pluginPaneKey === activePaneKey) return safe
+          return sanitizeState(
+            {
+              ...safe,
+              tiles: {
+                ...safe.tiles,
+                [key]: { mode: 'plugin-pane', documentId: target, pluginPaneKey: activePaneKey },
+              },
+            },
+            id,
+          )
+        }
+
+        if (isSingleDocShare) return safe
+        if (!canAccessSharedDocument(target)) return safe
+
+        const tileKey = makeTileKey()
+        const nextLayout = insertDocumentPluginPaneAtRight(safe.layout, tileKey)
+        const nextTiles: Record<TileKey, TileSpec> = {
+          ...safe.tiles,
+          [tileKey]: { mode: 'plugin-pane', documentId: target, pluginPaneKey: activePaneKey },
+        }
+        expandedTileKeyRef.current = null
+        return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+      })
+    },
+    [canAccessSharedDocument, id, isSingleDocShare],
+  )
+
+  useEffect(() => {
+    const host = documentPaneHosts[activeDocumentId] ?? null
+    const panes = host?.panes ?? []
+    const paneKeys = new Set(panes.map((pane) => `${pluginPaneActionPrefix}${activeDocumentId}:${pane.key}`))
+    const currentActions = documentActions ?? []
+    let next = currentActions.filter((action) => {
+      if (!action.id?.startsWith(pluginPaneActionPrefix)) return true
+      return paneKeys.has(action.id)
+    })
+
+    for (const pane of panes) {
+      const actionId = `${pluginPaneActionPrefix}${activeDocumentId}:${pane.key}`
+      const action = {
+        id: actionId,
+        label: pane.title,
+        icon: <MessageSquare className="h-4 w-4" />,
+        tooltip: `Open ${pane.title}`,
+        onSelect: () => {
+          dispatchOpenDocumentPluginPane(activeDocumentId, pane.key)
+        },
+      }
+      const existing = next.find((item) => item.id === actionId)
+      if (!existing) {
+        next = [...next, action]
+        continue
+      }
+      if (existing.label !== action.label || existing.tooltip !== action.tooltip) {
+        next = next.map((item) => (item.id === actionId ? action : item))
+      }
+    }
+
+    if (
+      next.length !== currentActions.length ||
+      next.some((action, index) => action !== currentActions[index])
+    ) {
+      setDocumentActions(next)
+    }
+  }, [activeDocumentId, documentActions, documentPaneHosts, setDocumentActions])
+
   useEffect(() => {
     if (isSingleDocShare) return
     const handler = (event: Event) => {
@@ -1588,6 +1760,23 @@ export default function DocumentMosaicWorkspace(props: Props) {
   }, [addBacklinksTile, isSingleDocShare])
 
   useEffect(() => {
+    if (isSingleDocShare) return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; paneKey?: string }>).detail
+      const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
+      if (!documentId) return
+      const host = documentPaneHosts[documentId]
+      if (!host || !host.panes.length) return
+      const requested = typeof detail?.paneKey === 'string' ? detail.paneKey : ''
+      const pane = host.panes.find((item) => item.key === requested) ?? host.panes[0]
+      if (!pane) return
+      host.openPane(pane.key)
+    }
+    window.addEventListener(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, handler as EventListener)
+    return () => window.removeEventListener(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, handler as EventListener)
+  }, [documentPaneHosts, isSingleDocShare])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ documentId?: string; mode?: string }>).detail
@@ -1613,6 +1802,8 @@ export default function DocumentMosaicWorkspace(props: Props) {
           mosaicState={mosaicState}
           setMosaicState={setMosaicState}
           addPreviewTile={addPreviewTile}
+          documentPaneHosts={documentPaneHosts}
+          onDocumentEditorPaneHostChange={handleDocumentEditorPaneHostChange}
           insertSplitMode={insertSplitMode}
           isSingleDocShare={isSingleDocShare}
           onCloseAllTiles={closeAllTilesToDashboard}
@@ -1878,6 +2069,8 @@ function DocumentMosaicBody({
   mosaicState,
   setMosaicState,
   addPreviewTile,
+  documentPaneHosts,
+  onDocumentEditorPaneHostChange,
   insertSplitMode,
   isSingleDocShare,
   onCloseAllTiles,
@@ -1889,6 +2082,8 @@ function DocumentMosaicBody({
   mosaicState: MosaicState
   setMosaicState: Dispatch<SetStateAction<MosaicState>>
   addPreviewTile: (documentId: string) => void
+  documentPaneHosts: Record<string, DocumentEditorPaneHostState>
+  onDocumentEditorPaneHostChange: (documentId: string, host: DocumentEditorPaneHostState | null) => void
   insertSplitMode: InsertSplitMode
   isSingleDocShare: boolean
   onCloseAllTiles: () => void
@@ -1897,11 +2092,12 @@ function DocumentMosaicBody({
   expandedTileKeyRef: { current: TileKey | null }
 }) {
   const setTileMode = useCallback(
-    (tileKey: TileKey, mode: TileMode) => {
+    (tileKey: TileKey, mode: 'editor' | 'preview') => {
       setMosaicState((prev) => {
         const safe = sanitizeState(prev, ctx.id)
         const spec = safe.tiles[tileKey]
         if (!spec) return safe
+        if (spec.mode !== 'editor' && spec.mode !== 'preview') return safe
         const nextTiles: Record<TileKey, TileSpec> = {}
         for (const [key, value] of Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>) {
           if (key === tileKey) nextTiles[key] = { ...value, mode, syncGroupId: undefined }
@@ -2005,6 +2201,7 @@ function DocumentMosaicBody({
                 onToggleExpand={() => onToggleExpandTile(tileId)}
                 onSwitchToPreview={() => setTileMode(tileId, 'preview')}
                 isSingleDocShare={isSingleDocShare}
+                onDocumentEditorPaneHostChange={onDocumentEditorPaneHostChange}
                 onActivate={() => onActivateDocument(docId, tileId, 'editor')}
               />
             )
@@ -2018,6 +2215,19 @@ function DocumentMosaicBody({
                 documentId={docId}
                 onToggleExpand={() => onToggleExpandTile(tileId)}
                 onActivate={() => onActivateDocument(docId, tileId, 'backlinks')}
+              />
+            )
+          }
+
+          if (spec.mode === 'plugin-pane') {
+            return (
+              <DocumentPluginPaneTile
+                path={path}
+                tileKey={tileId}
+                paneKey={spec.pluginPaneKey}
+                host={documentPaneHosts[docId] ?? null}
+                onToggleExpand={() => onToggleExpandTile(tileId)}
+                onActivate={() => onActivateDocument(docId, tileId, 'plugin-pane')}
               />
             )
           }
@@ -2381,6 +2591,83 @@ function BacklinksTile({
   )
 }
 
+function DocumentPluginPaneTile({
+  path,
+  tileKey,
+  paneKey,
+  host,
+  onToggleExpand,
+  onActivate,
+}: {
+  path: MosaicPath
+  tileKey: TileKey
+  paneKey: string
+  host: DocumentEditorPaneHostState | null
+  onToggleExpand: () => void
+  onActivate?: () => void
+}) {
+  const activePaneKey =
+    host?.panes.some((pane) => pane.key === paneKey) ? paneKey : (host?.activePaneKey ?? null)
+
+  useEffect(() => {
+    if (!host || !activePaneKey || host.activePaneKey === activePaneKey) return
+    host.openPane(activePaneKey)
+  }, [activePaneKey, host])
+
+  return (
+    <MosaicWindow<TileKey>
+      path={path}
+      title=""
+      toolbarControls={[
+        <Separator key="sep" />,
+        <button
+          key="expand"
+          type="button"
+          className="mosaic-default-control expand-button"
+          onClick={onToggleExpand}
+          aria-label="Expand tile"
+          title="Expand tile"
+        >
+          <Maximize2 className="h-4 w-4" aria-hidden="true" />
+        </button>,
+        <TileCloseButton
+          key="close"
+          onBeforeClose={() => {
+            host?.closePane(activePaneKey)
+          }}
+        />,
+        tileControlsToggle(),
+      ]}
+    >
+      <div
+        className="h-full min-h-0"
+        tabIndex={-1}
+        data-refmd-tile-key={tileKey}
+        onPointerDownCapture={onActivate}
+        onFocusCapture={onActivate}
+      >
+        <div className="refmd-mosaic-panel">
+          {host && activePaneKey ? (
+            <DocumentEditorPanes
+              panes={host.panes}
+              activePaneKey={activePaneKey}
+              document={host.document}
+              editor={host.editor}
+              onOpenPane={host.openPane}
+              onClosePane={host.closePane}
+              activeListenersRef={host.activeListenersRef}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
+              Plugin pane is not available for this document.
+            </div>
+          )}
+        </div>
+      </div>
+    </MosaicWindow>
+  )
+}
+
 function useEditorIdentity() {
   const { user } = useAuthContext()
   const anonIdentity = useMemo(() => {
@@ -2415,6 +2702,7 @@ function EditorTile({
   onToggleExpand,
   onSwitchToPreview,
   isSingleDocShare,
+  onDocumentEditorPaneHostChange,
   onActivate,
 }: {
   tileKey: TileKey
@@ -2427,6 +2715,7 @@ function EditorTile({
   onToggleExpand: () => void
   onSwitchToPreview: () => void
   isSingleDocShare: boolean
+  onDocumentEditorPaneHostChange: (documentId: string, host: DocumentEditorPaneHostState | null) => void
   onActivate?: () => void
 }) {
   const pluginLookup = useCreatedByPluginId(documentId, ctx.shareToken ?? null)
@@ -2511,6 +2800,7 @@ function EditorTile({
             scrollSyncGroupId={scrollSyncGroupId}
             isFocusedDocument={isFocusedDocument}
             ctx={ctx}
+            onDocumentEditorPaneHostChange={onDocumentEditorPaneHostChange}
           />
         </div>
       </div>
@@ -2524,14 +2814,22 @@ function MarkdownEditorTileBody({
   scrollSyncGroupId,
   isFocusedDocument,
   ctx,
+  onDocumentEditorPaneHostChange,
 }: {
   tileKey: TileKey
   documentId: string
   scrollSyncGroupId?: string | null
   isFocusedDocument: boolean
   ctx: DocumentPageRenderContext
+  onDocumentEditorPaneHostChange: (documentId: string, host: DocumentEditorPaneHostState | null) => void
 }) {
   const identity = useEditorIdentity()
+  const handlePaneHostChange = useCallback(
+    (host: DocumentEditorPaneHostState | null) => {
+      onDocumentEditorPaneHostChange(documentId, host)
+    },
+    [documentId, onDocumentEditorPaneHostChange],
+  )
   const localSession = useCollaborativeDocument(documentId, ctx.shareToken, {
     contributeToRealtimeContext: false,
     useUrlShareTokenFallback: false,
@@ -2554,6 +2852,8 @@ function MarkdownEditorTileBody({
         forcedView="editor"
         embedded
         scrollSyncGroupId={scrollSyncGroupId ?? null}
+        documentEditorPanePlacement="mosaic"
+        onDocumentEditorPaneHostChange={handlePaneHostChange}
       />
     )
   }
@@ -2572,6 +2872,10 @@ function MarkdownEditorTileBody({
         userId={identity.userId}
         userName={identity.userName}
         documentId={documentId}
+        documentTitle={null}
+        documentType="markdown"
+        documentEditorPanePlacement="mosaic"
+        onDocumentEditorPaneHostChange={handlePaneHostChange}
         readOnly={localSession.isReadOnly}
       />
     )

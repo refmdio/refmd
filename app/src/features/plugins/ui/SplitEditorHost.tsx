@@ -360,6 +360,7 @@ function PluginSplitEditorStageInner({ docId, token, host, previewDelegate, onDo
           documentId={docId}
           readOnly={isReadOnly}
           extraRight={undefined}
+          documentEditorPluginsEnabled={false}
           renderPreview={renderPreview}
         />
       )}
