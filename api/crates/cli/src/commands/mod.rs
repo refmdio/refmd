@@ -8,6 +8,7 @@ mod jobs;
 mod openapi;
 mod plugins;
 mod shares;
+mod snapshots;
 mod tokens;
 mod users;
 mod workspaces;
@@ -25,6 +26,7 @@ pub(crate) async fn run(deps: &Deps, command: Command) -> Result<()> {
         Command::Plugins { command } => plugins::handle(deps, command).await,
         Command::Tokens { command } => tokens::handle(deps, command).await,
         Command::Shares { command } => shares::handle(deps, command).await,
+        Command::Snapshots { command } => snapshots::handle(deps, command).await,
         Command::Openapi { command } => openapi::handle(command),
     }
 }

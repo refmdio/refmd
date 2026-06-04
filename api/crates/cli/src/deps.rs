@@ -26,6 +26,8 @@ use super::git_workspace::CliGitWorkspace;
 
 pub(crate) struct Deps {
     pub(crate) pool: PgPool,
+    pub(crate) snapshot_keep_versions: i64,
+    pub(crate) snapshot_archive_keep_versions: i64,
     pub(crate) user_repo: SqlxUserRepository,
     pub(crate) workspace_service: Arc<dyn WorkspaceServiceFacade>,
     pub(crate) ingest_queue: Arc<dyn StorageIngestQueue>,
@@ -88,6 +90,8 @@ pub(crate) async fn build(database_url: Option<String>) -> Result<Deps> {
 
     Ok(Deps {
         pool,
+        snapshot_keep_versions: cfg.snapshot_keep_versions,
+        snapshot_archive_keep_versions: cfg.snapshot_archive_keep_versions,
         user_repo,
         workspace_service,
         ingest_queue,

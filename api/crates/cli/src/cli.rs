@@ -51,6 +51,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ShareCommand,
     },
+    /// Snapshot maintenance
+    Snapshots {
+        #[command(subcommand)]
+        command: SnapshotCommand,
+    },
     /// OpenAPI utilities
     Openapi {
         #[command(subcommand)]
@@ -199,6 +204,79 @@ pub(crate) enum GitRebuildCommand {
         #[arg(long)]
         actor_id: Option<Uuid>,
     },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum SnapshotCommand {
+    /// Print snapshot retention metrics
+    Stats {
+        /// Keep this many latest document_snapshots per document
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        snapshots_keep: Option<i64>,
+        /// Keep this many latest document_snapshot_archives per document/kind
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        archives_keep: Option<i64>,
+        /// Archive kind to include in archive stats
+        #[arg(long, value_enum, default_value_t = SnapshotArchiveKindArg::Auto)]
+        archive_kind: SnapshotArchiveKindArg,
+        /// Which table family to inspect
+        #[arg(long, value_enum, default_value_t = SnapshotPruneTarget::Both)]
+        target: SnapshotPruneTarget,
+    },
+    /// Apply snapshot retention to existing rows
+    Prune {
+        /// Keep this many latest document_snapshots per document
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        snapshots_keep: Option<i64>,
+        /// Keep this many latest document_snapshot_archives per document/kind
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        archives_keep: Option<i64>,
+        /// Archive kind to prune
+        #[arg(long, value_enum, default_value_t = SnapshotArchiveKindArg::Auto)]
+        archive_kind: SnapshotArchiveKindArg,
+        /// Which table family to prune
+        #[arg(long, value_enum, default_value_t = SnapshotPruneTarget::Both)]
+        target: SnapshotPruneTarget,
+        /// Maximum over-limit documents to select in each pass
+        #[arg(long, default_value_t = 25, value_parser = clap::value_parser!(i64).range(1..))]
+        document_batch_size: i64,
+        /// Maximum rows to delete in each statement
+        #[arg(long, default_value_t = 1000, value_parser = clap::value_parser!(i64).range(1..))]
+        delete_batch_size: i64,
+        /// Stop after this many documents per target, useful for canary runs
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        max_docs: Option<i64>,
+        /// Sleep between delete statements
+        #[arg(long, default_value_t = 0)]
+        sleep_ms: u64,
+        /// Print what would be deleted without deleting rows
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum, Debug, PartialEq, Eq)]
+pub(crate) enum SnapshotPruneTarget {
+    Snapshots,
+    Archives,
+    Both,
+}
+
+#[derive(Clone, Copy, ValueEnum, Debug, PartialEq, Eq)]
+pub(crate) enum SnapshotArchiveKindArg {
+    Auto,
+    Manual,
+    Restore,
+}
+
+impl SnapshotArchiveKindArg {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            SnapshotArchiveKindArg::Auto => "auto",
+            SnapshotArchiveKindArg::Manual => "manual",
+            SnapshotArchiveKindArg::Restore => "restore",
+        }
+    }
 }
 
 #[derive(Subcommand)]
