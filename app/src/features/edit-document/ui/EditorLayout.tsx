@@ -330,6 +330,12 @@ export function EditorLayout({
       }
     }
 
+    if (isMobile && extraRight) {
+      wEditor = '0%'
+      wPreview = '0%'
+      wExtra = '100%'
+    }
+
     const shouldForceFloatingToc = !isMobile && view === 'preview' && !!extraRight
 
     return {

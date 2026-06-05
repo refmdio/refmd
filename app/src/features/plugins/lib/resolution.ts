@@ -3,6 +3,7 @@ import type { DocumentHeaderAction } from '@/shared/types/document'
 import type { PluginManifestItem } from '@/entities/plugin'
 import { getPluginManifest, getPluginKv } from '@/entities/plugin'
 
+import type { DocumentEditorPluginMatch } from './document-editor'
 import {
   createPluginHost,
   applyShareTokenToRoute,
@@ -21,6 +22,75 @@ export type DocumentPluginMatch = {
   route: string
   token: string | null
   docId: string
+}
+
+function hasDocumentRouteSurface(item: PluginManifestItem, mod: any) {
+  const mounts = Array.isArray(item.mounts) ? item.mounts.filter(Boolean) : []
+  return mounts.length > 0 || typeof mod?.canOpen === 'function' || typeof mod?.getRoute === 'function'
+}
+
+export async function resolveDocumentEditorPlugins(
+  options: {
+    docId: string
+    token?: string | null
+    workspaceId?: string | null
+    document?: { type?: string | null; title?: string | null; readOnly?: boolean }
+  },
+): Promise<DocumentEditorPluginMatch[]> {
+  const docId = options.docId?.trim?.() ?? ''
+  if (!docId) return []
+  const manifest = await getPluginManifestCached({
+    token: options.token ?? undefined,
+    workspaceId: options.workspaceId ?? null,
+  })
+  const apiOrigin = getApiOrigin()
+  const matches: DocumentEditorPluginMatch[] = []
+
+  for (const item of manifest) {
+    const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
+    const entry = frontend?.entry?.trim()
+    if (!entry) continue
+    if ((frontend?.mode || 'esm').toLowerCase() !== 'esm') continue
+
+    let mod: any
+    try {
+      mod = await loadPluginModule(item)
+    } catch (error) {
+      console.error('[plugins] failed to load document editor plugin', item?.id, error)
+      continue
+    }
+    if (!mod || typeof mod.activateDocumentEditor !== 'function') continue
+
+    let canActivate = true
+    if (typeof mod.canActivateDocumentEditor === 'function') {
+      try {
+        canActivate = await mod.canActivateDocumentEditor({
+          plugin: {
+            id: item.id,
+            version: item.version ?? '',
+            manifest: item,
+          },
+          document: {
+            id: docId,
+            type: options.document?.type ?? 'markdown',
+            title: options.document?.title ?? null,
+            token: options.token ?? null,
+            readOnly: Boolean(options.document?.readOnly),
+          },
+          origin: apiOrigin,
+          token: options.token ?? null,
+        })
+      } catch (error) {
+        console.error('[plugins] failed to test document editor plugin', item?.id, error)
+        canActivate = false
+      }
+    }
+    if (!canActivate) continue
+
+    matches.push({ manifest: item, module: mod })
+  }
+
+  return matches
 }
 
 const PLUGIN_MANIFEST_CACHE_TTL_MS = 5_000
@@ -121,6 +191,7 @@ export async function resolvePluginForDocumentById(
     return null
   }
   if (!mod) return null
+  if (!hasDocumentRouteSurface(item, mod)) return null
 
   const detectionHost = {
     origin: apiOrigin,
@@ -218,6 +289,7 @@ export async function resolvePluginForDocument(
       continue
     }
     if (!mod) continue
+    if (!hasDocumentRouteSurface(item, mod)) continue
 
     const detectionHost = {
       origin: apiOrigin,

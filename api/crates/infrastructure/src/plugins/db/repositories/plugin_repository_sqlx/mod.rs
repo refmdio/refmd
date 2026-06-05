@@ -146,6 +146,59 @@ impl PluginRepository for SqlxPluginRepository {
         out.map_err(Into::into)
     }
 
+    async fn append_record_array_item(
+        &self,
+        record_id: Uuid,
+        field: &str,
+        item: &JsonValue,
+        patch: &JsonValue,
+    ) -> PortResult<Option<PluginRecord>> {
+        let out: anyhow::Result<Option<PluginRecord>> = async {
+            let row = sqlx::query(
+                r#"UPDATE plugin_records
+               SET data = jsonb_set(
+                   data || $4::jsonb,
+                   ARRAY[$2],
+                   COALESCE(
+                       CASE
+                           WHEN jsonb_typeof(data -> $2) = 'array' THEN data -> $2
+                           ELSE '[]'::jsonb
+                       END,
+                       '[]'::jsonb
+                   ) || jsonb_build_array($3::jsonb),
+                   true
+               ),
+               updated_at = now()
+               WHERE id = $1
+               RETURNING id, plugin, scope, scope_id, kind, data, created_at, updated_at"#,
+            )
+            .bind(record_id)
+            .bind(field)
+            .bind(item)
+            .bind(patch)
+            .fetch_optional(&self.pool)
+            .await?;
+            row.map(|r| {
+                let scope_raw: String = r.get("scope");
+                let scope = PluginRecordScope::parse(&scope_raw)
+                    .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
+                Ok(PluginRecord {
+                    id: r.get("id"),
+                    plugin: r.get("plugin"),
+                    scope,
+                    scope_id: r.get("scope_id"),
+                    kind: r.get("kind"),
+                    data: r.get("data"),
+                    created_at: r.get("created_at"),
+                    updated_at: r.get("updated_at"),
+                })
+            })
+            .transpose()
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
     async fn delete_record(&self, record_id: Uuid) -> PortResult<bool> {
         let out: anyhow::Result<bool> = async {
             let res = sqlx::query("DELETE FROM plugin_records WHERE id = $1")

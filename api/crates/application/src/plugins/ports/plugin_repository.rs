@@ -52,6 +52,14 @@ pub trait PluginRepository: Send + Sync {
         patch: &JsonValue,
     ) -> PortResult<Option<PluginRecord>>;
 
+    async fn append_record_array_item(
+        &self,
+        record_id: Uuid,
+        field: &str,
+        item: &JsonValue,
+        patch: &JsonValue,
+    ) -> PortResult<Option<PluginRecord>>;
+
     async fn delete_record(&self, record_id: Uuid) -> PortResult<bool>;
 
     async fn get_record(&self, record_id: Uuid) -> PortResult<Option<PluginRecord>>;

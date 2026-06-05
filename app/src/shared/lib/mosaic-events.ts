@@ -1,6 +1,7 @@
 export const OPEN_PREVIEW_TILE_EVENT = 'refmd:mosaic:open-preview-tile'
 export const OPEN_EDITOR_TILE_EVENT = 'refmd:mosaic:open-editor-tile'
 export const OPEN_BACKLINKS_TILE_EVENT = 'refmd:mosaic:open-backlinks-tile'
+export const OPEN_DOCUMENT_PLUGIN_PANE_EVENT = 'refmd:mosaic:open-document-plugin-pane'
 export const MOSAIC_SCROLL_SYNC_EVENT = 'refmd:mosaic:scroll-sync'
 export const MOSAIC_SET_VIEW_MODE_EVENT = 'refmd:mosaic:set-view-mode'
 export const MOSAIC_CURRENT_VIEW_MODE_EVENT = 'refmd:mosaic:current-view-mode'
@@ -42,6 +43,22 @@ export function dispatchOpenBacklinksTile(documentId: string) {
   window.dispatchEvent(
     new CustomEvent<OpenBacklinksTileDetail>(OPEN_BACKLINKS_TILE_EVENT, {
       detail: { documentId },
+    }),
+  )
+}
+
+export type OpenDocumentPluginPaneDetail = {
+  documentId: string
+  paneKey?: string
+}
+
+export function dispatchOpenDocumentPluginPane(documentId: string, paneKey?: string) {
+  if (typeof window === 'undefined') return
+  const id = (documentId || '').trim()
+  if (!id) return
+  window.dispatchEvent(
+    new CustomEvent<OpenDocumentPluginPaneDetail>(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, {
+      detail: paneKey ? { documentId: id, paneKey } : { documentId: id },
     }),
   )
 }

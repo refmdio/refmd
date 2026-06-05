@@ -14,6 +14,10 @@ import {
 import type { ManifestItem as ClientManifestItem } from '@/shared/api/client'
 
 export type PluginManifestItem = ClientManifestItem
+export type PluginRecordListOptions = {
+  limit?: number | null
+  offset?: number | null
+}
 
 export const pluginKeys = {
   manifest: () => ['plugins', 'manifest'] as const,
@@ -59,9 +63,20 @@ export async function listPluginRecords(
   pluginId: string,
   docId: string,
   kind: string,
+  optionsOrToken?: PluginRecordListOptions | string,
   token?: string,
 ) {
-  return withShareAuthorization(token, () => apiListRecords({ plugin: pluginId, docId, kind }))
+  const options = typeof optionsOrToken === 'string' ? undefined : optionsOrToken
+  const authToken = typeof optionsOrToken === 'string' ? optionsOrToken : token
+  return withShareAuthorization(authToken, () =>
+    apiListRecords({
+      plugin: pluginId,
+      docId,
+      kind,
+      limit: options?.limit ?? undefined,
+      offset: options?.offset ?? undefined,
+    }),
+  )
 }
 
 export async function createPluginRecord(
@@ -76,12 +91,14 @@ export async function createPluginRecord(
   )
 }
 
-export async function updatePluginRecord(pluginId: string, id: string, patch: unknown) {
-  return apiPluginsUpdateRecord({ plugin: pluginId, id, requestBody: { patch } })
+export async function updatePluginRecord(pluginId: string, id: string, patch: unknown, token?: string) {
+  return withShareAuthorization(token, () =>
+    apiPluginsUpdateRecord({ plugin: pluginId, id, requestBody: { patch } }),
+  )
 }
 
-export async function deletePluginRecord(pluginId: string, id: string) {
-  return apiPluginsDeleteRecord({ plugin: pluginId, id })
+export async function deletePluginRecord(pluginId: string, id: string, token?: string) {
+  return withShareAuthorization(token, () => apiPluginsDeleteRecord({ plugin: pluginId, id }))
 }
 
 export async function getPluginKv(
