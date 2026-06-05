@@ -1,7 +1,7 @@
 export * from './model/usePluginManifest'
 export * from './model/usePluginExecutor'
 export * from './model/usePluginDocumentRedirect'
-export * from './model/useDocumentEditorPlugins'
+export { useDocumentEditorPlugins } from './model/useDocumentEditorPlugins'
 export {
   matchesMount,
   resolvePluginForRoute,
@@ -11,10 +11,10 @@ export {
   mountResolvedPlugin,
   mountRoutePlugin,
 } from '@/features/plugins/lib/resolution'
-export { renderDocumentPaneIcon } from '@/features/plugins/lib/pane-icons'
 
 export type { RoutePluginMatch, DocumentPluginMatch } from '@/features/plugins/lib/resolution'
 export type {
+  DocumentEditorActionApi,
   DocumentEditorActivationContext,
   DocumentEditorApi,
   DocumentEditorDocumentApi,

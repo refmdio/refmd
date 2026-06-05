@@ -98,14 +98,14 @@ export type DocumentEditorPaneRegistration = {
 
 export type DocumentEditorRecordApi = {
   list(kind: string, options?: { limit?: number; offset?: number }): Promise<unknown[]>
-  create(kind: string, data: unknown): Promise<unknown>
-  update(id: string, patch: unknown): Promise<unknown>
-  delete(id: string): Promise<void>
 }
 
 export type DocumentEditorKvApi = {
   get(key: string): Promise<unknown>
-  put(key: string, value: unknown): Promise<unknown>
+}
+
+export type DocumentEditorActionApi = {
+  exec(action: string, payload?: Record<string, unknown>): Promise<unknown>
 }
 
 export type DocumentEditorActivationContext = {
@@ -121,6 +121,7 @@ export type DocumentEditorActivationContext = {
   }
   records: DocumentEditorRecordApi
   kv: DocumentEditorKvApi
+  actions: DocumentEditorActionApi
   toast(level: 'info' | 'success' | 'warning' | 'error', message: string): void
 }
 

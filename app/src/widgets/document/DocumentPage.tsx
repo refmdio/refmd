@@ -28,7 +28,8 @@ import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/featu
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
-import { renderDocumentPaneIcon, type DocumentEditorPaneHostState } from '@/features/plugins'
+import { renderDocumentPaneIcon } from '@/features/plugins/lib/pane-icons'
+import type { DocumentEditorPaneHostState } from '@/features/plugins/model/useDocumentEditorPlugins'
 import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
 
 export type DocumentLoaderData = {
@@ -316,6 +317,7 @@ function DocumentClient({
             next &&
             pane.key === next.key &&
             pane.title === next.title &&
+            pane.icon === next.icon &&
             pane.badge === next.badge
           )
         })

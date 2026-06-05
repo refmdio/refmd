@@ -25,7 +25,8 @@ import { ensureRefmdThemes, REFMD_DARK_THEME, REFMD_LIGHT_THEME } from '@/featur
 import { registerWikiLinkCompletion } from '@/features/edit-document/lib/monaco/wiki-link-provider'
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { useViewContext } from '@/features/edit-document/model/view-context'
-import { useDocumentEditorPlugins, type DocumentEditorApi, type DocumentEditorDocumentApi, type DocumentEditorPaneHostState, type DocumentEditorRange, type DocumentEditorSelection } from '@/features/plugins'
+import { useDocumentEditorPlugins, type DocumentEditorApi, type DocumentEditorDocumentApi, type DocumentEditorRange, type DocumentEditorSelection } from '@/features/plugins'
+import type { DocumentEditorPaneHostState } from '@/features/plugins/model/useDocumentEditorPlugins'
 
 import { loadMonacoVim } from '../lib/monaco/vim-loader'
 

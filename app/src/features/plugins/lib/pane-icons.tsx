@@ -22,7 +22,6 @@ const documentPaneIcons: Record<string, LucideIcon> = {
   bug: Bug,
   'check-circle': CheckCircle2,
   'check-circle-2': CheckCircle2,
-  comments: MessageSquare,
   'file-text': FileText,
   list: List,
   'list-tree': ListTree,

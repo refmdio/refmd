@@ -42,7 +42,9 @@ import { browseShare } from '@/entities/share'
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
 import { EditorOverlay, MarkdownEditor, PreviewPane, useCollaborativeDocument } from '@/features/edit-document'
-import { DocumentEditorPanes, mountResolvedPlugin, renderDocumentPaneIcon, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentEditorPaneHostState, type DocumentPluginMatch } from '@/features/plugins'
+import { mountResolvedPlugin, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentPluginMatch } from '@/features/plugins'
+import { renderDocumentPaneIcon } from '@/features/plugins/lib/pane-icons'
+import { DocumentEditorPanes, type DocumentEditorPaneHostState } from '@/features/plugins/model/useDocumentEditorPlugins'
 import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorHost'
 
 import DocumentPage, { type DocumentLoaderData, type DocumentPageProps, type DocumentPageRenderContext } from './DocumentPage'
@@ -691,6 +693,7 @@ function sameDocumentEditorPaneHost(a: DocumentEditorPaneHostState | null | unde
       next &&
       pane.key === next.key &&
       pane.title === next.title &&
+      pane.icon === next.icon &&
       pane.badge === next.badge,
     )
   })

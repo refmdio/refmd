@@ -9,12 +9,9 @@ import { Button } from '@/shared/ui/button'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 
 import {
-  createPluginRecord,
-  deletePluginRecord,
+  execPluginAction,
   getPluginKv,
   listPluginRecords,
-  putPluginKv,
-  updatePluginRecord,
 } from '@/entities/plugin'
 
 import { useAuthContext } from '@/features/auth'
@@ -61,6 +58,26 @@ function createInactivePaneRegistration(): DocumentEditorPaneRegistration {
     setBadge: () => {},
     setTitle: () => {},
     open: () => {},
+  }
+}
+
+function applyDocumentEditorActionEffects(effects: unknown) {
+  if (!Array.isArray(effects)) return
+  for (const effect of effects) {
+    if (!effect || typeof effect !== 'object') continue
+    const item = effect as any
+    if (item.type === 'showToast') {
+      const level = typeof item.level === 'string' ? item.level : 'info'
+      const message = typeof item.message === 'string' ? item.message : ''
+      if (!message) continue
+      const fn = (sonnerToast as any)[level]
+      if (typeof fn === 'function') fn(message)
+      else sonnerToast(message)
+      continue
+    }
+    if (item.type === 'navigate' && typeof item.to === 'string' && typeof window !== 'undefined') {
+      window.location.href = item.to
+    }
   }
 }
 
@@ -208,19 +225,28 @@ export function useDocumentEditorPlugins({
             )
             return Array.isArray(response) ? response : ((response as any)?.items ?? [])
           },
-          create: (kind, data) =>
-            createPluginRecord(pluginId, document.id, kind, data, document.token ?? undefined),
-          update: (id, patch) =>
-            updatePluginRecord(pluginId, id, patch, document.token ?? undefined),
-          delete: (id) =>
-            deletePluginRecord(pluginId, id, document.token ?? undefined),
         },
         kv: {
           get: async (key) => {
             const response = await getPluginKv(pluginId, document.id, key, document.token ?? undefined)
             return (response as any)?.value
           },
-          put: (key, value) => putPluginKv(pluginId, document.id, key, value, document.token ?? undefined),
+        },
+        actions: {
+          exec: async (action, payload = {}) => {
+            const response = await execPluginAction(
+              pluginId,
+              action,
+              { docId: document.id, ...payload },
+              document.token ?? undefined,
+            )
+            applyDocumentEditorActionEffects((response as any)?.effects)
+            if ((response as any)?.ok === false) {
+              const message = String((response as any)?.error?.message || (response as any)?.error?.code || 'Plugin action failed')
+              throw new Error(message)
+            }
+            return (response as any)?.data ?? response
+          },
         },
         toast: (level, message) => {
           const fn = (sonnerToast as any)[level]
@@ -349,6 +375,9 @@ export function DocumentEditorPanes({
   activeListenersRef: MutableRefObject<Map<string, Set<ActiveListener>>>
 }) {
   const activePane = panes.find((pane) => pane.key === activePaneKey) ?? null
+  const handleActivePaneClose = useCallback(() => {
+    if (activePaneKey) onClosePane(activePaneKey)
+  }, [activePaneKey, onClosePane])
 
   if (!activePane) return null
 
@@ -401,7 +430,7 @@ export function DocumentEditorPanes({
             document={document}
             editor={editor}
             activeListenersRef={activeListenersRef}
-            onClose={() => onClosePane(activePane.key)}
+            onClose={handleActivePaneClose}
           />
         </div>
       </ScrollArea>
@@ -423,9 +452,17 @@ function DocumentEditorPaneBody({
   onClose: () => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const {
+    contribution,
+    id: paneId,
+    key: paneKey,
+    pluginId,
+    pluginManifest,
+    pluginVersion,
+  } = pane
   const scopedEditor = useMemo(
-    () => createScopedDocumentEditorApi(editor, pane.pluginId),
-    [editor, pane.pluginId],
+    () => createScopedDocumentEditorApi(editor, pluginId),
+    [editor, pluginId],
   )
 
   useEffect(() => {
@@ -435,21 +472,21 @@ function DocumentEditorPaneBody({
 
     const paneCtx: DocumentEditorPaneRenderContext = {
       plugin: {
-        id: pane.pluginId,
-        version: pane.pluginVersion,
-        manifest: pane.pluginManifest,
+        id: pluginId,
+        version: pluginVersion,
+        manifest: pluginManifest,
       },
       document,
       editor: scopedEditor,
       pane: {
-        id: pane.id,
+        id: paneId,
         active: true,
         close: onClose,
         onActiveChange: (callback) => {
-          let listeners = activeListenersRef.current.get(pane.key)
+          let listeners = activeListenersRef.current.get(paneKey)
           if (!listeners) {
             listeners = new Set()
-            activeListenersRef.current.set(pane.key, listeners)
+            activeListenersRef.current.set(paneKey, listeners)
           }
           listeners.add(callback)
           try {
@@ -466,9 +503,9 @@ function DocumentEditorPaneBody({
 
     let dispose: void | (() => void)
     try {
-      dispose = pane.contribution.render(container, paneCtx)
+      dispose = contribution.render(container, paneCtx)
     } catch (error) {
-      console.error('[plugins] failed to render document pane', pane.pluginId, pane.id, error)
+      console.error('[plugins] failed to render document pane', pluginId, paneId, error)
       container.textContent = 'Failed to render plugin pane.'
     }
 
@@ -480,7 +517,18 @@ function DocumentEditorPaneBody({
       }
       container.innerHTML = ''
     }
-  }, [activeListenersRef, document, onClose, pane, scopedEditor])
+  }, [
+    activeListenersRef,
+    contribution,
+    document,
+    onClose,
+    paneId,
+    paneKey,
+    pluginId,
+    pluginManifest,
+    pluginVersion,
+    scopedEditor,
+  ])
 
   return <div ref={containerRef} className="h-full min-h-0" />
 }
