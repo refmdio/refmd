@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookmarkPlus, Download, History, MessageSquare } from 'lucide-react'
+import { BookmarkPlus, Download, History } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
@@ -28,7 +28,7 @@ import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/featu
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
-import type { DocumentEditorPaneHostState } from '@/features/plugins'
+import { renderDocumentPaneIcon, type DocumentEditorPaneHostState } from '@/features/plugins'
 import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
 
 export type DocumentLoaderData = {
@@ -341,7 +341,7 @@ function DocumentClient({
       const action = {
         id: actionId,
         label: pane.title,
-        icon: <MessageSquare className="h-4 w-4" />,
+        icon: renderDocumentPaneIcon(pane.icon),
         tooltip: `Open ${pane.title}`,
         onSelect: () => {
           dispatchOpenDocumentPluginPane(id, pane.key)

@@ -24,10 +24,12 @@ import type {
   DocumentEditorApi,
   DocumentEditorDocumentApi,
   DocumentEditorPaneContribution,
+  DocumentEditorPaneRegistration,
   DocumentEditorPaneRenderContext,
   DocumentEditorPluginMatch,
   RegisteredDocumentEditorPane,
 } from '../lib/document-editor'
+import { renderDocumentPaneIcon } from '../lib/pane-icons'
 import { resolveDocumentEditorPlugins } from '../lib/resolution'
 
 type UseDocumentEditorPluginsArgs = {
@@ -38,6 +40,29 @@ type UseDocumentEditorPluginsArgs = {
 }
 
 type ActiveListener = (active: boolean) => void
+
+function scopePluginOwnerId(pluginId: string, ownerId: string) {
+  return `${pluginId}:${String(ownerId || 'default')}`
+}
+
+function createScopedDocumentEditorApi(editor: DocumentEditorApi, pluginId: string): DocumentEditorApi {
+  return {
+    ...editor,
+    setDecorations: (ownerId, decorations) =>
+      editor.setDecorations(scopePluginOwnerId(pluginId, ownerId), decorations),
+    setHiddenRanges: (ownerId, ranges) =>
+      editor.setHiddenRanges(scopePluginOwnerId(pluginId, ownerId), ranges),
+  }
+}
+
+function createInactivePaneRegistration(): DocumentEditorPaneRegistration {
+  return {
+    dispose: () => {},
+    setBadge: () => {},
+    setTitle: () => {},
+    open: () => {},
+  }
+}
 
 export type DocumentEditorPaneHostState = {
   panes: RegisteredDocumentEditorPane[]
@@ -113,12 +138,14 @@ export function useDocumentEditorPlugins({
         version: pluginVersion,
         manifest: match.manifest,
       }
+      const scopedEditor = createScopedDocumentEditorApi(editor, pluginId)
 
       const registerPane = (contribution: DocumentEditorPaneContribution) => {
         const localPaneId = String(contribution?.id ?? '').trim()
         if (!localPaneId) {
           throw new Error('document pane id is required')
         }
+        if (cancelled) return createInactivePaneRegistration()
         const key = `${pluginId}:${localPaneId}`
         const pane: RegisteredDocumentEditorPane = {
           key,
@@ -144,30 +171,41 @@ export function useDocumentEditorPlugins({
         return {
           dispose: () => removePane(key),
           setBadge: (value: string | number | null) => {
+            if (cancelled) return
             setPanes((current) =>
               current.map((item) => (item.key === key ? { ...item, badge: value } : item)),
             )
           },
           setTitle: (title: string) => {
+            if (cancelled) return
             const nextTitle = String(title || localPaneId)
             setPanes((current) =>
               current.map((item) => (item.key === key ? { ...item, title: nextTitle } : item)),
             )
           },
-          open: () => setActivePaneKey(key),
+          open: () => {
+            if (cancelled) return
+            setActivePaneKey(key)
+          },
         }
       }
 
       return {
         plugin,
         document,
-        editor,
+        editor: scopedEditor,
         documentPanes: {
           register: registerPane,
         },
         records: {
-          list: async (kind) => {
-            const response = await listPluginRecords(pluginId, document.id, kind, document.token ?? undefined)
+          list: async (kind, options) => {
+            const response = await listPluginRecords(
+              pluginId,
+              document.id,
+              kind,
+              options,
+              document.token ?? undefined,
+            )
             return Array.isArray(response) ? response : ((response as any)?.items ?? [])
           },
           create: (kind, data) =>
@@ -178,7 +216,10 @@ export function useDocumentEditorPlugins({
             deletePluginRecord(pluginId, id, document.token ?? undefined),
         },
         kv: {
-          get: (key) => getPluginKv(pluginId, document.id, key, document.token ?? undefined),
+          get: async (key) => {
+            const response = await getPluginKv(pluginId, document.id, key, document.token ?? undefined)
+            return (response as any)?.value
+          },
           put: (key, value) => putPluginKv(pluginId, document.id, key, value, document.token ?? undefined),
         },
         toast: (level, message) => {
@@ -326,6 +367,11 @@ export function DocumentEditorPanes({
               onClick={() => onOpenPane(pane.key)}
               title={pane.title}
             >
+              {pane.icon ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {renderDocumentPaneIcon(pane.icon, 'h-3.5 w-3.5')}
+                </span>
+              ) : null}
               <span className="truncate">{pane.title}</span>
               {pane.badge != null && pane.badge !== '' ? (
                 <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
@@ -377,6 +423,10 @@ function DocumentEditorPaneBody({
   onClose: () => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const scopedEditor = useMemo(
+    () => createScopedDocumentEditorApi(editor, pane.pluginId),
+    [editor, pane.pluginId],
+  )
 
   useEffect(() => {
     const container = containerRef.current
@@ -390,7 +440,7 @@ function DocumentEditorPaneBody({
         manifest: pane.pluginManifest,
       },
       document,
-      editor,
+      editor: scopedEditor,
       pane: {
         id: pane.id,
         active: true,
@@ -430,7 +480,7 @@ function DocumentEditorPaneBody({
       }
       container.innerHTML = ''
     }
-  }, [activeListenersRef, document, editor, onClose, pane])
+  }, [activeListenersRef, document, onClose, pane, scopedEditor])
 
   return <div ref={containerRef} className="h-full min-h-0" />
 }

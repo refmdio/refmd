@@ -11,6 +11,7 @@ export {
   mountResolvedPlugin,
   mountRoutePlugin,
 } from '@/features/plugins/lib/resolution'
+export { renderDocumentPaneIcon } from '@/features/plugins/lib/pane-icons'
 
 export type { RoutePluginMatch, DocumentPluginMatch } from '@/features/plugins/lib/resolution'
 export type {

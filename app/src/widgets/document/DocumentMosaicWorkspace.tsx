@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Columns2, Eye, FileCode, Loader2, Maximize2, MessageSquare, MoreHorizontal, X } from 'lucide-react'
+import { Columns2, Eye, FileCode, Loader2, Maximize2, MoreHorizontal, X } from 'lucide-react'
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import {
   Mosaic,
@@ -42,7 +42,7 @@ import { browseShare } from '@/entities/share'
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
 import { EditorOverlay, MarkdownEditor, PreviewPane, useCollaborativeDocument } from '@/features/edit-document'
-import { DocumentEditorPanes, mountResolvedPlugin, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentEditorPaneHostState, type DocumentPluginMatch } from '@/features/plugins'
+import { DocumentEditorPanes, mountResolvedPlugin, renderDocumentPaneIcon, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentEditorPaneHostState, type DocumentPluginMatch } from '@/features/plugins'
 import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorHost'
 
 import DocumentPage, { type DocumentLoaderData, type DocumentPageProps, type DocumentPageRenderContext } from './DocumentPage'
@@ -1699,7 +1699,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
       const action = {
         id: actionId,
         label: pane.title,
-        icon: <MessageSquare className="h-4 w-4" />,
+        icon: renderDocumentPaneIcon(pane.icon),
         tooltip: `Open ${pane.title}`,
         onSelect: () => {
           dispatchOpenDocumentPluginPane(activeDocumentId, pane.key)

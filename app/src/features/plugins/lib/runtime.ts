@@ -489,7 +489,9 @@ async function executeHostAction(
         const kind = args?.kind
         if (typeof kind !== 'string' || !kind) throw fail('BAD_REQUEST', 'kind required')
         const token = (args?.token ?? ctx.token) || undefined
-        const response = await apiListPluginRecords(ctx.pluginId, docId, kind, token)
+        const limit = Number.isFinite(args?.limit) ? Number(args.limit) : undefined
+        const offset = Number.isFinite(args?.offset) ? Number(args.offset) : undefined
+        const response = await apiListPluginRecords(ctx.pluginId, docId, kind, { limit, offset }, token)
         return ok(response)
       }
       case 'host.records.create': {
