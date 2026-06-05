@@ -2656,6 +2656,7 @@ function DocumentPluginPaneTile({
               activePaneKey={activePaneKey}
               document={host.document}
               editor={host.editor}
+              user={host.user}
               onOpenPane={host.openPane}
               onClosePane={host.closePane}
               activeListenersRef={host.activeListenersRef}

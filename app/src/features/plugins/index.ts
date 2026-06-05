@@ -29,4 +29,5 @@ export type {
   DocumentEditorRange,
   DocumentEditorRecordApi,
   DocumentEditorSelection,
+  DocumentEditorUserApi,
 } from '@/features/plugins/lib/document-editor'

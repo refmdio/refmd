@@ -24,6 +24,7 @@ import type {
   DocumentEditorPaneRegistration,
   DocumentEditorPaneRenderContext,
   DocumentEditorPluginMatch,
+  DocumentEditorUserApi,
   RegisteredDocumentEditorPane,
 } from '../lib/document-editor'
 import { renderDocumentPaneIcon } from '../lib/pane-icons'
@@ -86,6 +87,7 @@ export type DocumentEditorPaneHostState = {
   activePaneKey: string | null
   document: DocumentEditorDocumentApi
   editor: DocumentEditorApi
+  user: DocumentEditorUserApi | null
   openPane: (key: string) => void
   closePane: (key?: string | null) => void
   activeListenersRef: MutableRefObject<Map<string, Set<ActiveListener>>>
@@ -97,7 +99,15 @@ export function useDocumentEditorPlugins({
   editor,
   onPaneHostChange,
 }: UseDocumentEditorPluginsArgs) {
-  const { activeWorkspaceId } = useAuthContext()
+  const { activeWorkspaceId, user } = useAuthContext()
+  const documentEditorUser = useMemo<DocumentEditorUserApi | null>(() => {
+    if (!user) return null
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    }
+  }, [user])
   const [panes, setPanes] = useState<RegisteredDocumentEditorPane[]>([])
   const [activePaneKey, setActivePaneKey] = useState<string | null>(null)
   const activeListenersRef = useRef<Map<string, Set<ActiveListener>>>(new Map())
@@ -209,6 +219,7 @@ export function useDocumentEditorPlugins({
 
       return {
         plugin,
+        user: documentEditorUser,
         document,
         editor: scopedEditor,
         documentPanes: {
@@ -309,7 +320,7 @@ export function useDocumentEditorPlugins({
         removePane(key)
       }
     }
-  }, [activeWorkspaceId, document, editor, enabled])
+  }, [activeWorkspaceId, document, documentEditorUser, editor, enabled])
 
   const extraRight = useMemo(() => {
     if (!panes.length || !activePaneKey || !document || !editor) return null
@@ -319,12 +330,13 @@ export function useDocumentEditorPlugins({
         activePaneKey={activePaneKey}
         document={document}
         editor={editor}
+        user={documentEditorUser}
         onOpenPane={openPane}
         onClosePane={closePane}
         activeListenersRef={activeListenersRef}
       />
     )
-  }, [activePaneKey, closePane, document, editor, openPane, panes])
+  }, [activePaneKey, closePane, document, documentEditorUser, editor, openPane, panes])
 
   const paneHost = useMemo<DocumentEditorPaneHostState | null>(() => {
     if (!document || !editor) return null
@@ -333,11 +345,12 @@ export function useDocumentEditorPlugins({
       activePaneKey,
       document,
       editor,
+      user: documentEditorUser,
       openPane,
       closePane,
       activeListenersRef,
     }
-  }, [activePaneKey, closePane, document, editor, openPane, panes])
+  }, [activePaneKey, closePane, document, documentEditorUser, editor, openPane, panes])
 
   useEffect(() => {
     onPaneHostChange?.(enabled ? paneHost : null)
@@ -362,6 +375,7 @@ export function DocumentEditorPanes({
   activePaneKey,
   document,
   editor,
+  user,
   onOpenPane,
   onClosePane,
   activeListenersRef,
@@ -370,6 +384,7 @@ export function DocumentEditorPanes({
   activePaneKey: string | null
   document: DocumentEditorDocumentApi
   editor: DocumentEditorApi
+  user: DocumentEditorUserApi | null
   onOpenPane: (key: string) => void
   onClosePane: (key?: string | null) => void
   activeListenersRef: MutableRefObject<Map<string, Set<ActiveListener>>>
@@ -429,6 +444,7 @@ export function DocumentEditorPanes({
             pane={activePane}
             document={document}
             editor={editor}
+            user={user}
             activeListenersRef={activeListenersRef}
             onClose={handleActivePaneClose}
           />
@@ -442,12 +458,14 @@ function DocumentEditorPaneBody({
   pane,
   document,
   editor,
+  user,
   activeListenersRef,
   onClose,
 }: {
   pane: RegisteredDocumentEditorPane
   document: DocumentEditorDocumentApi
   editor: DocumentEditorApi
+  user: DocumentEditorUserApi | null
   activeListenersRef: MutableRefObject<Map<string, Set<ActiveListener>>>
   onClose: () => void
 }) {
@@ -476,6 +494,7 @@ function DocumentEditorPaneBody({
         version: pluginVersion,
         manifest: pluginManifest,
       },
+      user,
       document,
       editor: scopedEditor,
       pane: {
@@ -528,6 +547,7 @@ function DocumentEditorPaneBody({
     pluginManifest,
     pluginVersion,
     scopedEditor,
+    user,
   ])
 
   return <div ref={containerRef} className="h-full min-h-0" />

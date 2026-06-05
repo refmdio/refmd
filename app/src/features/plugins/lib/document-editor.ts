@@ -62,12 +62,19 @@ export type DocumentEditorDocumentApi = {
   onContentChange(callback: (content: string) => void): () => void
 }
 
+export type DocumentEditorUserApi = {
+  id: string
+  name: string
+  email?: string | null
+}
+
 export type DocumentEditorPaneRenderContext = {
   plugin: {
     id: string
     version: string
     manifest: ManifestItem
   }
+  user: DocumentEditorUserApi | null
   document: DocumentEditorDocumentApi
   editor: DocumentEditorApi
   pane: {
@@ -114,6 +121,7 @@ export type DocumentEditorActivationContext = {
     version: string
     manifest: ManifestItem
   }
+  user: DocumentEditorUserApi | null
   document: DocumentEditorDocumentApi
   editor: DocumentEditorApi
   documentPanes: {
