@@ -62,6 +62,27 @@ function createInactivePaneRegistration(): DocumentEditorPaneRegistration {
   }
 }
 
+function resolveAnonymousDocumentEditorUser(): DocumentEditorUserApi | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const keyName = 'refmd_anon_identity'
+    const existing = window.localStorage.getItem(keyName)
+    if (existing) {
+      const parsed = JSON.parse(existing) as Partial<DocumentEditorUserApi>
+      if (typeof parsed.id === 'string' && typeof parsed.name === 'string') {
+        return { id: parsed.id, name: parsed.name }
+      }
+    }
+    const rnd = Math.random().toString(36).slice(2, 8)
+    const identity = { id: `guest:${rnd}`, name: `Guest-${rnd}` }
+    window.localStorage.setItem(keyName, JSON.stringify(identity))
+    return identity
+  } catch {
+    const rnd = Math.random().toString(36).slice(2, 8)
+    return { id: `guest:${rnd}`, name: `Guest-${rnd}` }
+  }
+}
+
 function applyDocumentEditorActionEffects(effects: unknown) {
   if (!Array.isArray(effects)) return
   for (const effect of effects) {
@@ -101,11 +122,10 @@ export function useDocumentEditorPlugins({
 }: UseDocumentEditorPluginsArgs) {
   const { activeWorkspaceId, user } = useAuthContext()
   const documentEditorUser = useMemo<DocumentEditorUserApi | null>(() => {
-    if (!user) return null
+    if (!user) return resolveAnonymousDocumentEditorUser()
     return {
       id: user.id,
       name: user.name,
-      email: user.email,
     }
   }, [user])
   const [panes, setPanes] = useState<RegisteredDocumentEditorPane[]>([])
@@ -248,7 +268,7 @@ export function useDocumentEditorPlugins({
             const response = await execPluginAction(
               pluginId,
               action,
-              { docId: document.id, ...payload },
+              { ...payload, docId: document.id },
               document.token ?? undefined,
             )
             applyDocumentEditorActionEffects((response as any)?.effects)

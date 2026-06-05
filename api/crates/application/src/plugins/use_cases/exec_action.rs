@@ -329,6 +329,68 @@ where
                             .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?;
                     }
                 }
+                "appendRecordArrayItem" => {
+                    policy::ensure_plugin_permission(
+                        permissions,
+                        policy::PLUGIN_PERMISSION_DOC_WRITE,
+                    )?;
+                    policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
+                    let Some(record_id) = effect
+                        .get("recordId")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| Uuid::parse_str(s).ok())
+                    else {
+                        continue;
+                    };
+                    let Some(field) = effect
+                        .get("field")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty() && value.len() <= 128)
+                    else {
+                        continue;
+                    };
+                    let Some(rec) = self
+                        .plugin_repo
+                        .get_record(record_id)
+                        .await
+                        .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?
+                    else {
+                        continue;
+                    };
+                    policy::ensure_record_owned_by_plugin(&rec.plugin, plugin)?;
+                    if rec.scope != PluginRecordScope::Doc {
+                        continue;
+                    }
+                    self.validate_doc_scope(
+                        workspace_id,
+                        Some(rec.scope_id),
+                        allowed_doc_id,
+                        doc_id_created,
+                        actor,
+                        true,
+                    )
+                    .await?;
+                    let item = effect
+                        .get("item")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let mut patch = effect
+                        .get("patch")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    if !patch.is_object() {
+                        patch = serde_json::json!({});
+                    }
+                    if let Some(obj) = patch.as_object_mut() {
+                        obj.remove(field);
+                    }
+                    let _ = self
+                        .plugin_repo
+                        .append_record_array_item(record_id, field, &item, &patch)
+                        .await
+                        .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?;
+                }
                 "deleteRecord" => {
                     policy::ensure_plugin_permission(
                         permissions,

@@ -684,6 +684,10 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
 function sameDocumentEditorPaneHost(a: DocumentEditorPaneHostState | null | undefined, b: DocumentEditorPaneHostState | null | undefined) {
   if (a === b) return true
   if (!a || !b) return false
+  if (a.document !== b.document) return false
+  if (a.editor !== b.editor) return false
+  if ((a.user?.id ?? null) !== (b.user?.id ?? null)) return false
+  if ((a.user?.name ?? null) !== (b.user?.name ?? null)) return false
   if (a.activePaneKey !== b.activePaneKey) return false
   if (a.openPane !== b.openPane || a.closePane !== b.closePane) return false
   if (a.panes.length !== b.panes.length) return false

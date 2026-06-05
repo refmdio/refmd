@@ -65,7 +65,6 @@ export type DocumentEditorDocumentApi = {
 export type DocumentEditorUserApi = {
   id: string
   name: string
-  email?: string | null
 }
 
 export type DocumentEditorPaneRenderContext = {
