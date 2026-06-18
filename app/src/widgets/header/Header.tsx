@@ -7,7 +7,6 @@ import { toast } from 'sonner'
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
-import { MOSAIC_CURRENT_VIEW_MODE_EVENT, dispatchMosaicSetViewMode, dispatchOpenBacklinksTile } from '@/shared/lib/mosaic-events'
 import { cn } from '@/shared/lib/utils'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import type { HeaderRealtimeState } from '@/shared/types/header'
@@ -108,7 +107,7 @@ const HeaderViewModeControls = memo(function HeaderViewModeControls({
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Open backlinks tile</TooltipContent>
+          <TooltipContent>Toggle backlinks</TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -125,8 +124,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const { editor } = useEditorContext()
   const { toggleSidebar } = useSidebar()
   const navigate = useNavigate()
-  const focusedDocumentIdRef = useRef<string | undefined>(undefined)
-  const mosaicViewModeRef = useRef<Map<string, ViewMode>>(new Map())
   const [mounted, setMounted] = useState(false)
   const [isCompact, setIsCompact] = useState(false)
   const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>(() => {
@@ -162,40 +159,15 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   }, [])
   
   const canShare = Boolean(rt.documentId)
-  focusedDocumentIdRef.current = rt.documentId
   const iconClass = 'h-[18px] w-[18px]'
 
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
-    if (rt.documentId) return
     const mode = vc.viewMode
     if (mode === 'editor' || mode === 'split' || mode === 'preview') {
       setHeaderViewMode(mode)
     }
-  }, [rt.documentId, vc.viewMode])
-
-  useEffect(() => {
-    if (!rt.documentId) return
-    const mode = mosaicViewModeRef.current.get(rt.documentId)
-    if (!mode) return
-    setHeaderViewMode(mode)
-  }, [rt.documentId])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ documentId?: string; mode?: string }>).detail
-      const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
-      const mode = detail?.mode
-      if (!documentId) return
-      if (mode !== 'editor' && mode !== 'split' && mode !== 'preview') return
-      mosaicViewModeRef.current.set(documentId, mode)
-      if (focusedDocumentIdRef.current !== documentId) return
-      setHeaderViewMode(mode)
-    }
-    window.addEventListener(MOSAIC_CURRENT_VIEW_MODE_EVENT, handler as EventListener)
-    return () => window.removeEventListener(MOSAIC_CURRENT_VIEW_MODE_EVENT, handler as EventListener)
-  }, [])
+  }, [vc.viewMode])
   useEffect(() => {
     if (typeof window === 'undefined') return
     const mq = window.matchMedia('(max-width: 1024px)')
@@ -348,31 +320,17 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       const normalized = pluginViewPolicy === 'previewOnly' ? 'preview' : mode
       const nextMode = normalized === 'split' && isCompact ? 'preview' : normalized
       setHeaderViewMode(nextMode)
-      if (isMobile) {
-        vc.setViewMode(nextMode)
-        return
-      }
-      const focusedDocumentId = focusedDocumentIdRef.current
-      if (focusedDocumentId) {
-        dispatchMosaicSetViewMode(focusedDocumentId, nextMode)
-      }
       vc.setViewMode(nextMode)
     },
-    [isCompact, isMobile, pluginViewPolicy, vc],
+    [isCompact, pluginViewPolicy, vc],
   )
 
   useEffect(() => {
     if (!mounted) return
     if (pluginViewPolicy !== 'previewOnly') return
     setHeaderViewMode('preview')
-    const focusedDocumentId = rt.documentId
-    if (focusedDocumentId) {
-      dispatchMosaicSetViewMode(focusedDocumentId, 'preview')
-    }
-    if (isMobile) {
-      vc.setViewMode('preview')
-    }
-  }, [isMobile, mounted, pluginViewPolicy, rt.documentId, vc])
+    vc.setViewMode('preview')
+  }, [mounted, pluginViewPolicy, vc])
 
   const shareHandler = () => {
     if (!rt.documentId) return
@@ -382,10 +340,12 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     void signOut()
   }, [signOut])
   const handleBacklinksClick = useCallback(() => {
-    const focusedDocumentId = focusedDocumentIdRef.current
-    if (!focusedDocumentId) return
-    dispatchOpenBacklinksTile(focusedDocumentId)
-  }, [])
+    if (!rt.documentId) return
+    if (!isCompact) {
+      changeView('split')
+    }
+    vc.toggleBacklinks()
+  }, [changeView, isCompact, rt.documentId, vc])
 
   useShortcut(
     'view.mode.editor',
@@ -448,8 +408,9 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     if (!mounted) return
     if (isCompact && headerViewMode === 'split') {
       setHeaderViewMode('preview')
+      vc.setViewMode('preview')
     }
-  }, [headerViewMode, isCompact, mounted])
+  }, [headerViewMode, isCompact, mounted, vc])
 
   useEffect(() => {
     if (!isMobile) return
