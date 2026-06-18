@@ -247,7 +247,7 @@ export async function resolvePluginForDocumentById(
   }
   if (!canOpen) return null
 
-  // Embed into the standard document route (tiles), not plugin-specific routes.
+  // Embed into the standard document route, not plugin-specific routes.
   const routeWithToken = applyShareTokenToRoute(`/document/${docId}`, token)
 
   let routeToken: string | null = routeWithToken.token

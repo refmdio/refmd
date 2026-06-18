@@ -4,7 +4,6 @@ import React from 'react'
 
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
-import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import {
@@ -20,6 +19,8 @@ import { Dialog, DialogContent } from '@/shared/ui/dialog'
 
 import { fetchDocumentContent, listDocuments, type Document } from '@/entities/document'
 import { listTags } from '@/entities/tag'
+
+import { useSecondaryViewer } from '@/features/secondary-viewer'
 
 const trimLeadingOwner = (segments: string[]) => {
   if (segments.length <= 1) return segments
@@ -53,6 +54,7 @@ type DocumentHit = Pick<Document, 'id' | 'title' | 'path' | 'type'>
 
 export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
   const navigate = useNavigate()
+  const { openSecondaryViewer } = useSecondaryViewer()
   const isMobile = useIsMobile()
   const [query, setQuery] = React.useState('')
   const [docs, setDocs] = React.useState<DocumentHit[]>([])
@@ -94,12 +96,12 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       (event) => {
         if (!open) return
         if (!activeDocId) return
-        dispatchOpenPreviewTile(activeDocId)
+        openSecondaryViewer(activeDocId)
         onOpenChange(false)
         event.preventDefault()
         event.stopPropagation()
       },
-      [activeDocId, onOpenChange, open],
+      [activeDocId, onOpenChange, open, openSecondaryViewer],
     ),
     { preventDefault: false },
   )
@@ -427,7 +429,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
         <div className="flex flex-col gap-1 border-b border-border/40 bg-transparent px-6 py-4">
           <p className="text-sm font-semibold leading-tight text-foreground">Quick search</p>
           <p className="text-xs text-muted-foreground">
-            Use ↑/↓ to move, Enter to open, Shift+Enter to open in a tile, #tag for tags, and folder/ to scope by path.
+            Use ↑/↓ to move, Enter to open, Shift+Enter to open in the side pane, #tag for tags, and folder/ to scope by path.
           </p>
         </div>
         <div className="flex h-full min-h-0 min-w-0 flex-col md:flex-row">

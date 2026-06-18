@@ -9,6 +9,9 @@ export function useViewController() {
   return useMemo(() => ({
     viewMode: ctx.viewMode as ViewMode,
     setViewMode: (mode: ViewMode) => ctx.setViewMode(mode),
+    showBacklinks: ctx.showBacklinks,
+    setShowBacklinks: ctx.setShowBacklinks,
+    toggleBacklinks: ctx.toggleBacklinks,
     openSearch: (presetTag?: string) => ctx.openSearch(presetTag),
     searchPresetTag: ctx.searchPresetTag,
     searchNonce: ctx.searchNonce,

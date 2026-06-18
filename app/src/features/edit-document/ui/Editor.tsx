@@ -10,7 +10,6 @@ import { useShareToken } from '@/shared/contexts/share-token-context'
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
-import { MOSAIC_SCROLL_SYNC_EVENT, type MosaicScrollSyncDetail, dispatchMosaicScrollSync } from '@/shared/lib/mosaic-events'
 import type { ViewMode } from '@/shared/types/view-mode'
 
 import { listDocuments } from '@/entities/document'
@@ -61,14 +60,12 @@ export type MarkdownEditorProps = {
   initialView?: ViewMode
   forcedView?: ViewMode
   embedded?: boolean
-  scrollSyncGroupId?: string | null
   userName?: string
   userId?: string
   documentId: string
   documentTitle?: string | null
   documentType?: string | null
   documentEditorPluginsEnabled?: boolean
-  documentEditorPanePlacement?: 'extraRight' | 'mosaic'
   onDocumentEditorPaneHostChange?: (host: DocumentEditorPaneHostState | null) => void
   readOnly?: boolean
   extraRight?: React.ReactNode
@@ -102,17 +99,15 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const {
     doc,
     awareness,
-    initialView: initialViewProp = 'editor',
+    initialView: initialViewProp = 'split',
     forcedView,
     embedded = false,
-    scrollSyncGroupId = null,
     userId,
     userName,
     documentId,
     documentTitle,
     documentType,
     documentEditorPluginsEnabled = true,
-    documentEditorPanePlacement = 'extraRight',
     onDocumentEditorPaneHostChange,
     readOnly = false,
     extraRight,
@@ -180,13 +175,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     language: 'markdown',
     onTextChange: () => {},
   })
-  const mosaicGroupIdRef = useRef<string | null>(scrollSyncGroupId)
-  useEffect(() => {
-    mosaicGroupIdRef.current = scrollSyncGroupId
-  }, [scrollSyncGroupId])
-  const mosaicScrollRafRef = useRef<number | null>(null)
-  const suppressMosaicEmitRef = useRef(false)
-  const suppressMosaicTimeoutRef = useRef<number | null>(null)
   const unregisterEditorRef = useRef<null | (() => void)>(null)
   const focusDisposableRef = useRef<null | { dispose: () => void }>(null)
   const blurDisposableRef = useRef<null | { dispose: () => void }>(null)
@@ -428,34 +416,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     })
     ;(editor as any).__disposeScroll = () => safeExecute('dispose scroll listener', () => scrollDispose?.dispose?.())
 
-    // Mosaic scroll sync: emit current top line to paired preview tile (by group)
-    try {
-      const mosaicScrollDispose = editor.onDidScrollChange?.(() => {
-        const groupId = mosaicGroupIdRef.current
-        if (!groupId) return
-        if (!syncScrollRef.current) return
-        if (suppressMosaicEmitRef.current) return
-        if (mosaicScrollRafRef.current != null) return
-        mosaicScrollRafRef.current = window.requestAnimationFrame(() => {
-          mosaicScrollRafRef.current = null
-          try {
-            if ((editor as any)?._isDisposed === true) return
-            const domNode = editor.getDomNode?.()
-            if (!domNode) return
-            const range = editor.getVisibleRanges?.()?.[0]
-            const line = range?.startLineNumber ?? editor.getPosition?.()?.lineNumber ?? 1
-            if (!Number.isFinite(line) || line < 1) return
-            dispatchMosaicScrollSync({ groupId, source: 'editor', line })
-          } catch (error) {
-            logEditorError('mosaic scroll sync emit', error)
-          }
-        })
-      })
-      ;(editor as any).__disposeMosaicScroll = () => safeExecute('dispose mosaic scroll listener', () => mosaicScrollDispose?.dispose?.())
-    } catch (error) {
-      logEditorError('register mosaic scroll listener', error)
-    }
-
     // Handle paste (Ctrl+V) with files from clipboard
     const dom = editor.getDomNode() as HTMLElement | null
     const pasteHandler = async (event: ClipboardEvent) => {
@@ -524,7 +484,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     })
     safeExecute('dispose change listener', () => (anyEditor as any)?.__disposeChange?.())
     safeExecute('dispose scroll listener', () => (anyEditor as any)?.__disposeScroll?.())
-    safeExecute('dispose mosaic scroll listener', () => (anyEditor as any)?.__disposeMosaicScroll?.())
     safeExecute('dispose paste handler', () => (anyEditor as any)?.__disposePaste?.())
     safeExecute('dispose wiki handler', () => (anyEditor as any)?.__disposeWiki?.())
     safeExecute('dispose cursor handler', () => (anyEditor as any)?.__disposeCursor?.())
@@ -572,73 +531,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     blurDisposableRef.current = null
     safeExecute('unregister editor instance', () => unregisterEditorRef.current?.())
     unregisterEditorRef.current = null
-    safeExecute('cancel mosaic scroll raf', () => {
-      if (mosaicScrollRafRef.current != null) {
-        window.cancelAnimationFrame(mosaicScrollRafRef.current)
-        mosaicScrollRafRef.current = null
-      }
-    })
-    safeExecute('cancel mosaic suppress timeout', () => {
-      if (suppressMosaicTimeoutRef.current != null) {
-        window.clearTimeout(suppressMosaicTimeoutRef.current)
-        suppressMosaicTimeoutRef.current = null
-      }
-      suppressMosaicEmitRef.current = false
-    })
     disableVimMode()
   }, [editorRef, setEditor, disableVimMode])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!scrollSyncGroupId) return
-    const handler = (event: Event) => {
-      try {
-        if (!syncScrollRef.current) return
-        const detail = (event as CustomEvent<MosaicScrollSyncDetail>).detail
-        if (!detail || detail.source !== 'preview') return
-        if (detail.groupId !== scrollSyncGroupId) return
-        const line = detail.line
-        if (!Number.isFinite(line) || (line as number) < 1) return
-
-        const editorInstance = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
-        if (!editorInstance) return
-        if ((editorInstance as any)?._isDisposed === true) return
-        const domNode = editorInstance.getDomNode?.()
-        if (!domNode) return
-
-        const model = editorInstance.getModel?.()
-        if (!model) return
-        const maxLine = model.getLineCount?.() ?? null
-        const clamped = maxLine
-          ? Math.min(maxLine, Math.max(1, Math.floor(line as number)))
-          : Math.max(1, Math.floor(line as number))
-
-        if (suppressMosaicTimeoutRef.current != null) {
-          window.clearTimeout(suppressMosaicTimeoutRef.current)
-          suppressMosaicTimeoutRef.current = null
-        }
-        suppressMosaicEmitRef.current = true
-        try {
-          ;(editorInstance as any).revealLineNearTop?.(clamped)
-        } catch (error) {
-          // Avoid noisy errors when editor is being disposed during tile close/layout changes.
-          if (error instanceof Error && /InstantiationService has been disposed/i.test(error.message)) return
-          throw error
-        } finally {
-          suppressMosaicTimeoutRef.current = window.setTimeout(() => {
-            suppressMosaicTimeoutRef.current = null
-            suppressMosaicEmitRef.current = false
-          }, 120)
-        }
-      } catch (error) {
-        logEditorError('mosaic scroll sync receive', error)
-      }
-    }
-    window.addEventListener(MOSAIC_SCROLL_SYNC_EVENT, handler as EventListener)
-    return () => {
-      window.removeEventListener(MOSAIC_SCROLL_SYNC_EVENT, handler as EventListener)
-    }
-  }, [editorRef, scrollSyncGroupId])
 
   const toggleVim = useCallback(async () => {
     const next = !isVimMode
@@ -670,13 +564,12 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       viewMode={view as ViewMode}
       syncScroll={syncScroll}
       onSyncScrollToggle={() => setSyncScroll((s) => !s)}
-      syncScrollAvailable={Boolean(scrollSyncGroupId)}
       isVimMode={isVimMode}
       onVimModeToggle={toggleVim}
       onFileUpload={readOnly ? undefined : handleFileUpload}
       readOnly={readOnly}
     />
-  ), [handleToolbarCommand, view, syncScroll, scrollSyncGroupId, isVimMode, toggleVim, handleFileUpload, readOnly])
+  ), [handleToolbarCommand, view, syncScroll, isVimMode, toggleVim, handleFileUpload, readOnly])
 
   const shortcutToggleSync = useCallback(() => {
     if (!isThisEditorActive()) return
@@ -1049,7 +942,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     onPaneHostChange: onDocumentEditorPaneHostChange,
   })
 
-  const resolvedExtraRight = extraRight ?? (documentEditorPanePlacement === 'extraRight' ? pluginPanes.extraRight : undefined)
+  const resolvedExtraRight = extraRight ?? pluginPanes.extraRight
 
   
 

@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { BookmarkPlus, Download, History } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ApiError, type GitPullConflictItem, type GitPullResolution } from '@/shared/api'
@@ -9,7 +9,7 @@ import { useRealtime } from '@/shared/contexts/realtime-context'
 import {
   OPEN_DOCUMENT_PLUGIN_PANE_EVENT,
   dispatchOpenDocumentPluginPane,
-} from '@/shared/lib/mosaic-events'
+} from '@/shared/lib/document-workspace-events'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
 
@@ -18,19 +18,22 @@ import { getPullSession } from '@/entities/git'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
+import { BacklinksPanel } from '@/features/document-backlinks'
 import {
   DocumentDownloadDialog,
   OTHER_DOWNLOAD_FORMAT_GROUPS,
   PRIMARY_DOWNLOAD_OPTIONS,
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
-import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
-import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
+import { EditorOverlay, MarkdownEditor, useCollaborativeDocument, useViewContext } from '@/features/edit-document'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
+import { usePluginDocumentRedirect } from '@/features/plugins'
 import { renderDocumentPaneIcon } from '@/features/plugins/lib/pane-icons'
 import type { DocumentEditorPaneHostState } from '@/features/plugins/model/useDocumentEditorPlugins'
-import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
+import { useSecondaryViewer } from '@/features/secondary-viewer'
+
+import SecondaryViewer from '@/widgets/secondary-viewer/SecondaryViewer'
 
 export type DocumentLoaderData = {
   title: string
@@ -45,24 +48,6 @@ export type DocumentPageProps = {
   loaderData?: DocumentLoaderData
   shareToken?: string
   conflictMode?: boolean
-  render?: (ctx: DocumentPageRenderContext) => ReactNode
-}
-
-export type DocumentPageRenderContext = {
-  id: string
-  loaderData?: DocumentLoaderData
-  shareToken?: string
-  conflictMode: boolean
-  status: ReturnType<typeof useCollaborativeDocument>['status']
-  doc: ReturnType<typeof useCollaborativeDocument>['doc']
-  awareness: ReturnType<typeof useCollaborativeDocument>['awareness']
-  isReadOnly: ReturnType<typeof useCollaborativeDocument>['isReadOnly']
-  realtimeError: ReturnType<typeof useCollaborativeDocument>['error']
-  overlayLabel: string
-  showOverlay: boolean
-  markdownEditorProps: Parameters<typeof MarkdownEditor>[0] | null
-  previewOverride: string | undefined
-  resolvedTitle: string
 }
 
 const normalizeConflictPath = (path?: string | null) => (path || '').replace(/^[./]+/, '').trim().toLowerCase()
@@ -230,7 +215,7 @@ const matchConflictToDoc = (
   return null
 }
 
-export function DocumentPage({ id, loaderData, shareToken, conflictMode = false, render }: DocumentPageProps) {
+export function DocumentPage({ id, loaderData, shareToken, conflictMode = false }: DocumentPageProps) {
   // This component intentionally renders a placeholder on the server.
   // Start from the same placeholder on the client to avoid hydration mismatches,
   // then switch to the interactive client UI after mount.
@@ -250,7 +235,6 @@ export function DocumentPage({ id, loaderData, shareToken, conflictMode = false,
       loaderData={loaderData}
       shareToken={shareToken}
       conflictMode={conflictMode}
-      render={render}
     />
   )
 }
@@ -269,17 +253,26 @@ function DocumentClient({
   id,
   loaderData,
   shareToken,
-  render,
   conflictMode = false,
 }: DocumentPageProps) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { user } = useAuthContext()
-  const { documentTitle: realtimeTitle, documentActions, setDocumentActions, documentPluginId } = useRealtime()
-  const handlesDocumentPluginPanes = !render
-  const pluginIdHintFromLoader = typeof loaderData?.createdByPlugin === 'string' ? loaderData.createdByPlugin.trim() : ''
-  const pluginIdHintFromRealtime = typeof documentPluginId === 'string' ? documentPluginId.trim() : ''
-  const pluginIdHint = pluginIdHintFromLoader || pluginIdHintFromRealtime
+  const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
+  const { showBacklinks, setShowBacklinks } = useViewContext()
+  const {
+    secondaryDocumentId,
+    secondaryDocumentType,
+    showSecondaryViewer,
+    closeSecondaryViewer,
+    openSecondaryViewer,
+  } = useSecondaryViewer()
+  const pluginRedirectEnabled =
+    loaderData?.createdByPlugin === undefined ? true : Boolean(loaderData?.createdByPlugin)
+  const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
+    enabled: pluginRedirectEnabled,
+    navigate: useCallback((to: string) => navigate({ to }), [navigate]),
+  })
   const [showSnapshots, setShowSnapshots] = useState(false)
   const openSnapshots = useCallback(() => setShowSnapshots(true), [])
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
@@ -329,7 +322,6 @@ function DocumentClient({
   }, [])
 
   useEffect(() => {
-    if (!handlesDocumentPluginPanes) return
     const panes = documentPanes
     const paneKeys = new Set(panes.map((pane) => `${documentPluginPaneActionPrefix}${id}:${pane.key}`))
     const currentActions = documentActions ?? []
@@ -365,10 +357,9 @@ function DocumentClient({
     ) {
       setDocumentActions(next)
     }
-  }, [documentActions, documentPanes, handlesDocumentPluginPanes, id, setDocumentActions])
+  }, [documentActions, documentPanes, id, setDocumentActions])
 
   useEffect(() => {
-    if (!handlesDocumentPluginPanes) return
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ documentId?: string; paneKey?: string }>).detail
       const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
@@ -378,11 +369,23 @@ function DocumentClient({
       const requested = typeof detail?.paneKey === 'string' ? detail.paneKey : ''
       const pane = host.panes.find((item) => item.key === requested) ?? host.panes[0]
       if (!pane) return
+      setShowBacklinks(false)
+      closeSecondaryViewer()
       host.openPane(pane.key)
     }
     window.addEventListener(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, handler as EventListener)
     return () => window.removeEventListener(OPEN_DOCUMENT_PLUGIN_PANE_EVENT, handler as EventListener)
-  }, [handlesDocumentPluginPanes, id])
+  }, [closeSecondaryViewer, id, setShowBacklinks])
+
+  useEffect(() => {
+    setShowBacklinks(false)
+  }, [id, setShowBacklinks])
+
+  useEffect(() => {
+    if (showBacklinks && showSecondaryViewer) {
+      closeSecondaryViewer()
+    }
+  }, [closeSecondaryViewer, showBacklinks, showSecondaryViewer])
   const anonIdentity = useMemo(() => {
     if (user) return null
     try {
@@ -654,9 +657,17 @@ function DocumentClient({
 
   const hasCollaborativeState = Boolean(doc && awareness)
 
-  const shouldShowOverlay = Boolean(realtimeError) || !hasCollaborativeState
+  const shouldShowOverlay = pluginResolving || redirecting || Boolean(realtimeError) || !hasCollaborativeState
 
-  const overlayLabel = realtimeError || (status === 'connecting' ? 'Connecting...' : 'Loading...')
+  const overlayLabel = realtimeError
+    ? realtimeError
+    : pluginResolving
+      ? 'Preparing plugin...'
+      : redirecting
+        ? 'Opening plugin...'
+        : status === 'connecting'
+          ? 'Connecting...'
+          : 'Loading...'
   const showEditor = Boolean(doc && awareness && !realtimeError)
   const showOverlay = shouldShowOverlay
 
@@ -854,73 +865,46 @@ function DocumentClient({
 
   const previewOverrideValue = showConflictUI && !isBinaryConflict ? previewContent || oursText : undefined
 
-  const usePluginPreview = Boolean(pluginIdHint) && !conflictMode
-  const renderPluginPreview = useCallback(
-    (_props: PreviewPaneProps) => (
-      <PluginDocumentMount
-        docId={id}
-        token={shareToken}
-        pluginIdHint={pluginIdHint}
-        variant="preview"
-        mode="primary"
-        className="h-full w-full overflow-auto"
-      />
-    ),
-    [id, pluginIdHint, shareToken],
-  )
+  const extraRight = showBacklinks ? (
+    <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />
+  ) : showSecondaryViewer && secondaryDocumentId ? (
+    <SecondaryViewer
+      documentId={secondaryDocumentId}
+      documentType={secondaryDocumentType}
+      onClose={closeSecondaryViewer}
+      onDocumentChange={(docId, type) => openSecondaryViewer(docId, type)}
+      className="h-full"
+    />
+  ) : undefined
 
   const markdownEditorProps = hasEditorSession
     ? ({
         doc: doc!,
         awareness: awareness!,
         connected: status === 'connected',
-        initialView: 'editor',
+        initialView: 'split',
         userId: user?.id || anonIdentity?.id,
         userName: user?.name || anonIdentity?.name,
         documentId: id,
         documentTitle: resolvedTitle || loaderData?.title || null,
         documentType: 'markdown',
-        readOnly: isReadOnly || Boolean(activeConflict),
+        readOnly: isReadOnly || redirecting || Boolean(activeConflict),
         conflictView,
         conflictHunkWidgets,
         conflictBadgeText,
         conflictControls,
         previewOverride: previewOverrideValue,
-        onDocumentEditorPaneHostChange: handlesDocumentPluginPanes ? handleDocumentPaneHostChange : undefined,
-        extraRight: undefined,
-        renderPreview: usePluginPreview ? renderPluginPreview : undefined,
+        onDocumentEditorPaneHostChange: handleDocumentPaneHostChange,
+        extraRight,
       } satisfies Parameters<typeof MarkdownEditor>[0])
     : null
 
-  const renderContext: DocumentPageRenderContext = {
-    id,
-    loaderData,
-    shareToken,
-    conflictMode,
-    status,
-    doc,
-    awareness,
-    isReadOnly,
-    realtimeError,
-    overlayLabel,
-    showOverlay,
-    markdownEditorProps,
-    previewOverride: previewOverrideValue,
-    resolvedTitle: resolvedTitle || '',
-  }
-
-  const body = render ? (
-    render(renderContext)
-  ) : (
-    <div className="relative flex h-full flex-1 min-h-0 flex-col">
-      {showOverlay ? <EditorOverlay label={overlayLabel} /> : null}
-      {showEditor && markdownEditorProps ? <MarkdownEditor key={id} {...markdownEditorProps} /> : null}
-    </div>
-  )
-
   return (
     <>
-      {body}
+      <div className="relative flex h-full flex-1 min-h-0 flex-col">
+        {showOverlay ? <EditorOverlay label={overlayLabel} /> : null}
+        {showEditor && markdownEditorProps ? <MarkdownEditor key={id} {...markdownEditorProps} /> : null}
+      </div>
       <SnapshotHistoryDialog
         documentId={id}
         open={showSnapshots}

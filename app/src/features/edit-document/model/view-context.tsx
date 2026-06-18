@@ -11,6 +11,9 @@ type Ctx = {
   setViewMode: (mode: ViewModeSetter) => void
   viewModeHydrated: boolean
   hasPersistentViewMode: boolean
+  showBacklinks: boolean
+  setShowBacklinks: (show: boolean) => void
+  toggleBacklinks: () => void
   // Search request trigger for Header's SearchDialog
   searchPresetTag: string | null
   searchNonce: number
@@ -23,6 +26,7 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
   const [viewMode, setViewModeState] = useState<ViewMode>('editor')
   const [viewModeHydrated, setViewModeHydrated] = useState(() => typeof window === 'undefined')
   const [hasPersistentViewMode, setHasPersistentViewMode] = useState(false)
+  const [showBacklinks, setShowBacklinks] = useState(false)
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [searchNonce, setSearchNonce] = useState(0)
 
@@ -32,12 +36,8 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-      if (saved === 'editor' || saved === 'preview') {
+      if (saved === 'editor' || saved === 'split' || saved === 'preview') {
         setViewModeState(saved)
-        setHasPersistentViewMode(true)
-      } else if (saved === 'split') {
-        setViewModeState('editor')
-        try { localStorage.setItem(VIEW_MODE_STORAGE_KEY, 'editor') } catch {}
         setHasPersistentViewMode(true)
       }
     } catch {
@@ -68,6 +68,10 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     setSearchNonce((n) => n + 1)
   }, [])
 
+  const toggleBacklinks = useCallback(() => {
+    setShowBacklinks((prev) => !prev)
+  }, [])
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     const handler = (event: Event) => {
@@ -84,10 +88,23 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     viewModeHydrated,
     hasPersistentViewMode,
     setViewMode,
+    showBacklinks,
+    setShowBacklinks,
+    toggleBacklinks,
     searchPresetTag,
     searchNonce,
     openSearch,
-  }), [viewMode, viewModeHydrated, hasPersistentViewMode, searchPresetTag, searchNonce, openSearch, setViewMode])
+  }), [
+    viewMode,
+    viewModeHydrated,
+    hasPersistentViewMode,
+    showBacklinks,
+    toggleBacklinks,
+    searchPresetTag,
+    searchNonce,
+    openSearch,
+    setViewMode,
+  ])
 
   return <ViewCtx.Provider value={value}>{children}</ViewCtx.Provider>
 }
