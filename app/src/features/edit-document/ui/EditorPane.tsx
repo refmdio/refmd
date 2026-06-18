@@ -20,6 +20,11 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
   const editorRef = useRef<monacoNs.editor.IStandaloneCodeEditor | null>(null)
+  const onUnmountRef = useRef<typeof onUnmount>(onUnmount)
+
+  useEffect(() => {
+    onUnmountRef.current = onUnmount
+  }, [onUnmount])
 
   const handleMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor
@@ -30,9 +35,9 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
     return () => {
       const editor = editorRef.current
       editorRef.current = null
-      onUnmount?.(editor)
+      onUnmountRef.current?.(editor)
     }
-  }, [onUnmount])
+  }, [])
 
   return (
     <div
