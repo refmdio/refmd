@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookmarkPlus, Download, History } from 'lucide-react'
+import { BookmarkPlus, Download, History, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -278,6 +278,7 @@ function DocumentClient({
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [downloadPending, setDownloadPending] = useState(false)
   const [savingShare, setSavingShare] = useState(false)
+  const [showComments, setShowComments] = useState(false)
   const [activeConflict, setActiveConflict] = useState<GitPullConflictItem | null>(null)
   const [modifiedText, setModifiedText] = useState<string>('')
   const [previewContent, setPreviewContent] = useState<string>('')
@@ -369,6 +370,7 @@ function DocumentClient({
       const requested = typeof detail?.paneKey === 'string' ? detail.paneKey : ''
       const pane = host.panes.find((item) => item.key === requested) ?? host.panes[0]
       if (!pane) return
+      setShowComments(false)
       setShowBacklinks(false)
       closeSecondaryViewer()
       host.openPane(pane.key)
@@ -379,11 +381,15 @@ function DocumentClient({
 
   useEffect(() => {
     setShowBacklinks(false)
+    setShowComments(false)
   }, [id, setShowBacklinks])
 
   useEffect(() => {
     if (showBacklinks && showSecondaryViewer) {
       closeSecondaryViewer()
+    }
+    if (showBacklinks || showSecondaryViewer) {
+      setShowComments(false)
     }
   }, [closeSecondaryViewer, showBacklinks, showSecondaryViewer])
   const anonIdentity = useMemo(() => {
@@ -406,6 +412,17 @@ function DocumentClient({
   const resolvedTitle = (realtimeTitle && realtimeTitle.trim()) || loaderTitle
 
   const hasEditorSession = Boolean(doc && awareness)
+
+  const toggleComments = useCallback(() => {
+    setShowComments((current) => {
+      const next = !current
+      if (next) {
+        setShowBacklinks(false)
+        closeSecondaryViewer()
+      }
+      return next
+    })
+  }, [closeSecondaryViewer, setShowBacklinks])
 
   const setConflictsForDoc = useCallback(
     (list: GitPullConflictItem[]) => {
@@ -644,16 +661,25 @@ function DocumentClient({
       icon: <BookmarkPlus className="h-4 w-4" />,
       tooltip: 'Add this shared document to your workspace file tree',
     }
+    const commentsAction: DocumentHeaderAction = {
+      id: 'document-comments',
+      label: 'Comments',
+      onSelect: toggleComments,
+      disabled: !hasDoc || Boolean(activeConflict),
+      icon: <MessageSquare className="h-4 w-4" />,
+      tooltip: 'Comments',
+    }
 
     let next = ensureAction(actions, snapshotAction)
     next = ensureAction(next, downloadAction)
+    next = ensureAction(next, commentsAction)
     if (shareToken) {
       next = ensureAction(next, saveShareAction)
     }
     if (next !== actions) {
       setDocumentActions(next)
     }
-  }, [documentActions, setDocumentActions, openSnapshots, hasDoc, openDownloadDialog, handleSaveShare, shareToken, user, savingShare])
+  }, [activeConflict, documentActions, setDocumentActions, openSnapshots, hasDoc, openDownloadDialog, handleSaveShare, shareToken, user, savingShare, toggleComments])
 
   const hasCollaborativeState = Boolean(doc && awareness)
 
@@ -895,6 +921,8 @@ function DocumentClient({
         conflictControls,
         previewOverride: previewOverrideValue,
         onDocumentEditorPaneHostChange: handleDocumentPaneHostChange,
+        commentsOpen: showComments && !showBacklinks && !showSecondaryViewer,
+        onCommentsOpenChange: setShowComments,
         extraRight,
       } satisfies Parameters<typeof MarkdownEditor>[0])
     : null

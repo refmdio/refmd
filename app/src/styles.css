@@ -393,3 +393,24 @@
 .conflict-diff .monaco-editor {
   outline: none !important;
 }
+
+.monaco-editor .refmd-comment-highlight {
+  background-color: color-mix(in oklab, var(--primary) 18%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--primary) 70%, transparent);
+}
+
+.monaco-editor .refmd-comment-glyph {
+  position: relative;
+}
+
+.monaco-editor .refmd-comment-glyph::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--primary);
+  transform: translate(-50%, -50%);
+}

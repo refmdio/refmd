@@ -14,6 +14,7 @@ import type { ViewMode } from '@/shared/types/view-mode'
 
 import { listDocuments } from '@/entities/document'
 
+import { CommentsPanel } from '@/features/document-comments'
 import { useAwarenessStyles } from '@/features/edit-document/hooks/useAwarenessStyles'
 import { markDocumentContentDirty } from '@/features/edit-document/hooks/useCollaborativeDocument'
 import { useEditorUploads } from '@/features/edit-document/hooks/useEditorUploads'
@@ -67,6 +68,8 @@ export type MarkdownEditorProps = {
   documentType?: string | null
   documentEditorPluginsEnabled?: boolean
   onDocumentEditorPaneHostChange?: (host: DocumentEditorPaneHostState | null) => void
+  commentsOpen?: boolean
+  onCommentsOpenChange?: (open: boolean) => void
   readOnly?: boolean
   extraRight?: React.ReactNode
   conflictControls?: React.ReactNode
@@ -109,6 +112,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     documentType,
     documentEditorPluginsEnabled = true,
     onDocumentEditorPaneHostChange,
+    commentsOpen = false,
+    onCommentsOpenChange,
     readOnly = false,
     extraRight,
     conflictControls,
@@ -169,7 +174,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   useEffect(() => {
     viewRef.current = view as ViewMode
   }, [view])
-  const { onMount: onMonacoMount, text: boundText, editorRef } = useMonacoBinding({
+  const { onMount: onMonacoMount, text: boundText, editorRef, disposeBinding } = useMonacoBinding({
     doc,
     awareness,
     language: 'markdown',
@@ -690,6 +695,27 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     [handleMount, registerEditor, setEditor],
   )
 
+  const handleEditorUnmount = useCallback(
+    (editor: monacoNs.editor.IStandaloneCodeEditor | null) => {
+      if (editor && editorRef.current && editorRef.current !== editor) return
+      unregisterEditorRef.current?.()
+      unregisterEditorRef.current = null
+      safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
+      safeExecute('dispose editor blur listener', () => blurDisposableRef.current?.dispose())
+      focusDisposableRef.current = null
+      blurDisposableRef.current = null
+      if (editor && activeEditor === editor) {
+        safeExecute('clear active editor', () => setEditor(null))
+      }
+      disableVimMode()
+      pluginDecorationIdsRef.current.clear()
+      pluginHiddenRangeSourcesRef.current.clear()
+      disposeBinding(editor)
+      setEditorMountNonce((n) => n + 1)
+    },
+    [activeEditor, disableVimMode, disposeBinding, editorRef, setEditor],
+  )
+
   const handleEditorDropFiles = useCallback(
     async (files: File[]) => {
       ensureThisEditorActive()
@@ -938,7 +964,29 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     onPaneHostChange: onDocumentEditorPaneHostChange,
   })
 
-  const resolvedExtraRight = extraRight ?? pluginPanes.extraRight
+  const handleCommentsRequestEditor = useCallback(() => {
+    if (isMobile) {
+      onCommentsOpenChange?.(false)
+      safeExecute('show editor for comments', () => setViewMode('editor'))
+      return
+    }
+    safeExecute('show split view for comments', () => setViewMode('split'))
+  }, [isMobile, onCommentsOpenChange, setViewMode])
+
+  const commentsPanel = commentsOpen ? (
+    <CommentsPanel
+      doc={doc}
+      content={boundText}
+      editor={documentEditorApi}
+      readOnly={readOnly}
+      userId={userId ?? null}
+      userName={userName ?? null}
+      onClose={() => onCommentsOpenChange?.(false)}
+      onRequestEditor={handleCommentsRequestEditor}
+    />
+  ) : undefined
+
+  const resolvedExtraRight = extraRight ?? commentsPanel ?? pluginPanes.extraRight
 
   
 
@@ -976,6 +1024,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         readOnly={readOnly}
         onEditorDropFiles={handleEditorDropFiles}
         onEditorMount={handleEditorMount}
+        onEditorUnmount={handleEditorUnmount}
         editorRef={editorRef}
         syncScroll={syncScroll}
         onPreviewScroll={handlePreviewScroll}

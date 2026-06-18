@@ -71,6 +71,16 @@ export function useMonacoBinding(params: UseMonacoBindingParams) {
     }
   }, [doc, awareness, language, onTextChange])
 
+  const disposeBinding = useCallback((editor?: monacoNs.editor.IStandaloneCodeEditor | null) => {
+    if (editor && editorRef.current && editorRef.current !== editor) return
+    try { (editorRef.current as any)?.__disposeChange?.() } catch {}
+    try { bindingRef.current?.destroy?.() } catch {}
+    try { modelRef.current?.dispose?.() } catch {}
+    bindingRef.current = null
+    modelRef.current = null
+    editorRef.current = null
+  }, [])
+
   useEffect(() => {
     const ytext = doc.getText('content')
     const update = () => {
@@ -86,13 +96,9 @@ export function useMonacoBinding(params: UseMonacoBindingParams) {
 
   useEffect(() => {
     return () => {
-      try { bindingRef.current?.destroy?.() } catch {}
-      try { modelRef.current?.dispose?.() } catch {}
-      bindingRef.current = null
-      modelRef.current = null
-      editorRef.current = null
+      disposeBinding()
     }
-  }, [])
+  }, [disposeBinding])
 
   return {
     onMount,
@@ -100,6 +106,7 @@ export function useMonacoBinding(params: UseMonacoBindingParams) {
     editorRef,
     modelRef,
     bindingRef,
+    disposeBinding,
   }
 }
 

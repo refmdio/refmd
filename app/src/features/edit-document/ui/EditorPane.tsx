@@ -1,22 +1,38 @@
 import Editor from '@monaco-editor/react'
 import type { OnMount } from '@monaco-editor/react'
 import { Image as ImageIcon } from 'lucide-react'
-import { useRef, useState, type MutableRefObject } from 'react'
+import type * as monacoNs from 'monaco-editor'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
 type Props = {
   theme: string
   onBeforeMount?: (monaco: typeof import('monaco-editor')) => void
   readOnly?: boolean
   onMount: OnMount
+  onUnmount?: (editor: monacoNs.editor.IStandaloneCodeEditor | null) => void
   onDropFiles?: (files: File[]) => Promise<void> | void
   isMobile?: boolean
   vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
   showVimStatusBar?: boolean
 }
 
-export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, onDropFiles, isMobile = false, vimStatusBarRef, showVimStatusBar = false }: Props) {
+export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, onUnmount, onDropFiles, isMobile = false, vimStatusBarRef, showVimStatusBar = false }: Props) {
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
+  const editorRef = useRef<monacoNs.editor.IStandaloneCodeEditor | null>(null)
+
+  const handleMount: OnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor
+    onMount(editor, monaco)
+  }, [onMount])
+
+  useEffect(() => {
+    return () => {
+      const editor = editorRef.current
+      editorRef.current = null
+      onUnmount?.(editor)
+    }
+  }, [onUnmount])
 
   return (
     <div
@@ -55,7 +71,7 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
           fontSize: isMobile ? 17 : 14,
           lineHeight: isMobile ? 26 : 22,
         }}
-        onMount={onMount}
+        onMount={handleMount}
       />
       <div
         ref={vimStatusBarRef}

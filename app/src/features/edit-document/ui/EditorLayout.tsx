@@ -27,6 +27,7 @@ export type EditorLayoutProps = {
   readOnly: boolean
   onEditorDropFiles: (files: File[]) => Promise<void>
   onEditorMount: (editor: monacoNs.editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => void
+  onEditorUnmount?: (editor: monacoNs.editor.IStandaloneCodeEditor | null) => void
   editorRef: MutableRefObject<monacoNs.editor.IStandaloneCodeEditor | null>
   syncScroll: boolean
   onPreviewScroll: (percentage: number) => void
@@ -80,6 +81,7 @@ export function EditorLayout({
   readOnly,
   onEditorDropFiles,
   onEditorMount,
+  onEditorUnmount,
   editorRef,
   syncScroll,
   onPreviewScroll,
@@ -511,6 +513,7 @@ export function EditorLayout({
                     }}
                     isMobile={isMobile}
                     onMount={onEditorMount}
+                    onUnmount={onEditorUnmount}
                     vimStatusBarRef={vimStatusBarRef}
                     showVimStatusBar={showVimStatusBar}
                   />
