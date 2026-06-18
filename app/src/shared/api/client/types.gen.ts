@@ -76,6 +76,23 @@ export type CheckIgnoredRequest = {
     path: string;
 };
 
+export type CreateDocumentCommentReplyRequest = {
+    author_name?: (string) | null;
+    body: string;
+};
+
+export type CreateDocumentCommentThreadRequest = {
+    author_name?: (string) | null;
+    body: string;
+    end_line_number?: (number) | null;
+    end_offset?: (number) | null;
+    id: string;
+    marker: string;
+    quote: string;
+    start_line_number?: (number) | null;
+    start_offset?: (number) | null;
+};
+
 export type CreateDocumentRequest = {
     parent_id?: (string) | null;
     title?: (string) | null;
@@ -155,6 +172,38 @@ export type Document = {
 };
 
 export type DocumentArchiveBinary = Blob | File;
+
+export type DocumentCommentReply = {
+    body: string;
+    created_at: string;
+    created_by?: (string) | null;
+    created_by_name?: (string) | null;
+    document_id: string;
+    id: string;
+    thread_id: string;
+};
+
+export type DocumentCommentsResponse = {
+    threads: Array<DocumentCommentThread>;
+};
+
+export type DocumentCommentThread = {
+    created_at: string;
+    created_by?: (string) | null;
+    created_by_name?: (string) | null;
+    document_id: string;
+    end_line_number?: (number) | null;
+    end_offset?: (number) | null;
+    id: string;
+    marker: string;
+    quote: string;
+    replies: Array<DocumentCommentReply>;
+    resolved_at?: (string) | null;
+    resolved_by?: (string) | null;
+    start_line_number?: (number) | null;
+    start_offset?: (number) | null;
+    updated_at: string;
+};
 
 export type DocumentDownloadBinary = Blob | File;
 
@@ -611,6 +660,10 @@ export type UninstallBody = {
     id: string;
 };
 
+export type UpdateDocumentCommentThreadRequest = {
+    resolved: boolean;
+};
+
 export type UpdateDocumentContentRequest = {
     content: string;
 };
@@ -891,6 +944,69 @@ export type GetBacklinksData = {
 };
 
 export type GetBacklinksResponse = (BacklinksResponse);
+
+export type ListDocumentCommentsData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type ListDocumentCommentsResponse = (DocumentCommentsResponse);
+
+export type CreateDocumentCommentThreadData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: CreateDocumentCommentThreadRequest;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type CreateDocumentCommentThreadResponse = (DocumentCommentThread);
+
+export type UpdateDocumentCommentThreadData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: UpdateDocumentCommentThreadRequest;
+    /**
+     * Comment thread ID
+     */
+    threadId: string;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type UpdateDocumentCommentThreadResponse = (DocumentCommentThread);
+
+export type CreateDocumentCommentReplyData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: CreateDocumentCommentReplyRequest;
+    /**
+     * Comment thread ID
+     */
+    threadId: string;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type CreateDocumentCommentReplyResponse = (DocumentCommentReply);
 
 export type GetDocumentContentData = {
     /**

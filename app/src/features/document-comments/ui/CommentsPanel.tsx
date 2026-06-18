@@ -1,12 +1,23 @@
-import { CheckCircle2, LocateFixed, MessageSquare, Plus, RotateCcw, X } from 'lucide-react'
+import {
+  CheckCircle2,
+  LocateFixed,
+  MessageSquare,
+  Plus,
+  RotateCcw,
+  X,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type * as Y from 'yjs'
+import { toast } from 'sonner'
 
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { Textarea } from '@/shared/ui/textarea'
 
-import type { DocumentEditorApi, DocumentEditorRange, DocumentEditorSelection } from '@/features/plugins'
+import type {
+  DocumentEditorApi,
+  DocumentEditorRange,
+  DocumentEditorSelection,
+} from '@/features/plugins'
 
 import {
   buildCommentMarker,
@@ -16,11 +27,11 @@ import {
 } from '../model/comments-store'
 
 type CommentsPanelProps = {
-  doc: Y.Doc
+  documentId: string
+  token?: string | null
   content: string
   editor: DocumentEditorApi | null
   readOnly?: boolean
-  userId?: string | null
   userName?: string | null
   className?: string
   onClose?: () => void
@@ -82,7 +93,9 @@ function findThreadRange(
   return null
 }
 
-function buildMarkerInsertionRange(selection: DocumentEditorSelection): DocumentEditorRange {
+function buildMarkerInsertionRange(
+  selection: DocumentEditorSelection,
+): DocumentEditorRange {
   return {
     startLineNumber: selection.endLineNumber,
     startColumn: selection.endColumn,
@@ -92,31 +105,50 @@ function buildMarkerInsertionRange(selection: DocumentEditorSelection): Document
 }
 
 export function CommentsPanel({
-  doc,
+  documentId,
+  token,
   content,
   editor,
   readOnly = false,
-  userId,
   userName,
   className,
   onClose,
   onRequestEditor,
 }: CommentsPanelProps) {
-  const { threads, createThread, addReply, setResolved } = useDocumentComments(doc, { userId, userName })
-  const [selection, setSelection] = useState<DocumentEditorSelection | null>(null)
+  const { threads, isLoading, isError, createThread, addReply, setResolved } =
+    useDocumentComments({
+      documentId,
+      token,
+      userName,
+    })
+  const [selection, setSelection] = useState<DocumentEditorSelection | null>(
+    null,
+  )
   const [newComment, setNewComment] = useState('')
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
+  const [creating, setCreating] = useState(false)
+  const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null)
+  const [resolvingThreadId, setResolvingThreadId] = useState<string | null>(
+    null,
+  )
   const pendingRevealRef = useRef<string | null>(null)
 
-  const openThreads = useMemo(() => threads.filter((thread) => !thread.resolvedAt), [threads])
-  const resolvedThreads = useMemo(() => threads.filter((thread) => thread.resolvedAt), [threads])
+  const openThreads = useMemo(
+    () => threads.filter((thread) => !thread.resolvedAt),
+    [threads],
+  )
+  const resolvedThreads = useMemo(
+    () => threads.filter((thread) => thread.resolvedAt),
+    [threads],
+  )
   const canCreateThread = Boolean(
     editor &&
       selection &&
       !selection.isEmpty &&
       selection.text.trim().length > 0 &&
       newComment.trim().length > 0 &&
-      !readOnly,
+      !readOnly &&
+      !creating,
   )
 
   useEffect(() => {
@@ -171,7 +203,7 @@ export function CommentsPanel({
     if (thread) revealThread(thread)
   }, [editor, revealThread, threads])
 
-  const handleCreateThread = useCallback(() => {
+  const handleCreateThread = useCallback(async () => {
     if (!editor || !selection || !canCreateThread) return
     const id = createCommentId()
     const marker = buildCommentMarker(id)
@@ -191,28 +223,76 @@ export function CommentsPanel({
       },
     ])
     if (!inserted) return
-    const thread = createThread({
-      id,
-      quote: selection.text,
-      body: newComment,
-      startLineNumber: selection.startLineNumber,
+    const rollbackRange: DocumentEditorRange = {
+      startLineNumber: selection.endLineNumber,
+      startColumn: selection.endColumn,
       endLineNumber: selection.endLineNumber,
-      startOffset,
-      endOffset,
-    })
-    if (!thread) return
-    setNewComment('')
-    revealThread(thread)
-  }, [canCreateThread, createThread, editor, newComment, revealThread, selection])
+      endColumn: selection.endColumn + marker.length,
+    }
+    setCreating(true)
+    try {
+      const thread = await createThread({
+        id,
+        quote: selection.text,
+        body: newComment,
+        startLineNumber: selection.startLineNumber,
+        endLineNumber: selection.endLineNumber,
+        startOffset,
+        endOffset,
+      })
+      if (!thread) return
+      setNewComment('')
+      revealThread(thread)
+    } catch (error) {
+      editor.applyEdits([
+        {
+          range: rollbackRange,
+          text: '',
+          forceMoveMarkers: true,
+        },
+      ])
+      toast.error('Could not save comment')
+    } finally {
+      setCreating(false)
+    }
+  }, [
+    canCreateThread,
+    createThread,
+    editor,
+    newComment,
+    revealThread,
+    selection,
+  ])
 
   const handleReply = useCallback(
-    (threadId: string) => {
+    async (threadId: string) => {
       const body = replyDrafts[threadId] ?? ''
-      const next = addReply(threadId, body)
-      if (!next) return
-      setReplyDrafts((current) => ({ ...current, [threadId]: '' }))
+      if (!body.trim()) return
+      setReplyingThreadId(threadId)
+      try {
+        await addReply(threadId, body)
+        setReplyDrafts((current) => ({ ...current, [threadId]: '' }))
+      } catch {
+        toast.error('Could not save reply')
+      } finally {
+        setReplyingThreadId(null)
+      }
     },
     [addReply, replyDrafts],
+  )
+
+  const handleSetResolved = useCallback(
+    async (threadId: string, resolved: boolean) => {
+      setResolvingThreadId(threadId)
+      try {
+        await setResolved(threadId, resolved)
+      } catch {
+        toast.error('Could not update comment')
+      } finally {
+        setResolvingThreadId(null)
+      }
+    },
+    [setResolved],
   )
 
   const renderThread = (thread: DocumentCommentThread) => {
@@ -256,10 +336,14 @@ export function CommentsPanel({
               size="icon"
               className="h-8 w-8"
               title={resolved ? 'Reopen' : 'Resolve'}
-              disabled={readOnly}
-              onClick={() => setResolved(thread.id, !resolved)}
+              disabled={readOnly || resolvingThreadId === thread.id}
+              onClick={() => handleSetResolved(thread.id, !resolved)}
             >
-              {resolved ? <RotateCcw className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {resolved ? (
+                <RotateCcw className="h-3.5 w-3.5" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
             </Button>
           </div>
         </div>
@@ -268,10 +352,16 @@ export function CommentsPanel({
           {thread.replies.map((reply) => (
             <div key={reply.id} className="rounded-md bg-muted/40 px-3 py-2">
               <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                <span className="truncate">{reply.authorName || 'Anonymous'}</span>
-                <time className="shrink-0">{formatTimestamp(reply.createdAt)}</time>
+                <span className="truncate">
+                  {reply.authorName || 'Anonymous'}
+                </span>
+                <time className="shrink-0">
+                  {formatTimestamp(reply.createdAt)}
+                </time>
               </div>
-              <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">{reply.body}</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
+                {reply.body}
+              </p>
             </div>
           ))}
         </div>
@@ -280,16 +370,23 @@ export function CommentsPanel({
           <div className="mt-3 flex items-end gap-2">
             <Textarea
               value={draft}
-              onChange={(event) => setReplyDrafts((current) => ({ ...current, [thread.id]: event.target.value }))}
+              onChange={(event) =>
+                setReplyDrafts((current) => ({
+                  ...current,
+                  [thread.id]: event.target.value,
+                }))
+              }
               placeholder="Reply"
               className="min-h-10 flex-1 resize-none text-sm"
-              disabled={readOnly}
+              disabled={readOnly || replyingThreadId === thread.id}
             />
             <Button
               type="button"
               size="icon"
               title="Reply"
-              disabled={readOnly || !draft.trim()}
+              disabled={
+                readOnly || replyingThreadId === thread.id || !draft.trim()
+              }
               onClick={() => handleReply(thread.id)}
             >
               <Plus className="h-4 w-4" />
@@ -306,14 +403,23 @@ export function CommentsPanel({
         <div className="flex min-w-0 items-center gap-2">
           <MessageSquare className="h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">Comments</h2>
+            <h2 className="truncate text-sm font-semibold text-foreground">
+              Comments
+            </h2>
             <p className="text-xs text-muted-foreground">
               {openThreads.length} open / {threads.length} total
             </p>
           </div>
         </div>
         {onClose ? (
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Close" onClick={onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="Close"
+            onClick={onClose}
+          >
             <X className="h-4 w-4" />
           </Button>
         ) : null}
@@ -336,7 +442,7 @@ export function CommentsPanel({
           <Button
             type="button"
             size="sm"
-            disabled={!canCreateThread}
+            disabled={!canCreateThread || creating}
             title={editor ? 'Comment' : 'Open editor'}
             onClick={handleCreateThread}
           >
@@ -347,7 +453,15 @@ export function CommentsPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-3">
-        {threads.length ? (
+        {isLoading ? (
+          <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
+            Loading comments
+          </div>
+        ) : isError ? (
+          <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
+            Could not load comments
+          </div>
+        ) : threads.length ? (
           <div className="space-y-3">
             {openThreads.map(renderThread)}
             {resolvedThreads.length ? (

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
   archiveDocument as apiArchiveDocument,
+  createDocumentCommentReply as apiCreateDocumentCommentReply,
+  createDocumentCommentThread as apiCreateDocumentCommentThread,
   createDocument as apiCreateDocument,
   deleteDocument as apiDeleteDocument,
   downloadDocument as apiDownloadDocument,
@@ -13,10 +15,12 @@ import {
   getDocumentContent as apiGetDocumentContent,
   getDocumentSnapshotDiff as apiGetDocumentSnapshotDiff,
   getOutgoingLinks as apiGetOutgoingLinks,
+  listDocumentComments as apiListDocumentComments,
   listDocumentSnapshots as apiListDocumentSnapshots,
   listDocuments as apiListDocuments,
   restoreDocumentSnapshot as apiRestoreDocumentSnapshot,
   unarchiveDocument as apiUnarchiveDocument,
+  updateDocumentCommentThread as apiUpdateDocumentCommentThread,
   updateDocument as apiUpdateDocument,
   updateDocumentContent as apiUpdateDocumentContent,
 } from '@/shared/api'
@@ -31,6 +35,9 @@ import type {
   SnapshotRestoreResponse,
   SnapshotSummary,
   DownloadFormat,
+  DocumentCommentReply as ApiDocumentCommentReply,
+  DocumentCommentThread as ApiDocumentCommentThread,
+  DocumentCommentsResponse as ApiDocumentCommentsResponse,
 } from '@/shared/api'
 import { ApiError } from '@/shared/api/client/core/ApiError'
 
@@ -56,13 +63,188 @@ export const documentKeys = {
   backlinks: (id: string) => ['documents', id, 'backlinks'] as const,
   links: (id: string) => ['documents', id, 'links'] as const,
   snapshots: (id: string) => ['documents', id, 'snapshots'] as const,
+  comments: (id: string, token?: string | null) =>
+    ['documents', id, 'comments', token ?? null] as const,
   snapshotDiff: (
     id: string,
     snapshotId: string,
     compare?: string | null,
-    base?: SnapshotDiffBaseParam | 'auto'
-  ) => ['documents', id, 'snapshot', snapshotId, compare ?? 'current', base ?? 'auto'] as const,
+    base?: SnapshotDiffBaseParam | 'auto',
+  ) =>
+    [
+      'documents',
+      id,
+      'snapshot',
+      snapshotId,
+      compare ?? 'current',
+      base ?? 'auto',
+    ] as const,
 }
+
+export type DocumentCommentReply = {
+  id: string
+  threadId: string
+  documentId: string
+  body: string
+  authorId: string | null
+  authorName: string | null
+  createdAt: string
+}
+
+export type DocumentCommentThread = {
+  id: string
+  documentId: string
+  marker: string
+  quote: string
+  startLineNumber: number | null
+  endLineNumber: number | null
+  startOffset: number | null
+  endOffset: number | null
+  createdBy: string | null
+  createdByName: string | null
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  resolvedBy: string | null
+  replies: DocumentCommentReply[]
+}
+
+export type DocumentCommentsResponse = {
+  threads: DocumentCommentThread[]
+}
+
+export type CreateDocumentCommentThreadInput = {
+  documentId: string
+  token?: string | null
+  id: string
+  marker: string
+  quote: string
+  body: string
+  startLineNumber?: number | null
+  endLineNumber?: number | null
+  startOffset?: number | null
+  endOffset?: number | null
+  authorName?: string | null
+}
+
+export type CreateDocumentCommentReplyInput = {
+  documentId: string
+  threadId: string
+  token?: string | null
+  body: string
+  authorName?: string | null
+}
+
+export type UpdateDocumentCommentThreadInput = {
+  documentId: string
+  threadId: string
+  token?: string | null
+  resolved: boolean
+}
+
+function toDocumentCommentReply(
+  reply: ApiDocumentCommentReply,
+): DocumentCommentReply {
+  return {
+    id: reply.id,
+    threadId: reply.thread_id,
+    documentId: reply.document_id,
+    body: reply.body,
+    authorId: reply.created_by ?? null,
+    authorName: reply.created_by_name ?? null,
+    createdAt: reply.created_at,
+  }
+}
+
+function toDocumentCommentThread(
+  thread: ApiDocumentCommentThread,
+): DocumentCommentThread {
+  return {
+    id: thread.id,
+    documentId: thread.document_id,
+    marker: thread.marker,
+    quote: thread.quote,
+    startLineNumber: thread.start_line_number ?? null,
+    endLineNumber: thread.end_line_number ?? null,
+    startOffset: thread.start_offset ?? null,
+    endOffset: thread.end_offset ?? null,
+    createdBy: thread.created_by ?? null,
+    createdByName: thread.created_by_name ?? null,
+    createdAt: thread.created_at,
+    updatedAt: thread.updated_at,
+    resolvedAt: thread.resolved_at ?? null,
+    resolvedBy: thread.resolved_by ?? null,
+    replies: thread.replies.map(toDocumentCommentReply),
+  }
+}
+
+export async function listDocumentComments(
+  documentId: string,
+  token?: string | null,
+): Promise<DocumentCommentsResponse> {
+  const response = (await apiListDocumentComments({
+    id: documentId,
+    token: token ?? null,
+  })) as ApiDocumentCommentsResponse
+  return { threads: response.threads.map(toDocumentCommentThread) }
+}
+
+export async function createDocumentCommentThread(
+  input: CreateDocumentCommentThreadInput,
+): Promise<DocumentCommentThread> {
+  const response = (await apiCreateDocumentCommentThread({
+    id: input.documentId,
+    token: input.token ?? null,
+    requestBody: {
+      id: input.id,
+      marker: input.marker,
+      quote: input.quote,
+      body: input.body,
+      start_line_number: input.startLineNumber ?? null,
+      end_line_number: input.endLineNumber ?? null,
+      start_offset: input.startOffset ?? null,
+      end_offset: input.endOffset ?? null,
+      author_name: input.authorName ?? null,
+    },
+  })) as ApiDocumentCommentThread
+  return toDocumentCommentThread(response)
+}
+
+export async function createDocumentCommentReply(
+  input: CreateDocumentCommentReplyInput,
+): Promise<DocumentCommentReply> {
+  const response = (await apiCreateDocumentCommentReply({
+    id: input.documentId,
+    threadId: input.threadId,
+    token: input.token ?? null,
+    requestBody: {
+      body: input.body,
+      author_name: input.authorName ?? null,
+    },
+  })) as ApiDocumentCommentReply
+  return toDocumentCommentReply(response)
+}
+
+export async function updateDocumentCommentThread(
+  input: UpdateDocumentCommentThreadInput,
+): Promise<DocumentCommentThread> {
+  const response = (await apiUpdateDocumentCommentThread({
+    id: input.documentId,
+    threadId: input.threadId,
+    token: input.token ?? null,
+    requestBody: { resolved: input.resolved },
+  })) as ApiDocumentCommentThread
+  return toDocumentCommentThread(response)
+}
+
+export const documentCommentsQuery = (
+  id: string,
+  params?: { token?: string | null },
+) => ({
+  queryKey: documentKeys.comments(id, params?.token),
+  queryFn: () => listDocumentComments(id, params?.token),
+  enabled: !!id,
+})
 
 export const listDocumentsQuery = (params?: DocumentListParams) => {
   const state = params?.state ?? 'active'
@@ -97,7 +279,10 @@ export function useOutgoingLinks(id: string) {
   return useQuery(outgoingLinksQuery(id))
 }
 
-export const documentSnapshotsQuery = (id: string, params?: { token?: string | null }) => ({
+export const documentSnapshotsQuery = (
+  id: string,
+  params?: { token?: string | null },
+) => ({
   queryKey: documentKeys.snapshots(id),
   queryFn: () =>
     apiListDocumentSnapshots({
@@ -109,27 +294,34 @@ export const documentSnapshotsQuery = (id: string, params?: { token?: string | n
   enabled: !!id,
 })
 
-export function useDocumentSnapshots(id: string, params?: { token?: string | null }) {
+export function useDocumentSnapshots(
+  id: string,
+  params?: { token?: string | null },
+) {
   return useQuery(documentSnapshotsQuery(id, params))
 }
 
 export const snapshotDiffQuery = (
   id: string,
   snapshotId: string,
-  params?: { compare?: string | null; base?: SnapshotDiffBaseParam | 'auto'; token?: string | null },
+  params?: {
+    compare?: string | null
+    base?: SnapshotDiffBaseParam | 'auto'
+    token?: string | null
+  },
 ) => ({
   queryKey: documentKeys.snapshotDiff(
     id,
     snapshotId,
     params?.compare ?? undefined,
-    params?.base ?? 'auto'
+    params?.base ?? 'auto',
   ),
   queryFn: () =>
     apiGetDocumentSnapshotDiff({
       id,
       snapshotId,
       compare: params?.compare ?? null,
-      base: params?.base === 'auto' ? null : params?.base ?? null,
+      base: params?.base === 'auto' ? null : (params?.base ?? null),
       token: params?.token ?? null,
     }) as Promise<SnapshotDiffResponse>,
 })
@@ -177,7 +369,11 @@ export async function downloadSnapshot(params: {
 export function useCreateDocument() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { title?: string; parent_id?: string | null; type?: 'folder' | 'document' }) =>
+    mutationFn: (input: {
+      title?: string
+      parent_id?: string | null
+      type?: 'folder' | 'document'
+    }) =>
       apiCreateDocument({
         requestBody: {
           title: input.title ?? 'Untitled',
@@ -191,10 +387,16 @@ export function useCreateDocument() {
   })
 }
 
-export function useDuplicateDocument(options?: { onSuccess?: (document: ApiDocument) => void }) {
+export function useDuplicateDocument(options?: {
+  onSuccess?: (document: ApiDocument) => void
+}) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { id: string; title?: string; parent_id?: string | null }) => {
+    mutationFn: (input: {
+      id: string
+      title?: string
+      parent_id?: string | null
+    }) => {
       const body: Record<string, unknown> = {}
       if (input.title !== undefined) body.title = input.title
       if (Object.prototype.hasOwnProperty.call(input, 'parent_id')) {
@@ -212,10 +414,13 @@ export function useDuplicateDocument(options?: { onSuccess?: (document: ApiDocum
   })
 }
 
-export function useArchiveDocument(options?: { onSuccess?: (document: ApiDocument, id: string) => void }) {
+export function useArchiveDocument(options?: {
+  onSuccess?: (document: ApiDocument, id: string) => void
+}) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => apiArchiveDocument({ id }) as Promise<ApiDocument>,
+    mutationFn: async (id: string) =>
+      apiArchiveDocument({ id }) as Promise<ApiDocument>,
     onSuccess: (doc, id) => {
       qc.invalidateQueries({ queryKey: documentKeys.all })
       options?.onSuccess?.(doc, id)
@@ -223,10 +428,13 @@ export function useArchiveDocument(options?: { onSuccess?: (document: ApiDocumen
   })
 }
 
-export function useUnarchiveDocument(options?: { onSuccess?: (document: ApiDocument, id: string) => void }) {
+export function useUnarchiveDocument(options?: {
+  onSuccess?: (document: ApiDocument, id: string) => void
+}) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => apiUnarchiveDocument({ id }) as Promise<ApiDocument>,
+    mutationFn: async (id: string) =>
+      apiUnarchiveDocument({ id }) as Promise<ApiDocument>,
     onSuccess: (doc, id) => {
       qc.invalidateQueries({ queryKey: documentKeys.all })
       options?.onSuccess?.(doc, id)
@@ -245,7 +453,11 @@ export async function fetchDocumentContent(id: string) {
   return apiGetDocumentContent({ id })
 }
 
-export async function listDocuments(params?: { query?: string | null; tag?: string | null; state?: 'active' | 'archived' | 'all' }) {
+export async function listDocuments(params?: {
+  query?: string | null
+  tag?: string | null
+  state?: 'active' | 'archived' | 'all'
+}) {
   return apiListDocuments({
     query: params?.query ?? null,
     tag: params?.tag ?? null,
@@ -253,11 +465,19 @@ export async function listDocuments(params?: { query?: string | null; tag?: stri
   })
 }
 
-export async function createDocument(input: { title?: string; parent_id?: string | null; type?: 'folder' | 'document' }) {
+export async function createDocument(input: {
+  title?: string
+  parent_id?: string | null
+  type?: 'folder' | 'document'
+}) {
   return apiCreateDocument({ requestBody: input as any })
 }
 
-export async function duplicateDocument(params: { id: string; title?: string; parent_id?: string | null }) {
+export async function duplicateDocument(params: {
+  id: string
+  title?: string
+  parent_id?: string | null
+}) {
   const body: Record<string, unknown> = {}
   if (params.title !== undefined) body.title = params.title
   if (Object.prototype.hasOwnProperty.call(params, 'parent_id')) {
@@ -273,11 +493,18 @@ export async function updateDocumentTitle(id: string, title: string) {
   return apiUpdateDocument({ id, requestBody: { title } as any })
 }
 
-export async function updateDocumentParent(id: string, parent_id: string | null) {
+export async function updateDocumentParent(
+  id: string,
+  parent_id: string | null,
+) {
   return apiUpdateDocument({ id, requestBody: { parent_id } as any })
 }
 
-export async function updateDocumentContent(params: { id: string; content: string; token?: string | null }) {
+export async function updateDocumentContent(params: {
+  id: string
+  content: string
+  token?: string | null
+}) {
   return apiUpdateDocumentContent({
     id: params.id,
     token: params.token ?? null,
@@ -301,7 +528,10 @@ export type DocumentDownloadFormatMetadata = {
   group?: string
 }
 
-export const DOWNLOAD_FORMAT_METADATA: Record<DocumentDownloadFormat, DocumentDownloadFormatMetadata> = {
+export const DOWNLOAD_FORMAT_METADATA: Record<
+  DocumentDownloadFormat,
+  DocumentDownloadFormatMetadata
+> = {
   archive: {
     label: 'ZIP archive',
     description: 'Markdown with all attachments bundled',
@@ -586,7 +816,11 @@ export async function downloadDocumentFile(
   const format: DocumentDownloadFormat = options?.format ?? 'archive'
   let payload: unknown
   try {
-    payload = await apiDownloadDocument({ id, token: options?.token ?? null, format })
+    payload = await apiDownloadDocument({
+      id,
+      token: options?.token ?? null,
+      format,
+    })
   } catch (error) {
     if (error instanceof ApiError) {
       const body = error.body as { message?: unknown } | undefined
@@ -638,7 +872,10 @@ export async function downloadWorkspaceArchive(params: {
   const format: DocumentDownloadFormat = params.format ?? 'archive'
   let payload: unknown
   try {
-    payload = await apiDownloadWorkspaceArchive({ id: params.workspaceId, format })
+    payload = await apiDownloadWorkspaceArchive({
+      id: params.workspaceId,
+      format,
+    })
   } catch (error) {
     if (error instanceof ApiError) {
       const body = error.body as { message?: unknown } | undefined
@@ -709,7 +946,7 @@ function resolveMimeType(format: DocumentDownloadFormat): string {
 }
 
 function sanitizeExportName(input?: string) {
-  const invalid = new Set(['/','\\',':','*','?','"','<','>','|','\0'])
+  const invalid = new Set(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'])
   let base = (input ?? '').trim()
   if (!base) base = 'document'
   let sanitized = ''

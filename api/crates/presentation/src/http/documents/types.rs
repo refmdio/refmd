@@ -437,6 +437,101 @@ pub struct SnapshotTokenQuery {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct DocumentCommentReply {
+    pub id: Uuid,
+    pub thread_id: Uuid,
+    pub document_id: Uuid,
+    pub body: String,
+    pub created_by: Option<Uuid>,
+    pub created_by_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DocumentCommentThread {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub marker: String,
+    pub quote: String,
+    pub start_line_number: Option<i32>,
+    pub end_line_number: Option<i32>,
+    pub start_offset: Option<i32>,
+    pub end_offset: Option<i32>,
+    pub created_by: Option<Uuid>,
+    pub created_by_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub resolved_by: Option<Uuid>,
+    pub replies: Vec<DocumentCommentReply>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DocumentCommentsResponse {
+    pub threads: Vec<DocumentCommentThread>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateDocumentCommentThreadRequest {
+    pub id: Uuid,
+    pub marker: String,
+    pub quote: String,
+    pub body: String,
+    pub start_line_number: Option<i32>,
+    pub end_line_number: Option<i32>,
+    pub start_offset: Option<i32>,
+    pub end_offset: Option<i32>,
+    pub author_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateDocumentCommentReplyRequest {
+    pub body: String,
+    pub author_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateDocumentCommentThreadRequest {
+    pub resolved: bool,
+}
+
+pub fn to_http_comment_reply(reply: domain::DocumentCommentReply) -> DocumentCommentReply {
+    DocumentCommentReply {
+        id: reply.id,
+        thread_id: reply.thread_id,
+        document_id: reply.document_id,
+        body: reply.body,
+        created_by: reply.created_by,
+        created_by_name: reply.created_by_name,
+        created_at: reply.created_at,
+    }
+}
+
+pub fn to_http_comment_thread(thread: domain::DocumentCommentThread) -> DocumentCommentThread {
+    DocumentCommentThread {
+        id: thread.id,
+        document_id: thread.document_id,
+        marker: thread.marker,
+        quote: thread.quote,
+        start_line_number: thread.start_line_number,
+        end_line_number: thread.end_line_number,
+        start_offset: thread.start_offset,
+        end_offset: thread.end_offset,
+        created_by: thread.created_by,
+        created_by_name: thread.created_by_name,
+        created_at: thread.created_at,
+        updated_at: thread.updated_at,
+        resolved_at: thread.resolved_at,
+        resolved_by: thread.resolved_by,
+        replies: thread
+            .replies
+            .into_iter()
+            .map(to_http_comment_reply)
+            .collect(),
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct BacklinkInfo {
     pub document_id: String,
     pub title: String,

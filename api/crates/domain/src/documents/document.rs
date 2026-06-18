@@ -160,3 +160,33 @@ pub struct OutgoingLink {
     pub position_start: Option<i32>,
     pub position_end: Option<i32>,
 }
+
+#[derive(Debug, Clone)]
+pub struct DocumentCommentReply {
+    pub id: Uuid,
+    pub thread_id: Uuid,
+    pub document_id: Uuid,
+    pub body: String,
+    pub created_by: Option<Uuid>,
+    pub created_by_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DocumentCommentThread {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub marker: String,
+    pub quote: String,
+    pub start_line_number: Option<i32>,
+    pub end_line_number: Option<i32>,
+    pub start_offset: Option<i32>,
+    pub end_offset: Option<i32>,
+    pub created_by: Option<Uuid>,
+    pub created_by_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub resolved_by: Option<Uuid>,
+    pub replies: Vec<DocumentCommentReply>,
+}

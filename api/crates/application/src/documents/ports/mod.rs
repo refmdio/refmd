@@ -1,4 +1,5 @@
 pub mod access_repository;
+pub mod comment_repository;
 pub mod doc_event_log;
 pub mod document_exporter;
 pub mod document_path_repository;

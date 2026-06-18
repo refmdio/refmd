@@ -13,11 +13,13 @@ use axum::{
 use crate::context::AppContext;
 
 pub use handlers::{
-    archive_document, create_document, delete_document, download_document,
-    download_document_snapshot, duplicate_document, get_backlinks, get_document,
-    get_document_content, get_document_snapshot_diff, get_outgoing_links, list_document_snapshots,
-    list_documents, patch_document_content, restore_document_snapshot, search_documents,
-    unarchive_document, update_document, update_document_content,
+    archive_document, create_document, create_document_comment_reply,
+    create_document_comment_thread, delete_document, download_document, download_document_snapshot,
+    duplicate_document, get_backlinks, get_document, get_document_content,
+    get_document_snapshot_diff, get_outgoing_links, list_document_comments,
+    list_document_snapshots, list_documents, patch_document_content, restore_document_snapshot,
+    search_documents, unarchive_document, update_document, update_document_comment_thread,
+    update_document_content,
 };
 pub use types::*;
 
@@ -59,6 +61,18 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/documents/:id/download", get(download_document))
         .route("/documents/:id/backlinks", get(get_backlinks))
         .route("/documents/:id/links", get(get_outgoing_links))
+        .route(
+            "/documents/:id/comments",
+            get(list_document_comments).post(create_document_comment_thread),
+        )
+        .route(
+            "/documents/:id/comments/:thread_id",
+            axum::routing::patch(update_document_comment_thread),
+        )
+        .route(
+            "/documents/:id/comments/:thread_id/replies",
+            post(create_document_comment_reply),
+        )
         .route("/documents/search", get(search_documents))
         .with_state(ctx)
 }

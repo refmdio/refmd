@@ -120,6 +120,12 @@ pub async fn build_runtime(
                 pool.clone(),
             ),
         );
+    let comment_repo: Arc<dyn application::documents::ports::comment_repository::CommentRepository> =
+        Arc::new(
+            infrastructure::documents::db::repositories::comment_repository_sqlx::SqlxCommentRepository::new(
+                pool.clone(),
+            ),
+        );
     let doc_event_log: Arc<dyn DocEventLog> = Arc::new(PgDocEventLog::new(pool.clone()));
     let metrics = Arc::new(MetricsRegistry::default());
     let storage_reconcile_jobs: Arc<dyn StorageReconcileJobs> =
@@ -369,6 +375,7 @@ pub async fn build_runtime(
         access_repo.clone(),
         shares_repo_impl.clone(),
         linkgraph_repo.clone(),
+        comment_repo.clone(),
         storage_resolver.clone(),
         doc_event_log.clone(),
         realtime_engine.clone(),

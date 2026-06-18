@@ -975,11 +975,11 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   const commentsPanel = commentsOpen ? (
     <CommentsPanel
-      doc={doc}
+      documentId={documentId}
+      token={shareToken}
       content={boundText}
       editor={documentEditorApi}
       readOnly={readOnly}
-      userId={userId ?? null}
       userName={userName ?? null}
       onClose={() => onCommentsOpenChange?.(false)}
       onRequestEditor={handleCommentsRequestEditor}

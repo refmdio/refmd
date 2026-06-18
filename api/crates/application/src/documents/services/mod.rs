@@ -6,6 +6,7 @@ use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::core::services::errors::ServiceError;
 use crate::documents::dtos::{DocumentDownload, DocumentDownloadFormat, DocumentListFilter};
 use crate::documents::ports::access_repository::AccessRepository;
+use crate::documents::ports::comment_repository::CommentRepository;
 use crate::documents::ports::doc_event_log::DocEventLog;
 use crate::documents::ports::document_exporter::DocumentExporter;
 use crate::documents::ports::document_repository::{DocMeta, DocumentRepository};
@@ -20,10 +21,12 @@ use domain::access::permissions::PermissionSet;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
 use domain::documents::document::{
-    BacklinkInfo as DomainBacklink, OutgoingLink as DomainOutgoingLink, SearchHit,
+    BacklinkInfo as DomainBacklink, DocumentCommentReply as DomainCommentReply,
+    DocumentCommentThread as DomainCommentThread, OutgoingLink as DomainOutgoingLink, SearchHit,
 };
 
 mod attachments;
+mod comments;
 mod content;
 mod crud;
 mod deletion;
@@ -203,6 +206,45 @@ pub trait DocumentServiceFacade: Send + Sync {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> Result<Vec<DomainOutgoingLink>, ServiceError>;
+
+    async fn list_comments(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+    ) -> Result<Vec<DomainCommentThread>, ServiceError>;
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_comment_thread(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        thread_id: Uuid,
+        marker: String,
+        quote: String,
+        body: String,
+        start_line_number: Option<i32>,
+        end_line_number: Option<i32>,
+        start_offset: Option<i32>,
+        end_offset: Option<i32>,
+        author_name: Option<String>,
+    ) -> Result<DomainCommentThread, ServiceError>;
+
+    async fn add_comment_reply(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        thread_id: Uuid,
+        body: String,
+        author_name: Option<String>,
+    ) -> Result<DomainCommentReply, ServiceError>;
+
+    async fn set_comment_resolved(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        thread_id: Uuid,
+        resolved: bool,
+    ) -> Result<DomainCommentThread, ServiceError>;
 }
 
 #[async_trait]
@@ -433,6 +475,67 @@ impl DocumentServiceFacade for DocumentService {
     ) -> Result<Vec<DomainOutgoingLink>, ServiceError> {
         self.outgoing_links(actor, workspace_id, doc_id).await
     }
+
+    async fn list_comments(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+    ) -> Result<Vec<DomainCommentThread>, ServiceError> {
+        self.list_comments(actor, doc_id).await
+    }
+
+    async fn create_comment_thread(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        thread_id: Uuid,
+        marker: String,
+        quote: String,
+        body: String,
+        start_line_number: Option<i32>,
+        end_line_number: Option<i32>,
+        start_offset: Option<i32>,
+        end_offset: Option<i32>,
+        author_name: Option<String>,
+    ) -> Result<DomainCommentThread, ServiceError> {
+        self.create_comment_thread(
+            actor,
+            doc_id,
+            thread_id,
+            marker,
+            quote,
+            body,
+            start_line_number,
+            end_line_number,
+            start_offset,
+            end_offset,
+            author_name,
+        )
+        .await
+    }
+
+    async fn add_comment_reply(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        thread_id: Uuid,
+        body: String,
+        author_name: Option<String>,
+    ) -> Result<DomainCommentReply, ServiceError> {
+        self.add_comment_reply(actor, doc_id, thread_id, body, author_name)
+            .await
+    }
+
+    async fn set_comment_resolved(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        thread_id: Uuid,
+        resolved: bool,
+    ) -> Result<DomainCommentThread, ServiceError> {
+        self.set_comment_resolved(actor, doc_id, thread_id, resolved)
+            .await
+    }
 }
 
 pub struct DocumentService {
@@ -442,6 +545,7 @@ pub struct DocumentService {
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
     linkgraph_repo: Arc<dyn LinkGraphRepository>,
+    comment_repo: Arc<dyn CommentRepository>,
     storage: Arc<dyn StorageResolverPort>,
     events: Arc<dyn DocEventLog>,
     realtime: Arc<dyn RealtimeEngine>,
@@ -458,6 +562,7 @@ impl DocumentService {
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
         linkgraph_repo: Arc<dyn LinkGraphRepository>,
+        comment_repo: Arc<dyn CommentRepository>,
         storage: Arc<dyn StorageResolverPort>,
         events: Arc<dyn DocEventLog>,
         realtime: Arc<dyn RealtimeEngine>,
@@ -471,6 +576,7 @@ impl DocumentService {
             access_repo,
             share_access,
             linkgraph_repo,
+            comment_repo,
             storage,
             events,
             realtime,

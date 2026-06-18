@@ -1,27 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type * as Y from 'yjs'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback } from 'react'
 
-export type DocumentCommentReply = {
-  id: string
-  body: string
-  authorId: string | null
-  authorName: string | null
-  createdAt: string
-}
+import {
+  createDocumentCommentReply,
+  createDocumentCommentThread,
+  documentCommentsQuery,
+  documentKeys,
+  updateDocumentCommentThread,
+  type DocumentCommentReply,
+  type DocumentCommentsResponse,
+  type DocumentCommentThread,
+} from '@/entities/document'
 
-export type DocumentCommentThread = {
-  id: string
-  marker: string
-  quote: string
-  startLineNumber: number | null
-  endLineNumber: number | null
-  startOffset: number | null
-  endOffset: number | null
-  createdAt: string
-  updatedAt: string
-  resolvedAt: string | null
-  replies: DocumentCommentReply[]
-}
+export type { DocumentCommentReply, DocumentCommentThread }
 
 type CreateThreadInput = {
   id: string
@@ -34,156 +25,188 @@ type CreateThreadInput = {
 }
 
 type UseDocumentCommentsOptions = {
-  userId?: string | null
+  documentId: string
+  token?: string | null
   userName?: string | null
 }
-
-const COMMENTS_MAP_NAME = 'refmd_comments'
 
 export function buildCommentMarker(id: string) {
   return `<!--comment:${id}-->`
 }
 
-export function createCommentId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `c_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
-  }
-  return `c_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
-}
-
-function createReply(body: string, userId?: string | null, userName?: string | null): DocumentCommentReply {
-  return {
-    id: createCommentId(),
-    body: body.trim(),
-    authorId: userId ?? null,
-    authorName: userName ?? null,
-    createdAt: new Date().toISOString(),
-  }
-}
-
-function normalizeThread(value: unknown): DocumentCommentThread | null {
-  if (!value || typeof value !== 'object') return null
-  const raw = value as Partial<DocumentCommentThread>
-  if (!raw.id || !raw.marker) return null
-  const replies = Array.isArray(raw.replies)
-    ? raw.replies
-        .filter((reply): reply is DocumentCommentReply => {
-          return Boolean(
-            reply &&
-              typeof reply === 'object' &&
-              typeof reply.id === 'string' &&
-              typeof reply.body === 'string',
-          )
-        })
-        .map((reply) => ({
-          id: reply.id,
-          body: reply.body,
-          authorId: reply.authorId ?? null,
-          authorName: reply.authorName ?? null,
-          createdAt: reply.createdAt || raw.createdAt || new Date().toISOString(),
-        }))
-    : []
-
-  return {
-    id: raw.id,
-    marker: raw.marker,
-    quote: raw.quote ?? '',
-    startLineNumber: raw.startLineNumber ?? null,
-    endLineNumber: raw.endLineNumber ?? null,
-    startOffset: raw.startOffset ?? null,
-    endOffset: raw.endOffset ?? null,
-    createdAt: raw.createdAt ?? new Date().toISOString(),
-    updatedAt: raw.updatedAt ?? raw.createdAt ?? new Date().toISOString(),
-    resolvedAt: raw.resolvedAt ?? null,
-    replies,
-  }
-}
-
-function readThreads(map: Y.Map<unknown>) {
-  return Array.from(map.values())
-    .map(normalizeThread)
-    .filter((thread): thread is DocumentCommentThread => Boolean(thread))
-    .sort((a, b) => {
-      if (!a.resolvedAt && b.resolvedAt) return -1
-      if (a.resolvedAt && !b.resolvedAt) return 1
-      return a.createdAt.localeCompare(b.createdAt)
-    })
-}
-
-export function useDocumentComments(doc: Y.Doc, options: UseDocumentCommentsOptions = {}) {
-  const map = useMemo(() => doc.getMap<unknown>(COMMENTS_MAP_NAME), [doc])
-  const [threads, setThreads] = useState<DocumentCommentThread[]>(() => readThreads(map))
-
-  useEffect(() => {
-    const update = () => setThreads(readThreads(map))
-    update()
-    map.observe(update)
-    return () => {
-      try {
-        map.unobserve(update)
-      } catch {
-        /* noop */
-      }
+function fallbackUuid() {
+  const bytes = new Uint8Array(16)
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.getRandomValues === 'function'
+  ) {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256)
     }
-  }, [map])
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 
-  const createThread = useCallback(
-    (input: CreateThreadInput) => {
-      const body = input.body.trim()
-      if (!body) return null
-      const now = new Date().toISOString()
-      const thread: DocumentCommentThread = {
+export function createCommentId() {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID()
+  }
+  return fallbackUuid()
+}
+
+function sortThreads(threads: DocumentCommentThread[]) {
+  return [...threads].sort((a, b) => {
+    if (!a.resolvedAt && b.resolvedAt) return -1
+    if (a.resolvedAt && !b.resolvedAt) return 1
+    return a.createdAt.localeCompare(b.createdAt)
+  })
+}
+
+export function useDocumentComments({
+  documentId,
+  token,
+  userName,
+}: UseDocumentCommentsOptions) {
+  const queryClient = useQueryClient()
+  const query = useQuery(documentCommentsQuery(documentId, { token }))
+  const queryKey = documentKeys.comments(documentId, token)
+
+  const setThreads = useCallback(
+    (
+      updater: (threads: DocumentCommentThread[]) => DocumentCommentThread[],
+    ) => {
+      queryClient.setQueryData<DocumentCommentsResponse>(
+        queryKey,
+        (current) => {
+          const currentThreads = current?.threads ?? []
+          return { threads: sortThreads(updater(currentThreads)) }
+        },
+      )
+    },
+    [queryClient, queryKey],
+  )
+
+  const createThreadMutation = useMutation({
+    mutationFn: (input: CreateThreadInput) =>
+      createDocumentCommentThread({
+        documentId,
+        token,
         id: input.id,
         marker: buildCommentMarker(input.id),
         quote: input.quote,
+        body: input.body,
         startLineNumber: input.startLineNumber ?? null,
         endLineNumber: input.endLineNumber ?? null,
         startOffset: input.startOffset ?? null,
         endOffset: input.endOffset ?? null,
-        createdAt: now,
-        updatedAt: now,
-        resolvedAt: null,
-        replies: [createReply(body, options.userId, options.userName)],
-      }
-      doc.transact(() => map.set(thread.id, thread))
-      return thread
+        authorName: userName ?? null,
+      }),
+    onSuccess: (thread) => {
+      setThreads((threads) => [
+        ...threads.filter((item) => item.id !== thread.id),
+        thread,
+      ])
     },
-    [doc, map, options.userId, options.userName],
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const addReplyMutation = useMutation({
+    mutationFn: ({ threadId, body }: { threadId: string; body: string }) =>
+      createDocumentCommentReply({
+        documentId,
+        threadId,
+        token,
+        body,
+        authorName: userName ?? null,
+      }),
+    onSuccess: (reply, variables) => {
+      setThreads((threads) =>
+        threads.map((thread) =>
+          thread.id === variables.threadId
+            ? {
+                ...thread,
+                updatedAt: reply.createdAt,
+                replies: [
+                  ...thread.replies.filter((item) => item.id !== reply.id),
+                  reply,
+                ],
+              }
+            : thread,
+        ),
+      )
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const setResolvedMutation = useMutation({
+    mutationFn: ({
+      threadId,
+      resolved,
+    }: {
+      threadId: string
+      resolved: boolean
+    }) =>
+      updateDocumentCommentThread({
+        documentId,
+        threadId,
+        token,
+        resolved,
+      }),
+    onSuccess: (thread) => {
+      setThreads((threads) =>
+        threads.map((item) => (item.id === thread.id ? thread : item)),
+      )
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const createThread = useCallback(
+    async (input: CreateThreadInput) => {
+      if (!input.body.trim()) return null
+      return createThreadMutation.mutateAsync(input)
+    },
+    [createThreadMutation],
   )
 
   const addReply = useCallback(
-    (threadId: string, body: string) => {
-      const thread = normalizeThread(map.get(threadId))
-      const replyBody = body.trim()
-      if (!thread || !replyBody) return null
-      const next: DocumentCommentThread = {
-        ...thread,
-        replies: [...thread.replies, createReply(replyBody, options.userId, options.userName)],
-        updatedAt: new Date().toISOString(),
-      }
-      doc.transact(() => map.set(threadId, next))
-      return next
+    async (threadId: string, body: string) => {
+      if (!body.trim()) return null
+      return addReplyMutation.mutateAsync({ threadId, body })
     },
-    [doc, map, options.userId, options.userName],
+    [addReplyMutation],
   )
 
   const setResolved = useCallback(
-    (threadId: string, resolved: boolean) => {
-      const thread = normalizeThread(map.get(threadId))
-      if (!thread) return null
-      const next: DocumentCommentThread = {
-        ...thread,
-        resolvedAt: resolved ? new Date().toISOString() : null,
-        updatedAt: new Date().toISOString(),
-      }
-      doc.transact(() => map.set(threadId, next))
-      return next
+    async (threadId: string, resolved: boolean) => {
+      return setResolvedMutation.mutateAsync({ threadId, resolved })
     },
-    [doc, map],
+    [setResolvedMutation],
   )
 
   return {
-    threads,
+    threads: query.data?.threads ?? [],
+    isLoading: query.isLoading,
+    isError: query.isError,
+    isSaving:
+      createThreadMutation.isPending ||
+      addReplyMutation.isPending ||
+      setResolvedMutation.isPending,
     createThread,
     addReply,
     setResolved,
