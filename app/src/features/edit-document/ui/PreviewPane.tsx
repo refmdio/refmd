@@ -69,6 +69,11 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   const anchorsRef = useRef<Array<{ line: number; top: number }>>([])
   const suppressSyncEmitRef = useRef(false)
   const suppressSyncEmitTimerRef = useRef<number | null>(null)
+  const latestScrollStateRef = useRef({ scrollToLine, scrollPercentage, stickToBottom })
+
+  useEffect(() => {
+    latestScrollStateRef.current = { scrollToLine, scrollPercentage, stickToBottom }
+  }, [scrollPercentage, scrollToLine, stickToBottom])
 
   const suppressSyncEmit = React.useCallback((ms = 140) => {
     if (typeof window === 'undefined') return
@@ -109,6 +114,49 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     anchorsRef.current = dedup
   }, [])
 
+  const scrollToPercentage = React.useCallback((percentage?: number) => {
+    const container = previewRef.current
+    if (percentage == null || !container) return false
+    if ((container as any).__userInteracting === true) return false
+
+    const { scrollHeight, clientHeight } = container
+    const denom = Math.max(1, scrollHeight - clientHeight)
+    suppressSyncEmit()
+    container.scrollTop = Math.round(denom * Math.min(1, Math.max(0, percentage)))
+    return true
+  }, [suppressSyncEmit])
+
+  const scrollToNearestAnchor = React.useCallback((line?: number, fallbackPercentage?: number) => {
+    const container = previewRef.current
+    if (line == null || !container) return false
+    if ((container as any).__userInteracting === true) return false
+
+    if (!anchorsRef.current.length) {
+      rebuildAnchors()
+    }
+
+    const anchors = anchorsRef.current
+    if (!anchors.length) {
+      return scrollToPercentage(fallbackPercentage)
+    }
+
+    // Find greatest anchor.line <= target line
+    let lo = 0, hi = anchors.length - 1, best = 0
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (anchors[mid].line <= line) { best = mid; lo = mid + 1 } else { hi = mid - 1 }
+    }
+    const targetTop = anchors[best].top
+    const margin = 12
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
+    const nextTop = Math.max(0, Math.min(maxTop, targetTop - margin))
+    requestAnimationFrame(() => {
+      suppressSyncEmit()
+      container.scrollTop = nextTop
+    })
+    return true
+  }, [rebuildAnchors, scrollToPercentage, suppressSyncEmit])
+
   const markdownWrapperCls = useMemo(() =>
     cn(
       'prose prose-neutral dark:prose-invert break-words overflow-wrap-anywhere',
@@ -123,15 +171,8 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   useEffect(() => {
     // If anchor-line based scroll is provided, it takes precedence
     if (scrollToLine != null) return
-    if (scrollPercentage == null || !previewRef.current) return
-    const el = previewRef.current
-    // Don't override while user is actively scrolling preview
-    if ((el as any).__userInteracting === true) return
-    const { scrollHeight, clientHeight } = el
-    const denom = Math.max(1, scrollHeight - clientHeight)
-    suppressSyncEmit()
-    el.scrollTop = Math.round(denom * Math.min(1, Math.max(0, scrollPercentage)))
-  }, [scrollPercentage, scrollToLine, suppressSyncEmit])
+    scrollToPercentage(scrollPercentage)
+  }, [scrollPercentage, scrollToLine, scrollToPercentage])
 
   // If editor is at bottom (pct≈1) and content grows, keep preview pinned to bottom
   useEffect(() => {
@@ -165,29 +206,52 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     return () => { try { ro?.disconnect() } catch {} }
   }, [content, rebuildAnchors])
 
+  // Markdown HTML is rendered asynchronously, so source anchors can appear after
+  // the raw content prop has already changed.
+  useEffect(() => {
+    const el = previewRef.current
+    if (!el || typeof MutationObserver === 'undefined') return
+
+    let frame: number | null = null
+    const schedule = () => {
+      if (frame != null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        rebuildAnchors()
+        const latest = latestScrollStateRef.current
+        if (latest.scrollToLine != null) {
+          scrollToNearestAnchor(latest.scrollToLine, latest.scrollPercentage)
+        } else if (latest.stickToBottom || (latest.scrollPercentage != null && latest.scrollPercentage >= 0.999)) {
+          const target = previewRef.current
+          if (!target || (target as any).__userInteracting === true) return
+          const { scrollHeight, clientHeight } = target
+          suppressSyncEmit()
+          target.scrollTop = Math.max(0, scrollHeight - clientHeight)
+        }
+      })
+    }
+
+    const observer = new MutationObserver(schedule)
+    observer.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['data-sourcepos'],
+    })
+    schedule()
+
+    return () => {
+      observer.disconnect()
+      if (frame != null) cancelAnimationFrame(frame)
+    }
+  }, [rebuildAnchors, scrollToNearestAnchor, suppressSyncEmit])
+
   // Scroll to nearest anchor for requested source line
   useEffect(() => {
     if (scrollToLine == null) return
-    const container = previewRef.current
-    if (!container) return
-    if ((container as any).__userInteracting === true) return
-    const anchors = anchorsRef.current
-    if (!anchors.length) return
-    // Find greatest anchor.line <= target line
-    let lo = 0, hi = anchors.length - 1, best = 0
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1
-      if (anchors[mid].line <= scrollToLine) { best = mid; lo = mid + 1 } else { hi = mid - 1 }
-    }
-    const targetTop = anchors[best].top
-    const margin = 12
-    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
-    const nextTop = Math.max(0, Math.min(maxTop, targetTop - margin))
-    requestAnimationFrame(() => {
-      suppressSyncEmit()
-      container.scrollTop = nextTop
-    })
-  }, [scrollToLine, suppressSyncEmit])
+    scrollToNearestAnchor(scrollToLine, scrollPercentage)
+  }, [scrollPercentage, scrollToLine, scrollToNearestAnchor])
 
   // Cleanup rAF
   useEffect(() => () => {
@@ -203,7 +267,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   return (
     <div className="relative flex h-full w-full flex-1 min-h-0 flex-col bg-background overflow-hidden">
       <div
-        className="flex-1 overflow-auto"
+        className="refmd-preview-scroll-root flex-1 overflow-auto"
         ref={previewRef}
         onScroll={(e) => {
           // Throttle with rAF to reduce callbacks

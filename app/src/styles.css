@@ -317,6 +317,11 @@
 
 /* Basic markdown preview styling */
 .markdown-preview { overflow-y: auto; overflow-x: hidden; height: 100%; }
+.refmd-preview-scroll-root .markdown-preview {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
 .markdown-preview pre,
 .prose pre { position: relative; }
 .markdown-preview pre code,
