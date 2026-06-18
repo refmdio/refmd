@@ -237,3 +237,41 @@ impl DocumentService {
         Ok(to_domain_thread(record))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_bad_request(result: Result<(), ServiceError>, expected: &'static str) {
+        match result {
+            Err(ServiceError::BadRequest(actual)) => assert_eq!(actual, expected),
+            other => panic!("expected bad request {expected}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_marker_accepts_markdown_comment_marker_ids() {
+        assert!(validate_marker("<!--comment:abc_DEF-123-->").is_ok());
+        assert!(validate_marker("<!--comment:550e8400-e29b-41d4-a716-446655440000-->").is_ok());
+    }
+
+    #[test]
+    fn validate_marker_rejects_malformed_markers() {
+        for marker in [
+            "",
+            "<!--comment:-->",
+            "<!-- comment:abc -->",
+            "<!--comment:abc def-->",
+            "<!--comment:abc/def-->",
+            "comment:abc",
+        ] {
+            assert_bad_request(validate_marker(marker), "invalid_comment_marker");
+        }
+    }
+
+    #[test]
+    fn validate_body_requires_visible_content() {
+        assert!(validate_body("suggest changing this sentence").is_ok());
+        assert_bad_request(validate_body("   \n\t  "), "comment_body_required");
+    }
+}

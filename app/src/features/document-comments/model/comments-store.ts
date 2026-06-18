@@ -30,8 +30,37 @@ type UseDocumentCommentsOptions = {
   userName?: string | null
 }
 
+type CommentSubmitActionInput = {
+  hasEditor: boolean
+  hasSelection: boolean
+  hasSelectedText: boolean
+  hasDraft: boolean
+  readOnly: boolean
+  creating: boolean
+}
+
+export function getCommentSubmitAction(input: CommentSubmitActionInput) {
+  const label = input.hasEditor ? 'Comment' : 'Open editor'
+  return {
+    label,
+    title: label,
+    disabled: input.hasEditor
+      ? !input.hasSelection ||
+        !input.hasSelectedText ||
+        !input.hasDraft ||
+        input.readOnly ||
+        input.creating
+      : input.readOnly,
+  }
+}
+
 export function buildCommentMarker(id: string) {
   return `<!--comment:${id}-->`
+}
+
+export function parseCommentMarkerId(marker: string) {
+  const match = /^<!--comment:([A-Za-z0-9_-]+)-->$/.exec(marker)
+  return match?.[1] ?? null
 }
 
 function fallbackUuid() {

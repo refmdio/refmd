@@ -22,6 +22,7 @@ import type {
 import {
   buildCommentMarker,
   createCommentId,
+  getCommentSubmitAction,
   type DocumentCommentThread,
   useDocumentComments,
 } from '../model/comments-store'
@@ -141,15 +142,15 @@ export function CommentsPanel({
     () => threads.filter((thread) => thread.resolvedAt),
     [threads],
   )
-  const canCreateThread = Boolean(
-    editor &&
-      selection &&
-      !selection.isEmpty &&
-      selection.text.trim().length > 0 &&
-      newComment.trim().length > 0 &&
-      !readOnly &&
-      !creating,
-  )
+  const commentSubmitAction = getCommentSubmitAction({
+    hasEditor: Boolean(editor),
+    hasSelection: Boolean(selection && !selection.isEmpty),
+    hasSelectedText: Boolean(selection?.text.trim()),
+    hasDraft: Boolean(newComment.trim()),
+    readOnly,
+    creating,
+  })
+  const canCreateThread = Boolean(editor && !commentSubmitAction.disabled)
 
   useEffect(() => {
     if (!editor) {
@@ -204,7 +205,11 @@ export function CommentsPanel({
   }, [editor, revealThread, threads])
 
   const handleCreateThread = useCallback(async () => {
-    if (!editor || !selection || !canCreateThread) return
+    if (!editor) {
+      onRequestEditor?.()
+      return
+    }
+    if (!selection || !canCreateThread) return
     const id = createCommentId()
     const marker = buildCommentMarker(id)
     const startOffset = editor.getOffsetFromPosition({
@@ -260,6 +265,7 @@ export function CommentsPanel({
     createThread,
     editor,
     newComment,
+    onRequestEditor,
     revealThread,
     selection,
   ])
@@ -442,12 +448,12 @@ export function CommentsPanel({
           <Button
             type="button"
             size="sm"
-            disabled={!canCreateThread || creating}
-            title={editor ? 'Comment' : 'Open editor'}
+            disabled={commentSubmitAction.disabled}
+            title={commentSubmitAction.title}
             onClick={handleCreateThread}
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Comment
+            {commentSubmitAction.label}
           </Button>
         </div>
       </div>
