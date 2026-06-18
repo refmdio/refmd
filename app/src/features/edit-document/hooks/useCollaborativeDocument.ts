@@ -30,22 +30,103 @@ type ConnectionCacheEntry = {
   promise: Promise<YjsConnection> | null
 }
 
+type PendingContentEntry = {
+  content: string
+  revision: number
+}
+
+type DocumentContentFlushRegistration = {
+  token: string | null
+}
+
 const connectionCache = new Map<string, ConnectionCacheEntry>()
 const invalidShareTokenToastShown = new Set<string>()
-const pendingContentByDocumentId = new Map<string, string>()
+const pendingContentByDocumentId = new Map<string, PendingContentEntry>()
+const pendingContentFlushByDocumentId = new Map<string, Promise<void>>()
+const pendingContentFlushTimersByDocumentId = new Map<string, number>()
+const documentContentFlushRegistrations = new Map<string, DocumentContentFlushRegistration>()
+let pendingContentRevision = 0
 const SHARE_TOKEN_VALIDATION_STALE_MS = 5 * 60 * 1000
 const DOCUMENT_META_STALE_MS = 60 * 1000
+const DOCUMENT_CONTENT_FLUSH_DELAY_MS = 1200
 
 export function markDocumentContentDirty(documentId: string, content: string) {
   if (!documentId) return
-  pendingContentByDocumentId.set(documentId, content)
+  if (!documentContentFlushRegistrations.has(documentId)) return
+  pendingContentByDocumentId.set(documentId, {
+    content,
+    revision: ++pendingContentRevision,
+  })
+  schedulePendingDocumentContentFlush(documentId)
 }
 
-function consumePendingDocumentContent(documentId: string) {
-  if (!pendingContentByDocumentId.has(documentId)) return undefined
-  const content = pendingContentByDocumentId.get(documentId) ?? ''
-  pendingContentByDocumentId.delete(documentId)
-  return content
+function registerDocumentContentFlush(documentId: string, token: string | null) {
+  documentContentFlushRegistrations.set(documentId, { token })
+  return () => {
+    const current = documentContentFlushRegistrations.get(documentId)
+    if (current?.token === token) {
+      documentContentFlushRegistrations.delete(documentId)
+    }
+    if (!pendingContentByDocumentId.has(documentId)) {
+      clearPendingDocumentContentFlushTimer(documentId)
+    }
+  }
+}
+
+function clearPendingDocumentContentFlushTimer(documentId: string) {
+  const timer = pendingContentFlushTimersByDocumentId.get(documentId)
+  if (timer != null && typeof window !== 'undefined') {
+    window.clearTimeout(timer)
+  }
+  pendingContentFlushTimersByDocumentId.delete(documentId)
+}
+
+function schedulePendingDocumentContentFlush(documentId: string) {
+  if (typeof window === 'undefined') return
+  if (!documentContentFlushRegistrations.has(documentId)) return
+  clearPendingDocumentContentFlushTimer(documentId)
+  const timer = window.setTimeout(() => {
+    pendingContentFlushTimersByDocumentId.delete(documentId)
+    void flushPendingDocumentContent(documentId)
+  }, DOCUMENT_CONTENT_FLUSH_DELAY_MS)
+  pendingContentFlushTimersByDocumentId.set(documentId, timer)
+}
+
+function flushPendingDocumentContent(documentId: string, tokenOverride?: string | null): Promise<void> {
+  const existing = pendingContentFlushByDocumentId.get(documentId)
+  if (existing) return existing
+
+  clearPendingDocumentContentFlushTimer(documentId)
+
+  let flushPromise: Promise<void>
+  flushPromise = (async () => {
+    for (;;) {
+      const entry = pendingContentByDocumentId.get(documentId)
+      if (!entry) return
+
+      const token = tokenOverride ?? documentContentFlushRegistrations.get(documentId)?.token ?? null
+      try {
+        await updateDocumentContent({ id: documentId, content: entry.content, token })
+      } catch (error) {
+        console.warn('[collaboration] failed to persist pending document content', documentId, error)
+        schedulePendingDocumentContentFlush(documentId)
+        return
+      }
+
+      const current = pendingContentByDocumentId.get(documentId)
+      if (!current || current.revision === entry.revision) {
+        pendingContentByDocumentId.delete(documentId)
+        return
+      }
+    }
+  })().finally(() => {
+    if (pendingContentFlushByDocumentId.get(documentId) === flushPromise) {
+      pendingContentFlushByDocumentId.delete(documentId)
+    }
+  })
+
+  pendingContentFlushByDocumentId.set(documentId, flushPromise)
+  return flushPromise
 }
 
 function buildCollaborativeDocumentConnectionCacheKey(args: {
@@ -73,6 +154,10 @@ async function acquireConnection(
   disablePersistence: boolean,
   workspaceId: string | null | undefined,
 ) {
+  if (!disablePersistence) {
+    await flushPendingDocumentContent(documentId, token ?? null)
+  }
+
   const cacheKey = buildCacheKey(documentId, token, disablePersistence, workspaceId)
   const existing = connectionCache.get(cacheKey)
   if (existing) {
@@ -270,6 +355,7 @@ export function useCollaborativeDocument(
     let cancelled = false
     let cleanupProvider: any | null = null
     let cleanupCacheKey: string | null = null
+    let unregisterContentFlush: (() => void) | null = null
     let onStatus: ((ev: { status: string }) => void) | null = null
     let onAwareness: (() => void) | null = null
     let onOnline: (() => void) | null = null
@@ -279,6 +365,9 @@ export function useCollaborativeDocument(
     ;(async () => {
       try {
         const urlShareToken = resolveShareToken(shareToken, useUrlShareTokenFallback)
+        if (!disablePersistence) {
+          unregisterContentFlush = registerDocumentContentFlush(id, urlShareToken ?? null)
+        }
 
         const acquired = await acquireConnection(id, urlShareToken ?? undefined, disablePersistence, activeWorkspaceId)
         if (cancelled) {
@@ -422,12 +511,9 @@ export function useCollaborativeDocument(
     return () => {
       cancelled = true
       const provider = cleanupProvider ?? connectionRef.current?.provider
-      const pendingContent = disablePersistence ? undefined : consumePendingDocumentContent(id)
-      if (pendingContent !== undefined) {
+      if (!disablePersistence) {
         const token = resolveShareToken(shareToken, useUrlShareTokenFallback)
-        void updateDocumentContent({ id, content: pendingContent, token }).catch((error) => {
-          console.warn('[collaboration] failed to persist pending document content', id, error)
-        })
+        void flushPendingDocumentContent(id, token ?? null)
       }
       if (provider) {
         try {
@@ -452,6 +538,10 @@ export function useCollaborativeDocument(
       }
       cleanupProvider = null
       connectionRef.current = null
+      if (unregisterContentFlush) {
+        unregisterContentFlush()
+        unregisterContentFlush = null
+      }
       if (contributeToRealtimeContext) {
         setShowEditorFeatures(false)
         setUserCount(0)

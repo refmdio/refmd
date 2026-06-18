@@ -307,7 +307,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       y.delete(offset, lineText.length)
       y.insert(offset, newLine)
     })
-  }, [doc, readOnly, emitReadOnlyWarning])
+    markDocumentContentDirty(documentId, doc.getText('content').toString())
+  }, [doc, documentId, readOnly, emitReadOnlyWarning])
 
   const handleBeforeMount = useCallback((monaco: Parameters<OnMount>[1]) => {
     ensureRefmdThemes(monaco as any)
@@ -331,7 +332,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     try {
       const modelChangeDispose = editor.onDidChangeModelContent(() => {
         if (!userEditIntent) return
-        window.setTimeout(markDirtyFromModel, 0)
+        markDirtyFromModel()
       })
       ;(editor as any).__disposeDirtyTracker = () => safeExecute('dispose dirty tracker', () => modelChangeDispose.dispose())
     } catch (error) {
@@ -477,11 +478,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   useEffect(() => () => {
     const anyEditor = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | undefined
-    safeExecute('persist latest dirty content', () => {
-      if ((anyEditor as any)?.__refmdUserEditIntent) {
-        ;(anyEditor as any)?.__refmdMarkDirty?.()
-      }
-    })
     safeExecute('dispose change listener', () => (anyEditor as any)?.__disposeChange?.())
     safeExecute('dispose scroll listener', () => (anyEditor as any)?.__disposeScroll?.())
     safeExecute('dispose paste handler', () => (anyEditor as any)?.__disposePaste?.())
