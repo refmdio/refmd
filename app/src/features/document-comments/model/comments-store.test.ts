@@ -5,6 +5,7 @@ import {
   createCommentId,
   getCommentSubmitAction,
   parseCommentMarkerId,
+  parseCommentTags,
 } from './comments-store'
 
 describe('comment markers', () => {
@@ -36,7 +37,6 @@ describe('comment submit action', () => {
       getCommentSubmitAction({
         hasEditor: false,
         hasSelection: false,
-        hasSelectedText: false,
         hasDraft: false,
         readOnly: false,
         creating: false,
@@ -53,7 +53,6 @@ describe('comment submit action', () => {
       getCommentSubmitAction({
         hasEditor: false,
         hasSelection: false,
-        hasSelectedText: false,
         hasDraft: true,
         readOnly: true,
         creating: false,
@@ -61,12 +60,21 @@ describe('comment submit action', () => {
     ).toBe(true)
   })
 
-  it('requires selected text and a draft before creating a thread', () => {
+  it('requires an editor position and a draft before creating a thread', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: true,
         hasSelection: true,
-        hasSelectedText: true,
+        hasDraft: false,
+        readOnly: false,
+        creating: false,
+      }).disabled,
+    ).toBe(true)
+
+    expect(
+      getCommentSubmitAction({
+        hasEditor: true,
+        hasSelection: true,
         hasDraft: true,
         readOnly: false,
         creating: false,
@@ -76,12 +84,21 @@ describe('comment submit action', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: true,
-        hasSelection: true,
-        hasSelectedText: false,
+        hasSelection: false,
         hasDraft: true,
         readOnly: false,
         creating: false,
       }).disabled,
     ).toBe(true)
+  })
+})
+
+describe('comment tags', () => {
+  it('normalizes comma-separated tags', () => {
+    expect(parseCommentTags(' review, author ,review,,docs ')).toEqual([
+      'review',
+      'author',
+      'docs',
+    ])
   })
 })

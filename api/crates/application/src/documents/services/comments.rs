@@ -7,7 +7,8 @@ use domain::documents::document::{
 use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;
 use crate::documents::ports::comment_repository::{
-    CommentReplyRecord, CommentThreadWithReplies, NewCommentReply, NewCommentThread,
+    CommentReplyRecord, CommentThreadUpdate, CommentThreadWithReplies, NewCommentReply,
+    NewCommentThread,
 };
 
 use super::DocumentService;
@@ -33,6 +34,23 @@ fn validate_body(body: &str) -> Result<(), ServiceError> {
         return Err(ServiceError::BadRequest("comment_body_required"));
     }
     Ok(())
+}
+
+fn normalize_tags(tags: Vec<String>) -> Result<Vec<String>, ServiceError> {
+    let mut out = Vec::new();
+    for tag in tags {
+        let value = tag.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if value.len() > 64 {
+            return Err(ServiceError::BadRequest("comment_tag_too_long"));
+        }
+        if !out.iter().any(|item| item == value) {
+            out.push(value.to_string());
+        }
+    }
+    Ok(out)
 }
 
 fn actor_user_id(actor: &Actor) -> Option<Uuid> {
@@ -61,9 +79,13 @@ fn to_domain_thread(record: CommentThreadWithReplies) -> DomainCommentThread {
         marker: record.thread.marker,
         quote: record.thread.quote,
         start_line_number: record.thread.start_line_number,
+        start_column: record.thread.start_column,
         end_line_number: record.thread.end_line_number,
+        end_column: record.thread.end_column,
         start_offset: record.thread.start_offset,
         end_offset: record.thread.end_offset,
+        anchored: record.thread.anchored,
+        tags: record.thread.tags,
         created_by: record.thread.created_by,
         created_by_name: record.thread.created_by_name,
         created_at: record.thread.created_at,
@@ -115,13 +137,17 @@ impl DocumentService {
         quote: String,
         body: String,
         start_line_number: Option<i32>,
+        start_column: Option<i32>,
         end_line_number: Option<i32>,
+        end_column: Option<i32>,
         start_offset: Option<i32>,
         end_offset: Option<i32>,
+        tags: Vec<String>,
         author_name: Option<String>,
     ) -> Result<DomainCommentThread, ServiceError> {
         validate_marker(&marker)?;
         validate_body(&body)?;
+        let tags = normalize_tags(tags)?;
         access::require_edit(
             self.access_repo.as_ref(),
             self.share_access.as_ref(),
@@ -149,9 +175,13 @@ impl DocumentService {
                 marker,
                 quote,
                 start_line_number,
+                start_column,
                 end_line_number,
+                end_column,
                 start_offset,
                 end_offset,
+                anchored: true,
+                tags,
                 created_by,
                 created_by_name: author_name,
                 reply_id: Uuid::new_v4(),
@@ -198,13 +228,22 @@ impl DocumentService {
         Ok(to_domain_reply(record))
     }
 
-    pub async fn set_comment_resolved(
+    pub async fn update_comment_thread(
         &self,
         actor: &Actor,
         doc_id: Uuid,
         thread_id: Uuid,
-        resolved: bool,
+        resolved: Option<bool>,
+        tags: Option<Vec<String>>,
+        anchored: Option<bool>,
     ) -> Result<DomainCommentThread, ServiceError> {
+        if resolved.is_none() && tags.is_none() && anchored.is_none() {
+            return Err(ServiceError::BadRequest("comment_update_required"));
+        }
+        let tags = match tags {
+            Some(tags) => Some(normalize_tags(tags)?),
+            None => None,
+        };
         access::require_edit(
             self.access_repo.as_ref(),
             self.share_access.as_ref(),
@@ -224,13 +263,15 @@ impl DocumentService {
             .ok_or(ServiceError::NotFound)?;
         let record = self
             .comment_repo
-            .set_resolved(
-                doc.workspace_id(),
-                doc_id,
+            .update_thread(CommentThreadUpdate {
+                workspace_id: doc.workspace_id(),
+                document_id: doc_id,
                 thread_id,
-                actor_user_id(actor),
                 resolved,
-            )
+                resolved_by: actor_user_id(actor),
+                tags,
+                anchored,
+            })
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
@@ -273,5 +314,26 @@ mod tests {
     fn validate_body_requires_visible_content() {
         assert!(validate_body("suggest changing this sentence").is_ok());
         assert_bad_request(validate_body("   \n\t  "), "comment_body_required");
+    }
+
+    #[test]
+    fn normalize_tags_trims_deduplicates_and_drops_empty_values() {
+        let tags = normalize_tags(vec![
+            " review ".to_string(),
+            "".to_string(),
+            "author".to_string(),
+            "review".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(tags, vec!["review".to_string(), "author".to_string()]);
+    }
+
+    #[test]
+    fn normalize_tags_rejects_long_values() {
+        assert_bad_request(
+            normalize_tags(vec!["a".repeat(65)]).map(|_| ()),
+            "comment_tag_too_long",
+        );
     }
 }

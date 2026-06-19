@@ -7,8 +7,8 @@ use uuid::Uuid;
 use crate::core::db::PgPool;
 use application::core::ports::errors::PortResult;
 use application::documents::ports::comment_repository::{
-    CommentReplyRecord, CommentRepository, CommentThreadRecord, CommentThreadWithReplies,
-    NewCommentReply, NewCommentThread,
+    CommentReplyRecord, CommentRepository, CommentThreadRecord, CommentThreadUpdate,
+    CommentThreadWithReplies, NewCommentReply, NewCommentThread,
 };
 
 pub struct SqlxCommentRepository {
@@ -28,9 +28,13 @@ fn row_to_thread(row: sqlx::postgres::PgRow) -> CommentThreadRecord {
         marker: row.get("marker"),
         quote: row.get("quote"),
         start_line_number: row.try_get("start_line_number").ok(),
+        start_column: row.try_get("start_column").ok(),
         end_line_number: row.try_get("end_line_number").ok(),
+        end_column: row.try_get("end_column").ok(),
         start_offset: row.try_get("start_offset").ok(),
         end_offset: row.try_get("end_offset").ok(),
+        anchored: row.try_get("anchored").unwrap_or(true),
+        tags: row.try_get("tags").unwrap_or_default(),
         created_by: row.try_get("created_by").ok(),
         created_by_name: row.try_get("created_by_name").ok(),
         created_at: row.get("created_at"),
@@ -88,9 +92,9 @@ impl CommentRepository for SqlxCommentRepository {
     ) -> PortResult<Vec<CommentThreadWithReplies>> {
         let out: anyhow::Result<Vec<CommentThreadWithReplies>> = async {
             let rows = sqlx::query(
-                r#"SELECT id, document_id, marker, quote, start_line_number, end_line_number,
-                          start_offset, end_offset, created_by, created_by_name, created_at,
-                          updated_at, resolved_at, resolved_by
+                r#"SELECT id, document_id, marker, quote, start_line_number, start_column,
+                          end_line_number, end_column, start_offset, end_offset, anchored, tags,
+                          created_by, created_by_name, created_at, updated_at, resolved_at, resolved_by
                    FROM document_comment_threads
                    WHERE workspace_id = $1 AND document_id = $2
                    ORDER BY resolved_at NULLS FIRST, created_at ASC"#,
@@ -119,12 +123,13 @@ impl CommentRepository for SqlxCommentRepository {
             let mut tx = self.pool.begin().await?;
             let thread_row = sqlx::query(
                 r#"INSERT INTO document_comment_threads (
-                    id, document_id, workspace_id, marker, quote, start_line_number, end_line_number,
-                    start_offset, end_offset, created_by, created_by_name, created_at, updated_at
-                   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
-                   RETURNING id, document_id, marker, quote, start_line_number, end_line_number,
-                             start_offset, end_offset, created_by, created_by_name, created_at,
-                             updated_at, resolved_at, resolved_by"#,
+                    id, document_id, workspace_id, marker, quote, start_line_number, start_column,
+                    end_line_number, end_column, start_offset, end_offset, anchored, tags,
+                    created_by, created_by_name, created_at, updated_at
+                   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), now())
+                   RETURNING id, document_id, marker, quote, start_line_number, start_column,
+                             end_line_number, end_column, start_offset, end_offset, anchored, tags,
+                             created_by, created_by_name, created_at, updated_at, resolved_at, resolved_by"#,
             )
             .bind(input.id)
             .bind(input.document_id)
@@ -132,9 +137,13 @@ impl CommentRepository for SqlxCommentRepository {
             .bind(input.marker)
             .bind(input.quote)
             .bind(input.start_line_number)
+            .bind(input.start_column)
             .bind(input.end_line_number)
+            .bind(input.end_column)
             .bind(input.start_offset)
             .bind(input.end_offset)
+            .bind(input.anchored)
+            .bind(input.tags)
             .bind(input.created_by)
             .bind(input.created_by_name.clone())
             .fetch_one(&mut *tx)
@@ -200,30 +209,38 @@ impl CommentRepository for SqlxCommentRepository {
         out.map_err(Into::into)
     }
 
-    async fn set_resolved(
+    async fn update_thread(
         &self,
-        workspace_id: Uuid,
-        document_id: Uuid,
-        thread_id: Uuid,
-        resolved_by: Option<Uuid>,
-        resolved: bool,
+        input: CommentThreadUpdate,
     ) -> PortResult<Option<CommentThreadWithReplies>> {
         let out: anyhow::Result<Option<CommentThreadWithReplies>> = async {
             let row = sqlx::query(
                 r#"UPDATE document_comment_threads
-                   SET resolved_at = CASE WHEN $4 THEN now() ELSE NULL END,
-                       resolved_by = CASE WHEN $4 THEN $5 ELSE NULL END,
+                   SET resolved_at = CASE
+                         WHEN $4::boolean IS NULL THEN resolved_at
+                         WHEN $4 THEN now()
+                         ELSE NULL
+                       END,
+                       resolved_by = CASE
+                         WHEN $4::boolean IS NULL THEN resolved_by
+                         WHEN $4 THEN $5
+                         ELSE NULL
+                       END,
+                       tags = COALESCE($6::text[], tags),
+                       anchored = COALESCE($7::boolean, anchored),
                        updated_at = now()
                    WHERE workspace_id = $1 AND document_id = $2 AND id = $3
-                   RETURNING id, document_id, marker, quote, start_line_number, end_line_number,
-                             start_offset, end_offset, created_by, created_by_name, created_at,
-                             updated_at, resolved_at, resolved_by"#,
+                   RETURNING id, document_id, marker, quote, start_line_number, start_column,
+                             end_line_number, end_column, start_offset, end_offset, anchored, tags,
+                             created_by, created_by_name, created_at, updated_at, resolved_at, resolved_by"#,
             )
-            .bind(workspace_id)
-            .bind(document_id)
-            .bind(thread_id)
-            .bind(resolved)
-            .bind(resolved_by)
+            .bind(input.workspace_id)
+            .bind(input.document_id)
+            .bind(input.thread_id)
+            .bind(input.resolved)
+            .bind(input.resolved_by)
+            .bind(input.tags)
+            .bind(input.anchored)
             .fetch_optional(&self.pool)
             .await?;
 
@@ -231,7 +248,7 @@ impl CommentRepository for SqlxCommentRepository {
                 return Ok(None);
             };
             let thread = row_to_thread(row);
-            let mut replies = replies_for(&self.pool, document_id, &[thread.id]).await?;
+            let mut replies = replies_for(&self.pool, input.document_id, &[thread.id]).await?;
             Ok(Some(CommentThreadWithReplies {
                 replies: replies.remove(&thread.id).unwrap_or_default(),
                 thread,

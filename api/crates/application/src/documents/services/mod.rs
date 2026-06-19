@@ -223,9 +223,12 @@ pub trait DocumentServiceFacade: Send + Sync {
         quote: String,
         body: String,
         start_line_number: Option<i32>,
+        start_column: Option<i32>,
         end_line_number: Option<i32>,
+        end_column: Option<i32>,
         start_offset: Option<i32>,
         end_offset: Option<i32>,
+        tags: Vec<String>,
         author_name: Option<String>,
     ) -> Result<DomainCommentThread, ServiceError>;
 
@@ -238,12 +241,14 @@ pub trait DocumentServiceFacade: Send + Sync {
         author_name: Option<String>,
     ) -> Result<DomainCommentReply, ServiceError>;
 
-    async fn set_comment_resolved(
+    async fn update_comment_thread(
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
         thread_id: Uuid,
-        resolved: bool,
+        resolved: Option<bool>,
+        tags: Option<Vec<String>>,
+        anchored: Option<bool>,
     ) -> Result<DomainCommentThread, ServiceError>;
 }
 
@@ -493,9 +498,12 @@ impl DocumentServiceFacade for DocumentService {
         quote: String,
         body: String,
         start_line_number: Option<i32>,
+        start_column: Option<i32>,
         end_line_number: Option<i32>,
+        end_column: Option<i32>,
         start_offset: Option<i32>,
         end_offset: Option<i32>,
+        tags: Vec<String>,
         author_name: Option<String>,
     ) -> Result<DomainCommentThread, ServiceError> {
         self.create_comment_thread(
@@ -506,9 +514,12 @@ impl DocumentServiceFacade for DocumentService {
             quote,
             body,
             start_line_number,
+            start_column,
             end_line_number,
+            end_column,
             start_offset,
             end_offset,
+            tags,
             author_name,
         )
         .await
@@ -526,14 +537,16 @@ impl DocumentServiceFacade for DocumentService {
             .await
     }
 
-    async fn set_comment_resolved(
+    async fn update_comment_thread(
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
         thread_id: Uuid,
-        resolved: bool,
+        resolved: Option<bool>,
+        tags: Option<Vec<String>>,
+        anchored: Option<bool>,
     ) -> Result<DomainCommentThread, ServiceError> {
-        self.set_comment_resolved(actor, doc_id, thread_id, resolved)
+        self.update_comment_thread(actor, doc_id, thread_id, resolved, tags, anchored)
             .await
     }
 }

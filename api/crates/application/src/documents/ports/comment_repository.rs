@@ -11,9 +11,13 @@ pub struct CommentThreadRecord {
     pub marker: String,
     pub quote: String,
     pub start_line_number: Option<i32>,
+    pub start_column: Option<i32>,
     pub end_line_number: Option<i32>,
+    pub end_column: Option<i32>,
     pub start_offset: Option<i32>,
     pub end_offset: Option<i32>,
+    pub anchored: bool,
+    pub tags: Vec<String>,
     pub created_by: Option<Uuid>,
     pub created_by_name: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -47,9 +51,13 @@ pub struct NewCommentThread {
     pub marker: String,
     pub quote: String,
     pub start_line_number: Option<i32>,
+    pub start_column: Option<i32>,
     pub end_line_number: Option<i32>,
+    pub end_column: Option<i32>,
     pub start_offset: Option<i32>,
     pub end_offset: Option<i32>,
+    pub anchored: bool,
+    pub tags: Vec<String>,
     pub created_by: Option<Uuid>,
     pub created_by_name: Option<String>,
     pub reply_id: Uuid,
@@ -66,6 +74,17 @@ pub struct NewCommentReply {
     pub created_by_name: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CommentThreadUpdate {
+    pub workspace_id: Uuid,
+    pub document_id: Uuid,
+    pub thread_id: Uuid,
+    pub resolved: Option<bool>,
+    pub resolved_by: Option<Uuid>,
+    pub tags: Option<Vec<String>>,
+    pub anchored: Option<bool>,
+}
+
 #[async_trait]
 pub trait CommentRepository: Send + Sync {
     async fn list_threads(
@@ -78,12 +97,8 @@ pub trait CommentRepository: Send + Sync {
 
     async fn add_reply(&self, input: NewCommentReply) -> PortResult<Option<CommentReplyRecord>>;
 
-    async fn set_resolved(
+    async fn update_thread(
         &self,
-        workspace_id: Uuid,
-        document_id: Uuid,
-        thread_id: Uuid,
-        resolved_by: Option<Uuid>,
-        resolved: bool,
+        input: CommentThreadUpdate,
     ) -> PortResult<Option<CommentThreadWithReplies>>;
 }

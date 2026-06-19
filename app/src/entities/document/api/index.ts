@@ -97,9 +97,13 @@ export type DocumentCommentThread = {
   marker: string
   quote: string
   startLineNumber: number | null
+  startColumn: number | null
   endLineNumber: number | null
+  endColumn: number | null
   startOffset: number | null
   endOffset: number | null
+  anchored: boolean
+  tags: string[]
   createdBy: string | null
   createdByName: string | null
   createdAt: string
@@ -121,9 +125,12 @@ export type CreateDocumentCommentThreadInput = {
   quote: string
   body: string
   startLineNumber?: number | null
+  startColumn?: number | null
   endLineNumber?: number | null
+  endColumn?: number | null
   startOffset?: number | null
   endOffset?: number | null
+  tags?: string[]
   authorName?: string | null
 }
 
@@ -139,7 +146,9 @@ export type UpdateDocumentCommentThreadInput = {
   documentId: string
   threadId: string
   token?: string | null
-  resolved: boolean
+  resolved?: boolean
+  tags?: string[]
+  anchored?: boolean
 }
 
 function toDocumentCommentReply(
@@ -165,9 +174,13 @@ function toDocumentCommentThread(
     marker: thread.marker,
     quote: thread.quote,
     startLineNumber: thread.start_line_number ?? null,
+    startColumn: thread.start_column ?? null,
     endLineNumber: thread.end_line_number ?? null,
+    endColumn: thread.end_column ?? null,
     startOffset: thread.start_offset ?? null,
     endOffset: thread.end_offset ?? null,
+    anchored: thread.anchored ?? true,
+    tags: Array.isArray(thread.tags) ? thread.tags : [],
     createdBy: thread.created_by ?? null,
     createdByName: thread.created_by_name ?? null,
     createdAt: thread.created_at,
@@ -201,9 +214,12 @@ export async function createDocumentCommentThread(
       quote: input.quote,
       body: input.body,
       start_line_number: input.startLineNumber ?? null,
+      start_column: input.startColumn ?? null,
       end_line_number: input.endLineNumber ?? null,
+      end_column: input.endColumn ?? null,
       start_offset: input.startOffset ?? null,
       end_offset: input.endOffset ?? null,
+      tags: input.tags ?? [],
       author_name: input.authorName ?? null,
     },
   })) as ApiDocumentCommentThread
@@ -232,7 +248,11 @@ export async function updateDocumentCommentThread(
     id: input.documentId,
     threadId: input.threadId,
     token: input.token ?? null,
-    requestBody: { resolved: input.resolved },
+    requestBody: {
+      resolved: input.resolved ?? null,
+      tags: input.tags ?? null,
+      anchored: input.anchored ?? null,
+    },
   })) as ApiDocumentCommentThread
   return toDocumentCommentThread(response)
 }

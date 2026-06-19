@@ -399,6 +399,16 @@
   border-bottom: 1px solid color-mix(in oklab, var(--primary) 70%, transparent);
 }
 
+.monaco-editor .refmd-comment-highlight-resolved {
+  background-color: color-mix(in oklab, var(--muted-foreground) 12%, transparent);
+  border-bottom-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+
+.monaco-editor .refmd-comment-highlight-unlinked {
+  background-color: color-mix(in oklab, var(--destructive) 12%, transparent);
+  border-bottom-style: dashed;
+}
+
 .monaco-editor .refmd-comment-glyph {
   position: relative;
 }

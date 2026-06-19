@@ -2,8 +2,11 @@ import {
   CheckCircle2,
   LocateFixed,
   MessageSquare,
-  Plus,
+  MessageSquareReply,
   RotateCcw,
+  Search,
+  SendHorizontal,
+  Tag,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,6 +14,7 @@ import { toast } from 'sonner'
 
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import { Input } from '@/shared/ui/input'
 import { Textarea } from '@/shared/ui/textarea'
 
 import type {
@@ -23,6 +27,7 @@ import {
   buildCommentMarker,
   createCommentId,
   getCommentSubmitAction,
+  parseCommentTags,
   type DocumentCommentThread,
   useDocumentComments,
 } from '../model/comments-store'
@@ -56,6 +61,42 @@ function truncateQuote(value: string) {
   return `${normalized.slice(0, 177)}...`
 }
 
+function getAnchorLabel(thread: DocumentCommentThread) {
+  const quote = truncateQuote(thread.quote)
+  if (quote) return quote
+  if (thread.startLineNumber && thread.startColumn) {
+    return `L${thread.startLineNumber}:${thread.startColumn}`
+  }
+  return 'Cursor'
+}
+
+function getSelectionLabel(selection: DocumentEditorSelection) {
+  const quote = truncateQuote(selection.text)
+  if (quote) return quote
+  return `L${selection.startLineNumber}:${selection.startColumn}`
+}
+
+function threadMatchesSearch(thread: DocumentCommentThread, query: string) {
+  if (!query) return true
+  const haystack = [
+    thread.quote,
+    thread.createdByName ?? '',
+    ...thread.tags,
+    ...thread.replies.flatMap((reply) => [
+      reply.body,
+      reply.authorName ?? '',
+      reply.createdAt,
+    ]),
+  ]
+    .join('\n')
+    .toLowerCase()
+  return haystack.includes(query)
+}
+
+function validateTags(tags: string[]) {
+  return tags.every((tag) => tag.length <= 64)
+}
+
 function findThreadRange(
   thread: DocumentCommentThread,
   content: string,
@@ -82,12 +123,12 @@ function findThreadRange(
     return editor.getRangeFromOffset(markerIndex, thread.marker.length)
   }
 
-  if (thread.startLineNumber) {
+  if (thread.startLineNumber && thread.startColumn) {
     return {
       startLineNumber: thread.startLineNumber,
-      startColumn: 1,
+      startColumn: thread.startColumn,
       endLineNumber: thread.endLineNumber ?? thread.startLineNumber,
-      endColumn: 1,
+      endColumn: thread.endColumn ?? thread.startColumn,
     }
   }
 
@@ -116,36 +157,74 @@ export function CommentsPanel({
   onClose,
   onRequestEditor,
 }: CommentsPanelProps) {
-  const { threads, isLoading, isError, createThread, addReply, setResolved } =
-    useDocumentComments({
-      documentId,
-      token,
-      userName,
-    })
+  const {
+    threads,
+    isLoading,
+    isError,
+    createThread,
+    addReply,
+    setResolved,
+    setTags,
+  } = useDocumentComments({
+    documentId,
+    token,
+    userName,
+  })
   const [selection, setSelection] = useState<DocumentEditorSelection | null>(
     null,
   )
+  const [composerOpen, setComposerOpen] = useState(false)
   const [newComment, setNewComment] = useState('')
+  const [newTags, setNewTags] = useState('')
+  const [newTagsOpen, setNewTagsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [tagFilter, setTagFilter] = useState('')
+  const [tagFilterOpen, setTagFilterOpen] = useState(false)
+  const [showResolved, setShowResolved] = useState(false)
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
+  const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({})
   const [creating, setCreating] = useState(false)
+  const [activeReplyThreadId, setActiveReplyThreadId] = useState<string | null>(
+    null,
+  )
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null)
+  const [editingTagsThreadId, setEditingTagsThreadId] = useState<string | null>(
+    null,
+  )
   const [resolvingThreadId, setResolvingThreadId] = useState<string | null>(
     null,
   )
+  const [taggingThreadId, setTaggingThreadId] = useState<string | null>(null)
   const pendingRevealRef = useRef<string | null>(null)
 
   const openThreads = useMemo(
     () => threads.filter((thread) => !thread.resolvedAt),
     [threads],
   )
-  const resolvedThreads = useMemo(
-    () => threads.filter((thread) => thread.resolvedAt),
+  const allTags = useMemo(
+    () => Array.from(new Set(threads.flatMap((thread) => thread.tags))).sort(),
     [threads],
+  )
+  const normalizedSearch = searchQuery.trim().toLowerCase()
+  const normalizedTagFilter = tagFilter.trim()
+  const visibleThreads = useMemo(
+    () =>
+      threads.filter((thread) => {
+        if (!showResolved && thread.resolvedAt) return false
+        if (
+          normalizedTagFilter &&
+          !thread.tags.some((tag) => tag === normalizedTagFilter)
+        ) {
+          return false
+        }
+        return threadMatchesSearch(thread, normalizedSearch)
+      }),
+    [normalizedSearch, normalizedTagFilter, showResolved, threads],
   )
   const commentSubmitAction = getCommentSubmitAction({
     hasEditor: Boolean(editor),
-    hasSelection: Boolean(selection && !selection.isEmpty),
-    hasSelectedText: Boolean(selection?.text.trim()),
+    hasSelection: Boolean(selection),
     hasDraft: Boolean(newComment.trim()),
     readOnly,
     creating,
@@ -163,23 +242,29 @@ export function CommentsPanel({
 
   useEffect(() => {
     if (!editor) return
-    const decorations = openThreads
+    const decorations = visibleThreads
       .map((thread) => {
         const range = findThreadRange(thread, content, editor)
         if (!range) return null
+        const markerPresent = content.includes(thread.marker)
+        const classNames = ['refmd-comment-highlight']
+        if (thread.resolvedAt) classNames.push('refmd-comment-highlight-resolved')
+        if (!thread.anchored || !markerPresent) {
+          classNames.push('refmd-comment-highlight-unlinked')
+        }
         return {
           range,
-          inlineClassName: 'refmd-comment-highlight',
+          inlineClassName: classNames.join(' '),
           glyphMarginClassName: 'refmd-comment-glyph',
-          overviewRulerColor: '#8b5cf6',
-          minimapColor: '#8b5cf6',
-          hoverMessage: 'Comment',
+          overviewRulerColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+          minimapColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+          hoverMessage: thread.resolvedAt ? 'Resolved comment' : 'Comment',
         }
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
 
     return editor.setDecorations('core-comments', decorations)
-  }, [content, editor, openThreads])
+  }, [content, editor, visibleThreads])
 
   const revealThread = useCallback(
     (thread: DocumentCommentThread) => {
@@ -210,6 +295,11 @@ export function CommentsPanel({
       return
     }
     if (!selection || !canCreateThread) return
+    const tags = parseCommentTags(newTags)
+    if (!validateTags(tags)) {
+      toast.error('Tags must be 64 characters or fewer')
+      return
+    }
     const id = createCommentId()
     const marker = buildCommentMarker(id)
     const startOffset = editor.getOffsetFromPosition({
@@ -241,12 +331,18 @@ export function CommentsPanel({
         quote: selection.text,
         body: newComment,
         startLineNumber: selection.startLineNumber,
+        startColumn: selection.startColumn,
         endLineNumber: selection.endLineNumber,
+        endColumn: selection.endColumn,
         startOffset,
         endOffset,
+        tags,
       })
       if (!thread) return
       setNewComment('')
+      setNewTags('')
+      setNewTagsOpen(false)
+      setComposerOpen(false)
       revealThread(thread)
     } catch (error) {
       editor.applyEdits([
@@ -265,6 +361,7 @@ export function CommentsPanel({
     createThread,
     editor,
     newComment,
+    newTags,
     onRequestEditor,
     revealThread,
     selection,
@@ -278,6 +375,7 @@ export function CommentsPanel({
       try {
         await addReply(threadId, body)
         setReplyDrafts((current) => ({ ...current, [threadId]: '' }))
+        setActiveReplyThreadId(null)
       } catch {
         toast.error('Could not save reply')
       } finally {
@@ -301,46 +399,127 @@ export function CommentsPanel({
     [setResolved],
   )
 
+  const handleUpdateTags = useCallback(
+    async (threadId: string, value: string) => {
+      const tags = parseCommentTags(value)
+      if (!validateTags(tags)) {
+        toast.error('Tags must be 64 characters or fewer')
+        return
+      }
+      setTaggingThreadId(threadId)
+      try {
+        await setTags(threadId, tags)
+        setEditingTagsThreadId(null)
+        setTagDrafts((current) => {
+          const next = { ...current }
+          delete next[threadId]
+          return next
+        })
+      } catch {
+        toast.error('Could not update tags')
+      } finally {
+        setTaggingThreadId(null)
+      }
+    },
+    [setTags],
+  )
+
   const renderThread = (thread: DocumentCommentThread) => {
     const resolved = Boolean(thread.resolvedAt)
     const draft = replyDrafts[thread.id] ?? ''
+    const tagDraft = tagDrafts[thread.id] ?? thread.tags.join(', ')
+    const markerPresent = content.includes(thread.marker)
+    const anchored = thread.anchored && markerPresent
+    const editingTags = editingTagsThreadId === thread.id
+    const tagDirty =
+      parseCommentTags(tagDraft).join(',') !== thread.tags.join(',')
+    const replyOpen = activeReplyThreadId === thread.id
     return (
       <article
         key={thread.id}
         className={cn(
-          'rounded-md border border-border/60 bg-background/70 p-3 shadow-sm',
-          resolved && 'opacity-75',
+          'group relative border-b border-border/50 py-4 pl-5 pr-1 transition-colors last:border-b-0 hover:bg-muted/20',
+          resolved && 'opacity-70',
         )}
       >
-        <div className="mb-3 flex items-start justify-between gap-2">
+        <span
+          className={cn(
+            'absolute left-1 top-5 h-2 w-2 rounded-full',
+            resolved ? 'bg-muted-foreground/50' : 'bg-primary',
+          )}
+          title={resolved ? 'Resolved' : 'Open'}
+        />
+        {!anchored ? (
+          <span
+            className="absolute left-0 top-9 h-4 w-4 rounded-full border border-destructive/60"
+            title="Unlinked"
+          />
+        ) : null}
+        <div className="flex items-start justify-between gap-2">
           <button
             type="button"
             onClick={() => revealThread(thread)}
             className="min-w-0 flex-1 text-left"
           >
             <p className="line-clamp-3 text-sm font-medium leading-5 text-foreground">
-              {truncateQuote(thread.quote) || 'Untitled anchor'}
+              {getAnchorLabel(thread)}
             </p>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-              {resolved ? 'Resolved' : 'Open'}
-            </p>
+            <time className="mt-1 block truncate text-[11px] text-muted-foreground">
+              {formatTimestamp(thread.updatedAt)}
+            </time>
           </button>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
-              title="Reveal"
-              onClick={() => revealThread(thread)}
+              className="h-7 w-7"
+              title="Tags"
+              disabled={readOnly}
+              onClick={() => {
+                setEditingTagsThreadId((current) =>
+                  current === thread.id ? null : thread.id,
+                )
+                setTagDrafts((current) => ({
+                  ...current,
+                  [thread.id]: current[thread.id] ?? thread.tags.join(', '),
+                }))
+              }}
             >
-              <LocateFixed className="h-3.5 w-3.5" />
+              <Tag className="h-3.5 w-3.5" />
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-7 w-7"
+              title="Reveal"
+              onClick={() => revealThread(thread)}
+            >
+              <LocateFixed className="h-3.5 w-3.5" />
+            </Button>
+            {!resolved ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Reply"
+                disabled={readOnly}
+                onClick={() =>
+                  setActiveReplyThreadId((current) =>
+                    current === thread.id ? null : thread.id,
+                  )
+                }
+              >
+                <MessageSquareReply className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
               title={resolved ? 'Reopen' : 'Resolve'}
               disabled={readOnly || resolvingThreadId === thread.id}
               onClick={() => handleSetResolved(thread.id, !resolved)}
@@ -354,9 +533,63 @@ export function CommentsPanel({
           </div>
         </div>
 
-        <div className="space-y-2">
+        {thread.tags.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {thread.tags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className="rounded-full border border-border/60 bg-muted/30 px-2 py-0.5 text-[11px] leading-4 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setTagFilter(tag)
+                  setTagFilterOpen(true)
+                }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {editingTags ? (
+          <div className="mt-3 flex items-center gap-2 rounded-md bg-muted/25 p-2">
+            <Input
+              value={tagDraft}
+              onChange={(event) =>
+                setTagDrafts((current) => ({
+                  ...current,
+                  [thread.id]: event.target.value,
+                }))
+              }
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                void handleUpdateTags(thread.id, tagDraft)
+              }}
+              aria-label="Tags"
+              className="h-8 border-border/60 bg-background/80 text-xs"
+              disabled={readOnly || taggingThreadId === thread.id}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              title="Save"
+              disabled={readOnly || taggingThreadId === thread.id || !tagDirty}
+              onClick={() => handleUpdateTags(thread.id, tagDraft)}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="mt-3 space-y-3">
           {thread.replies.map((reply) => (
-            <div key={reply.id} className="rounded-md bg-muted/40 px-3 py-2">
+            <div
+              key={reply.id}
+              className="border-l border-border/60 pl-3"
+            >
               <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span className="truncate">
                   {reply.authorName || 'Anonymous'}
@@ -372,8 +605,8 @@ export function CommentsPanel({
           ))}
         </div>
 
-        {!resolved ? (
-          <div className="mt-3 flex items-end gap-2">
+        {!resolved && replyOpen ? (
+          <div className="mt-3 flex items-end gap-2 rounded-md bg-muted/25 p-2">
             <Textarea
               value={draft}
               onChange={(event) =>
@@ -383,7 +616,7 @@ export function CommentsPanel({
                 }))
               }
               placeholder="Reply"
-              className="min-h-10 flex-1 resize-none text-sm"
+              className="min-h-10 flex-1 resize-none border-border/60 bg-background/80 text-sm"
               disabled={readOnly || replyingThreadId === thread.id}
             />
             <Button
@@ -395,7 +628,7 @@ export function CommentsPanel({
               }
               onClick={() => handleReply(thread.id)}
             >
-              <Plus className="h-4 w-4" />
+              <SendHorizontal className="h-4 w-4" />
             </Button>
           </div>
         ) : null}
@@ -405,60 +638,186 @@ export function CommentsPanel({
 
   return (
     <aside className={cn('flex h-full min-h-0 flex-col', className)}>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 pb-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <MessageSquare className="h-4 w-4 shrink-0 text-primary" />
-          <div className="min-w-0">
+      <div className="shrink-0 border-b border-border/60 pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <MessageSquare className="h-4 w-4 shrink-0 text-primary" />
             <h2 className="truncate text-sm font-semibold text-foreground">
               Comments
             </h2>
-            <p className="text-xs text-muted-foreground">
-              {openThreads.length} open / {threads.length} total
-            </p>
+            <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+              {openThreads.length}/{threads.length}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant={searchOpen || searchQuery ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-8 w-8"
+              title="Search"
+              onClick={() => setSearchOpen((value) => !value)}
+            >
+              <Search className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant={tagFilterOpen || tagFilter ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-8 w-8"
+              title="Filter tag"
+              onClick={() => setTagFilterOpen((value) => !value)}
+            >
+              <Tag className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant={showResolved ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-8 w-8"
+              title="Show resolved"
+              onClick={() => setShowResolved((value) => !value)}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </Button>
+            {onClose ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title="Close"
+                onClick={onClose}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
         </div>
-        {onClose ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            title="Close"
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+        {searchOpen || tagFilterOpen ? (
+          <div className="mt-3 grid gap-2">
+            {searchOpen ? (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  aria-label="Search"
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+            ) : null}
+            {tagFilterOpen ? (
+              <div className="relative">
+                <Tag className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={tagFilter}
+                  onChange={(event) => setTagFilter(event.target.value)}
+                  aria-label="Filter tag"
+                  list={`comment-tags-${documentId}`}
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+            ) : null}
+            <datalist id={`comment-tags-${documentId}`}>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag} />
+              ))}
+            </datalist>
+          </div>
         ) : null}
       </div>
 
       <div className="shrink-0 border-b border-border/60 py-3">
-        <Textarea
-          value={newComment}
-          onChange={(event) => setNewComment(event.target.value)}
-          placeholder="Comment"
-          className="min-h-20 resize-none text-sm"
-          disabled={readOnly}
-        />
-        {selection && !selection.isEmpty && selection.text.trim() ? (
-          <p className="mt-2 line-clamp-2 rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-            {truncateQuote(selection.text)}
-          </p>
-        ) : null}
-        <div className="mt-2 flex justify-end">
-          <Button
+        {!composerOpen && !newComment ? (
+          <button
             type="button"
-            size="sm"
-            disabled={commentSubmitAction.disabled}
-            title={commentSubmitAction.title}
-            onClick={handleCreateThread}
+            className="flex h-10 w-full items-center justify-between rounded-md border border-border/60 bg-background/50 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-muted/30"
+            disabled={readOnly}
+            onClick={() => setComposerOpen(true)}
           >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            {commentSubmitAction.label}
-          </Button>
-        </div>
+            <span>Add comment</span>
+            <SendHorizontal className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <div className="rounded-md border border-border/60 bg-background/60 focus-within:border-primary/40">
+            <Textarea
+              value={newComment}
+              onChange={(event) => setNewComment(event.target.value)}
+              autoFocus
+              placeholder="Add comment"
+              className="min-h-20 resize-none border-0 bg-transparent px-3 py-3 text-sm shadow-none focus-visible:ring-0"
+              disabled={readOnly}
+            />
+            {newTagsOpen ? (
+              <div className="border-t border-border/50 px-3 py-2">
+                <div className="relative">
+                  <Tag className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={newTags}
+                    onChange={(event) => setNewTags(event.target.value)}
+                    aria-label="Tags"
+                    className="h-8 border-border/60 bg-background/80 pl-8 text-xs"
+                    disabled={readOnly}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-2 py-2">
+              <button
+                type="button"
+                className="min-w-0 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/50"
+                onClick={onRequestEditor}
+                title={selection ? getSelectionLabel(selection) : 'Open editor'}
+              >
+                <span className="line-clamp-1">
+                  {selection ? getSelectionLabel(selection) : 'Editor'}
+                </span>
+              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant={newTagsOpen || newTags ? 'secondary' : 'ghost'}
+                  size="icon"
+                  className="h-8 w-8"
+                  title="Tags"
+                  disabled={readOnly}
+                  onClick={() => setNewTagsOpen((value) => !value)}
+                >
+                  <Tag className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  title="Cancel"
+                  onClick={() => {
+                    setComposerOpen(false)
+                    setNewComment('')
+                    setNewTags('')
+                    setNewTagsOpen(false)
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-8 w-8"
+                  disabled={commentSubmitAction.disabled}
+                  title={commentSubmitAction.title}
+                  onClick={handleCreateThread}
+                >
+                  <SendHorizontal className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {isLoading ? (
           <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
             Loading comments
@@ -467,18 +826,13 @@ export function CommentsPanel({
           <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
             Could not load comments
           </div>
-        ) : threads.length ? (
-          <div className="space-y-3">
-            {openThreads.map(renderThread)}
-            {resolvedThreads.length ? (
-              <div className="space-y-3 border-t border-border/60 pt-3">
-                {resolvedThreads.map(renderThread)}
-              </div>
-            ) : null}
+        ) : visibleThreads.length ? (
+          <div>
+            {visibleThreads.map(renderThread)}
           </div>
         ) : (
           <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
-            No comments
+            {threads.length ? 'No matching comments' : 'No comments'}
           </div>
         )}
       </div>

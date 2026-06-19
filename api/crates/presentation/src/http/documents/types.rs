@@ -454,9 +454,13 @@ pub struct DocumentCommentThread {
     pub marker: String,
     pub quote: String,
     pub start_line_number: Option<i32>,
+    pub start_column: Option<i32>,
     pub end_line_number: Option<i32>,
+    pub end_column: Option<i32>,
     pub start_offset: Option<i32>,
     pub end_offset: Option<i32>,
+    pub anchored: bool,
+    pub tags: Vec<String>,
     pub created_by: Option<Uuid>,
     pub created_by_name: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -478,9 +482,13 @@ pub struct CreateDocumentCommentThreadRequest {
     pub quote: String,
     pub body: String,
     pub start_line_number: Option<i32>,
+    pub start_column: Option<i32>,
     pub end_line_number: Option<i32>,
+    pub end_column: Option<i32>,
     pub start_offset: Option<i32>,
     pub end_offset: Option<i32>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub author_name: Option<String>,
 }
 
@@ -492,7 +500,9 @@ pub struct CreateDocumentCommentReplyRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateDocumentCommentThreadRequest {
-    pub resolved: bool,
+    pub resolved: Option<bool>,
+    pub tags: Option<Vec<String>>,
+    pub anchored: Option<bool>,
 }
 
 pub fn to_http_comment_reply(reply: domain::DocumentCommentReply) -> DocumentCommentReply {
@@ -514,9 +524,13 @@ pub fn to_http_comment_thread(thread: domain::DocumentCommentThread) -> Document
         marker: thread.marker,
         quote: thread.quote,
         start_line_number: thread.start_line_number,
+        start_column: thread.start_column,
         end_line_number: thread.end_line_number,
+        end_column: thread.end_column,
         start_offset: thread.start_offset,
         end_offset: thread.end_offset,
+        anchored: thread.anchored,
+        tags: thread.tags,
         created_by: thread.created_by,
         created_by_name: thread.created_by_name,
         created_at: thread.created_at,

@@ -19,9 +19,19 @@ type CreateThreadInput = {
   quote: string
   body: string
   startLineNumber?: number | null
+  startColumn?: number | null
   endLineNumber?: number | null
+  endColumn?: number | null
   startOffset?: number | null
   endOffset?: number | null
+  tags?: string[]
+}
+
+type UpdateThreadInput = {
+  threadId: string
+  resolved?: boolean
+  tags?: string[]
+  anchored?: boolean
 }
 
 type UseDocumentCommentsOptions = {
@@ -33,7 +43,6 @@ type UseDocumentCommentsOptions = {
 type CommentSubmitActionInput = {
   hasEditor: boolean
   hasSelection: boolean
-  hasSelectedText: boolean
   hasDraft: boolean
   readOnly: boolean
   creating: boolean
@@ -45,11 +54,7 @@ export function getCommentSubmitAction(input: CommentSubmitActionInput) {
     label,
     title: label,
     disabled: input.hasEditor
-      ? !input.hasSelection ||
-        !input.hasSelectedText ||
-        !input.hasDraft ||
-        input.readOnly ||
-        input.creating
+      ? !input.hasSelection || !input.hasDraft || input.readOnly || input.creating
       : input.readOnly,
   }
 }
@@ -61,6 +66,16 @@ export function buildCommentMarker(id: string) {
 export function parseCommentMarkerId(marker: string) {
   const match = /^<!--comment:([A-Za-z0-9_-]+)-->$/.exec(marker)
   return match?.[1] ?? null
+}
+
+export function parseCommentTags(value: string) {
+  const tags: string[] = []
+  for (const part of value.split(',')) {
+    const tag = part.trim()
+    if (!tag || tags.includes(tag)) continue
+    tags.push(tag)
+  }
+  return tags
 }
 
 function fallbackUuid() {
@@ -135,9 +150,12 @@ export function useDocumentComments({
         quote: input.quote,
         body: input.body,
         startLineNumber: input.startLineNumber ?? null,
+        startColumn: input.startColumn ?? null,
         endLineNumber: input.endLineNumber ?? null,
+        endColumn: input.endColumn ?? null,
         startOffset: input.startOffset ?? null,
         endOffset: input.endOffset ?? null,
+        tags: input.tags ?? [],
         authorName: userName ?? null,
       }),
     onSuccess: (thread) => {
@@ -181,19 +199,15 @@ export function useDocumentComments({
     },
   })
 
-  const setResolvedMutation = useMutation({
-    mutationFn: ({
-      threadId,
-      resolved,
-    }: {
-      threadId: string
-      resolved: boolean
-    }) =>
+  const updateThreadMutation = useMutation({
+    mutationFn: ({ threadId, resolved, tags, anchored }: UpdateThreadInput) =>
       updateDocumentCommentThread({
         documentId,
         threadId,
         token,
         resolved,
+        tags,
+        anchored,
       }),
     onSuccess: (thread) => {
       setThreads((threads) =>
@@ -223,9 +237,23 @@ export function useDocumentComments({
 
   const setResolved = useCallback(
     async (threadId: string, resolved: boolean) => {
-      return setResolvedMutation.mutateAsync({ threadId, resolved })
+      return updateThreadMutation.mutateAsync({ threadId, resolved })
     },
-    [setResolvedMutation],
+    [updateThreadMutation],
+  )
+
+  const setTags = useCallback(
+    async (threadId: string, tags: string[]) => {
+      return updateThreadMutation.mutateAsync({ threadId, tags })
+    },
+    [updateThreadMutation],
+  )
+
+  const setAnchored = useCallback(
+    async (threadId: string, anchored: boolean) => {
+      return updateThreadMutation.mutateAsync({ threadId, anchored })
+    },
+    [updateThreadMutation],
   )
 
   return {
@@ -235,9 +263,11 @@ export function useDocumentComments({
     isSaving:
       createThreadMutation.isPending ||
       addReplyMutation.isPending ||
-      setResolvedMutation.isPending,
+      updateThreadMutation.isPending,
     createThread,
     addReply,
     setResolved,
+    setTags,
+    setAnchored,
   }
 }

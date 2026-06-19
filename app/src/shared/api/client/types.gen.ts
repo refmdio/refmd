@@ -84,13 +84,16 @@ export type CreateDocumentCommentReplyRequest = {
 export type CreateDocumentCommentThreadRequest = {
     author_name?: (string) | null;
     body: string;
+    end_column?: (number) | null;
     end_line_number?: (number) | null;
     end_offset?: (number) | null;
     id: string;
     marker: string;
     quote: string;
+    start_column?: (number) | null;
     start_line_number?: (number) | null;
     start_offset?: (number) | null;
+    tags?: Array<string>;
 };
 
 export type CreateDocumentRequest = {
@@ -188,10 +191,12 @@ export type DocumentCommentsResponse = {
 };
 
 export type DocumentCommentThread = {
+    anchored: boolean;
     created_at: string;
     created_by?: (string) | null;
     created_by_name?: (string) | null;
     document_id: string;
+    end_column?: (number) | null;
     end_line_number?: (number) | null;
     end_offset?: (number) | null;
     id: string;
@@ -200,8 +205,10 @@ export type DocumentCommentThread = {
     replies: Array<DocumentCommentReply>;
     resolved_at?: (string) | null;
     resolved_by?: (string) | null;
+    start_column?: (number) | null;
     start_line_number?: (number) | null;
     start_offset?: (number) | null;
+    tags: Array<string>;
     updated_at: string;
 };
 
@@ -661,7 +668,9 @@ export type UninstallBody = {
 };
 
 export type UpdateDocumentCommentThreadRequest = {
-    resolved: boolean;
+    anchored?: (boolean) | null;
+    resolved?: (boolean) | null;
+    tags?: Array<string> | null;
 };
 
 export type UpdateDocumentContentRequest = {

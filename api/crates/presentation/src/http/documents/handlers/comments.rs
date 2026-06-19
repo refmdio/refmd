@@ -82,9 +82,12 @@ pub async fn create_document_comment_thread(
             body.quote,
             body.body,
             body.start_line_number,
+            body.start_column,
             body.end_line_number,
+            body.end_column,
             body.start_offset,
             body.end_offset,
+            body.tags,
             body.author_name,
         )
         .await
@@ -152,7 +155,14 @@ pub async fn update_document_comment_thread(
         .ok_or(ApiError::unauthorized("unauthorized"))?;
     let service = ctx.document_service();
     let thread = service
-        .set_comment_resolved(&actor, id, thread_id, body.resolved)
+        .update_comment_thread(
+            &actor,
+            id,
+            thread_id,
+            body.resolved,
+            body.tags,
+            body.anchored,
+        )
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_comment_thread(thread)))
