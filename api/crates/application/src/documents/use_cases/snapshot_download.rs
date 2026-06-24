@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::core::ports::storage::storage_port::StorageResolverPort;
+use crate::documents::comment_markers::strip_comment_markers_from_bytes;
+use crate::documents::ports::comment_repository::CommentRepository;
 use crate::documents::ports::document_snapshot_archive_repository::SnapshotArchiveRecord;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::services::realtime::snapshot::SnapshotService;
@@ -16,15 +18,17 @@ pub struct SnapshotDownload {
     pub snapshot: SnapshotArchiveRecord,
 }
 
-pub struct DownloadSnapshot<'a, F, S, SNAP>
+pub struct DownloadSnapshot<'a, F, S, SNAP, C>
 where
     F: FilesRepository + ?Sized,
     S: StorageResolverPort + ?Sized,
     SNAP: SnapshotServiceProvider + ?Sized,
+    C: CommentRepository + ?Sized,
 {
     pub files: &'a F,
     pub storage: &'a S,
     pub snapshots: &'a SNAP,
+    pub comments: &'a C,
 }
 
 #[async_trait]
@@ -45,14 +49,16 @@ impl SnapshotServiceProvider for SnapshotService {
     }
 }
 
-impl<'a, F, S, SNAP> DownloadSnapshot<'a, F, S, SNAP>
+impl<'a, F, S, SNAP, C> DownloadSnapshot<'a, F, S, SNAP, C>
 where
     F: FilesRepository + ?Sized,
     S: StorageResolverPort + ?Sized,
     SNAP: SnapshotServiceProvider + ?Sized,
+    C: CommentRepository + ?Sized,
 {
     pub async fn execute(
         &self,
+        workspace_id: Uuid,
         document_id: Uuid,
         snapshot_id: Uuid,
     ) -> anyhow::Result<Option<SnapshotDownload>> {
@@ -67,7 +73,15 @@ where
             anyhow::bail!("snapshot_document_mismatch");
         }
 
-        let markdown_bytes = markdown.into_bytes();
+        let comment_markers = self
+            .comments
+            .list_threads(workspace_id, document_id)
+            .await?
+            .into_iter()
+            .map(|record| record.thread.marker)
+            .collect::<Vec<_>>();
+        let markdown_bytes =
+            strip_comment_markers_from_bytes(markdown.into_bytes(), &comment_markers);
         let stored_attachments = self
             .files
             .list_storage_paths_for_document(document_id)
@@ -144,4 +158,289 @@ fn sanitize_filename(name: &str) -> String {
         s.truncate(100);
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use async_trait::async_trait;
+    use chrono::Utc;
+
+    use super::*;
+    use crate::core::ports::errors::PortResult;
+    use crate::core::ports::storage::storage_port::StoredAttachment;
+    use crate::documents::ports::comment_repository::{
+        CommentReplyRecord, CommentThreadRecord, CommentThreadUpdate, CommentThreadWithReplies,
+        NewCommentReply, NewCommentThread,
+    };
+    use crate::documents::ports::files::files_repository::{
+        FileMeta, FilePathMeta, FileRecord, StoredFileScope,
+    };
+
+    struct EmptyFiles;
+
+    #[async_trait]
+    impl FilesRepository for EmptyFiles {
+        async fn is_workspace_document(
+            &self,
+            _doc_id: Uuid,
+            _workspace_id: Uuid,
+        ) -> PortResult<bool> {
+            Ok(true)
+        }
+
+        async fn insert_file(
+            &self,
+            _doc_id: Uuid,
+            _filename: &str,
+            _content_type: Option<&str>,
+            _size: i64,
+            _storage_path: &str,
+            _content_hash: &str,
+        ) -> PortResult<Uuid> {
+            Ok(Uuid::new_v4())
+        }
+
+        async fn get_file_meta(&self, _file_id: Uuid) -> PortResult<Option<FileMeta>> {
+            Ok(None)
+        }
+
+        async fn get_file_path_by_doc_and_name(
+            &self,
+            _doc_id: Uuid,
+            _filename: &str,
+        ) -> PortResult<Option<FilePathMeta>> {
+            Ok(None)
+        }
+
+        async fn list_storage_paths_for_document(&self, _doc_id: Uuid) -> PortResult<Vec<String>> {
+            Ok(Vec::new())
+        }
+
+        async fn list_files_for_document(&self, _doc_id: Uuid) -> PortResult<Vec<FileRecord>> {
+            Ok(Vec::new())
+        }
+
+        async fn list_storage_paths_for_workspace(
+            &self,
+            _workspace_id: Uuid,
+        ) -> PortResult<Vec<String>> {
+            Ok(Vec::new())
+        }
+
+        async fn find_by_storage_path(
+            &self,
+            _storage_path: &str,
+        ) -> PortResult<Option<StoredFileScope>> {
+            Ok(None)
+        }
+
+        async fn update_storage_path(&self, _file_id: Uuid, _storage_path: &str) -> PortResult<()> {
+            Ok(())
+        }
+
+        async fn update_hash_and_size(
+            &self,
+            _file_id: Uuid,
+            _size: i64,
+            _content_hash: &str,
+        ) -> PortResult<()> {
+            Ok(())
+        }
+
+        async fn delete_by_id(&self, _file_id: Uuid) -> PortResult<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeStorage;
+
+    #[async_trait]
+    impl StorageResolverPort for FakeStorage {
+        async fn build_doc_dir(&self, doc_id: Uuid) -> PortResult<PathBuf> {
+            Ok(PathBuf::from(format!("/tmp/{doc_id}")))
+        }
+
+        async fn build_doc_file_path(&self, doc_id: Uuid) -> PortResult<PathBuf> {
+            Ok(PathBuf::from(format!("/tmp/{doc_id}/document.md")))
+        }
+
+        fn relative_from_uploads(&self, abs: &Path) -> String {
+            abs.to_string_lossy().into_owned()
+        }
+
+        fn user_repo_dir(&self, user_id: Uuid) -> String {
+            user_id.to_string()
+        }
+
+        fn absolute_from_relative(&self, rel: &str) -> PathBuf {
+            PathBuf::from(rel)
+        }
+
+        async fn resolve_upload_path(&self, _doc_id: Uuid, rest_path: &str) -> PortResult<PathBuf> {
+            Ok(PathBuf::from(rest_path))
+        }
+
+        async fn read_bytes(&self, _abs_path: &Path) -> PortResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        async fn exists(&self, _abs_path: &Path) -> PortResult<bool> {
+            Ok(false)
+        }
+
+        async fn write_bytes(&self, _abs_path: &Path, _data: &[u8]) -> PortResult<()> {
+            Ok(())
+        }
+
+        async fn store_doc_attachment(
+            &self,
+            _doc_id: Uuid,
+            _original_filename: Option<&str>,
+            _bytes: &[u8],
+        ) -> PortResult<StoredAttachment> {
+            Ok(StoredAttachment {
+                filename: "file.bin".to_string(),
+                relative_path: "file.bin".to_string(),
+                size: 0,
+                content_hash: String::new(),
+            })
+        }
+    }
+
+    struct FakeSnapshots {
+        snapshot_id: Uuid,
+        record: SnapshotArchiveRecord,
+        markdown: String,
+    }
+
+    #[async_trait]
+    impl SnapshotServiceProvider for FakeSnapshots {
+        async fn load_markdown_with_record(
+            &self,
+            snapshot_id: Uuid,
+        ) -> anyhow::Result<Option<(SnapshotArchiveRecord, String)>> {
+            if snapshot_id == self.snapshot_id {
+                Ok(Some((self.record.clone(), self.markdown.clone())))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    struct FakeComments {
+        workspace_id: Uuid,
+        document_id: Uuid,
+        marker: String,
+    }
+
+    #[async_trait]
+    impl CommentRepository for FakeComments {
+        async fn list_threads(
+            &self,
+            workspace_id: Uuid,
+            document_id: Uuid,
+        ) -> PortResult<Vec<CommentThreadWithReplies>> {
+            if workspace_id != self.workspace_id || document_id != self.document_id {
+                return Ok(Vec::new());
+            }
+            Ok(vec![CommentThreadWithReplies {
+                thread: CommentThreadRecord {
+                    id: Uuid::new_v4(),
+                    document_id,
+                    marker: self.marker.clone(),
+                    quote: "target".to_string(),
+                    start_line_number: None,
+                    start_column: None,
+                    end_line_number: None,
+                    end_column: None,
+                    start_offset: None,
+                    end_offset: None,
+                    anchored: true,
+                    tags: Vec::new(),
+                    created_by: None,
+                    created_by_name: None,
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                    resolved_at: None,
+                    resolved_by: None,
+                },
+                replies: Vec::new(),
+            }])
+        }
+
+        async fn create_thread(
+            &self,
+            _input: NewCommentThread,
+        ) -> PortResult<CommentThreadWithReplies> {
+            unreachable!("not used by snapshot download tests")
+        }
+
+        async fn add_reply(
+            &self,
+            _input: NewCommentReply,
+        ) -> PortResult<Option<CommentReplyRecord>> {
+            unreachable!("not used by snapshot download tests")
+        }
+
+        async fn update_thread(
+            &self,
+            _input: CommentThreadUpdate,
+        ) -> PortResult<Option<CommentThreadWithReplies>> {
+            unreachable!("not used by snapshot download tests")
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_download_strips_only_persisted_comment_markers() {
+        let workspace_id = Uuid::new_v4();
+        let document_id = Uuid::new_v4();
+        let snapshot_id = Uuid::new_v4();
+        let marker = "<!--comment:owned-->".to_string();
+        let manual = "<!--comment:manual-->";
+        let record = SnapshotArchiveRecord {
+            id: snapshot_id,
+            document_id,
+            version: 1,
+            label: "Snapshot".to_string(),
+            notes: None,
+            kind: "manual".to_string(),
+            created_at: Utc::now(),
+            created_by: None,
+            byte_size: 0,
+            content_hash: String::new(),
+        };
+        let snapshots = FakeSnapshots {
+            snapshot_id,
+            record,
+            markdown: format!("alpha{marker} beta\n{manual}"),
+        };
+        let comments = FakeComments {
+            workspace_id,
+            document_id,
+            marker,
+        };
+        let uc = DownloadSnapshot {
+            files: &EmptyFiles,
+            storage: &FakeStorage,
+            snapshots: &snapshots,
+            comments: &comments,
+        };
+
+        let download = uc
+            .execute(workspace_id, document_id, snapshot_id)
+            .await
+            .expect("snapshot download succeeds")
+            .expect("snapshot exists");
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(download.bytes)).expect("valid snapshot zip");
+        let mut entry = archive
+            .by_name("Snapshot/Snapshot.md")
+            .expect("markdown entry");
+        let mut markdown = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut markdown).expect("read markdown");
+
+        assert_eq!(markdown, format!("alpha beta\n{manual}"));
+    }
 }

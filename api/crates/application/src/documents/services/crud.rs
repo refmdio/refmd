@@ -10,6 +10,7 @@ use domain::documents::{hierarchy, path as doc_path, policy as doc_policy, title
 
 use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;
+use crate::documents::comment_markers::strip_comment_markers;
 use crate::documents::dtos::DocumentListFilter;
 use crate::documents::ports::tx_runner::run_in_tx;
 use crate::documents::use_cases::create_document::CreateDocument;
@@ -164,6 +165,15 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?
             .unwrap_or_default();
+        let source_comment_markers = self
+            .comment_repo
+            .list_threads(source.workspace_id(), source.id())
+            .await
+            .map_err(ServiceError::from)?
+            .into_iter()
+            .map(|record| record.thread.marker)
+            .collect::<Vec<_>>();
+        let duplicate_content = strip_comment_markers(&source_content, &source_comment_markers);
 
         let attachments = self.snapshot_attachments(source.id()).await?;
         let new_title = title::duplicate_title(source.title(), title);
@@ -181,7 +191,7 @@ impl DocumentService {
 
         let result = async {
             let updated_doc = self
-                .update_content(&actor, new_doc.id(), &source_content)
+                .update_content(&actor, new_doc.id(), &duplicate_content)
                 .await?;
 
             self.copy_attachments(&updated_doc, &attachments, actor_id)

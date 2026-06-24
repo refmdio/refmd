@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCommentMarker,
   createCommentId,
+  findCommentMarkers,
+  findUnknownCommentMarkers,
   getCommentSubmitAction,
   parseCommentMarkerId,
   parseCommentTags,
+  sanitizeCommentQuote,
+  sanitizeStoredCommentQuote,
+  stripCommentMarkers,
 } from './comments-store'
 
 describe('comment markers', () => {
@@ -29,6 +34,49 @@ describe('comment markers', () => {
     expect(id).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(parseCommentMarkerId(buildCommentMarker(id))).toBe(id)
   })
+
+  it('strips only persisted markers from rendered/exported content', () => {
+    const owned = buildCommentMarker('owned')
+    const manual = '<!--comment:manual-->'
+    const content = `\`\`\`\ncode ${owned}\n${manual}\n\`\`\``
+
+    expect(stripCommentMarkers(content, [owned])).toBe(
+      `\`\`\`\ncode \n${manual}\n\`\`\``,
+    )
+  })
+
+  it('finds valid comment markers in content once', () => {
+    const marker = buildCommentMarker('owned')
+    const content = `${marker} text ${marker} <!--comment:bad marker-->`
+
+    expect(findCommentMarkers(content)).toEqual([marker])
+  })
+
+  it('returns markers absent from loaded comment threads', () => {
+    const known = buildCommentMarker('known')
+    const unknown = buildCommentMarker('unknown')
+
+    expect(findUnknownCommentMarkers(`${known}\n${unknown}`, [known])).toEqual([
+      unknown,
+    ])
+  })
+
+  it('sanitizes quote text with known markers while preserving unowned marker text', () => {
+    const known = buildCommentMarker('known')
+    const unowned = buildCommentMarker('unowned')
+
+    expect(
+      sanitizeCommentQuote(`alpha ${known}\n beta ${unowned}`, [known]),
+    ).toBe(`alpha beta ${unowned}`)
+  })
+
+  it('sanitizes stored quote markers without normalizing whitespace', () => {
+    const known = buildCommentMarker('known')
+
+    expect(sanitizeStoredCommentQuote(`alpha\n${known}beta`, [known])).toBe(
+      'alpha\nbeta',
+    )
+  })
 })
 
 describe('comment submit action', () => {
@@ -36,7 +84,7 @@ describe('comment submit action', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: false,
-        hasSelection: false,
+        hasTarget: false,
         hasDraft: false,
         readOnly: false,
         creating: false,
@@ -52,7 +100,7 @@ describe('comment submit action', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: false,
-        hasSelection: false,
+        hasTarget: false,
         hasDraft: true,
         readOnly: true,
         creating: false,
@@ -64,7 +112,7 @@ describe('comment submit action', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: true,
-        hasSelection: true,
+        hasTarget: true,
         hasDraft: false,
         readOnly: false,
         creating: false,
@@ -74,7 +122,7 @@ describe('comment submit action', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: true,
-        hasSelection: true,
+        hasTarget: true,
         hasDraft: true,
         readOnly: false,
         creating: false,
@@ -84,7 +132,19 @@ describe('comment submit action', () => {
     expect(
       getCommentSubmitAction({
         hasEditor: true,
-        hasSelection: false,
+        hasTarget: false,
+        hasDraft: true,
+        readOnly: false,
+        creating: false,
+      }).disabled,
+    ).toBe(true)
+  })
+
+  it('requires an explicit target before creating a thread', () => {
+    expect(
+      getCommentSubmitAction({
+        hasEditor: true,
+        hasTarget: false,
         hasDraft: true,
         readOnly: false,
         creating: false,

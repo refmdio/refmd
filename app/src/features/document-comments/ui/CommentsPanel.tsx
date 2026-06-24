@@ -29,6 +29,8 @@ import {
   createCommentId,
   getCommentSubmitAction,
   parseCommentTags,
+  sanitizeCommentQuote,
+  sanitizeStoredCommentQuote,
   type DocumentCommentThread,
   useDocumentComments,
 } from '../model/comments-store'
@@ -40,11 +42,27 @@ type CommentsPanelProps = {
   editor: DocumentEditorApi | null
   readOnly?: boolean
   userName?: string | null
+  composerState?: CommentComposerState
+  onComposerStateChange?: (state: CommentComposerState) => void
   className?: string
   activeThreadId?: string | null
   onClose?: () => void
   onRequestEditor?: () => void
   onActiveThreadChange?: (threadId: string | null) => void
+}
+
+type CommentComposerState = {
+  composerOpen: boolean
+  newComment: string
+  newTags: string
+  newTagsOpen: boolean
+}
+
+const EMPTY_COMPOSER_STATE: CommentComposerState = {
+  composerOpen: false,
+  newComment: '',
+  newTags: '',
+  newTagsOpen: false,
 }
 
 function formatTimestamp(value: string) {
@@ -58,14 +76,17 @@ function formatTimestamp(value: string) {
   })
 }
 
-function truncateQuote(value: string) {
-  const normalized = value.replace(/\s+/g, ' ').trim()
+function truncateQuote(value: string, knownMarkers: readonly string[] = []) {
+  const normalized = sanitizeCommentQuote(value, knownMarkers)
   if (normalized.length <= 180) return normalized
   return `${normalized.slice(0, 177)}...`
 }
 
-function getAnchorLabel(thread: DocumentCommentThread) {
-  const quote = truncateQuote(thread.quote)
+function getAnchorLabel(
+  thread: DocumentCommentThread,
+  knownMarkers: readonly string[],
+) {
+  const quote = truncateQuote(thread.quote, knownMarkers)
   if (quote) return quote
   if (thread.startLineNumber && thread.startColumn) {
     return `L${thread.startLineNumber}:${thread.startColumn}`
@@ -73,16 +94,23 @@ function getAnchorLabel(thread: DocumentCommentThread) {
   return 'Cursor'
 }
 
-function getSelectionLabel(selection: DocumentEditorSelection) {
-  const quote = truncateQuote(selection.text)
+function getSelectionLabel(
+  selection: DocumentEditorSelection,
+  knownMarkers: readonly string[],
+) {
+  const quote = truncateQuote(selection.text, knownMarkers)
   if (quote) return quote
   return `L${selection.startLineNumber}:${selection.startColumn}`
 }
 
-function threadMatchesSearch(thread: DocumentCommentThread, query: string) {
+function threadMatchesSearch(
+  thread: DocumentCommentThread,
+  query: string,
+  knownMarkers: readonly string[],
+) {
   if (!query) return true
   const haystack = [
-    thread.quote,
+    sanitizeCommentQuote(thread.quote, knownMarkers),
     thread.createdByName ?? '',
     ...thread.tags,
     ...thread.replies.flatMap((reply) => [
@@ -118,6 +146,8 @@ export function CommentsPanel({
   editor,
   readOnly = false,
   userName,
+  composerState,
+  onComposerStateChange,
   className,
   activeThreadId,
   onClose,
@@ -140,10 +170,8 @@ export function CommentsPanel({
   const [selection, setSelection] = useState<DocumentEditorSelection | null>(
     null,
   )
-  const [composerOpen, setComposerOpen] = useState(false)
-  const [newComment, setNewComment] = useState('')
-  const [newTags, setNewTags] = useState('')
-  const [newTagsOpen, setNewTagsOpen] = useState(false)
+  const [localComposerState, setLocalComposerState] =
+    useState<CommentComposerState>(EMPTY_COMPOSER_STATE)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [tagFilter, setTagFilter] = useState('')
@@ -168,8 +196,22 @@ export function CommentsPanel({
   const [taggingThreadId, setTaggingThreadId] = useState<string | null>(null)
   const pendingRevealRef = useRef<string | null>(null)
   const threadItemRefs = useRef<Record<string, HTMLElement | null>>({})
+  const contentRef = useRef(content)
+  const currentComposerState = composerState ?? localComposerState
+  const { composerOpen, newComment, newTags, newTagsOpen } =
+    currentComposerState
   const effectiveActiveThreadId =
     activeThreadId === undefined ? localActiveThreadId : activeThreadId
+  const updateComposerState = useCallback(
+    (patch: Partial<CommentComposerState>) => {
+      const next = { ...currentComposerState, ...patch }
+      if (composerState === undefined) {
+        setLocalComposerState(next)
+      }
+      onComposerStateChange?.(next)
+    },
+    [composerState, currentComposerState, onComposerStateChange],
+  )
   const setActiveThread = useCallback(
     (threadId: string | null) => {
       if (activeThreadId === undefined) {
@@ -188,8 +230,17 @@ export function CommentsPanel({
     () => Array.from(new Set(threads.flatMap((thread) => thread.tags))).sort(),
     [threads],
   )
+  const knownMarkers = useMemo(
+    () => threads.map((thread) => thread.marker),
+    [threads],
+  )
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const normalizedTagFilter = tagFilter.trim()
+  const hasSelectedTarget = Boolean(
+    selection &&
+      !selection.isEmpty &&
+      sanitizeCommentQuote(selection.text, knownMarkers),
+  )
   const visibleThreads = useMemo(
     () =>
       threads.filter((thread) => {
@@ -200,13 +251,13 @@ export function CommentsPanel({
         ) {
           return false
         }
-        return threadMatchesSearch(thread, normalizedSearch)
+        return threadMatchesSearch(thread, normalizedSearch, knownMarkers)
       }),
-    [normalizedSearch, normalizedTagFilter, showResolved, threads],
+    [knownMarkers, normalizedSearch, normalizedTagFilter, showResolved, threads],
   )
   const commentSubmitAction = getCommentSubmitAction({
     hasEditor: Boolean(editor),
-    hasSelection: Boolean(selection),
+    hasTarget: hasSelectedTarget,
     hasDraft: Boolean(newComment.trim()),
     readOnly,
     creating,
@@ -214,8 +265,11 @@ export function CommentsPanel({
   const canCreateThread = Boolean(editor && !commentSubmitAction.disabled)
 
   useEffect(() => {
+    contentRef.current = content
+  }, [content])
+
+  useEffect(() => {
     if (!editor) {
-      setSelection(null)
       return
     }
     setSelection(editor.getSelection())
@@ -229,7 +283,10 @@ export function CommentsPanel({
     )
     if (!activeThread) return
     if (activeThread.resolvedAt) setShowResolved(true)
-    if (normalizedSearch && !threadMatchesSearch(activeThread, normalizedSearch)) {
+    if (
+      normalizedSearch &&
+      !threadMatchesSearch(activeThread, normalizedSearch, knownMarkers)
+    ) {
       setSearchQuery('')
       setSearchOpen(false)
     }
@@ -240,7 +297,13 @@ export function CommentsPanel({
       setTagFilter('')
       setTagFilterOpen(false)
     }
-  }, [effectiveActiveThreadId, normalizedSearch, normalizedTagFilter, threads])
+  }, [
+    effectiveActiveThreadId,
+    knownMarkers,
+    normalizedSearch,
+    normalizedTagFilter,
+    threads,
+  ])
 
   useEffect(() => {
     if (!effectiveActiveThreadId) return
@@ -278,7 +341,10 @@ export function CommentsPanel({
       onRequestEditor?.()
       return
     }
-    if (!selection || !canCreateThread) return
+    if (!selection || !hasSelectedTarget || !canCreateThread) return
+    const displayQuote = sanitizeCommentQuote(selection.text, knownMarkers)
+    if (!displayQuote) return
+    const quote = sanitizeStoredCommentQuote(selection.text, knownMarkers)
     const tags = parseCommentTags(newTags)
     if (!validateTags(tags)) {
       toast.error('Tags must be 64 characters or fewer')
@@ -302,17 +368,22 @@ export function CommentsPanel({
       },
     ])
     if (!inserted) return
-    const rollbackRange: DocumentEditorRange = {
-      startLineNumber: selection.endLineNumber,
-      startColumn: selection.endColumn,
-      endLineNumber: selection.endLineNumber,
-      endColumn: selection.endColumn + marker.length,
+    if (typeof endOffset === 'number' && !contentRef.current.includes(marker)) {
+      const insertAt = Math.max(
+        0,
+        Math.min(contentRef.current.length, endOffset),
+      )
+      contentRef.current = [
+        contentRef.current.slice(0, insertAt),
+        marker,
+        contentRef.current.slice(insertAt),
+      ].join('')
     }
     setCreating(true)
     try {
       const thread = await createThread({
         id,
-        quote: selection.text,
+        quote,
         body: newComment,
         startLineNumber: selection.startLineNumber,
         startColumn: selection.startColumn,
@@ -323,20 +394,24 @@ export function CommentsPanel({
         tags,
       })
       if (!thread) return
-      setNewComment('')
-      setNewTags('')
-      setNewTagsOpen(false)
-      setComposerOpen(false)
+      updateComposerState(EMPTY_COMPOSER_STATE)
       setActiveThread(thread.id)
       revealThread(thread)
     } catch (error) {
-      editor.applyEdits([
-        {
-          range: rollbackRange,
-          text: '',
-          forceMoveMarkers: true,
-        },
-      ])
+      const markerIndex = contentRef.current.indexOf(marker)
+      const markerRange =
+        markerIndex >= 0
+          ? editor.getRangeFromOffset(markerIndex, marker.length)
+          : null
+      if (markerRange) {
+        editor.applyEdits([
+          {
+            range: markerRange,
+            text: '',
+            forceMoveMarkers: true,
+          },
+        ])
+      }
       toast.error('Could not save comment')
     } finally {
       setCreating(false)
@@ -345,12 +420,15 @@ export function CommentsPanel({
     canCreateThread,
     createThread,
     editor,
+    hasSelectedTarget,
+    knownMarkers,
     newComment,
     newTags,
     onRequestEditor,
     revealThread,
     selection,
     setActiveThread,
+    updateComposerState,
   ])
 
   const handleReply = useCallback(
@@ -453,7 +531,7 @@ export function CommentsPanel({
             className="min-w-0 flex-1 text-left"
           >
             <p className="line-clamp-3 text-sm font-medium leading-5 text-foreground">
-              {getAnchorLabel(thread)}
+              {getAnchorLabel(thread, knownMarkers)}
             </p>
             <time className="mt-1 block truncate text-[11px] text-muted-foreground">
               {formatTimestamp(thread.updatedAt)}
@@ -726,7 +804,7 @@ export function CommentsPanel({
             type="button"
             className="flex h-10 w-full items-center justify-between rounded-md border border-border/60 bg-background/50 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-muted/30"
             disabled={readOnly}
-            onClick={() => setComposerOpen(true)}
+            onClick={() => updateComposerState({ composerOpen: true })}
           >
             <span>Add comment</span>
             <SendHorizontal className="h-3.5 w-3.5" />
@@ -735,7 +813,9 @@ export function CommentsPanel({
           <div className="rounded-md border border-border/60 bg-background/60 focus-within:border-primary/40">
             <Textarea
               value={newComment}
-              onChange={(event) => setNewComment(event.target.value)}
+              onChange={(event) =>
+                updateComposerState({ newComment: event.target.value })
+              }
               autoFocus
               placeholder="Add comment"
               className="min-h-20 resize-none border-0 bg-transparent px-3 py-3 text-sm shadow-none focus-visible:ring-0"
@@ -747,7 +827,9 @@ export function CommentsPanel({
                   <Tag className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={newTags}
-                    onChange={(event) => setNewTags(event.target.value)}
+                    onChange={(event) =>
+                      updateComposerState({ newTags: event.target.value })
+                    }
                     aria-label="Tags"
                     className="h-8 border-border/60 bg-background/80 pl-8 text-xs"
                     disabled={readOnly}
@@ -760,10 +842,16 @@ export function CommentsPanel({
                 type="button"
                 className="min-w-0 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/50"
                 onClick={onRequestEditor}
-                title={selection ? getSelectionLabel(selection) : 'Open editor'}
+                title={
+                  hasSelectedTarget && selection
+                    ? getSelectionLabel(selection, knownMarkers)
+                    : 'Open editor'
+                }
               >
                 <span className="line-clamp-1">
-                  {selection ? getSelectionLabel(selection) : 'Editor'}
+                  {hasSelectedTarget && selection
+                    ? getSelectionLabel(selection, knownMarkers)
+                    : 'Editor'}
                 </span>
               </button>
               <div className="flex shrink-0 items-center gap-1">
@@ -774,7 +862,9 @@ export function CommentsPanel({
                   className="h-8 w-8"
                   title="Tags"
                   disabled={readOnly}
-                  onClick={() => setNewTagsOpen((value) => !value)}
+                  onClick={() =>
+                    updateComposerState({ newTagsOpen: !newTagsOpen })
+                  }
                 >
                   <Tag className="h-3.5 w-3.5" />
                 </Button>
@@ -785,10 +875,7 @@ export function CommentsPanel({
                   className="h-8 w-8"
                   title="Cancel"
                   onClick={() => {
-                    setComposerOpen(false)
-                    setNewComment('')
-                    setNewTags('')
-                    setNewTagsOpen(false)
+                    updateComposerState(EMPTY_COMPOSER_STATE)
                   }}
                 >
                   <X className="h-3.5 w-3.5" />

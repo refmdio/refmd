@@ -16,6 +16,7 @@ use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
 use crate::documents::ports::tx_runner::DocumentsTxRunner;
 use crate::documents::services::realtime::snapshot::SnapshotService;
+use crate::identity::ports::user_repository::UserRepository;
 use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::documents::doc_type::DocumentType;
@@ -554,6 +555,7 @@ impl DocumentServiceFacade for DocumentService {
 pub struct DocumentService {
     tx_runner: Arc<dyn DocumentsTxRunner>,
     document_repo: Arc<dyn DocumentRepository>,
+    user_repo: Arc<dyn UserRepository>,
     files_repo: Arc<dyn FilesRepository>,
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
@@ -571,6 +573,7 @@ impl DocumentService {
     pub fn new(
         tx_runner: Arc<dyn DocumentsTxRunner>,
         document_repo: Arc<dyn DocumentRepository>,
+        user_repo: Arc<dyn UserRepository>,
         files_repo: Arc<dyn FilesRepository>,
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
@@ -585,6 +588,7 @@ impl DocumentService {
         Self {
             tx_runner,
             document_repo,
+            user_repo,
             files_repo,
             access_repo,
             share_access,

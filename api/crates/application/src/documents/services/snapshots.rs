@@ -60,13 +60,26 @@ impl DocumentService {
             ServiceError::Forbidden => ServiceError::Unauthorized,
             other => other,
         })?;
+        let document = self
+            .document_repo
+            .get_by_id(doc_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
 
         let uc = SnapshotDiff {
             snapshots: self.snapshot_service.as_ref(),
             realtime: self.realtime.as_ref(),
+            comments: self.comment_repo.as_ref(),
         };
         let result = uc
-            .execute(doc_id, snapshot_id, compare, base_mode)
+            .execute(
+                document.workspace_id(),
+                doc_id,
+                snapshot_id,
+                compare,
+                base_mode,
+            )
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
@@ -127,13 +140,20 @@ impl DocumentService {
             ServiceError::Forbidden => ServiceError::Unauthorized,
             other => other,
         })?;
+        let document = self
+            .document_repo
+            .get_by_id(doc_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
 
         let uc = DownloadSnapshot {
             files: self.files_repo.as_ref(),
             storage: self.storage.as_ref(),
             snapshots: self.snapshot_service.as_ref(),
+            comments: self.comment_repo.as_ref(),
         };
-        uc.execute(doc_id, snapshot_id)
+        uc.execute(document.workspace_id(), doc_id, snapshot_id)
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)

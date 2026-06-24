@@ -42,7 +42,7 @@ type UseDocumentCommentsOptions = {
 
 type CommentSubmitActionInput = {
   hasEditor: boolean
-  hasSelection: boolean
+  hasTarget: boolean
   hasDraft: boolean
   readOnly: boolean
   creating: boolean
@@ -54,7 +54,7 @@ export function getCommentSubmitAction(input: CommentSubmitActionInput) {
     label,
     title: label,
     disabled: input.hasEditor
-      ? !input.hasSelection || !input.hasDraft || input.readOnly || input.creating
+      ? !input.hasTarget || !input.hasDraft || input.readOnly || input.creating
       : input.readOnly,
   }
 }
@@ -66,6 +66,46 @@ export function buildCommentMarker(id: string) {
 export function parseCommentMarkerId(marker: string) {
   const match = /^<!--comment:([A-Za-z0-9_-]+)-->$/.exec(marker)
   return match?.[1] ?? null
+}
+
+const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
+
+export function findCommentMarkers(content: string) {
+  const matches = content.match(COMMENT_MARKER_PATTERN)
+  return matches ? Array.from(new Set(matches)) : []
+}
+
+export function findUnknownCommentMarkers(
+  content: string,
+  knownMarkers: readonly string[],
+) {
+  const known = new Set(knownMarkers)
+  return findCommentMarkers(content).filter((marker) => !known.has(marker))
+}
+
+export function stripCommentMarkers(content: string, markers: readonly string[]) {
+  let out = content
+  const seen = new Set<string>()
+  for (const marker of markers) {
+    if (!marker || seen.has(marker)) continue
+    seen.add(marker)
+    out = out.split(marker).join('')
+  }
+  return out
+}
+
+export function sanitizeCommentQuote(
+  quote: string,
+  knownMarkers: readonly string[],
+) {
+  return stripCommentMarkers(quote, knownMarkers).replace(/\s+/g, ' ').trim()
+}
+
+export function sanitizeStoredCommentQuote(
+  quote: string,
+  knownMarkers: readonly string[],
+) {
+  return stripCommentMarkers(quote, knownMarkers)
 }
 
 export function parseCommentTags(value: string) {

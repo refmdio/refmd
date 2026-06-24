@@ -25,6 +25,10 @@ export function findCommentThreadRange(
     }
   }
 
+  if (markerIndex >= 0) {
+    return editor.getRangeFromOffset(markerIndex, thread.marker.length)
+  }
+
   if (
     typeof thread.startOffset === 'number' &&
     typeof thread.endOffset === 'number' &&
@@ -32,10 +36,6 @@ export function findCommentThreadRange(
   ) {
     const length = thread.endOffset - thread.startOffset
     return editor.getRangeFromOffset(thread.startOffset, length)
-  }
-
-  if (markerIndex >= 0) {
-    return editor.getRangeFromOffset(markerIndex, thread.marker.length)
   }
 
   if (thread.startLineNumber && thread.startColumn) {
@@ -54,11 +54,14 @@ export function getCommentThreadLine(
   thread: DocumentCommentThread,
   content: string,
 ) {
+  const markerIndex = content.indexOf(thread.marker)
+  if (markerIndex >= 0) {
+    return content.slice(0, markerIndex).split('\n').length
+  }
+
   if (thread.startLineNumber && Number.isFinite(thread.startLineNumber)) {
     return Math.max(1, Math.floor(thread.startLineNumber))
   }
 
-  const markerIndex = content.indexOf(thread.marker)
-  if (markerIndex < 0) return null
-  return content.slice(0, markerIndex).split('\n').length
+  return null
 }

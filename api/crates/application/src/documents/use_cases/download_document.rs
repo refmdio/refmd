@@ -7,8 +7,10 @@ use uuid::Uuid;
 
 use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::core::services::access::{self, Actor, Capability};
+use crate::documents::comment_markers::strip_comment_markers_from_bytes;
 use crate::documents::dtos::{DocumentDownload, DocumentDownloadFormat};
 use crate::documents::ports::access_repository::AccessRepository;
+use crate::documents::ports::comment_repository::CommentRepository;
 use crate::documents::ports::document_exporter::{
     DocumentExportAssets, DocumentExportAttachment, DocumentExporter,
 };
@@ -22,30 +24,33 @@ use thiserror::Error;
 use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-pub struct DownloadDocument<'a, D, F, S, A, SH>
+pub struct DownloadDocument<'a, D, F, S, A, SH, C>
 where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
     S: StorageResolverPort + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
+    C: CommentRepository + ?Sized,
 {
     pub documents: &'a D,
     pub files: &'a F,
     pub storage: &'a S,
     pub access: &'a A,
     pub shares: &'a SH,
+    pub comments: &'a C,
     pub snapshot: &'a SnapshotService,
     pub exporter: &'a dyn DocumentExporter,
 }
 
-impl<'a, D, F, S, A, SH> DownloadDocument<'a, D, F, S, A, SH>
+impl<'a, D, F, S, A, SH, C> DownloadDocument<'a, D, F, S, A, SH, C>
 where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
     S: StorageResolverPort + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
+    C: CommentRepository + ?Sized,
 {
     #[allow(clippy::too_many_lines)]
     pub async fn execute(
@@ -89,6 +94,14 @@ where
             Some(export) => export,
             None => return Ok(None),
         };
+        let comment_markers = self
+            .comments
+            .list_threads(document.workspace_id(), doc_id)
+            .await?
+            .into_iter()
+            .map(|record| record.thread.marker)
+            .collect::<Vec<_>>();
+        let markdown = strip_comment_markers_from_bytes(export.bytes, &comment_markers);
         let doc_dir = self.storage.build_doc_dir(doc_id).await?;
         let attachments = self.collect_attachments(doc_id, &doc_dir).await?;
         let safe_title = sanitize_filename(document.title().as_str());
@@ -101,7 +114,7 @@ where
         Ok(Some(DocumentExportAssets {
             safe_title,
             display_title,
-            markdown: export.bytes,
+            markdown,
             attachments,
         }))
     }

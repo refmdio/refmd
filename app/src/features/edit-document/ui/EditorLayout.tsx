@@ -11,6 +11,7 @@ import { Button } from '@/shared/ui/button'
 import type { UploadStatus } from '@/features/edit-document/hooks/useEditorUploads'
 import { ensureRefmdThemes } from '@/features/edit-document/lib/monaco/theme'
 
+import { shouldRenderEditorPane } from './editor-layout-state'
 import EditorPane from './EditorPane'
 import PreviewPane, { type PreviewPaneProps } from './PreviewPane'
 
@@ -18,6 +19,7 @@ export type EditorLayoutProps = {
   isMobile: boolean
   view: ViewMode
   extraRight?: ReactNode
+  keepEditorMounted?: boolean
   embedded?: boolean
   toolbar: ReactNode
   toolbarOpen: boolean
@@ -75,6 +77,7 @@ export function EditorLayout({
   isMobile,
   view,
   extraRight,
+  keepEditorMounted = false,
   embedded = false,
   toolbar,
   toolbarOpen,
@@ -378,17 +381,25 @@ export function EditorLayout({
     [onPreviewScroll, syncScroll, view],
   )
 
+  const renderEditorPane = shouldRenderEditorPane(
+    layoutState.wEditor,
+    keepEditorMounted,
+  )
+  const editorPaneHidden = layoutState.wEditor === '0%' && keepEditorMounted
+
   return (
     <div
       className={cn(
-        'flex flex-1 min-w-0 overflow-hidden',
+        'relative flex flex-1 min-w-0 overflow-hidden',
         isMobile ? 'flex-col min-h-0' : (embedded ? 'gap-0' : 'gap-6'),
       )}
     >
-      {layoutState.wEditor !== '0%' && (
+      {renderEditorPane && (
         <div
           className={cn(
             'relative flex flex-1 min-w-0 flex-col overflow-hidden',
+            editorPaneHidden &&
+              'pointer-events-none absolute left-0 top-0 h-px w-px flex-none opacity-0',
             !embedded && !isMobile &&
               'rounded-3xl border border-border/40 bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80',
             !embedded && layoutState.isDesktopSingleEditor && 'mx-auto w-full max-w-6xl',

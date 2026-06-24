@@ -443,3 +443,24 @@ fn normalize_repo_path(path: &str) -> String {
         trimmed.replace('\\', "/")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_projection_roundtrip_preserves_comment_markers() {
+        let doc_id = Uuid::new_v4();
+        let marker = "<!--comment:owned-->";
+        let contents = format!("alpha{marker} beta");
+
+        let bytes = render_markdown_bytes(&doc_id, "Commented", &contents);
+        let projected = String::from_utf8(bytes.clone()).unwrap();
+        let snapshot = snapshot_from_markdown(&contents);
+        let doc = doc_from_snapshot_bytes(&snapshot).unwrap();
+
+        assert!(projected.contains(marker));
+        assert!(extract_markdown(&doc).contains(marker));
+        assert_eq!(sha256_hex(&bytes), sha256_hex(projected.as_bytes()));
+    }
+}

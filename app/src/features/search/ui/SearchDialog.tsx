@@ -17,10 +17,17 @@ import {
 } from '@/shared/ui/command'
 import { Dialog, DialogContent } from '@/shared/ui/dialog'
 
-import { fetchDocumentContent, listDocuments, type Document } from '@/entities/document'
+import {
+  fetchDocumentContent,
+  listDocumentComments,
+  listDocuments,
+  type Document,
+} from '@/entities/document'
 import { listTags } from '@/entities/tag'
 
 import { useSecondaryViewer } from '@/features/secondary-viewer'
+
+import { sanitizeSearchPreviewContent } from '../model/search-preview'
 
 const trimLeadingOwner = (segments: string[]) => {
   if (segments.length <= 1) return segments
@@ -354,12 +361,16 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
 
     ;(async () => {
       try {
-        const res = await fetchDocumentContent(activeDocId)
+        const [res, comments] = await Promise.all([
+          fetchDocumentContent(activeDocId),
+          listDocumentComments(activeDocId),
+        ])
         if (cancelled) return
-        const content =
+        const rawContent =
           typeof res === 'object' && res !== null && 'content' in (res as any)
             ? ((res as any).content as string) ?? ''
             : ''
+        const content = sanitizeSearchPreviewContent(rawContent, comments.threads)
         previewCache.current.set(activeDocId, content)
         setPreviewContent(content)
         setPreviewError(null)

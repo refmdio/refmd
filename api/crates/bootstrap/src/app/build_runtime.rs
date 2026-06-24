@@ -371,6 +371,7 @@ pub async fn build_runtime(
     let document_service = Arc::new(DocumentService::new(
         documents_tx_runner,
         document_repo.clone(),
+        user_repo.clone(),
         files_repo.clone(),
         access_repo.clone(),
         shares_repo_impl.clone(),
@@ -413,6 +414,7 @@ pub async fn build_runtime(
     let public_service = Arc::new(PublicService::new(
         public_repo.clone(),
         realtime_engine.clone(),
+        comment_repo.clone(),
     ));
     let plugin_management_service = Arc::new(PluginManagementService::new(
         plugin_installations.clone(),

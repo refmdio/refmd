@@ -18,7 +18,11 @@ import {
   listDocuments,
 } from '@/entities/document'
 
-import { CommentsPanel } from '@/features/document-comments'
+import {
+  CommentsPanel,
+  findUnknownCommentMarkers,
+  stripCommentMarkers,
+} from '@/features/document-comments'
 import {
   findCommentMarkerRange,
   findCommentThreadRange,
@@ -61,6 +65,29 @@ const safeExecute = (scope: string, fn: () => void) => {
   } catch (error) {
     logEditorError(scope, error)
   }
+}
+
+const EMPTY_COMMENT_COMPOSER_STATE = {
+  composerOpen: false,
+  newComment: '',
+  newTags: '',
+  newTagsOpen: false,
+}
+
+type RefmdEditorInstance = monacoNs.editor.IStandaloneCodeEditor & {
+  __disposeChange?: () => void
+  __disposeScroll?: () => void
+  __disposePaste?: () => void
+  __disposeWiki?: () => void
+  __disposeCursor?: () => void
+  __disposeMonacoMd?: () => void
+  __disposeKeydown?: () => void
+  __disposeDirtyTracker?: () => void
+  __readOnlyOverlay?: {
+    widget: monacoNs.editor.IOverlayWidget
+    domNode: HTMLElement
+  }
+  __monaco?: typeof monacoNs
 }
 
 export type MarkdownEditorProps = {
@@ -169,6 +196,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const [activeCommentThreadId, setActiveCommentThreadId] = useState<
     string | null
   >(null)
+  const [commentComposerState, setCommentComposerState] = useState(
+    EMPTY_COMMENT_COMPOSER_STATE,
+  )
   const readOnlyWarningRef = useRef(0)
   const emitReadOnlyWarning = useCallback(() => {
     if (!readOnly) return
@@ -193,11 +223,56 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     onTextChange: () => {},
   })
   const commentsQuery = useQuery(documentCommentsQuery(documentId, { token: shareToken }))
+  useEffect(() => {
+    setCommentComposerState(EMPTY_COMMENT_COMPOSER_STATE)
+  }, [documentId])
   const commentThreads = useMemo(
     () => commentsQuery.data?.threads ?? [],
     [commentsQuery.data?.threads],
   )
+  const commentMarkerStrings = useMemo(
+    () => commentThreads.map((thread) => thread.marker),
+    [commentThreads],
+  )
+  const unknownCommentMarkerKey = useMemo(() => {
+    const markers = findUnknownCommentMarkers(boundText, commentMarkerStrings)
+    return markers.length ? markers.sort().join('\n') : ''
+  }, [boundText, commentMarkerStrings])
+  const commentMetadataRefetchRef = useRef({ key: '', attempts: 0 })
+  useEffect(() => {
+    if (!unknownCommentMarkerKey) {
+      commentMetadataRefetchRef.current = { key: '', attempts: 0 }
+      return
+    }
+
+    const state = commentMetadataRefetchRef.current
+    if (state.key !== unknownCommentMarkerKey) {
+      commentMetadataRefetchRef.current = {
+        key: unknownCommentMarkerKey,
+        attempts: 0,
+      }
+    }
+    const current = commentMetadataRefetchRef.current
+    if (commentsQuery.isFetching || current.attempts >= 5) return
+
+    const delay = Math.min(1000, 150 * 2 ** current.attempts)
+    const timer = window.setTimeout(() => {
+      current.attempts += 1
+      void commentsQuery.refetch()
+    }, delay)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    commentsQuery.dataUpdatedAt,
+    commentsQuery.isFetching,
+    commentsQuery.refetch,
+    unknownCommentMarkerKey,
+  ])
   const previewCommentContent = previewOverride ?? boundText
+  const renderedPreviewContent = useMemo(
+    () => stripCommentMarkers(previewCommentContent, commentMarkerStrings),
+    [commentMarkerStrings, previewCommentContent],
+  )
   const previewCommentMarkers = useMemo<
     NonNullable<PreviewPaneProps['commentMarkers']>
   >(
@@ -230,6 +305,55 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const blurDisposableRef = useRef<null | { dispose: () => void }>(null)
   const pluginDecorationIdsRef = useRef<Map<string, string[]>>(new Map())
   const pluginHiddenRangeSourcesRef = useRef<Map<string, object>>(new Map())
+
+  const cleanupEditorInstance = useCallback(
+    (editor: RefmdEditorInstance | null | undefined) => {
+      safeExecute('dispose change listener', () => editor?.__disposeChange?.())
+      safeExecute('dispose scroll listener', () => editor?.__disposeScroll?.())
+      safeExecute('dispose paste handler', () => editor?.__disposePaste?.())
+      safeExecute('dispose wiki handler', () => editor?.__disposeWiki?.())
+      safeExecute('dispose cursor handler', () => editor?.__disposeCursor?.())
+      safeExecute('dispose monaco markdown handler', () => editor?.__disposeMonacoMd?.())
+      safeExecute('dispose keydown handler', () => editor?.__disposeKeydown?.())
+      safeExecute('dispose dirty tracker', () => editor?.__disposeDirtyTracker?.())
+      safeExecute('dispose plugin decorations', () => {
+        for (const ids of pluginDecorationIdsRef.current.values()) {
+          try {
+            editor?.deltaDecorations(ids, [])
+          } catch {
+            /* noop */
+          }
+        }
+        pluginDecorationIdsRef.current.clear()
+      })
+      safeExecute('dispose plugin hidden ranges', () => {
+        const setHiddenAreas = (editor as any)?.setHiddenAreas
+        if (typeof setHiddenAreas !== 'function') {
+          pluginHiddenRangeSourcesRef.current.clear()
+          return
+        }
+        for (const source of pluginHiddenRangeSourcesRef.current.values()) {
+          try {
+            setHiddenAreas.call(editor, [], source)
+          } catch {
+            /* noop */
+          }
+        }
+        pluginHiddenRangeSourcesRef.current.clear()
+      })
+      safeExecute('dispose read-only overlay', () => {
+        if (editor?.__readOnlyOverlay) {
+          try { editor.removeOverlayWidget(editor.__readOnlyOverlay.widget) } catch {}
+          try { editor.__readOnlyOverlay.domNode.remove() } catch {}
+          delete editor.__readOnlyOverlay
+        }
+        if (editor && '__monaco' in editor) {
+          delete editor.__monaco
+        }
+      })
+    },
+    [],
+  )
 
   const isThisEditorActive = useCallback(() => {
     const ed = editorRef.current
@@ -527,50 +651,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   }, [brandedMonacoTheme, editorRef])
 
   useEffect(() => () => {
-    const anyEditor = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | undefined
-    safeExecute('dispose change listener', () => (anyEditor as any)?.__disposeChange?.())
-    safeExecute('dispose scroll listener', () => (anyEditor as any)?.__disposeScroll?.())
-    safeExecute('dispose paste handler', () => (anyEditor as any)?.__disposePaste?.())
-    safeExecute('dispose wiki handler', () => (anyEditor as any)?.__disposeWiki?.())
-    safeExecute('dispose cursor handler', () => (anyEditor as any)?.__disposeCursor?.())
-    safeExecute('dispose monaco markdown handler', () => (anyEditor as any)?.__disposeMonacoMd?.())
-    safeExecute('dispose keydown handler', () => (anyEditor as any)?.__disposeKeydown?.())
-    safeExecute('dispose dirty tracker', () => (anyEditor as any)?.__disposeDirtyTracker?.())
-    safeExecute('dispose plugin decorations', () => {
-      for (const ids of pluginDecorationIdsRef.current.values()) {
-        try {
-          anyEditor?.deltaDecorations(ids, [])
-        } catch {
-          /* noop */
-        }
-      }
-      pluginDecorationIdsRef.current.clear()
-    })
-    safeExecute('dispose plugin hidden ranges', () => {
-      const setHiddenAreas = (anyEditor as any)?.setHiddenAreas
-      if (typeof setHiddenAreas !== 'function') {
-        pluginHiddenRangeSourcesRef.current.clear()
-        return
-      }
-      for (const source of pluginHiddenRangeSourcesRef.current.values()) {
-        try {
-          setHiddenAreas.call(anyEditor, [], source)
-        } catch {
-          /* noop */
-        }
-      }
-      pluginHiddenRangeSourcesRef.current.clear()
-    })
-    safeExecute('dispose read-only overlay', () => {
-      if (anyEditor?.__readOnlyOverlay) {
-        try { anyEditor.removeOverlayWidget(anyEditor.__readOnlyOverlay.widget) } catch {}
-        try { anyEditor.__readOnlyOverlay.domNode.remove() } catch {}
-        delete anyEditor.__readOnlyOverlay
-      }
-      if (anyEditor && '__monaco' in anyEditor) {
-        delete (anyEditor as any).__monaco
-      }
-    })
+    cleanupEditorInstance(editorRef.current as RefmdEditorInstance | null)
     safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
     focusDisposableRef.current = null
     safeExecute('dispose editor blur listener', () => blurDisposableRef.current?.dispose())
@@ -578,7 +659,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     safeExecute('unregister editor instance', () => unregisterEditorRef.current?.())
     unregisterEditorRef.current = null
     disableVimMode()
-  }, [editorRef, setEditor, disableVimMode])
+  }, [cleanupEditorInstance, editorRef, disableVimMode])
 
   const toggleVim = useCallback(async () => {
     const next = !isVimMode
@@ -743,6 +824,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const handleEditorUnmount = useCallback(
     (editor: monacoNs.editor.IStandaloneCodeEditor | null) => {
       if (editor && editorRef.current && editorRef.current !== editor) return
+      cleanupEditorInstance(editor as RefmdEditorInstance | null)
       unregisterEditorRef.current?.()
       unregisterEditorRef.current = null
       safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
@@ -758,7 +840,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       disposeBinding(editor)
       setEditorMountNonce((n) => n + 1)
     },
-    [activeEditor, disableVimMode, disposeBinding, editorRef, setEditor],
+    [
+      activeEditor,
+      cleanupEditorInstance,
+      disableVimMode,
+      disposeBinding,
+      editorRef,
+      setEditor,
+    ],
   )
 
   const handleEditorDropFiles = useCallback(
@@ -1138,6 +1227,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       editor={documentEditorApi}
       readOnly={readOnly}
       userName={userName ?? null}
+      composerState={commentComposerState}
+      onComposerStateChange={setCommentComposerState}
       activeThreadId={activeCommentThreadId}
       onClose={() => onCommentsOpenChange?.(false)}
       onRequestEditor={handleCommentsRequestEditor}
@@ -1174,6 +1265,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         isMobile={isMobile}
         view={view as ViewMode}
         extraRight={resolvedExtraRight}
+        keepEditorMounted={isMobile && Boolean(commentsPanel)}
         embedded={embedded}
         toolbar={Toolbar}
         toolbarOpen={toolbarOpen}
@@ -1193,8 +1285,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         onPreviewNavigate={onPreviewNavigate}
         documentId={documentId}
         onToggleTask={handleTaskToggle}
-        previewContentOverride={previewOverride}
-        content={boundText}
+        previewContentOverride={
+          previewOverride === undefined ? undefined : renderedPreviewContent
+        }
+        content={renderedPreviewContent}
         vimStatusBarRef={vimStatusBarRef}
         showVimStatusBar={isVimMode}
         uploadStatus={uploadStatus}

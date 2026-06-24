@@ -14,12 +14,14 @@ use crate::documents::ports::comment_repository::{
 use super::DocumentService;
 
 fn validate_marker(marker: &str) -> Result<(), ServiceError> {
-    let marker_id = marker
-        .trim_start_matches("<!--comment:")
-        .trim_end_matches("-->");
-    if marker.starts_with("<!--comment:")
-        && marker.ends_with("-->")
-        && !marker_id.is_empty()
+    let Some(marker_id) = marker
+        .strip_prefix("<!--comment:")
+        .and_then(|rest| rest.strip_suffix("-->"))
+    else {
+        return Err(ServiceError::BadRequest("invalid_comment_marker"));
+    };
+
+    if !marker_id.is_empty()
         && marker_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
@@ -60,6 +62,21 @@ fn actor_user_id(actor: &Actor) -> Option<Uuid> {
     }
 }
 
+fn should_trust_requested_author_name(actor: &Actor) -> bool {
+    !matches!(actor, Actor::User(_))
+}
+
+fn normalize_comment_author_name(author_name: Option<String>) -> Option<String> {
+    author_name.and_then(|name| {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
 fn to_domain_reply(reply: CommentReplyRecord) -> DomainCommentReply {
     DomainCommentReply {
         id: reply.id,
@@ -97,6 +114,26 @@ fn to_domain_thread(record: CommentThreadWithReplies) -> DomainCommentThread {
 }
 
 impl DocumentService {
+    async fn resolve_comment_author_name(
+        &self,
+        actor: &Actor,
+        requested_author_name: Option<String>,
+    ) -> Result<Option<String>, ServiceError> {
+        if should_trust_requested_author_name(actor) {
+            return Ok(normalize_comment_author_name(requested_author_name));
+        }
+
+        let Actor::User(user_id) = actor else {
+            return Ok(None);
+        };
+        let user = self
+            .user_repo
+            .find_by_id(*user_id)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(normalize_comment_author_name(user.map(|row| row.name)))
+    }
+
     pub async fn list_comments(
         &self,
         actor: &Actor,
@@ -166,6 +203,7 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
         let created_by = actor_user_id(actor);
+        let created_by_name = self.resolve_comment_author_name(actor, author_name).await?;
         let record = self
             .comment_repo
             .create_thread(NewCommentThread {
@@ -183,7 +221,7 @@ impl DocumentService {
                 anchored: true,
                 tags,
                 created_by,
-                created_by_name: author_name,
+                created_by_name,
                 reply_id: Uuid::new_v4(),
                 body,
             })
@@ -212,6 +250,7 @@ impl DocumentService {
             ServiceError::Forbidden => ServiceError::Unauthorized,
             other => other,
         })?;
+        let created_by_name = self.resolve_comment_author_name(actor, author_name).await?;
         let record = self
             .comment_repo
             .add_reply(NewCommentReply {
@@ -220,7 +259,7 @@ impl DocumentService {
                 document_id: doc_id,
                 body,
                 created_by: actor_user_id(actor),
-                created_by_name: author_name,
+                created_by_name,
             })
             .await
             .map_err(ServiceError::from)?
@@ -304,6 +343,7 @@ mod tests {
             "<!-- comment:abc -->",
             "<!--comment:abc def-->",
             "<!--comment:abc/def-->",
+            "<!--comment:abc-->-->",
             "comment:abc",
         ] {
             assert_bad_request(validate_marker(marker), "invalid_comment_marker");
@@ -314,6 +354,30 @@ mod tests {
     fn validate_body_requires_visible_content() {
         assert!(validate_body("suggest changing this sentence").is_ok());
         assert_bad_request(validate_body("   \n\t  "), "comment_body_required");
+    }
+
+    #[test]
+    fn authenticated_actors_do_not_trust_requested_author_names() {
+        let actor = Actor::User(Uuid::new_v4());
+
+        assert!(!should_trust_requested_author_name(&actor));
+        assert!(should_trust_requested_author_name(&Actor::ShareToken(
+            "share".to_string(),
+        )));
+        assert!(should_trust_requested_author_name(&Actor::Public));
+    }
+
+    #[test]
+    fn normalize_comment_author_name_trims_and_drops_empty_values() {
+        assert_eq!(
+            normalize_comment_author_name(Some("  Alice  ".to_string())),
+            Some("Alice".to_string()),
+        );
+        assert_eq!(
+            normalize_comment_author_name(Some(" \n ".to_string())),
+            None
+        );
+        assert_eq!(normalize_comment_author_name(None), None);
     }
 
     #[test]
