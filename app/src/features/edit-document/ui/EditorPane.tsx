@@ -63,6 +63,7 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
           bracketPairColorization: { enabled: false },
           automaticLayout: true,
           minimap: { enabled: false },
+          glyphMargin: true,
           wordWrap: 'on',
           scrollBeyondLastLine: true,
           readOnly,

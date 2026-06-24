@@ -409,6 +409,15 @@
   border-bottom-style: dashed;
 }
 
+.monaco-editor .refmd-comment-highlight-active {
+  background-color: color-mix(in oklab, var(--primary) 28%, transparent);
+  border-bottom-width: 2px;
+}
+
+.monaco-editor .refmd-comment-anchor-hidden {
+  display: none !important;
+}
+
 .monaco-editor .refmd-comment-glyph {
   position: relative;
 }
@@ -423,4 +432,14 @@
   border-radius: 999px;
   background: var(--primary);
   transform: translate(-50%, -50%);
+}
+
+.monaco-editor .refmd-comment-glyph-resolved::after {
+  background: var(--muted-foreground);
+}
+
+.monaco-editor .refmd-comment-glyph-active::after {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 24%, transparent);
 }

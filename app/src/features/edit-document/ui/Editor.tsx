@@ -1,4 +1,5 @@
 import type { OnMount } from '@monaco-editor/react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type * as monacoNs from 'monaco-editor'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -12,9 +13,17 @@ import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import type { ViewMode } from '@/shared/types/view-mode'
 
-import { listDocuments } from '@/entities/document'
+import {
+  documentCommentsQuery,
+  listDocuments,
+} from '@/entities/document'
 
 import { CommentsPanel } from '@/features/document-comments'
+import {
+  findCommentMarkerRange,
+  findCommentThreadRange,
+  getCommentThreadLine,
+} from '@/features/document-comments/lib/thread-range'
 import { useAwarenessStyles } from '@/features/edit-document/hooks/useAwarenessStyles'
 import { markDocumentContentDirty } from '@/features/edit-document/hooks/useCollaborativeDocument'
 import { useEditorUploads } from '@/features/edit-document/hooks/useEditorUploads'
@@ -25,7 +34,7 @@ import { ensureRefmdThemes, REFMD_DARK_THEME, REFMD_LIGHT_THEME } from '@/featur
 import { registerWikiLinkCompletion } from '@/features/edit-document/lib/monaco/wiki-link-provider'
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { useViewContext } from '@/features/edit-document/model/view-context'
-import { useDocumentEditorPlugins, type DocumentEditorApi, type DocumentEditorDocumentApi, type DocumentEditorRange, type DocumentEditorSelection } from '@/features/plugins'
+import { useDocumentEditorPlugins, type DocumentEditorApi, type DocumentEditorDecorationInput, type DocumentEditorDocumentApi, type DocumentEditorRange, type DocumentEditorSelection } from '@/features/plugins'
 import type { DocumentEditorPaneHostState } from '@/features/plugins/model/useDocumentEditorPlugins'
 
 import { loadMonacoVim } from '../lib/monaco/vim-loader'
@@ -157,6 +166,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const [syncScroll, setSyncScroll] = useState<boolean>(true)
   const [toolbarOpen, setToolbarOpen] = useState(false)
   const [editorMountNonce, setEditorMountNonce] = useState(0)
+  const [activeCommentThreadId, setActiveCommentThreadId] = useState<
+    string | null
+  >(null)
   const readOnlyWarningRef = useRef(0)
   const emitReadOnlyWarning = useCallback(() => {
     if (!readOnly) return
@@ -180,6 +192,39 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     language: 'markdown',
     onTextChange: () => {},
   })
+  const commentsQuery = useQuery(documentCommentsQuery(documentId, { token: shareToken }))
+  const commentThreads = useMemo(
+    () => commentsQuery.data?.threads ?? [],
+    [commentsQuery.data?.threads],
+  )
+  const previewCommentContent = previewOverride ?? boundText
+  const previewCommentMarkers = useMemo<
+    NonNullable<PreviewPaneProps['commentMarkers']>
+  >(
+    () =>
+      commentThreads
+        .map((thread) => {
+          const lineNumber = getCommentThreadLine(thread, previewCommentContent)
+          if (!lineNumber) return null
+          return {
+            threadId: thread.id,
+            lineNumber,
+            resolved: Boolean(thread.resolvedAt),
+            active: activeCommentThreadId === thread.id,
+          }
+        })
+        .filter((marker): marker is NonNullable<typeof marker> =>
+          Boolean(marker),
+        ),
+    [activeCommentThreadId, commentThreads, previewCommentContent],
+  )
+  const handleSelectCommentThread = useCallback(
+    (threadId: string | null) => {
+      setActiveCommentThreadId(threadId)
+      if (threadId) onCommentsOpenChange?.(true)
+    },
+    [onCommentsOpenChange],
+  )
   const unregisterEditorRef = useRef<null | (() => void)>(null)
   const focusDisposableRef = useRef<null | { dispose: () => void }>(null)
   const blurDisposableRef = useRef<null | { dispose: () => void }>(null)
@@ -837,6 +882,30 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
           }
         }
       },
+      onGlyphMarginClick: (callback) => {
+        const disposable = editorInstance.onMouseDown((event) => {
+          if (
+            event.target.type !==
+            monacoInstance.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
+          ) {
+            return
+          }
+          const lineNumber =
+            event.target.position?.lineNumber ??
+            event.target.range?.startLineNumber
+          if (typeof lineNumber !== 'number' || !Number.isFinite(lineNumber)) {
+            return
+          }
+          callback(Math.max(1, Math.floor(lineNumber)))
+        })
+        return () => {
+          try {
+            disposable.dispose()
+          } catch {
+            /* noop */
+          }
+        }
+      },
       setDecorations: (ownerId, decorations) => {
         const owner = String(ownerId || 'default')
         const previous = pluginDecorationIdsRef.current.get(owner) ?? []
@@ -921,6 +990,94 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     }
   }, [editorMountNonce, editorRef, emitReadOnlyWarning, readOnly])
 
+  useEffect(() => {
+    if (!documentEditorApi) return
+    const decorations = commentThreads
+      .flatMap((thread) => {
+        const range = findCommentThreadRange(thread, boundText, documentEditorApi)
+        if (!range) return []
+        const markerPresent = boundText.includes(thread.marker)
+        const classNames = ['refmd-comment-highlight']
+        const glyphClassNames = ['refmd-comment-glyph']
+        if (thread.resolvedAt) {
+          classNames.push('refmd-comment-highlight-resolved')
+          glyphClassNames.push('refmd-comment-glyph-resolved')
+        }
+        if (!thread.anchored || !markerPresent) {
+          classNames.push('refmd-comment-highlight-unlinked')
+        }
+        if (activeCommentThreadId === thread.id) {
+          classNames.push('refmd-comment-highlight-active')
+          glyphClassNames.push('refmd-comment-glyph-active')
+        }
+        const glyphLineNumber = Math.max(1, Math.floor(range.startLineNumber))
+        const markerRange = findCommentMarkerRange(thread, boundText, documentEditorApi)
+        const threadDecorations: DocumentEditorDecorationInput[] = [
+          {
+            range,
+            inlineClassName: classNames.join(' '),
+            overviewRulerColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+            minimapColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+          },
+          {
+            range: {
+              startLineNumber: glyphLineNumber,
+              startColumn: 1,
+              endLineNumber: glyphLineNumber,
+              endColumn: 1,
+            },
+            glyphMarginClassName: glyphClassNames.join(' '),
+            hoverMessage: thread.resolvedAt ? 'Resolved comment' : 'Comment',
+          },
+        ]
+        if (markerRange) {
+          threadDecorations.push({
+            range: markerRange,
+            inlineClassName: 'refmd-comment-anchor-hidden',
+          })
+        }
+        return threadDecorations
+      })
+
+    return documentEditorApi.setDecorations('core-comments', decorations)
+  }, [activeCommentThreadId, boundText, commentThreads, documentEditorApi])
+
+  useEffect(() => {
+    if (!documentEditorApi) return
+    return documentEditorApi.onGlyphMarginClick((lineNumber) => {
+      const candidates = commentThreads
+        .map((thread) => {
+          const range = findCommentThreadRange(thread, boundText, documentEditorApi)
+          if (!range) return null
+          const glyphLineNumber = Math.max(1, Math.floor(range.startLineNumber))
+          if (lineNumber !== glyphLineNumber) {
+            return null
+          }
+          return { thread, range }
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+        .sort((a, b) => {
+          if (a.range.startColumn !== b.range.startColumn) {
+            return a.range.startColumn - b.range.startColumn
+          }
+          return a.thread.createdAt.localeCompare(b.thread.createdAt)
+        })
+      if (!candidates.length) return
+      const activeIndex = candidates.findIndex(
+        ({ thread }) => thread.id === activeCommentThreadId,
+      )
+      const nextIndex =
+        activeIndex >= 0 ? (activeIndex + 1) % candidates.length : 0
+      handleSelectCommentThread(candidates[nextIndex].thread.id)
+    })
+  }, [
+    activeCommentThreadId,
+    boundText,
+    commentThreads,
+    documentEditorApi,
+    handleSelectCommentThread,
+  ])
+
   const documentEditorDocument = useMemo<DocumentEditorDocumentApi>(() => {
     const ytext = doc.getText('content')
     return {
@@ -981,8 +1138,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       editor={documentEditorApi}
       readOnly={readOnly}
       userName={userName ?? null}
+      activeThreadId={activeCommentThreadId}
       onClose={() => onCommentsOpenChange?.(false)}
       onRequestEditor={handleCommentsRequestEditor}
+      onActiveThreadChange={handleSelectCommentThread}
     />
   ) : undefined
 
@@ -1040,6 +1199,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         showVimStatusBar={isVimMode}
         uploadStatus={uploadStatus}
         renderPreview={renderPreview}
+        commentMarkers={previewCommentMarkers}
+        activeCommentThreadId={activeCommentThreadId}
+        onCommentMarkerSelect={handleSelectCommentThread}
         conflictControls={conflictControls}
         conflictBadgeText={conflictBadgeText}
         conflictHunkWidgets={conflictHunkWidgets}

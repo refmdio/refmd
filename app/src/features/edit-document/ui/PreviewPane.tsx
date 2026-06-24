@@ -14,6 +14,59 @@ import Markdown from '@/features/edit-document/ui/Markdown'
 
 import { useViewController } from '../public/useViewController'
 
+export type PreviewCommentMarker = {
+  threadId: string
+  lineNumber: number
+  resolved?: boolean
+  active?: boolean
+}
+
+type PreviewCommentMarkerPosition = {
+  lineNumber: number
+  left: number
+  top: number
+  threads: PreviewCommentMarker[]
+}
+
+const EMPTY_COMMENT_MARKERS: PreviewCommentMarker[] = []
+const COMMENT_MARKER_HIT_SIZE = 20
+const COMMENT_MARKER_GAP = 8
+
+type PreviewSourceAnchor = {
+  line: number
+  left: number
+  top: number
+  lineHeight: number
+}
+
+function sameCommentMarkerPositions(
+  current: PreviewCommentMarkerPosition[],
+  next: PreviewCommentMarkerPosition[],
+) {
+  if (current.length !== next.length) return false
+  return current.every((item, index) => {
+    const other = next[index]
+    if (!other) return false
+    if (
+      item.lineNumber !== other.lineNumber ||
+      item.left !== other.left ||
+      item.top !== other.top
+    ) {
+      return false
+    }
+    if (item.threads.length !== other.threads.length) return false
+    return item.threads.every((thread, threadIndex) => {
+      const otherThread = other.threads[threadIndex]
+      return (
+        otherThread &&
+        thread.threadId === otherThread.threadId &&
+        Boolean(thread.resolved) === Boolean(otherThread.resolved) &&
+        Boolean(thread.active) === Boolean(otherThread.active)
+      )
+    })
+  })
+}
+
 export type PreviewPaneProps = {
   content: string
   viewMode?: ViewMode
@@ -29,9 +82,29 @@ export type PreviewPaneProps = {
   scrollToLine?: number
   onToggleTask?: (lineNumber: number, checked: boolean) => void
   taskToggleDisabled?: boolean
+  commentMarkers?: PreviewCommentMarker[]
+  activeCommentThreadId?: string | null
+  onCommentMarkerSelect?: (threadId: string) => void
 }
 
-function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer = false, onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: PreviewPaneProps) {
+function PreviewPaneComponent({
+  content,
+  viewMode = 'preview',
+  isSecondaryViewer = false,
+  onScroll,
+  onScrollAnchorLine,
+  scrollPercentage,
+  documentIdOverride,
+  onNavigate,
+  forceFloatingToc = false,
+  stickToBottom = false,
+  scrollToLine,
+  onToggleTask,
+  taskToggleDisabled,
+  commentMarkers = EMPTY_COMMENT_MARKERS,
+  activeCommentThreadId = null,
+  onCommentMarkerSelect,
+}: PreviewPaneProps) {
   const vc = useViewController()
   const onTagClickStable = React.useCallback((tag: string) => {
     vc.openSearch(tag)
@@ -66,7 +139,10 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   const floatingTocRef = useRef<HTMLDivElement | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
   const scrollRafId = useRef<number | null>(null)
-  const anchorsRef = useRef<Array<{ line: number; top: number }>>([])
+  const anchorsRef = useRef<PreviewSourceAnchor[]>([])
+  const [commentMarkerPositions, setCommentMarkerPositions] = useState<
+    PreviewCommentMarkerPosition[]
+  >([])
   const suppressSyncEmitRef = useRef(false)
   const suppressSyncEmitTimerRef = useRef<number | null>(null)
   const latestScrollStateRef = useRef({ scrollToLine, scrollPercentage, stickToBottom })
@@ -93,7 +169,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     if (!container) { anchorsRef.current = []; return }
     const rootRect = container.getBoundingClientRect()
     const nodes = Array.from(container.querySelectorAll('[data-sourcepos]')) as HTMLElement[]
-    const blocks: Array<{ line: number; top: number }> = []
+    const blocks: PreviewSourceAnchor[] = []
     for (const el of nodes) {
       const sp = el.getAttribute('data-sourcepos') || ''
       const m = /^(\d+):\d+/.exec(sp)
@@ -102,17 +178,91 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
       if (!Number.isFinite(line)) continue
       if (el.offsetParent === null || el.offsetHeight <= 0) continue
       const r = el.getBoundingClientRect()
+      const style = window.getComputedStyle(el)
+      const parsedLineHeight = parseFloat(style.lineHeight)
+      const lineHeight = Number.isFinite(parsedLineHeight)
+        ? parsedLineHeight
+        : Math.min(Math.max(r.height, 18), 32)
+      const left = (r.left - rootRect.left) + container.scrollLeft
       const top = (r.top - rootRect.top) + container.scrollTop
-      blocks.push({ line, top })
+      blocks.push({ line, left, top, lineHeight })
     }
-    blocks.sort((a, b) => a.line - b.line || a.top - b.top)
-    const dedup: Array<{ line: number; top: number }> = []
+    blocks.sort((a, b) => a.line - b.line || a.top - b.top || a.left - b.left)
+    const dedup: PreviewSourceAnchor[] = []
     let lastLine = -1
     for (const b of blocks) {
       if (b.line !== lastLine) { dedup.push(b); lastLine = b.line }
     }
     anchorsRef.current = dedup
   }, [])
+
+  const rebuildCommentMarkerPositions = React.useCallback(() => {
+    const container = previewRef.current
+    const markers = commentMarkers
+      .filter((marker) => Number.isFinite(marker.lineNumber))
+      .map((marker) => ({
+        ...marker,
+        lineNumber: Math.max(1, Math.floor(marker.lineNumber)),
+      }))
+      .sort((a, b) => a.lineNumber - b.lineNumber)
+
+    if (!container || markers.length === 0) {
+      setCommentMarkerPositions((current) =>
+        current.length ? [] : current,
+      )
+      return
+    }
+
+    if (!anchorsRef.current.length) {
+      rebuildAnchors()
+    }
+
+    const anchors = anchorsRef.current
+    if (!anchors.length) {
+      setCommentMarkerPositions((current) =>
+        current.length ? [] : current,
+      )
+      return
+    }
+
+    const grouped = new Map<number, PreviewCommentMarker[]>()
+    for (const marker of markers) {
+      const current = grouped.get(marker.lineNumber) ?? []
+      current.push(marker)
+      grouped.set(marker.lineNumber, current)
+    }
+
+    const next = Array.from(grouped.entries())
+      .map(([lineNumber, threads]) => {
+        let lo = 0
+        let hi = anchors.length - 1
+        let best = 0
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1
+          if (anchors[mid].line <= lineNumber) {
+            best = mid
+            lo = mid + 1
+          } else {
+            hi = mid - 1
+          }
+        }
+        const markerTop =
+          anchors[best].top + (anchors[best].lineHeight / 2) - (COMMENT_MARKER_HIT_SIZE / 2)
+        const markerLeft =
+          anchors[best].left - COMMENT_MARKER_HIT_SIZE - COMMENT_MARKER_GAP
+        return {
+          lineNumber,
+          left: Math.max(4, Math.round(markerLeft)),
+          top: Math.max(4, Math.round(markerTop)),
+          threads,
+        }
+      })
+      .sort((a, b) => a.top - b.top || a.lineNumber - b.lineNumber)
+
+    setCommentMarkerPositions((current) =>
+      sameCommentMarkerPositions(current, next) ? current : next,
+    )
+  }, [commentMarkers, rebuildAnchors])
 
   const scrollToPercentage = React.useCallback((percentage?: number) => {
     const container = previewRef.current
@@ -195,7 +345,10 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   useEffect(() => {
     const el = previewRef.current
     if (!el) return
-    const build = () => { rebuildAnchors() }
+    const build = () => {
+      rebuildAnchors()
+      rebuildCommentMarkerPositions()
+    }
     // build after layout settles
     requestAnimationFrame(() => { requestAnimationFrame(build) })
     let ro: ResizeObserver | null = null
@@ -204,7 +357,13 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
       ro.observe(el)
     }
     return () => { try { ro?.disconnect() } catch {} }
-  }, [content, rebuildAnchors])
+  }, [content, rebuildAnchors, rebuildCommentMarkerPositions])
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(rebuildCommentMarkerPositions)
+    })
+  }, [rebuildCommentMarkerPositions])
 
   // Markdown HTML is rendered asynchronously, so source anchors can appear after
   // the raw content prop has already changed.
@@ -218,6 +377,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
       frame = requestAnimationFrame(() => {
         frame = null
         rebuildAnchors()
+        rebuildCommentMarkerPositions()
         const latest = latestScrollStateRef.current
         if (latest.scrollToLine != null) {
           scrollToNearestAnchor(latest.scrollToLine, latest.scrollPercentage)
@@ -245,7 +405,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
       observer.disconnect()
       if (frame != null) cancelAnimationFrame(frame)
     }
-  }, [rebuildAnchors, scrollToNearestAnchor, suppressSyncEmit])
+  }, [rebuildAnchors, rebuildCommentMarkerPositions, scrollToNearestAnchor, suppressSyncEmit])
 
   // Scroll to nearest anchor for requested source line
   useEffect(() => {
@@ -263,11 +423,23 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   }, [])
 
   const handleFloatingItemClick = React.useCallback(() => setShowFloatingToc(false), [])
+  const handleCommentMarkerClick = React.useCallback(
+    (position: PreviewCommentMarkerPosition) => {
+      if (!onCommentMarkerSelect || position.threads.length === 0) return
+      const activeIndex = position.threads.findIndex(
+        (thread) => thread.threadId === activeCommentThreadId,
+      )
+      const nextIndex =
+        activeIndex >= 0 ? (activeIndex + 1) % position.threads.length : 0
+      onCommentMarkerSelect(position.threads[nextIndex].threadId)
+    },
+    [activeCommentThreadId, onCommentMarkerSelect],
+  )
 
   return (
     <div className="relative flex h-full w-full flex-1 min-h-0 flex-col bg-background overflow-hidden">
       <div
-        className="refmd-preview-scroll-root flex-1 overflow-auto"
+        className="refmd-preview-scroll-root relative flex-1 overflow-auto"
         ref={previewRef}
         onScroll={(e) => {
           // Throttle with rAF to reduce callbacks
@@ -304,6 +476,66 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           })
         }}
       >
+        {commentMarkerPositions.length ? (
+          <div className="pointer-events-none absolute inset-0 z-30">
+            {commentMarkerPositions.map((position) => {
+              const active = position.threads.some(
+                (thread) =>
+                  thread.active || thread.threadId === activeCommentThreadId,
+              )
+              const unresolved = position.threads.some(
+                (thread) => !thread.resolved,
+              )
+              return (
+                <button
+                  key={`${position.lineNumber}:${position.threads.map((thread) => thread.threadId).join(',')}`}
+                  type="button"
+                  aria-label={
+                    position.threads.length > 1
+                      ? `${position.threads.length} comments`
+                      : 'Comment'
+                  }
+                  title={
+                    position.threads.length > 1
+                      ? `${position.threads.length} comments`
+                      : 'Comment'
+                  }
+                  className={cn(
+                    'pointer-events-auto absolute flex h-5 min-w-5 items-center justify-center rounded-full transition-colors',
+                    active && 'bg-primary/10',
+                    !active && unresolved && 'hover:bg-primary/10',
+                    !active && !unresolved && 'hover:bg-muted/60',
+                  )}
+                  style={{ left: position.left, top: position.top }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleCommentMarkerClick(position)
+                  }}
+                >
+                  <span
+                    className={cn(
+                      'flex items-center justify-center rounded-full border shadow-sm',
+                      position.threads.length > 1
+                        ? 'h-4 min-w-4 px-1 text-[9px] font-medium leading-none'
+                        : 'h-2.5 w-2.5',
+                      active &&
+                        'border-primary bg-primary text-primary-foreground',
+                      !active &&
+                        unresolved &&
+                        'border-primary/60 bg-background/95 text-primary',
+                      !active &&
+                        !unresolved &&
+                        'border-border/70 bg-background/80 text-muted-foreground',
+                    )}
+                  >
+                    {position.threads.length > 1 ? position.threads.length : null}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
         <div
           className={cn(
             'w-full mx-auto flex gap-8 px-4 pb-4 pt-0 sm:px-6 sm:pb-6 sm:pt-0 md:px-8 md:pb-8',

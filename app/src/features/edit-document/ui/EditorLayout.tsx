@@ -43,6 +43,9 @@ export type EditorLayoutProps = {
   showVimStatusBar: boolean
   uploadStatus: UploadStatus
   renderPreview?: (props: PreviewPaneProps) => ReactNode
+  commentMarkers?: PreviewPaneProps['commentMarkers']
+  activeCommentThreadId?: string | null
+  onCommentMarkerSelect?: (threadId: string) => void
   editorOverlay?: ReactNode
   editorBanner?: ReactNode
   conflictControls?: ReactNode
@@ -97,6 +100,9 @@ export function EditorLayout({
   showVimStatusBar,
   uploadStatus,
   renderPreview,
+  commentMarkers,
+  activeCommentThreadId,
+  onCommentMarkerSelect,
   editorOverlay,
   editorBanner,
   conflictControls,
@@ -561,6 +567,9 @@ export function EditorLayout({
                 documentIdOverride: documentId,
                 onToggleTask: readOnly ? undefined : onToggleTask,
                 taskToggleDisabled: readOnly,
+                commentMarkers,
+                activeCommentThreadId,
+                onCommentMarkerSelect,
               }
 
               return renderPreview ? renderPreview(previewProps) : <PreviewPane {...previewProps} />

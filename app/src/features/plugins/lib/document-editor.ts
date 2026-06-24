@@ -47,6 +47,7 @@ export type DocumentEditorApi = {
   getRangeFromOffset(offset: number, length?: number): DocumentEditorRange | null
   getOffsetFromPosition(position: { lineNumber: number; column: number }): number | null
   onSelectionChange(callback: (selection: DocumentEditorSelection | null) => void): () => void
+  onGlyphMarginClick(callback: (lineNumber: number) => void): () => void
   setDecorations(ownerId: string, decorations: DocumentEditorDecorationInput[]): () => void
   setHiddenRanges(ownerId: string, ranges: DocumentEditorHiddenRangeInput[]): () => void
 }

@@ -23,6 +23,7 @@ import type {
   DocumentEditorSelection,
 } from '@/features/plugins'
 
+import { findCommentThreadRange } from '../lib/thread-range'
 import {
   buildCommentMarker,
   createCommentId,
@@ -40,8 +41,10 @@ type CommentsPanelProps = {
   readOnly?: boolean
   userName?: string | null
   className?: string
+  activeThreadId?: string | null
   onClose?: () => void
   onRequestEditor?: () => void
+  onActiveThreadChange?: (threadId: string | null) => void
 }
 
 function formatTimestamp(value: string) {
@@ -97,44 +100,6 @@ function validateTags(tags: string[]) {
   return tags.every((tag) => tag.length <= 64)
 }
 
-function findThreadRange(
-  thread: DocumentCommentThread,
-  content: string,
-  editor: DocumentEditorApi,
-): DocumentEditorRange | null {
-  const markerIndex = content.indexOf(thread.marker)
-  if (markerIndex >= 0 && thread.quote) {
-    const quoteStart = Math.max(0, markerIndex - thread.quote.length)
-    if (content.slice(quoteStart, markerIndex) === thread.quote) {
-      return editor.getRangeFromOffset(quoteStart, thread.quote.length)
-    }
-  }
-
-  if (
-    typeof thread.startOffset === 'number' &&
-    typeof thread.endOffset === 'number' &&
-    thread.endOffset > thread.startOffset
-  ) {
-    const length = thread.endOffset - thread.startOffset
-    return editor.getRangeFromOffset(thread.startOffset, length)
-  }
-
-  if (markerIndex >= 0) {
-    return editor.getRangeFromOffset(markerIndex, thread.marker.length)
-  }
-
-  if (thread.startLineNumber && thread.startColumn) {
-    return {
-      startLineNumber: thread.startLineNumber,
-      startColumn: thread.startColumn,
-      endLineNumber: thread.endLineNumber ?? thread.startLineNumber,
-      endColumn: thread.endColumn ?? thread.startColumn,
-    }
-  }
-
-  return null
-}
-
 function buildMarkerInsertionRange(
   selection: DocumentEditorSelection,
 ): DocumentEditorRange {
@@ -154,8 +119,10 @@ export function CommentsPanel({
   readOnly = false,
   userName,
   className,
+  activeThreadId,
   onClose,
   onRequestEditor,
+  onActiveThreadChange,
 }: CommentsPanelProps) {
   const {
     threads,
@@ -188,6 +155,9 @@ export function CommentsPanel({
   const [activeReplyThreadId, setActiveReplyThreadId] = useState<string | null>(
     null,
   )
+  const [localActiveThreadId, setLocalActiveThreadId] = useState<string | null>(
+    null,
+  )
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null)
   const [editingTagsThreadId, setEditingTagsThreadId] = useState<string | null>(
     null,
@@ -197,6 +167,18 @@ export function CommentsPanel({
   )
   const [taggingThreadId, setTaggingThreadId] = useState<string | null>(null)
   const pendingRevealRef = useRef<string | null>(null)
+  const threadItemRefs = useRef<Record<string, HTMLElement | null>>({})
+  const effectiveActiveThreadId =
+    activeThreadId === undefined ? localActiveThreadId : activeThreadId
+  const setActiveThread = useCallback(
+    (threadId: string | null) => {
+      if (activeThreadId === undefined) {
+        setLocalActiveThreadId(threadId)
+      }
+      onActiveThreadChange?.(threadId)
+    },
+    [activeThreadId, onActiveThreadChange],
+  )
 
   const openThreads = useMemo(
     () => threads.filter((thread) => !thread.resolvedAt),
@@ -241,46 +223,48 @@ export function CommentsPanel({
   }, [editor])
 
   useEffect(() => {
-    if (!editor) return
-    const decorations = visibleThreads
-      .map((thread) => {
-        const range = findThreadRange(thread, content, editor)
-        if (!range) return null
-        const markerPresent = content.includes(thread.marker)
-        const classNames = ['refmd-comment-highlight']
-        if (thread.resolvedAt) classNames.push('refmd-comment-highlight-resolved')
-        if (!thread.anchored || !markerPresent) {
-          classNames.push('refmd-comment-highlight-unlinked')
-        }
-        return {
-          range,
-          inlineClassName: classNames.join(' '),
-          glyphMarginClassName: 'refmd-comment-glyph',
-          overviewRulerColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
-          minimapColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
-          hoverMessage: thread.resolvedAt ? 'Resolved comment' : 'Comment',
-        }
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    if (!effectiveActiveThreadId) return
+    const activeThread = threads.find(
+      (thread) => thread.id === effectiveActiveThreadId,
+    )
+    if (!activeThread) return
+    if (activeThread.resolvedAt) setShowResolved(true)
+    if (normalizedSearch && !threadMatchesSearch(activeThread, normalizedSearch)) {
+      setSearchQuery('')
+      setSearchOpen(false)
+    }
+    if (
+      normalizedTagFilter &&
+      !activeThread.tags.some((tag) => tag === normalizedTagFilter)
+    ) {
+      setTagFilter('')
+      setTagFilterOpen(false)
+    }
+  }, [effectiveActiveThreadId, normalizedSearch, normalizedTagFilter, threads])
 
-    return editor.setDecorations('core-comments', decorations)
-  }, [content, editor, visibleThreads])
+  useEffect(() => {
+    if (!effectiveActiveThreadId) return
+    const node = threadItemRefs.current[effectiveActiveThreadId]
+    if (!node) return
+    node.scrollIntoView({ block: 'nearest' })
+  }, [effectiveActiveThreadId, visibleThreads])
 
   const revealThread = useCallback(
     (thread: DocumentCommentThread) => {
+      setActiveThread(thread.id)
       if (!editor) {
         pendingRevealRef.current = thread.id
         onRequestEditor?.()
         return
       }
-      const range = findThreadRange(thread, content, editor)
+      const range = findCommentThreadRange(thread, content, editor)
       if (!range) return
       editor.revealRange(range)
       editor.setSelection(range)
       editor.focus()
       pendingRevealRef.current = null
     },
-    [content, editor, onRequestEditor],
+    [content, editor, onRequestEditor, setActiveThread],
   )
 
   useEffect(() => {
@@ -343,6 +327,7 @@ export function CommentsPanel({
       setNewTags('')
       setNewTagsOpen(false)
       setComposerOpen(false)
+      setActiveThread(thread.id)
       revealThread(thread)
     } catch (error) {
       editor.applyEdits([
@@ -365,6 +350,7 @@ export function CommentsPanel({
     onRequestEditor,
     revealThread,
     selection,
+    setActiveThread,
   ])
 
   const handleReply = useCallback(
@@ -426,6 +412,7 @@ export function CommentsPanel({
 
   const renderThread = (thread: DocumentCommentThread) => {
     const resolved = Boolean(thread.resolvedAt)
+    const active = effectiveActiveThreadId === thread.id
     const draft = replyDrafts[thread.id] ?? ''
     const tagDraft = tagDrafts[thread.id] ?? thread.tags.join(', ')
     const markerPresent = content.includes(thread.marker)
@@ -437,8 +424,12 @@ export function CommentsPanel({
     return (
       <article
         key={thread.id}
+        ref={(node) => {
+          threadItemRefs.current[thread.id] = node
+        }}
         className={cn(
           'group relative border-b border-border/50 py-4 pl-5 pr-1 transition-colors last:border-b-0 hover:bg-muted/20',
+          active && 'bg-primary/10',
           resolved && 'opacity-70',
         )}
       >
@@ -506,11 +497,12 @@ export function CommentsPanel({
                 className="h-7 w-7"
                 title="Reply"
                 disabled={readOnly}
-                onClick={() =>
+                onClick={() => {
+                  setActiveThread(thread.id)
                   setActiveReplyThreadId((current) =>
                     current === thread.id ? null : thread.id,
                   )
-                }
+                }}
               >
                 <MessageSquareReply className="h-3.5 w-3.5" />
               </Button>
