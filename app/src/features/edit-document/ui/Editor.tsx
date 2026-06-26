@@ -1493,7 +1493,15 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         }
       />
 
-      <CursorDisplay awareness={awareness} className={embedded ? 'top-12' : undefined} />
+      <CursorDisplay
+        awareness={awareness}
+        className={[
+          embedded ? 'top-12' : '',
+          commentsOpen ? '!right-auto left-2' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      />
     </div>
   )
 }
