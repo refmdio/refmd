@@ -415,31 +415,59 @@
 }
 
 .monaco-editor .refmd-comment-anchor-hidden {
-  display: none !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
+  line-height: 0 !important;
+  pointer-events: none !important;
 }
 
-.monaco-editor .refmd-comment-glyph {
-  position: relative;
-}
-
-.monaco-editor .refmd-comment-glyph::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 7px;
-  height: 7px;
+.monaco-editor .refmd-comment-widget {
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border: 2px solid color-mix(in oklab, var(--primary) 38%, transparent);
   border-radius: 999px;
   background: var(--primary);
-  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 18%, transparent);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: auto;
+  transform: translate(-42px, 4px);
 }
 
-.monaco-editor .refmd-comment-glyph-resolved::after {
+.monaco-editor .refmd-comment-widget-grouped {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  transform: translate(-44px, 2px);
+}
+
+.monaco-editor .refmd-comment-widget-resolved {
+  border-color: color-mix(in oklab, var(--muted-foreground) 34%, transparent);
   background: var(--muted-foreground);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--muted-foreground) 14%, transparent);
 }
 
-.monaco-editor .refmd-comment-glyph-active::after {
-  width: 10px;
-  height: 10px;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 24%, transparent);
+.monaco-editor .refmd-comment-widget-unlinked {
+  border-color: color-mix(in oklab, var(--destructive) 42%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 16%, transparent);
+}
+
+.monaco-editor .refmd-comment-widget-active {
+  width: 13px;
+  height: 13px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 28%, transparent);
+  transform: translate(-43px, 3px);
+}
+
+.monaco-editor .refmd-comment-widget-grouped.refmd-comment-widget-active {
+  width: 17px;
+  height: 17px;
+  transform: translate(-45px, 1px);
 }

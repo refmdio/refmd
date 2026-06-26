@@ -1087,19 +1087,15 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         if (!range) return []
         const markerPresent = boundText.includes(thread.marker)
         const classNames = ['refmd-comment-highlight']
-        const glyphClassNames = ['refmd-comment-glyph']
         if (thread.resolvedAt) {
           classNames.push('refmd-comment-highlight-resolved')
-          glyphClassNames.push('refmd-comment-glyph-resolved')
         }
         if (!thread.anchored || !markerPresent) {
           classNames.push('refmd-comment-highlight-unlinked')
         }
         if (activeCommentThreadId === thread.id) {
           classNames.push('refmd-comment-highlight-active')
-          glyphClassNames.push('refmd-comment-glyph-active')
         }
-        const glyphLineNumber = Math.max(1, Math.floor(range.startLineNumber))
         const markerRange = findCommentMarkerRange(thread, boundText, documentEditorApi)
         const threadDecorations: DocumentEditorDecorationInput[] = [
           {
@@ -1107,16 +1103,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
             inlineClassName: classNames.join(' '),
             overviewRulerColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
             minimapColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
-          },
-          {
-            range: {
-              startLineNumber: glyphLineNumber,
-              startColumn: 1,
-              endLineNumber: glyphLineNumber,
-              endColumn: 1,
-            },
-            glyphMarginClassName: glyphClassNames.join(' '),
-            hoverMessage: thread.resolvedAt ? 'Resolved comment' : 'Comment',
           },
         ]
         if (markerRange) {
@@ -1130,6 +1116,152 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
     return documentEditorApi.setDecorations('core-comments', decorations)
   }, [activeCommentThreadId, boundText, commentThreads, documentEditorApi])
+
+  useEffect(() => {
+    if (!documentEditorApi) return
+    const editor = editorRef.current as RefmdEditorInstance | null
+    const monacoInstance = editor?.__monaco
+    const model = editor?.getModel()
+    if (!editor || !monacoInstance || !model) return
+
+    const widgets: monacoNs.editor.IContentWidget[] = []
+    const disposables: Array<{ dispose: () => void }> = []
+
+    const groups = new Map<
+      number,
+      Array<{
+        thread: (typeof commentThreads)[number]
+        range: DocumentEditorRange
+        markerPresent: boolean
+      }>
+    >()
+
+    commentThreads.forEach((thread) => {
+      const range = findCommentThreadRange(thread, boundText, documentEditorApi)
+      if (!range) return
+
+      const lineNumber = Math.max(
+        1,
+        Math.min(model.getLineCount(), Math.floor(range.startLineNumber)),
+      )
+      const items = groups.get(lineNumber) ?? []
+      items.push({
+        thread,
+        range,
+        markerPresent: boundText.includes(thread.marker),
+      })
+      groups.set(lineNumber, items)
+    })
+
+    groups.forEach((items, lineNumber) => {
+      const sortedItems = [...items].sort((a, b) => {
+        if (a.range.startColumn !== b.range.startColumn) {
+          return a.range.startColumn - b.range.startColumn
+        }
+        return a.thread.createdAt.localeCompare(b.thread.createdAt)
+      })
+      const activeIndex = sortedItems.findIndex(
+        ({ thread }) => thread.id === activeCommentThreadId,
+      )
+      const activeItem = activeIndex >= 0 ? sortedItems[activeIndex] : null
+      const hasResolvedOnly = sortedItems.every(({ thread }) => thread.resolvedAt)
+      const hasUnlinked = sortedItems.some(
+        ({ thread, markerPresent }) => !thread.anchored || !markerPresent,
+      )
+      const title =
+        sortedItems.length > 1
+          ? `${sortedItems.length} comments`
+          : sortedItems[0].thread.resolvedAt
+            ? 'Resolved comment'
+            : 'Comment'
+      const node = document.createElement('button')
+      node.type = 'button'
+      node.className = [
+        'refmd-comment-widget',
+        sortedItems.length > 1 ? 'refmd-comment-widget-grouped' : '',
+        hasResolvedOnly ? 'refmd-comment-widget-resolved' : '',
+        hasUnlinked ? 'refmd-comment-widget-unlinked' : '',
+        activeItem ? 'refmd-comment-widget-active' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+      node.title = title
+      node.setAttribute('aria-label', node.title)
+      if (sortedItems.length > 1) {
+        node.textContent = String(sortedItems.length)
+      }
+      node.addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+      node.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const nextIndex =
+          activeIndex >= 0 ? (activeIndex + 1) % sortedItems.length : 0
+        handleSelectCommentThread(sortedItems[nextIndex].thread.id)
+      })
+
+      const widget: monacoNs.editor.IContentWidget = {
+        getId: () => `core-comment-widget-${lineNumber}`,
+        getDomNode: () => node,
+        getPosition: () => ({
+          position: {
+            lineNumber,
+            column: 1,
+          },
+          preference: [
+            monacoInstance.editor.ContentWidgetPositionPreference.EXACT,
+          ],
+        }),
+      }
+
+      editor.addContentWidget(widget)
+      editor.layoutContentWidget(widget)
+      widgets.push(widget)
+    })
+
+    const layoutWidgets = () => {
+      widgets.forEach((widget) => {
+        try {
+          editor.layoutContentWidget(widget)
+        } catch {
+          /* noop */
+        }
+      })
+    }
+    try {
+      disposables.push(editor.onDidScrollChange(layoutWidgets))
+      disposables.push(editor.onDidLayoutChange(layoutWidgets))
+    } catch {
+      /* noop */
+    }
+
+    return () => {
+      disposables.forEach((disposable) => {
+        try {
+          disposable.dispose()
+        } catch {
+          /* noop */
+        }
+      })
+      widgets.forEach((widget) => {
+        try {
+          editor.removeContentWidget(widget)
+        } catch {
+          /* noop */
+        }
+      })
+    }
+  }, [
+    activeCommentThreadId,
+    boundText,
+    commentThreads,
+    documentEditorApi,
+    editorMountNonce,
+    editorRef,
+    handleSelectCommentThread,
+  ])
 
   useEffect(() => {
     if (!documentEditorApi) return
