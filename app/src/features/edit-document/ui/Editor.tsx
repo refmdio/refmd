@@ -1,5 +1,5 @@
 import type { OnMount } from '@monaco-editor/react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type * as monacoNs from 'monaco-editor'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -14,6 +14,7 @@ import { useShortcut } from '@/shared/hooks/use-shortcut'
 import type { ViewMode } from '@/shared/types/view-mode'
 
 import {
+  documentKeys,
   documentCommentsQuery,
   listDocuments,
 } from '@/entities/document'
@@ -161,6 +162,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   } = props
   const { isDarkMode } = useTheme()
   const isMobile = useIsMobile()
+  const queryClient = useQueryClient()
   const { editor: activeEditor, setEditor, registerEditor } = useEditorContext()
   const { viewMode, setViewMode, viewModeHydrated, hasPersistentViewMode } = useViewContext()
   const navigate = useNavigate()
@@ -223,6 +225,55 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     onTextChange: () => {},
   })
   const commentsQuery = useQuery(documentCommentsQuery(documentId, { token: shareToken }))
+  const commentAwarenessRevisionRef = useRef(0)
+  const remoteCommentAwarenessSeenRef = useRef<Map<number, string>>(new Map())
+  const broadcastCommentMetadataChange = useCallback(() => {
+    if (!awareness || (awareness as any)?._destroyed) return
+    commentAwarenessRevisionRef.current += 1
+    awareness.setLocalStateField('refmdComments', {
+      documentId,
+      revision: commentAwarenessRevisionRef.current,
+      updatedAt: Date.now(),
+    })
+  }, [awareness, documentId])
+  useEffect(() => {
+    remoteCommentAwarenessSeenRef.current = new Map()
+  }, [documentId, shareToken])
+  useEffect(() => {
+    if (!awareness || (awareness as any)?._destroyed) return
+
+    const handleCommentAwarenessUpdate = () => {
+      let shouldRefresh = false
+      const states = awareness.getStates() as Map<number, any>
+      states.forEach((state, clientId) => {
+        if (clientId === awareness.clientID) return
+        const update = state?.refmdComments
+        if (!update || update.documentId !== documentId) return
+        const revision = Number(update.revision)
+        const updatedAt = Number(update.updatedAt)
+        if (!Number.isFinite(revision) && !Number.isFinite(updatedAt)) return
+        const key = `${update.documentId}:${revision}:${updatedAt}`
+        if (remoteCommentAwarenessSeenRef.current.get(clientId) === key) return
+        remoteCommentAwarenessSeenRef.current.set(clientId, key)
+        shouldRefresh = true
+      })
+      if (shouldRefresh) {
+        void queryClient.invalidateQueries({
+          queryKey: documentKeys.comments(documentId, shareToken),
+        })
+      }
+    }
+
+    handleCommentAwarenessUpdate()
+    awareness.on('update', handleCommentAwarenessUpdate)
+    return () => {
+      try {
+        awareness.off('update', handleCommentAwarenessUpdate)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [awareness, documentId, queryClient, shareToken])
   useEffect(() => {
     setCommentComposerState(EMPTY_COMMENT_COMPOSER_STATE)
   }, [documentId])
@@ -1365,6 +1416,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       onClose={() => onCommentsOpenChange?.(false)}
       onRequestEditor={handleCommentsRequestEditor}
       onActiveThreadChange={handleSelectCommentThread}
+      onCommentMetadataChange={broadcastCommentMetadataChange}
     />
   ) : undefined
 

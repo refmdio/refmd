@@ -49,6 +49,7 @@ type CommentsPanelProps = {
   onClose?: () => void
   onRequestEditor?: () => void
   onActiveThreadChange?: (threadId: string | null) => void
+  onCommentMetadataChange?: () => void
 }
 
 type CommentComposerState = {
@@ -153,6 +154,7 @@ export function CommentsPanel({
   onClose,
   onRequestEditor,
   onActiveThreadChange,
+  onCommentMetadataChange,
 }: CommentsPanelProps) {
   const {
     threads,
@@ -313,14 +315,14 @@ export function CommentsPanel({
   }, [effectiveActiveThreadId, visibleThreads])
 
   const revealThread = useCallback(
-    (thread: DocumentCommentThread) => {
+    (thread: DocumentCommentThread, contentOverride = content) => {
       setActiveThread(thread.id)
       if (!editor) {
         pendingRevealRef.current = thread.id
         onRequestEditor?.()
         return
       }
-      const range = findCommentThreadRange(thread, content, editor)
+      const range = findCommentThreadRange(thread, contentOverride, editor)
       if (!range) return
       editor.revealRange(range)
       editor.setSelection(range)
@@ -396,7 +398,8 @@ export function CommentsPanel({
       if (!thread) return
       updateComposerState(EMPTY_COMPOSER_STATE)
       setActiveThread(thread.id)
-      revealThread(thread)
+      onCommentMetadataChange?.()
+      revealThread(thread, contentRef.current)
     } catch (error) {
       const markerIndex = contentRef.current.indexOf(marker)
       const markerRange =
@@ -425,6 +428,7 @@ export function CommentsPanel({
     newComment,
     newTags,
     onRequestEditor,
+    onCommentMetadataChange,
     revealThread,
     selection,
     setActiveThread,
@@ -440,13 +444,14 @@ export function CommentsPanel({
         await addReply(threadId, body)
         setReplyDrafts((current) => ({ ...current, [threadId]: '' }))
         setActiveReplyThreadId(null)
+        onCommentMetadataChange?.()
       } catch {
         toast.error('Could not save reply')
       } finally {
         setReplyingThreadId(null)
       }
     },
-    [addReply, replyDrafts],
+    [addReply, onCommentMetadataChange, replyDrafts],
   )
 
   const handleSetResolved = useCallback(
@@ -454,13 +459,14 @@ export function CommentsPanel({
       setResolvingThreadId(threadId)
       try {
         await setResolved(threadId, resolved)
+        onCommentMetadataChange?.()
       } catch {
         toast.error('Could not update comment')
       } finally {
         setResolvingThreadId(null)
       }
     },
-    [setResolved],
+    [onCommentMetadataChange, setResolved],
   )
 
   const handleUpdateTags = useCallback(
@@ -479,13 +485,14 @@ export function CommentsPanel({
           delete next[threadId]
           return next
         })
+        onCommentMetadataChange?.()
       } catch {
         toast.error('Could not update tags')
       } finally {
         setTaggingThreadId(null)
       }
     },
-    [setTags],
+    [onCommentMetadataChange, setTags],
   )
 
   const renderThread = (thread: DocumentCommentThread) => {
