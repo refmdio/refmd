@@ -16,6 +16,7 @@ export type { DocumentCommentReply, DocumentCommentThread }
 
 type CreateThreadInput = {
   id: string
+  marker: string
   quote: string
   body: string
   startLineNumber?: number | null
@@ -83,7 +84,10 @@ export function findUnknownCommentMarkers(
   return findCommentMarkers(content).filter((marker) => !known.has(marker))
 }
 
-export function stripCommentMarkers(content: string, markers: readonly string[]) {
+export function stripCommentMarkers(
+  content: string,
+  markers: readonly string[],
+) {
   let out = content
   const seen = new Set<string>()
   for (const marker of markers) {
@@ -138,6 +142,29 @@ function fallbackUuid() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
+const COMMENT_MARKER_ID_ALPHABET =
+  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+export function createCommentMarkerId(length = 10) {
+  const size = Math.max(6, Math.min(24, Math.floor(length)))
+  const bytes = new Uint8Array(size)
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.getRandomValues === 'function'
+  ) {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256)
+    }
+  }
+  return Array.from(
+    bytes,
+    (byte) =>
+      COMMENT_MARKER_ID_ALPHABET[byte % COMMENT_MARKER_ID_ALPHABET.length],
+  ).join('')
+}
+
 export function createCommentId() {
   if (
     typeof crypto !== 'undefined' &&
@@ -186,7 +213,7 @@ export function useDocumentComments({
         documentId,
         token,
         id: input.id,
-        marker: buildCommentMarker(input.id),
+        marker: input.marker,
         quote: input.quote,
         body: input.body,
         startLineNumber: input.startLineNumber ?? null,

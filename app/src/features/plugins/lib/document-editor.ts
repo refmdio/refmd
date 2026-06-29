@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import type { ManifestItem } from '@/shared/api'
 
@@ -19,10 +19,12 @@ export type DocumentEditorDecorationInput = {
   range: DocumentEditorRange
   className?: string
   inlineClassName?: string
+  inlineClassNameAffectsLetterSpacing?: boolean
   glyphMarginClassName?: string
   hoverMessage?: string
   overviewRulerColor?: string
   minimapColor?: string
+  stickiness?: 'always' | 'never' | 'before' | 'after'
 }
 
 export type DocumentEditorEditInput = {
@@ -44,12 +46,26 @@ export type DocumentEditorApi = {
   insertText(text: string): boolean
   revealLine(line: number): void
   revealRange(range: DocumentEditorRange): void
-  getRangeFromOffset(offset: number, length?: number): DocumentEditorRange | null
-  getOffsetFromPosition(position: { lineNumber: number; column: number }): number | null
-  onSelectionChange(callback: (selection: DocumentEditorSelection | null) => void): () => void
+  getRangeFromOffset(
+    offset: number,
+    length?: number,
+  ): DocumentEditorRange | null
+  getOffsetFromPosition(position: {
+    lineNumber: number
+    column: number
+  }): number | null
+  onSelectionChange(
+    callback: (selection: DocumentEditorSelection | null) => void,
+  ): () => void
   onGlyphMarginClick(callback: (lineNumber: number) => void): () => void
-  setDecorations(ownerId: string, decorations: DocumentEditorDecorationInput[]): () => void
-  setHiddenRanges(ownerId: string, ranges: DocumentEditorHiddenRangeInput[]): () => void
+  setDecorations(
+    ownerId: string,
+    decorations: DocumentEditorDecorationInput[],
+  ): () => void
+  setHiddenRanges(
+    ownerId: string,
+    ranges: DocumentEditorHiddenRangeInput[],
+  ): () => void
 }
 
 export type DocumentEditorDocumentApi = {
@@ -104,7 +120,10 @@ export type DocumentEditorPaneRegistration = {
 }
 
 export type DocumentEditorRecordApi = {
-  list(kind: string, options?: { limit?: number; offset?: number }): Promise<unknown[]>
+  list(
+    kind: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<unknown[]>
 }
 
 export type DocumentEditorKvApi = {
@@ -125,7 +144,9 @@ export type DocumentEditorActivationContext = {
   document: DocumentEditorDocumentApi
   editor: DocumentEditorApi
   documentPanes: {
-    register(pane: DocumentEditorPaneContribution): DocumentEditorPaneRegistration
+    register(
+      pane: DocumentEditorPaneContribution,
+    ): DocumentEditorPaneRegistration
   }
   records: DocumentEditorRecordApi
   kv: DocumentEditorKvApi

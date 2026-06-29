@@ -27,6 +27,7 @@ import { findCommentThreadRange } from '../lib/thread-range'
 import {
   buildCommentMarker,
   createCommentId,
+  createCommentMarkerId,
   getCommentSubmitAction,
   parseCommentTags,
   sanitizeCommentQuote,
@@ -255,7 +256,13 @@ export function CommentsPanel({
         }
         return threadMatchesSearch(thread, normalizedSearch, knownMarkers)
       }),
-    [knownMarkers, normalizedSearch, normalizedTagFilter, showResolved, threads],
+    [
+      knownMarkers,
+      normalizedSearch,
+      normalizedTagFilter,
+      showResolved,
+      threads,
+    ],
   )
   const commentSubmitAction = getCommentSubmitAction({
     hasEditor: Boolean(editor),
@@ -353,7 +360,7 @@ export function CommentsPanel({
       return
     }
     const id = createCommentId()
-    const marker = buildCommentMarker(id)
+    const marker = buildCommentMarker(createCommentMarkerId())
     const startOffset = editor.getOffsetFromPosition({
       lineNumber: selection.startLineNumber,
       column: selection.startColumn,
@@ -385,6 +392,7 @@ export function CommentsPanel({
     try {
       const thread = await createThread({
         id,
+        marker,
         quote,
         body: newComment,
         startLineNumber: selection.startLineNumber,
@@ -399,7 +407,18 @@ export function CommentsPanel({
       updateComposerState(EMPTY_COMPOSER_STATE)
       setActiveThread(thread.id)
       onCommentMetadataChange?.()
-      revealThread(thread, contentRef.current)
+      const range = findCommentThreadRange(thread, contentRef.current, editor)
+      if (range) {
+        editor.revealRange(range)
+        editor.setSelection({
+          startLineNumber: range.endLineNumber,
+          startColumn: range.endColumn,
+          endLineNumber: range.endLineNumber,
+          endColumn: range.endColumn,
+        })
+        editor.focus()
+      }
+      window.setTimeout(() => onCommentMetadataChange?.(), 0)
     } catch (error) {
       const markerIndex = contentRef.current.indexOf(marker)
       const markerRange =
@@ -429,7 +448,6 @@ export function CommentsPanel({
     newTags,
     onRequestEditor,
     onCommentMetadataChange,
-    revealThread,
     selection,
     setActiveThread,
     updateComposerState,
@@ -663,10 +681,7 @@ export function CommentsPanel({
 
         <div className="mt-3 space-y-3">
           {thread.replies.map((reply) => (
-            <div
-              key={reply.id}
-              className="border-l border-border/60 pl-3"
-            >
+            <div key={reply.id} className="border-l border-border/60 pl-3">
               <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span className="truncate">
                   {reply.authorName || 'Anonymous'}
@@ -913,9 +928,7 @@ export function CommentsPanel({
             Could not load comments
           </div>
         ) : visibleThreads.length ? (
-          <div>
-            {visibleThreads.map(renderThread)}
-          </div>
+          <div>{visibleThreads.map(renderThread)}</div>
         ) : (
           <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
             {threads.length ? 'No matching comments' : 'No comments'}

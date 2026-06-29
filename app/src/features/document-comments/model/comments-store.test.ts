@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCommentMarker,
   createCommentId,
+  createCommentMarkerId,
   findCommentMarkers,
   findUnknownCommentMarkers,
   getCommentSubmitAction,
@@ -29,10 +30,19 @@ describe('comment markers', () => {
   })
 
   it('creates ids that are valid marker ids', () => {
-    const id = createCommentId()
+    const id = createCommentMarkerId()
 
     expect(id).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(parseCommentMarkerId(buildCommentMarker(id))).toBe(id)
+  })
+
+  it('uses compact marker ids separately from thread ids', () => {
+    const threadId = createCommentId()
+    const markerId = createCommentMarkerId()
+
+    expect(threadId).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(markerId).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(markerId.length).toBeLessThan(threadId.length)
   })
 
   it('strips only persisted markers from rendered/exported content', () => {

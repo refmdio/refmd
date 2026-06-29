@@ -131,9 +131,16 @@
   * {
     @apply border-border outline-ring/50;
   }
-  html, body { @apply h-full; }
-  html { background-color: var(--background); }
-  body { @apply bg-background text-foreground; }
+  html,
+  body {
+    @apply h-full;
+  }
+  html {
+    background-color: var(--background);
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
   ::selection {
     background-color: color-mix(in srgb, var(--primary) 35%, transparent);
     color: var(--primary-foreground);
@@ -155,28 +162,56 @@
 
 /* Global scrollbar styling (WebKit + Firefox) */
 * {
-  scrollbar-width: thin;               /* Firefox */
+  scrollbar-width: thin; /* Firefox */
   scrollbar-color: var(--border) transparent; /* Firefox */
 }
-*::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
 *::-webkit-scrollbar-thumb {
   background-color: color-mix(in oklab, var(--border) 70%, transparent);
   border-radius: 8px;
-  border: 2px solid transparent;      /* visual padding */
+  border: 2px solid transparent; /* visual padding */
   background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover { background-color: color-mix(in oklab, var(--muted-foreground) 70%, transparent); }
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 70%,
+    transparent
+  );
+}
 
 /* Prose styling (ported) */
-.prose { @apply text-foreground leading-relaxed; min-width: 0; }
-.prose h1 { @apply text-3xl font-bold mb-6 mt-8; }
-.prose h2 { @apply text-2xl font-semibold mb-4 mt-6; }
-.prose h3 { @apply text-xl font-semibold mb-3 mt-4; }
-.prose h4 { @apply text-lg font-medium mb-2 mt-3; }
-.prose h5 { @apply text-base font-medium mb-2 mt-3; }
-.prose h6 { @apply text-sm font-medium mb-2 mt-3; }
-.prose p { @apply mb-4 leading-7; }
+.prose {
+  @apply text-foreground leading-relaxed;
+  min-width: 0;
+}
+.prose h1 {
+  @apply text-3xl font-bold mb-6 mt-8;
+}
+.prose h2 {
+  @apply text-2xl font-semibold mb-4 mt-6;
+}
+.prose h3 {
+  @apply text-xl font-semibold mb-3 mt-4;
+}
+.prose h4 {
+  @apply text-lg font-medium mb-2 mt-3;
+}
+.prose h5 {
+  @apply text-base font-medium mb-2 mt-3;
+}
+.prose h6 {
+  @apply text-sm font-medium mb-2 mt-3;
+}
+.prose p {
+  @apply mb-4 leading-7;
+}
 .prose li > p {
   margin: 0 0 0.25rem;
 }
@@ -189,12 +224,27 @@
   margin-bottom: 1rem;
   padding-left: var(--prose-list-indent);
 }
-.prose ul { @apply list-disc space-y-1; list-style-position: outside; }
-.prose ol { @apply list-decimal space-y-1; list-style-position: outside; }
-.prose dl { @apply space-y-1; }
-.prose li { @apply leading-7; }
-.prose dt { @apply font-medium leading-7; }
-.prose dd { @apply leading-7; margin: 0; }
+.prose ul {
+  @apply list-disc space-y-1;
+  list-style-position: outside;
+}
+.prose ol {
+  @apply list-decimal space-y-1;
+  list-style-position: outside;
+}
+.prose dl {
+  @apply space-y-1;
+}
+.prose li {
+  @apply leading-7;
+}
+.prose dt {
+  @apply font-medium leading-7;
+}
+.prose dd {
+  @apply leading-7;
+  margin: 0;
+}
 .prose li > ul,
 .prose li > ol,
 .prose li > dl {
@@ -280,8 +330,13 @@
   color: #f3f4f6 !important;
   background-color: #242424 !important;
 }
-.prose pre:has(.syntax-highlighter) { @apply p-0 bg-transparent m-0; max-width: 100%; }
-.prose .syntax-highlighter { margin: 0 !important; }
+.prose pre:has(.syntax-highlighter) {
+  @apply p-0 bg-transparent m-0;
+  max-width: 100%;
+}
+.prose .syntax-highlighter {
+  margin: 0 !important;
+}
 .markdown-preview pre:not(:has(.syntax-highlighter)) code,
 .prose pre:not(:has(.syntax-highlighter)) code {
   @apply whitespace-pre bg-transparent;
@@ -293,41 +348,95 @@
   word-break: break-word;
   white-space: normal;
 }
-.prose blockquote { @apply border-l-4 border-primary/30 pl-4 italic mb-4 text-muted-foreground; }
-.prose .table-wrapper { @apply overflow-x-auto mb-4 -mx-4 px-4; }
-.prose table { @apply w-full border-collapse overflow-hidden rounded-lg min-w-max table-auto; }
-.prose th, .prose td { @apply border border-border px-4 py-2 text-left; word-wrap: break-word; word-break: break-word; hyphens: auto; min-width: 100px; max-width: 300px; }
-.prose th { @apply bg-muted/50 font-semibold; }
-.prose tr:hover { @apply bg-muted/20; }
-@media (max-width: 768px) { .prose th, .prose td { @apply px-2 py-1 text-sm; } }
-.prose img { @apply max-w-full h-auto rounded-lg shadow-md my-4; }
+.prose blockquote {
+  @apply border-l-4 border-primary/30 pl-4 italic mb-4 text-muted-foreground;
+}
+.prose .table-wrapper {
+  @apply overflow-x-auto mb-4 -mx-4 px-4;
+}
+.prose table {
+  @apply w-full border-collapse overflow-hidden rounded-lg min-w-max table-auto;
+}
+.prose th,
+.prose td {
+  @apply border border-border px-4 py-2 text-left;
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+  min-width: 100px;
+  max-width: 300px;
+}
+.prose th {
+  @apply bg-muted/50 font-semibold;
+}
+.prose tr:hover {
+  @apply bg-muted/20;
+}
+@media (max-width: 768px) {
+  .prose th,
+  .prose td {
+    @apply px-2 py-1 text-sm;
+  }
+}
+.prose img {
+  @apply max-w-full h-auto rounded-lg shadow-md my-4;
+}
 .prose a {
   @apply text-primary underline underline-offset-2 hover:text-primary/80 transition-colors;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.prose .file-attachment { @apply no-underline; }
-.prose hr { @apply border-t border-border my-8; }
-.prose strong { @apply font-semibold text-foreground; }
-.prose em { @apply italic; }
-.prose mark { @apply bg-yellow-200 dark:bg-yellow-900/50 px-1 rounded; }
-.prose ul ul, .prose ol ol, .prose ul ol, .prose ol ul { @apply ml-4 mt-1; }
-.prose :first-child { @apply mt-0; }
-.prose :last-child { @apply mb-0; }
+.prose .file-attachment {
+  @apply no-underline;
+}
+.prose hr {
+  @apply border-t border-border my-8;
+}
+.prose strong {
+  @apply font-semibold text-foreground;
+}
+.prose em {
+  @apply italic;
+}
+.prose mark {
+  @apply bg-yellow-200 dark:bg-yellow-900/50 px-1 rounded;
+}
+.prose ul ul,
+.prose ol ol,
+.prose ul ol,
+.prose ol ul {
+  @apply ml-4 mt-1;
+}
+.prose :first-child {
+  @apply mt-0;
+}
+.prose :last-child {
+  @apply mb-0;
+}
 
 /* Basic markdown preview styling */
-.markdown-preview { overflow-y: auto; overflow-x: hidden; height: 100%; }
+.markdown-preview {
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+}
 .refmd-preview-scroll-root .markdown-preview {
   height: auto;
   min-height: 100%;
   overflow: visible;
 }
 .markdown-preview pre,
-.prose pre { position: relative; }
+.prose pre {
+  position: relative;
+}
 .markdown-preview pre code,
-.prose pre code { white-space: pre-wrap; }
+.prose pre code {
+  white-space: pre-wrap;
+}
 
-.code-copy-container { position: relative; }
+.code-copy-container {
+  position: relative;
+}
 .code-copy-container .code-copy-button {
   @apply absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground opacity-0 shadow-xs transition-all duration-150 ease-out;
   @apply hover:bg-muted/80 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
@@ -346,42 +455,90 @@
 }
 
 /* Hashtag pill styling (legacy) */
-.prose .hashtag { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium no-underline transition-colors cursor-pointer; }
-.prose .hashtag:hover { @apply bg-primary/20; }
+.prose .hashtag {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium no-underline transition-colors cursor-pointer;
+}
+.prose .hashtag:hover {
+  @apply bg-primary/20;
+}
 
 /* Responsive embeds */
-.embed-responsive { @apply relative w-full mb-4 overflow-hidden rounded-lg shadow-md; padding-bottom: 56.25%; }
-.embed-responsive iframe { @apply absolute top-0 left-0 w-full h-full; }
+.embed-responsive {
+  @apply relative w-full mb-4 overflow-hidden rounded-lg shadow-md;
+  padding-bottom: 56.25%;
+}
+.embed-responsive iframe {
+  @apply absolute top-0 left-0 w-full h-full;
+}
 
 /* Blockquote custom header */
-.blockquote-header { @apply flex justify-between items-center mb-2 text-sm text-muted-foreground; }
-.blockquote-name { @apply font-semibold; }
-.blockquote-time { @apply text-xs; }
+.blockquote-header {
+  @apply flex justify-between items-center mb-2 text-sm text-muted-foreground;
+}
+.blockquote-name {
+  @apply font-semibold;
+}
+.blockquote-time {
+  @apply text-xs;
+}
 
 /* merged duplicate @layer base above */
 
 /* Tocbot styles (ported from legacy) */
-.toc-container { @apply text-sm; }
-.toc-container::-webkit-scrollbar { @apply w-1; }
-.toc-container::-webkit-scrollbar-track { @apply bg-transparent; }
-.toc-container::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
-.toc-container::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/50; }
-.toc-list { @apply list-none space-y-1 ml-0 pl-0; }
-.toc-list-item { @apply relative; }
-.toc-link { @apply block py-1 px-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-sm transition-all duration-200 no-underline border-l-2 border-transparent; }
-.toc-link.is-active-link { @apply text-primary font-medium border-l-primary bg-primary/5; }
-.toc-list .toc-list { @apply ml-4 mt-1; }
-.toc-list .toc-list .toc-link { @apply text-xs; }
-.toc-list .toc-list .toc-list .toc-link { @apply text-xs opacity-80; }
-.collapsible-toc .toc-list { @apply transition-all duration-200 ease-out overflow-hidden; transform-origin: top; }
-.collapsible-toc .toc-list.toc-collapsed { @apply max-h-0 opacity-0 scale-y-0; }
-.collapsible-toc .toc-list.toc-expanded { @apply max-h-96 opacity-100 scale-y-100; }
-.toc-expand-icon { @apply inline-flex items-center text-muted-foreground; }
+.toc-container {
+  @apply text-sm;
+}
+.toc-container::-webkit-scrollbar {
+  @apply w-1;
+}
+.toc-container::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+.toc-container::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+.toc-container::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
+.toc-list {
+  @apply list-none space-y-1 ml-0 pl-0;
+}
+.toc-list-item {
+  @apply relative;
+}
+.toc-link {
+  @apply block py-1 px-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-sm transition-all duration-200 no-underline border-l-2 border-transparent;
+}
+.toc-link.is-active-link {
+  @apply text-primary font-medium border-l-primary bg-primary/5;
+}
+.toc-list .toc-list {
+  @apply ml-4 mt-1;
+}
+.toc-list .toc-list .toc-link {
+  @apply text-xs;
+}
+.toc-list .toc-list .toc-list .toc-link {
+  @apply text-xs opacity-80;
+}
+.collapsible-toc .toc-list {
+  @apply transition-all duration-200 ease-out overflow-hidden;
+  transform-origin: top;
+}
+.collapsible-toc .toc-list.toc-collapsed {
+  @apply max-h-0 opacity-0 scale-y-0;
+}
+.collapsible-toc .toc-list.toc-expanded {
+  @apply max-h-96 opacity-100 scale-y-100;
+}
+.toc-expand-icon {
+  @apply inline-flex items-center text-muted-foreground;
+}
 
 /* Prevent Monaco's iPad keyboard toggle from overlapping our editor tooltip on mobile */
 @media (pointer: coarse) {
   .monaco-editor .iPadShowKeyboard {
-    left: 28px !important;   /* nudge right slightly to balance spacing */
+    left: 28px !important; /* nudge right slightly to balance spacing */
     right: auto !important;
     transform: translateY(-6px); /* slight lift to clear editor padding */
   }
@@ -400,8 +557,16 @@
 }
 
 .monaco-editor .refmd-comment-highlight-resolved {
-  background-color: color-mix(in oklab, var(--muted-foreground) 12%, transparent);
-  border-bottom-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 12%,
+    transparent
+  );
+  border-bottom-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 55%,
+    transparent
+  );
 }
 
 .monaco-editor .refmd-comment-highlight-unlinked {
@@ -422,52 +587,52 @@
   pointer-events: none !important;
 }
 
-.monaco-editor .refmd-comment-widget {
-  width: 11px;
-  height: 11px;
-  padding: 0;
-  border: 2px solid color-mix(in oklab, var(--primary) 38%, transparent);
+.monaco-editor .refmd-comment-glyph {
+  cursor: pointer;
+  position: relative;
+}
+
+.monaco-editor .refmd-comment-glyph::before {
+  content: '';
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  margin-left: 5px;
+  border: 2px solid color-mix(in oklab, var(--primary) 42%, transparent);
   border-radius: 999px;
   background: var(--primary);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 18%, transparent);
-  color: var(--primary-foreground);
-  cursor: pointer;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: auto;
-  transform: translate(-42px, 4px);
 }
 
-.monaco-editor .refmd-comment-widget-grouped {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  transform: translate(-44px, 2px);
+.monaco-editor .refmd-comment-glyph-grouped::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--background) 80%, transparent);
 }
 
-.monaco-editor .refmd-comment-widget-resolved {
-  border-color: color-mix(in oklab, var(--muted-foreground) 34%, transparent);
+.monaco-editor .refmd-comment-glyph-resolved::before {
+  border-color: color-mix(in oklab, var(--muted-foreground) 38%, transparent);
   background: var(--muted-foreground);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--muted-foreground) 14%, transparent);
+  box-shadow: 0 0 0 2px
+    color-mix(in oklab, var(--muted-foreground) 14%, transparent);
 }
 
-.monaco-editor .refmd-comment-widget-unlinked {
+.monaco-editor .refmd-comment-glyph-unlinked::before {
   border-color: color-mix(in oklab, var(--destructive) 42%, transparent);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 16%, transparent);
 }
 
-.monaco-editor .refmd-comment-widget-active {
-  width: 13px;
-  height: 13px;
+.monaco-editor .refmd-comment-glyph-active::before {
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  margin-left: 4px;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 28%, transparent);
-  transform: translate(-43px, 3px);
-}
-
-.monaco-editor .refmd-comment-widget-grouped.refmd-comment-widget-active {
-  width: 17px;
-  height: 17px;
-  transform: translate(-45px, 1px);
 }

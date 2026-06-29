@@ -2,6 +2,7 @@ export { CommentsPanel } from './ui/CommentsPanel'
 export {
   buildCommentMarker,
   createCommentId,
+  createCommentMarkerId,
   findUnknownCommentMarkers,
   sanitizeCommentQuote,
   sanitizeStoredCommentQuote,
