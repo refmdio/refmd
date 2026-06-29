@@ -17,11 +17,15 @@ import {
   documentKeys,
   documentCommentsQuery,
   listDocuments,
+  updateDocumentCommentThread,
 } from '@/entities/document'
 
 import {
+  buildCommentMarker,
   CommentsPanel,
+  createCommentMarkerId,
   findUnknownCommentMarkers,
+  parseCommentMarkerId,
   stripCommentMarkers,
 } from '@/features/document-comments'
 import {
@@ -90,6 +94,45 @@ const EMPTY_COMMENT_COMPOSER_STATE = {
   newComment: '',
   newTags: '',
   newTagsOpen: false,
+}
+
+const MAX_COMPACT_COMMENT_MARKER_ID_LENGTH = 24
+const ADJACENT_COMMENT_MARKER_PATTERN = /^<!--comment:[A-Za-z0-9_-]+-->/
+const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
+
+function shouldCompactCommentMarker(marker: string) {
+  const markerId = parseCommentMarkerId(marker)
+  return Boolean(
+    markerId && markerId.length > MAX_COMPACT_COMMENT_MARKER_ID_LENGTH,
+  )
+}
+
+function createUniqueCommentMarker(
+  content: string,
+  existingMarkers: readonly string[],
+) {
+  const existing = new Set(existingMarkers)
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const marker = buildCommentMarker(createCommentMarkerId())
+    if (!existing.has(marker) && !content.includes(marker)) return marker
+  }
+  return buildCommentMarker(createCommentMarkerId(16))
+}
+
+function findAdjacentCommentMarkerRange(
+  range: DocumentEditorRange,
+  content: string,
+  editorApi: DocumentEditorApi,
+) {
+  const endOffset = editorApi.getOffsetFromPosition({
+    lineNumber: range.endLineNumber,
+    column: range.endColumn,
+  })
+  if (typeof endOffset !== 'number') return null
+
+  const match = ADJACENT_COMMENT_MARKER_PATTERN.exec(content.slice(endOffset))
+  if (!match) return null
+  return editorApi.getRangeFromOffset(endOffset, match[0].length)
 }
 
 type RefmdEditorInstance = monacoNs.editor.IStandaloneCodeEditor & {
@@ -294,6 +337,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const vimModeRef = useRef<{ dispose: () => void } | null>(null)
   const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const compactingCommentMarkersRef = useRef<Set<string>>(new Set())
   const viewRef = useRef<ViewMode>(forcedView ?? initialViewProp)
   useEffect(() => {
     viewRef.current = view as ViewMode
@@ -307,7 +351,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     doc,
     awareness,
     language: 'markdown',
-    onTextChange: () => {},
+    onTextChange: () => {
+      scheduleCommentDecorationRefresh()
+    },
   })
   const commentsQuery = useQuery(
     documentCommentsQuery(documentId, { token: shareToken }),
@@ -365,9 +411,24 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   useEffect(() => {
     setCommentComposerState(EMPTY_COMMENT_COMPOSER_STATE)
   }, [documentId])
+  const [commentMarkerOverrides, setCommentMarkerOverrides] = useState<
+    Record<string, string>
+  >({})
+  useEffect(() => {
+    setCommentMarkerOverrides({})
+  }, [documentId, shareToken])
   const commentThreads = useMemo(
-    () => commentsQuery.data?.threads ?? [],
-    [commentsQuery.data?.threads],
+    () => {
+      const threads = commentsQuery.data?.threads ?? []
+      if (!Object.keys(commentMarkerOverrides).length) return threads
+      return threads.map((thread) => {
+        const marker = commentMarkerOverrides[thread.id]
+        return marker && marker !== thread.marker
+          ? { ...thread, marker }
+          : thread
+      })
+    },
+    [commentMarkerOverrides, commentsQuery.data?.threads],
   )
   const commentMarkerStrings = useMemo(
     () => commentThreads.map((thread) => thread.marker),
@@ -565,7 +626,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     [runCommand],
   )
   // Wire the actual callback now that hook is ready
-  ;(onMonacoMount as any)._onTextChange = onEditorContentChange
+  ;(onMonacoMount as any)._onTextChange = () => {
+    onEditorContentChange()
+    scheduleCommentDecorationRefresh()
+  }
   ;(onMonacoMount as any)._onCaretAtEnd = onCaretAtEndChange
   useEffect(() => {
     if (!viewModeHydrated) return
@@ -1429,6 +1493,120 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   }, [editorMountNonce, editorRef, emitReadOnlyWarning, readOnly])
 
   useEffect(() => {
+    if (readOnly || !documentEditorApi || !commentThreads.length) return
+
+    let cancelled = false
+    const migrateLongMarkers = async () => {
+      const content = getEditorCommentContent()
+      const candidates = commentThreads.filter(
+        (thread) =>
+          shouldCompactCommentMarker(thread.marker) &&
+          content.includes(thread.marker) &&
+          !compactingCommentMarkersRef.current.has(thread.id),
+      )
+      if (!candidates.length) return
+
+      for (const thread of candidates) {
+        if (cancelled) return
+        const latestContent = getEditorCommentContent()
+        const markerRange = findCommentMarkerRange(
+          thread,
+          latestContent,
+          documentEditorApi,
+        )
+        if (!markerRange) continue
+
+        compactingCommentMarkersRef.current.add(thread.id)
+        const nextMarker = createUniqueCommentMarker(
+          latestContent,
+          commentThreads.map((item) => item.marker),
+        )
+        const replaced = documentEditorApi.applyEdits([
+          {
+            range: markerRange,
+            text: nextMarker,
+            forceMoveMarkers: true,
+          },
+        ])
+        if (!replaced) {
+          compactingCommentMarkersRef.current.delete(thread.id)
+          continue
+        }
+
+        try {
+          const updatedThread = await updateDocumentCommentThread({
+            documentId,
+            token: shareToken,
+            threadId: thread.id,
+            marker: nextMarker,
+          })
+          setCommentMarkerOverrides((current) =>
+            current[thread.id] === nextMarker
+              ? current
+              : { ...current, [thread.id]: nextMarker },
+          )
+          queryClient.setQueryData(
+            documentKeys.comments(documentId, shareToken),
+            (current: { threads?: typeof commentThreads } | undefined) => {
+              if (!current || !Array.isArray(current.threads)) {
+                return current
+              }
+              return {
+                ...current,
+                threads: current.threads.map((item) =>
+                  item.id === thread.id
+                    ? { ...item, ...updatedThread, marker: nextMarker }
+                    : item,
+                ),
+              }
+            },
+          )
+          await queryClient.invalidateQueries({
+            queryKey: documentKeys.comments(documentId, shareToken),
+          })
+          broadcastCommentMetadataChange()
+        } catch (error) {
+          const rollbackContent = getEditorCommentContent()
+          const rollbackIndex = rollbackContent.indexOf(nextMarker)
+          const rollbackRange =
+            rollbackIndex >= 0
+              ? documentEditorApi.getRangeFromOffset(
+                  rollbackIndex,
+                  nextMarker.length,
+                )
+              : null
+          if (rollbackRange) {
+            documentEditorApi.applyEdits([
+              {
+                range: rollbackRange,
+                text: thread.marker,
+                forceMoveMarkers: true,
+              },
+            ])
+          }
+          logEditorError('compact comment marker', error)
+        } finally {
+          compactingCommentMarkersRef.current.delete(thread.id)
+        }
+      }
+    }
+
+    void migrateLongMarkers()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    broadcastCommentMetadataChange,
+    commentThreads,
+    documentEditorApi,
+    documentId,
+    getEditorCommentContent,
+    queryClient,
+    readOnly,
+    shareToken,
+  ])
+
+  useEffect(() => {
     const editorInstance =
       editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
     if (!editorInstance) return
@@ -1447,96 +1625,116 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   const buildCoreCommentDecorations = useCallback(
     (editorContent: string, editorApi: DocumentEditorApi) => {
-    const groupedThreads = new Map<
-      number,
-      Array<{
-        thread: (typeof commentThreads)[number]
-        range: DocumentEditorRange
-        markerPresent: boolean
-      }>
-    >()
+      const groupedThreads = new Map<
+        number,
+        Array<{
+          thread: (typeof commentThreads)[number]
+          range: DocumentEditorRange
+          markerRange: DocumentEditorRange | null
+          markerPresent: boolean
+        }>
+      >()
 
-    commentThreads.forEach((thread) => {
-      const range = findCommentThreadRange(
-        thread,
-        editorContent,
-        editorApi,
-      )
-      if (!range) return
-      const lineNumber = Math.max(1, Math.floor(range.startLineNumber))
-      const items = groupedThreads.get(lineNumber) ?? []
-      items.push({
-        thread,
-        range,
-        markerPresent: editorContent.includes(thread.marker),
-      })
-      groupedThreads.set(lineNumber, items)
-    })
-
-    const decorations: DocumentEditorDecorationInput[] = []
-    groupedThreads.forEach((items) => {
-      const sortedItems = [...items].sort((a, b) => {
-        if (a.range.startColumn !== b.range.startColumn) {
-          return a.range.startColumn - b.range.startColumn
-        }
-        return a.thread.createdAt.localeCompare(b.thread.createdAt)
-      })
-      const activeItem = sortedItems.find(
-        ({ thread }) => thread.id === activeCommentThreadId,
-      )
-      const hasResolvedOnly = sortedItems.every(
-        ({ thread }) => thread.resolvedAt,
-      )
-      const hasUnlinked = sortedItems.some(
-        ({ thread, markerPresent }) => !thread.anchored || !markerPresent,
-      )
-
-      sortedItems.forEach(({ thread, range, markerPresent }, index) => {
-        const classNames = ['refmd-comment-highlight']
-        if (thread.resolvedAt) {
-          classNames.push('refmd-comment-highlight-resolved')
-        }
-        if (!thread.anchored || !markerPresent) {
-          classNames.push('refmd-comment-highlight-unlinked')
-        }
-        if (activeCommentThreadId === thread.id) {
-          classNames.push('refmd-comment-highlight-active')
-        }
-        const glyphClassNames =
-          index === 0
-            ? [
-                'refmd-comment-glyph',
-                sortedItems.length > 1 ? 'refmd-comment-glyph-grouped' : '',
-                hasResolvedOnly ? 'refmd-comment-glyph-resolved' : '',
-                hasUnlinked ? 'refmd-comment-glyph-unlinked' : '',
-                activeItem ? 'refmd-comment-glyph-active' : '',
-              ].filter(Boolean)
-            : []
-        const markerRange = findCommentMarkerRange(
+      commentThreads.forEach((thread) => {
+        const range = findCommentThreadRange(thread, editorContent, editorApi)
+        if (!range) return
+        const markerRange =
+          findCommentMarkerRange(thread, editorContent, editorApi) ??
+          findAdjacentCommentMarkerRange(range, editorContent, editorApi)
+        const lineNumber = Math.max(1, Math.floor(range.startLineNumber))
+        const items = groupedThreads.get(lineNumber) ?? []
+        items.push({
           thread,
-          editorContent,
-          editorApi,
-        )
-        decorations.push({
           range,
-          inlineClassName: classNames.join(' '),
-          glyphMarginClassName: glyphClassNames.length
-            ? glyphClassNames.join(' ')
-            : undefined,
-          overviewRulerColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
-          minimapColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+          markerRange,
+          markerPresent: Boolean(markerRange),
+        })
+        groupedThreads.set(lineNumber, items)
+      })
+
+      const decorations: DocumentEditorDecorationInput[] = []
+      const hiddenCommentMarkerRangeKeys = new Set<string>()
+      const pushHiddenCommentMarkerDecoration = (
+        markerRange: DocumentEditorRange | null,
+      ) => {
+        if (!markerRange) return
+        const key = [
+          markerRange.startLineNumber,
+          markerRange.startColumn,
+          markerRange.endLineNumber,
+          markerRange.endColumn,
+        ].join(':')
+        if (hiddenCommentMarkerRangeKeys.has(key)) return
+        hiddenCommentMarkerRangeKeys.add(key)
+        decorations.push({
+          range: markerRange,
+          inlineClassName: 'refmd-comment-anchor-hidden',
+          inlineClassNameAffectsLetterSpacing: true,
           stickiness: 'never',
         })
-        if (markerRange) {
-          decorations.push({
-            range: markerRange,
-            inlineClassName: 'refmd-comment-anchor-hidden',
-            inlineClassNameAffectsLetterSpacing: true,
-            stickiness: 'never',
-          })
-        }
+      }
+
+      groupedThreads.forEach((items) => {
+        const sortedItems = [...items].sort((a, b) => {
+          if (a.range.startColumn !== b.range.startColumn) {
+            return a.range.startColumn - b.range.startColumn
+          }
+          return a.thread.createdAt.localeCompare(b.thread.createdAt)
+        })
+        const activeItem = sortedItems.find(
+          ({ thread }) => thread.id === activeCommentThreadId,
+        )
+        const hasResolvedOnly = sortedItems.every(
+          ({ thread }) => thread.resolvedAt,
+        )
+        const hasUnlinked = sortedItems.some(
+          ({ thread, markerPresent }) => !thread.anchored || !markerPresent,
+        )
+
+        sortedItems.forEach(
+          ({ thread, range, markerRange, markerPresent }, index) => {
+            const classNames = ['refmd-comment-highlight']
+            if (thread.resolvedAt) {
+              classNames.push('refmd-comment-highlight-resolved')
+            }
+            if (!thread.anchored || !markerPresent) {
+              classNames.push('refmd-comment-highlight-unlinked')
+            }
+            if (activeCommentThreadId === thread.id) {
+              classNames.push('refmd-comment-highlight-active')
+            }
+            const glyphClassNames =
+              index === 0
+                ? [
+                    'refmd-comment-glyph',
+                    sortedItems.length > 1
+                      ? 'refmd-comment-glyph-grouped'
+                      : '',
+                    hasResolvedOnly ? 'refmd-comment-glyph-resolved' : '',
+                    hasUnlinked ? 'refmd-comment-glyph-unlinked' : '',
+                    activeItem ? 'refmd-comment-glyph-active' : '',
+                  ].filter(Boolean)
+                : []
+            decorations.push({
+              range,
+              inlineClassName: classNames.join(' '),
+              glyphMarginClassName: glyphClassNames.length
+                ? glyphClassNames.join(' ')
+                : undefined,
+              overviewRulerColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+              minimapColor: thread.resolvedAt ? '#94a3b8' : '#8b5cf6',
+              stickiness: 'never',
+            })
+            pushHiddenCommentMarkerDecoration(markerRange)
+          },
+        )
       })
-    })
+
+      for (const match of editorContent.matchAll(COMMENT_MARKER_PATTERN)) {
+        pushHiddenCommentMarkerDecoration(
+          editorApi.getRangeFromOffset(match.index, match[0].length),
+        )
+      }
 
       return decorations
     },

@@ -216,21 +216,22 @@ impl CommentRepository for SqlxCommentRepository {
         let out: anyhow::Result<Option<CommentThreadWithReplies>> = async {
             let row = sqlx::query(
                 r#"UPDATE document_comment_threads
-                   SET resolved_at = CASE
-                         WHEN $4::boolean IS NULL THEN resolved_at
-                         WHEN $4 THEN now()
-                         ELSE NULL
-                       END,
-                       resolved_by = CASE
-                         WHEN $4::boolean IS NULL THEN resolved_by
-                         WHEN $4 THEN $5
-                         ELSE NULL
-                       END,
-                       tags = COALESCE($6::text[], tags),
-                       anchored = COALESCE($7::boolean, anchored),
-                       updated_at = now()
-                   WHERE workspace_id = $1 AND document_id = $2 AND id = $3
-                   RETURNING id, document_id, marker, quote, start_line_number, start_column,
+	                   SET resolved_at = CASE
+	                         WHEN $4::boolean IS NULL THEN resolved_at
+	                         WHEN $4 THEN now()
+	                         ELSE NULL
+	                       END,
+	                       resolved_by = CASE
+	                         WHEN $4::boolean IS NULL THEN resolved_by
+	                         WHEN $4 THEN $5
+	                         ELSE NULL
+	                       END,
+	                       tags = COALESCE($6::text[], tags),
+	                       anchored = COALESCE($7::boolean, anchored),
+	                       marker = COALESCE($8::text, marker),
+	                       updated_at = now()
+	                   WHERE workspace_id = $1 AND document_id = $2 AND id = $3
+	                   RETURNING id, document_id, marker, quote, start_line_number, start_column,
                              end_line_number, end_column, start_offset, end_offset, anchored, tags,
                              created_by, created_by_name, created_at, updated_at, resolved_at, resolved_by"#,
             )
@@ -241,6 +242,7 @@ impl CommentRepository for SqlxCommentRepository {
             .bind(input.resolved_by)
             .bind(input.tags)
             .bind(input.anchored)
+            .bind(input.marker)
             .fetch_optional(&self.pool)
             .await?;
 

@@ -669,6 +669,7 @@ export type UninstallBody = {
 
 export type UpdateDocumentCommentThreadRequest = {
     anchored?: (boolean) | null;
+    marker?: (string) | null;
     resolved?: (boolean) | null;
     tags?: Array<string> | null;
 };

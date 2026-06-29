@@ -146,6 +146,7 @@ export type UpdateDocumentCommentThreadInput = {
   documentId: string
   threadId: string
   token?: string | null
+  marker?: string
   resolved?: boolean
   tags?: string[]
   anchored?: boolean
@@ -246,13 +247,14 @@ export async function updateDocumentCommentThread(
 ): Promise<DocumentCommentThread> {
   const response = (await apiUpdateDocumentCommentThread({
     id: input.documentId,
-    threadId: input.threadId,
-    token: input.token ?? null,
-    requestBody: {
-      resolved: input.resolved ?? null,
-      tags: input.tags ?? null,
-      anchored: input.anchored ?? null,
-    },
+      threadId: input.threadId,
+      token: input.token ?? null,
+      requestBody: {
+        marker: input.marker ?? null,
+        resolved: input.resolved ?? null,
+        tags: input.tags ?? null,
+        anchored: input.anchored ?? null,
+      },
   })) as ApiDocumentCommentThread
   return toDocumentCommentThread(response)
 }

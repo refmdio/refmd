@@ -4,6 +4,7 @@ export {
   createCommentId,
   createCommentMarkerId,
   findUnknownCommentMarkers,
+  parseCommentMarkerId,
   sanitizeCommentQuote,
   sanitizeStoredCommentQuote,
   stripCommentMarkers,

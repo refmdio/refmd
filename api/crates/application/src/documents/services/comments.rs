@@ -272,12 +272,16 @@ impl DocumentService {
         actor: &Actor,
         doc_id: Uuid,
         thread_id: Uuid,
+        marker: Option<String>,
         resolved: Option<bool>,
         tags: Option<Vec<String>>,
         anchored: Option<bool>,
     ) -> Result<DomainCommentThread, ServiceError> {
-        if resolved.is_none() && tags.is_none() && anchored.is_none() {
+        if marker.is_none() && resolved.is_none() && tags.is_none() && anchored.is_none() {
             return Err(ServiceError::BadRequest("comment_update_required"));
+        }
+        if let Some(marker) = marker.as_deref() {
+            validate_marker(marker)?;
         }
         let tags = match tags {
             Some(tags) => Some(normalize_tags(tags)?),
@@ -306,6 +310,7 @@ impl DocumentService {
                 workspace_id: doc.workspace_id(),
                 document_id: doc_id,
                 thread_id,
+                marker,
                 resolved,
                 resolved_by: actor_user_id(actor),
                 tags,

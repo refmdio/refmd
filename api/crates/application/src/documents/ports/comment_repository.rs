@@ -79,6 +79,7 @@ pub struct CommentThreadUpdate {
     pub workspace_id: Uuid,
     pub document_id: Uuid,
     pub thread_id: Uuid,
+    pub marker: Option<String>,
     pub resolved: Option<bool>,
     pub resolved_by: Option<Uuid>,
     pub tags: Option<Vec<String>>,

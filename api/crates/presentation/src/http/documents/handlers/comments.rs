@@ -159,6 +159,7 @@ pub async fn update_document_comment_thread(
             &actor,
             id,
             thread_id,
+            body.marker,
             body.resolved,
             body.tags,
             body.anchored,

@@ -500,6 +500,7 @@ pub struct CreateDocumentCommentReplyRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateDocumentCommentThreadRequest {
+    pub marker: Option<String>,
     pub resolved: Option<bool>,
     pub tags: Option<Vec<String>>,
     pub anchored: Option<bool>,

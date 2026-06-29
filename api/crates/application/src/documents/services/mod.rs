@@ -247,6 +247,7 @@ pub trait DocumentServiceFacade: Send + Sync {
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
         thread_id: Uuid,
+        marker: Option<String>,
         resolved: Option<bool>,
         tags: Option<Vec<String>>,
         anchored: Option<bool>,
@@ -543,11 +544,12 @@ impl DocumentServiceFacade for DocumentService {
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
         thread_id: Uuid,
+        marker: Option<String>,
         resolved: Option<bool>,
         tags: Option<Vec<String>>,
         anchored: Option<bool>,
     ) -> Result<DomainCommentThread, ServiceError> {
-        self.update_comment_thread(actor, doc_id, thread_id, resolved, tags, anchored)
+        self.update_comment_thread(actor, doc_id, thread_id, marker, resolved, tags, anchored)
             .await
     }
 }

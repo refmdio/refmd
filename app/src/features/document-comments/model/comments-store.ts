@@ -30,6 +30,7 @@ type CreateThreadInput = {
 
 type UpdateThreadInput = {
   threadId: string
+  marker?: string
   resolved?: boolean
   tags?: string[]
   anchored?: boolean
@@ -267,11 +268,18 @@ export function useDocumentComments({
   })
 
   const updateThreadMutation = useMutation({
-    mutationFn: ({ threadId, resolved, tags, anchored }: UpdateThreadInput) =>
+    mutationFn: ({
+      threadId,
+      marker,
+      resolved,
+      tags,
+      anchored,
+    }: UpdateThreadInput) =>
       updateDocumentCommentThread({
         documentId,
         threadId,
         token,
+        marker,
         resolved,
         tags,
         anchored,
