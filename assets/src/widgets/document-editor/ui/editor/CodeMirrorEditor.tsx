@@ -214,6 +214,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const scrollSourceId = `cm-${Math.random().toString(36).slice(2)}`;
   let containerEl: HTMLDivElement | undefined;
   let view: EditorView | undefined;
+  let undoManager: Y.UndoManager | undefined;
   let themeObserver: MutationObserver | undefined;
   let activeStateKey: string | undefined;
   let unsubScroll: (() => void) | undefined;
@@ -231,6 +232,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   }
 
   function destroyEditor() {
+    const editorView = view;
+    const syncUndoManager = editorView?.state.facet(ySyncFacet).undoManager;
     clearRemoteContentReconcileTimer();
     cleanupRemoteContentReady?.();
     cleanupRemoteContentReady = undefined;
@@ -243,8 +246,17 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     themeObserver?.disconnect();
     themeObserver = undefined;
     unregisterEditor(props.panelId);
+    if (activeStateKey) {
+      recordEditorPerf("codemirror_editor_destroyed", {
+        documentId: props.documentId,
+        stateKey: activeStateKey,
+      });
+    }
     view?.destroy();
     view = undefined;
+    syncUndoManager?.destroy();
+    undoManager?.destroy();
+    undoManager = undefined;
     if (activeStateKey) {
       releaseYDoc(activeStateKey);
       activeStateKey = undefined;
@@ -271,7 +283,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     const { yDoc, awareness } = acquireYDoc(stateKey);
     activeStateKey = stateKey;
     const yText = yDoc.getText("content");
-    const undoManager = new Y.UndoManager(yText);
+    undoManager = new Y.UndoManager(yText);
     const dark = isDarkMode();
 
     const startState = EditorState.create({

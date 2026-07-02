@@ -908,6 +908,104 @@ async function readSyncPerf(page: Page): Promise<unknown[]> {
     .catch(() => []);
 }
 
+async function readPageMemorySample(
+  context: BrowserContext,
+  page: Page,
+  documentId?: string | null,
+): Promise<{
+  activeDocumentStateCount: number | null;
+  codemirrorCreated: number;
+  codemirrorDestroyed: number;
+  codemirrorRecreated: number;
+  documents: number;
+  jsEventListeners: number;
+  jsHeapTotalMb: number;
+  jsHeapUsedMb: number;
+  nodes: number;
+  prosemirrorCreated: number;
+  prosemirrorDestroyed: number;
+  prosemirrorRecreated: number;
+  refCounts: number[];
+  stateKeys: string[];
+  syncPerfLength: number;
+  url: string;
+}> {
+  const session = await context.newCDPSession(page);
+  try {
+    await session.send("Performance.enable");
+    const [metrics, counters, pageDiagnostics] = await Promise.all([
+      session.send("Performance.getMetrics"),
+      session.send("Memory.getDOMCounters"),
+      page.evaluate((id) => {
+        const target = window as Window & {
+          __refmdE2ESyncPerf?: Array<{ event?: unknown }>;
+          __refmdGetDocumentSyncState?: (documentId: string) => {
+            candidates?: Array<{ refCount?: number; stateKey?: string }>;
+          } | null;
+        };
+        const perf = target.__refmdE2ESyncPerf ?? [];
+        const count = (eventName: string) =>
+          perf.filter((entry) => entry?.event === eventName).length;
+        const state = id ? target.__refmdGetDocumentSyncState?.(id) : null;
+        const candidates = state?.candidates ?? [];
+        return {
+          activeDocumentStateCount: id ? candidates.length : null,
+          codemirrorCreated: count("codemirror_editor_created"),
+          codemirrorDestroyed: count("codemirror_editor_destroyed"),
+          codemirrorRecreated:
+            count("codemirror_remote_content_reconcile_recreate") +
+            count("codemirror_remote_content_reconcile_focused_recreate"),
+          prosemirrorCreated: count("prosemirror_editor_created"),
+          prosemirrorDestroyed: count("prosemirror_editor_destroyed"),
+          prosemirrorRecreated:
+            count("prosemirror_remote_content_reconcile_recreate") +
+            count("prosemirror_remote_content_reconcile_focused_recreate"),
+          refCounts: candidates.map((candidate) => candidate.refCount ?? -1),
+          stateKeys: candidates.map((candidate) => candidate.stateKey ?? ""),
+          syncPerfLength: perf.length,
+        };
+      }, documentId ?? null),
+    ]);
+    const metric = (name: string) =>
+      metrics.metrics.find((item: { name: string; value: number }) => item.name === name)?.value ??
+      0;
+    return {
+      activeDocumentStateCount: pageDiagnostics.activeDocumentStateCount,
+      codemirrorCreated: pageDiagnostics.codemirrorCreated,
+      codemirrorDestroyed: pageDiagnostics.codemirrorDestroyed,
+      codemirrorRecreated: pageDiagnostics.codemirrorRecreated,
+      documents: counters.documents,
+      jsEventListeners: counters.jsEventListeners,
+      jsHeapTotalMb: metric("JSHeapTotalSize") / 1024 / 1024,
+      jsHeapUsedMb: metric("JSHeapUsedSize") / 1024 / 1024,
+      nodes: counters.nodes,
+      prosemirrorCreated: pageDiagnostics.prosemirrorCreated,
+      prosemirrorDestroyed: pageDiagnostics.prosemirrorDestroyed,
+      prosemirrorRecreated: pageDiagnostics.prosemirrorRecreated,
+      refCounts: pageDiagnostics.refCounts,
+      stateKeys: pageDiagnostics.stateKeys,
+      syncPerfLength: pageDiagnostics.syncPerfLength,
+      url: page.url(),
+    };
+  } finally {
+    await session.detach().catch(() => {});
+  }
+}
+
+function formatPageMemory(label: string, sample: Awaited<ReturnType<typeof readPageMemorySample>>) {
+  return `${label}HeapUsedMb=${sample.jsHeapUsedMb.toFixed(1)} ${label}HeapTotalMb=${sample.jsHeapTotalMb.toFixed(
+    1,
+  )} ${label}Nodes=${sample.nodes} ${label}Listeners=${sample.jsEventListeners} ${label}Docs=${
+    sample.documents
+  } ${label}States=${sample.activeDocumentStateCount ?? "n/a"} ${label}RefCounts=${JSON.stringify(
+    sample.refCounts,
+  )} ${label}Cm=${sample.codemirrorCreated}/${sample.codemirrorDestroyed}/r${
+    sample.codemirrorRecreated
+  } ${label}Pm=${sample.prosemirrorCreated}/${sample.prosemirrorDestroyed}/r${
+    sample.prosemirrorRecreated
+  } ${label}Perf=${sample.syncPerfLength}`;
+}
+
 async function createEditShareLinkFromUi(page: Page, title: string): Promise<string> {
   await page.bringToFront();
   await waitForDocumentSyncReady(page);
@@ -1964,6 +2062,17 @@ test("diagnostic: anonymous edit share can remain open idle without sync or rout
   test.setTimeout(E2E_TIMEOUTS.extendedScenario);
 
   const idleMs = Number.parseInt(process.env.REFMD_E2E_CPU_OPEN_IDLE_MS ?? "45000", 10);
+  const sampleEveryMs = Number.parseInt(process.env.REFMD_E2E_MEMORY_SAMPLE_EVERY_MS ?? "5000", 10);
+  const editRounds = Number.parseInt(process.env.REFMD_E2E_MEMORY_EDIT_ROUNDS ?? "0", 10);
+  const reloadRounds = Number.parseInt(process.env.REFMD_E2E_MEMORY_RELOAD_ROUNDS ?? "0", 10);
+  const maxHeapTotalMb = Number.parseInt(
+    process.env.REFMD_E2E_MEMORY_MAX_HEAP_TOTAL_MB ?? "256",
+    10,
+  );
+  const maxDocumentsAfterIdle = Number.parseInt(
+    process.env.REFMD_E2E_MEMORY_MAX_DOCUMENTS_AFTER_IDLE ?? "2",
+    10,
+  );
   const ownerContext = await newStrictShareContext(browser, {
     acceptDownloads: true,
   });
@@ -1999,13 +2108,82 @@ test("diagnostic: anonymous edit share can remain open idle without sync or rout
     await waitForEditableEditorSurface(guestPage);
     await waitForDocumentSyncReady(ownerPage);
     await waitForDocumentSyncReady(guestPage);
+    const ownerDocumentId = currentDocumentId(ownerPage);
+    const guestDocumentId = ownerDocumentId;
+    const memorySamples: Array<{
+      guest: Awaited<ReturnType<typeof readPageMemorySample>>;
+      label: string;
+      owner: Awaited<ReturnType<typeof readPageMemorySample>>;
+      sampleIndex: number;
+    }> = [];
 
-    console.log(`[share-cpu-open-idle-start] idleMs=${idleMs}`);
-    await guestPage.waitForTimeout(idleMs);
+    const logMemorySample = async (label: string, sampleIndex: number) => {
+      const ownerMemory = await readPageMemorySample(ownerContext, ownerPage, ownerDocumentId);
+      const guestMemory = await readPageMemorySample(guestContext, guestPage, guestDocumentId);
+      memorySamples.push({
+        guest: guestMemory,
+        label,
+        owner: ownerMemory,
+        sampleIndex,
+      });
+      console.log(
+        `[share-open-memory] label=${label} sample=${sampleIndex} ${formatPageMemory(
+          "owner",
+          ownerMemory,
+        )} ${formatPageMemory("guest", guestMemory)}`,
+      );
+    };
+
+    await logMemorySample("ready", 0);
+
+    for (let round = 0; round < editRounds; round += 1) {
+      const ownerText = `owner-memory-round-${round}`;
+      await typeInVisibleEditor(ownerPage, `\n${ownerText}`);
+      await expectEditorTextContains(guestPage, ownerText, 60_000);
+      const guestText = `guest-memory-round-${round}`;
+      await typeInVisibleEditor(guestPage, `\n${guestText}`);
+      await expectEditorTextContains(ownerPage, guestText, 60_000);
+      await logMemorySample("edit", round + 1);
+    }
+
+    for (let round = 0; round < reloadRounds; round += 1) {
+      await guestPage.goto(shareLink, { waitUntil: "domcontentloaded" });
+      await expect(guestPage).toHaveURL(SHARE_ENTRY_OR_DOCUMENT_ROUTE_RE, {
+        timeout: 60_000,
+      });
+      await expectEditorTextContains(guestPage, "owner-content-before-idle", 60_000);
+      await waitForShareEditor(guestPage, shareLink);
+      await waitForEditableEditorSurface(guestPage);
+      await waitForDocumentSyncReady(guestPage);
+      await logMemorySample("reload", round + 1);
+    }
+
+    console.log(
+      `[share-cpu-open-idle-start] idleMs=${idleMs} editRounds=${editRounds} reloadRounds=${reloadRounds}`,
+    );
+    const startedAt = Date.now();
+    let sampleIndex = 0;
+    while (Date.now() - startedAt < idleMs) {
+      await logMemorySample("idle", sampleIndex);
+      sampleIndex += 1;
+      await guestPage.waitForTimeout(
+        Math.min(sampleEveryMs, Math.max(0, idleMs - (Date.now() - startedAt))),
+      );
+    }
     console.log("[share-cpu-open-idle-end]");
 
     await expectNoVisibleShareRouteError(ownerPage);
     await expectNoVisibleShareRouteError(guestPage);
+    const maxObservedHeapTotalMb = Math.max(
+      ...memorySamples.flatMap((sample) => [
+        sample.owner.jsHeapTotalMb,
+        sample.guest.jsHeapTotalMb,
+      ]),
+    );
+    const lastMemorySample = memorySamples[memorySamples.length - 1];
+    expect(maxObservedHeapTotalMb).toBeLessThanOrEqual(maxHeapTotalMb);
+    expect(lastMemorySample?.owner.documents).toBeLessThanOrEqual(maxDocumentsAfterIdle);
+    expect(lastMemorySample?.guest.documents).toBeLessThanOrEqual(maxDocumentsAfterIdle);
     const finalSyncPerf = [...(await readSyncPerf(ownerPage)), ...(await readSyncPerf(guestPage))];
     expect(criticalSyncMessages(activeDiagnostics.messages)).toEqual([]);
     expect(criticalSyncPerfEvents(finalSyncPerf)).toEqual([]);

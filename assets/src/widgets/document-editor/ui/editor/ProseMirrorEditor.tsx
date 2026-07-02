@@ -94,6 +94,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   let containerEl: HTMLDivElement | undefined;
   let view: EditorView | undefined;
   let slashPlugin: Plugin | null = null;
+  let undoManager: Y.UndoManager | undefined;
   let activeStateKey: string | undefined;
   let cleanupViewListeners: (() => void) | undefined;
   let destroyCollab: (() => void) | undefined;
@@ -192,8 +193,16 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     destroyCollab?.();
     destroyCollab = undefined;
     unregisterEditor(props.panelId);
+    if (activeStateKey) {
+      recordEditorPerf("prosemirror_editor_destroyed", {
+        documentId: props.documentId,
+        stateKey: activeStateKey,
+      });
+    }
     view?.destroy();
     view = undefined;
+    undoManager?.destroy();
+    undoManager = undefined;
     setCurrentView(null);
     slashPlugin = null;
     if (activeStateKey) {
@@ -267,6 +276,10 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     });
 
     view = editorView;
+    recordEditorPerf("prosemirror_editor_created", {
+      documentId: props.documentId,
+      stateKey,
+    });
     setCurrentView(editorView);
     schedulePreviewClear(editorView);
     const yText = yDoc.getText("content");
@@ -360,8 +373,8 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       window.removeEventListener(REMOTE_CONTENT_READY_EVENT, handleRemoteContentReady);
     };
 
-    const undoMgr = new Y.UndoManager(yText);
-    registerEditor(props.panelId, new ProseMirrorEditorApi(editorView, yText, undoMgr));
+    undoManager = new Y.UndoManager(yText);
+    registerEditor(props.panelId, new ProseMirrorEditorApi(editorView, yText, undoManager));
 
     const handlePaste = (event: ClipboardEvent) => props.onEditorPaste?.(event);
     const handleDrop = (event: DragEvent) => props.onEditorDrop?.(event);

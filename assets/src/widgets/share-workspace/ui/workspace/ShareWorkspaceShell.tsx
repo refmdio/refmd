@@ -384,6 +384,12 @@ export function ShareWorkspaceShell(props: ShareWorkspaceShellProps) {
 }
 
 function ShareWorkspaceDisposer(props: { dispose: () => void }) {
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", props.dispose, { once: true });
+    onCleanup(() => {
+      window.removeEventListener("pagehide", props.dispose);
+    });
+  }
   onCleanup(props.dispose);
   return null;
 }
