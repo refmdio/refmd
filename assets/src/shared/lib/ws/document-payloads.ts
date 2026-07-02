@@ -52,6 +52,24 @@ interface UpdatePublicData {
   writeSessionId: string;
   writeSessionCounter: number;
 }
+interface WriteSessionPublicData {
+  docId: string;
+  signingKeyId: string;
+  ownerKind: "device" | "share_participant_device";
+  ownerId: string;
+  authorityKind: "workspace_device" | "share_participant_device";
+  authorityId: string;
+  authorityContextKey: string;
+  authorityScopeId: string;
+  authorityPermissionVersion: number;
+  keyCheckpointSequence: number;
+  keyCheckpointHash: string;
+  keyVersion: number;
+  minDekVersion: number;
+  writeSessionEventHash: string;
+  writeSessionId: string;
+  writeSessionCounter: number;
+}
 interface EphemeralPublicData {
   docId: string;
   ownerKind: "device" | "share_participant_device";
@@ -81,6 +99,10 @@ export interface UpdatePayload {
   admission: DocumentOperationAdmission;
   version: number;
   publicData: UpdatePublicData;
+}
+export interface WriteSessionPayload {
+  admission: DocumentOperationAdmission;
+  publicData: WriteSessionPublicData;
 }
 export interface EphemeralPayload {
   ciphertext: string;
@@ -125,6 +147,7 @@ export interface UpdateSavedPayload {
 export interface UpdateSaveFailedPayload {
   snapshotId: string;
   clock: number;
+  reason?: string;
   requiresNewSnapshot: boolean;
 }
 export interface SnapshotSavedPayload {

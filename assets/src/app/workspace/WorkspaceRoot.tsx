@@ -1,5 +1,12 @@
-import { createEffect, getOwner, onCleanup, type ParentProps } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import {
+  createEffect,
+  createSignal,
+  getOwner,
+  onCleanup,
+  type Accessor,
+  type ParentProps,
+} from "solid-js";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { useDocuments, useDocumentTitles } from "@/entities/document";
 import { useSettings } from "@/entities/settings";
@@ -32,9 +39,15 @@ import { getDocumentRuntime } from "@/shared/lib/document/manager";
 import { setDefaultPluginRenderOwner } from "@/features/plugin-runtime";
 import { flushPluginRuntimeTeardown } from "./plugin-runtime-teardown";
 
+const DOCUMENT_REMOTE_CONTENT_READY_EVENT = "refmd:document-remote-content-ready";
+const DOCUMENT_ROUTE_NONCRITICAL_STARTUP_TIMEOUT_MS = 3_500;
+const DOCUMENT_ROUTE_NONCRITICAL_IDLE_TIMEOUT_MS = 1_000;
+
 export function WorkspaceRoot(props: ParentProps) {
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const nonCriticalStartupEnabled = useNonCriticalStartupGate(() => location.pathname);
   const { workspaces, allWorkspaces, workspacesNeedingRotation } = useWorkspaces();
   const { pendingCount, refetchPending } = usePendingDevices();
   const panelWorkspaceLease = retainPanelWorkspace();
@@ -81,6 +94,7 @@ export function WorkspaceRoot(props: ParentProps) {
     workspaceId,
     pluginHost.router,
     runtimeInvalidationSink,
+    { enabled: nonCriticalStartupEnabled },
   );
   const effectivePluginNetworkProxyRegistration = () => {
     const activeWorkspaceId = currentWorkspaceId();
@@ -95,6 +109,8 @@ export function WorkspaceRoot(props: ParentProps) {
       void refetchPending();
     },
     networkProxyRegistration: effectivePluginNetworkProxyRegistration,
+    runtimeApplications: pluginRuntimeApplications,
+    enabled: nonCriticalStartupEnabled,
   });
   pluginRuntimeBoundaryInvalidation.current = useThirdPartyPluginRuntimeBoundary(
     pluginHost,
@@ -178,6 +194,71 @@ export function WorkspaceRoot(props: ParentProps) {
       {pluginConsent.view()}
     </AppLayout>
   );
+}
+
+function useNonCriticalStartupGate(pathname: Accessor<string>): Accessor<boolean> {
+  const [enabled, setEnabled] = createSignal(!isAuthenticatedDocumentRoute(pathname()));
+
+  createEffect(() => {
+    const path = pathname();
+    if (!isAuthenticatedDocumentRoute(path) || typeof window === "undefined") {
+      setEnabled(true);
+      return;
+    }
+
+    setEnabled(false);
+    let disposed = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleHandle: number | null = null;
+
+    const clearScheduled = () => {
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
+      if (idleHandle !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleHandle);
+        idleHandle = null;
+      }
+    };
+    const enable = () => {
+      if (disposed || enabled()) return;
+      clearScheduled();
+      const run = () => {
+        if (!disposed) setEnabled(true);
+      };
+      if ("requestIdleCallback" in window) {
+        idleHandle = window.requestIdleCallback(run, {
+          timeout: DOCUMENT_ROUTE_NONCRITICAL_IDLE_TIMEOUT_MS,
+        });
+      } else {
+        idleTimer = setTimeout(run, DOCUMENT_ROUTE_NONCRITICAL_IDLE_TIMEOUT_MS);
+      }
+    };
+    const handleContentReady = () => enable();
+
+    window.addEventListener(DOCUMENT_REMOTE_CONTENT_READY_EVENT, handleContentReady, {
+      once: true,
+    });
+    fallbackTimer = setTimeout(enable, DOCUMENT_ROUTE_NONCRITICAL_STARTUP_TIMEOUT_MS);
+
+    onCleanup(() => {
+      disposed = true;
+      window.removeEventListener(DOCUMENT_REMOTE_CONTENT_READY_EVENT, handleContentReady);
+      clearScheduled();
+    });
+  });
+
+  return enabled;
+}
+
+function isAuthenticatedDocumentRoute(pathname: string): boolean {
+  return pathname.startsWith("/document/");
 }
 
 function pluginNetworkProxyRegistration(value: unknown): PluginNetworkProxyRegistration | null {

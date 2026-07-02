@@ -1,6 +1,7 @@
 import type { ShareVerificationDirectory } from "@/shared/lib/document/share-verification-directory";
 import type { ShareSessionTrustAnchor } from "@/shared/lib/auth/share-participant-session-store";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
+import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import {
   assertKeyDirectoryEnvelope,
   type KeyDirectoryEnvelope,
@@ -38,8 +39,14 @@ export interface SharedDocumentAccess {
   keyVersion: number;
   encryptedKeyRefs: string[];
   workspaceKeyDirectoryCheckpoint?: KeyDirectoryEnvelope | null;
+  workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
+  workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
+  workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
+  workspacePinReady?: Promise<void>;
+  shareDekReady?: Promise<void>;
   verificationDirectory: ShareVerificationDirectory;
   shareTrustAnchor?: ShareSessionTrustAnchor | null;
+  initialDocument?: DocumentPayload | null;
 }
 
 export interface WorkspaceDocumentAccess {
@@ -52,11 +59,20 @@ const documentAccessRegistry = new Map<string, DocumentAccess>();
 
 type SharedDocumentAccessInput = Omit<
   SharedDocumentAccess,
-  "kind" | "source" | "workspacePinBootstrap" | "workspaceKeyDirectoryCheckpoint"
+  | "kind"
+  | "source"
+  | "workspacePinBootstrap"
+  | "workspaceKeyDirectoryCheckpoint"
+  | "workspaceKeyDirectoryLatestCheckpoint"
+  | "workspaceKeyDirectoryCheckpointAncestry"
+  | "workspaceKeyDirectoryEventAncestry"
 > & {
   source?: SharedDocumentAccess["source"];
   workspacePinBootstrap?: unknown;
   workspaceKeyDirectoryCheckpoint?: unknown;
+  workspaceKeyDirectoryLatestCheckpoint?: unknown;
+  workspaceKeyDirectoryCheckpointAncestry?: unknown;
+  workspaceKeyDirectoryEventAncestry?: unknown;
 };
 
 export function registerSharedDocumentAccess(
@@ -75,6 +91,18 @@ export function registerSharedDocumentAccess(
       access.workspaceKeyDirectoryCheckpoint,
       "workspace_key_directory_checkpoint_invalid",
     ),
+    workspaceKeyDirectoryLatestCheckpoint: optionalKeyDirectoryEnvelope(
+      access.workspaceKeyDirectoryLatestCheckpoint,
+      "workspace_key_directory_latest_checkpoint_invalid",
+    ),
+    workspaceKeyDirectoryCheckpointAncestry: optionalKeyDirectoryEnvelopeArray(
+      access.workspaceKeyDirectoryCheckpointAncestry,
+      "workspace_key_directory_checkpoint_ancestry_invalid",
+    ),
+    workspaceKeyDirectoryEventAncestry: optionalKeyDirectoryEnvelopeArray(
+      access.workspaceKeyDirectoryEventAncestry,
+      "workspace_key_directory_event_ancestry_invalid",
+    ),
   });
 }
 
@@ -92,6 +120,15 @@ function optionalWorkspacePinBootstrapEnvelope(
 ): WorkspacePinBootstrapEnvelope | null | undefined {
   if (value === undefined || value === null) return value;
   return assertWorkspacePinBootstrapEnvelope(value, code);
+}
+
+function optionalKeyDirectoryEnvelopeArray(
+  value: unknown,
+  code: string,
+): KeyDirectoryEnvelope[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(code);
+  return value.map((entry) => assertKeyDirectoryEnvelope(entry, code));
 }
 
 export function isLinkSharedDocumentAccess(access: DocumentAccess): access is SharedDocumentAccess {

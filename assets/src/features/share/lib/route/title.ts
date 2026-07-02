@@ -23,6 +23,7 @@ interface ResolveShareTitleOptions {
   workspaceId?: string | null;
   workspacePinBootstrapHash?: string | null;
   workspacePinBootstrap?: WorkspacePinBootstrapEnvelope | null;
+  allowDekUnwrap?: boolean;
 }
 
 function payloadDocumentId(payload: ShareTitlePayload): string {
@@ -47,6 +48,9 @@ export async function resolveShareTitle(
     payload.encrypted_title_nonce &&
     payload.encrypted_title_key_version != null
   ) {
+    if (options.allowDekUnwrap === false) {
+      return fallbackTitle(payload, options.fallback);
+    }
     const titleKeyVersion = payload.encrypted_title_key_version;
     const worker = getShareParticipantCryptoWorker(
       options.passwordKey ?? payload.share_slug ?? payload.share_id,

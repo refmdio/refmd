@@ -1,7 +1,6 @@
 import * as Y from "yjs";
 import {
   documentClockKey,
-  getNextClockForDevice,
 } from "@/shared/lib/anti-rollback/clock-observations";
 import { hasCompleteSnapshotPin } from "@/shared/lib/anti-rollback/document-state-pins";
 import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapshot-proof";
@@ -10,20 +9,25 @@ import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/cryp
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   documentOperationAuthorityBoundary,
+  rememberVerifiedDocumentOperationAdmission,
   resolveDocumentOperationSigningKeyFromAdmission,
+  resolveDocumentWriteSessionSigningKeyFromAdmission,
   verifyDocumentOperationAdmission,
   verifyDocumentOperationAdmissionAncestry,
+  verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
 import type {
   DocumentPayload,
   RemoteSnapshotPayload,
   UpdatePayload,
+  WriteSessionPayload,
 } from "@/shared/lib/ws/document-payloads";
 import {
   lookupCachedSigningKey,
   resolveSigningKey,
   type ResolveSigningKeyResult,
 } from "./inbound-signing-keys";
+import { notifyDocumentVerifiedContentPreviewReady } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { detectDocumentRollback, persistDocumentRollbackPin } from "./inbound-rollback";
 import { isRecoverableSyncGapError } from "./error";
@@ -34,17 +38,21 @@ import { rememberDocumentAdmissionCheckpoint } from "./outbound-admission";
 import { applyInitialPublicationState, queuePublicationAutoSync } from "./outbound-publication";
 import { setDocumentReadOnly } from "../../model/document-state/signals";
 import { recordSyncPerf } from "./perf";
+import { refreshAdmissionKeyDirectory } from "./admission-key-directory";
 import {
   checkRotationSnapshot,
   createRollbackAttackError,
   createSyncGapError,
   createVerificationFailedError,
   ensureDekCached,
+  rememberVerifiedWriteSessionAdmission,
   throwIfDocumentProcessingCancelled,
   verifyAndDecryptSingleUpdate,
   verifyAndDecryptUpdates,
   verifySnapshotProofChain,
+  writeSessionCacheKey,
 } from "./inbound-verify-decrypt";
+import { nextLocalClockForDevice } from "./local-clock";
 
 // ── Initial document load ────────────────────────────────────
 // Pattern: decrypt all async FIRST, then apply atomically in transact
@@ -54,6 +62,13 @@ export async function handleDocumentMessage(
   state: DocumentState,
   documentId: string,
 ): Promise<void> {
+  const startedAt = performance.now();
+  recordSyncPerf("initial_document_received", {
+    documentId,
+    hasSnapshot: payload.snapshot !== null,
+    updateCount: payload.updates.length,
+    latestVersion: payload.latestVersion,
+  });
   throwIfDocumentProcessingCancelled(state);
   applyInitialPublicationState(documentId, state, payload.publicState);
   if (typeof payload.authorityPermissionVersion === "number") {
@@ -64,6 +79,10 @@ export async function handleDocumentMessage(
   }
   const worker = getDocumentCryptoWorker(state);
   const pin = await detectDocumentRollback(payload, state, documentId);
+  recordSyncPerf("initial_rollback_checked", {
+    documentId,
+    elapsedMs: performance.now() - startedAt,
+  });
 
   // Decrypt snapshot before entering the transaction.
   let decryptedSnapshot: Uint8Array | null = null;
@@ -79,8 +98,20 @@ export async function handleDocumentMessage(
     const snap = payload.snapshot;
     throwIfDocumentProcessingCancelled(state);
 
+    recordSyncPerf("initial_snapshot_signing_key_start", {
+      documentId,
+      signingKeyId: snap.publicData.signingKeyId,
+      elapsedMs: performance.now() - startedAt,
+    });
     const { keyResult, admissionAncestryVerified } = await resolveSnapshotSigningKey(snap, state, {
       includeHistorical: true,
+    });
+    recordSyncPerf("initial_snapshot_signing_key_resolved", {
+      documentId,
+      signingKeyId: snap.publicData.signingKeyId,
+      status: keyResult.status,
+      admissionAncestryVerified,
+      elapsedMs: performance.now() - startedAt,
     });
     if (keyResult.status === "key_changed") {
       throw createVerificationFailedError(`TOFU key change: device ${keyResult.warning.deviceId}`);
@@ -100,6 +131,10 @@ export async function handleDocumentMessage(
     }
     // Signature verification is mandatory once the signing key is resolved.
     if (keyResult.status === "found") {
+      recordSyncPerf("initial_snapshot_signature_verify_start", {
+        documentId,
+        elapsedMs: performance.now() - startedAt,
+      });
       const valid = await verifyDocumentSnapshotSignature(
         snap,
         keyResult.key,
@@ -107,6 +142,11 @@ export async function handleDocumentMessage(
         worker,
         state.workspaceId,
       );
+      recordSyncPerf("initial_snapshot_signature_verified", {
+        documentId,
+        valid,
+        elapsedMs: performance.now() - startedAt,
+      });
       if (!valid) {
         throw createVerificationFailedError("Snapshot signature verification failed");
       }
@@ -114,12 +154,24 @@ export async function handleDocumentMessage(
     if (!payload.snapshotAdmissionEventHash) {
       throw createVerificationFailedError("Snapshot admission event hash missing");
     }
+    recordSyncPerf("initial_snapshot_proof_start", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+    });
     const snapshotProof = await computeReceivedSnapshotProof(
       worker,
       snap,
       payload.snapshotAdmissionEventHash,
     );
+    recordSyncPerf("initial_snapshot_proof_ready", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+    });
     try {
+      recordSyncPerf("initial_snapshot_admission_verify_start", {
+        documentId,
+        elapsedMs: performance.now() - startedAt,
+      });
       await verifyDocumentOperationAdmission({
         admission: snap.admission,
         eventType: "document_snapshot_accepted",
@@ -135,8 +187,13 @@ export async function handleDocumentMessage(
         await verifyDocumentOperationAdmissionAncestry({
           admission: snap.admission,
           workspaceId: state.workspaceId,
+          refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
         });
       }
+      recordSyncPerf("initial_snapshot_admission_verified", {
+        documentId,
+        elapsedMs: performance.now() - startedAt,
+      });
     } catch (err) {
       throw createVerificationFailedError(
         err instanceof Error ? err.message : "Snapshot admission verification failed",
@@ -193,16 +250,26 @@ export async function handleDocumentMessage(
         payload.snapshotAdmissionEventHash,
       );
     }
+    recordSyncPerf("initial_snapshot_verified", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+    });
 
     // Step 3d: AEAD decryption
     throwIfDocumentProcessingCancelled(state);
+    const snapshotCiphertext = base64UrlDecode(snap.ciphertext);
     await ensureDekCached(documentId, state.workspaceId, snap.publicData.keyVersion, state);
     decryptedSnapshot = await worker.decryptSnapshot({
-      ciphertext: base64UrlDecode(snap.ciphertext),
+      ciphertext: snapshotCiphertext,
       nonce: base64UrlDecode(snap.nonce),
       documentId,
       keyVersion: snap.publicData.keyVersion,
       cacheKey: getDocumentDekCacheKey(state, documentId),
+    });
+    recordSyncPerf("initial_snapshot_decrypted", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+      ciphertextBytes: snapshotCiphertext.byteLength,
     });
 
     snapshotMeta = {
@@ -240,6 +307,11 @@ export async function handleDocumentMessage(
       false,
       true,
     );
+    recordSyncPerf("initial_updates_verified", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+      updateCount: payload.updates.length,
+    });
   } catch (err) {
     // Rollback temporary state on verification failure
     state.activeSnapshotId = prevActiveSnapshotId;
@@ -278,6 +350,17 @@ export async function handleDocumentMessage(
   } finally {
     state._applyingRemote = false;
   }
+  recordSyncPerf("initial_document_applied", {
+    documentId,
+    elapsedMs: performance.now() - startedAt,
+    updateCount: payload.updates.length,
+  });
+  notifyDocumentVerifiedContentPreviewReady(state);
+  recordSyncPerf("initial_verified_content_preview_ready", {
+    documentId,
+    elapsedMs: performance.now() - startedAt,
+    updateCount: payload.updates.length,
+  });
 
   // Commit snapshot metadata after successful verification + application.
   if (snapshotMeta) {
@@ -314,6 +397,11 @@ export async function handleDocumentMessage(
     }
     state.snapshotUpdatesCount += payload.updates.length;
   }
+  recordSyncPerf("initial_saved_baseline_ready", {
+    documentId,
+    elapsedMs: performance.now() - startedAt,
+    updateCount: payload.updates.length,
+  });
   state.latestVersion = effectiveVersion;
 
   // Advance keyVersion to the highest version seen in initial data
@@ -334,7 +422,127 @@ export async function handleDocumentMessage(
   }
 
   state.initialized = true;
+  notifyDocumentVerifiedContentPreviewReady(state);
+  recordSyncPerf("initial_document_ready", {
+    documentId,
+    elapsedMs: performance.now() - startedAt,
+    updateCount: payload.updates.length,
+  });
   queuePublicationAutoSync(documentId, state);
+}
+
+export async function handleRemoteWriteSession(
+  payload: WriteSessionPayload,
+  state: DocumentState,
+  documentId: string,
+): Promise<void> {
+  if (!state.initialized) {
+    state._pendingRemoteEvents.push({ type: "write-session", payload });
+    return;
+  }
+
+  throwIfDocumentProcessingCancelled(state);
+  const cacheKey = writeSessionCacheKey(payload.publicData);
+  const pendingVerification = state.pendingVerifiedWriteSessions.get(cacheKey);
+  if (pendingVerification) {
+    return;
+  }
+  recordSyncPerf("write_session_broadcast_received", {
+    documentId,
+    signingKeyId: payload.publicData.signingKeyId,
+    writeSessionEventHash: payload.publicData.writeSessionEventHash,
+  });
+  const startedAt = performance.now();
+
+  const verification = (async () => {
+    recordSyncPerf("write_session_broadcast_ancestry_start", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+    });
+    await verifyDocumentOperationAdmissionAncestry({
+      admission: payload.admission,
+      workspaceId: state.workspaceId,
+      refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+    });
+    recordSyncPerf("write_session_broadcast_ancestry_ready", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+      elapsedMs: performance.now() - startedAt,
+    });
+    const admittedKey = resolveDocumentWriteSessionSigningKeyFromAdmission({
+      admission: payload.admission,
+      publicData: payload.publicData,
+    });
+    if (!admittedKey) {
+      throw new Error("write_session_signing_key_unresolved");
+    }
+    recordSyncPerf("write_session_broadcast_key_ready", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+      elapsedMs: performance.now() - startedAt,
+    });
+    state.signingKeys.set(payload.publicData.signingKeyId, admittedKey.key);
+    state.signingKeyOwners.set(payload.publicData.signingKeyId, admittedKey.actorUserId);
+    await verifyDocumentWriteSessionAdmission({
+      admission: payload.admission,
+      publicData: payload.publicData,
+      workspaceId: state.workspaceId,
+      documentId,
+      actorUserId: admittedKey.actorUserId,
+      allowPrewarmCounterZero: true,
+    });
+    recordSyncPerf("write_session_broadcast_admission_ready", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+      elapsedMs: performance.now() - startedAt,
+    });
+    rememberVerifiedDocumentOperationAdmission({
+      admission: payload.admission,
+      workspaceId: state.workspaceId,
+    });
+    await rememberVerifiedWriteSessionAdmission({
+      payload,
+      state,
+      documentId,
+      actorUserId: admittedKey.actorUserId,
+    });
+    recordSyncPerf("write_session_broadcast_cache_ready", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+      elapsedMs: performance.now() - startedAt,
+    });
+    rememberDocumentAdmissionCheckpoint(state, payload);
+    recordSyncPerf("write_session_broadcast_verified", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+      elapsedMs: performance.now() - startedAt,
+    });
+  })().catch((err) => {
+    const wrapped = createVerificationFailedError(
+      err instanceof Error ? err.message : "Write session broadcast verification failed",
+    );
+    recordSyncPerf("write_session_broadcast_failed", {
+      documentId,
+      signingKeyId: payload.publicData.signingKeyId,
+      writeSessionEventHash: payload.publicData.writeSessionEventHash,
+      error: wrapped.message,
+    });
+    throw wrapped;
+  });
+
+  state.pendingVerifiedWriteSessions.set(cacheKey, verification);
+  void verification
+    .finally(() => {
+      if (state.pendingVerifiedWriteSessions.get(cacheKey) !== verification) return;
+      state.pendingVerifiedWriteSessions.delete(cacheKey);
+    })
+    .catch(() => {});
 }
 
 // ── Remote update ────────────────────────────────────────────
@@ -344,6 +552,7 @@ export async function handleRemoteUpdate(
   state: DocumentState,
   documentId: string,
   localDeviceSigningKeyId?: string,
+  onDeferredVerificationFailed?: (err: unknown) => void,
 ): Promise<void> {
   const receivedAt = performance.now();
   recordSyncPerf("remote_update_received", {
@@ -364,7 +573,14 @@ export async function handleRemoteUpdate(
   // Verify and decrypt (single decryption — includes refSnapshotId + TOFU + signature)
   let result: Awaited<ReturnType<typeof verifyAndDecryptSingleUpdate>>;
   try {
-    result = await verifyAndDecryptSingleUpdate(payload, state, documentId);
+    result = await verifyAndDecryptSingleUpdate(
+      payload,
+      state,
+      documentId,
+      false,
+      false,
+      Boolean(onDeferredVerificationFailed),
+    );
   } catch (err) {
     if (isRecoverableSyncGapError(err)) {
       enqueueOutOfOrderUpdate(state, payload);
@@ -390,6 +606,26 @@ export async function handleRemoteUpdate(
     updateHash: payload.publicData.updateHash,
     elapsedMs: performance.now() - receivedAt,
   });
+  notifyRemoteContentReady(state, documentId);
+  if (result.startDeferredVerification) {
+    scheduleDeferredRemoteUpdateVerification(result.startDeferredVerification)
+      .then(() => {
+        recordSyncPerf("remote_update_deferred_hybrid_verified", {
+          documentId,
+          updateHash: payload.publicData.updateHash,
+          elapsedMs: performance.now() - receivedAt,
+        });
+      })
+      .catch((err) => {
+        recordSyncPerf("remote_update_deferred_hybrid_failed", {
+          documentId,
+          updateHash: payload.publicData.updateHash,
+          error: err instanceof Error ? err.message : String(err),
+          elapsedMs: performance.now() - receivedAt,
+        });
+        onDeferredVerificationFailed?.(err);
+      });
+  }
 
   // Update clocks
   state.knownClocks[result.deviceKey] = result.clock;
@@ -422,7 +658,53 @@ export async function handleRemoteUpdate(
     }
   }
 
+  void state.autoSync?.prepareWriteSession();
   await drainOutOfOrderUpdates(state, documentId, localDeviceSigningKeyId);
+}
+
+function scheduleDeferredRemoteUpdateVerification(start: () => Promise<void>): Promise<void> {
+  if (typeof window === "undefined") {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        start().then(resolve, reject);
+      }, 1_250);
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      start().then(resolve, reject);
+    };
+    const scheduleIdle =
+      window.requestIdleCallback ??
+      ((callback: IdleRequestCallback, options?: IdleRequestOptions) =>
+        window.setTimeout(
+          () =>
+            callback({
+              didTimeout: true,
+              timeRemaining: () => 0,
+            }),
+          options?.timeout ?? 1_250,
+        ));
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => {
+          scheduleIdle(run, { timeout: 1_250 });
+        }, 1_250);
+      });
+    });
+  });
+}
+
+function notifyRemoteContentReady(state: DocumentState, documentId: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("refmd:document-remote-content-ready", {
+      detail: {
+        documentId,
+        stateKey: state.stateKey,
+      },
+    }),
+  );
 }
 
 function enqueueOutOfOrderUpdate(state: DocumentState, payload: UpdatePayload): void {
@@ -520,6 +802,7 @@ export async function handleRemoteSnapshot(
 
   const worker = getDocumentCryptoWorker(state);
   const snap = payload.snapshot;
+  const previousActiveSnapshotId = state.activeSnapshotId;
   if (snap.publicData.snapshotId === state.activeSnapshotId) {
     return;
   }
@@ -593,6 +876,7 @@ export async function handleRemoteSnapshot(
       await verifyDocumentOperationAdmissionAncestry({
         admission: snap.admission,
         workspaceId: state.workspaceId,
+        refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
       });
     }
   } catch (err) {
@@ -617,12 +901,25 @@ export async function handleRemoteSnapshot(
     cacheKey: getDocumentDekCacheKey(state, documentId),
   });
 
+  if (state.activeSnapshotId !== previousActiveSnapshotId) {
+    if (snap.publicData.snapshotId === state.activeSnapshotId) return;
+    throw createSyncGapError(
+      `Remote snapshot: active snapshot changed during verification (expected=${previousActiveSnapshotId}, got=${state.activeSnapshotId})`,
+    );
+  }
+
+  const queuedBeforeSnapshot = state._pendingOutOfOrderUpdates;
+  const retainedQueuedUpdates = queuedBeforeSnapshot.filter(
+    (update) => update.publicData.refSnapshotId !== previousActiveSnapshotId,
+  );
+
   state._applyingRemote = true;
   try {
     Y.applyUpdateV2(state.yDoc, decrypted, "remote");
   } finally {
     state._applyingRemote = false;
   }
+  notifyRemoteContentReady(state, documentId);
 
   // Advance local keyVersion if remote uses a newer DEK
   if (snap.publicData.keyVersion > state.keyVersion) {
@@ -637,9 +934,9 @@ export async function handleRemoteSnapshot(
   state.snapshotBaseClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
   state.knownClocks = {};
   state.confirmedClocks = {};
-  state._pendingOutOfOrderUpdates = [];
+  state._pendingOutOfOrderUpdates = retainedQueuedUpdates;
   state.snapshotUpdatesCount = 0;
-  state.localClock = getNextClockForDevice(state.knownClocks, getLocalSigningKeyId(state));
+  state.localClock = nextLocalClockForDevice(state.knownClocks, state, getLocalSigningKeyId(state));
 
   // Build lastSavedState from server data only (not live Y.Doc which may have local edits)
   const serverDoc = new Y.Doc();
@@ -650,6 +947,8 @@ export async function handleRemoteSnapshot(
   // Persist anti-rollback pin
   persistDocumentRollbackPin(documentId, state);
   rememberDocumentAdmissionCheckpoint(state, payload.snapshot);
+  void state.autoSync?.prepareWriteSession();
+  await drainOutOfOrderUpdates(state, documentId, getLocalSigningKeyId(state) ?? undefined);
 }
 
 async function resolveSnapshotSigningKey(
@@ -669,6 +968,7 @@ async function resolveSnapshotSigningKey(
       await verifyDocumentOperationAdmissionAncestry({
         admission: snap.admission,
         workspaceId: state.workspaceId,
+        refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, state.documentId),
       });
       admissionAncestryVerified = true;
       const admittedKey = resolveDocumentOperationSigningKeyFromAdmission({

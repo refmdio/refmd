@@ -14,6 +14,7 @@ import type { EventRef } from "@/shared/lib/events";
 
 export function useOfflineSync(): void {
   let bgCacheCleanup: (() => void) | null = null;
+  let bgCacheWorkspaceId: string | null = null;
   let documentCreateRef: EventRef | null = null;
   let offlineWatchCleanup: (() => void) | null = null;
   let offlineWatchPending = false;
@@ -28,6 +29,7 @@ export function useOfflineSync(): void {
   function stopBackgroundCaching() {
     bgCacheCleanup?.();
     bgCacheCleanup = null;
+    bgCacheWorkspaceId = null;
   }
 
   function clearOfflineSyncTimer() {
@@ -73,33 +75,29 @@ export function useOfflineSync(): void {
       await waitForGlobalRateLimit();
       if (!isCurrentRun(workspaceId, generation)) return;
 
-      const remainingOfflineCreated = await syncOfflineCreatedDocuments().catch(() => {
+      const remainingOfflineCreated = await syncOfflineCreatedDocuments(workspaceId).catch(() => {
         // Per-document failures stay queued in IndexedDB, so dropping this aggregate rejection is
         // safe: the next scheduled sync run will retry the unsynced offline-created documents.
         return 1;
       });
-      if (remainingOfflineCreated > 0 && isCurrentRun(workspaceId, generation)) {
-        scheduleOfflineSync(5_000);
-      }
       if (!isCurrentRun(workspaceId, generation)) return;
 
+      let memberDistributionFailed = false;
       await distributeWorkspaceMemberEnvelopes(workspaceId).catch(() => {
+        memberDistributionFailed = true;
         // Missing member envelopes are retried by the next scheduled sync pass.
       });
       if (!isCurrentRun(workspaceId, generation)) return;
-      scheduleOfflineSync(10_000);
 
-      await syncPendingDocuments(workspaceId);
+      const pendingSyncAttempts = await syncPendingDocuments(workspaceId);
       if (!isCurrentRun(workspaceId, generation)) return;
 
-      stopBackgroundCaching();
-      const { startBackgroundCaching } = await import("@/shared/lib/offline/cache/background");
-      if (!isCurrentRun(workspaceId, generation)) return;
-      bgCacheCleanup = startBackgroundCaching(
-        workspaceId,
-        buildDeviceKeyCaches,
-        getKekResolverSession,
-      );
+      await ensureBackgroundCaching(workspaceId, generation);
+      if (remainingOfflineCreated > 0) {
+        scheduleOfflineSync(5_000);
+      } else if (pendingSyncAttempts > 0 || memberDistributionFailed) {
+        scheduleOfflineSync(10_000);
+      }
     } catch (error) {
       const retryMs = getRateLimitRetryMs(error);
       if (retryMs !== null && isCurrentRun(workspaceId, generation)) {
@@ -139,6 +137,9 @@ export function useOfflineSync(): void {
   async function runOfflineCreatedReconnectSync(): Promise<void> {
     if (disposed) return;
     if (!cryptoWorkerReady()) return;
+    const { getAllOfflineCreated } = await import("@/shared/lib/offline/storage/store");
+    const entries = await getAllOfflineCreated().catch(() => []);
+    if (!entries.some((entry) => !entry.syncBlockedReason)) return;
     if (!(await canReachServer())) return;
     const { waitForGlobalRateLimit } = await import("@/shared/api/core");
     await waitForGlobalRateLimit();
@@ -158,6 +159,56 @@ export function useOfflineSync(): void {
       offlineSyncTimer = null;
       void runOfflineSync(generation);
     }, delayMs);
+  }
+
+  async function scheduleInitialOfflineSyncIfNeeded(
+    workspaceId: string,
+    generation: number,
+  ): Promise<void> {
+    const [{ getAllOfflineCreated, getAllPendingChanges }, { resolvePendingSyncTarget }] =
+      await Promise.all([
+        import("@/shared/lib/offline/storage/store"),
+        import("@/features/editor/lib/offline/pending-sync"),
+      ]);
+    if (!isCurrentRun(workspaceId, generation)) return;
+
+    const [offlineCreated, pendingChanges] = await Promise.all([
+      getAllOfflineCreated().catch(() => []),
+      getAllPendingChanges().catch(() => []),
+    ]);
+    if (!isCurrentRun(workspaceId, generation)) return;
+
+    const hasOfflineCreated = offlineCreated.some(
+      (entry) => entry.workspaceId === workspaceId && !entry.syncBlockedReason,
+    );
+    if (hasOfflineCreated) {
+      scheduleOfflineSync();
+      return;
+    }
+
+    for (const entry of pendingChanges) {
+      if (entry.syncBlockedReason) continue;
+      const target = await resolvePendingSyncTarget(entry.documentId).catch(() => null);
+      if (!isCurrentRun(workspaceId, generation)) return;
+      if (target?.workspaceId === workspaceId) {
+        scheduleOfflineSync();
+        return;
+      }
+    }
+  }
+
+  async function ensureBackgroundCaching(workspaceId: string, generation: number): Promise<void> {
+    if (bgCacheCleanup && bgCacheWorkspaceId === workspaceId) return;
+
+    stopBackgroundCaching();
+    const { startBackgroundCaching } = await import("@/shared/lib/offline/cache/background");
+    if (!isCurrentRun(workspaceId, generation)) return;
+    bgCacheCleanup = startBackgroundCaching(
+      workspaceId,
+      buildDeviceKeyCaches,
+      getKekResolverSession,
+    );
+    bgCacheWorkspaceId = workspaceId;
   }
 
   function ensureOfflineWatch() {
@@ -199,6 +250,7 @@ export function useOfflineSync(): void {
 
   if (!documentCreateRef) {
     documentCreateRef = documentEvents.on("document-create", () => {
+      stopBackgroundCaching();
       scheduleOfflineSync(1_000);
     });
   }
@@ -223,7 +275,7 @@ export function useOfflineSync(): void {
     if (!workspaceId || !workerReady || disposed) return;
 
     ensureOfflineWatch();
-    scheduleOfflineSync();
+    void scheduleInitialOfflineSyncIfNeeded(workspaceId, syncGeneration);
   });
 
   onCleanup(() => {

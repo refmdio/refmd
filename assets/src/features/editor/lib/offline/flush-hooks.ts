@@ -3,6 +3,8 @@ import type { DocumentState } from "../../model/document-state/types";
 import { flushDocumentCache } from "@/shared/lib/offline/cache/manager/write";
 import { onOfflineModeChange } from "@/shared/lib/offline/offline-state";
 import { registerBeforeSessionCleanup } from "@/shared/lib/auth/session-cleanup";
+import { getDocumentCryptoWorker } from "../sync/crypto-worker";
+import { getDocumentDekCacheKey } from "../sync/share-access";
 
 const LOGOUT_SAVE_WAIT_MS = 12_000;
 const SAVE_IDLE_POLL_MS = 100;
@@ -10,7 +12,14 @@ const SAVE_IDLE_POLL_MS = 100;
 function flushAllActive(): void {
   const states = getAllActiveDocumentStates();
   for (const [documentId, state] of states) {
-    flushDocumentCache(documentId, state.workspaceId, state);
+    const options =
+      state.access.kind === "share"
+        ? {
+            worker: getDocumentCryptoWorker(state),
+            cacheKey: getDocumentDekCacheKey(state, documentId),
+          }
+        : undefined;
+    flushDocumentCache(documentId, state.workspaceId, state, options);
   }
 }
 

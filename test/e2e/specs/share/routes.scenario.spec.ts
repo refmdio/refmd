@@ -1,4 +1,11 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Page,
+  type WebSocketRoute,
+} from "@playwright/test";
 import { registerAccount } from "../../support/auth";
 import { newE2EContext } from "../../support/context";
 import {
@@ -34,6 +41,42 @@ let documentToken: string;
 
 function shareDocumentRouteRegex(token: string): RegExp {
   return new RegExp(`/share/d/${token}(?:#s=[A-Za-z0-9_-]{22})?$`);
+}
+
+async function expectNoVisibleShareRouteError(page: Page): Promise<void> {
+  const bodyText = await page.locator("body").innerText({ timeout: 10_000 });
+  expect(bodyText).not.toContain("Share document not found.");
+  expect(bodyText).not.toContain("Share not found.");
+  expect(bodyText).not.toContain("Invalid share document route.");
+  expect(bodyText).not.toContain("Invalid share link.");
+}
+
+async function expectInvalidShareLinkWithoutDocumentNotFound(page: Page): Promise<void> {
+  await expect(page.getByText("Invalid share link.")).toBeVisible({ timeout: 30_000 });
+  const bodyText = await page.locator("body").innerText({ timeout: 10_000 });
+  expect(bodyText).not.toContain("Share document not found.");
+  expect(bodyText).not.toContain("Share not found.");
+}
+
+async function expectSharedDocumentWorkspaceOpen(
+  page: Page,
+  title: string,
+  message: string,
+): Promise<void> {
+  await expectNoVisibleShareRouteError(page);
+  await expect
+    .poll(() => page.locator("body").innerText(), {
+      timeout: 30_000,
+      message: `${message}: shared title was not visible`,
+    })
+    .toContain(title);
+  await expect
+    .poll(() => page.locator("[data-panel-id], .cm-content, .ProseMirror").count(), {
+      timeout: 30_000,
+      message,
+    })
+    .toBeGreaterThan(0);
+  await expectNoVisibleShareRouteError(page);
 }
 
 async function currentDocumentId(page: Page): Promise<string> {
@@ -145,6 +188,15 @@ async function countSpinnerVisibilityFlips(page: Page, durationMs: number): Prom
   }, durationMs);
 }
 
+function isUserLifecycleRequestPath(path: string): boolean {
+  return (
+    path === "/api/auth/me" ||
+    path === "/api/devices" ||
+    path.startsWith("/api/devices/registrations") ||
+    path.startsWith("/api/security/notifications")
+  );
+}
+
 test.describe.serial("Share Route Session Coexistence", () => {
   test.beforeAll(async ({ browser }) => {
     sharedContext = await newE2EContext(browser, {
@@ -185,12 +237,16 @@ test.describe.serial("Share Route Session Coexistence", () => {
 
     await test.step("landing route redirects to canonical route with share-scoped requests and keeps both cookies", async () => {
       const landingHeaders: Array<string | undefined> = [];
+      const landingBootstrapHeaders: Array<string | undefined> = [];
       const canonicalRequests: Array<{ path: string; scope: string | undefined }> = [];
 
       sharePage.on("request", (request) => {
         const path = new URL(request.url()).pathname;
         if (path === `/api/shares/${shareSlug}`) {
           landingHeaders.push(request.headers()["x-refmd-session-scope"]);
+        }
+        if (path === `/api/shares/${shareSlug}/bootstrap`) {
+          landingBootstrapHeaders.push(request.headers()["x-refmd-session-scope"]);
         }
         if (path.startsWith("/api/shares/d/")) {
           canonicalRequests.push({
@@ -213,17 +269,11 @@ test.describe.serial("Share Route Session Coexistence", () => {
       expect(canonicalUrl.hash).not.toContain("wpb=");
       const redirectedDocumentToken = new URL(sharePage.url()).pathname.split("/").at(-1) ?? "";
       expect(redirectedDocumentToken).toBe(documentToken);
-      await expect(
-        sharePage.locator("aside").getByText("Shared Route Doc", { exact: true }),
-      ).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect
-        .poll(() => sharePage.locator("[data-panel-id], .cm-content, .ProseMirror").count(), {
-          timeout: 30_000,
-          message: "shared document did not open in the mosaic workspace",
-        })
-        .toBeGreaterThan(0);
+      await expectSharedDocumentWorkspaceOpen(
+        sharePage,
+        "Shared Route Doc",
+        "shared document did not open in the mosaic workspace",
+      );
 
       await expect
         .poll(() => landingHeaders.length, {
@@ -234,20 +284,26 @@ test.describe.serial("Share Route Session Coexistence", () => {
 
       await expect
         .poll(
-          () => canonicalRequests.some((entry) => entry.path === `/api/shares/d/${documentToken}`),
+          () =>
+            landingBootstrapHeaders.length > 0 ||
+            canonicalRequests.some((entry) => entry.path === `/api/shares/d/${documentToken}`),
           {
             timeout: 10_000,
-            message: "share canonical request was not observed",
+            message: "share bootstrap or canonical request was not observed",
           },
         )
         .toBe(true);
 
-      expect(landingHeaders).toContain("share");
-      expect(
-        canonicalRequests
+      const routeScopes = [
+        ...landingHeaders,
+        ...landingBootstrapHeaders,
+        ...canonicalRequests
           .filter((entry) => entry.path === `/api/shares/d/${documentToken}`)
           .map((entry) => entry.scope),
-      ).toContain("share");
+      ];
+      expect(routeScopes).toContain("share");
+      expect(routeScopes).not.toContain("user");
+      expect(routeScopes).not.toContain(undefined);
 
       const cookies = await sharedContext.cookies();
       expect(cookies.some((cookie) => cookie.name === "_refmd_session")).toBe(true);
@@ -258,150 +314,300 @@ test.describe.serial("Share Route Session Coexistence", () => {
     });
 
     await test.step("canonical share route survives reload with share-scoped bootstrap", async () => {
+      const canonicalHeaders: Array<string | undefined> = [];
 
-    const canonicalHeaders: Array<string | undefined> = [];
+      sharePage.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (path === `/api/shares/d/${documentToken}`) {
+          canonicalHeaders.push(request.headers()["x-refmd-session-scope"]);
+        }
+      });
 
-    sharePage.on("request", (request) => {
-      const path = new URL(request.url()).pathname;
-      if (path === `/api/shares/d/${documentToken}`) {
-        canonicalHeaders.push(request.headers()["x-refmd-session-scope"]);
+      await sharePage.goto(`/share/d/${documentToken}#s=${shareSlug}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(sharePage).toHaveURL(shareDocumentRouteRegex(documentToken), {
+        timeout: 30_000,
+      });
+      await expectSharedDocumentWorkspaceOpen(
+        sharePage,
+        "Shared Route Doc",
+        "canonical share document route did not open before reload",
+      );
+
+      await sharePage.reload({ waitUntil: "domcontentloaded" });
+      await expect(sharePage).toHaveURL(shareDocumentRouteRegex(documentToken), {
+        timeout: 30_000,
+      });
+      await expectSharedDocumentWorkspaceOpen(
+        sharePage,
+        "Shared Route Doc",
+        "canonical share document route did not reopen after reload",
+      );
+
+      await sharePage.evaluate((token) => {
+        window.history.replaceState({}, "", `/share/d/${token}`);
+      }, documentToken);
+      await sharePage.reload({ waitUntil: "domcontentloaded" });
+
+      await expect(sharePage).toHaveURL(shareDocumentRouteRegex(documentToken), {
+        timeout: 30_000,
+      });
+      await expectSharedDocumentWorkspaceOpen(
+        sharePage,
+        "Shared Route Doc",
+        "hash-stripped canonical share document reload did not recover from stored session",
+      );
+
+      await expect
+        .poll(() => canonicalHeaders.length, {
+          timeout: 10_000,
+          message: "share canonical request on reload was not observed",
+        })
+        .toBeGreaterThan(0);
+
+      expect(canonicalHeaders).toContain("share");
+    });
+
+    await test.step("logged-in direct share access does not start user session lifecycle", async () => {
+      const loggedInSharePage = await sharedContext.newPage();
+      const userLifecycleRequests: string[] = [];
+      const userScopedPopChallenges: Array<string | undefined> = [];
+
+      loggedInSharePage.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (isUserLifecycleRequestPath(path)) {
+          userLifecycleRequests.push(path);
+        }
+        if (path === "/api/auth/pop-challenge") {
+          const scope = request.headers()["x-refmd-session-scope"];
+          if (scope !== "share") userScopedPopChallenges.push(scope);
+        }
+      });
+
+      try {
+        await loggedInSharePage.goto(`/share/d/${documentToken}#s=${shareSlug}`, {
+          waitUntil: "domcontentloaded",
+        });
+        await expect(loggedInSharePage).toHaveURL(shareDocumentRouteRegex(documentToken), {
+          timeout: 30_000,
+        });
+        await expectSharedDocumentWorkspaceOpen(
+          loggedInSharePage,
+          "Shared Route Doc",
+          "logged-in share direct route did not remain on the share workspace",
+        );
+
+        await loggedInSharePage.waitForTimeout(E2E_DELAYS.routeSettle);
+        expect(userLifecycleRequests).toEqual([]);
+        expect(userScopedPopChallenges).toEqual([]);
+      } finally {
+        await loggedInSharePage.close();
       }
-    });
-
-    await sharePage.evaluate(() => {
-      window.history.replaceState({}, "", window.location.pathname);
-    });
-    await sharePage.reload({ waitUntil: "domcontentloaded" });
-
-    await expect(sharePage).toHaveURL(shareDocumentRouteRegex(documentToken), {
-      timeout: 30_000,
-    });
-
-    await expect
-      .poll(() => canonicalHeaders.length, {
-        timeout: 10_000,
-        message: "share canonical request on reload was not observed",
-      })
-      .toBeGreaterThan(0);
-
-    expect(canonicalHeaders).toContain("share");
     });
 
     await test.step("anonymous canonical share route uses share-scoped auth transport", async () => {
-    const anonymousContext = await newE2EContext(browser, {
-      bypassCSP: true,
-      acceptDownloads: true,
-    });
-    const anonymousPage = await anonymousContext.newPage();
-    const authMeRequests: string[] = [];
-    const popChallengeScopes: Array<string | undefined> = [];
-    const wsTokenScopes: Array<string | undefined> = [];
+      const anonymousContext = await newE2EContext(browser, {
+        bypassCSP: true,
+        acceptDownloads: true,
+      });
+      const anonymousPage = await anonymousContext.newPage();
+      const authMeRequests: string[] = [];
+      const popChallengeScopes: Array<string | undefined> = [];
+      const wsTokenScopes: Array<string | undefined> = [];
 
-    anonymousPage.on("request", (request) => {
-      const path = new URL(request.url()).pathname;
-      if (path === "/api/auth/me") authMeRequests.push(path);
-      if (path === "/api/auth/pop-challenge") {
-        popChallengeScopes.push(request.headers()["x-refmd-session-scope"]);
-      }
-      if (path === "/api/auth/ws-token") {
-        wsTokenScopes.push(request.headers()["x-refmd-session-scope"]);
-      }
-    });
-
-    try {
-      await anonymousPage.goto(`/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`, {
-        waitUntil: "domcontentloaded",
+      anonymousPage.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (path === "/api/auth/me") authMeRequests.push(path);
+        if (path === "/api/auth/pop-challenge") {
+          popChallengeScopes.push(request.headers()["x-refmd-session-scope"]);
+        }
+        if (path === "/api/auth/ws-token") {
+          wsTokenScopes.push(request.headers()["x-refmd-session-scope"]);
+        }
       });
 
-      await expect(anonymousPage).toHaveURL(shareDocumentRouteRegex(documentToken), {
-        timeout: 30_000,
-      });
-      await expect(
-        anonymousPage.locator("aside").getByText("Shared Route Doc", { exact: true }),
-      ).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect
-        .poll(() => anonymousPage.locator("[data-panel-id]").count(), {
+      try {
+        await anonymousPage.goto(
+          `/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`,
+          {
+            waitUntil: "domcontentloaded",
+          },
+        );
+
+        await expect(anonymousPage).toHaveURL(shareDocumentRouteRegex(documentToken), {
           timeout: 30_000,
-          message: "anonymous shared document did not open in the mosaic workspace",
-        })
-        .toBeGreaterThan(0);
+        });
+        await expectSharedDocumentWorkspaceOpen(
+          anonymousPage,
+          "Shared Route Doc",
+          "anonymous shared document did not open in the mosaic workspace",
+        );
 
-      const spinnerFlips = await countSpinnerVisibilityFlips(anonymousPage, 3_000);
-      expect(spinnerFlips).toBeLessThanOrEqual(1);
+        const spinnerFlips = await countSpinnerVisibilityFlips(anonymousPage, 3_000);
+        expect(spinnerFlips).toBeLessThanOrEqual(1);
 
-      await anonymousPage.waitForTimeout(E2E_DELAYS.routeSettle);
-      expect(authMeRequests.length).toBeLessThanOrEqual(2);
-      expect(popChallengeScopes).not.toContain(undefined);
-      expect(popChallengeScopes).not.toContain("user");
-      expect(wsTokenScopes).not.toContain(undefined);
-      expect(wsTokenScopes).not.toContain("user");
-    } finally {
-      await anonymousContext.close();
-    }
+        await anonymousPage.waitForTimeout(E2E_DELAYS.routeSettle);
+        expect(authMeRequests.length).toBeLessThanOrEqual(2);
+        expect(popChallengeScopes).not.toContain(undefined);
+        expect(popChallengeScopes).not.toContain("user");
+        expect(wsTokenScopes).not.toContain(undefined);
+        expect(wsTokenScopes).not.toContain("user");
+      } finally {
+        await anonymousContext.close();
+      }
     });
 
     await test.step("canonical direct access without a share session bootstraps and recovers", async () => {
-    const reentryContext = await newE2EContext(browser, {
-      bypassCSP: true,
-      acceptDownloads: true,
-    });
-    const reentryPage = await reentryContext.newPage();
-    const landingBootstrapPaths: string[] = [];
-    const documentBootstrapPaths: string[] = [];
-    const canonicalPaths: string[] = [];
+      const reentryContext = await newE2EContext(browser, {
+        bypassCSP: true,
+        acceptDownloads: true,
+      });
+      const reentryPage = await reentryContext.newPage();
+      const landingBootstrapPaths: string[] = [];
+      const documentBootstrapPaths: string[] = [];
+      const canonicalPaths: string[] = [];
 
-    reentryPage.on("request", (request) => {
-      const path = new URL(request.url()).pathname;
-      if (path === `/api/shares/${shareSlug}/bootstrap`) {
-        landingBootstrapPaths.push(path);
-      }
-      if (path === `/api/shares/d/${documentToken}/bootstrap`) {
-        documentBootstrapPaths.push(path);
-      }
-      if (path === `/api/shares/d/${documentToken}`) {
-        canonicalPaths.push(path);
-      }
-    });
-
-    try {
-      await reentryPage.goto(`/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`, {
-        waitUntil: "domcontentloaded",
+      reentryPage.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (path === `/api/shares/${shareSlug}/bootstrap`) {
+          landingBootstrapPaths.push(path);
+        }
+        if (path === `/api/shares/d/${documentToken}/bootstrap`) {
+          documentBootstrapPaths.push(path);
+        }
+        if (path === `/api/shares/d/${documentToken}`) {
+          canonicalPaths.push(path);
+        }
       });
 
-      await expect(reentryPage).toHaveURL(shareDocumentRouteRegex(documentToken), {
-        timeout: 30_000,
-      });
+      try {
+        await reentryPage.goto(
+          `/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`,
+          {
+            waitUntil: "domcontentloaded",
+          },
+        );
 
-      await expect
-        .poll(() => canonicalPaths.length, {
-          timeout: 10_000,
-          message: "canonical direct-access request was not observed",
-        })
-        .toBeGreaterThan(0);
-
-      await expect
-        .poll(() => landingBootstrapPaths.length + documentBootstrapPaths.length, {
-          timeout: 10_000,
-          message: "canonical re-entry bootstrap request was not observed",
-        })
-        .toBeGreaterThan(0);
-
-      await expect(
-        reentryPage.locator("aside").getByText("Shared Route Doc", { exact: true }),
-      ).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect
-        .poll(() => reentryPage.locator("[data-panel-id]").count(), {
+        await expect(reentryPage).toHaveURL(shareDocumentRouteRegex(documentToken), {
           timeout: 30_000,
-          message: "canonical re-entry did not open the shared document",
-        })
-        .toBeGreaterThan(0);
-    } finally {
-      await reentryContext.close();
-    }
+        });
+
+        await expect
+          .poll(() => canonicalPaths.length, {
+            timeout: 10_000,
+            message: "canonical direct-access request was not observed",
+          })
+          .toBeGreaterThan(0);
+
+        await expect
+          .poll(() => landingBootstrapPaths.length + documentBootstrapPaths.length, {
+            timeout: 10_000,
+            message: "canonical re-entry bootstrap request was not observed",
+          })
+          .toBeGreaterThan(0);
+
+        await expectSharedDocumentWorkspaceOpen(
+          reentryPage,
+          "Shared Route Doc",
+          "canonical re-entry did not open the shared document",
+        );
+      } finally {
+        await reentryContext.close();
+      }
+    });
+
+    await test.step("canonical direct access renders workspace chrome while document sync is delayed", async () => {
+      const delayedContext = await newE2EContext(browser, {
+        bypassCSP: true,
+        acceptDownloads: true,
+      });
+      const delayedSockets: WebSocketRoute[] = [];
+      const delayedPage = await delayedContext.newPage();
+      await delayedPage.routeWebSocket(
+        (url) => url.pathname.startsWith("/api/socket"),
+        (socket) => {
+          delayedSockets.push(socket);
+        },
+      );
+
+      try {
+        await delayedPage.goto(
+          `/share/d/${documentToken}#cap=${shareCap}&wpb=${shareWpb}&s=${shareSlug}`,
+          {
+            waitUntil: "domcontentloaded",
+          },
+        );
+
+        await expect(delayedPage).toHaveURL(shareDocumentRouteRegex(documentToken), {
+          timeout: 30_000,
+        });
+        await expect(delayedPage.getByText("Shared", { exact: true })).toBeVisible({
+          timeout: 5_000,
+        });
+        await expect(delayedPage.getByText("Shared Route Doc", { exact: true }).first()).toBeVisible(
+          {
+            timeout: 5_000,
+          },
+        );
+        await expectNoVisibleShareRouteError(delayedPage);
+        await expect
+          .poll(() => delayedSockets.length, {
+            timeout: 15_000,
+            message: "delayed share document websocket connection was not observed",
+          })
+          .toBeGreaterThan(0);
+      } finally {
+        await Promise.allSettled(
+          delayedSockets.map((socket) => socket.close({ code: 1001 })),
+        );
+        await delayedContext.close();
+      }
+    });
+
+    await test.step("canonical direct access without bootstrap material does not render document-not-found", async () => {
+      const noMaterialContext = await newE2EContext(browser, {
+        bypassCSP: true,
+        acceptDownloads: true,
+      });
+      const noMaterialPage = await noMaterialContext.newPage();
+
+      try {
+        await noMaterialPage.goto(`/share/d/${documentToken}#s=${shareSlug}`, {
+          waitUntil: "domcontentloaded",
+        });
+
+        await expect(noMaterialPage).toHaveURL(
+          new RegExp(`/share/${shareSlug}#s=${shareSlug}$`),
+          {
+            timeout: 30_000,
+          },
+        );
+        await expectInvalidShareLinkWithoutDocumentNotFound(noMaterialPage);
+      } finally {
+        await noMaterialContext.close();
+      }
+    });
+
+    await test.step("canonical direct access without share slug does not render document-not-found", async () => {
+      const noSlugContext = await newE2EContext(browser, {
+        bypassCSP: true,
+        acceptDownloads: true,
+      });
+      const noSlugPage = await noSlugContext.newPage();
+
+      try {
+        await noSlugPage.goto(`/share/d/${documentToken}`, {
+          waitUntil: "domcontentloaded",
+        });
+
+        await expect(noSlugPage).toHaveURL(new RegExp(`/share/d/${documentToken}$`), {
+          timeout: 30_000,
+        });
+        await expectInvalidShareLinkWithoutDocumentNotFound(noSlugPage);
+      } finally {
+        await noSlugContext.close();
+      }
     });
 
     await test.step("protected share landing prompts for a password and submits the unlock challenge", async () => {

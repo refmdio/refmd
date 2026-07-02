@@ -58,7 +58,7 @@ interface PluginRuntimeDescriptorEnvelope {
 interface PluginRuntimeDescriptorListEnvelope {
   applications?: readonly PluginRuntimeDescriptorEnvelope[];
 }
-const PLUGIN_RUNTIME_APPLICATION_REFRESH_MS = 15_000;
+const PLUGIN_RUNTIME_APPLICATION_REFRESH_MS = 120_000;
 export const PLUGIN_RUNTIME_APPLICATION_REFRESH_EVENT = "refmd-plugin-runtime-applications-refresh";
 
 interface PluginRuntimeDebugState {
@@ -92,17 +92,24 @@ type PluginRuntimeInvalidationRouter = Pick<
   | "closeByWorkspace"
 >;
 
+interface PluginRuntimeApplicationsOptions {
+  enabled?: Accessor<boolean>;
+}
+
 export function usePluginRuntimeApplications(
   workspaceId: Accessor<string | null>,
   router?: PluginHostMessageRouter,
   runtimeBoundary?: PluginRuntimeBoundaryInvalidationSink,
+  options: PluginRuntimeApplicationsOptions = {},
 ): Accessor<readonly PluginRuntimeApplicationDescriptor[]> {
+  const enabled = () => options.enabled?.() ?? true;
   let lastDebugIdentity: { workspaceId: string; userId: string; deviceId: string } | null = null;
   let lastDebugApplications: readonly PluginRuntimeApplicationDescriptor[] = [];
   let lastDebugError: unknown = null;
   let sessionCleanupActive = false;
   let sessionCleanupGeneration = 0;
   const runtimeIdentity = createMemo(() => {
+    if (!enabled()) return null;
     const currentWorkspaceId = workspaceId();
     const identity = currentPluginRuntimeIdentity();
     return currentWorkspaceId && identity
@@ -169,9 +176,10 @@ export function usePluginRuntimeApplications(
     { order: -90 },
   );
   const refreshTimer = setInterval(() => {
-    if (runtimeIdentity()) void refetch();
+    if (enabled() && runtimeIdentity()) void refetch();
   }, PLUGIN_RUNTIME_APPLICATION_REFRESH_MS);
   const refreshListener = (event: Event) => {
+    if (!enabled()) return;
     const currentWorkspaceId = workspaceId();
     if (!currentWorkspaceId || !runtimeIdentity()) return;
     const detail =
@@ -191,9 +199,16 @@ export function usePluginRuntimeApplications(
   });
 
   if (router) {
-    retainPluginRuntimeSecurityNotifications(workspaceId, router, runtimeBoundary, () => {
-      if (workspaceId()) void refetch();
-    });
+    retainPluginRuntimeSecurityNotifications(
+      workspaceId,
+      router,
+      runtimeBoundary,
+      () => {
+        if (enabled() && workspaceId()) void refetch();
+      },
+      enabled,
+      () => (resource() ?? []).length > 0,
+    );
   }
 
   return () => resource() ?? [];
@@ -293,6 +308,8 @@ function retainPluginRuntimeSecurityNotifications(
   router: PluginHostMessageRouter,
   runtimeBoundary: PluginRuntimeBoundaryInvalidationSink | undefined,
   refetch: () => void,
+  enabled: Accessor<boolean>,
+  active: Accessor<boolean>,
 ): void {
   let generation = 0;
   let disposeCurrent: (() => void) | null = null;
@@ -301,6 +318,10 @@ function retainPluginRuntimeSecurityNotifications(
     generation += 1;
     const currentGeneration = generation;
     disposeCurrent?.();
+    if (!enabled() || !active()) {
+      disposeCurrent = null;
+      return;
+    }
     const currentWorkspaceId = workspaceId();
     const currentDeviceId = deviceState()?.deviceId ?? null;
     if (!currentWorkspaceId) {

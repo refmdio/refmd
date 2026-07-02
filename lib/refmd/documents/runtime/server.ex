@@ -15,6 +15,7 @@ defmodule RefMD.Documents.Runtime.Server do
     :active_snapshot_id,
     :clocks,
     :idle_timer_ref,
+    write_sessions: %{},
     connections: MapSet.new()
   ]
 
@@ -23,6 +24,7 @@ defmodule RefMD.Documents.Runtime.Server do
           active_snapshot_id: String.t() | nil,
           clocks: map(),
           idle_timer_ref: reference() | nil,
+          write_sessions: map(),
           connections: MapSet.t(pid())
         }
 
@@ -54,6 +56,16 @@ defmodule RefMD.Documents.Runtime.Server do
   @spec unregister_connection(String.t(), pid()) :: :ok
   def unregister_connection(document_id, channel_pid) do
     GenServer.cast(via(document_id), {:unregister_connection, channel_pid})
+  end
+
+  @spec record_write_session(String.t(), map(), integer()) :: :ok
+  def record_write_session(document_id, payload, expires_at_ms) do
+    GenServer.call(via(document_id), {:record_write_session, payload, expires_at_ms})
+  end
+
+  @spec active_write_sessions(String.t()) :: [map()]
+  def active_write_sessions(document_id) do
+    GenServer.call(via(document_id), :active_write_sessions)
   end
 
   @spec get_state(String.t()) :: {String.t() | nil, map()}
@@ -104,6 +116,35 @@ defmodule RefMD.Documents.Runtime.Server do
     {:reply, {state.active_snapshot_id, state.clocks}, state}
   end
 
+  def handle_call(:active_write_sessions, _from, state) do
+    state = prune_expired_write_sessions(state)
+
+    {:reply,
+     Enum.map(state.write_sessions, fn {_event_hash, {payload, _expires_at_ms}} -> payload end),
+     state}
+  end
+
+  def handle_call({:record_write_session, payload, expires_at_ms}, _from, state) do
+    state = prune_expired_write_sessions(state)
+
+    event_hash =
+      get_in(payload, [:publicData, "writeSessionEventHash"]) ||
+        get_in(payload, ["publicData", "writeSessionEventHash"])
+
+    state =
+      if is_binary(event_hash) and is_integer(expires_at_ms) and
+           expires_at_ms > System.system_time(:millisecond) do
+        %{
+          state
+          | write_sessions: Map.put(state.write_sessions, event_hash, {payload, expires_at_ms})
+        }
+      else
+        state
+      end
+
+    {:reply, :ok, state}
+  end
+
   @impl true
   def handle_cast({:update_clocks, authority_context_key, signing_key_id, clock}, state) do
     clocks = Map.put(state.clocks, "#{authority_context_key}:#{signing_key_id}", clock)
@@ -144,6 +185,17 @@ defmodule RefMD.Documents.Runtime.Server do
       active_snapshot_id: snapshot && snapshot.id,
       clocks: (snapshot && snapshot.clocks) || %{}
     }
+  end
+
+  defp prune_expired_write_sessions(state) do
+    now = System.system_time(:millisecond)
+
+    write_sessions =
+      state.write_sessions
+      |> Enum.reject(fn {_event_hash, {_payload, expires_at_ms}} -> expires_at_ms <= now end)
+      |> Map.new()
+
+    %{state | write_sessions: write_sessions}
   end
 
   defp via(document_id) do

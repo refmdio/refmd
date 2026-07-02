@@ -16,8 +16,10 @@ import type {
   ShareVerificationWorkspaceDevice,
   SharedDocumentAccess,
 } from "../../model/document-state/access";
+import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import { refreshSharedDocumentAccess } from "./share-access";
 import { verifyWorkspaceDirectoryDeviceIdentity } from "./inbound-workspace-device-approval";
+import { recordSyncPerf } from "./perf";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -55,12 +57,41 @@ export function applyDeviceKeyCache(
   state: DocumentState,
   cacheResult: SuccessfulDeviceKeyCacheResult,
 ): void {
-  state.signingKeys = cacheResult.signingKeys;
-  state.historicalSigningKeys = cacheResult.historicalSigningKeys;
-  state.signingKeyOwners = cacheResult.signingKeyOwners;
-  state.memberNames = cacheResult.memberNames;
-  state.revokedSigningKeys = cacheResult.revokedSigningKeys;
-  state.rejectedSigningKeys = cacheResult.rejectedSigningKeys;
+  const nextSigningKeys = new Map(cacheResult.signingKeys);
+  const nextHistoricalSigningKeys = new Map(cacheResult.historicalSigningKeys);
+  const nextSigningKeyOwners = new Map(cacheResult.signingKeyOwners);
+  const nextMemberNames = new Map(cacheResult.memberNames);
+  const nextRevokedSigningKeys = new Set(cacheResult.revokedSigningKeys);
+  const nextRejectedSigningKeys = new Set(cacheResult.rejectedSigningKeys);
+
+  const shouldPreserveVerifiedLiveKey = (keyId: string) =>
+    !nextSigningKeys.has(keyId) &&
+    !nextHistoricalSigningKeys.has(keyId) &&
+    !nextRevokedSigningKeys.has(keyId) &&
+    !nextRejectedSigningKeys.has(keyId);
+
+  for (const [keyId, material] of state.signingKeys) {
+    if (!shouldPreserveVerifiedLiveKey(keyId)) continue;
+    nextSigningKeys.set(keyId, material);
+    const ownerId = state.signingKeyOwners.get(keyId);
+    if (ownerId) nextSigningKeyOwners.set(keyId, ownerId);
+  }
+  for (const [keyId, material] of state.historicalSigningKeys) {
+    if (!shouldPreserveVerifiedLiveKey(keyId)) continue;
+    nextHistoricalSigningKeys.set(keyId, material);
+    const ownerId = state.signingKeyOwners.get(keyId);
+    if (ownerId) nextSigningKeyOwners.set(keyId, ownerId);
+  }
+  for (const [memberId, name] of state.memberNames) {
+    if (!nextMemberNames.has(memberId)) nextMemberNames.set(memberId, name);
+  }
+
+  state.signingKeys = nextSigningKeys;
+  state.historicalSigningKeys = nextHistoricalSigningKeys;
+  state.signingKeyOwners = nextSigningKeyOwners;
+  state.memberNames = nextMemberNames;
+  state.revokedSigningKeys = nextRevokedSigningKeys;
+  state.rejectedSigningKeys = nextRejectedSigningKeys;
 }
 
 export async function buildDocumentSigningKeyCaches(
@@ -84,14 +115,33 @@ export async function buildDocumentSigningKeyCaches(
 
 const pendingWorkspaceDeviceKeyCaches = new Map<string, Promise<DeviceKeyCacheResult>>();
 const workspaceDeviceKeyCacheTtlMs = 60_000;
+const workspaceDeviceKeyForceRefreshCooldownMs = 5_000;
 const workspaceDeviceKeyCaches = new Map<
   string,
   { result: SuccessfulDeviceKeyCacheResult; expiresAt: number }
 >();
+const workspaceDeviceKeyForceRefreshAt = new Map<string, number>();
 const shareVerificationDirectoryCacheTtlMs = 60_000;
+const shareVerificationDirectoryForceRefreshCooldownMs = 5_000;
+const pendingShareVerificationDirectoryFetches = new Map<
+  string,
+  Promise<ShareVerificationDirectory | null>
+>();
 const shareVerificationDirectoryCache = new Map<
   string,
   { directory: ShareVerificationDirectory | null; expiresAt: number }
+>();
+const shareVerificationDirectoryForceRefreshAt = new Map<string, number>();
+const shareDeviceKeyCacheTtlMs = 60_000;
+const pendingShareDeviceKeyCaches = new Map<string, Promise<DeviceKeyCacheResult>>();
+const shareDeviceKeyCaches = new Map<
+  string,
+  { result: SuccessfulDeviceKeyCacheResult; expiresAt: number }
+>();
+const pendingInitialShareDeviceKeyCaches = new Map<string, Promise<DeviceKeyCacheResult>>();
+const initialShareDeviceKeyCaches = new Map<
+  string,
+  { result: SuccessfulDeviceKeyCacheResult; expiresAt: number }
 >();
 const MEMBER_DEVICE_FETCH_CONCURRENCY = 2;
 const SIGNING_KEY_REFRESH_RETRY_DELAYS_MS = [200, 500, 1_000, 2_000] as const;
@@ -165,8 +215,13 @@ function buildWorkspaceDeviceKeyCaches(
   workspaceId: string,
   forceRefresh = false,
 ): Promise<DeviceKeyCacheResult> {
+  const now = Date.now();
   const cached = workspaceDeviceKeyCaches.get(workspaceId);
-  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+  const forceRefreshSatisfiedRecently =
+    forceRefresh &&
+    now - (workspaceDeviceKeyForceRefreshAt.get(workspaceId) ?? 0) <
+      workspaceDeviceKeyForceRefreshCooldownMs;
+  if (cached && cached.expiresAt > now && (!forceRefresh || forceRefreshSatisfiedRecently)) {
     return Promise.resolve(cloneSuccessfulDeviceKeyCacheResult(cached.result));
   }
 
@@ -181,8 +236,12 @@ function buildWorkspaceDeviceKeyCaches(
           result: cloneSuccessfulDeviceKeyCacheResult(result),
           expiresAt: Date.now() + workspaceDeviceKeyCacheTtlMs,
         });
+        if (forceRefresh) {
+          workspaceDeviceKeyForceRefreshAt.set(workspaceId, Date.now());
+        }
       } else {
         workspaceDeviceKeyCaches.delete(workspaceId);
+        workspaceDeviceKeyForceRefreshAt.delete(workspaceId);
       }
       return result;
     },
@@ -353,32 +412,61 @@ async function fetchDocumentShareVerificationDirectory(
   documentId: string,
   forceRefresh = false,
 ): Promise<ShareVerificationDirectory | null> {
+  const now = Date.now();
   const cached = shareVerificationDirectoryCache.get(documentId);
-  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+  const forceRefreshSatisfiedRecently =
+    forceRefresh &&
+    now - (shareVerificationDirectoryForceRefreshAt.get(documentId) ?? 0) <
+      shareVerificationDirectoryForceRefreshCooldownMs;
+  if (cached && cached.expiresAt > now && (!forceRefresh || forceRefreshSatisfiedRecently)) {
     return cached.directory;
   }
 
-  try {
-    const directory = normalizeShareVerificationDirectory(
-      await sharesApi.getDocumentShareVerificationDirectory(documentId),
-    );
-    shareVerificationDirectoryCache.set(documentId, {
-      directory,
-      expiresAt: Date.now() + shareVerificationDirectoryCacheTtlMs,
-    });
-    return directory;
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 429) {
-      return null;
-    }
-    if (error instanceof TypeError) {
+  const pending = pendingShareVerificationDirectoryFetches.get(documentId);
+  if (pending) return pending;
+
+  const fetchDirectory = (async () => {
+    try {
+      const directory = normalizeShareVerificationDirectory(
+        await sharesApi.getDocumentShareVerificationDirectory(documentId),
+      );
       shareVerificationDirectoryCache.set(documentId, {
-        directory: null,
-        expiresAt: Date.now() + 5_000,
+        directory,
+        expiresAt: Date.now() + shareVerificationDirectoryCacheTtlMs,
       });
-      return null;
+      if (forceRefresh) {
+        shareVerificationDirectoryForceRefreshAt.set(documentId, Date.now());
+      }
+      return directory;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 429) {
+        shareVerificationDirectoryCache.set(documentId, {
+          directory: null,
+          expiresAt: Date.now() + shareVerificationDirectoryForceRefreshCooldownMs,
+        });
+        if (forceRefresh) {
+          shareVerificationDirectoryForceRefreshAt.set(documentId, Date.now());
+        }
+        return null;
+      }
+      if (error instanceof TypeError) {
+        shareVerificationDirectoryCache.set(documentId, {
+          directory: null,
+          expiresAt: Date.now() + shareVerificationDirectoryForceRefreshCooldownMs,
+        });
+        if (forceRefresh) {
+          shareVerificationDirectoryForceRefreshAt.set(documentId, Date.now());
+        }
+        return null;
+      }
+      throw error;
     }
-    throw error;
+  })();
+  pendingShareVerificationDirectoryFetches.set(documentId, fetchDirectory);
+  try {
+    return await fetchDirectory;
+  } finally {
+    pendingShareVerificationDirectoryFetches.delete(documentId);
   }
 }
 
@@ -401,6 +489,70 @@ function cloneSuccessfulDeviceKeyCacheResult(
     rejectedSigningKeys: new Set(result.rejectedSigningKeys),
     directorySigningKeys: new Map(result.directorySigningKeys),
   };
+}
+function cloneDeviceKeyCacheResult(result: DeviceKeyCacheResult): DeviceKeyCacheResult {
+  return result.status === "ok" ? cloneSuccessfulDeviceKeyCacheResult(result) : result;
+}
+
+function shareDeviceDirectoryKey(access: SharedDocumentAccess): string {
+  const workspaceDevices = access.verificationDirectory.workspace_devices
+    .map((device) => {
+      const material = device.hybrid_signing_public_key_material;
+      const signingKey = material ? computeSigningKeyId(material) : "missing";
+      return [
+        "w",
+        device.user_id,
+        device.device_id,
+        device.historical === true ? "historical" : "active",
+        signingKey,
+      ].join(":");
+    })
+    .sort()
+    .join("|");
+  const shareParticipantDevices = access.verificationDirectory.share_participant_devices
+    .map((device) => {
+      const material = device.hybrid_signing_public_key_material;
+      const signingKey = material ? computeSigningKeyId(material) : "missing";
+      return [
+        "p",
+        device.share_id,
+        device.principal_id,
+        device.device_id,
+        device.historical === true ? "historical" : "active",
+        signingKey,
+      ].join(":");
+    })
+    .sort()
+    .join("|");
+
+  return [
+    access.documentToken,
+    access.shareId,
+    access.authorizationShareId ?? "",
+    access.participantDeviceId,
+    workspaceDevices,
+    shareParticipantDevices,
+  ].join("::");
+}
+
+function initialShareDeviceKeyCacheKey(
+  access: SharedDocumentAccess,
+  requiredSigningKeys: ReadonlySet<string>,
+): string {
+  return `${shareDeviceDirectoryKey(access)}::initial:${[...requiredSigningKeys].sort().join("|")}`;
+}
+
+function initialDocumentSigningKeyIds(payload: DocumentPayload): Set<string> {
+  const keys = new Set<string>();
+  if (payload.snapshot?.publicData.signingKeyId) {
+    keys.add(payload.snapshot.publicData.signingKeyId);
+  }
+  for (const update of payload.updates) {
+    if (update.publicData.signingKeyId) {
+      keys.add(update.publicData.signingKeyId);
+    }
+  }
+  return keys;
 }
 
 async function addWorkspaceDirectoryDevicesToCache(
@@ -580,6 +732,100 @@ async function mapWithConcurrencyLimit<T, R>(
   return results;
 }
 
+export function prewarmShareDocumentSigningKeyCaches(access: SharedDocumentAccess): void {
+  const initialDocument = access.initialDocument;
+  const prewarm = initialDocument
+    ? buildShareDeviceKeyCachesForPayload(access, initialDocument)
+    : buildShareDeviceKeyCaches(access);
+
+  void prewarm.catch((error: unknown) => {
+    recordSyncPerf("share_device_key_cache_prewarm_failed", {
+      documentToken: access.documentToken,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
+
+export async function buildDocumentSigningKeyCachesForInitialPayload(
+  state: DocumentState,
+  payload: DocumentPayload,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
+  if (state.access.kind !== "share") {
+    return buildDocumentSigningKeyCaches(state, signal);
+  }
+  return buildShareDeviceKeyCachesForPayload(state.access, payload, signal);
+}
+
+function buildShareDeviceKeyCachesForPayload(
+  access: SharedDocumentAccess,
+  payload: DocumentPayload,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
+  return buildShareDeviceKeyCachesForSigningKeys(
+    access,
+    initialDocumentSigningKeyIds(payload),
+    signal,
+  );
+}
+
+function buildShareDeviceKeyCachesForSigningKeys(
+  access: SharedDocumentAccess,
+  requiredSigningKeys: ReadonlySet<string>,
+  signal?: AbortSignal,
+): Promise<DeviceKeyCacheResult> {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+  if (requiredSigningKeys.size === 0) {
+    return Promise.resolve({
+      status: "ok",
+      signingKeys: new Map(),
+      historicalSigningKeys: new Map(),
+      signingKeyOwners: new Map(),
+      memberNames: new Map(),
+      revokedSigningKeys: new Set(),
+      rejectedSigningKeys: new Set(),
+      directorySigningKeys: new Map(),
+    });
+  }
+
+  const cacheKey = initialShareDeviceKeyCacheKey(access, requiredSigningKeys);
+  const cached = initialShareDeviceKeyCaches.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cloneSuccessfulDeviceKeyCacheResult(cached.result));
+  }
+  if (cached) {
+    initialShareDeviceKeyCaches.delete(cacheKey);
+  }
+  const pending = pendingInitialShareDeviceKeyCaches.get(cacheKey);
+  if (pending) {
+    return pending.then(cloneDeviceKeyCacheResult);
+  }
+
+  const build = doBuildShareDeviceKeyCaches(access, signal, requiredSigningKeys).then(
+    (result) => {
+      pendingInitialShareDeviceKeyCaches.delete(cacheKey);
+      if (result.status === "ok") {
+        initialShareDeviceKeyCaches.set(cacheKey, {
+          result: cloneSuccessfulDeviceKeyCacheResult(result),
+          expiresAt: Date.now() + shareDeviceKeyCacheTtlMs,
+        });
+      } else {
+        initialShareDeviceKeyCaches.delete(cacheKey);
+      }
+      return result;
+    },
+    (error) => {
+      pendingInitialShareDeviceKeyCaches.delete(cacheKey);
+      initialShareDeviceKeyCaches.delete(cacheKey);
+      throw error;
+    },
+  );
+  pendingInitialShareDeviceKeyCaches.set(cacheKey, build);
+  return build.then(cloneDeviceKeyCacheResult);
+}
+
 async function buildShareDeviceKeyCaches(
   access: SharedDocumentAccess,
   signal?: AbortSignal,
@@ -587,7 +833,56 @@ async function buildShareDeviceKeyCaches(
   if (signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");
   }
+  const cacheKey = shareDeviceDirectoryKey(access);
+  const cached = shareDeviceKeyCaches.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cloneSuccessfulDeviceKeyCacheResult(cached.result);
+  }
+  if (cached) {
+    shareDeviceKeyCaches.delete(cacheKey);
+  }
+  const pending = pendingShareDeviceKeyCaches.get(cacheKey);
+  if (pending) {
+    return pending.then(cloneDeviceKeyCacheResult);
+  }
 
+  const build = doBuildShareDeviceKeyCaches(access, signal).then(
+    (result) => {
+      pendingShareDeviceKeyCaches.delete(cacheKey);
+      if (result.status === "ok") {
+        shareDeviceKeyCaches.set(cacheKey, {
+          result: cloneSuccessfulDeviceKeyCacheResult(result),
+          expiresAt: Date.now() + shareDeviceKeyCacheTtlMs,
+        });
+      } else {
+        shareDeviceKeyCaches.delete(cacheKey);
+      }
+      return result;
+    },
+    (error) => {
+      pendingShareDeviceKeyCaches.delete(cacheKey);
+      shareDeviceKeyCaches.delete(cacheKey);
+      throw error;
+    },
+  );
+  pendingShareDeviceKeyCaches.set(cacheKey, build);
+  return build.then(cloneDeviceKeyCacheResult);
+}
+
+async function doBuildShareDeviceKeyCaches(
+  access: SharedDocumentAccess,
+  signal?: AbortSignal,
+  requiredSigningKeys?: ReadonlySet<string>,
+): Promise<DeviceKeyCacheResult> {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+  const startedAt = performance.now();
+  recordSyncPerf("share_device_key_cache_start", {
+    documentToken: access.documentToken,
+    workspaceDeviceCount: access.verificationDirectory.workspace_devices.length,
+    shareParticipantDeviceCount: access.verificationDirectory.share_participant_devices.length,
+  });
   const worker = getCryptoWorker();
   const signingKeys = new Map<string, HybridSigningPublicKeyMaterial>();
   const historicalSigningKeys = new Map<string, HybridSigningPublicKeyMaterial>();
@@ -596,6 +891,7 @@ async function buildShareDeviceKeyCaches(
   const signingKeyOwners = new Map<string, string>();
   const memberNames = new Map<string, string>();
   const namespace = getShareTofuNamespace(access);
+  const deferTofuPersistence = Boolean(requiredSigningKeys);
 
   const processDirectoryEntry = async (
     ownerId: string,
@@ -607,6 +903,9 @@ async function buildShareDeviceKeyCaches(
     workspaceDevice?: ShareVerificationWorkspaceDevice,
   ): Promise<DeviceKeyCacheResult | null> => {
     const signingKey = computeSigningKeyId(material);
+    if (requiredSigningKeys && !requiredSigningKeys.has(signingKey)) {
+      return null;
+    }
     if (signingKeys.has(signingKey) || historicalSigningKeys.has(signingKey)) {
       return null;
     }
@@ -618,6 +917,7 @@ async function buildShareDeviceKeyCaches(
         {
           namespace,
           allowFirstSeenIdentity: true,
+          deferTofuPersistence,
         },
       );
       if (identityWarning) {
@@ -651,7 +951,7 @@ async function buildShareDeviceKeyCaches(
       };
     }
 
-    await worker.tofuHandleResult({
+    const persistTofuResult = worker.tofuHandleResult({
       status: tofuResult.status,
       ...(tofuNamespace ? { namespace: tofuNamespace } : {}),
       newEntry: {
@@ -663,6 +963,16 @@ async function buildShareDeviceKeyCaches(
         lastSeenAt: Date.now(),
       },
     });
+    if (deferTofuPersistence) {
+      void persistTofuResult.catch((error: unknown) => {
+        recordSyncPerf("share_device_key_cache_tofu_persist_failed", {
+          documentToken: access.documentToken,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } else {
+      await persistTofuResult;
+    }
 
     if (historical) {
       historicalSigningKeys.set(signingKey, material);
@@ -717,6 +1027,12 @@ async function buildShareDeviceKeyCaches(
 
   const warning = await processDirectory(access.verificationDirectory);
   if (warning) return warning;
+  recordSyncPerf("share_device_key_cache_ready", {
+    documentToken: access.documentToken,
+    elapsedMs: performance.now() - startedAt,
+    signingKeyCount: signingKeys.size,
+    historicalSigningKeyCount: historicalSigningKeys.size,
+  });
 
   return {
     status: "ok",

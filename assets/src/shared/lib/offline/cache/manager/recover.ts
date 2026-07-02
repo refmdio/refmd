@@ -7,24 +7,38 @@ import {
   getPendingChanges,
 } from "@/shared/lib/offline/storage/store";
 import type { RecoveredDocumentState } from "./types";
+type OfflineCacheWorker = ReturnType<typeof getCryptoWorker>;
+
+export interface RecoverDocumentCacheOptions {
+  worker?: OfflineCacheWorker;
+  cacheKey?: string;
+  includePendingChanges?: boolean;
+  keyVersion?: number;
+  requireOfflineDek?: boolean;
+}
 
 export async function recoverDocumentFromCache(
   documentId: string,
+  options: RecoverDocumentCacheOptions = {},
 ): Promise<RecoveredDocumentState | null> {
-  const dekEntry = await getOfflineDek(documentId);
-  if (!dekEntry) return null;
+  const requireOfflineDek = options.requireOfflineDek ?? !options.cacheKey;
+  const includePendingChanges = options.includePendingChanges ?? true;
+  const dekEntry = requireOfflineDek ? await getOfflineDek(documentId) : null;
+  if (requireOfflineDek && !dekEntry) return null;
 
   const cacheEntry = await getDocumentCache(documentId);
   if (!cacheEntry) {
+    if (!dekEntry) return null;
     const { getOfflineCreated } = await import("@/shared/lib/offline/storage/store");
     const created = await getOfflineCreated(documentId);
     if (!created) return null;
 
-    const worker = getCryptoWorker();
+    const worker = options.worker ?? getCryptoWorker();
     await worker.restoreDekFromOffline({
       documentId,
       keyVersion: dekEntry.keyVersion,
       isActive: true,
+      cacheKey: options.cacheKey,
     });
     const yDoc = new Y.Doc();
     if (created.encryptedState.length > 0) {
@@ -33,16 +47,18 @@ export async function recoverDocumentFromCache(
         nonce: created.stateNonce,
         documentId,
         keyVersion: created.dekKeyVersion,
+        cacheKey: options.cacheKey,
       });
       if (decrypted.length > 0) Y.applyUpdate(yDoc, decrypted);
     }
-    const pendingEntry = await getPendingChanges(documentId);
+    const pendingEntry = includePendingChanges ? await getPendingChanges(documentId) : null;
     if (pendingEntry) {
       const decryptedDiff = await worker.decryptOfflinePending({
         ciphertext: pendingEntry.encryptedDiff,
         nonce: pendingEntry.diffNonce,
         documentId,
         keyVersion: pendingEntry.keyVersion,
+        cacheKey: options.cacheKey,
       });
       Y.applyUpdate(yDoc, decryptedDiff);
     }
@@ -52,6 +68,8 @@ export async function recoverDocumentFromCache(
       confirmedBaseState,
       confirmedStateVector: null,
       confirmedSnapshotId: "",
+      confirmedSnapshotProofHash: null,
+      confirmedSnapshotCiphertextHash: null,
       confirmedClocks: {},
       confirmedVersion: 0,
       keyVersion: created.dekKeyVersion,
@@ -60,8 +78,8 @@ export async function recoverDocumentFromCache(
     };
   }
 
-  const worker = getCryptoWorker();
-  const kekEntry = await getOfflineKek(cacheEntry.workspaceId);
+  const worker = options.worker ?? getCryptoWorker();
+  const kekEntry = requireOfflineDek ? await getOfflineKek(cacheEntry.workspaceId) : null;
   if (kekEntry) {
     await worker.restoreKekFromOffline({
       workspaceId: kekEntry.workspaceId,
@@ -69,38 +87,59 @@ export async function recoverDocumentFromCache(
       isActive: true,
     });
   }
-  await worker.restoreDekFromOffline({
-    documentId,
-    keyVersion: dekEntry.keyVersion,
-    isActive: true,
-  });
+  if (requireOfflineDek) {
+    await worker.restoreDekFromOffline({
+      documentId,
+      keyVersion: dekEntry!.keyVersion,
+      isActive: true,
+      cacheKey: options.cacheKey,
+    });
+  }
   const decryptedState = await worker.decryptOfflineCache({
     ciphertext: cacheEntry.encryptedState,
     nonce: cacheEntry.stateNonce,
     documentId,
     keyVersion: cacheEntry.keyVersion,
+    cacheKey: options.cacheKey,
   });
-  const yDoc = new Y.Doc();
-  Y.applyUpdate(yDoc, decryptedState);
 
   let hasPending = false;
-  const pendingEntry = await getPendingChanges(documentId);
+  const pendingEntry = includePendingChanges ? await getPendingChanges(documentId) : null;
+  const confirmedBaseState =
+    cacheEntry.encryptedConfirmedState && cacheEntry.confirmedStateNonce
+      ? await worker.decryptOfflineCache({
+          ciphertext: cacheEntry.encryptedConfirmedState,
+          nonce: cacheEntry.confirmedStateNonce,
+          documentId,
+          keyVersion: cacheEntry.keyVersion,
+          cacheKey: options.cacheKey,
+        })
+      : null;
+  const yDoc = new Y.Doc();
+  Y.applyUpdate(
+    yDoc,
+    !includePendingChanges && confirmedBaseState ? confirmedBaseState : decryptedState,
+  );
   if (pendingEntry) {
     const decryptedDiff = await worker.decryptOfflinePending({
       ciphertext: pendingEntry.encryptedDiff,
       nonce: pendingEntry.diffNonce,
       documentId,
       keyVersion: pendingEntry.keyVersion,
+      cacheKey: options.cacheKey,
     });
     Y.applyUpdate(yDoc, decryptedDiff);
     hasPending = true;
   }
+  const recoveredConfirmedBaseState = confirmedBaseState ?? (hasPending ? null : decryptedState);
 
   return {
     yDoc,
-    confirmedBaseState: null,
+    confirmedBaseState: recoveredConfirmedBaseState,
     confirmedStateVector: cacheEntry.confirmedStateVector,
     confirmedSnapshotId: cacheEntry.confirmedSnapshotId,
+    confirmedSnapshotProofHash: cacheEntry.confirmedSnapshotProofHash ?? null,
+    confirmedSnapshotCiphertextHash: cacheEntry.confirmedSnapshotCiphertextHash ?? null,
     confirmedClocks: cacheEntry.confirmedClocks,
     confirmedVersion: cacheEntry.confirmedVersion,
     keyVersion: cacheEntry.keyVersion,

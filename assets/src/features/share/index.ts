@@ -3,15 +3,22 @@ export {
   bootstrapPasswordProtectedShareParticipantSession,
   clearShareParticipantSession,
   ensureShareParticipantDeviceReady,
+  prewarmShareParticipantKeypair,
   readShareSessionTrustAnchor,
 } from "./lib/session/session";
+export { prewarmShareLandingPath } from "./lib/session/prewarm-route";
 export {
   resolveShareLanding,
   resolveShareLandingRoute,
   type ShareLandingRoot,
 } from "./lib/route/landing";
 export { resolveSharedDocumentBootstrap } from "./lib/bootstrap/document";
-export { resolveShareDocumentRoute } from "./lib/route/document";
+export {
+  consumePreloadedShareDocumentRoute,
+  preloadShareDocumentRoute,
+  resolveShareDocumentRoute,
+  type ResolvedShareDocumentRoute,
+} from "./lib/route/document";
 export { resolveShareFolderRoute, type ResolvedShareFolderEntry } from "./lib/route/folder";
 export { resolveShareTitle, type ShareTitlePayload } from "./lib/route/title";
 export {

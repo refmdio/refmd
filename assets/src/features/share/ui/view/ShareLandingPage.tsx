@@ -5,10 +5,19 @@ import { resolveShareLandingRoute } from "../../lib/route/landing";
 import {
   bootstrapPasswordProtectedShareParticipantSession,
   bootstrapShareParticipantSession,
+  prewarmShareParticipantKeypair,
 } from "../../lib/session/session";
+import {
+  preloadShareDocumentRoute,
+  preloadShareDocumentRouteFromBootstrap,
+} from "../../lib/route/document";
 import { enterShareRouteSession, leaveShareRouteSession } from "../../lib/route/session";
+import {
+  readShareUrlFragmentFromLocation,
+  readWorkspacePinBootstrapHashFromLocation,
+} from "@/entities/mount";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
-import { getRateLimitRetryMs } from "@/shared/api";
+import { ApiError, getRateLimitRetryMs } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
@@ -23,6 +32,63 @@ function isFolderRoot(root: ShareLandingRoot): root is { folder_token: string } 
 }
 
 type PageState = "loading" | "password" | "error";
+
+function preloadDocumentEditorModule(): void {
+  void import("@/widgets/document-editor").catch(() => {});
+}
+
+function preloadShareDocumentPageModule(): void {
+  void import("@/pages/share/d/[documentToken]").catch(() => {});
+}
+
+function preloadDocumentSyncBootstrapModule(): void {
+  void import("@/features/editor/lib/sync/bootstrap-initialize").catch(() => {});
+}
+
+function preloadDocumentShareOpen(
+  documentToken: string,
+  shareSlug: string,
+  rootDocumentBootstrap?: unknown,
+): void {
+  preloadShareDocumentPageModule();
+  preloadDocumentEditorModule();
+  preloadDocumentSyncBootstrapModule();
+  if (
+    rootDocumentBootstrap &&
+    typeof rootDocumentBootstrap === "object" &&
+    !Array.isArray(rootDocumentBootstrap)
+  ) {
+    void preloadShareDocumentRouteFromBootstrap(
+      documentToken,
+      shareSlug,
+      rootDocumentBootstrap as Record<string, unknown>,
+    ).catch(() => {});
+    return;
+  }
+  void preloadShareDocumentRoute(documentToken, shareSlug).catch(() => {});
+}
+
+function hasDirectShareBootstrapMaterial(): boolean {
+  return Boolean(readShareUrlFragmentFromLocation() && readWorkspacePinBootstrapHashFromLocation());
+}
+
+function shareLandingErrorCode(error: unknown): string | null {
+  if (error instanceof ApiError) return error.code;
+  return error instanceof Error && error.message ? error.message : null;
+}
+
+function shareLandingErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 404) return "Share not found.";
+  const code = shareLandingErrorCode(error);
+  if (
+    code === "share_capability_secret_required" ||
+    code === "workspace_pin_bootstrap_hash_required" ||
+    code === "share_session_required"
+  ) {
+    return "Invalid share link.";
+  }
+  return "Unable to verify share link.";
+}
 
 export function ShareLandingPage() {
   const navigate = useNavigate();
@@ -60,11 +126,21 @@ export function ShareLandingPage() {
   }
 
   async function handleBootstrap(shareSlug: string, isActive: () => boolean) {
-    const resolution = await resolveShareLandingRoute(shareSlug);
+    const hasDirectBootstrapMaterial = hasDirectShareBootstrapMaterial();
+    if (hasDirectBootstrapMaterial) {
+      void prewarmShareParticipantKeypair(shareSlug).catch(() => {});
+    }
+
+    const resolution = await resolveShareLandingRoute(shareSlug, {
+      preferBootstrap: hasDirectBootstrapMaterial,
+    });
     if (!isActive()) return;
 
     switch (resolution.kind) {
       case "ready":
+        if (isDocumentRoot(resolution.root)) {
+          preloadDocumentShareOpen(resolution.root.document_token, shareSlug);
+        }
         await navigateToCanonical(resolution.root, isActive);
         return;
 
@@ -73,8 +149,37 @@ export function ShareLandingPage() {
         return;
 
       case "bootstrap": {
-        const { bootstrap } = await bootstrapShareParticipantSession(shareSlug);
-        if (!isActive()) return;
+        const root = resolution.landing.root;
+        let navigatedFromActiveSession = false;
+        if (root && isDocumentRoot(root)) {
+          preloadShareDocumentPageModule();
+          preloadDocumentEditorModule();
+          preloadDocumentSyncBootstrapModule();
+        }
+        const { bootstrap } = await bootstrapShareParticipantSession(shareSlug, {
+          landing: resolution.landing,
+          onActiveSessionReady: ({ bootstrap: activeBootstrap }) => {
+            if (isDocumentRoot(activeBootstrap.root)) {
+              preloadDocumentShareOpen(
+                activeBootstrap.root.document_token,
+                shareSlug,
+                activeBootstrap.root_document_bootstrap,
+              );
+            }
+            if (isActive()) {
+              navigatedFromActiveSession = true;
+              void navigateToCanonical(activeBootstrap.root, isActive);
+            }
+          },
+        });
+        if (!isActive() || navigatedFromActiveSession) return;
+        if (isDocumentRoot(bootstrap.root)) {
+          preloadDocumentShareOpen(
+            bootstrap.root.document_token,
+            shareSlug,
+            bootstrap.root_document_bootstrap,
+          );
+        }
         await navigateToCanonical(bootstrap.root, isActive);
         return;
       }
@@ -102,6 +207,9 @@ export function ShareLandingPage() {
       );
       if (!isActive()) return;
 
+      if (isDocumentRoot(bootstrap.root)) {
+        preloadDocumentShareOpen(bootstrap.root.document_token, shareSlug);
+      }
       await navigateToCanonical(bootstrap.root, isActive);
     } catch (err) {
       if (isActive()) {
@@ -148,11 +256,11 @@ export function ShareLandingPage() {
         pendingShareSlug = null;
         resolvedShareSlug = shareSlug;
         await handleBootstrap(shareSlug, isActive);
-      } catch {
+      } catch (error) {
         if (isActive()) {
           pendingShareSlug = null;
           resolvedShareSlug = null;
-          setError("Share not found.");
+          setError(shareLandingErrorMessage(error));
           setPageState("error");
         }
       }

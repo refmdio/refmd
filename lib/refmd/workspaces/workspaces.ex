@@ -25,6 +25,10 @@ defmodule RefMD.Workspaces do
   defdelegate get_workspace_member(workspace_id, user_id), to: RefMD.Workspaces.Members
   defdelegate get_member_role(workspace_id, user_id), to: RefMD.Workspaces.Members
   defdelegate get_member_with_role(workspace_id, user_id), to: RefMD.Workspaces.Members
+
+  defdelegate member_permission_granted?(workspace_id, user_id, permission),
+    to: RefMD.Workspaces.Members
+
   defdelegate list_workspace_members(workspace_id), to: RefMD.Workspaces.Members
 
   @spec get_member_permission_version(Ecto.UUID.t(), Ecto.UUID.t()) :: pos_integer()

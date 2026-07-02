@@ -3,7 +3,9 @@ import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { deviceState } from "@/entities/session";
 import { clientError } from "@/shared/lib/logger";
 import { getChannelState, pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
+import { getDocumentVerificationCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
 import type { AutoSyncHandle, DocumentState } from "../../model/document-state/types";
+import type { WriteSessionState } from "../../model/document-state/types";
 import {
   offlineMode,
   offlineReason,
@@ -17,18 +19,36 @@ import { getDocumentCryptoWorker } from "./crypto-worker";
 import { canBufferDisconnectedChanges } from "./readiness";
 import { hasUnsavedCanonicalText, refreshSavedBaselineToCurrent } from "./outbound-canonical";
 import { armSaveAckWatchdog, clearSaveAckWatchdog } from "./outbound-save-watchdog";
-import { createSyncGapError } from "./inbound-verify-decrypt";
+import {
+  createSyncGapError,
+  ensureDekCached,
+  refreshVerifiedWriteSessions,
+} from "./inbound-verify-decrypt";
 import {
   buildDocumentOperationAdmission,
+  documentOperationAdmissionForTransport,
   ensureDocumentWriteSession,
   hashSnapshotOperation,
   keyDirectoryAdvanceSymbol,
+  persistDocumentWriteSession,
   prepareDocumentOperationAdmissionAuthority,
 } from "./outbound-admission";
 import { recordSyncPerf } from "./perf";
+import { computeDocumentUpdateHash } from "./update-hash";
+import { nextLocalClockForDevice } from "./local-clock";
 
-const THROTTLE_MS = 25;
+function getOfflineCacheOptions(state: DocumentState, documentId: string) {
+  return state.access.kind === "share"
+    ? {
+        worker: getDocumentCryptoWorker(state),
+        cacheKey: getDocumentDekCacheKey(state, documentId),
+      }
+    : undefined;
+}
+
+const THROTTLE_MS = 64;
 const BLOCKED_RETRY_MS = 1_000;
+const WRITE_SESSION_PREPARE_RETRY_MS = 1_000;
 const SNAPSHOT_UPDATE_THRESHOLD = 100;
 const SNAPSHOT_RETRY_DELAY_MS = 5_000;
 
@@ -44,54 +64,222 @@ export function startAutoSync(
   const sharedText = state.yDoc.getText("content");
   let dirty = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let immediateSendGeneration = 0;
+  let immediateSendQueued = false;
+  let writeSessionRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let writeSessionExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  let explicitLocalEditPending = false;
 
-  function scheduleSend(): void {
-    if (timer || disposed) return;
-    timer = setTimeout(async () => {
-      timer = null;
-      if (disposed) return;
-      if (dirty) {
-        // Offline mode: skip server sends, flush pending changes to IndexedDB
-        if (offlineMode()) {
-          const reason = offlineReason();
-          if (reason === "auth_backoff") {
-            scheduleBlockedRetry();
-            return;
-          }
-          if (
-            (reason === "ws_disconnect" || reason === "server_unreachable") &&
-            !canBufferDisconnectedChanges(state)
-          ) {
-            scheduleBlockedRetry();
-            return;
-          }
-          if (state.initialized && state.keyVersion > 0) {
-            dirty = false;
-            cachePendingChanges(documentId, state).catch(() => {});
-          }
-          return;
-        }
-        if (state.error || state.readOnly) {
-          return;
-        }
-        if (
-          !state.initialized ||
-          !state.channel ||
-          getChannelState(state.channel) !== "joined" ||
-          state._reconnecting
-        ) {
-          scheduleBlockedRetry();
-          return;
-        }
-        if (state.sending) return;
-        dirty = false;
-        await sendPendingChanges(documentId, state, options).catch((err) => {
-          dirty = true;
-          scheduleBlockedRetry();
-          clientError("auto_sync_send_failed", { documentId, error: err });
+  void warmDocumentVerificationPath(documentId);
+
+  function clearWriteSessionRetry(): void {
+    if (writeSessionRetryTimer) {
+      clearTimeout(writeSessionRetryTimer);
+      writeSessionRetryTimer = null;
+    }
+  }
+
+  function clearWriteSessionExpiry(): void {
+    if (writeSessionExpiryTimer) {
+      clearTimeout(writeSessionExpiryTimer);
+      writeSessionExpiryTimer = null;
+    }
+  }
+
+  function canPrepareWriteSession(): boolean {
+    return (
+      !disposed &&
+      !offlineMode() &&
+      !state.error &&
+      !state.readOnly &&
+      state.initialized &&
+      state.activeSnapshotId !== null &&
+      state.keyVersion > 0 &&
+      !state.sending &&
+      !state.pendingUpdateEnvelope &&
+      !state.pendingSnapshotEnvelope &&
+      !!state.channel &&
+      getChannelState(state.channel) === "joined" &&
+      !state._reconnecting
+    );
+  }
+
+  function scheduleWriteSessionIdleExpiry(): void {
+    clearWriteSessionExpiry();
+    const session = state.writeSession;
+    if (!session || disposed) return;
+    const delay = Math.max(WRITE_SESSION_PREPARE_RETRY_MS, session.expiresAtMs - Date.now());
+    writeSessionExpiryTimer = setTimeout(() => {
+      writeSessionExpiryTimer = null;
+      if (state.writeSession !== session) return;
+      state.writeSession = null;
+      state.writeSessionReadyAt = null;
+    }, delay);
+  }
+
+  function scheduleWriteSessionRetry(): void {
+    if (writeSessionRetryTimer || disposed) return;
+    const delay = Math.max(WRITE_SESSION_PREPARE_RETRY_MS, getAuthTransportBackoffMs());
+    writeSessionRetryTimer = setTimeout(() => {
+      writeSessionRetryTimer = null;
+      void prepareWriteSession("retry");
+    }, delay);
+  }
+
+  function writeSessionErrorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+
+  function isReadyWriteSession(session: WriteSessionState): boolean {
+    return state.writeSession === session && state.writeSessionReadyAt !== null;
+  }
+
+  async function prepareWriteSession(
+    reason: "initial" | "retry" | "snapshot" | "manual" = "manual",
+    forceRefresh = false,
+  ): Promise<boolean> {
+    if (!canPrepareWriteSession()) return false;
+    const device = deviceState();
+    const deviceSigningKeyId =
+      getLocalSigningKeyId(state) ?? device?.deviceSigningKeyId ?? undefined;
+    if (!deviceSigningKeyId) return false;
+
+    clearWriteSessionRetry();
+    const startedAt = performance.now();
+    try {
+      const session = await ensureDocumentWriteSession({
+        documentId,
+        state,
+        signingKeyId: deviceSigningKeyId,
+        keyVersion: state.keyVersion,
+        nextCiphertextBytes: 0,
+        forceRefresh,
+      });
+      if (!forceRefresh && isReadyWriteSession(session)) {
+        state.writeSessionError = null;
+        scheduleWriteSessionIdleExpiry();
+        recordSyncPerf("write_session_already_ready", {
+          documentId,
+          reason,
+          elapsedMs: performance.now() - startedAt,
+        });
+        return true;
+      }
+      await persistDocumentWriteSession({ documentId, state, session, markReady: false });
+      await warmDocumentWritePath(documentId, state, session);
+      const refreshedWriteSessions = await refreshVerifiedWriteSessions(state, documentId);
+      if (state.writeSession === session) {
+        state.writeSessionReadyAt = Date.now();
+        state.writeSessionError = null;
+      }
+      clearWriteSessionRetry();
+      scheduleWriteSessionIdleExpiry();
+      recordSyncPerf("write_session_ready", {
+        documentId,
+        reason,
+        elapsedMs: performance.now() - startedAt,
+      });
+      if (refreshedWriteSessions > 0) {
+        recordSyncPerf("write_session_cache_refreshed", {
+          documentId,
+          count: refreshedWriteSessions,
         });
       }
+      return true;
+    } catch (err) {
+      clearWriteSessionExpiry();
+      handleAdmissionPushFailure(err, state);
+      state.writeSessionError = writeSessionErrorMessage(err);
+      recordSyncPerf("write_session_prepare_failed", {
+        documentId,
+        reason,
+        error: state.writeSessionError,
+        elapsedMs: performance.now() - startedAt,
+      });
+      if (canPrepareWriteSession()) scheduleWriteSessionRetry();
+      return false;
+    }
+  }
+
+  async function runScheduledSend(): Promise<void> {
+    if (disposed) return;
+    if (!dirty) return;
+    // Offline mode: skip server sends, flush pending changes to IndexedDB
+    if (offlineMode()) {
+      const reason = offlineReason();
+      if (reason === "auth_backoff") {
+        scheduleBlockedRetry();
+        return;
+      }
+      if (
+        (reason === "ws_disconnect" || reason === "server_unreachable") &&
+        !canBufferDisconnectedChanges(state)
+      ) {
+        scheduleBlockedRetry();
+        return;
+      }
+      if (state.initialized && state.keyVersion > 0) {
+        dirty = false;
+        cachePendingChanges(documentId, state, getOfflineCacheOptions(state, documentId)).catch(
+          () => {},
+        );
+      }
+      return;
+    }
+    if (state.error || state.readOnly) {
+      return;
+    }
+    if (
+      !state.initialized ||
+      !state.channel ||
+      getChannelState(state.channel) !== "joined" ||
+      state._reconnecting
+    ) {
+      scheduleBlockedRetry();
+      return;
+    }
+    if (state.sending) return;
+    dirty = false;
+    explicitLocalEditPending = false;
+    await sendPendingChanges(documentId, state, options).catch((err) => {
+      dirty = true;
+      scheduleBlockedRetry();
+      clientError("auto_sync_send_failed", { documentId, error: err });
+    });
+  }
+
+  function scheduleSend(options: { resetPending?: boolean; immediate?: boolean } = {}): void {
+    if (disposed) return;
+    if (timer) {
+      if (!options.resetPending) return;
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (immediateSendQueued) {
+      if (!options.resetPending) return;
+      immediateSendGeneration++;
+      immediateSendQueued = false;
+    }
+    if (options.immediate) {
+      const generation = ++immediateSendGeneration;
+      immediateSendQueued = true;
+      queueMicrotask(() => {
+        if (generation !== immediateSendGeneration || disposed) return;
+        immediateSendQueued = false;
+        void runScheduledSend();
+      });
+      return;
+    }
+    timer = setTimeout(async () => {
+      timer = null;
+      await runScheduledSend();
     }, THROTTLE_MS);
   }
 
@@ -106,16 +294,83 @@ export function startAutoSync(
     }, delay);
   }
 
-  const observer = () => {
+  let observerCheckQueued = false;
+  const isBridgeOrigin = (origin: unknown): origin is string =>
+    typeof origin === "string" && origin.startsWith("bridge:");
+  const observer = (
+    _event: unknown,
+    transaction?: {
+      origin?: unknown;
+    },
+  ) => {
     if (state._applyingRemote) return;
-    dirty = true;
-    scheduleSend();
+    if (observerCheckQueued) return;
+    const origin = transaction?.origin;
+    observerCheckQueued = true;
+    queueMicrotask(() => {
+      observerCheckQueued = false;
+      if (disposed || state._applyingRemote) return;
+      const hasCanonicalChanges = hasUnsavedCanonicalText(state);
+      if (isBridgeOrigin(origin) && !explicitLocalEditPending) {
+        if (hasCanonicalChanges) {
+          recordSyncPerf("bridge_edit_observed", {
+            documentId,
+            hadPendingLocalEdit: dirty,
+            originString: origin,
+          });
+          dirty = true;
+          scheduleSend({ resetPending: true });
+          return;
+        }
+        recordSyncPerf("local_edit_ignored", {
+          documentId,
+          originString: origin,
+        });
+        refreshSavedBaselineToCurrent(state);
+        return;
+      }
+      if (!hasCanonicalChanges) {
+        refreshSavedBaselineToCurrent(state);
+        return;
+      }
+      recordSyncPerf("local_edit_observed", {
+        documentId,
+        originType: typeof origin,
+        originConstructor:
+          origin && typeof origin === "object" ? (origin.constructor?.name ?? null) : null,
+        originString: typeof origin === "string" ? origin : null,
+      });
+      explicitLocalEditPending = false;
+      dirty = true;
+      scheduleSend({ resetPending: true });
+    });
   };
   sharedText.observe(observer);
 
   if (hasUnsavedCanonicalText(state)) {
-    dirty = true;
-    scheduleSend();
+    const hasPreAutoSyncUserEdit = state._preAutoSyncUserEdit;
+    state._preAutoSyncUserEdit = false;
+    if (
+      state.activeSnapshotId !== null &&
+      !state.loadedFromOfflineCache &&
+      !state.pendingRotationSnapshot &&
+      !hasPreAutoSyncUserEdit
+    ) {
+      recordSyncPerf("initial_unsaved_canonical_ignored", {
+        documentId,
+        accessKind: state.access.kind,
+      });
+      refreshSavedBaselineToCurrent(state);
+    } else {
+      if (hasPreAutoSyncUserEdit) {
+        recordSyncPerf("pre_auto_sync_user_edit_queued", {
+          documentId,
+          accessKind: state.access.kind,
+        });
+      }
+      dirty = true;
+      scheduleSend();
+    }
   }
 
   // If DEK rotation was completed during init, trigger immediate snapshot
@@ -124,6 +379,8 @@ export function startAutoSync(
     scheduleSend();
   }
 
+  void prepareWriteSession("initial");
+
   // When transitioning from offline to online, re-trigger send.
   // Only send if channel is still joined (short outage within heartbeat).
   // If the channel disconnected, triggerReconnect handles the delta rejoin flow.
@@ -131,6 +388,7 @@ export function startAutoSync(
     if (!isOffline && state.initialized && state.channel) {
       const chanState = getChannelState(state.channel);
       if (chanState === "joined") {
+        void prepareWriteSession("retry");
         dirty = true;
         scheduleSend();
       }
@@ -141,6 +399,8 @@ export function startAutoSync(
     dispose() {
       disposed = true;
       clearSaveAckWatchdog(state);
+      clearWriteSessionRetry();
+      clearWriteSessionExpiry();
       cleanupOfflineWatch();
       sharedText.unobserve(observer);
       if (timer) {
@@ -149,9 +409,11 @@ export function startAutoSync(
       }
     },
     notifyLocalEdit() {
+      explicitLocalEditPending = true;
       dirty = true;
-      scheduleSend();
+      scheduleSend({ resetPending: true });
     },
+    prepareWriteSession,
     flush() {
       dirty = true;
       scheduleSend();
@@ -177,6 +439,7 @@ export function startAutoSync(
       }
       if (state.sending) return;
       dirty = false;
+      explicitLocalEditPending = false;
       await sendPendingChanges(documentId, state, options).catch((err) => {
         dirty = true;
         scheduleBlockedRetry();
@@ -184,6 +447,88 @@ export function startAutoSync(
       });
     },
   };
+}
+
+async function warmDocumentVerificationPath(documentId: string): Promise<void> {
+  const startedAt = performance.now();
+  try {
+    await Promise.all([
+      getDocumentVerificationCryptoWorker(documentId).isReady(),
+      getDocumentVerificationCryptoWorker(`document-update-ed25519:${documentId}`).isReady(),
+    ]);
+    recordSyncPerf("verification_path_warmed", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+    });
+  } catch (err) {
+    recordSyncPerf("verification_path_warm_failed", {
+      documentId,
+      elapsedMs: performance.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function warmDocumentWritePath(
+  documentId: string,
+  state: DocumentState,
+  session: WriteSessionState,
+): Promise<void> {
+  const startedAt = performance.now();
+  const worker = getDocumentCryptoWorker(state);
+  await ensureDekCached(documentId, state.workspaceId, state.keyVersion, state);
+  const { ciphertext, nonce } = await worker.encryptContent({
+    plaintext: new Uint8Array(0),
+    documentId,
+    keyVersion: state.keyVersion,
+    cacheKey: getDocumentDekCacheKey(state, documentId),
+  });
+  await worker.decryptContent({
+    ciphertext,
+    nonce,
+    documentId,
+    keyVersion: state.keyVersion,
+    cacheKey: getDocumentDekCacheKey(state, documentId),
+  });
+  const ciphertextB64 = base64UrlEncode(ciphertext);
+  const nonceB64 = base64UrlEncode(nonce);
+  const clock = state.localClock;
+  const timestamp = Date.now();
+  const updateHash = computeDocumentUpdateHash({
+    clock,
+    signing_key_id: session.signingKeyId,
+    document_id: documentId,
+    encrypted_content: ciphertextB64,
+    key_version: state.keyVersion,
+    nonce: nonceB64,
+    ref_snapshot_id: state.activeSnapshotId,
+    timestamp,
+  });
+  const writeSessionCounter = 1;
+  await worker.signDocumentUpdate({
+    ciphertext: ciphertextB64,
+    nonce: nonceB64,
+    workspaceId: state.workspaceId,
+    publicData: {
+      docId: documentId,
+      signingKeyId: session.signingKeyId,
+      keyVersion: state.keyVersion,
+      refSnapshotId: state.activeSnapshotId,
+      clock,
+      timestamp,
+      updateHash,
+      ...session.publicDataFields,
+      writeSessionCounter,
+    },
+    authorityBoundary: {
+      ...session.authorityBoundary,
+      write_session_counter: writeSessionCounter,
+    },
+  });
+  recordSyncPerf("write_path_warmed", {
+    documentId,
+    elapsedMs: performance.now() - startedAt,
+  });
 }
 
 // ── Send pending changes ─────────────────────────────────────
@@ -195,7 +540,9 @@ function isChannelJoined(state: DocumentState): boolean {
 function retryAfterDisconnectedSend(documentId: string, state: DocumentState): void {
   state.sending = false;
   if (canBufferDisconnectedChanges(state)) {
-    cachePendingChanges(documentId, state).catch(() => {});
+    cachePendingChanges(documentId, state, getOfflineCacheOptions(state, documentId)).catch(
+      () => {},
+    );
     return;
   }
   state.autoSync?.notifyLocalEdit();
@@ -216,9 +563,18 @@ function handleAdmissionPushFailure(resp: unknown, state: DocumentState): boolea
   ) {
     state._admissionDirectoryRefreshRequired = true;
     state.writeSession = null;
+    state.writeSessionPromise = null;
+    state.writeSessionReadyAt = null;
     return true;
   }
   return false;
+}
+
+function handleOversizedUpdatePushFailure(resp: unknown, state: DocumentState): boolean {
+  if (pushFailureReason(resp) !== "document_update_payload_too_large") return false;
+  state.snapshotUpdatesCount = Infinity;
+  state._admissionDirectoryRefreshRequired = true;
+  return true;
 }
 
 async function sendPendingChanges(
@@ -278,12 +634,14 @@ async function sendPendingChanges(
       tempDoc.destroy();
 
       if (updateBytes.length <= 2) {
+        refreshSavedBaselineToCurrent(state);
         state.sending = false;
         return;
       }
     } else {
       updateBytes = Y.encodeStateAsUpdate(state.yDoc);
       if (updateBytes.length <= 2) {
+        refreshSavedBaselineToCurrent(state);
         state.sending = false;
         return;
       }
@@ -313,11 +671,19 @@ async function sendPendingChanges(
     const ciphertextB64 = base64UrlEncode(ciphertext);
     const nonceB64 = base64UrlEncode(nonce);
 
+    const observedNextClock = nextLocalClockForDevice(
+      state.confirmedClocks,
+      state,
+      deviceSigningKeyId,
+    );
+    if (observedNextClock > state.localClock) {
+      state.localClock = observedNextClock;
+    }
     const clock = state.localClock;
     const timestamp = Date.now();
 
     // 2. Compute update hash (snake_case keys to match server-side JCS)
-    const updateHash = await worker.computeUpdateHash({
+    const updateHash = computeDocumentUpdateHash({
       clock,
       signing_key_id: deviceSigningKeyId,
       document_id: documentId,
@@ -388,7 +754,7 @@ async function sendPendingChanges(
       ciphertext: ciphertextB64,
       nonce: nonceB64,
       signature,
-      admission: writeSession.admission,
+      admission: documentOperationAdmissionForTransport(writeSession.admission),
       publicData,
     };
     Object.defineProperty(envelope, keyDirectoryAdvanceSymbol, {
@@ -435,6 +801,7 @@ async function sendPendingChanges(
           }
           clearSaveAckWatchdog(state);
           handleAdmissionPushFailure(resp, state);
+          handleOversizedUpdatePushFailure(resp, state);
           state.sending = false;
           state.pendingUpdateBytes = null;
           state.pendingUpdateEnvelope = null;
@@ -551,7 +918,7 @@ async function createAndSendGenesisSnapshot(
     ciphertext: ciphertextB64,
     nonce: nonceB64,
     signature,
-    admission,
+    admission: documentOperationAdmissionForTransport(admission),
     publicData,
   };
   Object.defineProperty(snapshotEnvelope, keyDirectoryAdvanceSymbol, {
@@ -697,7 +1064,7 @@ async function createAndSendSnapshot(
     ciphertext: ciphertextB64,
     nonce: nonceB64,
     signature,
-    admission,
+    admission: documentOperationAdmissionForTransport(admission),
     publicData,
   };
   Object.defineProperty(snapshotEnvelope, keyDirectoryAdvanceSymbol, {

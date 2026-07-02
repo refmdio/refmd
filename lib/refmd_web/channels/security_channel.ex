@@ -3,7 +3,7 @@ defmodule RefMDWeb.SecurityChannel do
   Phoenix Channel for application-wide security notifications.
   """
 
-  use Phoenix.Channel
+  use Phoenix.Channel, log_join: false
 
   alias RefMD.Devices
   alias RefMD.Repo

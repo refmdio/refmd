@@ -38,4 +38,16 @@ describe("ProseMirror markdown trailing newlines", () => {
     expect(nextState).not.toBeNull();
     expect(proseMirrorDocToMarkdown(nextState!.doc)).toBe("# uuu\naaa\n\n");
   });
+
+  test("does not drop WYSIWYG hard breaks from canonical Markdown", () => {
+    const doc = markdownSchema.node("doc", null, [
+      markdownSchema.nodes.paragraph.create(null, [
+        markdownSchema.text("alpha"),
+        markdownSchema.nodes.hard_break.create(),
+        markdownSchema.text("beta"),
+      ]),
+    ]);
+
+    expect(proseMirrorDocToMarkdown(doc)).toBe("alpha\\\nbeta");
+  });
 });

@@ -4,9 +4,8 @@ defmodule RefMDWeb.DocumentChannel do
   Handles document:{document_id} topics with PoP verification and RBAC.
   """
 
-  use Phoenix.Channel
+  use Phoenix.Channel, log_join: false
 
-  alias RefMD.Crypto.JCS
   alias RefMD.Documents
   alias RefMD.Sharing
   alias RefMDWeb.Channels.Document.{Access, Bootstrap, ConnectionManager, Envelope, Pop}
@@ -15,8 +14,17 @@ defmodule RefMDWeb.DocumentChannel do
   @ephemeral_rate 10.0
   @ephemeral_burst 20.0
   @share_access_revalidation_ms 60_000
+  @max_safe_json_integer 9_007_199_254_740_991
+  @strict_json_error_key "_refmd_strict_json_error"
 
-  intercept ["update", "snapshot", "ephemeral-message", "peer-left", "public-status-changed"]
+  intercept [
+    "update",
+    "snapshot",
+    "write-session",
+    "ephemeral-message",
+    "peer-left",
+    "public-status-changed"
+  ]
 
   @impl true
   @spec join(String.t(), map(), Phoenix.Socket.t()) ::
@@ -120,6 +128,7 @@ defmodule RefMDWeb.DocumentChannel do
           {:noreply, Phoenix.Socket.t()}
   def handle_info({:after_join, initial_data}, socket) do
     push(socket, "document", initial_data)
+    push_active_write_sessions(socket)
     {:noreply, socket}
   end
 
@@ -202,6 +211,20 @@ defmodule RefMDWeb.DocumentChannel do
     {:reply, {:error, %{reason: "silent_connection"}}, socket}
   end
 
+  def handle_in(
+        "update",
+        %{@strict_json_error_key => "document_update_payload_too_large"},
+        socket
+      ) do
+    failure = %{
+      reason: "document_update_payload_too_large",
+      requiresNewSnapshot: false
+    }
+
+    push(socket, "update-save-failed", failure)
+    {:noreply, socket}
+  end
+
   def handle_in("update", payload, socket) do
     with {:ok, payload} <- strict_channel_payload(payload),
          {:ok, parsed} <- Envelope.parse_update_envelope(payload, socket),
@@ -218,6 +241,25 @@ defmodule RefMDWeb.DocumentChannel do
         )
 
       handle_update_result(result, parsed, payload, socket)
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  def handle_in("write-session", payload, socket) do
+    with {:ok, payload} <- strict_channel_payload(payload),
+         {:ok, parsed} <- Envelope.parse_write_session_envelope(payload, socket),
+         :ok <- Access.validate_write(socket),
+         :ok <- Access.validate_device_active(socket) do
+      result =
+        Documents.admit_write_session(
+          socket.assigns.document_id,
+          socket.assigns.current_user_id,
+          write_session_attrs(socket, parsed)
+        )
+
+      handle_write_session_result(result, parsed, socket)
     else
       {:error, reason} ->
         {:reply, {:error, %{reason: reason}}, socket}
@@ -276,10 +318,9 @@ defmodule RefMDWeb.DocumentChannel do
   defp strict_join_params(%{"_jcs_payload" => _}), do: {:error, %{reason: "invalid_json"}}
 
   defp strict_join_params(%{} = params) do
-    JCS.canonical_bytes!(params)
-    {:ok, params}
-  rescue
-    _ -> {:error, %{reason: "invalid_json"}}
+    if strict_json_shape?(params),
+      do: {:ok, params},
+      else: {:error, %{reason: "invalid_json"}}
   end
 
   defp strict_join_params(_), do: {:error, %{reason: "invalid_json"}}
@@ -294,13 +335,28 @@ defmodule RefMDWeb.DocumentChannel do
   defp strict_channel_payload(%{"_jcs_payload" => _}), do: {:error, "invalid_strict_json"}
 
   defp strict_channel_payload(%{} = payload) do
-    JCS.canonical_bytes!(payload)
-    {:ok, payload}
-  rescue
-    ArgumentError -> {:error, "invalid_strict_json"}
+    if strict_json_shape?(payload),
+      do: {:ok, payload},
+      else: {:error, "invalid_strict_json"}
   end
 
   defp strict_channel_payload(_), do: {:error, "invalid_strict_json"}
+
+  defp strict_json_shape?(%{} = value) do
+    Enum.all?(value, fn
+      {key, item} when is_binary(key) -> strict_json_shape?(item)
+      _ -> false
+    end)
+  end
+
+  defp strict_json_shape?(value) when is_list(value), do: Enum.all?(value, &strict_json_shape?/1)
+  defp strict_json_shape?(value) when is_binary(value), do: true
+  defp strict_json_shape?(value) when is_boolean(value), do: true
+
+  defp strict_json_shape?(value) when is_integer(value),
+    do: value >= 0 and value <= @max_safe_json_integer
+
+  defp strict_json_shape?(_value), do: false
 
   @impl true
   def handle_out(_event, _payload, %{assigns: %{silent: true}} = socket) do
@@ -311,6 +367,7 @@ defmodule RefMDWeb.DocumentChannel do
       when event in [
              "update",
              "snapshot",
+             "write-session",
              "ephemeral-message",
              "peer-left",
              "public-status-changed"
@@ -322,6 +379,7 @@ defmodule RefMDWeb.DocumentChannel do
        when event in [
               "update",
               "snapshot",
+              "write-session",
               "ephemeral-message",
               "peer-left",
               "public-status-changed"
@@ -469,6 +527,29 @@ defmodule RefMDWeb.DocumentChannel do
     |> maybe_put_share_context(socket)
   end
 
+  defp write_session_attrs(socket, parsed) do
+    %{
+      workspace_id: socket.assigns.document.workspace_id,
+      signing_key_id: socket.assigns.device_signing_key_id,
+      update_data: <<>>,
+      key_version: parsed.public_data["keyVersion"],
+      public_data: parsed.public_data,
+      owner_kind: parsed.public_data["ownerKind"],
+      owner_id: parsed.public_data["ownerId"],
+      authority_kind: parsed.public_data["authorityKind"],
+      authority_id: parsed.public_data["authorityId"],
+      authority_context_key: parsed.public_data["authorityContextKey"],
+      authority_scope_id: parsed.public_data["authorityScopeId"],
+      authority_permission_version: parsed.public_data["authorityPermissionVersion"],
+      key_checkpoint_sequence: key_checkpoint_sequence(parsed),
+      key_checkpoint_hash: key_checkpoint_hash(parsed),
+      write_session_counter: parsed.public_data["writeSessionCounter"]
+    }
+    |> Map.put(:admission, parsed.admission)
+    |> Map.put(:admission_actor, admission_actor(socket, parsed))
+    |> maybe_put_share_context(socket)
+  end
+
   defp snapshot_attrs(socket, parsed) do
     %{
       snapshot_id: parsed.public_data["snapshotId"],
@@ -553,7 +634,36 @@ defmodule RefMDWeb.DocumentChannel do
     end
   end
 
-  defp handle_update_result({:ok, saved}, _parsed, payload, socket) do
+  defp handle_write_session_result({:ok, saved}, parsed, socket) do
+    admission =
+      Documents.document_admission_package!(
+        socket.assigns.document_id,
+        "document_write_session_admitted",
+        saved.admission_event_hash
+      )
+
+    payload = %{
+      admission: admission,
+      publicData: parsed.public_data
+    }
+
+    Documents.record_write_session(
+      socket.assigns.document_id,
+      payload,
+      write_session_expires_at_ms(parsed)
+    )
+
+    broadcast_from(socket, "write-session", payload)
+
+    {:reply, {:ok, %{writeSessionEventHash: saved.admission_event_hash}}, socket}
+  end
+
+  defp handle_write_session_result({:error, reason}, _parsed, socket) do
+    {:reply, {:error, %{reason: Atom.to_string(reason)}}, socket}
+  end
+
+  defp handle_update_result({:ok, saved}, parsed, payload, socket) do
+    record_update_write_session(saved, parsed, socket)
     maybe_broadcast_update(saved, payload, socket)
 
     push(socket, "update-saved", %{
@@ -570,10 +680,11 @@ defmodule RefMDWeb.DocumentChannel do
     push(socket, "update-save-failed", %{
       snapshotId: parsed.public_data["refSnapshotId"],
       clock: parsed.public_data["clock"],
+      reason: "snapshot_mismatch",
       requiresNewSnapshot: true
     })
 
-    {:noreply, socket}
+    {:stop, :normal, socket}
   end
 
   defp handle_update_result({:error, reason}, parsed, _payload, socket)
@@ -587,10 +698,11 @@ defmodule RefMDWeb.DocumentChannel do
     push(socket, "update-save-failed", %{
       snapshotId: parsed.public_data["refSnapshotId"],
       clock: parsed.public_data["clock"],
+      reason: Atom.to_string(reason),
       requiresNewSnapshot: false
     })
 
-    {:noreply, socket}
+    {:stop, :normal, socket}
   end
 
   defp handle_update_result({:error, reason}, _parsed, _payload, socket)
@@ -607,6 +719,23 @@ defmodule RefMDWeb.DocumentChannel do
 
   defp handle_update_result({:error, reason}, _parsed, _payload, socket) do
     {:reply, {:error, %{reason: to_string(reason)}}, socket}
+  end
+
+  defp record_update_write_session(saved, parsed, socket) do
+    event_hash = parsed.public_data["writeSessionEventHash"]
+
+    if is_binary(event_hash) and event_hash == saved.admission_event_hash do
+      Documents.record_write_session(
+        socket.assigns.document_id,
+        %{
+          admission: parsed.admission,
+          publicData: Map.put(parsed.public_data, "writeSessionCounter", 0)
+        },
+        write_session_expires_at_ms(parsed)
+      )
+    end
+
+    :ok
   end
 
   defp handle_snapshot_result({:ok, saved}, _parsed, socket) do
@@ -688,10 +817,101 @@ defmodule RefMDWeb.DocumentChannel do
     )
 
     broadcast_envelope =
-      socket.assigns.document_id
-      |> Documents.get_update_by_hash(saved.update_hash)
-      |> Envelope.format_update()
+      payload
+      |> Map.put("version", saved.version)
+      |> Map.put("admission", live_update_admission(socket.assigns.document_id, saved, payload))
 
     broadcast_from(socket, "update", broadcast_envelope)
+  end
+
+  defp live_update_admission(_document_id, saved, %{
+         "admission" => admission,
+         "publicData" => %{"writeSessionEventHash" => event_hash}
+       })
+       when is_map(admission) and event_hash == saved.admission_event_hash do
+    admission
+  end
+
+  defp live_update_admission(document_id, saved, _payload) do
+    active_write_session_admission(document_id, saved.admission_event_hash) ||
+      Documents.document_admission_package!(
+        document_id,
+        "document_write_session_admitted",
+        saved.admission_event_hash
+      )
+  end
+
+  defp active_write_session_admission(document_id, admission_event_hash) do
+    document_id
+    |> Documents.active_write_sessions()
+    |> Enum.find(&(write_session_event_hash(&1) == admission_event_hash))
+    |> case do
+      nil -> nil
+      payload -> get_in(payload, [:admission]) || get_in(payload, ["admission"])
+    end
+  end
+
+  defp push_active_write_sessions(%{assigns: %{silent: true}}), do: :ok
+
+  defp push_active_write_sessions(socket) do
+    socket.assigns.document_id
+    |> Documents.active_write_sessions()
+    |> Enum.sort_by(&write_session_key_checkpoint_sequence/1)
+    |> Enum.map(&refresh_active_write_session_admission(socket.assigns.document_id, &1))
+    |> Enum.each(&push(socket, "write-session", &1))
+  end
+
+  defp refresh_active_write_session_admission(document_id, payload) do
+    case write_session_event_hash(payload) do
+      event_hash when is_binary(event_hash) ->
+        admission =
+          Documents.document_admission_package!(
+            document_id,
+            "document_write_session_admitted",
+            event_hash
+          )
+
+        put_payload_admission(payload, admission)
+
+      _ ->
+        payload
+    end
+  end
+
+  defp put_payload_admission(payload, admission) do
+    if Map.has_key?(payload, "admission") do
+      Map.put(payload, "admission", admission)
+    else
+      Map.put(payload, :admission, admission)
+    end
+  end
+
+  defp write_session_key_checkpoint_sequence(payload) do
+    get_in(payload, [:publicData, "keyCheckpointSequence"]) ||
+      get_in(payload, ["publicData", "keyCheckpointSequence"]) ||
+      0
+  end
+
+  defp write_session_event_hash(payload) do
+    get_in(payload, [:publicData, "writeSessionEventHash"]) ||
+      get_in(payload, ["publicData", "writeSessionEventHash"])
+  end
+
+  defp write_session_expires_at_ms(parsed) do
+    parsed.admission
+    |> get_in(["workspaceKeyDirectoryEvents"])
+    |> List.wrap()
+    |> Enum.find_value(fn
+      %{"payload" => %{"event_type" => "document_write_session_admitted", "body" => body}}
+      when is_map(body) ->
+        body["expires_at_ms"]
+
+      _ ->
+        nil
+    end)
+    |> case do
+      value when is_integer(value) -> value
+      _ -> System.system_time(:millisecond) + 60_000
+    end
   end
 end

@@ -82,6 +82,12 @@ defmodule RefMD.Sharing.Lookup do
         session_grant,
         share_token_hash
       ) do
+    workspace_key_directory =
+      workspace_key_directory_bootstrap_material(
+        document.workspace_id,
+        access_share.authenticated_workspace_pin_bootstrap_checkpoint
+      )
+
     {:ok,
      %{
        share_token_hash: share_token_hash,
@@ -105,11 +111,10 @@ defmodule RefMD.Sharing.Lookup do
        encrypted_dek: share_key.encrypted_dek,
        nonce: share_key.nonce,
        workspace_pin_bootstrap: access_share.authenticated_workspace_pin_bootstrap_checkpoint,
-       workspace_key_directory_checkpoint:
-         workspace_key_directory_checkpoint(
-           document.workspace_id,
-           access_share.authenticated_workspace_pin_bootstrap_checkpoint
-         ),
+       workspace_key_directory_checkpoint: workspace_key_directory.checkpoint,
+       workspace_key_directory_latest_checkpoint: workspace_key_directory.latest_checkpoint,
+       workspace_key_directory_checkpoint_ancestry: workspace_key_directory.checkpoint_ancestry,
+       workspace_key_directory_event_ancestry: workspace_key_directory.event_ancestry,
        verification_directory:
          Directory.verification_directory(access_share.id, token.document_id)
      }}
@@ -135,6 +140,12 @@ defmodule RefMD.Sharing.Lookup do
       entries = list_folder_share_entries(access_share, folder.id)
       folder_row = Map.put(folder_row, :parent_id, nil)
 
+      workspace_key_directory =
+        workspace_key_directory_bootstrap_material(
+          folder.workspace_id,
+          access_share.authenticated_workspace_pin_bootstrap_checkpoint
+        )
+
       {:ok,
        %{
          share_token_hash: share_token_hash,
@@ -151,11 +162,10 @@ defmodule RefMD.Sharing.Lookup do
          permission: session_grant,
          password_protected: access_share.password_protected,
          workspace_pin_bootstrap: access_share.authenticated_workspace_pin_bootstrap_checkpoint,
-         workspace_key_directory_checkpoint:
-           workspace_key_directory_checkpoint(
-             folder.workspace_id,
-             access_share.authenticated_workspace_pin_bootstrap_checkpoint
-           ),
+         workspace_key_directory_checkpoint: workspace_key_directory.checkpoint,
+         workspace_key_directory_latest_checkpoint: workspace_key_directory.latest_checkpoint,
+         workspace_key_directory_checkpoint_ancestry: workspace_key_directory.checkpoint_ancestry,
+         workspace_key_directory_event_ancestry: workspace_key_directory.event_ancestry,
          verification_directory: Directory.verification_directory(access_share.id, folder.id),
          folder: folder_row,
          entries: entries
@@ -185,7 +195,7 @@ defmodule RefMD.Sharing.Lookup do
     Map.put(payload, :access_share, root_share)
   end
 
-  defp workspace_key_directory_checkpoint(workspace_id, pin_bootstrap) do
+  defp workspace_key_directory_bootstrap_material(workspace_id, pin_bootstrap) do
     with %{} = payload <- map_field(pin_bootstrap, "payload"),
          sequence when is_integer(sequence) <- map_field(payload, "event_head_sequence"),
          expected_hash when is_binary(expected_hash) <- map_field(payload, "checkpoint_hash"),
@@ -194,11 +204,44 @@ defmodule RefMD.Sharing.Lookup do
              workspace_id,
              sequence
            ) do
-      %{payload: checkpoint.payload, signatures: checkpoint.signatures}
+      checkpoint_envelope = key_directory_envelope(checkpoint)
+
+      anchor = %{
+        checkpoint_sequence: checkpoint.sequence,
+        checkpoint_hash: checkpoint.checkpoint_hash,
+        event_head_sequence: checkpoint.covered_event_head_sequence,
+        event_head_hash: checkpoint.covered_event_head_hash
+      }
+
+      case Encryption.latest_workspace_key_directory_delta(workspace_id, anchor) do
+        {:ok, %{checkpoint: latest, checkpoints: checkpoints, events: events}} ->
+          %{
+            checkpoint: checkpoint_envelope,
+            latest_checkpoint: key_directory_envelope(latest),
+            checkpoint_ancestry: Enum.map(checkpoints, &key_directory_envelope/1),
+            event_ancestry: Enum.map(events, &key_directory_envelope/1)
+          }
+
+        _ ->
+          %{
+            checkpoint: checkpoint_envelope,
+            latest_checkpoint: checkpoint_envelope,
+            checkpoint_ancestry: [],
+            event_ancestry: []
+          }
+      end
     else
-      _ -> nil
+      _ ->
+        %{
+          checkpoint: nil,
+          latest_checkpoint: nil,
+          checkpoint_ancestry: [],
+          event_ancestry: []
+        }
     end
   end
+
+  defp key_directory_envelope(entry), do: %{payload: entry.payload, signatures: entry.signatures}
 
   defp map_field(%{} = map, key), do: dual_key_get(map, key)
   defp map_field(_, _), do: nil

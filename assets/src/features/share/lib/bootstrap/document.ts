@@ -1,6 +1,8 @@
 import { sharesApi } from "@/shared/api";
+import { readShareSlugFromLocation } from "@/entities/mount";
 import { getShareParticipantCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
 import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
+import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import {
   ensureShareParticipantDeviceReady,
   readShareSessionTrustAnchor,
@@ -8,7 +10,21 @@ import {
   resolveShareSlugForTokenHash,
 } from "../session/session";
 
-type CanonicalShareDocumentBootstrap = {
+function recordShareBootstrapPerf(event: string, detail: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
+  const payload = {
+    event,
+    detail,
+    at: Date.now(),
+    now: performance.now(),
+  };
+  const target = window as Window & { __refmdE2ESyncPerf?: unknown[] };
+  target.__refmdE2ESyncPerf ??= [];
+  target.__refmdE2ESyncPerf.push(payload);
+  window.dispatchEvent(new CustomEvent("refmd:sync-perf", { detail: payload }));
+}
+
+export type CanonicalShareDocumentBootstrap = {
   share_slug: string;
   share_id: string;
   authorization_share_id?: string;
@@ -31,7 +47,11 @@ type CanonicalShareDocumentBootstrap = {
   encrypted_key_refs: string[];
   workspace_pin_bootstrap: unknown;
   workspace_key_directory_checkpoint: unknown;
+  workspace_key_directory_latest_checkpoint?: unknown;
+  workspace_key_directory_checkpoint_ancestry?: unknown;
+  workspace_key_directory_event_ancestry?: unknown;
   verification_directory: unknown;
+  initial_document?: DocumentPayload | null;
 };
 
 export type SharedDocumentBootstrapResult =
@@ -54,19 +74,75 @@ export function clearActiveShareSocketSlug(): void {
 
 export async function resolveSharedDocumentBootstrap(
   documentToken: string,
+  preferredShareSlug?: string,
 ): Promise<SharedDocumentBootstrapResult> {
+  const startedAt = performance.now();
+  recordShareBootstrapPerf("share_document_bootstrap_started", {
+    documentToken,
+    hasPreferredShareSlug: typeof preferredShareSlug === "string",
+  });
+  const locationShareSlug =
+    preferredShareSlug ?? (typeof window === "undefined" ? null : readShareSlugFromLocation());
+  if (locationShareSlug) {
+    recordShareBootstrapPerf("share_document_bootstrap_location_slug", {
+      documentToken,
+      elapsedMs: performance.now() - startedAt,
+    });
+    const resolved = await resolveSharedDocumentBootstrapForShareSlug(
+      documentToken,
+      locationShareSlug,
+    );
+    recordShareBootstrapPerf("share_document_bootstrap_location_resolved", {
+      documentToken,
+      elapsedMs: performance.now() - startedAt,
+      kind: resolved.kind,
+    });
+    if (resolved.kind === "ready") {
+      recordShareBootstrapPerf("share_document_bootstrap_ready", {
+        documentToken,
+        elapsedMs: performance.now() - startedAt,
+        source: "location",
+      });
+      return resolved;
+    }
+  }
+
+  recordShareBootstrapPerf("share_document_bootstrap_requirement_start", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+  });
   const requirement = await sharesApi.getDocumentBootstrapRequirement(documentToken);
+  recordShareBootstrapPerf("share_document_bootstrap_requirement_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    bootstrapRequired:
+      "bootstrap_required" in requirement ? requirement.bootstrap_required : "invalid",
+  });
   if (!("bootstrap_required" in requirement)) {
     throw new Error("share_bootstrap_requirement_invalid");
   }
   const requirementShareSlug = await resolveShareSlugForTokenHash(requirement.share_token_hash);
+  recordShareBootstrapPerf("share_document_bootstrap_share_slug_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    found: Boolean(requirementShareSlug),
+  });
 
   if (requirement.bootstrap_required) {
     if (!requirementShareSlug) {
       throw new Error("share_session_required");
     }
+    recordShareBootstrapPerf("share_document_bootstrap_session_check_start", {
+      documentToken,
+      elapsedMs: performance.now() - startedAt,
+    });
     const session = await ensureShareParticipantDeviceReady({
       requiredShareSlug: requirementShareSlug,
+    });
+    recordShareBootstrapPerf("share_document_bootstrap_session_check_ready", {
+      documentToken,
+      elapsedMs: performance.now() - startedAt,
+      found: Boolean(session),
     });
     if (
       !session ||
@@ -85,58 +161,110 @@ export async function resolveSharedDocumentBootstrap(
     throw new Error("share_session_required");
   }
 
-  const anchor = await readShareSessionTrustAnchor(requirementShareSlug);
+  const resolved = await resolveSharedDocumentBootstrapForShareSlug(
+    documentToken,
+    requirementShareSlug,
+  );
+  recordShareBootstrapPerf("share_document_bootstrap_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    source: "requirement",
+    kind: resolved.kind,
+  });
+  return resolved;
+}
+
+async function resolveSharedDocumentBootstrapForShareSlug(
+  documentToken: string,
+  shareSlug: string,
+): Promise<SharedDocumentBootstrapResult> {
+  const startedAt = performance.now();
+  recordShareBootstrapPerf("share_document_bootstrap_for_slug_started", {
+    documentToken,
+    shareSlug,
+  });
+  const anchor = await readShareSessionTrustAnchor(shareSlug);
+  recordShareBootstrapPerf("share_document_bootstrap_anchor_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    hasWorkspacePinBootstrapHash: Boolean(anchor.workspacePinBootstrapHash),
+    hasShareDekEncryptionKey: anchor.hasShareDekEncryptionKey,
+  });
   if (!anchor.workspacePinBootstrapHash) {
     return {
       kind: "bootstrap-required",
-      shareSlug: requirementShareSlug,
+      shareSlug,
     };
   }
 
-  const session = await ensureShareParticipantDeviceReady({
-    requiredShareSlug: requirementShareSlug,
+  const session = anchor.session;
+  recordShareBootstrapPerf("share_document_bootstrap_session_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    found: Boolean(session),
+    source: "trust_anchor",
   });
 
   if (!session) {
     return {
       kind: "bootstrap-required",
-      shareSlug: requirementShareSlug,
+      shareSlug,
     };
   }
 
-  const response = await getShareParticipantCryptoWorker(
-    requirementShareSlug,
-  ).fetchShareDocumentBootstrap({
+  recordShareBootstrapPerf("share_document_bootstrap_fetch_start", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+  });
+  const response = await getShareParticipantCryptoWorker(shareSlug).fetchShareDocumentBootstrap({
     documentToken,
     authenticatedWorkspacePinBootstrapHash: anchor.workspacePinBootstrapHash,
+  });
+  recordShareBootstrapPerf("share_document_bootstrap_fetch_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    bootstrapRequired: "bootstrap_required" in response,
   });
   if ("bootstrap_required" in response) {
     return {
       kind: "bootstrap-required",
-      shareSlug: requirementShareSlug,
+      shareSlug,
     };
   }
-  const canonicalResponse = normalizeDocumentBootstrapResponse(response, requirementShareSlug);
+  const canonicalResponse = normalizeDocumentBootstrapResponse(response, shareSlug);
+  recordShareBootstrapPerf("share_document_bootstrap_refresh_anchor_start", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+  });
   const refreshedAnchor = await refreshShareSessionTrustAnchorFromBootstrap(
-    requirementShareSlug,
+    shareSlug,
     anchor.anchor,
     canonicalResponse,
   );
+  recordShareBootstrapPerf("share_document_bootstrap_refresh_anchor_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+    refreshed: Boolean(refreshedAnchor),
+  });
 
-  if (
-    !(await getShareParticipantCryptoWorker(requirementShareSlug).hasShareDekEncryptionKey(
-      requirementShareSlug,
-    ))
-  ) {
+  recordShareBootstrapPerf("share_document_bootstrap_has_dek_start", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+  });
+  if (!(await getShareParticipantCryptoWorker(shareSlug).hasShareDekEncryptionKey(shareSlug))) {
     return {
       kind: "bootstrap-required",
-      shareSlug: requirementShareSlug,
+      shareSlug,
     };
   }
+  recordShareBootstrapPerf("share_document_bootstrap_has_dek_ready", {
+    documentToken,
+    elapsedMs: performance.now() - startedAt,
+  });
 
-  if (activeShareSocketSlug !== requirementShareSlug) {
+  if (activeShareSocketSlug !== shareSlug) {
     resetPhoenixConnection("share");
-    activeShareSocketSlug = requirementShareSlug;
+    activeShareSocketSlug = shareSlug;
   }
 
   return {
@@ -158,7 +286,7 @@ export async function resolveSharedDocumentBootstrap(
   };
 }
 
-function normalizeDocumentBootstrapResponse(
+export function normalizeDocumentBootstrapResponse(
   response: Record<string, unknown>,
   shareSlug: string,
 ): CanonicalShareDocumentBootstrap {
@@ -203,8 +331,30 @@ function normalizeDocumentBootstrapResponse(
     encrypted_key_refs: stringArrayValue(response.encrypted_key_refs, "encrypted_key_refs_invalid"),
     workspace_pin_bootstrap: response.workspace_pin_bootstrap,
     workspace_key_directory_checkpoint: response.workspace_key_directory_checkpoint,
+    workspace_key_directory_latest_checkpoint: response.workspace_key_directory_latest_checkpoint,
+    workspace_key_directory_checkpoint_ancestry:
+      response.workspace_key_directory_checkpoint_ancestry,
+    workspace_key_directory_event_ancestry: response.workspace_key_directory_event_ancestry,
     verification_directory: response.verification_directory,
+    initial_document: optionalDocumentPayload(response.initial_document),
   };
+}
+
+function optionalDocumentPayload(value: unknown): DocumentPayload | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("initial_document_invalid");
+  }
+  const payload = value as Partial<DocumentPayload>;
+  if (
+    !("snapshot" in payload) ||
+    !Array.isArray(payload.updates) ||
+    !Array.isArray(payload.snapshotProofChain) ||
+    typeof payload.latestVersion !== "number"
+  ) {
+    throw new Error("initial_document_invalid");
+  }
+  return payload as DocumentPayload;
 }
 
 function stringValue(value: unknown, code: string): string {

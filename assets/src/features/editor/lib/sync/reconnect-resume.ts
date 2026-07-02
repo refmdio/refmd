@@ -2,6 +2,7 @@ import { authState, deviceState } from "@/entities/session";
 import { cacheDek } from "@/shared/lib/offline/cache/manager/keys";
 import { cacheDocumentState } from "@/shared/lib/offline/cache/manager/write";
 import { setWsConnected } from "@/shared/lib/offline/offline-state";
+import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import { getChannelState, pushSnapshot, pushUpdate } from "@/shared/lib/ws/phoenix-channel";
 import { removeAwarenessStates } from "y-protocols/awareness";
@@ -15,10 +16,14 @@ import {
   handleDocumentMessage,
   handleRemoteSnapshot,
   handleRemoteUpdate,
+  handleRemoteWriteSession,
 } from "./inbound-document";
 import { applyDeviceKeyCache, buildDocumentSigningKeyCaches } from "./inbound-signing-keys";
 import { getLocalDeviceId, getLocalIdentity } from "./share-identity";
 import { armSaveAckWatchdog, clearSaveAckWatchdog } from "./outbound-save-watchdog";
+import { getDocumentCryptoWorker } from "./crypto-worker";
+import { getDocumentDekCacheKey } from "./share-access";
+import { localDocumentClockKey, nextLocalClockForDevice } from "./local-clock";
 
 function isChannelJoined(state: DocumentState): boolean {
   return !!state.channel && getChannelState(state.channel) === "joined";
@@ -97,8 +102,10 @@ export async function resumeReconnectDocument(
     for (const event of queued) {
       if (event.type === "update") {
         await handleRemoteUpdate(event.payload, state, documentId, localDeviceSigningKeyId);
-      } else {
+      } else if (event.type === "snapshot") {
         await handleRemoteSnapshot(event.payload, state, documentId);
+      } else {
+        await handleRemoteWriteSession(event.payload, state, documentId);
       }
     }
 
@@ -109,13 +116,13 @@ export async function resumeReconnectDocument(
     const snapshotChanged = state.activeSnapshotId !== prevSnapshotId;
 
     if (localDeviceSigningKeyId) {
-      const parentClocks =
-        payload.snapshot?.publicData?.parentSnapshotUpdateClocks ?? state.confirmedClocks;
-      let maxClock = parentClocks[localDeviceSigningKeyId] ?? -1;
+      const localClockKey = localDocumentClockKey(state, localDeviceSigningKeyId);
+      let maxClock =
+        nextLocalClockForDevice(state.confirmedClocks, state, localDeviceSigningKeyId) - 1;
       if (payload.updates) {
         for (const update of payload.updates) {
           if (
-            update.publicData.signingKeyId === localDeviceSigningKeyId &&
+            documentClockKey(update.publicData) === localClockKey &&
             update.publicData.clock > maxClock
           ) {
             maxClock = update.publicData.clock;
@@ -212,7 +219,12 @@ export async function resumeReconnectDocument(
     if (!state.sending && state.autoSync) state.autoSync.notifyLocalEdit();
 
     state.loadedFromOfflineCache = false;
-    if (state.access.kind !== "share") {
+    if (state.access.kind === "share") {
+      cacheDocumentState(documentId, state.workspaceId, state, {
+        worker: getDocumentCryptoWorker(state),
+        cacheKey: getDocumentDekCacheKey(state, documentId),
+      }).catch(() => {});
+    } else {
       cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
       cacheDek(documentId, state.keyVersion).catch(() => {});
     }

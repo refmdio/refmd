@@ -1,6 +1,8 @@
 /* @refresh reload */
 import { render } from "solid-js/web";
-import App from "@/app/App";
+import { prewarmShareLandingPath } from "@/features/share";
+
+prewarmShareLandingPath();
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   const buildId = import.meta.env.VITE_APP_BUILD_ID ?? "dev";
@@ -11,4 +13,6 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
 
 const root = document.getElementById("root");
 
-render(() => <App />, root!);
+void import("@/app/App").then(({ default: App }) => {
+  render(() => <App />, root!);
+});

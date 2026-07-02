@@ -11,11 +11,14 @@ defmodule RefMDWeb.Endpoint do
     same_site: "Lax"
   ]
 
+  @max_websocket_frame_size 1_250_000
+
   socket "/api/socket", RefMDWeb.UserSocket,
     websocket: [
       connect_info: [:peer_data, :uri],
       check_origin: {RefMDWeb.Channels.SocketAuth, :check_origin, []},
-      serializer: [{RefMDWeb.Channels.StrictJSONSerializer, "~> 2.0.0"}]
+      serializer: [{RefMDWeb.Channels.StrictJSONSerializer, "~> 2.0.0"}],
+      max_frame_size: @max_websocket_frame_size
     ],
     longpoll: false
 

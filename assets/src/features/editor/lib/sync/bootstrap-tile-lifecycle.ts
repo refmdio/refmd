@@ -32,10 +32,49 @@ function hasWarmCacheState(stateKey: string): boolean {
     state.loadedFromOfflineCache
   );
 }
+function hasShareBootstrapInitialDocument(
+  state: NonNullable<ReturnType<typeof getDocumentState>>,
+): boolean {
+  return state.access.kind === "share" && Boolean(state.access.initialDocument);
+}
 function isCancelledInitializationError(error: unknown): boolean {
   if (isInitCancelledError(error)) return true;
   return error instanceof Error && error.message.toLowerCase().includes("aborted");
 }
+
+function revealInitializedDocument(
+  state: NonNullable<ReturnType<typeof getDocumentState>>,
+  tileState: DocumentTileLifecycleState,
+): void {
+  tileState.setHasWarmCachePreview(false);
+  tileState.setIsOfflineCached(state.loadedFromOfflineCache);
+  tileState.setError(state.error);
+  tileState.setIsLoading(false);
+}
+
+function watchInitializedDocument(
+  state: NonNullable<ReturnType<typeof getDocumentState>>,
+  tileState: DocumentTileLifecycleState,
+  isCancelled: () => boolean,
+): () => void {
+  if (state.initialized && !isCancelled()) {
+    revealInitializedDocument(state, tileState);
+    return () => {};
+  }
+
+  const timer = setInterval(() => {
+    if (isCancelled()) {
+      clearInterval(timer);
+      return;
+    }
+    if (!state.initialized) return;
+    clearInterval(timer);
+    revealInitializedDocument(state, tileState);
+  }, 25);
+
+  return () => clearInterval(timer);
+}
+
 export function initializeDocumentTile(
   documentId: string,
   workspaceId: string | null,
@@ -47,12 +86,15 @@ export function initializeDocumentTile(
     tileState.setIsLoading(false);
     return () => {};
   }
-  tileState.setIsLoading(true);
+  const existingState = getDocumentState(stateKey);
+  const hasWarmState = hasWarmCacheState(stateKey);
+  const alreadyReady = existingState?.initialized && !existingState.error;
+  tileState.setIsLoading(!alreadyReady && !hasWarmState);
   tileState.setError(null);
-  tileState.setIsOfflineCached(false);
+  tileState.setIsOfflineCached(existingState?.loadedFromOfflineCache ?? false);
   tileState.setIsAccessRevoked(false);
   tileState.setIsDocumentDeleted(false);
-  tileState.setHasWarmCachePreview(false);
+  tileState.setHasWarmCachePreview(!alreadyReady && hasWarmState);
   let cancelled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   const scheduleInitialRetry = (state: NonNullable<ReturnType<typeof getDocumentState>>) => {
@@ -103,7 +145,11 @@ export function initializeDocumentTile(
       const state = getDocumentState(stateKey);
       if (!state || cancelled) return;
 
-      if (!state.initialized && shouldPreferOfflineCache()) {
+      if (
+        !state.initialized &&
+        !hasShareBootstrapInitialDocument(state) &&
+        shouldPreferOfflineCache()
+      ) {
         const recovered = await initializeDocumentFromCache(documentId, workspaceId, state);
         if (recovered && !cancelled) {
           tileState.setHasWarmCachePreview(false);
@@ -118,7 +164,11 @@ export function initializeDocumentTile(
         let initializationLock = tileInitializationLocks.get(stateKey);
         if (!initializationLock) {
           initializationLock = (async () => {
-            if (!state.initialized && !hasWarmCacheState(stateKey)) {
+            if (
+              !state.initialized &&
+              !hasWarmCacheState(stateKey) &&
+              !hasShareBootstrapInitialDocument(state)
+            ) {
               try {
                 const recovered = await restoreDocumentStateFromCache(
                   documentId,
@@ -155,7 +205,12 @@ export function initializeDocumentTile(
         state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
       }
       if (state.initPromise) {
-        await state.initPromise;
+        const stopInitializedWatch = watchInitializedDocument(state, tileState, () => cancelled);
+        try {
+          await state.initPromise;
+        } finally {
+          stopInitializedWatch();
+        }
       }
       if (cancelled) return;
       tileState.setHasWarmCachePreview(false);

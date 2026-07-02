@@ -201,6 +201,16 @@ export async function handleFetchShareDocumentBootstrap(
   return attachEncryptedKeyRefs(state, response);
 }
 
+export function handlePrepareShareDocumentBootstrap(
+  state: WorkerKeyState,
+  p: HandlerPayload,
+): unknown {
+  return attachEncryptedKeyRefs(
+    state,
+    assertRecord(p.response, "share_document_bootstrap_invalid"),
+  );
+}
+
 export async function handleFetchShareFolderBootstrap(
   state: WorkerKeyState,
   p: HandlerPayload,

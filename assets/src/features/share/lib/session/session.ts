@@ -28,16 +28,25 @@ import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
 import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import {
+  clearPendingShareParticipantKeypairPrewarm,
+  getPendingShareParticipantKeypairPrewarm,
+} from "./keypair-prewarm";
+import { recordShareSessionPerf } from "./perf";
+
+export { prewarmShareParticipantKeypair } from "./keypair-prewarm";
 
 const DEFAULT_DISPLAY_NAME = "Guest";
 const activeShareParticipantSessions = new Map<string, StoredShareParticipantSession>();
 const activeShareSessionTrustAnchors = new Map<string, ShareSessionTrustAnchor>();
+const pendingShareWorkerDsk = new Map<string, Promise<void>>();
 const pendingShareParticipantSessionRestores = new Map<
   string,
   Promise<StoredShareParticipantSession | null>
 >();
 const BLAKE3_BASE64URL_RE = /^[A-Za-z0-9_-]{43}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 type ShareParticipantDeviceSigningPublicKeyMaterial =
   components["schemas"]["ShareParticipantDeviceSigningPublicKeyMaterial"];
 type ShareParticipantDeviceEncryptionPublicKeyMaterial =
@@ -346,22 +355,38 @@ function restoreStoredShareParticipantSessionOnce(
 
 export async function readShareSessionTrustAnchor(shareSlug: string): Promise<{
   anchor: ShareSessionTrustAnchor | null;
+  session: StoredShareParticipantSession | null;
   workspacePinBootstrapHash: string | null;
   shareCapabilitySecretCommitment: string | null;
   passwordCapabilitySecretCommitment: string | null;
   capabilityContextHash: string | null;
   hasShareDekEncryptionKey: boolean;
 }> {
-  await ensureShareParticipantDeviceReady({ requiredShareSlug: shareSlug });
+  const startedAt = performance.now();
+  recordShareSessionPerf("share_session_trust_anchor_start", { shareSlug });
+  const session = await ensureShareParticipantDeviceReady({ requiredShareSlug: shareSlug });
+  recordShareSessionPerf("share_session_trust_anchor_session_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+    found: Boolean(session),
+  });
   const anchor = activeShareSessionTrustAnchors.get(shareSlug);
   const worker = getShareParticipantCryptoWorker(shareSlug);
+  const hasShareDekEncryptionKey = await worker.hasShareDekEncryptionKey(shareSlug);
+  recordShareSessionPerf("share_session_trust_anchor_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+    hasAnchor: Boolean(anchor),
+    hasShareDekEncryptionKey,
+  });
   return {
     anchor: anchor ?? null,
+    session,
     workspacePinBootstrapHash: anchor?.workspacePinBootstrapHash ?? null,
     shareCapabilitySecretCommitment: anchor?.shareCapabilitySecretCommitment ?? null,
     passwordCapabilitySecretCommitment: anchor?.passwordCapabilitySecretCommitment ?? null,
     capabilityContextHash: anchor?.capabilityContextHash ?? null,
-    hasShareDekEncryptionKey: await worker.hasShareDekEncryptionKey(shareSlug),
+    hasShareDekEncryptionKey,
   };
 }
 
@@ -521,12 +546,23 @@ export async function resolveShareSlugForTokenHash(shareTokenHash: string): Prom
 }
 
 async function ensureWorkerDskForShare(shareSlug: string): Promise<void> {
-  const worker = getShareParticipantCryptoWorker(shareSlug);
-  if (await worker.loadStoredDsk()) {
-    return;
-  }
+  const pending = pendingShareWorkerDsk.get(shareSlug);
+  if (pending) return pending;
 
-  await worker.generateDsk();
+  const worker = getShareParticipantCryptoWorker(shareSlug);
+  const ensure = (async () => {
+    if (await worker.loadStoredDsk()) {
+      return;
+    }
+
+    await worker.generateDsk();
+  })().finally(() => {
+    if (pendingShareWorkerDsk.get(shareSlug) === ensure) {
+      pendingShareWorkerDsk.delete(shareSlug);
+    }
+  });
+  pendingShareWorkerDsk.set(shareSlug, ensure);
+  return ensure;
 }
 
 export async function ensureShareParticipantDeviceReady(
@@ -536,11 +572,32 @@ export async function ensureShareParticipantDeviceReady(
 ): Promise<StoredShareParticipantSession | null> {
   if (!options.requiredShareSlug) return null;
 
+  const startedAt = performance.now();
+  recordShareSessionPerf("share_session_device_ready_start", {
+    shareSlug: options.requiredShareSlug,
+  });
   const active = activeShareParticipantSessions.get(options.requiredShareSlug);
   if (active) {
+    if (activeShareSessionTrustAnchors.has(options.requiredShareSlug)) {
+      recordShareSessionPerf("share_session_device_ready_ready", {
+        shareSlug: options.requiredShareSlug,
+        elapsedMs: performance.now() - startedAt,
+        source: "active-memory",
+      });
+      return active;
+    }
+    recordShareSessionPerf("share_session_device_ready_active_restore_start", {
+      shareSlug: options.requiredShareSlug,
+      elapsedMs: performance.now() - startedAt,
+    });
     const restoredActive = await restoreStoredShareParticipantSessionOnce(active);
     if (restoredActive) {
       activeShareParticipantSessions.set(options.requiredShareSlug, restoredActive);
+      recordShareSessionPerf("share_session_device_ready_ready", {
+        shareSlug: options.requiredShareSlug,
+        elapsedMs: performance.now() - startedAt,
+        source: "active",
+      });
       return restoredActive;
     }
   }
@@ -548,14 +605,36 @@ export async function ensureShareParticipantDeviceReady(
   const stored = await readStoredShareParticipantSession(options.requiredShareSlug).catch(
     () => null,
   );
-  if (!stored) return null;
+  recordShareSessionPerf("share_session_device_ready_stored_read", {
+    shareSlug: options.requiredShareSlug,
+    elapsedMs: performance.now() - startedAt,
+    found: Boolean(stored),
+  });
+  if (!stored) {
+    recordShareSessionPerf("share_session_device_ready_ready", {
+      shareSlug: options.requiredShareSlug,
+      elapsedMs: performance.now() - startedAt,
+      source: "missing",
+    });
+    return null;
+  }
 
   const restored = await restoreStoredShareParticipantSessionOnce(stored);
   if (restored) {
     activeShareParticipantSessions.set(options.requiredShareSlug, restored);
+    recordShareSessionPerf("share_session_device_ready_ready", {
+      shareSlug: options.requiredShareSlug,
+      elapsedMs: performance.now() - startedAt,
+      source: "stored",
+    });
     return restored;
   }
 
+  recordShareSessionPerf("share_session_device_ready_ready", {
+    shareSlug: options.requiredShareSlug,
+    elapsedMs: performance.now() - startedAt,
+    source: "restore_failed",
+  });
   return null;
 }
 
@@ -563,12 +642,52 @@ async function ensureShareParticipantKeypair(
   shareSlug: string,
   options: { forceNew?: boolean } = {},
 ): Promise<void> {
+  const pendingPrewarm = getPendingShareParticipantKeypairPrewarm(shareSlug);
+  if (pendingPrewarm) {
+    const startedAt = performance.now();
+    recordShareSessionPerf("share_session_keypair_prewarm_wait_start", {
+      shareSlug,
+      forceNew: Boolean(options.forceNew),
+    });
+    const staleSessionDelete = options.forceNew
+      ? deleteStoredShareParticipantSession(shareSlug).catch(() => {
+          // A forced new share participant session overwrites any stale persisted session.
+        })
+      : Promise.resolve();
+    if (options.forceNew) {
+      activeShareParticipantSessions.delete(shareSlug);
+    }
+    try {
+      await pendingPrewarm;
+      await staleSessionDelete;
+      clearPendingShareParticipantKeypairPrewarm(shareSlug, pendingPrewarm);
+      recordShareSessionPerf("share_session_keypair_prewarm_wait_ready", {
+        shareSlug,
+        elapsedMs: performance.now() - startedAt,
+      });
+      return;
+    } catch (error) {
+      await staleSessionDelete;
+      recordShareSessionPerf("share_session_keypair_prewarm_wait_failed", {
+        shareSlug,
+        elapsedMs: performance.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Fall back to the normal keypair path if an opportunistic prewarm failed.
+    }
+  }
+
   const worker = getShareParticipantCryptoWorker(shareSlug);
   const existing = options.forceNew
     ? null
     : await ensureShareParticipantDeviceReady({ requiredShareSlug: shareSlug });
 
   if (!existing) {
+    const generatedAt = performance.now();
+    recordShareSessionPerf("share_session_keypair_generate_start", {
+      shareSlug,
+      forceNew: Boolean(options.forceNew),
+    });
     const deviceId = crypto.randomUUID();
     if (options.forceNew) {
       activeShareParticipantSessions.delete(shareSlug);
@@ -577,8 +696,11 @@ async function ensureShareParticipantKeypair(
       });
     }
     await worker.lock();
-    await ensureWorkerDskForShare(shareSlug);
     await worker.generateDeviceKeys({ deviceId, ownerKind: "share_participant_device" });
+    recordShareSessionPerf("share_session_keypair_generate_ready", {
+      shareSlug,
+      elapsedMs: performance.now() - generatedAt,
+    });
   }
 }
 
@@ -641,26 +763,25 @@ async function finalizeShareParticipantSession(
     permission: "view" | "edit";
     sourceKind: ShareSessionTrustAnchor["sourceKind"];
   },
+  options: {
+    onActiveSessionReady?: (state: {
+      session: StoredShareParticipantSession;
+      trustAnchor: ShareSessionTrustAnchor | null;
+    }) => void;
+  } = {},
 ): Promise<StoredShareParticipantSession> {
   const worker = getShareParticipantCryptoWorker(shareSlug);
+  const startedAt = performance.now();
+  recordShareSessionPerf("share_session_finalize_start", { shareSlug });
 
-  resetPhoenixConnection();
-  await ensureWorkerDskForShare(shareSlug);
+  resetPhoenixConnection("share");
   await worker.setUserContext(bootstrap.participant.principal_id, bootstrap.participant.device_id);
   await worker.setInitialized();
-  await worker.persistShareSecretsWithDsk({
+  recordShareSessionPerf("share_session_finalize_worker_context_ready", {
     shareSlug,
-    principalId: bootstrap.participant.principal_id,
-    deviceId: bootstrap.participant.device_id,
+    elapsedMs: performance.now() - startedAt,
   });
   const shareId = bootstrap.authorization_share_id ?? bootstrap.share_id;
-  await worker.persistShareParticipantKeysWithDsk({
-    principalId: bootstrap.participant.principal_id,
-    shareId,
-    shareParticipantDeviceId: bootstrap.participant.device_id,
-    signingKeyId: publicKeys.deviceSigningKeyId,
-  });
-
   const session: StoredShareParticipantSession = {
     shareSlug,
     shareId,
@@ -677,8 +798,9 @@ async function finalizeShareParticipantSession(
     passwordProtected,
   };
   const workspacePinBootstrapHash = trustAnchor?.workspacePinBootstrapHash ?? null;
+  let sessionTrustAnchor: ShareSessionTrustAnchor | null = null;
   if (workspacePinBootstrapHash && trustAnchor) {
-    const anchor: ShareSessionTrustAnchor = {
+    sessionTrustAnchor = {
       protocol: "refmd.share-session-trust-anchor",
       version: 1,
       shareSlug,
@@ -701,27 +823,103 @@ async function finalizeShareParticipantSession(
       passwordCapabilitySecretCommitment: bootstrap.password_capability_secret_commitment,
       sourceKind: trustAnchor.sourceKind,
     };
-    await storeShareSessionTrustAnchor(anchor);
-    activeShareSessionTrustAnchors.set(shareSlug, anchor);
+    activeShareSessionTrustAnchors.set(shareSlug, sessionTrustAnchor);
+    recordShareSessionPerf("share_session_finalize_anchor_stored", {
+      shareSlug,
+      elapsedMs: performance.now() - startedAt,
+      scope: "active-memory",
+    });
   } else {
     activeShareSessionTrustAnchors.delete(shareSlug);
   }
 
   activeShareParticipantSessions.set(shareSlug, session);
+  recordShareSessionPerf("share_session_finalize_active_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+    hasTrustAnchor: Boolean(sessionTrustAnchor),
+  });
+  options.onActiveSessionReady?.({ session, trustAnchor: sessionTrustAnchor });
+
+  await ensureWorkerDskForShare(shareSlug);
+  recordShareSessionPerf("share_session_finalize_dsk_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
+  await worker.persistShareSecretsWithDsk({
+    shareSlug,
+    principalId: bootstrap.participant.principal_id,
+    deviceId: bootstrap.participant.device_id,
+  });
+  recordShareSessionPerf("share_session_finalize_secrets_persisted", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
+  await worker.persistShareParticipantKeysWithDsk({
+    principalId: bootstrap.participant.principal_id,
+    shareId,
+    shareParticipantDeviceId: bootstrap.participant.device_id,
+    signingKeyId: publicKeys.deviceSigningKeyId,
+  });
+  recordShareSessionPerf("share_session_finalize_keys_persisted", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
+  const activeAnchor = activeShareSessionTrustAnchors.get(shareSlug) ?? sessionTrustAnchor;
+  if (activeAnchor) {
+    await storeShareSessionTrustAnchor(activeAnchor);
+    recordShareSessionPerf("share_session_finalize_anchor_persisted", {
+      shareSlug,
+      elapsedMs: performance.now() - startedAt,
+    });
+  }
   await writeStoredShareParticipantSession(session);
+  recordShareSessionPerf("share_session_finalize_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
   return session;
 }
 
-export async function bootstrapShareParticipantSession(shareSlug: string): Promise<{
+export async function bootstrapShareParticipantSession(
+  shareSlug: string,
+  options: {
+    landing?: Awaited<ReturnType<typeof sharesApi.getLanding>>;
+    onActiveSessionReady?: (state: {
+      bootstrap: Awaited<ReturnType<typeof sharesApi.bootstrap>>;
+      session: StoredShareParticipantSession;
+      trustAnchor: ShareSessionTrustAnchor | null;
+    }) => void;
+  } = {},
+): Promise<{
   bootstrap: Awaited<ReturnType<typeof sharesApi.bootstrap>>;
   session: StoredShareParticipantSession;
 }> {
+  const startedAt = performance.now();
+  recordShareSessionPerf("share_session_bootstrap_start", { shareSlug });
   await ensureShareParticipantKeypair(shareSlug, { forceNew: true });
+  recordShareSessionPerf("share_session_bootstrap_keypair_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
   const publicKeys = await getShareParticipantPublicKeys(shareSlug);
+  recordShareSessionPerf("share_session_bootstrap_public_keys_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
   const worker = getShareParticipantCryptoWorker(shareSlug);
   const deviceId = await worker.getDeviceId();
+  recordShareSessionPerf("share_session_bootstrap_device_id_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
   const reusableAnchor = findReusableShareTrustAnchor(shareSlug);
-  const landing = await sharesApi.getLanding(shareSlug);
+  const landing = options.landing ?? (await sharesApi.getLanding(shareSlug));
+  recordShareSessionPerf("share_session_bootstrap_landing_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+    fromOptions: Boolean(options.landing),
+  });
   const shareUrlFragment = readShareUrlFragment();
   if (!shareUrlFragment && !reusableAnchor) throw new Error("share_capability_secret_required");
   const workspacePinBootstrapHash =
@@ -732,21 +930,54 @@ export async function bootstrapShareParticipantSession(shareSlug: string): Promi
     shareSlug,
     ...(shareUrlFragment ? { shareUrlFragment } : {}),
   });
+  recordShareSessionPerf("share_session_bootstrap_open_secrets_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
   const shareParticipantPrincipalId = crypto.randomUUID();
   const shareParticipantSessionId = crypto.randomUUID();
   const shareState = shareAuthorizationStateFromLanding(landing);
-  const shareParticipantDeviceAuthorization = await signShareParticipantDeviceAuthorization({
+  const shareParticipantDeviceAuthorizationPromise = signShareParticipantDeviceAuthorization({
     shareSlug,
     shareState,
     shareParticipantPrincipalId,
     shareParticipantSessionId,
   });
-  const shareCapabilityAuthorization = await signShareCapabilityAuthorization({
+  const shareCapabilityAuthorizationPromise = signShareCapabilityAuthorization({
     shareSlug,
     shareTokenHash,
     workspacePinBootstrapHash,
     shareState,
   });
+  const shareParticipantDeviceAuthorization = await shareParticipantDeviceAuthorizationPromise;
+  recordShareSessionPerf("share_session_bootstrap_device_authorization_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
+  const shareCapabilityAuthorization = await shareCapabilityAuthorizationPromise;
+  recordShareSessionPerf("share_session_bootstrap_capability_authorization_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
+  const dskPrewarmStartedAt = performance.now();
+  recordShareSessionPerf("share_session_bootstrap_dsk_prewarm_start", {
+    shareSlug,
+  });
+  void ensureWorkerDskForShare(shareSlug).then(
+    () => {
+      recordShareSessionPerf("share_session_bootstrap_dsk_prewarm_ready", {
+        shareSlug,
+        elapsedMs: performance.now() - dskPrewarmStartedAt,
+      });
+    },
+    (error: unknown) => {
+      recordShareSessionPerf("share_session_bootstrap_dsk_prewarm_failed", {
+        shareSlug,
+        elapsedMs: performance.now() - dskPrewarmStartedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  );
 
   const bootstrap = await sharesApi.bootstrap(shareSlug, {
     display_name: DEFAULT_DISPLAY_NAME,
@@ -759,6 +990,10 @@ export async function bootstrapShareParticipantSession(shareSlug: string): Promi
       publicKeys.deviceHybridEncryptionPublicKeyMaterial as ShareParticipantDeviceEncryptionPublicKeyMaterial,
     share_capability_authorization: shareCapabilityAuthorization,
     share_participant_device_authorization: shareParticipantDeviceAuthorization,
+  });
+  recordShareSessionPerf("share_session_bootstrap_api_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
   });
 
   if (reusableAnchor) {
@@ -792,7 +1027,16 @@ export async function bootstrapShareParticipantSession(shareSlug: string): Promi
       permission: reusableAnchor?.permission ?? landing!.share.permission,
       sourceKind: shareUrlFragment ? "url_fragment" : "dsk_cache",
     },
+    {
+      onActiveSessionReady: ({ session, trustAnchor }) => {
+        options.onActiveSessionReady?.({ bootstrap, session, trustAnchor });
+      },
+    },
   );
+  recordShareSessionPerf("share_session_bootstrap_ready", {
+    shareSlug,
+    elapsedMs: performance.now() - startedAt,
+  });
 
   return { bootstrap, session };
 }

@@ -2,8 +2,8 @@ import { lazy, type ParentProps } from "solid-js";
 import { Navigate, Route, Router, useLocation, type MatchFilters } from "@solidjs/router";
 import { Show } from "solid-js";
 import { isPublicPath } from "@/app/bootstrap/session";
-import { WorkspaceRoot } from "@/app/workspace/WorkspaceRoot";
 import { RequireAuth, RequireGuest } from "@/app/router/AuthGuard";
+import { PendingDeviceMonitor } from "@/features/devices";
 
 const LoginPage = lazy(() => import("@/pages/auth/login"));
 const RegisterPage = lazy(() => import("@/pages/auth/register"));
@@ -19,6 +19,9 @@ const DashboardPage = lazy(() => import("@/pages/dashboard"));
 const ShareLandingPage = lazy(() => import("@/pages/share/[shareSlug]"));
 const ShareDocumentPage = lazy(() => import("@/pages/share/d/[documentToken]"));
 const ShareFolderPage = lazy(() => import("@/pages/share/f/[folderToken]"));
+const WorkspaceRoot = lazy(() =>
+  import("@/app/workspace/WorkspaceRoot").then((module) => ({ default: module.WorkspaceRoot })),
+);
 
 const publicAuthorRouteFilters: MatchFilters = {
   authorHandle: /^@[A-Za-z0-9][A-Za-z0-9-]*$/,
@@ -30,7 +33,9 @@ function WorkspaceRoute(props: ParentProps) {
   return (
     <Show when={!isPublicPath(location.pathname)}>
       <RequireAuth>
-        <WorkspaceRoot>{props.children}</WorkspaceRoot>
+        <PendingDeviceMonitor>
+          <WorkspaceRoot>{props.children}</WorkspaceRoot>
+        </PendingDeviceMonitor>
       </RequireAuth>
     </Show>
   );

@@ -16,29 +16,30 @@ defmodule RefMD.Sharing.Participants.Authorization do
          {:ok, participant_transcript} <-
            build_expected_participant_transcript(share, authorization, principal_id, session_id),
          :ok <-
-           verify_artifact(
-             capability_artifact,
-             capability_transcript,
-             share.authorization_public_key_material,
-             "share_capability_authorization",
-             :invalid_share_capability_authorization,
-             %{share: share}
-           ),
-         :ok <-
-           verify_artifact(
-             participant_artifact,
-             participant_transcript,
-             authorization.hybrid_signing_public_key_material,
-             "share_participant_device_authorization",
-             :invalid_share_participant_device_authorization,
-             %{
-               share: share,
-               participant: %{
-                 principal_id: principal_id,
-                 session_id: session_id
+           verify_authorization_artifacts([
+             {
+               capability_artifact,
+               capability_transcript,
+               share.authorization_public_key_material,
+               "share_capability_authorization",
+               :invalid_share_capability_authorization,
+               %{share: share}
+             },
+             {
+               participant_artifact,
+               participant_transcript,
+               authorization.hybrid_signing_public_key_material,
+               "share_participant_device_authorization",
+               :invalid_share_participant_device_authorization,
+               %{
+                 share: share,
+                 participant: %{
+                   principal_id: principal_id,
+                   session_id: session_id
+                 }
                }
              }
-           ) do
+           ]) do
       {:ok,
        Map.merge(authorization, %{
          principal_id: principal_id,
@@ -47,6 +48,30 @@ defmodule RefMD.Sharing.Participants.Authorization do
          participant_authorization_transcript: participant_transcript
        })}
     end
+  end
+
+  defp verify_authorization_artifacts(artifacts) do
+    artifacts
+    |> Task.async_stream(
+      fn {artifact, transcript, public_key_material, signing_purpose, invalid_reason,
+          semantic_context} ->
+        verify_artifact(
+          artifact,
+          transcript,
+          public_key_material,
+          signing_purpose,
+          invalid_reason,
+          semantic_context
+        )
+      end,
+      ordered: true,
+      timeout: 10_000
+    )
+    |> Enum.reduce_while(:ok, fn
+      {:ok, :ok}, :ok -> {:cont, :ok}
+      {:ok, {:error, reason}}, :ok -> {:halt, {:error, reason}}
+      {:exit, _reason}, :ok -> {:halt, {:error, :invalid_signature}}
+    end)
   end
 
   defp fetch_uuid(attrs, field) do

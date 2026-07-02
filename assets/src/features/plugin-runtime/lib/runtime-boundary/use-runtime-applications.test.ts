@@ -45,6 +45,7 @@ vi.mock("../storage/host-storage", () => ({
 }));
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   mocks.authState.mockReturnValue(null);
   mocks.deviceState.mockReturnValue(null);
@@ -52,6 +53,83 @@ afterEach(() => {
 });
 
 describe("plugin runtime application descriptors", () => {
+  it("uses low-frequency polling instead of the previous 15s startup loop", async () => {
+    vi.useFakeTimers();
+    mocks.authState.mockReturnValue({
+      user: { id: "user-one", email: "user@example.test", name: "User One" },
+      sessionId: "session-one",
+      expiresAt: null,
+      identityHybridSigningPublicKeyMaterial: null,
+      identityEcdhPublic: null,
+    });
+    mocks.deviceState.mockReturnValue({
+      deviceId: "device-one",
+      deviceSigningKeyId: null,
+      deviceHybridSigningPublicKeyMaterial: null,
+      deviceEcdhPublic: null,
+    });
+    mocks.get.mockResolvedValue({ data: { applications: [] } });
+
+    const dispose = createRoot((disposeRoot) => {
+      const [workspaceId] = createSignal<string | null>("workspace-one");
+      usePluginRuntimeApplications(workspaceId);
+      return disposeRoot;
+    });
+
+    try {
+      await Promise.resolve();
+      expect(mocks.get).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(mocks.get).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(105_000);
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not fetch runtime descriptors while the startup gate is disabled", async () => {
+    mocks.authState.mockReturnValue({
+      user: { id: "user-one", email: "user@example.test", name: "User One" },
+      sessionId: "session-one",
+      expiresAt: null,
+      identityHybridSigningPublicKeyMaterial: null,
+      identityEcdhPublic: null,
+    });
+    mocks.deviceState.mockReturnValue({
+      deviceId: "device-one",
+      deviceSigningKeyId: null,
+      deviceHybridSigningPublicKeyMaterial: null,
+      deviceEcdhPublic: null,
+    });
+    mocks.get.mockResolvedValue({ data: { applications: [] } });
+
+    let setEnabled!: (value: boolean) => void;
+    const dispose = createRoot((disposeRoot) => {
+      const [workspaceId] = createSignal<string | null>("workspace-one");
+      const [enabled, updateEnabled] = createSignal(false);
+      setEnabled = updateEnabled;
+      usePluginRuntimeApplications(workspaceId, undefined, undefined, { enabled });
+      return disposeRoot;
+    });
+
+    try {
+      await Promise.resolve();
+      expect(mocks.get).not.toHaveBeenCalled();
+
+      setEnabled(true);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mocks.get).toHaveBeenCalledTimes(1);
+      expect(mocks.get.mock.calls[0]?.[0]).toContain("plugin-runtime");
+    } finally {
+      dispose();
+    }
+  });
+
   it("does not republish stale runtime applications when an in-flight refresh completes after session cleanup", async () => {
     let resolveRuntimeList!: (value: unknown) => void;
     mocks.authState.mockReturnValue({

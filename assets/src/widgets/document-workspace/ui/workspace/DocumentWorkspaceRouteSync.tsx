@@ -123,7 +123,11 @@ export function DocumentWorkspaceRouteSync() {
     }
     if (workspaceId !== pending.workspaceId) return;
 
-    documentWorkspace.openDocument({ id: pending.documentId, title: pending.title });
+    documentWorkspace.openDocument({
+      id: pending.documentId,
+      title: pending.title,
+      workspaceId: pending.workspaceId,
+    });
     setSelectedDocumentId(pending.documentId);
   });
 

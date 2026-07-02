@@ -5,6 +5,11 @@ defmodule RefMDWeb.Channels.StrictJSONSerializer do
   alias Phoenix.Socket.Message
   alias RefMD.Crypto.JCS
 
+  @max_update_payload_raw_bytes 1_048_576
+  @oversized_update_payload %{
+    "_refmd_strict_json_error" => "document_update_payload_too_large"
+  }
+
   @impl true
   defdelegate fastlane!(message), to: Phoenix.Socket.V2.JSONSerializer
 
@@ -21,16 +26,24 @@ defmodule RefMDWeb.Channels.StrictJSONSerializer do
 
   defp decode_text(raw_message) do
     [join_ref_raw, ref_raw, topic_raw, event_raw, payload_raw] = split_v2_message!(raw_message)
-    payload = JCS.parse_json_strict!(payload_raw)
+    event = decode_string!(event_raw)
+    payload = decode_payload(event, payload_raw)
 
     %Message{
       join_ref: decode_optional_string!(join_ref_raw),
       ref: decode_optional_string!(ref_raw),
       topic: decode_string!(topic_raw),
-      event: decode_string!(event_raw),
+      event: event,
       payload: payload
     }
   end
+
+  defp decode_payload("update", payload_raw)
+       when byte_size(payload_raw) > @max_update_payload_raw_bytes do
+    @oversized_update_payload
+  end
+
+  defp decode_payload(_event, payload_raw), do: JCS.parse_json_strict!(payload_raw)
 
   defp decode_optional_string!(raw) do
     case Jason.decode!(raw) do
@@ -52,35 +65,32 @@ defmodule RefMDWeb.Channels.StrictJSONSerializer do
     index = skip_ws(raw_message, 0, length)
     require_byte!(raw_message, index, ?[, "phoenix_message_array_invalid")
 
-    {values, index} = take_values(raw_message, index + 1, length, [])
-    index = skip_ws(raw_message, index, length)
+    {join_ref_raw, index} = take_delimited_value(raw_message, index + 1, length)
+    {ref_raw, index} = take_delimited_value(raw_message, index, length)
+    {topic_raw, index} = take_delimited_value(raw_message, index, length)
+    {event_raw, index} = take_delimited_value(raw_message, index, length)
+    {payload_raw, index} = take_final_payload(raw_message, index, length)
 
-    if index == length and length(values) == 5 do
-      values
-    else
-      raise ArgumentError, "phoenix_message_array_invalid"
-    end
+    if skip_ws(raw_message, index, length) != length,
+      do: raise(ArgumentError, "phoenix_message_array_invalid")
+
+    [join_ref_raw, ref_raw, topic_raw, event_raw, payload_raw]
   end
 
-  defp take_values(raw, index, length, acc) when length(acc) < 5 do
+  defp take_delimited_value(raw, index, length) do
     index = skip_ws(raw, index, length)
     {value, delimiter, index} = take_value(raw, index, length)
-    acc = [value | acc]
-
-    cond do
-      length(acc) < 5 and delimiter == ?, ->
-        take_values(raw, index + 1, length, acc)
-
-      length(acc) == 5 and delimiter == ?] ->
-        {Enum.reverse(acc), index + 1}
-
-      true ->
-        raise ArgumentError, "phoenix_message_array_invalid"
-    end
+    if delimiter != ?,, do: raise(ArgumentError, "phoenix_message_array_invalid")
+    {value, index + 1}
   end
 
-  defp take_values(_raw, _index, _length, _acc),
-    do: raise(ArgumentError, "phoenix_message_array_invalid")
+  defp take_final_payload(raw, index, length) do
+    start_index = skip_ws(raw, index, length)
+    close_index = find_array_end(raw, length - 1)
+    end_index = trim_value_end(raw, close_index)
+    if start_index >= end_index, do: raise(ArgumentError, "phoenix_message_array_invalid")
+    {binary_part(raw, start_index, end_index - start_index), close_index + 1}
+  end
 
   defp take_value(raw, index, length) do
     {delimiter, end_index} = scan_value(raw, index, length, 0)
@@ -144,6 +154,21 @@ defmodule RefMDWeb.Channels.StrictJSONSerializer do
   end
 
   defp trim_value_end(_raw, index), do: index
+
+  defp find_array_end(raw, index) when index >= 0 do
+    cond do
+      whitespace?(:binary.at(raw, index)) ->
+        find_array_end(raw, index - 1)
+
+      :binary.at(raw, index) == ?] ->
+        index
+
+      true ->
+        raise ArgumentError, "phoenix_message_array_invalid"
+    end
+  end
+
+  defp find_array_end(_raw, _index), do: raise(ArgumentError, "phoenix_message_array_invalid")
 
   defp skip_ws(raw, index, length) when index < length do
     if whitespace?(:binary.at(raw, index)),

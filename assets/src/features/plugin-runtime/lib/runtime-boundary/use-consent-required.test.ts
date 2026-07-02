@@ -1,3 +1,4 @@
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +45,7 @@ vi.mock("@/shared/lib/crypto/worker/client", () => ({
 import {
   buildPluginConsentSubject,
   highRiskConsentDetails,
+  listPluginConsentRequired,
   normalizePluginConsentRequiredDescriptor,
   pluginConsentSecurityWarning,
   pluginConsentEventHash,
@@ -55,6 +57,7 @@ import {
 import type { HybridSignature } from "@/shared/lib/crypto/signature";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictValueBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import type { PluginRuntimeApplicationDescriptor } from "./runtime-types";
 
 const descriptor: PluginConsentRequiredDescriptor = {
   pluginId: "com.example.plugin",
@@ -88,6 +91,7 @@ const descriptor: PluginConsentRequiredDescriptor = {
 type ConsentRequiredEntryForTest = Parameters<typeof normalizePluginConsentRequiredDescriptor>[0];
 
 afterEach(() => {
+  vi.useRealTimers();
   document.body.replaceChildren();
   vi.clearAllMocks();
   vi.restoreAllMocks();
@@ -95,6 +99,66 @@ afterEach(() => {
 });
 
 describe("plugin consent required flow", () => {
+  it("uses low-frequency polling instead of the previous 15s consent loop", async () => {
+    vi.useFakeTimers();
+    mocks.authState.mockReturnValue({ user: { id: "user-one" } });
+    mocks.deviceState.mockReturnValue({ deviceId: "device-one" });
+    mocks.get.mockResolvedValue({ data: { applications: [] } });
+
+    const root = document.createElement("div");
+    const dispose = render(
+      () =>
+        usePluginConsentRequired(() => "workspace-one", {
+          runtimeApplications: () => [],
+        }).view(),
+      root,
+    );
+
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mocks.get).toHaveBeenCalledTimes(1);
+      expect(mocks.get.mock.calls[0]?.[0]).toContain("consent-required");
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(mocks.get).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(105_000);
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not fetch consent descriptors while the startup gate is disabled", async () => {
+    mocks.authState.mockReturnValue({ user: { id: "user-one" } });
+    mocks.deviceState.mockReturnValue({ deviceId: "device-one" });
+    mocks.get.mockResolvedValue({ data: { applications: [] } });
+
+    const root = document.createElement("div");
+    let setEnabled!: (value: boolean) => void;
+    const dispose = render(() => {
+      const [enabled, updateEnabled] = createSignal(false);
+      setEnabled = updateEnabled;
+      return usePluginConsentRequired(() => "workspace-one", { enabled }).view();
+    }, root);
+
+    try {
+      await Promise.resolve();
+      expect(mocks.get).not.toHaveBeenCalled();
+
+      setEnabled(true);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+      expect(mocks.get.mock.calls[0]?.[0]).toContain("consent-required");
+      expect(mocks.get.mock.calls[1]?.[0]).toContain("plugin-runtime");
+    } finally {
+      dispose();
+    }
+  });
+
   it("builds an append-only consent subject from the required descriptor", () => {
     expect(
       buildPluginConsentSubject(descriptor, {
@@ -654,6 +718,59 @@ describe("plugin consent required flow", () => {
         getConsentPin: vi.fn(async () => null),
       }),
     ).resolves.toEqual([descriptor]);
+  });
+
+  it("reuses loaded runtime applications instead of fetching plugin runtime twice", async () => {
+    const runtimeApplication: PluginRuntimeApplicationDescriptor = {
+      pluginId: descriptor.pluginId,
+      packageId: descriptor.packageId,
+      applicationId: descriptor.applicationId,
+      activationId: descriptor.activationId,
+      ownerScopeKind: descriptor.ownerScopeKind,
+      applicationScopeKind: descriptor.applicationScopeKind,
+      workspaceId: descriptor.workspaceId,
+      userId: "user-one",
+      deviceId: "device-one",
+      stateHeadHash: descriptor.stateHeadHash,
+      approvalEventHash: descriptor.approvalEventHash,
+      consentHeadHash: "consent-head-one",
+      consentEpoch: 1,
+      version: descriptor.version,
+      bundleHash: descriptor.bundleHash,
+      manifestHash: descriptor.manifestHash,
+      resourceManifestHash: descriptor.resourceManifestHash,
+      permissionsHash: descriptor.permissionsHash,
+      endpointHash: descriptor.endpointHash,
+      rendererSlotsHash: descriptor.rendererSlotsHash,
+      documentScopeHash: descriptor.documentScopeHash,
+      signerDeviceId: descriptor.signerDeviceId,
+      signerUserId: descriptor.signerUserId,
+      capabilityGrantId: "capability-one",
+      title: descriptor.title,
+      author: descriptor.author,
+      permissions: ["document:read:active"],
+      networkEndpoints: [],
+      rendererSlots: [],
+      highRiskConsents: [],
+    };
+    mocks.authState.mockReturnValue({ user: { id: "user-one" } });
+    mocks.get.mockImplementation(async (path: string) => ({
+      data: {
+        applications: path.includes("consent-required") ? [] : [consentRequiredEntryForTest()],
+      },
+    }));
+
+    await expect(
+      listPluginConsentRequired("workspace-one", { runtimeApplications: [runtimeApplication] }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        applicationId: descriptor.applicationId,
+        consentHeadHash: "consent-head-one",
+      }),
+    ]);
+
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(mocks.get.mock.calls[0]?.[0]).toContain("consent-required");
   });
 
   it("does not resurface server-allowed plugin descriptors with matching local pins", async () => {

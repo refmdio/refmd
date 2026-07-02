@@ -178,13 +178,54 @@ defmodule RefMD.Sharing.Bootstrap do
       true ->
         case Authorization.attach_verified(share, authorization) do
           {:ok, verified_authorization} ->
-            Participants.create_participant_session(share, verified_authorization)
+            share
+            |> Participants.create_participant_session(verified_authorization)
+            |> maybe_put_root_document_bootstrap(share)
 
           {:error, reason} ->
             Repo.rollback(reason)
         end
     end
   end
+
+  defp maybe_put_root_document_bootstrap(
+         %{root: %{kind: "document", document_token: document_token}, session: session} = result,
+         %Share{} = share
+       )
+       when is_binary(document_token) do
+    with %{
+           access_share: access_share,
+           share: token_share,
+           share_key: share_key,
+           token: token,
+           document: document
+         } <- Lookup.find_document_token_payload(document_token),
+         true <- access_share.id == share.id,
+         true <- token.document_id == share.document_id,
+         true <-
+           valid_authenticated_pin_hash?(
+             access_share,
+             share.authenticated_workspace_pin_bootstrap_hash
+           ),
+         true <- Access.document_accessible_in_share?(access_share, token.document_id),
+         true <- Access.share_session_accessible_now?(access_share.id),
+         {:ok, bootstrap} <-
+           document_bootstrap_after_recorded_open(
+             access_share,
+             token_share,
+             share_key,
+             token,
+             document,
+             session,
+             access_share.token_hash
+           ) do
+      Map.put(result, :root_document_bootstrap, bootstrap)
+    else
+      _ -> result
+    end
+  end
+
+  defp maybe_put_root_document_bootstrap(result, _share), do: result
 
   defp share_links_enabled?(share) do
     from(d in Document, where: d.id == ^share.document_id, select: d.workspace_id)

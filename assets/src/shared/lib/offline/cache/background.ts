@@ -419,6 +419,7 @@ async function cacheDocumentSilently(
       },
       onUpdate: () => {},
       onSnapshot: () => {},
+      onWriteSession: () => {},
       onUpdateSaved: () => {},
       onUpdateSaveFailed: () => {},
       onSnapshotSaved: () => {},

@@ -24,6 +24,7 @@ defmodule RefMD.Documents do
 
   defdelegate save_update(document_id, user_id, attrs), to: RefMD.Documents.Snapshots
   defdelegate save_snapshot(document_id, user_id, attrs), to: RefMD.Documents.Snapshots
+  defdelegate admit_write_session(document_id, user_id, attrs), to: RefMD.Documents.Snapshots
 
   defdelegate build_snapshot_proof_chain(document_id, pinned_snapshot_id, active_snapshot_id),
     to: RefMD.Documents.Snapshots
@@ -37,6 +38,11 @@ defmodule RefMD.Documents do
 
   defdelegate register_connection(document_id, channel_pid), to: RefMD.Documents.Runtime.Server
   defdelegate unregister_connection(document_id, channel_pid), to: RefMD.Documents.Runtime.Server
+
+  defdelegate record_write_session(document_id, payload, expires_at_ms),
+    to: RefMD.Documents.Runtime.Server
+
+  defdelegate active_write_sessions(document_id), to: RefMD.Documents.Runtime.Server
 
   defdelegate set_active_snapshot(document_id, snapshot_id, clocks),
     to: RefMD.Documents.Runtime.Server
@@ -61,8 +67,8 @@ defmodule RefMD.Documents do
   @spec move_share_mount!(map(), Ecto.UUID.t() | nil, non_neg_integer()) :: :ok
   defdelegate move_share_mount!(mount, parent_id, position), to: Ordering
 
-  @spec document_admission_package!(Ecto.UUID.t(), String.t(), String.t()) :: map()
-  def document_admission_package!(document_id, event_type, admission_event_hash) do
+  @spec document_admission_package!(Ecto.UUID.t(), String.t(), String.t(), keyword()) :: map()
+  def document_admission_package!(document_id, event_type, admission_event_hash, opts \\ []) do
     document = get_document(document_id) || raise ArgumentError, "document_required"
 
     event =
@@ -80,21 +86,115 @@ defmodule RefMD.Documents do
         event.sequence
       ) || raise ArgumentError, "document_admission_checkpoint_required"
 
+    cond do
+      Keyword.get(opts, :compact, false) ->
+        compact_document_admission_package(event, checkpoint)
+
+      Keyword.get(opts, :current_incremental, false) ->
+        current_incremental_document_admission_package(document.workspace_id, event, checkpoint)
+
+      Keyword.get(opts, :incremental, false) ->
+        incremental_document_admission_package(document.workspace_id, event, checkpoint)
+
+      true ->
+        full_document_admission_package(document.workspace_id, event, checkpoint)
+    end
+  end
+
+  defp full_document_admission_package(workspace_id, event, checkpoint) do
     current_pin =
-      Encryption.current_workspace_key_directory_pin(document.workspace_id) ||
+      Encryption.current_workspace_key_directory_pin(workspace_id) ||
         raise ArgumentError, "document_admission_pin_required"
 
     checkpoint_ancestry =
       Encryption.workspace_key_directory_checkpoints_between(
-        document.workspace_id,
+        workspace_id,
         1,
         current_pin.checkpoint_sequence
       )
 
     event_ancestry =
       Encryption.workspace_key_directory_events_after_until(
-        document.workspace_id,
+        workspace_id,
         0,
+        current_pin.event_head_sequence
+      )
+
+    %{
+      workspaceKeyDirectoryEvents: [
+        key_directory_envelope(event)
+      ],
+      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
+      workspaceKeyDirectoryCheckpointAncestry:
+        Enum.map(checkpoint_ancestry, &key_directory_envelope/1),
+      workspaceKeyDirectoryEventAncestry: Enum.map(event_ancestry, &key_directory_envelope/1)
+    }
+  end
+
+  defp compact_document_admission_package(event, checkpoint) do
+    %{
+      workspaceKeyDirectoryEvents: [
+        key_directory_envelope(event)
+      ],
+      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
+      workspaceKeyDirectoryCheckpointAncestry: [],
+      workspaceKeyDirectoryEventAncestry: []
+    }
+  end
+
+  defp incremental_document_admission_package(workspace_id, event, checkpoint) do
+    previous_checkpoint =
+      checkpoint.sequence
+      |> Kernel.-(1)
+      |> then(fn
+        sequence when sequence > 0 ->
+          workspace_id
+          |> Encryption.workspace_key_directory_checkpoints_between(sequence, sequence)
+          |> List.first()
+
+        _ ->
+          nil
+      end)
+
+    previous_event_head_sequence =
+      if previous_checkpoint, do: previous_checkpoint.covered_event_head_sequence, else: 0
+
+    event_ancestry =
+      Encryption.workspace_key_directory_events_after_until(
+        workspace_id,
+        previous_event_head_sequence,
+        checkpoint.covered_event_head_sequence
+      )
+
+    %{
+      workspaceKeyDirectoryEvents: [
+        key_directory_envelope(event)
+      ],
+      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
+      workspaceKeyDirectoryCheckpointAncestry:
+        previous_checkpoint
+        |> List.wrap()
+        |> Enum.map(&key_directory_envelope/1),
+      workspaceKeyDirectoryEventAncestry: Enum.map(event_ancestry, &key_directory_envelope/1)
+    }
+  end
+
+  defp current_incremental_document_admission_package(workspace_id, event, checkpoint) do
+    current_pin =
+      Encryption.current_workspace_key_directory_pin(workspace_id) ||
+        raise ArgumentError, "document_admission_pin_required"
+
+    checkpoint_ancestry =
+      Encryption.workspace_key_directory_checkpoints_between(
+        workspace_id,
+        checkpoint.sequence + 1,
+        current_pin.checkpoint_sequence
+      )
+
+    event_ancestry =
+      Encryption.workspace_key_directory_events_after_until(
+        workspace_id,
+        checkpoint.covered_event_head_sequence,
         current_pin.event_head_sequence
       )
 
@@ -233,12 +333,18 @@ defmodule RefMD.Documents do
     FROM document_updates du
     WHERE du.document_id = ad.document_id
       AND du.snapshot_id = ad.active_snapshot_id
+      AND (
+        NOT ($6::boolean AND s.id = $4)
+        OR du.clock > COALESCE((($5::jsonb)->>(du.authority_context_key || ':' || du.signing_key_id))::integer, -1)
+      )
   ) u ON TRUE
   """
 
-  @spec get_initial_document_data(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec get_initial_document_data(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
-  def get_initial_document_data(document_id, workspace_id, user_id) do
+  def get_initial_document_data(document_id, workspace_id, user_id, params \\ %{}) do
+    update_filter = initial_update_filter(params)
+
     with :ok <- validate_guest_document_read(workspace_id, user_id, document_id),
          {:ok, %{rows: rows, columns: columns}} <-
            Repo.query(
@@ -246,7 +352,10 @@ defmodule RefMD.Documents do
              [
                Ecto.UUID.dump!(document_id),
                Ecto.UUID.dump!(workspace_id),
-               Ecto.UUID.dump!(user_id)
+               Ecto.UUID.dump!(user_id),
+               update_filter.known_snapshot_id,
+               update_filter.known_clocks,
+               update_filter.delta_mode
              ]
            ) do
       case rows do
@@ -349,6 +458,10 @@ defmodule RefMD.Documents do
     FROM document_updates du
     WHERE du.document_id = d.id
       AND du.snapshot_id = d.active_snapshot_id
+      AND (
+        NOT ($6::boolean AND s.id = $4)
+        OR du.clock > COALESCE((($5::jsonb)->>(du.authority_context_key || ':' || du.signing_key_id))::integer, -1)
+      )
   ) u ON TRUE
   WHERE d.id = $1
     AND ss.selected_expires_event_sequence > $3
@@ -381,15 +494,20 @@ defmodule RefMD.Documents do
     )
   """
 
-  @spec get_initial_document_data_for_share(Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec get_initial_document_data_for_share(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
-  def get_initial_document_data_for_share(document_id, share_id) do
+  def get_initial_document_data_for_share(document_id, share_id, params \\ %{}) do
+    update_filter = initial_update_filter(params)
+
     case current_workspace_event_sequence_for_document(document_id) do
       {:ok, current_sequence} ->
         case Repo.query(@initial_document_data_share_sql, [
                Ecto.UUID.dump!(document_id),
                Ecto.UUID.dump!(share_id),
-               current_sequence
+               current_sequence,
+               update_filter.known_snapshot_id,
+               update_filter.known_clocks,
+               update_filter.delta_mode
              ]) do
           {:ok, %{rows: [row], columns: columns}} ->
             {:ok, parse_initial_data_row(row, columns)}
@@ -405,6 +523,28 @@ defmodule RefMD.Documents do
         {:error, :db_error}
     end
   end
+
+  defp initial_update_filter(%{
+         "mode" => "delta",
+         "knownSnapshotId" => known_snapshot_id,
+         "knownSnapshotUpdateClocks" => known_clocks
+       })
+       when is_map(known_clocks) do
+    case Ecto.UUID.dump(known_snapshot_id) do
+      {:ok, dumped_snapshot_id} ->
+        %{
+          known_snapshot_id: dumped_snapshot_id,
+          known_clocks: known_clocks,
+          delta_mode: true
+        }
+
+      :error ->
+        %{known_snapshot_id: nil, known_clocks: %{}, delta_mode: false}
+    end
+  end
+
+  defp initial_update_filter(_params),
+    do: %{known_snapshot_id: nil, known_clocks: %{}, delta_mode: false}
 
   defp current_workspace_event_sequence_for_document(document_id) do
     workspace_id =

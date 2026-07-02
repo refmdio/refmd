@@ -325,6 +325,16 @@ export interface SignWorkerClientMethods {
     ciphertext: string;
     nonce: string;
   }): Promise<boolean>;
+  verifyDocumentUpdateEd25519Signature(params: {
+    publicKeyMaterial: HybridSigningPublicKeyMaterial;
+    signature: HybridSignature;
+    actorUserId: string;
+    workspaceId: string;
+    publicData: object;
+    authorityBoundary: Record<string, unknown>;
+    ciphertext: string;
+    nonce: string;
+  }): Promise<boolean>;
   verifyDocumentSnapshotSignature(params: {
     publicKeyMaterial: HybridSigningPublicKeyMaterial;
     signature: HybridSignature;
@@ -590,6 +600,16 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
 
   async verifyDocumentUpdateSignature(params) {
     const result = (await this[workerSend]("verify-document-update-signature", params)) as {
+      valid: boolean;
+    };
+    return result.valid;
+  },
+
+  async verifyDocumentUpdateEd25519Signature(params) {
+    const result = (await this[workerSend](
+      "verify-document-update-ed25519-signature",
+      params,
+    )) as {
       valid: boolean;
     };
     return result.valid;

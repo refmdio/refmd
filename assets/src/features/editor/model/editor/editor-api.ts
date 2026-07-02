@@ -75,15 +75,63 @@ declare global {
     __REFMD_E2E__?: boolean;
     __refmdSetEditorValueForDocument?: (documentId: string, value: string) => boolean;
     __refmdGetDocumentSyncState?: (documentId: string) => {
+      accessKind: "workspace" | "share";
+      activeSnapshotId: string | null;
       autoSync: boolean;
+      cacheRestore: {
+        accessKind: "workspace" | "share";
+        attemptedAt: number;
+        restored: boolean;
+        reason: string | null;
+      } | null;
       channelState: string | null;
+      confirmedClocks: Record<string, number>;
+      documentId: string;
       error: string | null;
+      hasLastSavedState: boolean;
+      hasSnapshotCiphertextHash: boolean;
+      hasSnapshotProofHash: boolean;
       initialized: boolean;
+      keyVersion: number;
+      joinDecision: {
+        hasLastSavedState: boolean;
+        hasSnapshotCiphertextHash: boolean;
+        hasSnapshotProofHash: boolean;
+        knownSnapshotId: string | null;
+        pinSnapshotId: string | null;
+        stateSnapshotId: string | null;
+        useDelta: boolean;
+      } | null;
+      lastJoinMode: "complete" | "delta";
       candidates: Array<{
+        accessKind: "workspace" | "share";
+        activeSnapshotId: string | null;
         autoSync: boolean;
+        cacheRestore: {
+          accessKind: "workspace" | "share";
+          attemptedAt: number;
+          restored: boolean;
+          reason: string | null;
+        } | null;
         channelState: string | null;
+        confirmedClocks: Record<string, number>;
+        documentId: string;
         error: string | null;
+        hasLastSavedState: boolean;
+        hasSnapshotCiphertextHash: boolean;
+        hasSnapshotProofHash: boolean;
         initialized: boolean;
+        keyVersion: number;
+        joinDecision: {
+          hasLastSavedState: boolean;
+          hasSnapshotCiphertextHash: boolean;
+          hasSnapshotProofHash: boolean;
+          knownSnapshotId: string | null;
+          pinSnapshotId: string | null;
+          stateSnapshotId: string | null;
+          useDelta: boolean;
+        } | null;
+        lastJoinMode: "complete" | "delta";
         loadedFromOfflineCache: boolean;
         readOnly: boolean;
         refCount: number;
@@ -91,6 +139,10 @@ declare global {
         stateKey: string;
         syncPaused: boolean;
         text: string;
+        writeSessionError: string | null;
+        writeSessionPreparing: boolean;
+        writeSessionReady: boolean;
+        writeSessionReadyAt: number | null;
       }>;
       loadedFromOfflineCache: boolean;
       pendingSave: boolean;
@@ -110,10 +162,20 @@ declare global {
       syncPaused: boolean;
       text: string;
       unsavedCanonicalText: boolean;
+      writeSessionError: string | null;
+      writeSessionPreparing: boolean;
+      writeSessionReady: boolean;
+      writeSessionReadyAt: number | null;
     } | null;
     __refmdGetDocumentText?: (documentId: string) => string | null;
     __refmdFlushDocumentSync?: (documentId: string) => Promise<boolean>;
     __refmdAppendDocumentText?: (documentId: string, text: string) => boolean;
+    __refmdGetEditorValuesForDocument?: (documentId: string) => Array<{
+      focused: boolean;
+      lineCount: number;
+      panelId: string;
+      value: string;
+    }>;
     __refmdSetEditorSelectionForDocument?: (
       documentId: string,
       anchorOffset: number,
@@ -121,6 +183,55 @@ declare global {
     ) => boolean;
   }
 }
+
+const E2E_PREVIEW_BLOCK_NODE_NAMES = new Set([
+  "blockquote",
+  "code_block",
+  "heading",
+  "list_item",
+  "ordered_list",
+  "paragraph",
+  "bullet_list",
+]);
+
+type E2EXmlPreviewNode = Y.XmlElement | Y.XmlText | Y.XmlHook;
+
+function appendE2EPreviewBoundary(parts: string[]): void {
+  if (parts.length === 0) return;
+  const last = parts[parts.length - 1] ?? "";
+  if (!last.endsWith("\n")) parts.push("\n");
+}
+
+function readE2EXmlNodeText(node: E2EXmlPreviewNode, parts: string[]): void {
+  const children = (node as { toArray?: () => E2EXmlPreviewNode[] }).toArray;
+  if (typeof children === "function") {
+    const nodeName = (node as { nodeName?: string }).nodeName;
+    const isBlock = typeof nodeName === "string" && E2E_PREVIEW_BLOCK_NODE_NAMES.has(nodeName);
+    if (isBlock) appendE2EPreviewBoundary(parts);
+    for (const child of children.call(node)) readE2EXmlNodeText(child, parts);
+    if (isBlock) appendE2EPreviewBoundary(parts);
+    return;
+  }
+
+  const text = (node as { toString?: () => string }).toString?.() ?? "";
+  if (text.length > 0) parts.push(text);
+}
+
+function readE2EDocumentText(doc: Y.Doc): string {
+  const sharedText = doc.getText("content").toString();
+  if (sharedText.trim().length > 0) return sharedText;
+
+  const parts: string[] = [];
+  for (const node of doc.getXmlFragment("prosemirror").toArray()) {
+    readE2EXmlNodeText(node as E2EXmlPreviewNode, parts);
+  }
+  return parts
+    .join("")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function installE2EEditorHook(): void {
   if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
   const panelBelongsToState = (stateKey: string, panelId: string | null | undefined) =>
@@ -152,6 +263,11 @@ function installE2EEditorHook(): void {
       (states.length === 1 ? states[0] : null)
     );
   };
+  const isWriteSessionReady = (state: ReturnType<typeof findDocumentState>) =>
+    !!state?.writeSession &&
+    state.writeSessionReadyAt !== null &&
+    !state._admissionDirectoryRefreshRequired &&
+    state.writeSession.expiresAtMs - 5_000 > Date.now();
   const getCandidateDiagnostics = (documentId: string) =>
     [...getAllActiveDocumentStates().values()]
       .filter((item) => item.documentId === documentId)
@@ -161,45 +277,71 @@ function installE2EEditorHook(): void {
           const savedDoc = new Y.Doc();
           try {
             Y.applyUpdate(savedDoc, item.lastSavedState, "remote");
-            savedText = savedDoc.getText("content").toString();
+            savedText = readE2EDocumentText(savedDoc);
           } finally {
             savedDoc.destroy();
           }
         }
         return {
+          accessKind: item.access.kind,
+          activeSnapshotId: item.activeSnapshotId,
           autoSync: !!item.autoSync,
+          cacheRestore: item._lastCacheRestore,
           channelState: item.channel?.state ?? null,
+          confirmedClocks: { ...item.confirmedClocks },
+          documentId: item.documentId,
           error: item.error,
+          hasLastSavedState: item.lastSavedState !== null,
+          hasSnapshotCiphertextHash: item.snapshotCiphertextHash.length > 0,
+          hasSnapshotProofHash: item.snapshotProofHash.length > 0,
           initialized: item.initialized,
+          keyVersion: item.keyVersion,
+          joinDecision: item._lastJoinDecision,
+          lastJoinMode: item._lastJoinMode,
           loadedFromOfflineCache: item.loadedFromOfflineCache,
           readOnly: item.readOnly,
           refCount: item.refCount,
           savedText,
           stateKey: item.stateKey,
           syncPaused: item._syncPaused,
-          text: item.yDoc.getText("content").toString(),
+          text: readE2EDocumentText(item.yDoc),
+          writeSessionError: item.writeSessionError,
+          writeSessionPreparing: item.writeSessionPromise !== null,
+          writeSessionReady: isWriteSessionReady(item),
+          writeSessionReadyAt: item.writeSessionReadyAt,
         };
       });
   window.__refmdGetDocumentSyncState = (documentId: string) => {
     const state = findDocumentState(documentId);
     if (state) {
-      const text = state.yDoc.getText("content").toString();
+      const text = readE2EDocumentText(state.yDoc);
       let savedText: string | null = null;
       if (state.lastSavedState) {
         const savedDoc = new Y.Doc();
         try {
           Y.applyUpdate(savedDoc, state.lastSavedState, "remote");
-          savedText = savedDoc.getText("content").toString();
+          savedText = readE2EDocumentText(savedDoc);
         } finally {
           savedDoc.destroy();
         }
       }
       return {
+        accessKind: state.access.kind,
+        activeSnapshotId: state.activeSnapshotId,
         autoSync: !!state.autoSync,
+        cacheRestore: state._lastCacheRestore,
         candidates: getCandidateDiagnostics(documentId),
         channelState: state.channel?.state ?? null,
+        confirmedClocks: { ...state.confirmedClocks },
+        documentId: state.documentId,
         error: state.error,
+        hasLastSavedState: state.lastSavedState !== null,
+        hasSnapshotCiphertextHash: state.snapshotCiphertextHash.length > 0,
+        hasSnapshotProofHash: state.snapshotProofHash.length > 0,
         initialized: state.initialized,
+        keyVersion: state.keyVersion,
+        joinDecision: state._lastJoinDecision,
+        lastJoinMode: state._lastJoinMode,
         loadedFromOfflineCache: state.loadedFromOfflineCache,
         pendingSave: state.sending && state.pendingSaveTimeout !== null,
         pendingSaveWatchdogAgeMs:
@@ -221,13 +363,17 @@ function installE2EEditorHook(): void {
         syncPaused: state._syncPaused,
         text,
         unsavedCanonicalText: savedText === null ? text.length > 0 : text !== savedText,
+        writeSessionError: state.writeSessionError,
+        writeSessionPreparing: state.writeSessionPromise !== null,
+        writeSessionReady: isWriteSessionReady(state),
+        writeSessionReadyAt: state.writeSessionReadyAt,
       };
     }
     return null;
   };
   window.__refmdGetDocumentText = (documentId: string) => {
     const state = findDocumentState(documentId);
-    return state?.yDoc.getText("content").toString() ?? null;
+    return state ? readE2EDocumentText(state.yDoc) : null;
   };
   window.__refmdFlushDocumentSync = async (documentId: string) => {
     const states = [...getAllActiveDocumentStates().values()].filter(
@@ -247,6 +393,15 @@ function installE2EEditorHook(): void {
     state.autoSync.notifyLocalEdit();
     return true;
   };
+  window.__refmdGetEditorValuesForDocument = (documentId: string) =>
+    [...editorRegistry.entries()]
+      .filter(([panelId]) => panelBelongsToDocument(panelId, documentId))
+      .map(([panelId, editor]) => ({
+        focused: editor.hasFocus(),
+        lineCount: editor.lineCount(),
+        panelId,
+        value: editor.getValue(),
+      }));
   window.__refmdSetEditorValueForDocument = (documentId: string, value: string) => {
     let synced = false;
     for (const state of getAllActiveDocumentStates().values()) {

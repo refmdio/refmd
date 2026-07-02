@@ -3721,19 +3721,19 @@
           }
         },
         "required": [
-          "signing_key_id",
-          "key_version",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
-          "resource_hash",
-          "suite_id",
+          "signing_key_id",
           "suite_rank",
-          "payload_kind",
-          "sender_device_id",
-          "initiator_commitment_hash",
+          "suite_id",
+          "key_checkpoint_hash",
+          "resource_hash",
           "context_hash",
+          "initiator_commitment_hash",
+          "sender_device_id",
           "delivery_id",
+          "key_version",
+          "recipient_encryption_key_id",
+          "payload_kind",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
@@ -29607,6 +29607,63 @@
         "title": "ReorderDocumentRequest",
         "type": "object"
       },
+      "ShareSnapshotProofChainEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "ciphertext_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parent_proof_hash": {
+            "type": "string"
+          },
+          "parent_snapshot_id": {
+            "type": "string"
+          },
+          "proof_chain_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.snapshot-proof-link"
+            ],
+            "type": "string"
+          },
+          "snapshot_admission_event_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "snapshot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "snapshot_signature_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "document_id",
+          "snapshot_id",
+          "parent_snapshot_id",
+          "parent_proof_hash",
+          "ciphertext_hash",
+          "snapshot_signature_hash",
+          "snapshot_admission_event_hash",
+          "proof_chain_hash"
+        ],
+        "title": "ShareSnapshotProofChainEntry",
+        "type": "object"
+      },
       "DeviceFullInfo": {
         "additionalProperties": false,
         "properties": {
@@ -30118,6 +30175,14 @@
               },
               {
                 "$ref": "#/components/schemas/FolderShareRoot"
+              }
+            ]
+          },
+          "root_document_bootstrap": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShareDocumentBootstrapResponse"
               }
             ]
           },
@@ -32147,6 +32212,39 @@
           }
         ],
         "title": "UpdateShareKeysRequest",
+        "type": "object"
+      },
+      "ShareInitialDocumentUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "admission": {
+            "$ref": "#/components/schemas/ShareDocumentOperationAdmission"
+          },
+          "ciphertext": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "publicData": {
+            "$ref": "#/components/schemas/ShareInitialUpdatePublicData"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ciphertext",
+          "nonce",
+          "version",
+          "signature",
+          "admission",
+          "publicData"
+        ],
+        "title": "ShareInitialDocumentUpdate",
         "type": "object"
       },
       "InvitationsListResponse": {
@@ -34597,6 +34695,56 @@
         "title": "DeviceKeyDeletionTranscript",
         "type": "object"
       },
+      "ShareDocumentOperationAdmission": {
+        "additionalProperties": false,
+        "properties": {
+          "workspaceKeyDirectoryCheckpoint": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+              }
+            ]
+          },
+          "workspaceKeyDirectoryCheckpointAncestry": {
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "workspaceKeyDirectoryEventAncestry": {
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "workspaceKeyDirectoryEvents": {
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "workspaceKeyDirectoryEvents",
+          "workspaceKeyDirectoryCheckpoint",
+          "workspaceKeyDirectoryCheckpointAncestry",
+          "workspaceKeyDirectoryEventAncestry"
+        ],
+        "title": "ShareDocumentOperationAdmission",
+        "type": "object"
+      },
       "LoginRequest": {
         "additionalProperties": false,
         "properties": {
@@ -35226,6 +35374,35 @@
         "title": "ShareTreeEntry",
         "type": "object"
       },
+      "ShareInitialDocumentSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "admission": {
+            "$ref": "#/components/schemas/ShareDocumentOperationAdmission"
+          },
+          "ciphertext": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "publicData": {
+            "$ref": "#/components/schemas/ShareInitialSnapshotPublicData"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          }
+        },
+        "required": [
+          "ciphertext",
+          "nonce",
+          "signature",
+          "admission",
+          "publicData"
+        ],
+        "title": "ShareInitialDocumentSnapshot",
+        "type": "object"
+      },
       "DocumentResponse": {
         "additionalProperties": false,
         "properties": {
@@ -35359,6 +35536,81 @@
           "devices"
         ],
         "title": "DeviceRegistrationsResponse",
+        "type": "object"
+      },
+      "ShareInitialDocumentPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "authorityPermissionVersion": {
+            "type": "integer"
+          },
+          "ciphertextHash": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Blake3Base64Url"
+              }
+            ],
+            "nullable": true
+          },
+          "latestVersion": {
+            "type": "integer"
+          },
+          "proofChainHash": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Blake3Base64Url"
+              }
+            ],
+            "nullable": true
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "snapshot": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ShareInitialDocumentSnapshot"
+              }
+            ],
+            "nullable": true
+          },
+          "snapshotAdmissionEventHash": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Blake3Base64Url"
+              }
+            ],
+            "nullable": true
+          },
+          "snapshotProofChain": {
+            "items": {
+              "$ref": "#/components/schemas/ShareSnapshotProofChainEntry"
+            },
+            "type": "array"
+          },
+          "updates": {
+            "items": {
+              "$ref": "#/components/schemas/ShareInitialDocumentUpdate"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "snapshot",
+          "updates",
+          "snapshotProofChain",
+          "proofChainHash",
+          "ciphertextHash",
+          "snapshotAdmissionEventHash",
+          "latestVersion",
+          "archived",
+          "readOnly",
+          "authorityPermissionVersion"
+        ],
+        "title": "ShareInitialDocumentPayload",
         "type": "object"
       },
       "FolderShareRoot": {
@@ -36109,6 +36361,26 @@
             ],
             "nullable": true
           },
+          "workspace_key_directory_checkpoint_ancestry": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
+          },
+          "workspace_key_directory_event_ancestry": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
+          },
+          "workspace_key_directory_latest_checkpoint": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+              }
+            ],
+            "nullable": true
+          },
           "workspace_pin_bootstrap": {
             "allOf": [
               {
@@ -36133,6 +36405,9 @@
           "password_protected",
           "workspace_pin_bootstrap",
           "workspace_key_directory_checkpoint",
+          "workspace_key_directory_latest_checkpoint",
+          "workspace_key_directory_checkpoint_ancestry",
+          "workspace_key_directory_event_ancestry",
           "verification_directory",
           "folder",
           "entries"
@@ -36716,6 +36991,14 @@
             "nullable": true,
             "type": "string"
           },
+          "initial_document": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ShareInitialDocumentPayload"
+              }
+            ],
+            "nullable": true
+          },
           "key_version": {
             "type": "integer"
           },
@@ -36775,6 +37058,26 @@
             ],
             "nullable": true
           },
+          "workspace_key_directory_checkpoint_ancestry": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
+          },
+          "workspace_key_directory_event_ancestry": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
+          },
+          "workspace_key_directory_latest_checkpoint": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+              }
+            ],
+            "nullable": true
+          },
           "workspace_pin_bootstrap": {
             "allOf": [
               {
@@ -36807,6 +37110,9 @@
           "nonce",
           "workspace_pin_bootstrap",
           "workspace_key_directory_checkpoint",
+          "workspace_key_directory_latest_checkpoint",
+          "workspace_key_directory_checkpoint_ancestry",
+          "workspace_key_directory_event_ancestry",
           "verification_directory"
         ],
         "title": "ShareDocumentBootstrapResponse",
@@ -36877,19 +37183,19 @@
           }
         },
         "required": [
-          "signing_key_id",
-          "key_version",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
-          "resource_hash",
-          "suite_id",
+          "signing_key_id",
           "suite_rank",
-          "payload_kind",
-          "sender_device_id",
-          "initiator_commitment_hash",
+          "suite_id",
+          "key_checkpoint_hash",
+          "resource_hash",
           "context_hash",
+          "initiator_commitment_hash",
+          "sender_device_id",
           "delivery_id",
+          "key_version",
+          "recipient_encryption_key_id",
+          "payload_kind",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
@@ -38632,6 +38938,91 @@
         "title": "ShareMountBootstrapMountSummary",
         "type": "object"
       },
+      "ShareInitialSnapshotPublicData": {
+        "additionalProperties": false,
+        "properties": {
+          "authorityContextKey": {
+            "type": "string"
+          },
+          "authorityId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "authorityKind": {
+            "enum": [
+              "workspace_device",
+              "share_participant_device"
+            ],
+            "type": "string"
+          },
+          "authorityPermissionVersion": {
+            "type": "integer"
+          },
+          "authorityScopeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "docId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "keyCheckpointHash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "keyCheckpointSequence": {
+            "type": "integer"
+          },
+          "keyVersion": {
+            "type": "integer"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "ownerKind": {
+            "enum": [
+              "device",
+              "share_participant_device"
+            ],
+            "type": "string"
+          },
+          "parentProofHash": {
+            "type": "string"
+          },
+          "parentSnapshotId": {
+            "type": "string"
+          },
+          "parentSnapshotUpdateClocks": {
+            "$ref": "#/components/schemas/ShareInitialDocumentClockMap"
+          },
+          "signingKeyId": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "snapshotId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "docId",
+          "snapshotId",
+          "signingKeyId",
+          "keyVersion",
+          "parentSnapshotId",
+          "parentProofHash",
+          "parentSnapshotUpdateClocks",
+          "ownerKind",
+          "ownerId",
+          "authorityKind",
+          "authorityId",
+          "authorityContextKey",
+          "authorityScopeId",
+          "authorityPermissionVersion",
+          "keyCheckpointSequence",
+          "keyCheckpointHash"
+        ],
+        "title": "ShareInitialSnapshotPublicData",
+        "type": "object"
+      },
       "ShareVerificationParticipantDevice": {
         "additionalProperties": false,
         "properties": {
@@ -39319,6 +39710,13 @@
         "title": "InitiatorAkeCommitmentInputs",
         "type": "object"
       },
+      "ShareInitialDocumentClockMap": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "title": "ShareInitialDocumentClockMap",
+        "type": "object"
+      },
       "ShareManagementRequest": {
         "additionalProperties": false,
         "properties": {
@@ -39396,6 +39794,107 @@
           "new_kdf_params"
         ],
         "title": "KdfMigrationRequest",
+        "type": "object"
+      },
+      "ShareInitialUpdatePublicData": {
+        "additionalProperties": false,
+        "properties": {
+          "authorityContextKey": {
+            "type": "string"
+          },
+          "authorityId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "authorityKind": {
+            "enum": [
+              "workspace_device",
+              "share_participant_device"
+            ],
+            "type": "string"
+          },
+          "authorityPermissionVersion": {
+            "type": "integer"
+          },
+          "authorityScopeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "clock": {
+            "type": "integer"
+          },
+          "docId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "keyCheckpointHash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "keyCheckpointSequence": {
+            "type": "integer"
+          },
+          "keyVersion": {
+            "type": "integer"
+          },
+          "minDekVersion": {
+            "type": "integer"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "ownerKind": {
+            "enum": [
+              "device",
+              "share_participant_device"
+            ],
+            "type": "string"
+          },
+          "refSnapshotId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signingKeyId": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "timestamp": {
+            "type": "integer"
+          },
+          "updateHash": {
+            "type": "string"
+          },
+          "writeSessionCounter": {
+            "type": "integer"
+          },
+          "writeSessionEventHash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "writeSessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "docId",
+          "signingKeyId",
+          "keyVersion",
+          "refSnapshotId",
+          "clock",
+          "timestamp",
+          "updateHash",
+          "ownerKind",
+          "ownerId",
+          "authorityKind",
+          "authorityId",
+          "authorityContextKey",
+          "authorityScopeId",
+          "authorityPermissionVersion",
+          "keyCheckpointSequence",
+          "keyCheckpointHash",
+          "minDekVersion",
+          "writeSessionEventHash",
+          "writeSessionId",
+          "writeSessionCounter"
+        ],
+        "title": "ShareInitialUpdatePublicData",
         "type": "object"
       },
       "ShareLinkMountListItem": {
@@ -39608,19 +40107,19 @@
           }
         },
         "required": [
-          "signing_key_id",
-          "key_version",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
-          "resource_hash",
-          "suite_id",
+          "signing_key_id",
           "suite_rank",
-          "payload_kind",
-          "sender_device_id",
-          "initiator_commitment_hash",
+          "suite_id",
+          "key_checkpoint_hash",
+          "resource_hash",
           "context_hash",
+          "initiator_commitment_hash",
+          "sender_device_id",
           "delivery_id",
+          "key_version",
+          "recipient_encryption_key_id",
+          "payload_kind",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",

@@ -101,20 +101,29 @@ export async function runPostInitializationTasks(
 
   const offlineCacheTask = async () => {
     try {
-      const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
-      await cacheDek(documentId, state.keyVersion).catch(() => {
-        // Offline DEK cache is best-effort; the online editor keeps the active key in memory.
-      });
-      if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
-        await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {
-          // Offline KEK cache is best-effort and will be retried after the next open/sync.
+      const cacheOptions =
+        state.access.kind === "share"
+          ? {
+              worker: getDocumentCryptoWorker(state),
+              cacheKey: getDocumentDekCacheKey(state, documentId),
+            }
+          : undefined;
+      if (state.access.kind !== "share") {
+        const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
+        await cacheDek(documentId, state.keyVersion).catch(() => {
+          // Offline DEK cache is best-effort; the online editor keeps the active key in memory.
         });
+        if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
+          await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {
+            // Offline KEK cache is best-effort and will be retried after the next open/sync.
+          });
+        }
       }
       if (!isCurrentState()) return;
-      cacheDocumentState(documentId, workspaceId, state).catch(() => {
+      cacheDocumentState(documentId, workspaceId, state, cacheOptions).catch(() => {
         // Offline document state cache is rebuilt from the current server/session state.
       });
-      state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state);
+      state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state, cacheOptions);
       checkAndEvict().catch(() => {
         // Cache eviction is opportunistic; quota pressure triggers another cleanup pass later.
       });
@@ -147,7 +156,7 @@ export async function runPostInitializationTasks(
   };
 
   if (state.access.kind === "share") {
-    await awarenessTask();
+    await Promise.allSettled([offlineCacheTask(), awarenessTask()]);
     return;
   }
 

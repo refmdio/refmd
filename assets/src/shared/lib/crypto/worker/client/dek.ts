@@ -146,6 +146,9 @@ export interface DekWorkerClientMethods {
     documentToken: string;
     authenticatedWorkspacePinBootstrapHash: string;
   }): Promise<Record<string, unknown> & ShareCanonicalBootstrapFields & ShareBootstrapKeyRef>;
+  prepareShareDocumentBootstrap(params: {
+    response: Record<string, unknown>;
+  }): Promise<Record<string, unknown> & ShareCanonicalBootstrapFields & ShareBootstrapKeyRef>;
   fetchShareFolderBootstrap(params: {
     folderToken: string;
     authenticatedWorkspacePinBootstrapHash: string;
@@ -238,29 +241,38 @@ export interface DekWorkerClientMethods {
     plaintext: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }>;
   decryptOfflineCache(params: {
     ciphertext: Uint8Array;
     nonce: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<Uint8Array>;
   encryptOfflinePending(params: {
     plaintext: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }>;
   decryptOfflinePending(params: {
     ciphertext: Uint8Array;
     nonce: Uint8Array;
     documentId: string;
     keyVersion: number;
+    cacheKey?: string;
   }): Promise<Uint8Array>;
-  storeDekForOffline(params: { documentId: string; keyVersion: number }): Promise<void>;
+  storeDekForOffline(params: {
+    documentId: string;
+    keyVersion: number;
+    cacheKey?: string;
+  }): Promise<void>;
   restoreDekFromOffline(params: {
     documentId: string;
     keyVersion?: number;
     isActive?: boolean;
+    cacheKey?: string;
   }): Promise<{ restored: boolean; keyVersion?: number; cachedAt?: number }>;
   loadOfflineDekMetadata(documentId: string): Promise<{
     documentId: string;
@@ -399,6 +411,15 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
       ...params,
       authHeaders: await bootstrapAuthHeaders(path, body, "share"),
     })) as Record<string, unknown> & ShareCanonicalBootstrapFields & ShareBootstrapKeyRef;
+  },
+
+  async prepareShareDocumentBootstrap(params) {
+    return (await this[workerSend]("prepare-share-document-bootstrap", params)) as Record<
+      string,
+      unknown
+    > &
+      ShareCanonicalBootstrapFields &
+      ShareBootstrapKeyRef;
   },
 
   async fetchShareFolderBootstrap(params) {

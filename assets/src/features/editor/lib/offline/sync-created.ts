@@ -505,6 +505,7 @@ function makeNoopCallbacks(): DocumentChannelCallbacks {
     onDocument: () => {},
     onUpdate: () => {},
     onSnapshot: () => {},
+    onWriteSession: () => {},
     onUpdateSaved: () => {},
     onUpdateSaveFailed: () => {},
     onSnapshotSaved: () => {},

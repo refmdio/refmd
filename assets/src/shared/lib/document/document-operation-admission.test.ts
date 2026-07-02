@@ -6,6 +6,7 @@ import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import {
   assertWriteSessionNotInvalidatedByEvents,
+  resolveDocumentWriteSessionSigningKeyFromAdmission,
   verifyDocumentOperationAdmission,
   verifyDocumentWriteSessionAdmission,
 } from "./document-operation-admission";
@@ -583,6 +584,64 @@ describe("assertWriteSessionNotInvalidatedByEvents", () => {
         ],
       }),
     ).not.toThrow();
+  });
+});
+
+describe("resolveDocumentWriteSessionSigningKeyFromAdmission", () => {
+  it("resolves an edit share participant signing key from the admission checkpoint", () => {
+    const session = signed({
+      scope_kind: "workspace",
+      scope_id: "workspace-1",
+      sequence: 10,
+      event_type: "document_write_session_admitted",
+      previous_event_hash: "previous-session",
+      actor: {
+        signer_kind: "share_participant_device",
+        share_id: "share-1",
+        share_participant_principal_id: "principal-1",
+        share_participant_device_id: "share-device-1",
+        signing_key_id: "writer-key",
+      },
+      body: {},
+    });
+    const signingKeyMaterial = {
+      protocol: "refmd.hybrid-signing-key-material",
+      owner_kind: "share_participant_device",
+      owner_id: "share-device-1",
+    };
+    const checkpoint = signed({
+      sequence: 6,
+      previous_checkpoint_hash: "checkpoint-5",
+      covered_event_head: {
+        head_sequence: 10,
+        head_hash: eventHash(session),
+      },
+      share_participant_keys: [
+        {
+          key_id: "writer-key",
+          key_material: signingKeyMaterial,
+        },
+      ],
+    });
+    const admission = {
+      workspaceKeyDirectoryEvents: [session as unknown as Record<string, unknown>],
+      workspaceKeyDirectoryCheckpoint: checkpoint as unknown as Record<string, unknown>,
+    } satisfies DocumentOperationAdmission;
+
+    expect(
+      resolveDocumentWriteSessionSigningKeyFromAdmission({
+        admission,
+        publicData: {
+          ownerKind: "share_participant_device",
+          ownerId: "share-device-1",
+          signingKeyId: "writer-key",
+          authorityContextKey: "share-1:principal-1",
+        },
+      }),
+    ).toEqual({
+      key: signingKeyMaterial,
+      actorUserId: "principal-1",
+    });
   });
 });
 

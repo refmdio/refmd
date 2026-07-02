@@ -46,6 +46,26 @@ export const HYBRID_SIGNATURE_LENGTHS = {
 const MLDSA_CONTEXT_PREFIX = "RefMD:v2:";
 const textEncoder = new TextEncoder();
 
+interface CachedPublicSigningMaterial {
+  ed25519Public: Uint8Array;
+  mldsa65Public: Uint8Array;
+  signingKeyId?: string;
+}
+
+interface CachedPrivateSigningMaterial extends CachedPublicSigningMaterial {
+  ed25519Private: Uint8Array;
+  mldsa65Private: Uint8Array;
+  publicKeyMaterial: AnyHybridSigningPublicKeyMaterial;
+}
+
+const publicSigningMaterialCache = new WeakMap<object, CachedPublicSigningMaterial>();
+const privateSigningMaterialCache = new WeakMap<object, CachedPrivateSigningMaterial>();
+const publicEd25519CryptoKeyCache = new WeakMap<object, Promise<CryptoKey | null>>();
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 export { KEY_DIRECTORY_EVENT_VARIANTS } from "./signature-transcript-schemas";
 export {
   SIGNATURE_TRANSCRIPT_LABEL,
@@ -168,7 +188,13 @@ export function deriveShareCapabilitySigningPrivateKeyMaterial(
 
 export function computeSigningKeyId(material: AnyHybridSigningPublicKeyMaterial): string {
   assertHybridSigningPublicKeyMaterial(material);
-  return blake3Base64Url(canonicalizeStrictBytes(material as unknown as StrictJsonValue));
+  const cached = publicSigningMaterialCache.get(material);
+  if (cached?.signingKeyId) return cached.signingKeyId;
+  const signingKeyId = blake3Base64Url(
+    canonicalizeStrictBytes(material as unknown as StrictJsonValue),
+  );
+  if (cached) cached.signingKeyId = signingKeyId;
+  return signingKeyId;
 }
 
 export function ed25519PublicKeyFromMaterial(material: unknown): Uint8Array {
@@ -229,29 +255,20 @@ function signHybridSignature({
   );
 
   const transcriptBytes = canonicalizeStrictBytes(transcript);
-  const ed25519Private = decodeBase64UrlStrict(
-    privateKeyMaterial.ed25519_private,
-    HYBRID_SIGNATURE_LENGTHS.ED25519_PRIVATE,
-  );
-  const mldsa65Private = decodeBase64UrlStrict(
-    privateKeyMaterial.mldsa65_private,
-    HYBRID_SIGNATURE_LENGTHS.MLDSA65_PRIVATE,
-  );
-  const publicKeyMaterial =
-    privateKeyMaterial.owner_kind === "share_capability"
-      ? shareCapabilityPublicKeyMaterialFromPrivate(privateKeyMaterial)
-      : publicKeyMaterialFromPrivate(privateKeyMaterial);
+  const decoded = getCachedPrivateSigningMaterial(privateKeyMaterial);
 
   return {
     protocol: SIGNATURE_PROTOCOL_ID,
     version: CURRENT_PROTOCOL_VERSION,
     suite_id: SUITE_IDS.HYBRID_SIGNATURE,
     suite_rank: CURRENT_SUITE_RANK,
-    signing_key_id: computeSigningKeyId(publicKeyMaterial),
+    signing_key_id: decoded.signingKeyId ?? computeSigningKeyId(decoded.publicKeyMaterial),
     transcript_hash: blake3Base64Url(transcriptBytes),
-    ed25519: encodeBase64Url(ed25519.sign(transcriptBytes, ed25519Private)),
+    ed25519: encodeBase64Url(ed25519.sign(transcriptBytes, decoded.ed25519Private)),
     mldsa65: encodeBase64Url(
-      ml_dsa65.sign(transcriptBytes, mldsa65Private, { context: mldsaContext(signingPurpose) }),
+      ml_dsa65.sign(transcriptBytes, decoded.mldsa65Private, {
+        context: mldsaContext(signingPurpose),
+      }),
     ),
   };
 }
@@ -292,14 +309,7 @@ function assertHybridSignature({
     throw new Error("signing_key_id_mismatch");
   }
 
-  const ed25519Public = decodeBase64UrlStrict(
-    publicKeyMaterial.ed25519_public,
-    HYBRID_SIGNATURE_LENGTHS.ED25519_PUBLIC,
-  );
-  const mldsa65Public = decodeBase64UrlStrict(
-    publicKeyMaterial.mldsa65_public,
-    HYBRID_SIGNATURE_LENGTHS.MLDSA65_PUBLIC,
-  );
+  const decoded = getCachedPublicSigningMaterial(publicKeyMaterial);
   const ed25519Signature = decodeBase64UrlStrict(
     signature.ed25519,
     HYBRID_SIGNATURE_LENGTHS.ED25519_SIGNATURE,
@@ -309,11 +319,11 @@ function assertHybridSignature({
     HYBRID_SIGNATURE_LENGTHS.MLDSA65_SIGNATURE,
   );
 
-  if (!ed25519.verify(ed25519Signature, transcriptBytes, ed25519Public)) {
+  if (!ed25519.verify(ed25519Signature, transcriptBytes, decoded.ed25519Public)) {
     throw new Error("ed25519_signature_invalid");
   }
   if (
-    !ml_dsa65.verify(mldsa65Signature, transcriptBytes, mldsa65Public, {
+    !ml_dsa65.verify(mldsa65Signature, transcriptBytes, decoded.mldsa65Public, {
       context: mldsaContext(signingPurpose),
     })
   ) {
@@ -338,6 +348,114 @@ function verifySurfaceSignature(
   return verifyHybridSignature({ signingPurpose, ...params });
 }
 
+function verifySurfaceEd25519Signature(
+  signingPurpose: string,
+  { transcript, signature, publicKeyMaterial }: VerifySurfaceSignatureParams,
+): boolean {
+  try {
+    assertSigningPurpose(signingPurpose);
+    assertHybridSigningPublicKeyMaterial(publicKeyMaterial);
+    assertSignatureShape(signature);
+    assertTranscript(
+      transcript,
+      signingPurpose,
+      publicKeyMaterial.owner_kind,
+      publicKeyMaterial.owner_id,
+    );
+
+    const transcriptBytes = canonicalizeStrictBytes(transcript);
+    const expectedTranscriptHash = blake3Base64Url(transcriptBytes);
+    if (!constantStringEqual(signature.transcript_hash, expectedTranscriptHash)) {
+      return false;
+    }
+
+    const expectedSigningKeyId = computeSigningKeyId(publicKeyMaterial);
+    if (!constantStringEqual(signature.signing_key_id, expectedSigningKeyId)) {
+      return false;
+    }
+
+    const decoded = getCachedPublicSigningMaterial(publicKeyMaterial);
+    const ed25519Signature = decodeBase64UrlStrict(
+      signature.ed25519,
+      HYBRID_SIGNATURE_LENGTHS.ED25519_SIGNATURE,
+    );
+    return ed25519.verify(ed25519Signature, transcriptBytes, decoded.ed25519Public);
+  } catch {
+    return false;
+  }
+}
+
+async function getPublicEd25519CryptoKey(
+  material: AnyHybridSigningPublicKeyMaterial,
+  decoded: CachedPublicSigningMaterial,
+): Promise<CryptoKey | null> {
+  const cached = publicEd25519CryptoKeyCache.get(material);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    try {
+      if (!globalThis.crypto?.subtle) return null;
+      return await globalThis.crypto.subtle.importKey(
+        "raw",
+        bytesToArrayBuffer(decoded.ed25519Public),
+        { name: "Ed25519" },
+        false,
+        ["verify"],
+      );
+    } catch {
+      return null;
+    }
+  })();
+  publicEd25519CryptoKeyCache.set(material, promise);
+  return promise;
+}
+
+async function verifySurfaceEd25519SignatureAsync(
+  signingPurpose: string,
+  { transcript, signature, publicKeyMaterial }: VerifySurfaceSignatureParams,
+): Promise<boolean> {
+  try {
+    assertSigningPurpose(signingPurpose);
+    assertHybridSigningPublicKeyMaterial(publicKeyMaterial);
+    assertSignatureShape(signature);
+    assertTranscript(
+      transcript,
+      signingPurpose,
+      publicKeyMaterial.owner_kind,
+      publicKeyMaterial.owner_id,
+    );
+
+    const transcriptBytes = canonicalizeStrictBytes(transcript);
+    const expectedTranscriptHash = blake3Base64Url(transcriptBytes);
+    if (!constantStringEqual(signature.transcript_hash, expectedTranscriptHash)) {
+      return false;
+    }
+
+    const expectedSigningKeyId = computeSigningKeyId(publicKeyMaterial);
+    if (!constantStringEqual(signature.signing_key_id, expectedSigningKeyId)) {
+      return false;
+    }
+
+    const decoded = getCachedPublicSigningMaterial(publicKeyMaterial);
+    const ed25519Signature = decodeBase64UrlStrict(
+      signature.ed25519,
+      HYBRID_SIGNATURE_LENGTHS.ED25519_SIGNATURE,
+    );
+    const cryptoKey = await getPublicEd25519CryptoKey(publicKeyMaterial, decoded);
+    if (cryptoKey) {
+      return await globalThis.crypto.subtle.verify(
+        { name: "Ed25519" },
+        cryptoKey,
+        bytesToArrayBuffer(ed25519Signature),
+        bytesToArrayBuffer(transcriptBytes),
+      );
+    }
+    return ed25519.verify(ed25519Signature, transcriptBytes, decoded.ed25519Public);
+  } catch {
+    return false;
+  }
+}
+
 export function createPopRequestSignature(params: SignSurfaceSignatureParams): HybridSignature {
   return signSurfaceSignature("pop_request", params);
 }
@@ -352,6 +470,18 @@ export function signDocumentUpdateSignature(params: SignSurfaceSignatureParams):
 
 export function verifyDocumentUpdateSignature(params: VerifySurfaceSignatureParams): boolean {
   return verifySurfaceSignature("document_update", params);
+}
+
+export function verifyDocumentUpdateEd25519Signature(
+  params: VerifySurfaceSignatureParams,
+): boolean {
+  return verifySurfaceEd25519Signature("document_update", params);
+}
+
+export function verifyDocumentUpdateEd25519SignatureAsync(
+  params: VerifySurfaceSignatureParams,
+): Promise<boolean> {
+  return verifySurfaceEd25519SignatureAsync("document_update", params);
 }
 
 export function signDocumentSnapshotSignature(params: SignSurfaceSignatureParams): HybridSignature {
@@ -690,6 +820,13 @@ export function decodeHybridSignatureFromTransport(encoded: string): HybridSigna
 export function assertHybridSigningPublicKeyMaterial(
   material: unknown,
 ): asserts material is AnyHybridSigningPublicKeyMaterial {
+  if (
+    typeof material === "object" &&
+    material !== null &&
+    publicSigningMaterialCache.has(material)
+  ) {
+    return;
+  }
   assertPlainObject(material, "public_key_material_not_object");
   assertExactKeys(material, [
     "ed25519_public",
@@ -712,13 +849,30 @@ export function assertHybridSigningPublicKeyMaterial(
   assertSuiteFields(material.suite_id, material.suite_rank);
   assertNonEmptyString(material.ed25519_public, "ed25519_public_invalid");
   assertNonEmptyString(material.mldsa65_public, "mldsa65_public_invalid");
-  decodeBase64UrlStrict(material.ed25519_public, HYBRID_SIGNATURE_LENGTHS.ED25519_PUBLIC);
-  decodeBase64UrlStrict(material.mldsa65_public, HYBRID_SIGNATURE_LENGTHS.MLDSA65_PUBLIC);
+  const ed25519Public = decodeBase64UrlStrict(
+    material.ed25519_public,
+    HYBRID_SIGNATURE_LENGTHS.ED25519_PUBLIC,
+  );
+  const mldsa65Public = decodeBase64UrlStrict(
+    material.mldsa65_public,
+    HYBRID_SIGNATURE_LENGTHS.MLDSA65_PUBLIC,
+  );
+  publicSigningMaterialCache.set(material, {
+    ed25519Public,
+    mldsa65Public,
+  });
 }
 
 export function assertHybridSigningPrivateKeyMaterial(
   material: unknown,
 ): asserts material is HybridSigningPrivateKeyMaterial {
+  if (
+    typeof material === "object" &&
+    material !== null &&
+    privateSigningMaterialCache.has(material)
+  ) {
+    return;
+  }
   assertPlainObject(material, "private_key_material_not_object");
   assertExactKeys(material, [
     "ed25519_private",
@@ -769,6 +923,58 @@ export function assertHybridSigningPrivateKeyMaterial(
   if (!constantTimeEqual(ml_dsa65.getPublicKey(mldsa65Private), mldsa65Public)) {
     throw new Error("mldsa65_private_public_mismatch");
   }
+  const privateMaterial = material as unknown as HybridSigningPrivateKeyMaterial;
+  const publicKeyMaterial: AnyHybridSigningPublicKeyMaterial =
+    privateMaterial.owner_kind === "share_capability"
+      ? {
+          protocol: SIGNING_PUBLIC_KEY_MATERIAL_PROTOCOL,
+          version: CURRENT_PROTOCOL_VERSION,
+          owner_kind: "share_capability",
+          owner_id: privateMaterial.owner_id,
+          ed25519_public: privateMaterial.ed25519_public,
+          mldsa65_public: privateMaterial.mldsa65_public,
+          suite_id: SUITE_IDS.HYBRID_SIGNATURE,
+          suite_rank: CURRENT_SUITE_RANK,
+        }
+      : {
+          protocol: SIGNING_PUBLIC_KEY_MATERIAL_PROTOCOL,
+          version: CURRENT_PROTOCOL_VERSION,
+          owner_kind: privateMaterial.owner_kind,
+          owner_id: privateMaterial.owner_id,
+          ed25519_public: privateMaterial.ed25519_public,
+          mldsa65_public: privateMaterial.mldsa65_public,
+          suite_id: SUITE_IDS.HYBRID_SIGNATURE,
+          suite_rank: CURRENT_SUITE_RANK,
+        };
+  const signingKeyId = blake3Base64Url(
+    canonicalizeStrictBytes(publicKeyMaterial as unknown as StrictJsonValue),
+  );
+  privateSigningMaterialCache.set(material, {
+    ed25519Private,
+    ed25519Public,
+    mldsa65Private,
+    mldsa65Public,
+    publicKeyMaterial,
+    signingKeyId,
+  });
+}
+
+function getCachedPublicSigningMaterial(
+  material: AnyHybridSigningPublicKeyMaterial,
+): CachedPublicSigningMaterial {
+  assertHybridSigningPublicKeyMaterial(material);
+  const cached = publicSigningMaterialCache.get(material);
+  if (!cached) throw new Error("public_key_material_cache_missing");
+  return cached;
+}
+
+function getCachedPrivateSigningMaterial(
+  material: HybridSigningPrivateKeyMaterial,
+): CachedPrivateSigningMaterial {
+  assertHybridSigningPrivateKeyMaterial(material);
+  const cached = privateSigningMaterialCache.get(material);
+  if (!cached) throw new Error("private_key_material_cache_missing");
+  return cached;
 }
 
 export function assertSignatureShape(signature: unknown): asserts signature is HybridSignature {

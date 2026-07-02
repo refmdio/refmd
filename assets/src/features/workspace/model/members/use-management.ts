@@ -40,9 +40,10 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     const id = workspaceId();
     const memberRows = members.data?.members;
     if (!id || !memberRows || memberPermissionDenied()) return;
+    const membershipFingerprint = workspaceMemberDistributionFingerprint(memberRows);
 
     queueMicrotask(() => {
-      void distributeWorkspaceMemberEnvelopes(id).catch(() => {});
+      void distributeWorkspaceMemberEnvelopes(id, { membershipFingerprint }).catch(() => {});
     });
   });
 
@@ -188,3 +189,10 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
 }
 
 export type WorkspaceMemberManagementModel = ReturnType<typeof useWorkspaceMemberManagement>;
+
+function workspaceMemberDistributionFingerprint(memberRows: readonly WorkspaceMember[]): string {
+  return memberRows
+    .map((member) => `${member.user_id}:${member.role_id}:${member.base_role}`)
+    .sort()
+    .join("|");
+}

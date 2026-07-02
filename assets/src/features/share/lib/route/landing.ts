@@ -5,19 +5,15 @@ import {
   readShareSessionTrustAnchor,
   refreshShareSessionTrustAnchorFromBootstrap,
 } from "../session/session";
+import { getPendingShareParticipantKeypairPrewarm } from "../session/keypair-prewarm";
+import { preloadShareDocumentRoute } from "./document";
 
 export interface ShareLandingRoot {
   document_token?: string;
   folder_token?: string;
 }
 
-interface ShareLandingPayload {
-  share: {
-    permission: "view" | "edit";
-    password_protected: boolean;
-  };
-  root?: ShareLandingRoot | null;
-}
+export type ShareLandingPayload = Awaited<ReturnType<typeof sharesApi.getLanding>>;
 
 export type ShareLandingResolution =
   | {
@@ -29,6 +25,7 @@ export type ShareLandingResolution =
     }
   | {
       kind: "bootstrap";
+      landing: ShareLandingPayload;
     };
 
 function isDocumentRoot(root: ShareLandingRoot): root is { document_token: string } {
@@ -48,16 +45,8 @@ async function hasCanonicalShareAccess(
   if (!(await ensureShareParticipantDeviceReady({ requiredShareSlug: shareSlug }))) return false;
 
   if (isDocumentRoot(root)) {
-    const canonical = await getShareParticipantCryptoWorker(shareSlug).fetchShareDocumentBootstrap({
-      documentToken: root.document_token,
-      authenticatedWorkspacePinBootstrapHash: anchor.workspacePinBootstrapHash,
-    });
-    if ("bootstrap_required" in canonical) return false;
-    await refreshShareSessionTrustAnchorFromBootstrap(shareSlug, anchor.anchor, canonical);
-    return (
-      !canonical.password_protected ||
-      (await getShareParticipantCryptoWorker(shareSlug).hasShareDekEncryptionKey(shareSlug))
-    );
+    const resolved = await preloadShareDocumentRoute(root.document_token, shareSlug);
+    return resolved.kind === "ready" && resolved.access.shareSlug === shareSlug;
   }
 
   if (isFolderRoot(root)) {
@@ -76,7 +65,22 @@ async function hasCanonicalShareAccess(
   throw new Error("unsupported_share_root");
 }
 
-export async function resolveShareLanding(shareSlug: string, landing: ShareLandingPayload) {
+export async function resolveShareLanding(
+  shareSlug: string,
+  landing: ShareLandingPayload,
+  options: { preferBootstrap?: boolean } = {},
+) {
+  if (
+    options.preferBootstrap &&
+    !landing.share.password_protected &&
+    getPendingShareParticipantKeypairPrewarm(shareSlug)
+  ) {
+    return {
+      kind: "bootstrap",
+      landing,
+    } as const satisfies ShareLandingResolution;
+  }
+
   const existing = await ensureShareParticipantDeviceReady({
     requiredShareSlug: shareSlug,
   });
@@ -88,11 +92,19 @@ export async function resolveShareLanding(shareSlug: string, landing: ShareLandi
     } as const satisfies ShareLandingResolution;
   }
 
+  if (options.preferBootstrap && !landing.share.password_protected) {
+    return {
+      kind: "bootstrap",
+      landing,
+    } as const satisfies ShareLandingResolution;
+  }
+
   if (landing.share.password_protected) {
     const anchor = await readShareSessionTrustAnchor(shareSlug);
     if (existing && anchor.workspacePinBootstrapHash) {
       return {
         kind: "bootstrap",
+        landing,
       } as const satisfies ShareLandingResolution;
     }
 
@@ -103,9 +115,13 @@ export async function resolveShareLanding(shareSlug: string, landing: ShareLandi
 
   return {
     kind: "bootstrap",
+    landing,
   } as const satisfies ShareLandingResolution;
 }
 
-export async function resolveShareLandingRoute(shareSlug: string) {
-  return resolveShareLanding(shareSlug, await sharesApi.getLanding(shareSlug));
+export async function resolveShareLandingRoute(
+  shareSlug: string,
+  options: { preferBootstrap?: boolean } = {},
+) {
+  return resolveShareLanding(shareSlug, await sharesApi.getLanding(shareSlug), options);
 }

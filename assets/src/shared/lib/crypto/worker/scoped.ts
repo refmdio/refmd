@@ -15,6 +15,10 @@ export function getShareParticipantCryptoWorker(shareSlug: string): CryptoWorker
   return getScopedCryptoWorker(`share:${shareSlug}`);
 }
 
+export function getDocumentVerificationCryptoWorker(documentId: string): CryptoWorkerClient {
+  return getScopedCryptoWorker(`document-verify:${documentId}`);
+}
+
 export function terminateScopedCryptoWorker(scope: string): void {
   const worker = scopedWorkers.get(scope);
   if (!worker) return;

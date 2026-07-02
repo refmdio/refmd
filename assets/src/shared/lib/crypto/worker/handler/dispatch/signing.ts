@@ -34,6 +34,7 @@ import {
   handleSignShareParticipantDeviceAuthorization,
   handleSignRecipientBoundAuthorization,
   handleVerifyDocumentSnapshotSignature,
+  handleVerifyDocumentUpdateEd25519Signature,
   handleVerifyDocumentUpdateSignature,
   handleVerifyEditorEphemeralSignature,
   handleVerifyKeyDirectoryCheckpointSignature,
@@ -178,6 +179,10 @@ export const signingRequestHandlers = {
   "verify-document-update-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
       handleVerifyDocumentUpdateSignature(state, payload),
+    ),
+  "verify-document-update-ed25519-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleVerifyDocumentUpdateEd25519Signature(state, payload),
     ),
   "verify-document-snapshot-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>

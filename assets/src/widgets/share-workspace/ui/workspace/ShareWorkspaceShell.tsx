@@ -17,6 +17,8 @@ import {
   disposeSharedDocumentRoute,
   getDocumentState,
   needsShareReentry,
+  primeDocumentContentPreview,
+  prewarmShareDocumentSigningKeyCaches,
   setFocusedPanelIdAccessor,
 } from "@/features/editor";
 import {
@@ -30,6 +32,7 @@ import {
   resolveShareDocumentRoute,
   SaveShareMountButton,
   useSaveShareMount,
+  type ResolvedShareDocumentRoute,
   type ResolvedShareFolderEntry,
 } from "@/features/share";
 import { getDocumentEvents } from "@/shared/lib/document/manager";
@@ -50,12 +53,29 @@ export interface ShareTreeNode {
   depth: number;
 }
 
+type ReadyShareDocumentRoute = Extract<ResolvedShareDocumentRoute, { kind: "ready" }>;
+
+function recordShareWorkspacePerf(event: string, detail: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
+  const payload = {
+    event,
+    detail,
+    at: Date.now(),
+    now: performance.now(),
+  };
+  const target = window as Window & { __refmdE2ESyncPerf?: unknown[] };
+  target.__refmdE2ESyncPerf ??= [];
+  target.__refmdE2ESyncPerf.push(payload);
+  window.dispatchEvent(new CustomEvent("refmd:sync-perf", { detail: payload }));
+}
+
 interface ShareWorkspaceShellProps {
   shareSlug: string;
   title: string;
   root: ResolvedShareFolderEntry;
   entries: ResolvedShareFolderEntry[];
   initialDocumentToken?: string | null;
+  initialResolvedDocument?: ReadyShareDocumentRoute | null;
   reentryHash?: string | null;
   selectedToken?: string | null;
   existingMounts?: ShareLinkMount[];
@@ -168,10 +188,18 @@ export function ShareWorkspaceShell(props: ShareWorkspaceShellProps) {
     }
   };
 
+  const initialResolvedDocument = (documentToken: string): ReadyShareDocumentRoute | null => {
+    const resolved = props.initialResolvedDocument;
+    return resolved?.target.documentToken === documentToken ? resolved : null;
+  };
+
   const openDocumentToken = async (documentToken: string) => {
+    const startedAt = performance.now();
+    recordShareWorkspacePerf("share_workspace_open_document_started", { documentToken });
     setOpeningToken(documentToken);
     try {
-      let resolved = await resolveShareDocumentRoute(documentToken);
+      let resolved =
+        initialResolvedDocument(documentToken) ?? (await resolveShareDocumentRoute(documentToken));
       if (resolved.kind === "bootstrap-required") {
         const shareSlug = resolved.shareSlug;
         try {
@@ -193,11 +221,38 @@ export function ShareWorkspaceShell(props: ShareWorkspaceShellProps) {
         }
       }
 
+      recordShareWorkspacePerf("share_workspace_open_document_route_ready", {
+        documentToken,
+        documentId: resolved.target.documentId,
+        elapsedMs: performance.now() - startedAt,
+      });
       const target = createShareLinkWorkspaceTileTarget(resolved.target);
       activateSharedDocumentRoute(target.targetKey, resolved.access);
+      prewarmShareDocumentSigningKeyCaches({
+        kind: "share",
+        source: "link",
+        ...resolved.access,
+      });
+      primeDocumentContentPreview(
+        resolved.target.documentId,
+        resolved.target.workspaceId,
+        target.targetKey,
+      );
+      recordShareWorkspacePerf("share_workspace_open_document_access_ready", {
+        documentToken,
+        documentId: resolved.target.documentId,
+        targetKey: target.targetKey,
+        elapsedMs: performance.now() - startedAt,
+      });
       workspace.openDocument(target);
       rememberTargetKey(target.targetKey);
       getDocumentEvents().flushPendingOpens();
+      recordShareWorkspacePerf("share_workspace_open_document_ready", {
+        documentToken,
+        documentId: resolved.target.documentId,
+        targetKey: target.targetKey,
+        elapsedMs: performance.now() - startedAt,
+      });
     } finally {
       setOpeningToken(null);
     }
@@ -266,6 +321,9 @@ export function ShareWorkspaceShell(props: ShareWorkspaceShellProps) {
     const token = props.initialDocumentToken;
     if (!token || openedInitialToken === token) return;
     openedInitialToken = token;
+    recordShareWorkspacePerf("share_workspace_initial_document_requested", {
+      documentToken: token,
+    });
     void openDocumentToken(token);
   });
 

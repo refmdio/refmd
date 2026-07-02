@@ -12,6 +12,7 @@ import {
   rejoinDocument,
   isPhoenixJoinError,
   PhoenixChannelTransportError,
+  resetPhoenixConnection,
 } from "@/shared/lib/ws/phoenix-channel";
 import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
 import { getShareParticipantCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
@@ -27,6 +28,7 @@ import type { DocumentState } from "../../model/document-state/types";
 import { buildDocumentChannelCallbacks } from "./bootstrap-callbacks";
 import { resumeReconnectDocument } from "./reconnect-resume";
 import { refreshSharedDocumentAccess } from "./share-access";
+import { recordSyncPerf } from "./perf";
 
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_BASE_MS = 100;
@@ -43,6 +45,24 @@ function getPinKey(documentId: string, state: DocumentState): string {
   return state.access.kind === "share"
     ? buildDocumentStatePinKey(documentId, state.access.shareId)
     : buildDocumentStatePinKey(documentId);
+}
+
+function recordJoinDecision(
+  state: DocumentState,
+  knownSnapshotId: string | null,
+  pinSnapshotId: string | null,
+  stateSnapshotId: string | null,
+  useDelta: boolean,
+): void {
+  state._lastJoinDecision = {
+    hasLastSavedState: state.lastSavedState !== null,
+    hasSnapshotCiphertextHash: state.snapshotCiphertextHash.length > 0,
+    hasSnapshotProofHash: state.snapshotProofHash.length > 0,
+    knownSnapshotId,
+    pinSnapshotId,
+    stateSnapshotId,
+    useDelta,
+  };
 }
 
 function isTransientReconnectError(error: unknown): boolean {
@@ -161,6 +181,8 @@ async function attemptReconnect(
         await refreshSharedDocumentAccess(state);
         joinParams.mount_id = state.access.mountId;
         joinParams.share_id = state.access.shareId;
+      }
+      if (state.access.kind === "share" && state.access.workspacePinBootstrapHash) {
         joinParams.authenticated_workspace_pin_bootstrap_hash =
           state.access.workspacePinBootstrapHash;
       }
@@ -171,6 +193,7 @@ async function attemptReconnect(
       if (useDelta && stateKnownSnapshotId) {
         joinParams.knownSnapshotUpdateClocks = { ...state.confirmedClocks };
       }
+      recordJoinDecision(state, knownSnapshotId, pinSnapshotId, stateKnownSnapshotId, useDelta);
       const popParams =
         state.access.kind === "share"
           ? await getChannelPopParams(
@@ -224,8 +247,7 @@ async function attemptReconnect(
           },
           onUpdateSaveFailed: (payload) => {
             if (!payload.requiresNewSnapshot) {
-              state._forceCompleteReconnect = true;
-              triggerReconnect(state, documentId, workspaceId, localDeviceSigningKeyId, failClosed);
+              state.autoSync?.notifyLocalEdit();
             }
           },
           onSyncGap: (err) => {
@@ -361,7 +383,22 @@ async function attemptReconnect(
           .catch(() => {});
         return;
       }
-      if (reason === "document_not_found" || reason === "pop_verification_failed") {
+      if (reason === "pop_verification_failed") {
+        if (state.access.kind === "share" && attempt < MAX_RECONNECT_ATTEMPTS - 1) {
+          recordSyncPerf("share_reconnect_pop_verification_retry", {
+            documentId,
+            attempt,
+            joinMode: state._lastJoinMode,
+          });
+          resetPhoenixConnection("share");
+          useDelta = false;
+          state._forceCompleteReconnect = false;
+          continue;
+        }
+        failClosed(reason);
+        return;
+      }
+      if (reason === "document_not_found") {
         failClosed(reason);
         return;
       }

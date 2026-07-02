@@ -35,13 +35,13 @@ function isDocumentGoneReason(value: unknown): boolean {
   return value === "document_not_found";
 }
 
-export async function syncPendingDocuments(workspaceId?: string): Promise<void> {
-  if (offlineMode()) return;
+export async function syncPendingDocuments(workspaceId?: string): Promise<number> {
+  if (offlineMode()) return 0;
   const pendingEntries = await getAllPendingChanges();
-  if (pendingEntries.length === 0) return;
+  if (pendingEntries.length === 0) return 0;
   for (const entry of pendingEntries) {
     if (entry.syncBlockedReason) continue;
-    const target = await resolvePendingTarget(entry.documentId);
+    const target = await resolvePendingSyncTarget(entry.documentId);
     if (!target || target.isOfflineCreated) continue;
     if (workspaceId && target.workspaceId !== workspaceId) continue;
     try {
@@ -73,7 +73,22 @@ export async function syncPendingDocuments(workspaceId?: string): Promise<void> 
       });
     }
   }
+  return countPendingSyncTargets(workspaceId);
 }
+
+async function countPendingSyncTargets(workspaceId?: string): Promise<number> {
+  const pendingEntries = await getAllPendingChanges();
+  let count = 0;
+  for (const entry of pendingEntries) {
+    if (entry.syncBlockedReason) continue;
+    const target = await resolvePendingSyncTarget(entry.documentId);
+    if (!target || target.isOfflineCreated) continue;
+    if (workspaceId && target.workspaceId !== workspaceId) continue;
+    count += 1;
+  }
+  return count;
+}
+
 async function syncPendingDocument(documentId: string, workspaceId: string): Promise<void> {
   const existing = inFlightSyncs.get(documentId);
   if (existing) {
@@ -131,7 +146,9 @@ async function waitForPendingChangesToClear(documentId: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, PENDING_SYNC_POLL_MS));
   }
 }
-async function resolvePendingTarget(documentId: string): Promise<PendingSyncTarget | null> {
+export async function resolvePendingSyncTarget(
+  documentId: string,
+): Promise<PendingSyncTarget | null> {
   const offlineCreated = await getOfflineCreated(documentId);
   if (offlineCreated) {
     return {

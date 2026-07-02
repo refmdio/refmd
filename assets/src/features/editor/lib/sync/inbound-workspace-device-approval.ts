@@ -11,7 +11,11 @@ import type {
 export async function verifyWorkspaceDirectoryDeviceIdentity(
   device: ShareVerificationWorkspaceDevice,
   worker: ReturnType<typeof getCryptoWorker>,
-  options: { namespace?: string; allowFirstSeenIdentity?: boolean } = {},
+  options: {
+    namespace?: string;
+    allowFirstSeenIdentity?: boolean;
+    deferTofuPersistence?: boolean;
+  } = {},
 ): Promise<boolean> {
   return verifyIdentitySignedWorkspaceDevice(
     {
@@ -37,7 +41,11 @@ export async function verifyWorkspaceDirectoryDeviceIdentity(
 export async function verifyMountedWorkspaceDirectoryDeviceIdentity(
   device: ShareVerificationParticipantDevice,
   worker: ReturnType<typeof getCryptoWorker>,
-  options: { namespace?: string; allowFirstSeenIdentity?: boolean } = {},
+  options: {
+    namespace?: string;
+    allowFirstSeenIdentity?: boolean;
+    deferTofuPersistence?: boolean;
+  } = {},
 ): Promise<boolean> {
   if (
     !device.identity_hybrid_signing_public_key_material ||
@@ -91,7 +99,11 @@ async function verifyIdentitySignedWorkspaceDevice(
     clientNonce: string;
   },
   worker: ReturnType<typeof getCryptoWorker>,
-  options: { namespace?: string; allowFirstSeenIdentity?: boolean } = {},
+  options: {
+    namespace?: string;
+    allowFirstSeenIdentity?: boolean;
+    deferTofuPersistence?: boolean;
+  } = {},
 ): Promise<boolean> {
   if (
     params.identityHybridSigningPublicKeyMaterial.owner_kind !== "identity" ||
@@ -153,20 +165,25 @@ async function verifyIdentitySignedWorkspaceDevice(
 
   if (!valid) return true;
 
-  if (identityTofuResult.status === "first_seen") {
-    await worker.tofuTrustDevice({
-      userId: params.userId,
-      deviceId: params.userId,
-      hybridSigningPublicKeyMaterial: params.identityHybridSigningPublicKeyMaterial,
-      ecdhPublicKey: identityEcdhPk,
-      ...(options.namespace ? { namespace: options.namespace } : {}),
-    });
+  const persist =
+    identityTofuResult.status === "first_seen"
+      ? worker.tofuTrustDevice({
+          userId: params.userId,
+          deviceId: params.userId,
+          hybridSigningPublicKeyMaterial: params.identityHybridSigningPublicKeyMaterial,
+          ecdhPublicKey: identityEcdhPk,
+          ...(options.namespace ? { namespace: options.namespace } : {}),
+        })
+      : worker.tofuUpdateLastSeen({
+          userId: params.userId,
+          deviceId: params.userId,
+          ...(options.namespace ? { namespace: options.namespace } : {}),
+        });
+
+  if (options.deferTofuPersistence) {
+    void persist.catch(() => {});
   } else {
-    await worker.tofuUpdateLastSeen({
-      userId: params.userId,
-      deviceId: params.userId,
-      ...(options.namespace ? { namespace: options.namespace } : {}),
-    });
+    await persist;
   }
 
   return false;

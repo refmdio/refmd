@@ -13,9 +13,10 @@ import type { SignedKeyDirectoryEnvelope } from "./types";
 import { idbConditionalPut, idbGet, openIdb } from "@/shared/lib/storage/idb";
 
 const DB_NAME = "refmd-security";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = "key-directory-pins";
 const DOCUMENT_STATE_STORE_NAME = "document-state-pins";
+const VERIFIED_LINEAGE_STORE_NAME = "key-directory-verified-lineages";
 const MAX_LINEAGES_PER_SCOPE = 32;
 
 export interface VerifiedKeyDirectoryLineage {
@@ -23,7 +24,16 @@ export interface VerifiedKeyDirectoryLineage {
   events: SignedKeyDirectoryEnvelope[];
 }
 
+interface StoredVerifiedKeyDirectoryLineage {
+  key: string;
+  checkpoints: SignedKeyDirectoryEnvelope[];
+  events: SignedKeyDirectoryEnvelope[];
+  updatedAt: number;
+}
+
 const verifiedKeyDirectoryLineages = new Map<string, Map<string, VerifiedKeyDirectoryLineage>>();
+const verifiedKeyDirectoryCheckpoints = new Map<string, Set<string>>();
+const verifiedKeyDirectoryEvents = new Map<string, Set<string>>();
 
 export { hashKeyDirectoryCheckpointEnvelope } from "./primitives";
 
@@ -43,7 +53,9 @@ export async function pinInitialKeyDirectoryCheckpoint(params: {
   eventEnvelopes: Record<string, unknown>[];
   checkpointEnvelope: Record<string, unknown>;
 }): Promise<void> {
-  const checkpoint = assertEnvelope(params.checkpointEnvelope);
+  const checkpoint = assertEnvelope(
+    params.checkpointEnvelope as unknown as Record<string, unknown>,
+  );
   await verifyInitialReplay(
     params.scopeKind,
     params.scopeId,
@@ -86,8 +98,25 @@ export async function installTransferredKeyDirectoryCheckpoint(params: {
   scopeId: string;
   checkpointEnvelope: Record<string, unknown>;
 }): Promise<void> {
-  const checkpoint = assertEnvelope(params.checkpointEnvelope);
+  const checkpoint = assertEnvelope(
+    params.checkpointEnvelope as unknown as Record<string, unknown>,
+  );
   await verifyCheckpointSignatures(checkpoint, checkpoint.payload);
+  await installVerifiedTransferredKeyDirectoryCheckpoint({
+    scopeKind: params.scopeKind,
+    scopeId: params.scopeId,
+    checkpointEnvelope: checkpoint,
+  });
+}
+
+export async function installVerifiedTransferredKeyDirectoryCheckpoint(params: {
+  scopeKind: "user" | "workspace";
+  scopeId: string;
+  checkpointEnvelope: SignedKeyDirectoryEnvelope;
+}): Promise<void> {
+  const checkpoint = assertEnvelope(
+    params.checkpointEnvelope as unknown as Record<string, unknown>,
+  );
   const pin = pinFromCheckpoint(params.scopeKind, params.scopeId, checkpoint);
   const db = await openSecurityDb();
   const wrote = await idbConditionalPut<KeyDirectoryPin>(
@@ -235,19 +264,91 @@ export function rememberVerifiedKeyDirectoryLineage(params: {
   ]);
   const events = sortUniqueEvents(params.eventAncestry);
   const scopeKey = pinKey(params.scopeKind, params.scopeId);
+  const verifiedCheckpoints = verifiedKeyDirectoryCheckpoints.get(scopeKey) ?? new Set<string>();
+  for (const checkpoint of checkpoints) {
+    verifiedCheckpoints.add(checkpointLineageKey(checkpoint));
+  }
+  verifiedKeyDirectoryCheckpoints.set(scopeKey, verifiedCheckpoints);
+  const verifiedEvents = verifiedKeyDirectoryEvents.get(scopeKey) ?? new Set<string>();
+  for (const event of events) {
+    verifiedEvents.add(eventLineageKey(event));
+  }
+  verifiedKeyDirectoryEvents.set(scopeKey, verifiedEvents);
   const lineages = verifiedKeyDirectoryLineages.get(scopeKey) ?? new Map();
   const lineageKey = checkpointLineageKey(params.checkpointEnvelope);
   const existing = lineages.get(lineageKey);
-  lineages.set(lineageKey, {
+  const lineage = {
     checkpoints: sortUniqueCheckpoints([...(existing?.checkpoints ?? []), ...checkpoints]),
     events: sortUniqueEvents([...(existing?.events ?? []), ...events]),
-  });
+  };
+  lineages.set(lineageKey, lineage);
+  void persistVerifiedKeyDirectoryLineage(scopeKey, lineageKey, lineage).catch(() => {});
   while (lineages.size > MAX_LINEAGES_PER_SCOPE) {
     const oldest = lineages.keys().next().value;
     if (!oldest) break;
     lineages.delete(oldest);
   }
   verifiedKeyDirectoryLineages.set(scopeKey, lineages);
+}
+
+export async function hydrateVerifiedKeyDirectoryLineage(
+  scopeKind: "user" | "workspace",
+  scopeId: string,
+  pin: KeyDirectoryPin,
+): Promise<VerifiedKeyDirectoryLineage | null> {
+  const existing = lookupVerifiedKeyDirectoryLineage(scopeKind, scopeId, pin);
+  if (existing) return existing;
+
+  const scopeKey = pinKey(scopeKind, scopeId);
+  const lineageKey = `${pin.checkpointSequence}:${pin.checkpointHash}`;
+  const stored = await getStoredVerifiedKeyDirectoryLineage(scopeKey, lineageKey);
+  if (!stored) return null;
+
+  const checkpoints = sortUniqueCheckpoints(
+    stored.checkpoints.map((checkpoint) =>
+      assertEnvelope(checkpoint as unknown as Record<string, unknown>),
+    ),
+  );
+  const events = sortUniqueEvents(
+    stored.events.map((event) => assertEnvelope(event as unknown as Record<string, unknown>)),
+  );
+  const checkpointEnvelope = checkpoints.find((checkpoint) => {
+    const sequence = numberField(checkpoint.payload.sequence, "checkpoint_sequence_invalid");
+    return sequence === pin.checkpointSequence && checkpointHash(checkpoint) === pin.checkpointHash;
+  });
+  if (!checkpointEnvelope) return null;
+
+  rememberVerifiedKeyDirectoryLineage({
+    scopeKind,
+    scopeId,
+    checkpointEnvelope,
+    checkpointAncestry: checkpoints.filter((checkpoint) => checkpoint !== checkpointEnvelope),
+    eventAncestry: events,
+  });
+  return lookupVerifiedKeyDirectoryLineage(scopeKind, scopeId, pin);
+}
+
+export function hasVerifiedKeyDirectoryCheckpoint(
+  scopeKind: "user" | "workspace",
+  scopeId: string,
+  sequence: number,
+  hash: string,
+): boolean {
+  return (
+    verifiedKeyDirectoryCheckpoints.get(pinKey(scopeKind, scopeId))?.has(`${sequence}:${hash}`) ===
+    true
+  );
+}
+
+export function hasVerifiedKeyDirectoryEvent(
+  scopeKind: "user" | "workspace",
+  scopeId: string,
+  sequence: number,
+  hash: string,
+): boolean {
+  return (
+    verifiedKeyDirectoryEvents.get(pinKey(scopeKind, scopeId))?.has(`${sequence}:${hash}`) === true
+  );
 }
 
 export function lookupVerifiedKeyDirectoryLineage(
@@ -292,6 +393,57 @@ function sortUniqueEvents(events: SignedKeyDirectoryEnvelope[]): SignedKeyDirect
   );
 }
 
+function persistVerifiedKeyDirectoryLineage(
+  scopeKey: string,
+  lineageKey: string,
+  lineage: VerifiedKeyDirectoryLineage,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    openSecurityDb()
+      .then((db) => {
+        const tx = db.transaction(VERIFIED_LINEAGE_STORE_NAME, "readwrite");
+        const store = tx.objectStore(VERIFIED_LINEAGE_STORE_NAME);
+        store.put({
+          key: storedLineageKey(scopeKey, lineageKey),
+          checkpoints: lineage.checkpoints,
+          events: lineage.events,
+          updatedAt: Date.now(),
+        } satisfies StoredVerifiedKeyDirectoryLineage);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
+      })
+      .catch(reject);
+  });
+}
+
+async function getStoredVerifiedKeyDirectoryLineage(
+  scopeKey: string,
+  lineageKey: string,
+): Promise<StoredVerifiedKeyDirectoryLineage | null> {
+  try {
+    const db = await openSecurityDb();
+    return (
+      (await idbGet<StoredVerifiedKeyDirectoryLineage>(
+        db,
+        VERIFIED_LINEAGE_STORE_NAME,
+        storedLineageKey(scopeKey, lineageKey),
+      )) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function storedLineageKey(scopeKey: string, lineageKey: string): string {
+  return `${scopeKey}:${lineageKey}`;
+}
+
 function openSecurityDb(): Promise<IDBDatabase> {
   return openIdb(DB_NAME, DB_VERSION, (db, oldVersion) => {
     if (oldVersion < 1 && !db.objectStoreNames.contains(DOCUMENT_STATE_STORE_NAME)) {
@@ -299,6 +451,9 @@ function openSecurityDb(): Promise<IDBDatabase> {
     }
     if (oldVersion < 2 && !db.objectStoreNames.contains(STORE_NAME)) {
       db.createObjectStore(STORE_NAME, { keyPath: "pinKey" });
+    }
+    if (oldVersion < 3 && !db.objectStoreNames.contains(VERIFIED_LINEAGE_STORE_NAME)) {
+      db.createObjectStore(VERIFIED_LINEAGE_STORE_NAME, { keyPath: "key" });
     }
   });
 }

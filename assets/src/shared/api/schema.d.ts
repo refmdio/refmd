@@ -8638,6 +8638,23 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** ShareSnapshotProofChainEntry */
+        ShareSnapshotProofChainEntry: {
+            ciphertext_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            document_id: string;
+            parent_proof_hash: string;
+            parent_snapshot_id: string;
+            proof_chain_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            protocol: "refmd.snapshot-proof-link";
+            snapshot_admission_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            snapshot_id: string;
+            snapshot_signature_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {integer} */
+            version: 1;
+        };
         /** DeviceFullInfo */
         DeviceFullInfo: {
             approval_delivery_artifacts?: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
@@ -8784,6 +8801,7 @@ export interface components {
             participant: components["schemas"]["ShareParticipantInfo"];
             password_capability_secret_commitment: string;
             root: components["schemas"]["DocumentShareRoot"] | components["schemas"]["FolderShareRoot"];
+            root_document_bootstrap?: components["schemas"]["ShareDocumentBootstrapResponse"] | null;
             /** Format: uuid */
             scope_id: string;
             /** @enum {string} */
@@ -9281,6 +9299,15 @@ export interface components {
             replace_keys: components["schemas"]["ReplaceFolderShareKeyItem"][];
             workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** ShareInitialDocumentUpdate */
+        ShareInitialDocumentUpdate: {
+            admission: components["schemas"]["ShareDocumentOperationAdmission"];
+            ciphertext: string;
+            nonce: string;
+            publicData: components["schemas"]["ShareInitialUpdatePublicData"];
+            signature: components["schemas"]["HybridSignature"];
+            version: number;
         };
         /** InvitationsListResponse */
         InvitationsListResponse: {
@@ -9904,6 +9931,13 @@ export interface components {
             /** @enum {integer} */
             version: 1;
         };
+        /** ShareDocumentOperationAdmission */
+        ShareDocumentOperationAdmission: {
+            workspaceKeyDirectoryCheckpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspaceKeyDirectoryCheckpointAncestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspaceKeyDirectoryEventAncestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspaceKeyDirectoryEvents: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
         /** LoginRequest */
         LoginRequest: {
             auth_key: string;
@@ -10067,6 +10101,14 @@ export interface components {
             share_id: string;
             workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
         };
+        /** ShareInitialDocumentSnapshot */
+        ShareInitialDocumentSnapshot: {
+            admission: components["schemas"]["ShareDocumentOperationAdmission"];
+            ciphertext: string;
+            nonce: string;
+            publicData: components["schemas"]["ShareInitialSnapshotPublicData"];
+            signature: components["schemas"]["HybridSignature"];
+        };
         /** DocumentResponse */
         DocumentResponse: {
             /** Format: uuid */
@@ -10106,6 +10148,19 @@ export interface components {
         /** DeviceRegistrationsResponse */
         DeviceRegistrationsResponse: {
             devices: components["schemas"]["DeviceRegistrationInfo"][];
+        };
+        /** ShareInitialDocumentPayload */
+        ShareInitialDocumentPayload: {
+            archived: boolean;
+            authorityPermissionVersion: number;
+            ciphertextHash: components["schemas"]["Blake3Base64Url"] | null;
+            latestVersion: number;
+            proofChainHash: components["schemas"]["Blake3Base64Url"] | null;
+            readOnly: boolean;
+            snapshot: components["schemas"]["ShareInitialDocumentSnapshot"] | null;
+            snapshotAdmissionEventHash: components["schemas"]["Blake3Base64Url"] | null;
+            snapshotProofChain: components["schemas"]["ShareSnapshotProofChainEntry"][];
+            updates: components["schemas"]["ShareInitialDocumentUpdate"][];
         };
         /** FolderShareRoot */
         FolderShareRoot: {
@@ -10320,6 +10375,9 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_latest_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
             workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
         };
         /** ShareVerificationWorkspaceDevice */
@@ -10478,6 +10536,7 @@ export interface components {
             encrypted_title: string | null;
             encrypted_title_key_version: number | null;
             encrypted_title_nonce: string | null;
+            initial_document?: components["schemas"]["ShareInitialDocumentPayload"] | null;
             key_version: number;
             latest_bootstrap_event_hash: string;
             nonce: string | null;
@@ -10497,6 +10556,9 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_latest_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
             workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
         };
         /** InitialKeyDeliveryMetadata */
@@ -10942,6 +11004,31 @@ export interface components {
             /** @enum {string} */
             status: "active";
         };
+        /** ShareInitialSnapshotPublicData */
+        ShareInitialSnapshotPublicData: {
+            authorityContextKey: string;
+            /** Format: uuid */
+            authorityId: string;
+            /** @enum {string} */
+            authorityKind: "workspace_device" | "share_participant_device";
+            authorityPermissionVersion: number;
+            /** Format: uuid */
+            authorityScopeId: string;
+            /** Format: uuid */
+            docId: string;
+            keyCheckpointHash: components["schemas"]["Blake3Base64Url"];
+            keyCheckpointSequence: number;
+            keyVersion: number;
+            ownerId: string;
+            /** @enum {string} */
+            ownerKind: "device" | "share_participant_device";
+            parentProofHash: string;
+            parentSnapshotId: string;
+            parentSnapshotUpdateClocks: components["schemas"]["ShareInitialDocumentClockMap"];
+            signingKeyId: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            snapshotId: string;
+        };
         /** ShareVerificationParticipantDevice */
         ShareVerificationParticipantDevice: {
             approval_delivery_artifacts?: components["schemas"]["ApprovalDeliveryArtifacts"] | null;
@@ -11124,6 +11211,10 @@ export interface components {
             responder_prekey_hash: string;
             x25519_ephemeral_public: string;
         };
+        /** ShareInitialDocumentClockMap */
+        ShareInitialDocumentClockMap: {
+            [key: string]: number;
+        };
         /** ShareManagementRequest */
         ShareManagementRequest: {
             workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
@@ -11147,6 +11238,35 @@ export interface components {
             new_encrypted_umk: string;
             new_kdf_params: components["schemas"]["KdfParams"];
             new_nonce: string;
+        };
+        /** ShareInitialUpdatePublicData */
+        ShareInitialUpdatePublicData: {
+            authorityContextKey: string;
+            /** Format: uuid */
+            authorityId: string;
+            /** @enum {string} */
+            authorityKind: "workspace_device" | "share_participant_device";
+            authorityPermissionVersion: number;
+            /** Format: uuid */
+            authorityScopeId: string;
+            clock: number;
+            /** Format: uuid */
+            docId: string;
+            keyCheckpointHash: components["schemas"]["Blake3Base64Url"];
+            keyCheckpointSequence: number;
+            keyVersion: number;
+            minDekVersion: number;
+            ownerId: string;
+            /** @enum {string} */
+            ownerKind: "device" | "share_participant_device";
+            /** Format: uuid */
+            refSnapshotId: string;
+            signingKeyId: components["schemas"]["Blake3Base64Url"];
+            timestamp: number;
+            updateHash: string;
+            writeSessionCounter: number;
+            writeSessionEventHash: components["schemas"]["Blake3Base64Url"];
+            writeSessionId: string;
         };
         /** ShareLinkMountListItem */
         ShareLinkMountListItem: {

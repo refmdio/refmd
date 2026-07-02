@@ -26,24 +26,71 @@ import {
 } from "@/shared/lib/crypto/workspace-kek-persistence";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 
-export async function distributeWorkspaceMemberEnvelopes(workspaceId: string): Promise<void> {
+const DISTRIBUTION_STABLE_TTL_MS = 60_000;
+
+interface WorkspaceMemberEnvelopeDistributionOptions {
+  force?: boolean;
+  membershipFingerprint?: string | null;
+}
+
+interface WorkspaceMemberEnvelopeDistributionStamp {
+  completedAtMs: number;
+  membershipFingerprint: string | null;
+}
+
+export async function distributeWorkspaceMemberEnvelopes(
+  workspaceId: string,
+  options: WorkspaceMemberEnvelopeDistributionOptions = {},
+): Promise<void> {
+  if (shouldSkipStableDistribution(workspaceId, options)) return;
+
   const existing = distributionInFlight.get(workspaceId);
   if (existing) return existing;
 
-  const task = runWorkspaceMemberEnvelopeDistribution(workspaceId).finally(() => {
-    distributionInFlight.delete(workspaceId);
-  });
+  const task = runWorkspaceMemberEnvelopeDistribution(workspaceId)
+    .then((completed) => {
+      if (!completed) return;
+      const previous = distributionCompleted.get(workspaceId);
+      distributionCompleted.set(workspaceId, {
+        completedAtMs: Date.now(),
+        membershipFingerprint:
+          options.membershipFingerprint ?? previous?.membershipFingerprint ?? null,
+      });
+    })
+    .finally(() => {
+      distributionInFlight.delete(workspaceId);
+    });
   distributionInFlight.set(workspaceId, task);
   return task;
 }
 
 const distributionInFlight = new Map<string, Promise<void>>();
+const distributionCompleted = new Map<string, WorkspaceMemberEnvelopeDistributionStamp>();
 
-async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Promise<void> {
+function shouldSkipStableDistribution(
+  workspaceId: string,
+  options: WorkspaceMemberEnvelopeDistributionOptions,
+): boolean {
+  if (options.force) return false;
+
+  const previous = distributionCompleted.get(workspaceId);
+  if (!previous) return false;
+
+  if (
+    options.membershipFingerprint &&
+    previous.membershipFingerprint !== options.membershipFingerprint
+  ) {
+    return false;
+  }
+
+  return Date.now() - previous.completedAtMs < DISTRIBUTION_STABLE_TTL_MS;
+}
+
+async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Promise<boolean> {
   const auth = authState();
   const device = deviceState();
-  if (!cryptoWorkerReady() || !auth || !device?.deviceId) return;
-  if (auth.user.accountType === "guest") return;
+  if (!cryptoWorkerReady() || !auth || !device?.deviceId) return false;
+  if (auth.user.accountType === "guest") return true;
 
   const [{ kekVersion }, memberKeys, members] = await Promise.all([
     resolveActiveKek(workspaceId, getKekResolverSession()),
@@ -52,7 +99,7 @@ async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Prom
   ]);
   const memberRoleByUserId = new Map(members.members.map((member) => [member.user_id, member]));
   const currentMemberRole = memberRoleByUserId.get(auth.user.id)?.base_role;
-  if (currentMemberRole !== "owner" && currentMemberRole !== "admin") return;
+  if (currentMemberRole !== "owner" && currentMemberRole !== "admin") return true;
 
   for (const member of members.members) {
     if (member.user_id === auth.user.id) continue;
@@ -118,6 +165,7 @@ async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Prom
       ignoreConflict: true,
     });
   }
+  return true;
 }
 
 async function ensureWorkspaceIdentityKey(params: {

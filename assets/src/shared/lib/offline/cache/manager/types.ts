@@ -4,6 +4,8 @@ export interface CacheableDocumentState {
   yDoc: Y.Doc;
   keyVersion: number;
   activeSnapshotId: string | null;
+  snapshotProofHash?: string;
+  snapshotCiphertextHash?: string;
   latestVersion: number;
   confirmedClocks: Record<string, number>;
   lastSavedState: Uint8Array | null;
@@ -16,6 +18,8 @@ export interface RecoveredDocumentState {
   confirmedBaseState: Uint8Array | null;
   confirmedStateVector: Uint8Array | null;
   confirmedSnapshotId: string;
+  confirmedSnapshotProofHash: string | null;
+  confirmedSnapshotCiphertextHash: string | null;
   confirmedClocks: Record<string, number>;
   confirmedVersion: number;
   keyVersion: number;

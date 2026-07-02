@@ -36,7 +36,7 @@ export function setupAwarenessRelay(
     ).catch(() => {});
   };
 
-  const onUpdate = (
+  const onChange = (
     { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
   ) => {
@@ -57,13 +57,13 @@ export function setupAwarenessRelay(
     }
   };
 
-  state.awareness.on("update", onUpdate);
+  state.awareness.on("change", onChange);
   state.awarenessRelayCleanup = () => {
     if (throttleTimer) {
       clearTimeout(throttleTimer);
       throttleTimer = null;
     }
     pendingClients = null;
-    state.awareness.off("update", onUpdate);
+    state.awareness.off("change", onChange);
   };
 }

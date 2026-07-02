@@ -10,6 +10,9 @@ import { documentsApi } from "@/shared/api/documents";
 import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
+  hasVerifiedKeyDirectoryCheckpoint,
+  hasVerifiedKeyDirectoryEvent,
+  hydrateVerifiedKeyDirectoryLineage,
   lookupVerifiedKeyDirectoryLineage,
   rememberVerifiedKeyDirectoryLineage,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
@@ -20,7 +23,10 @@ import {
   verifyEventAncestry,
 } from "@/shared/lib/anti-rollback/key-directory-pin/verification";
 import { verifyEventSignatures } from "@/shared/lib/anti-rollback/key-directory-pin/signatures";
-import type { SignedKeyDirectoryEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/types";
+import type {
+  KeyDirectoryPin,
+  SignedKeyDirectoryEnvelope,
+} from "@/shared/lib/anti-rollback/key-directory-pin/types";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import type { DocumentOperationAdmission } from "@/shared/lib/ws/document-payloads";
@@ -193,8 +199,7 @@ export async function verifyDocumentOperationAdmission(params: {
   }
 
   verifyActor(payload.actor, publicData, params.actorUserId);
-  await verifyEventSignatures(event, checkpointPayload);
-  await verifyCheckpointSignatures(checkpoint, checkpointPayload);
+  await verifyAdmissionSignaturesIfNeeded(params.workspaceId, event, checkpoint);
 }
 
 export async function verifyDocumentWriteSessionAdmission(params: {
@@ -203,6 +208,7 @@ export async function verifyDocumentWriteSessionAdmission(params: {
   workspaceId: string;
   documentId: string;
   actorUserId: string;
+  allowPrewarmCounterZero?: boolean;
 }): Promise<void> {
   const eventType = "document_write_session_admitted";
   const publicData = params.publicData as Record<string, unknown>;
@@ -229,10 +235,11 @@ export async function verifyDocumentWriteSessionAdmission(params: {
   const authorityKind = stringField(publicData.authorityKind, "authority_kind_invalid");
   const authorityScopeId = stringField(publicData.authorityScopeId, "authority_scope_id_invalid");
   const admissionEventHash = eventHash(event);
-  const writeSessionCounter = numberField(
+  const writeSessionCounter = integerField(
     publicData.writeSessionCounter,
     "write_session_counter_invalid",
   );
+  const prewarmCounter = params.allowPrewarmCounterZero === true && writeSessionCounter === 0;
   const maxUpdateCount = numberField(body.max_update_count, "max_update_count_invalid");
   const issuedAtMs = numberField(body.issued_at_ms, "issued_at_ms_invalid");
   const expiresAtMs = numberField(body.expires_at_ms, "expires_at_ms_invalid");
@@ -268,10 +275,14 @@ export async function verifyDocumentWriteSessionAdmission(params: {
     admissionEventHash,
     "document_admission_event_hash_mismatch",
   );
-  if (!Number.isSafeInteger(writeSessionCounter) || writeSessionCounter < 1) {
+  if (!prewarmCounter && (!Number.isSafeInteger(writeSessionCounter) || writeSessionCounter < 1)) {
     throw new Error("document_admission_write_session_counter_invalid");
   }
-  if (!Number.isSafeInteger(maxUpdateCount) || writeSessionCounter > maxUpdateCount) {
+  if (
+    !Number.isSafeInteger(maxUpdateCount) ||
+    maxUpdateCount < 1 ||
+    (!prewarmCounter && writeSessionCounter > maxUpdateCount)
+  ) {
     throw new Error("document_admission_write_session_counter_exceeded");
   }
   if (
@@ -320,8 +331,7 @@ export async function verifyDocumentWriteSessionAdmission(params: {
   }
 
   verifyActor(payload.actor, publicData, params.actorUserId);
-  await verifyEventSignatures(event, checkpointPayload);
-  await verifyCheckpointSignatures(checkpoint, checkpointPayload);
+  await verifyAdmissionSignaturesIfNeeded(params.workspaceId, event, checkpoint);
 }
 
 const WRITE_SESSION_BODY_KEYS = [
@@ -494,7 +504,9 @@ export async function verifyDocumentWriteSessionNotInvalidated(params: {
   const sessionSequence = numberField(sessionEvent.payload.sequence, "event_sequence_invalid");
   if (current.eventHeadSequence <= sessionSequence) return;
 
-  const cachedLineage = lookupVerifiedKeyDirectoryLineage("workspace", params.workspaceId, current);
+  const cachedLineage =
+    lookupVerifiedKeyDirectoryLineage("workspace", params.workspaceId, current) ??
+    (await hydrateVerifiedKeyDirectoryLineage("workspace", params.workspaceId, current));
   const events = sortUniqueEvents([
     ...(cachedLineage?.events ?? []),
     ...eventAncestry(params.admission),
@@ -524,21 +536,42 @@ export async function verifyDocumentWriteSessionNotInvalidated(params: {
 export async function verifyDocumentOperationAdmissionAncestry(params: {
   admission: DocumentOperationAdmission;
   workspaceId: string;
+  refreshKeyDirectory?: () => Promise<void>;
 }): Promise<void> {
+  try {
+    return await verifyDocumentOperationAdmissionAncestryAttempt(params, 0);
+  } catch (error) {
+    if (!params.refreshKeyDirectory || !isRetryableAdmissionPinRace(error)) {
+      throw error;
+    }
+    await params.refreshKeyDirectory();
+    return verifyDocumentOperationAdmissionAncestryAttempt(params, 0);
+  }
+}
+
+async function verifyDocumentOperationAdmissionAncestryAttempt(
+  params: {
+    admission: DocumentOperationAdmission;
+    workspaceId: string;
+  },
+  pinRaceRetryCount: number,
+): Promise<void> {
   const current = await getKeyDirectoryPin("workspace", params.workspaceId);
   if (!current) throw new Error("key_directory_pin_required");
 
   const candidate = assertEnvelope(params.admission.workspaceKeyDirectoryCheckpoint);
   const candidatePin = pinFromCheckpoint("workspace", params.workspaceId, candidate);
-  const checkpoints = checkpointAncestry(params.admission);
-  const events = eventAncestry(params.admission);
-  const cachedLineage = lookupVerifiedKeyDirectoryLineage("workspace", params.workspaceId, current);
-  const authorityEvents = sortUniqueEvents([...(cachedLineage?.events ?? []), ...events]);
+  const cachedLineage =
+    lookupVerifiedKeyDirectoryLineage("workspace", params.workspaceId, current) ??
+    (await hydrateVerifiedKeyDirectoryLineage("workspace", params.workspaceId, current));
 
   if (
     candidatePin.checkpointSequence > current.checkpointSequence ||
     candidatePin.eventHeadSequence > current.eventHeadSequence
   ) {
+    const checkpoints = checkpointAncestry(params.admission);
+    const events = eventAncestry(params.admission);
+    const authorityEvents = sortUniqueEvents([...(cachedLineage?.events ?? []), ...events]);
     const checkpointAncestryForAdvance = checkpoints.filter((checkpoint) => {
       const sequence = numberField(checkpoint.payload.sequence, "checkpoint_sequence_invalid");
       return sequence >= current.checkpointSequence && sequence < candidatePin.checkpointSequence;
@@ -557,7 +590,10 @@ export async function verifyDocumentOperationAdmissionAncestry(params: {
         authorityEventAncestry: authorityEvents.map(envelopeRecord),
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "key_directory_pin_conflict") {
+      if (
+        isRetryableAdmissionPinRace(error) &&
+        pinRaceRetryCount < ADMISSION_PIN_RACE_RETRY_LIMIT
+      ) {
         const refreshed = await getKeyDirectoryPin("workspace", params.workspaceId);
         if (
           refreshed &&
@@ -569,7 +605,7 @@ export async function verifyDocumentOperationAdmissionAncestry(params: {
           rememberVerifiedAdmissionLineage(params.workspaceId, candidate, checkpoints, events);
           return;
         }
-        return verifyDocumentOperationAdmissionAncestry(params);
+        return verifyDocumentOperationAdmissionAncestryAttempt(params, pinRaceRetryCount + 1);
       }
       throw error;
     }
@@ -583,10 +619,40 @@ export async function verifyDocumentOperationAdmissionAncestry(params: {
     candidatePin.eventHeadSequence === current.eventHeadSequence &&
     candidatePin.eventHeadHash === current.eventHeadHash
   ) {
-    rememberVerifiedAdmissionLineage(params.workspaceId, candidate, checkpoints, events);
+    rememberVerifiedAdmissionLineage(
+      params.workspaceId,
+      candidate,
+      checkpointAncestry(params.admission),
+      eventAncestry(params.admission),
+    );
     return;
   }
 
+  if (cachedLineage && verifiedLineageContainsPin(cachedLineage, candidatePin)) {
+    return;
+  }
+
+  if (
+    candidatePin.checkpointSequence <= current.checkpointSequence &&
+    candidatePin.eventHeadSequence <= current.eventHeadSequence &&
+    hasVerifiedKeyDirectoryCheckpoint(
+      "workspace",
+      params.workspaceId,
+      candidatePin.checkpointSequence,
+      candidatePin.checkpointHash,
+    ) &&
+    hasVerifiedKeyDirectoryEvent(
+      "workspace",
+      params.workspaceId,
+      candidatePin.eventHeadSequence,
+      candidatePin.eventHeadHash,
+    )
+  ) {
+    return;
+  }
+
+  const checkpoints = checkpointAncestry(params.admission);
+  const events = eventAncestry(params.admission);
   const lineageCheckpoints = sortUniqueCheckpoints([
     ...(cachedLineage?.checkpoints ?? []),
     ...checkpoints,
@@ -651,6 +717,65 @@ export async function verifyDocumentOperationAdmissionAncestry(params: {
     lineageCheckpoints,
     lineageEvents,
   );
+}
+
+const ADMISSION_PIN_RACE_RETRY_LIMIT = 3;
+
+function isRetryableAdmissionPinRace(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "key_directory_pin_conflict" ||
+      error.message === "key_directory_checkpoint_anchor_mismatch" ||
+      error.message === "key_directory_checkpoint_rollback" ||
+      error.message === "key_directory_checkpoint_fork")
+  );
+}
+
+export function rememberVerifiedDocumentOperationAdmission(params: {
+  admission: DocumentOperationAdmission;
+  workspaceId: string;
+}): void {
+  const candidate = assertEnvelope(params.admission.workspaceKeyDirectoryCheckpoint);
+  rememberVerifiedAdmissionLineage(
+    params.workspaceId,
+    candidate,
+    [],
+    admissionEvents(params.admission),
+  );
+}
+
+async function verifyAdmissionSignaturesIfNeeded(
+  workspaceId: string,
+  event: SignedKeyDirectoryEnvelope,
+  checkpoint: SignedKeyDirectoryEnvelope,
+): Promise<void> {
+  const eventSequence = numberField(event.payload.sequence, "event_sequence_invalid");
+  const checkpointSequence = numberField(
+    checkpoint.payload.sequence,
+    "checkpoint_sequence_invalid",
+  );
+  const eventVerified = hasVerifiedKeyDirectoryEvent(
+    "workspace",
+    workspaceId,
+    eventSequence,
+    eventHash(event),
+  );
+  const checkpointVerified = hasVerifiedKeyDirectoryCheckpoint(
+    "workspace",
+    workspaceId,
+    checkpointSequence,
+    checkpointHash(checkpoint),
+  );
+
+  if (!eventVerified) {
+    await verifyEventSignatures(event, checkpoint.payload);
+  }
+  if (!checkpointVerified) {
+    await verifyCheckpointSignatures(checkpoint, checkpoint.payload);
+  }
+  if (!eventVerified || !checkpointVerified) {
+    rememberVerifiedAdmissionLineage(workspaceId, checkpoint, [], [event]);
+  }
 }
 
 function baseRoleCanWriteDocument(role: unknown): boolean {
@@ -847,6 +972,23 @@ function rememberVerifiedAdmissionLineage(
   });
 }
 
+function verifiedLineageContainsPin(
+  lineage: { checkpoints: SignedKeyDirectoryEnvelope[]; events: SignedKeyDirectoryEnvelope[] },
+  pin: KeyDirectoryPin,
+): boolean {
+  const hasEventHead = lineage.events.some(
+    (event) =>
+      numberField(event.payload.sequence, "event_sequence_invalid") === pin.eventHeadSequence &&
+      eventHash(event) === pin.eventHeadHash,
+  );
+  const hasCheckpoint = lineage.checkpoints.some(
+    (checkpoint) =>
+      numberField(checkpoint.payload.sequence, "checkpoint_sequence_invalid") ===
+        pin.checkpointSequence && checkpointHash(checkpoint) === pin.checkpointHash,
+  );
+  return hasCheckpoint && hasEventHead;
+}
+
 function checkpointLineageKey(checkpoint: SignedKeyDirectoryEnvelope): string {
   return `${numberField(checkpoint.payload.sequence, "checkpoint_sequence_invalid")}:${checkpointHash(checkpoint)}`;
 }
@@ -881,14 +1023,20 @@ function documentOperationEvent(
   admission: DocumentOperationAdmission,
   eventType: DocumentOperationEventType,
 ) {
-  const event = admission.workspaceKeyDirectoryEvents
-    .map((envelope) => assertEnvelope(envelope))
-    .find((envelope) => envelope.payload.event_type === eventType);
+  const event = admissionEvents(admission).find(
+    (envelope) => envelope.payload.event_type === eventType,
+  );
   if (!event) throw new Error("document_admission_event_missing");
   if (!isRecord(event.payload.body)) throw new Error("document_admission_body_invalid");
   return event as ReturnType<typeof assertEnvelope> & {
     payload: { body: Record<string, unknown> };
   };
+}
+
+function admissionEvents(admission: DocumentOperationAdmission): SignedKeyDirectoryEnvelope[] {
+  const events = admission.workspaceKeyDirectoryEvents;
+  if (!Array.isArray(events)) throw new Error("document_admission_events_missing");
+  return events.map((envelope) => assertEnvelope(envelope));
 }
 
 function checkpointAncestry(admission: DocumentOperationAdmission): SignedKeyDirectoryEnvelope[] {
@@ -901,6 +1049,13 @@ function eventAncestry(admission: DocumentOperationAdmission): SignedKeyDirector
   const ancestry = admission.workspaceKeyDirectoryEventAncestry;
   if (!Array.isArray(ancestry)) throw new Error("document_admission_event_ancestry_missing");
   return ancestry.map((envelope) => assertEnvelope(envelope));
+}
+
+function integerField(value: unknown, error: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(error);
+  }
+  return value;
 }
 
 function permissionProofHash(

@@ -5,6 +5,7 @@ import {
   restoreSession,
   type OfflineSessionResult,
 } from "@/features/auth";
+import { prewarmShareLandingPath } from "@/features/share";
 import {
   authState,
   clearSession,
@@ -24,6 +25,10 @@ export function isPublicPath(pathname = window.location.pathname): boolean {
     pathname.startsWith("/invite") ||
     pathname.startsWith("/share/")
   );
+}
+
+function canRenderBeforeSessionRestore(pathname = window.location.pathname): boolean {
+  return pathname.startsWith("/share/");
 }
 
 function applyOfflineSession(offlineResult: OfflineSessionResult) {
@@ -127,6 +132,11 @@ export function useSessionBootstrap() {
   });
 
   onMount(() => {
+    if (canRenderBeforeSessionRestore()) {
+      setReady(true);
+      prewarmShareLandingPath();
+      return;
+    }
     void attemptRestore();
   });
 

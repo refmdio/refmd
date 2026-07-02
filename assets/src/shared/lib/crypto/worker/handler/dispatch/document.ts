@@ -24,6 +24,7 @@ import {
   handleHasShareDekEncryptionKey,
   handleDeleteDekForOffline,
   handlePrepareManagedShareSecrets,
+  handlePrepareShareDocumentBootstrap,
   handleLoadOfflineDekMetadata,
   handleRestoreShareSecretsFromDsk,
   handlePrepareOpenShareSecrets,
@@ -77,6 +78,10 @@ export const documentRequestHandlers = {
   "fetch-share-document-bootstrap": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
       handleFetchShareDocumentBootstrap(state, payload),
+    ),
+  "prepare-share-document-bootstrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handlePrepareShareDocumentBootstrap(state, payload),
     ),
   "fetch-share-folder-bootstrap": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>

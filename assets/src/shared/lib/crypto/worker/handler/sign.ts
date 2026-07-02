@@ -57,6 +57,7 @@ import {
   signShareCapabilityAuthorizationSignature,
   signShareParticipantDeviceAuthorizationSignature,
   verifyDeviceApprovalSignature,
+  verifyDocumentUpdateEd25519SignatureAsync,
   verifyDocumentSnapshotSignature,
   verifyDocumentUpdateSignature,
   verifyEditorEphemeralSessionSignature,
@@ -81,7 +82,7 @@ import {
   requireUserId,
   type HandlerPayload,
 } from "./utils";
-import type { WorkerKeyState } from "../state";
+import type { HybridSigningState, WorkerKeyState } from "../state";
 import { blake3Base64Url } from "../../hash";
 
 function invitationRedeemAuthority(state: WorkerKeyState, invitationId: string) {
@@ -94,6 +95,18 @@ function invitationRedeemAuthority(state: WorkerKeyState, invitationId: string) 
     throw new Error("invitation_redeem_authority_owner_mismatch");
   }
   return privateMaterial;
+}
+
+function requireDocumentSigningState(
+  state: WorkerKeyState,
+  ownerKind: "device" | "share_participant_device",
+): HybridSigningState {
+  const signingState =
+    ownerKind === "share_participant_device"
+      ? state.shareParticipantHybridSigningState
+      : state.deviceHybridSigningState;
+  if (!signingState) throw new Error("document_signing_key_missing");
+  return signingState;
 }
 
 function requireSigningPrivateKeyMaterial(
@@ -123,6 +136,7 @@ function signedSurfaceArtifact(
   privateMaterial: HybridSigningPrivateKeyMaterial,
   transcript: StrictJsonValue,
   signature: HybridSignature,
+  signingState?: HybridSigningState,
 ): {
   transcript: StrictJsonValue;
   signature: HybridSignature;
@@ -130,13 +144,14 @@ function signedSurfaceArtifact(
   hybrid_signing_public_key_material: AnyHybridSigningPublicKeyMaterial;
 } {
   const publicMaterial =
-    privateMaterial.owner_kind === "share_capability"
+    signingState?.publicKeyMaterial ??
+    (privateMaterial.owner_kind === "share_capability"
       ? shareCapabilityPublicKeyMaterialFromPrivate(privateMaterial)
-      : publicKeyMaterialFromPrivate(privateMaterial);
+      : publicKeyMaterialFromPrivate(privateMaterial));
   return {
     transcript,
     signature,
-    signing_key_id: computeSigningKeyId(publicMaterial),
+    signing_key_id: signingState?.signingKeyId ?? computeSigningKeyId(publicMaterial),
     hybrid_signing_public_key_material: publicMaterial,
   };
 }
@@ -365,16 +380,16 @@ function signDocumentEnvelope(
 ): unknown {
   const publicData = p.publicData as Record<string, unknown>;
   const ownerKind = requireDocumentSigningOwnerKind(publicData.ownerKind);
-  const privateMaterial = requireSigningPrivateKeyMaterial(state, ownerKind);
+  const signingState = requireDocumentSigningState(state, ownerKind);
+  const privateMaterial = signingState.privateKeyMaterial;
   const userId = requireUserId(state);
   const deviceId = requireDeviceId(state);
-  const publicMaterial = publicKeyMaterialFromPrivate(privateMaterial);
   const common = {
     ownerKind: privateMaterial.owner_kind,
     ownerId: privateMaterial.owner_id,
     actorUserId: userId,
     actorDeviceId: deviceId,
-    signingKeyId: computeSigningKeyId(publicMaterial),
+    signingKeyId: signingState.signingKeyId,
     workspaceId: p.workspaceId as string,
     publicData,
     authorityBoundary: p.authorityBoundary as Record<string, unknown>,
@@ -396,7 +411,7 @@ function signDocumentEnvelope(
         ? signDocumentSnapshotSignature({ privateKeyMaterial: privateMaterial, transcript })
         : signEditorEphemeralSignature({ privateKeyMaterial: privateMaterial, transcript });
 
-  return signedSurfaceArtifact(privateMaterial, transcript, signature);
+  return signedSurfaceArtifact(privateMaterial, transcript, signature, signingState);
 }
 
 export function handleSignDocumentUpdate(state: WorkerKeyState, p: HandlerPayload): unknown {
@@ -1330,6 +1345,32 @@ export function handleVerifyDocumentUpdateSignature(
       }),
     }),
   };
+}
+
+export function handleVerifyDocumentUpdateEd25519Signature(
+  _state: WorkerKeyState,
+  p: HandlerPayload,
+): Promise<unknown> {
+  const publicKeyMaterial = p.publicKeyMaterial as HybridSigningPublicKeyMaterial;
+  const publicData = p.publicData as Record<string, unknown>;
+  validatePublicDataOwner(publicKeyMaterial, publicData);
+
+  return verifyDocumentUpdateEd25519SignatureAsync({
+      publicKeyMaterial,
+      signature: p.signature as never,
+      transcript: buildDocumentUpdateTranscript({
+        ownerKind: publicKeyMaterial.owner_kind,
+        ownerId: publicKeyMaterial.owner_id,
+        actorUserId: p.actorUserId as string,
+        actorDeviceId: publicData.ownerId as string,
+        signingKeyId: publicData.signingKeyId as string,
+        workspaceId: p.workspaceId as string,
+        publicData,
+        authorityBoundary: p.authorityBoundary as Record<string, unknown>,
+        ciphertext: p.ciphertext as string,
+        nonce: p.nonce as string,
+      }),
+    }).then((valid) => ({ valid }));
 }
 
 export function handleVerifyDocumentSnapshotSignature(

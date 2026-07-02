@@ -1,10 +1,12 @@
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { getDocumentVerificationCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { getKekResolverSession } from "@/entities/session";
 import { resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 import { encryptionApi } from "@/shared/api/encryption";
 import { documentsApi } from "@/shared/api/documents";
 import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
+import { getKeyDirectoryPin } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapshot-proof";
 import {
   lookupCachedSigningKey,
@@ -14,17 +16,25 @@ import {
 import { getDocumentState } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { DocumentSyncError } from "./error";
-import type { SnapshotProofChainEntry, UpdatePayload } from "@/shared/lib/ws/document-payloads";
+import type {
+  SnapshotProofChainEntry,
+  UpdatePayload,
+  WriteSessionPayload,
+} from "@/shared/lib/ws/document-payloads";
 import { ensureSharedDekCached, getDocumentDekCacheKey } from "./share-access";
 import { getDocumentCryptoWorker } from "./crypto-worker";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   documentWriteSessionAuthorityBoundaryForDocument,
+  rememberVerifiedDocumentOperationAdmission,
   verifyDocumentWriteSessionNotInvalidated,
   resolveDocumentWriteSessionSigningKeyFromAdmission,
   verifyDocumentOperationAdmissionAncestry,
   verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
+import { recordSyncPerf } from "./perf";
+import { refreshAdmissionKeyDirectory } from "./admission-key-directory";
+import { computeDocumentUpdateHash } from "./update-hash";
 function createProcessingCancelledError(): Error {
   const error = new Error("document_processing_cancelled");
   error.name = "AbortError";
@@ -53,10 +63,17 @@ interface DecryptedUpdate {
   decrypted: Uint8Array;
   deviceKey: string;
   clock: number;
+  startDeferredVerification?: () => Promise<void>;
 }
 
 function writeSessionCounterKey(update: UpdatePayload): string {
   return `${update.publicData.writeSessionEventHash}:${update.publicData.signingKeyId}`;
+}
+
+export function writeSessionCacheKey(
+  publicData: Pick<UpdatePayload["publicData"], "writeSessionEventHash" | "signingKeyId">,
+): string {
+  return `${publicData.writeSessionEventHash}:${publicData.signingKeyId}`;
 }
 
 export function commitWriteSessionCounter(update: UpdatePayload, state: DocumentState): void {
@@ -67,6 +84,187 @@ export function commitWriteSessionCounter(update: UpdatePayload, state: Document
     throw createVerificationFailedError("Write session counter replay detected");
   }
   state.writeSessionCounters[key] = counter;
+}
+
+export async function rememberVerifiedWriteSessionAdmission(params: {
+  payload: WriteSessionPayload;
+  state: DocumentState;
+  documentId: string;
+  actorUserId: string;
+}): Promise<void> {
+  await verifyDocumentWriteSessionNotInvalidated({
+    admission: params.payload.admission,
+    publicData: params.payload.publicData,
+    workspaceId: params.state.workspaceId,
+    documentId: params.documentId,
+    keyVersion: params.payload.publicData.keyVersion,
+  });
+  const current = await getCurrentWorkspacePin(params.state);
+  params.state.verifiedWriteSessions.set(writeSessionCacheKey(params.payload.publicData), {
+    admission: params.payload.admission,
+    publicData: { ...params.payload.publicData },
+    actorUserId: params.actorUserId,
+    maxUpdateCount: writeSessionMaxUpdateCount(params.payload.admission),
+    checkedEventHeadSequence: current.eventHeadSequence,
+    checkedEventHeadHash: current.eventHeadHash,
+  });
+}
+
+export async function refreshVerifiedWriteSessions(
+  state: DocumentState,
+  documentId: string,
+): Promise<number> {
+  let refreshed = 0;
+  for (const [key, cached] of state.verifiedWriteSessions) {
+    try {
+      await verifyDocumentWriteSessionNotInvalidated({
+        admission: cached.admission,
+        publicData: cached.publicData,
+        workspaceId: state.workspaceId,
+        documentId,
+        keyVersion: cached.publicData.keyVersion,
+      });
+      const current = await getCurrentWorkspacePin(state);
+      state.verifiedWriteSessions.set(key, {
+        ...cached,
+        checkedEventHeadSequence: current.eventHeadSequence,
+        checkedEventHeadHash: current.eventHeadHash,
+      });
+      refreshed++;
+    } catch {
+      state.verifiedWriteSessions.delete(key);
+    }
+  }
+  return refreshed;
+}
+
+async function hasVerifiedWriteSessionAdmission(params: {
+  update: UpdatePayload;
+  state: DocumentState;
+  documentId: string;
+  actorUserId: string;
+}): Promise<boolean> {
+  const cached = params.state.verifiedWriteSessions.get(
+    writeSessionCacheKey(params.update.publicData),
+  );
+  if (!cached) return false;
+  if (cached.actorUserId !== params.actorUserId) return false;
+  if (!writeSessionPublicDataMatches(cached.publicData, params.update.publicData)) return false;
+  if (
+    !Number.isSafeInteger(params.update.publicData.writeSessionCounter) ||
+    params.update.publicData.writeSessionCounter < 1 ||
+    params.update.publicData.writeSessionCounter > cached.maxUpdateCount
+  ) {
+    return false;
+  }
+  if (params.update.publicData.docId !== params.documentId) return false;
+  if (params.update.publicData.minDekVersion > params.update.publicData.keyVersion) return false;
+
+  const current = await getCurrentWorkspacePin(params.state);
+  return (
+    current.eventHeadSequence === cached.checkedEventHeadSequence &&
+    current.eventHeadHash === cached.checkedEventHeadHash
+  );
+}
+
+function resolveCachedWriteSessionSigningKey(params: {
+  update: UpdatePayload;
+  state: DocumentState;
+  documentId: string;
+}): Extract<ResolveSigningKeyResult, { status: "found" }> | null {
+  const cached = params.state.verifiedWriteSessions.get(
+    writeSessionCacheKey(params.update.publicData),
+  );
+  if (!cached) return null;
+  if (!writeSessionPublicDataMatches(cached.publicData, params.update.publicData)) return null;
+  if (
+    !Number.isSafeInteger(params.update.publicData.writeSessionCounter) ||
+    params.update.publicData.writeSessionCounter < 1 ||
+    params.update.publicData.writeSessionCounter > cached.maxUpdateCount
+  ) {
+    return null;
+  }
+  if (params.update.publicData.docId !== params.documentId) return null;
+  if (params.update.publicData.minDekVersion > params.update.publicData.keyVersion) return null;
+
+  const admittedKey = resolveDocumentWriteSessionSigningKeyFromAdmission({
+    admission: cached.admission,
+    publicData: params.update.publicData,
+  });
+  if (!admittedKey || admittedKey.actorUserId !== cached.actorUserId) return null;
+
+  params.state.signingKeys.set(params.update.publicData.signingKeyId, admittedKey.key);
+  params.state.signingKeyOwners.set(params.update.publicData.signingKeyId, admittedKey.actorUserId);
+  return {
+    status: "found",
+    key: admittedKey.key,
+    ownerId: admittedKey.actorUserId,
+  };
+}
+
+const WRITE_SESSION_STABLE_PUBLIC_DATA_KEYS = [
+  "docId",
+  "signingKeyId",
+  "ownerKind",
+  "ownerId",
+  "authorityKind",
+  "authorityId",
+  "authorityContextKey",
+  "authorityScopeId",
+  "authorityPermissionVersion",
+  "keyCheckpointSequence",
+  "keyCheckpointHash",
+  "minDekVersion",
+  "writeSessionEventHash",
+  "writeSessionId",
+] as const;
+
+function writeSessionPublicDataMatches(
+  session: WriteSessionPayload["publicData"],
+  update: UpdatePayload["publicData"],
+): boolean {
+  for (const key of WRITE_SESSION_STABLE_PUBLIC_DATA_KEYS) {
+    if (session[key] !== update[key]) return false;
+  }
+  return session.keyVersion <= update.keyVersion;
+}
+
+function writeSessionMaxUpdateCount(admission: WriteSessionPayload["admission"]): number {
+  const event = admission.workspaceKeyDirectoryEvents.find((candidate) => {
+    const payload = recordField(candidate, "document_admission_event_invalid").payload;
+    return (
+      recordField(payload, "document_admission_payload_invalid").event_type ===
+      "document_write_session_admitted"
+    );
+  });
+  if (!event) throw new Error("document_admission_event_missing");
+  const payload = recordField(event, "document_admission_event_invalid").payload;
+  const body = recordField(
+    recordField(payload, "document_admission_payload_invalid").body,
+    "document_admission_body_invalid",
+  );
+  const maxUpdateCount = body.max_update_count;
+  if (
+    typeof maxUpdateCount !== "number" ||
+    !Number.isSafeInteger(maxUpdateCount) ||
+    maxUpdateCount < 1
+  ) {
+    throw new Error("max_update_count_invalid");
+  }
+  return maxUpdateCount;
+}
+
+async function getCurrentWorkspacePin(state: DocumentState) {
+  const current = await getKeyDirectoryPin("workspace", state.workspaceId);
+  if (!current) throw new Error("key_directory_pin_required");
+  return current;
+}
+
+function recordField(value: unknown, error: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(error);
+  }
+  return value as Record<string, unknown>;
 }
 
 export async function verifyAndDecryptUpdates(
@@ -98,9 +296,19 @@ export async function verifyAndDecryptSingleUpdate(
   documentId: string,
   allowUnknownSigner = false,
   includeHistoricalSigners = false,
+  deferHybridSignatureForCachedWriteSession = false,
 ): Promise<DecryptedUpdate | null> {
   throwIfDocumentProcessingCancelled(state);
+  const verifyStartedAt = performance.now();
   const worker = getDocumentCryptoWorker(state);
+  const recordVerifyStep = (step: string) => {
+    recordSyncPerf("remote_update_verify_step", {
+      documentId,
+      updateHash: update.publicData.updateHash,
+      step,
+      elapsedMs: performance.now() - verifyStartedAt,
+    });
+  };
   // signingKeyId membership confirmation + TOFU
   let admissionAncestryVerified = false;
   let keyResult: ResolveSigningKeyResult = lookupCachedSigningKey(
@@ -111,10 +319,22 @@ export async function verifyAndDecryptSingleUpdate(
     },
   ) ?? { status: "not_found" };
   if (keyResult.status === "not_found") {
+    const cachedWriteSessionKey = resolveCachedWriteSessionSigningKey({
+      update,
+      state,
+      documentId,
+    });
+    if (cachedWriteSessionKey) {
+      keyResult = cachedWriteSessionKey;
+      recordVerifyStep("signing_key_resolved_from_verified_write_session");
+    }
+  }
+  if (keyResult.status === "not_found") {
     try {
       await verifyDocumentOperationAdmissionAncestry({
         admission: update.admission,
         workspaceId: state.workspaceId,
+        refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
       });
       admissionAncestryVerified = true;
       const admittedKey = resolveDocumentWriteSessionSigningKeyFromAdmission({
@@ -135,12 +355,14 @@ export async function verifyAndDecryptSingleUpdate(
         err instanceof Error ? err.message : "Update admission verification failed",
       );
     }
+    recordVerifyStep("admission_ancestry_for_unknown_signer");
   }
   if (keyResult.status === "not_found") {
     keyResult = await resolveSigningKey(update.publicData.signingKeyId, state, {
       includeHistorical: includeHistoricalSigners,
     });
   }
+  recordVerifyStep("signing_key_resolved");
   if (keyResult.status === "key_changed") {
     throw createVerificationFailedError(`TOFU key change: device ${keyResult.warning.deviceId}`);
   }
@@ -162,52 +384,144 @@ export async function verifyAndDecryptSingleUpdate(
     );
   }
   // Ed25519 signature verification is mandatory when the signing key is known.
-  if (keyResult.status === "found") {
-    const valid = await verifyDocumentUpdateSignature(
+  let signatureValidPromise: Promise<boolean> | null = null;
+  let startDeferredSignatureVerification: (() => Promise<void>) | undefined;
+  const verifyHybridSignature = () =>
+    verifyDocumentUpdateSignature(
       update,
-      keyResult.key,
-      keyResult.ownerId,
+      (keyResult as Extract<ResolveSigningKeyResult, { status: "found" }>).key,
+      (keyResult as Extract<ResolveSigningKeyResult, { status: "found" }>).ownerId,
       state.workspaceId,
     );
+  if (keyResult.status === "found") {
+    if (deferHybridSignatureForCachedWriteSession) {
+      const ed25519Valid = await verifyDocumentUpdateEd25519(
+        update,
+        keyResult.key,
+        keyResult.ownerId,
+        state.workspaceId,
+      );
+      if (!ed25519Valid) {
+        throw createVerificationFailedError("Update Ed25519 signature verification failed");
+      }
+      recordVerifyStep("ed25519_signature_verified");
+    } else {
+      signatureValidPromise = verifyHybridSignature();
+    }
+  }
+
+  const recomputedHashPromise = Promise.resolve(
+    computeDocumentUpdateHash({
+      clock: update.publicData.clock,
+      signing_key_id: update.publicData.signingKeyId,
+      document_id: documentId,
+      encrypted_content: update.ciphertext,
+      key_version: update.publicData.keyVersion,
+      nonce: update.nonce,
+      ref_snapshot_id: update.publicData.refSnapshotId,
+      timestamp: update.publicData.timestamp,
+    }),
+  );
+
+  if (signatureValidPromise && !deferHybridSignatureForCachedWriteSession) {
+    const valid = await signatureValidPromise;
     if (!valid) {
       throw createVerificationFailedError("Update signature verification failed");
     }
+    signatureValidPromise = null;
   }
+  recordVerifyStep(signatureValidPromise ? "hybrid_signature_deferred" : "signature_verified");
   // update_hash recomputation and verification
-  const recomputedHash = await worker.computeUpdateHash({
-    clock: update.publicData.clock,
-    signing_key_id: update.publicData.signingKeyId,
-    document_id: documentId,
-    encrypted_content: update.ciphertext,
-    key_version: update.publicData.keyVersion,
-    nonce: update.nonce,
-    ref_snapshot_id: update.publicData.refSnapshotId,
-    timestamp: update.publicData.timestamp,
-  });
+  const recomputedHash = await recomputedHashPromise;
   if (recomputedHash !== update.publicData.updateHash) {
     throw createVerificationFailedError("Update hash verification failed");
   }
+  recordVerifyStep("update_hash_verified");
+  const pendingVerifiedSession = state.pendingVerifiedWriteSessions.get(
+    writeSessionCacheKey(update.publicData),
+  );
+  if (pendingVerifiedSession) {
+    recordVerifyStep("write_session_admission_pending_wait_start");
+    await pendingVerifiedSession;
+    recordVerifyStep("write_session_admission_pending_ready");
+  }
   try {
-    await verifyDocumentWriteSessionAdmission({
-      admission: update.admission,
-      publicData: update.publicData,
-      workspaceId: state.workspaceId,
+    const actorUserId = keyResult.status === "found" ? keyResult.ownerId : "";
+    const cachedAdmission = await hasVerifiedWriteSessionAdmission({
+      update,
+      state,
       documentId,
-      actorUserId: keyResult.status === "found" ? keyResult.ownerId : "",
+      actorUserId,
     });
-    if (!admissionAncestryVerified) {
-      await verifyDocumentOperationAdmissionAncestry({
+    if (cachedAdmission) {
+      recordVerifyStep("write_session_admission_cached");
+      if (
+        !signatureValidPromise &&
+        keyResult.status === "found" &&
+        deferHybridSignatureForCachedWriteSession
+      ) {
+        startDeferredSignatureVerification = () =>
+          verifyHybridSignature().then((valid) => {
+            if (!valid) {
+              throw createVerificationFailedError("Update signature verification failed");
+            }
+          });
+      }
+      if (signatureValidPromise) {
+        startDeferredSignatureVerification = () =>
+          signatureValidPromise!.then((valid) => {
+            if (!valid) {
+              throw createVerificationFailedError("Update signature verification failed");
+            }
+          });
+      }
+    } else {
+      if (!signatureValidPromise && keyResult.status === "found") {
+        signatureValidPromise = verifyHybridSignature();
+      }
+      if (signatureValidPromise) {
+        const valid = await signatureValidPromise;
+        signatureValidPromise = null;
+        if (!valid) {
+          throw createVerificationFailedError("Update signature verification failed");
+        }
+        recordVerifyStep("signature_verified");
+      }
+      await verifyDocumentWriteSessionAdmission({
+        admission: update.admission,
+        publicData: update.publicData,
+        workspaceId: state.workspaceId,
+        documentId,
+        actorUserId,
+      });
+      recordVerifyStep("write_session_admission_verified");
+      if (!admissionAncestryVerified) {
+        await verifyDocumentOperationAdmissionAncestry({
+          admission: update.admission,
+          workspaceId: state.workspaceId,
+          refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+        });
+        recordVerifyStep("admission_ancestry_verified");
+      }
+      await verifyDocumentWriteSessionNotInvalidated({
+        admission: update.admission,
+        publicData: update.publicData,
+        workspaceId: state.workspaceId,
+        documentId,
+        keyVersion: update.publicData.keyVersion,
+      });
+      recordVerifyStep("write_session_not_invalidated");
+      rememberVerifiedDocumentOperationAdmission({
         admission: update.admission,
         workspaceId: state.workspaceId,
       });
+      await rememberVerifiedWriteSessionAdmission({
+        payload: { admission: update.admission, publicData: update.publicData },
+        state,
+        documentId,
+        actorUserId,
+      });
     }
-    await verifyDocumentWriteSessionNotInvalidated({
-      admission: update.admission,
-      publicData: update.publicData,
-      workspaceId: state.workspaceId,
-      documentId,
-      keyVersion: update.publicData.keyVersion,
-    });
   } catch (err) {
     throw createVerificationFailedError(
       err instanceof Error ? err.message : "Update admission verification failed",
@@ -242,6 +556,7 @@ export async function verifyAndDecryptSingleUpdate(
   // Step 4d: AEAD decryption (before clock commit — failed decrypt must not poison clocks)
   throwIfDocumentProcessingCancelled(state);
   await ensureDekCached(documentId, state.workspaceId, update.publicData.keyVersion, state);
+  recordVerifyStep("dek_ready");
   const decrypted = await worker.decryptContent({
     ciphertext: base64UrlDecode(update.ciphertext),
     nonce: base64UrlDecode(update.nonce),
@@ -249,6 +564,7 @@ export async function verifyAndDecryptSingleUpdate(
     keyVersion: update.publicData.keyVersion,
     cacheKey: getDocumentDekCacheKey(state, documentId),
   });
+  recordVerifyStep("content_decrypted");
   // Advance local keyVersion if remote uses a newer DEK (after rotation by another client)
   if (update.publicData.keyVersion > state.keyVersion) {
     state.keyVersion = update.publicData.keyVersion;
@@ -258,16 +574,23 @@ export async function verifyAndDecryptSingleUpdate(
   commitWriteSessionCounter(update, state);
   state.knownClocks[deviceKey] = update.publicData.clock;
   state.confirmedClocks[deviceKey] = update.publicData.clock;
-  return { decrypted, deviceKey, clock: update.publicData.clock };
+  return {
+    decrypted,
+    deviceKey,
+    clock: update.publicData.clock,
+    startDeferredVerification: startDeferredSignatureVerification,
+  };
 }
 
-export async function verifyDocumentUpdateSignature(
+function verifyDocumentUpdateEd25519(
   update: UpdatePayload,
   publicKeyMaterial: HybridSigningPublicKeyMaterial,
   actorUserId: string,
   workspaceId: string,
 ): Promise<boolean> {
-  return getCryptoWorker().verifyDocumentUpdateSignature({
+  return getDocumentVerificationCryptoWorker(
+    `document-update-ed25519:${update.publicData.docId}`,
+  ).verifyDocumentUpdateEd25519Signature({
     publicKeyMaterial,
     signature: update.signature,
     actorUserId,
@@ -281,6 +604,30 @@ export async function verifyDocumentUpdateSignature(
     ciphertext: update.ciphertext,
     nonce: update.nonce,
   });
+}
+
+export async function verifyDocumentUpdateSignature(
+  update: UpdatePayload,
+  publicKeyMaterial: HybridSigningPublicKeyMaterial,
+  actorUserId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  return getDocumentVerificationCryptoWorker(update.publicData.docId).verifyDocumentUpdateSignature(
+    {
+      publicKeyMaterial,
+      signature: update.signature,
+      actorUserId,
+      workspaceId,
+      publicData: update.publicData,
+      authorityBoundary: documentWriteSessionAuthorityBoundaryForDocument({
+        publicData: update.publicData,
+        workspaceId,
+        documentId: update.publicData.docId,
+      }),
+      ciphertext: update.ciphertext,
+      nonce: update.nonce,
+    },
+  );
 }
 export async function verifySnapshotProofChain(
   chain: SnapshotProofChainEntry[],
@@ -358,6 +705,13 @@ export async function ensureDekCached(
   state?: DocumentState,
 ): Promise<void> {
   const currentState = state ?? getDocumentState(documentId);
+  if (
+    currentState?.access.kind !== "share" &&
+    currentState?.dekResolved &&
+    currentState.keyVersion >= keyVersion
+  ) {
+    return;
+  }
   if (currentState?.access.kind === "share") {
     await ensureSharedDekCached(currentState, documentId, keyVersion);
     return;

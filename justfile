@@ -94,7 +94,7 @@ web-build:
 preview:
     just web-build
     just api-build
-    MIX_ENV=prod mix phx.server
+    ERL_FLAGS="${REFMD_PREVIEW_ERL_FLAGS:-+sbwt none +sbwtdcpu none +sbwtdio none}" MIX_ENV=prod mix phx.server
 
 # ── Quality ───────────────────────────────────────
 

@@ -146,4 +146,33 @@ defmodule RefMDWeb.Channels.Document.AccessTest do
     refute Access.publication_sync_allowed?(document, owner.id, share_socket, nil)
     refute Access.publication_sync_allowed?(document, owner.id, nil, Ecto.UUID.generate())
   end
+
+  test "share participant broadcast check uses joined socket state" do
+    share_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+    device_id = Ecto.UUID.generate()
+
+    socket = %Phoenix.Socket{
+      assigns: %{
+        session_kind: :share_participant,
+        current_share_id: share_id,
+        current_session: %{share_id: share_id, device_id: device_id},
+        share_participant_grant: "edit",
+        share_participant_principal_id: principal_id,
+        device_id: device_id
+      }
+    }
+
+    assert :ok = Access.check_broadcast(socket)
+
+    stale_socket = %Phoenix.Socket{
+      socket
+      | assigns: %{
+          socket.assigns
+          | current_session: %{share_id: share_id, device_id: Ecto.UUID.generate()}
+        }
+    }
+
+    assert :evict = Access.check_broadcast(stale_socket)
+  end
 end

@@ -28,6 +28,10 @@ function teardownState(
     state.autoSync.dispose();
     state.autoSync = null;
   }
+  state.writeSessionPromise = null;
+  state.writeSessionReadyAt = null;
+  state.writeSessionError = null;
+  state.verifiedWriteSessions.clear();
   state.writerLockCleanup?.();
   state.writerLockCleanup = null;
   if (state.pendingSaveTimeout) {
@@ -45,6 +49,7 @@ function teardownState(
     state._reconnectTimer = null;
   }
   state._onRecoverableSyncGap = null;
+  state._verifiedContentPreviewResolvers.splice(0).forEach((resolve) => resolve());
   for (const resolve of state._reauthResolvers) resolve();
   state._reauthResolvers = [];
   documentStates.delete(stateKey);

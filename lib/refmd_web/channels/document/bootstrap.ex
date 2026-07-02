@@ -58,7 +58,7 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
   defp load_initial_data(document, params, workspace_id, user_id, socket) do
     mode = params["mode"] || "complete"
 
-    case Documents.get_initial_document_data(document.id, workspace_id, user_id) do
+    case Documents.get_initial_document_data(document.id, workspace_id, user_id, params) do
       {:error, :unauthorized} ->
         {:error, %{reason: "permission_denied"}}
 
@@ -89,10 +89,12 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
     end
   end
 
-  defp load_share_initial_data(document, params, share_id) do
+  @spec load_share_initial_data(map(), map(), Ecto.UUID.t()) ::
+          {:ok, map()} | {:error, %{reason: String.t()}}
+  def load_share_initial_data(document, params, share_id) do
     mode = params["mode"] || "complete"
 
-    case Documents.get_initial_document_data_for_share(document.id, share_id) do
+    case Documents.get_initial_document_data_for_share(document.id, share_id, params) do
       {:ok, {snapshot, all_updates}} ->
         initial_data =
           document.id
@@ -125,8 +127,9 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
       )
 
     %{
-      snapshot: if(delta_same, do: nil, else: Envelope.format_snapshot(snapshot)),
-      updates: Enum.map(updates, &Envelope.format_update/1),
+      snapshot:
+        if(delta_same, do: nil, else: Envelope.format_snapshot(snapshot, snapshot_opts(params))),
+      updates: Envelope.format_initial_updates(updates, !delta_same and !is_nil(snapshot)),
       snapshotProofChain: proof_chain,
       proofChainHash: if(snapshot, do: snapshot.proof_chain_hash),
       ciphertextHash: if(snapshot, do: snapshot.ciphertext_hash),
@@ -150,6 +153,12 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
   end
 
   defp filter_updates(_snapshot, updates, _mode, _params), do: updates
+
+  defp snapshot_opts(%{"authenticated_workspace_pin_bootstrap_hash" => hash})
+       when is_binary(hash),
+       do: [current_incremental: true]
+
+  defp snapshot_opts(_params), do: []
 
   defp filter_by_clocks(updates, known_clocks) do
     Enum.filter(updates, fn u ->

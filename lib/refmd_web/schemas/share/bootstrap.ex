@@ -370,6 +370,268 @@ defmodule RefMDWeb.Schemas.ShareParticipantInfo do
   })
 end
 
+defmodule RefMDWeb.Schemas.ShareInitialDocumentClockMap do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareInitialDocumentClockMap",
+    type: :object,
+    additionalProperties: %Schema{type: :integer}
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareDocumentOperationAdmission do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @key_directory_envelope %Schema{allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope]}
+
+  OpenApiSpex.schema(%{
+    title: "ShareDocumentOperationAdmission",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      workspaceKeyDirectoryEvents: %Schema{type: :array, items: @key_directory_envelope},
+      workspaceKeyDirectoryCheckpoint: @key_directory_envelope,
+      workspaceKeyDirectoryCheckpointAncestry: %Schema{
+        type: :array,
+        items: @key_directory_envelope
+      },
+      workspaceKeyDirectoryEventAncestry: %Schema{type: :array, items: @key_directory_envelope}
+    },
+    required: [
+      :workspaceKeyDirectoryEvents,
+      :workspaceKeyDirectoryCheckpoint,
+      :workspaceKeyDirectoryCheckpointAncestry,
+      :workspaceKeyDirectoryEventAncestry
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareInitialSnapshotPublicData do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareInitialSnapshotPublicData",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      docId: %Schema{type: :string, format: :uuid},
+      snapshotId: %Schema{type: :string, format: :uuid},
+      signingKeyId: RefMDWeb.Schemas.Blake3Base64Url,
+      keyVersion: %Schema{type: :integer},
+      parentSnapshotId: %Schema{type: :string},
+      parentProofHash: %Schema{type: :string},
+      parentSnapshotUpdateClocks: RefMDWeb.Schemas.ShareInitialDocumentClockMap,
+      ownerKind: %Schema{type: :string, enum: ["device", "share_participant_device"]},
+      ownerId: %Schema{type: :string},
+      authorityKind: %Schema{
+        type: :string,
+        enum: ["workspace_device", "share_participant_device"]
+      },
+      authorityId: %Schema{type: :string, format: :uuid},
+      authorityContextKey: %Schema{type: :string},
+      authorityScopeId: %Schema{type: :string, format: :uuid},
+      authorityPermissionVersion: %Schema{type: :integer},
+      keyCheckpointSequence: %Schema{type: :integer},
+      keyCheckpointHash: RefMDWeb.Schemas.Blake3Base64Url
+    },
+    required: [
+      :docId,
+      :snapshotId,
+      :signingKeyId,
+      :keyVersion,
+      :parentSnapshotId,
+      :parentProofHash,
+      :parentSnapshotUpdateClocks,
+      :ownerKind,
+      :ownerId,
+      :authorityKind,
+      :authorityId,
+      :authorityContextKey,
+      :authorityScopeId,
+      :authorityPermissionVersion,
+      :keyCheckpointSequence,
+      :keyCheckpointHash
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareInitialUpdatePublicData do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareInitialUpdatePublicData",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      docId: %Schema{type: :string, format: :uuid},
+      signingKeyId: RefMDWeb.Schemas.Blake3Base64Url,
+      keyVersion: %Schema{type: :integer},
+      refSnapshotId: %Schema{type: :string, format: :uuid},
+      clock: %Schema{type: :integer},
+      timestamp: %Schema{type: :integer},
+      updateHash: %Schema{type: :string},
+      ownerKind: %Schema{type: :string, enum: ["device", "share_participant_device"]},
+      ownerId: %Schema{type: :string},
+      authorityKind: %Schema{
+        type: :string,
+        enum: ["workspace_device", "share_participant_device"]
+      },
+      authorityId: %Schema{type: :string, format: :uuid},
+      authorityContextKey: %Schema{type: :string},
+      authorityScopeId: %Schema{type: :string, format: :uuid},
+      authorityPermissionVersion: %Schema{type: :integer},
+      keyCheckpointSequence: %Schema{type: :integer},
+      keyCheckpointHash: RefMDWeb.Schemas.Blake3Base64Url,
+      minDekVersion: %Schema{type: :integer},
+      writeSessionEventHash: RefMDWeb.Schemas.Blake3Base64Url,
+      writeSessionId: %Schema{type: :string},
+      writeSessionCounter: %Schema{type: :integer}
+    },
+    required: [
+      :docId,
+      :signingKeyId,
+      :keyVersion,
+      :refSnapshotId,
+      :clock,
+      :timestamp,
+      :updateHash,
+      :ownerKind,
+      :ownerId,
+      :authorityKind,
+      :authorityId,
+      :authorityContextKey,
+      :authorityScopeId,
+      :authorityPermissionVersion,
+      :keyCheckpointSequence,
+      :keyCheckpointHash,
+      :minDekVersion,
+      :writeSessionEventHash,
+      :writeSessionId,
+      :writeSessionCounter
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareInitialDocumentSnapshot do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareInitialDocumentSnapshot",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      ciphertext: %Schema{type: :string},
+      nonce: %Schema{type: :string},
+      signature: RefMDWeb.Schemas.HybridSignature,
+      admission: RefMDWeb.Schemas.ShareDocumentOperationAdmission,
+      publicData: RefMDWeb.Schemas.ShareInitialSnapshotPublicData
+    },
+    required: [:ciphertext, :nonce, :signature, :admission, :publicData]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareInitialDocumentUpdate do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareInitialDocumentUpdate",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      ciphertext: %Schema{type: :string},
+      nonce: %Schema{type: :string},
+      version: %Schema{type: :integer},
+      signature: RefMDWeb.Schemas.HybridSignature,
+      admission: RefMDWeb.Schemas.ShareDocumentOperationAdmission,
+      publicData: RefMDWeb.Schemas.ShareInitialUpdatePublicData
+    },
+    required: [:ciphertext, :nonce, :version, :signature, :admission, :publicData]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareSnapshotProofChainEntry do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareSnapshotProofChainEntry",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.snapshot-proof-link"]},
+      version: %Schema{type: :integer, enum: [1]},
+      document_id: %Schema{type: :string, format: :uuid},
+      snapshot_id: %Schema{type: :string, format: :uuid},
+      parent_snapshot_id: %Schema{type: :string},
+      parent_proof_hash: %Schema{type: :string},
+      ciphertext_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      snapshot_signature_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      snapshot_admission_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      proof_chain_hash: RefMDWeb.Schemas.Blake3Base64Url
+    },
+    required: [
+      :protocol,
+      :version,
+      :document_id,
+      :snapshot_id,
+      :parent_snapshot_id,
+      :parent_proof_hash,
+      :ciphertext_hash,
+      :snapshot_signature_hash,
+      :snapshot_admission_event_hash,
+      :proof_chain_hash
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ShareInitialDocumentPayload do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ShareInitialDocumentPayload",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      snapshot: %Schema{allOf: [RefMDWeb.Schemas.ShareInitialDocumentSnapshot], nullable: true},
+      updates: %Schema{type: :array, items: RefMDWeb.Schemas.ShareInitialDocumentUpdate},
+      snapshotProofChain: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.ShareSnapshotProofChainEntry
+      },
+      proofChainHash: %Schema{allOf: [RefMDWeb.Schemas.Blake3Base64Url], nullable: true},
+      ciphertextHash: %Schema{allOf: [RefMDWeb.Schemas.Blake3Base64Url], nullable: true},
+      snapshotAdmissionEventHash: %Schema{
+        allOf: [RefMDWeb.Schemas.Blake3Base64Url],
+        nullable: true
+      },
+      latestVersion: %Schema{type: :integer},
+      archived: %Schema{type: :boolean},
+      readOnly: %Schema{type: :boolean},
+      authorityPermissionVersion: %Schema{type: :integer}
+    },
+    required: [
+      :snapshot,
+      :updates,
+      :snapshotProofChain,
+      :proofChainHash,
+      :ciphertextHash,
+      :snapshotAdmissionEventHash,
+      :latestVersion,
+      :archived,
+      :readOnly,
+      :authorityPermissionVersion
+    ]
+  })
+end
+
 defmodule RefMDWeb.Schemas.ShareBootstrapResponse do
   alias OpenApiSpex.Schema
   require OpenApiSpex
@@ -392,7 +654,13 @@ defmodule RefMDWeb.Schemas.ShareBootstrapResponse do
       capability_context_hash: %Schema{type: :string},
       share_capability_secret_commitment: %Schema{type: :string},
       password_capability_secret_commitment: %Schema{type: :string},
-      participant: RefMDWeb.Schemas.ShareParticipantInfo
+      participant: RefMDWeb.Schemas.ShareParticipantInfo,
+      root_document_bootstrap: %Schema{
+        nullable: true,
+        oneOf: [
+          RefMDWeb.Schemas.ShareDocumentBootstrapResponse
+        ]
+      }
     },
     required: [
       :root,
@@ -445,7 +713,23 @@ defmodule RefMDWeb.Schemas.ShareDocumentBootstrapResponse do
         allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
         nullable: true
       },
-      verification_directory: RefMDWeb.Schemas.ShareVerificationDirectory
+      workspace_key_directory_latest_checkpoint: %Schema{
+        allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
+        nullable: true
+      },
+      workspace_key_directory_checkpoint_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_event_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      verification_directory: RefMDWeb.Schemas.ShareVerificationDirectory,
+      initial_document: %Schema{
+        allOf: [RefMDWeb.Schemas.ShareInitialDocumentPayload],
+        nullable: true
+      }
     },
     required: [
       :share_token_hash,
@@ -470,6 +754,9 @@ defmodule RefMDWeb.Schemas.ShareDocumentBootstrapResponse do
       :nonce,
       :workspace_pin_bootstrap,
       :workspace_key_directory_checkpoint,
+      :workspace_key_directory_latest_checkpoint,
+      :workspace_key_directory_checkpoint_ancestry,
+      :workspace_key_directory_event_ancestry,
       :verification_directory
     ]
   })
@@ -617,6 +904,18 @@ defmodule RefMDWeb.Schemas.ShareFolderBootstrapResponse do
         allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
         nullable: true
       },
+      workspace_key_directory_latest_checkpoint: %Schema{
+        allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
+        nullable: true
+      },
+      workspace_key_directory_checkpoint_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_event_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
       verification_directory: RefMDWeb.Schemas.ShareVerificationDirectory,
       folder: RefMDWeb.Schemas.ShareTreeEntry,
       entries: %Schema{type: :array, items: RefMDWeb.Schemas.ShareTreeEntry}
@@ -636,6 +935,9 @@ defmodule RefMDWeb.Schemas.ShareFolderBootstrapResponse do
       :password_protected,
       :workspace_pin_bootstrap,
       :workspace_key_directory_checkpoint,
+      :workspace_key_directory_latest_checkpoint,
+      :workspace_key_directory_checkpoint_ancestry,
+      :workspace_key_directory_event_ancestry,
       :verification_directory,
       :folder,
       :entries

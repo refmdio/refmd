@@ -52,5 +52,20 @@ defmodule RefMD.Crypto.JCSTest do
       assert_raise ArgumentError, fn -> JCS.parse_json_strict!(~s({"a":"\\uD800"})) end
       assert_raise ArgumentError, fn -> JCS.parse_json_strict!(~s({"a":null})) end
     end
+
+    test "strict raw JSON parser delegates JSON decoding while preserving strict profile" do
+      assert JCS.parse_json_strict!(~s({"a":"1e0 is text","b":["-0 is text",2]})) == %{
+               "a" => "1e0 is text",
+               "b" => ["-0 is text", 2]
+             }
+
+      assert_raise ArgumentError, "json_duplicate_key", fn ->
+        JCS.parse_json_strict!(~s({"a":{"b":1,"b":2}}))
+      end
+
+      assert_raise ArgumentError, "json_invalid_number_form", fn ->
+        JCS.parse_json_strict!(~s({"a":[1.0]}))
+      end
+    end
   end
 end

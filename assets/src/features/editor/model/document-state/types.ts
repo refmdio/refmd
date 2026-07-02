@@ -1,7 +1,11 @@
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type { Channel } from "phoenix";
-import type { RemoteSnapshotPayload, UpdatePayload } from "@/shared/lib/ws/document-payloads";
+import type {
+  RemoteSnapshotPayload,
+  UpdatePayload,
+  WriteSessionPayload,
+} from "@/shared/lib/ws/document-payloads";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import type { EphemeralSession } from "../../lib/sync/ephemeral-session";
 import type { DocumentAccess } from "./access";
@@ -19,6 +23,7 @@ interface PendingSnapshot {
 export interface AutoSyncHandle {
   dispose: () => void;
   notifyLocalEdit: () => void;
+  prepareWriteSession: () => Promise<boolean>;
   flush: () => void;
   flushNow: () => Promise<void>;
 }
@@ -43,6 +48,15 @@ export interface WriteSessionState {
   keyDirectoryAdvance: KeyDirectoryAdvance;
   publicDataFields: Record<string, unknown>;
   authorityBoundary: Record<string, unknown>;
+}
+
+export interface VerifiedWriteSessionState {
+  admission: WriteSessionPayload["admission"];
+  publicData: WriteSessionPayload["publicData"];
+  actorUserId: string;
+  maxUpdateCount: number;
+  checkedEventHeadSequence: number;
+  checkedEventHeadHash: string;
 }
 
 export interface SaveEventDiagnostic {
@@ -101,6 +115,11 @@ export interface DocumentState {
   pendingSnapshotEnvelope: Record<string, unknown> | null;
   _admissionDirectoryRefreshRequired: boolean;
   writeSession: WriteSessionState | null;
+  writeSessionPromise: Promise<WriteSessionState> | null;
+  writeSessionReadyAt: number | null;
+  writeSessionError: string | null;
+  verifiedWriteSessions: Map<string, VerifiedWriteSessionState>;
+  pendingVerifiedWriteSessions: Map<string, Promise<void>>;
   _onDocumentMessage: ((payload: unknown) => void) | null;
   _retryDekRotation: (() => Promise<void>) | null;
   ephemeralSession: EphemeralSession | null;
@@ -117,6 +136,10 @@ export interface DocumentState {
         type: "snapshot";
         payload: RemoteSnapshotPayload;
       }
+    | {
+        type: "write-session";
+        payload: WriteSessionPayload;
+      }
   >;
   _pendingOutOfOrderUpdates: UpdatePayload[];
   _drainingOutOfOrderUpdates: boolean;
@@ -124,11 +147,29 @@ export interface DocumentState {
   _onRecoverableSyncGap: ((err: unknown) => void) | null;
   _lastJoinMode: "complete" | "delta";
   _forceCompleteReconnect: boolean;
+  _lastCacheRestore: {
+    accessKind: "workspace" | "share";
+    attemptedAt: number;
+    restored: boolean;
+    reason: string | null;
+  } | null;
+  _lastJoinDecision: {
+    hasLastSavedState: boolean;
+    hasSnapshotCiphertextHash: boolean;
+    hasSnapshotProofHash: boolean;
+    knownSnapshotId: string | null;
+    pinSnapshotId: string | null;
+    stateSnapshotId: string | null;
+    useDelta: boolean;
+  } | null;
   offlineFlushCleanup: (() => void) | null;
   offlineResumeCleanup: (() => void) | null;
   loadedFromOfflineCache: boolean;
+  _verifiedContentPreviewReady: boolean;
+  _verifiedContentPreviewResolvers: Array<() => void>;
   _reauthResolvers: Array<() => void>;
   _headlessSync: boolean;
+  _preAutoSyncUserEdit: boolean;
   readOnly: boolean;
   writerLockCleanup: (() => void) | null;
   pendingSaveTimeout: ReturnType<typeof setTimeout> | null;

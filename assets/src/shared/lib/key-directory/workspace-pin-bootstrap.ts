@@ -1,7 +1,8 @@
 import {
   hashKeyDirectoryCheckpointEnvelope,
-  installTransferredKeyDirectoryCheckpoint,
+  installVerifiedTransferredKeyDirectoryCheckpoint,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { verifyCheckpointSignatures } from "@/shared/lib/anti-rollback/key-directory-pin/verification";
 import {
   assertKeyEntryActiveAtSequence,
   assertEnvelope,
@@ -49,6 +50,20 @@ const BOOTSTRAP_ISSUER_KEYS = [
   "user_id",
 ];
 const BOOTSTRAP_SIGNATURE_ENVELOPE_KEYS = ["signature", "signer"];
+
+function recordWorkspacePinBootstrapPerf(event: string, detail: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
+  const payload = {
+    event,
+    detail,
+    at: Date.now(),
+    now: performance.now(),
+  };
+  const target = window as Window & { __refmdE2ESyncPerf?: unknown[] };
+  target.__refmdE2ESyncPerf ??= [];
+  target.__refmdE2ESyncPerf.push(payload);
+  window.dispatchEvent(new CustomEvent("refmd:sync-perf", { detail: payload }));
+}
 
 export interface WorkspacePinBootstrapEnvelope {
   payload: WorkspacePinBootstrapPayload;
@@ -262,20 +277,26 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
   workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
   operationSequence: number;
 }): Promise<void> {
+  const startedAt = performance.now();
+  recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_verify_started", {
+    workspaceId: params.workspaceId,
+  });
   const bootstrap = assertWorkspacePinBootstrapEnvelope(
     params.bootstrap,
     "workspace_pin_bootstrap_invalid",
   );
-  const payload = bootstrap.payload as unknown as Record<string, unknown>;
-  const checkpointPayload = recordField(
-    params.checkpointEnvelope.payload,
-    "workspace_pin_checkpoint_invalid",
+  const checkpoint = assertEnvelope(
+    params.checkpointEnvelope as unknown as Record<string, unknown>,
   );
+  const payload = bootstrap.payload as unknown as Record<string, unknown>;
+  const checkpointPayload = recordField(checkpoint.payload, "workspace_pin_checkpoint_invalid");
   const coveredHead = recordField(
     checkpointPayload.covered_event_head,
     "workspace_pin_event_head_invalid",
   );
-  const checkpointHash = hashKeyDirectoryCheckpointEnvelope(params.checkpointEnvelope);
+  const checkpointHash = hashKeyDirectoryCheckpointEnvelope(
+    checkpoint as unknown as Record<string, unknown>,
+  );
 
   if (
     buildWorkspacePinBootstrapHash({
@@ -309,6 +330,10 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
   ) {
     throw new Error("workspace_pin_bootstrap_payload_mismatch");
   }
+  recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_payload_verified", {
+    workspaceId: params.workspaceId,
+    elapsedMs: performance.now() - startedAt,
+  });
   assertIssuingEventCovered({
     issuingEventHash: stringField(payload.issuing_event_hash, "workspace_pin_payload_invalid"),
     eventHeadSequence: numberField(
@@ -317,6 +342,10 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
     ),
     eventHeadHash: stringField(payload.event_head_hash, "workspace_pin_head_hash_invalid"),
     eventAncestry: params.workspaceKeyDirectoryEventAncestry ?? [],
+  });
+  recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_issuing_event_verified", {
+    workspaceId: params.workspaceId,
+    elapsedMs: performance.now() - startedAt,
   });
 
   const issuer = recordField(payload.issuer, "workspace_pin_issuer_invalid");
@@ -347,18 +376,46 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
       entry.signer.signing_key_id === issuer.signing_key_id,
   );
   if (!signatureEnvelope) throw new Error("workspace_pin_signature_missing");
-  const valid = await getCryptoWorker().verifyWorkspacePinBootstrapSignature({
+  recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_signer_verified", {
     workspaceId: params.workspaceId,
-    bootstrapPayload: payload as unknown as StrictJsonValue,
-    signature: signatureEnvelope.signature,
-    publicKeyMaterial: material,
+    elapsedMs: performance.now() - startedAt,
   });
+  const bootstrapSignaturePromise = getCryptoWorker()
+    .verifyWorkspacePinBootstrapSignature({
+      workspaceId: params.workspaceId,
+      bootstrapPayload: payload as unknown as StrictJsonValue,
+      signature: signatureEnvelope.signature,
+      publicKeyMaterial: material,
+    })
+    .then((valid) => {
+      recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_signature_verified", {
+        workspaceId: params.workspaceId,
+        elapsedMs: performance.now() - startedAt,
+        valid,
+      });
+      return valid;
+    });
+  const checkpointSignaturePromise = verifyCheckpointSignatures(
+    checkpoint,
+    checkpoint.payload,
+  ).then(() => {
+    recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_checkpoint_verified", {
+      workspaceId: params.workspaceId,
+      elapsedMs: performance.now() - startedAt,
+      signatureCount: checkpoint.signatures.length,
+    });
+  });
+  const [valid] = await Promise.all([bootstrapSignaturePromise, checkpointSignaturePromise]);
   if (!valid) throw new Error("workspace_pin_signature_invalid");
 
-  await installTransferredKeyDirectoryCheckpoint({
+  await installVerifiedTransferredKeyDirectoryCheckpoint({
     scopeKind: "workspace",
     scopeId: params.workspaceId,
-    checkpointEnvelope: params.checkpointEnvelope,
+    checkpointEnvelope: checkpoint,
+  });
+  recordWorkspacePinBootstrapPerf("workspace_pin_bootstrap_installed", {
+    workspaceId: params.workspaceId,
+    elapsedMs: performance.now() - startedAt,
   });
 }
 

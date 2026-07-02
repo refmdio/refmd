@@ -21,6 +21,10 @@ interface KekRotationNeeded {
   current_kek_version: number;
 }
 
+const DOCUMENT_REMOTE_CONTENT_READY_EVENT = "refmd:document-remote-content-ready";
+const DOCUMENT_ROUTE_MONITOR_STARTUP_TIMEOUT_MS = 3_500;
+const DOCUMENT_ROUTE_MONITOR_IDLE_TIMEOUT_MS = 1_000;
+
 interface PendingDeviceContextValue {
   pendingDevices: Accessor<DeviceRegistrationInfo[]>;
   pendingCount: Accessor<number>;
@@ -61,8 +65,13 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
 
   let securityNotificationChannel: { dispose: () => void } | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupIdleHandle: number | undefined;
+  let startupReadyListener: (() => void) | undefined;
   let expiryTimers: ReturnType<typeof setTimeout>[] = [];
   let connectionGeneration = 0;
+  let startupGeneration = 0;
 
   const pendingCount = () => actionRequiredSecurityNotificationCount(securityNotifications());
 
@@ -96,6 +105,27 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
       clearTimeout(retryTimer);
       retryTimer = undefined;
     }
+  };
+
+  const clearStartupSchedule = () => {
+    if (startupTimer) {
+      clearTimeout(startupTimer);
+      startupTimer = undefined;
+    }
+    if (startupIdleTimer) {
+      clearTimeout(startupIdleTimer);
+      startupIdleTimer = undefined;
+    }
+    if (
+      startupIdleHandle !== undefined &&
+      typeof window !== "undefined" &&
+      "cancelIdleCallback" in window
+    ) {
+      window.cancelIdleCallback(startupIdleHandle);
+      startupIdleHandle = undefined;
+    }
+    startupReadyListener?.();
+    startupReadyListener = undefined;
   };
 
   const scheduleReconnect = (generation: number) => {
@@ -171,18 +201,59 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
       });
   };
 
+  const scheduleStartup = (generation: number) => {
+    clearStartupSchedule();
+    const start = () => {
+      if (generation !== startupGeneration) return;
+      void refetchPending();
+      connectSecurityNotifications();
+    };
+
+    if (!shouldDeferDocumentRouteMonitorStartup()) {
+      start();
+      return;
+    }
+
+    const scheduleIdleStart = () => {
+      if (generation !== startupGeneration) return;
+      clearStartupSchedule();
+      if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        startupIdleHandle = window.requestIdleCallback(start, {
+          timeout: DOCUMENT_ROUTE_MONITOR_IDLE_TIMEOUT_MS,
+        });
+      } else {
+        startupIdleTimer = setTimeout(start, DOCUMENT_ROUTE_MONITOR_IDLE_TIMEOUT_MS);
+      }
+    };
+    const handleReady = () => scheduleIdleStart();
+
+    if (typeof window === "undefined") {
+      start();
+      return;
+    }
+
+    window.addEventListener(DOCUMENT_REMOTE_CONTENT_READY_EVENT, handleReady, { once: true });
+    startupReadyListener = () => {
+      window.removeEventListener(DOCUMENT_REMOTE_CONTENT_READY_EVENT, handleReady);
+    };
+    startupTimer = setTimeout(scheduleIdleStart, DOCUMENT_ROUTE_MONITOR_STARTUP_TIMEOUT_MS);
+  };
+
   createEffect(() => {
     const auth = authState();
     const device = deviceState();
     if (!auth || !device?.deviceId) {
+      clearStartupSchedule();
       clearConnectionState();
       return;
     }
 
-    void refetchPending();
-    connectSecurityNotifications();
+    startupGeneration += 1;
+    scheduleStartup(startupGeneration);
 
     onCleanup(() => {
+      startupGeneration += 1;
+      clearStartupSchedule();
       clearConnectionState();
     });
   });
@@ -207,6 +278,8 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
   });
 
   onCleanup(() => {
+    startupGeneration += 1;
+    clearStartupSchedule();
     clearConnectionState();
     for (const timer of expiryTimers) {
       clearTimeout(timer);
@@ -267,6 +340,10 @@ export function usePendingDeviceMonitorState(): PendingDeviceMonitorState {
     handleApproved,
     handleApprovalError,
   };
+}
+
+function shouldDeferDocumentRouteMonitorStartup(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.startsWith("/document/");
 }
 
 export function actionRequiredSecurityNotificationCount(

@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import { getNextClockForDevice } from "@/shared/lib/anti-rollback/clock-observations";
 import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import { cacheDocumentState } from "@/shared/lib/offline/cache/manager/write";
 import { deletePendingChanges } from "@/shared/lib/offline/storage/store";
 import { deviceState } from "@/entities/session";
@@ -21,7 +22,9 @@ import { DocumentSyncError, isRecoverableSyncGapError } from "./error";
 import { getDocumentState } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { handleDocumentMessage } from "./inbound-document";
-import { getLocalSigningKeyId } from "./share-identity";
+import { getLocalDeviceId, getLocalSigningKeyId } from "./share-identity";
+import { getDocumentDekCacheKey } from "./share-access";
+import { getDocumentCryptoWorker } from "./crypto-worker";
 import {
   keyDirectoryAdvanceSymbol,
   rememberDocumentAdmissionCheckpoint,
@@ -36,6 +39,15 @@ function getPinKey(state: DocumentState, documentId: string): string {
   return state.access.kind === "share"
     ? buildDocumentStatePinKey(documentId, state.access.shareId)
     : buildDocumentStatePinKey(documentId);
+}
+
+function getOfflineCacheOptions(state: DocumentState, documentId: string) {
+  return state.access.kind === "share"
+    ? {
+        worker: getDocumentCryptoWorker(state),
+        cacheKey: getDocumentDekCacheKey(state, documentId),
+      }
+    : undefined;
 }
 
 function hasUnsavedLocalChanges(state: DocumentState): boolean {
@@ -100,18 +112,104 @@ function rejectInvalidAck(state: DocumentState): void {
   if (state.autoSync) state.autoSync.notifyLocalEdit();
 }
 
+export type UpdateSaveFailureRecovery = "none" | "complete_reconnect" | "snapshot_mismatch";
+
+const RECONNECT_AFTER_UPDATE_SAVE_FAILURE = new Set([
+  "clock_mismatch",
+  "key_version_too_old",
+  "key_rotation_required",
+  "rotation_snapshot_required",
+  "serialization_conflict",
+]);
+
+const FORCE_SNAPSHOT_AFTER_UPDATE_SAVE_FAILURE = new Set(["document_update_payload_too_large"]);
+
+function clearPreparedWriteSession(state: DocumentState): void {
+  state.writeSession = null;
+  state.writeSessionPromise = null;
+  state.writeSessionReadyAt = null;
+  state.writeSessionError = null;
+}
+
+function isAdmissionAdvanceRace(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.message === "key_directory_checkpoint_rollback" ||
+      err.message === "key_directory_pin_conflict")
+  );
+}
+
+function isAdmissionCheckpointAlreadyAdvanced(err: unknown): boolean {
+  return err instanceof Error && err.message === "key_directory_checkpoint_rollback";
+}
+
+async function recoverAdmissionAdvanceRace(
+  advance: KeyDirectoryAdvance,
+  state: DocumentState,
+  documentId?: string,
+): Promise<boolean> {
+  const deviceId = getLocalDeviceId(state) ?? deviceState()?.deviceId;
+  if (advance.scopeKind !== "workspace" || !deviceId) return false;
+
+  try {
+    const directory = await fetchVerifiedKeyDirectory({
+      scopeKind: advance.scopeKind,
+      scopeId: advance.scopeId,
+      popDeviceId: deviceId,
+      popScope: state.access.kind === "share" ? "share" : "user",
+      popWorker: state.access.kind === "share" ? getDocumentCryptoWorker(state) : undefined,
+    });
+    rememberDocumentAdmissionCheckpoint(state, {
+      admission: { workspaceKeyDirectoryCheckpoint: directory.checkpoint },
+    });
+    recordSyncPerf("update_ack_admission_advance_race_recovered", {
+      documentId,
+      accessKind: state.access.kind,
+    });
+    return true;
+  } catch (recoveryError) {
+    recordSyncPerf("update_ack_admission_advance_race_recovery_failed", {
+      documentId,
+      accessKind: state.access.kind,
+      error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+    });
+    return false;
+  }
+}
+
 async function rememberAcceptedAdmissionCheckpoint(
   envelope: { admission?: unknown } | null | undefined,
   state: DocumentState,
+  documentId?: string,
 ): Promise<void> {
   const advance = (envelope as { [keyDirectoryAdvanceSymbol]?: KeyDirectoryAdvance } | null)?.[
     keyDirectoryAdvanceSymbol
   ];
+  recordSyncPerf("update_ack_admission_checkpoint_start", {
+    documentId,
+    hasAdvance: Boolean(advance),
+    accessKind: state.access.kind,
+  });
   if (advance) {
     try {
       await advanceKeyDirectoryPinWithProof(advance);
+      recordSyncPerf("update_ack_admission_advance_ready", {
+        documentId,
+      });
     } catch (err) {
-      if (!(err instanceof Error) || err.message !== "key_directory_checkpoint_rollback") {
+      recordSyncPerf("update_ack_admission_advance_failed", {
+        documentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (isAdmissionCheckpointAlreadyAdvanced(err)) {
+        recordSyncPerf("update_ack_admission_advance_already_covered", {
+          documentId,
+          accessKind: state.access.kind,
+        });
+      } else if (
+        !isAdmissionAdvanceRace(err) ||
+        !(await recoverAdmissionAdvanceRace(advance, state, documentId))
+      ) {
         throw err;
       }
       // Another socket event may already have advanced the local key-directory pin
@@ -120,6 +218,9 @@ async function rememberAcceptedAdmissionCheckpoint(
     }
   }
   rememberDocumentAdmissionCheckpoint(state, envelope);
+  recordSyncPerf("update_ack_admission_checkpoint_ready", {
+    documentId,
+  });
   state._admissionDirectoryRefreshRequired = false;
 }
 
@@ -165,7 +266,7 @@ export async function handleUpdateSaved(
     return;
   }
 
-  await rememberAcceptedAdmissionCheckpoint(acceptedEnvelope, state);
+  await rememberAcceptedAdmissionCheckpoint(acceptedEnvelope, state, documentId);
   recordSyncPerf("update_saved_ack", {
     documentId,
     updateHash: pending.updateHash,
@@ -216,8 +317,13 @@ export async function handleUpdateSaved(
     });
   }
 
-  if (documentId && state.workspaceId && state.keyVersion > 0 && state.access.kind !== "share") {
-    cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+  if (documentId && state.workspaceId && state.keyVersion > 0) {
+    cacheDocumentState(
+      documentId,
+      state.workspaceId,
+      state,
+      getOfflineCacheOptions(state, documentId),
+    ).catch(() => {});
     deletePendingChanges(documentId).catch(() => {});
   }
 
@@ -232,13 +338,14 @@ export async function handleUpdateSaved(
     });
   } else if (!hasUnsavedChanges) {
     refreshSavedBaselineToCurrent(state);
+    void state.autoSync?.prepareWriteSession();
   }
 }
 
 export function handleUpdateSaveFailed(
   payload: UpdateSaveFailedPayload,
   state: DocumentState,
-): void {
+): UpdateSaveFailureRecovery {
   clearSaveAckWatchdog(state);
   recordSaveEvent(state, "update_save_failed", {
     payload,
@@ -253,11 +360,31 @@ export function handleUpdateSaveFailed(
   state.pendingUpdateBytes = null;
   state.pendingUpdateEnvelope = null;
   state.sending = false;
+  clearPreparedWriteSession(state);
 
   if (payload.requiresNewSnapshot) {
     state.error = "snapshot_mismatch";
-    return;
+    return "snapshot_mismatch";
   }
+
+  const reason = typeof payload.reason === "string" ? payload.reason : null;
+  if (reason && FORCE_SNAPSHOT_AFTER_UPDATE_SAVE_FAILURE.has(reason)) {
+    state.snapshotUpdatesCount = Infinity;
+    state._admissionDirectoryRefreshRequired = true;
+    return "none";
+  }
+
+  if (!reason || RECONNECT_AFTER_UPDATE_SAVE_FAILURE.has(reason)) {
+    state._forceCompleteReconnect = true;
+    if (reason !== "clock_mismatch") {
+      state._admissionDirectoryRefreshRequired = true;
+    }
+    return "complete_reconnect";
+  }
+
+  state._forceCompleteReconnect = true;
+  state._admissionDirectoryRefreshRequired = true;
+  return "complete_reconnect";
 }
 
 export async function handleSnapshotSaved(
@@ -307,8 +434,13 @@ export async function handleSnapshotSaved(
   state.confirmedClocks = {};
   state.localClock = getNextClockForDevice(state.knownClocks, signingKeyId ?? undefined);
 
-  if (documentId && state.workspaceId && state.keyVersion > 0 && state.access.kind !== "share") {
-    cacheDocumentState(documentId, state.workspaceId, state).catch(() => {});
+  if (documentId && state.workspaceId && state.keyVersion > 0) {
+    cacheDocumentState(
+      documentId,
+      state.workspaceId,
+      state,
+      getOfflineCacheOptions(state, documentId),
+    ).catch(() => {});
     deletePendingChanges(documentId).catch(() => {});
   }
 
@@ -339,6 +471,7 @@ export async function handleSnapshotSaved(
     state.autoSync.notifyLocalEdit();
   } else if (!hasUnsavedChanges) {
     refreshSavedBaselineToCurrent(state);
+    void state.autoSync?.prepareWriteSession();
   }
 }
 

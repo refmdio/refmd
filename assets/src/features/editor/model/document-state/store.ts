@@ -64,6 +64,11 @@ function createDocumentState(
     pendingSnapshotEnvelope: null,
     _admissionDirectoryRefreshRequired: false,
     writeSession: null,
+    writeSessionPromise: null,
+    writeSessionReadyAt: null,
+    writeSessionError: null,
+    verifiedWriteSessions: new Map(),
+    pendingVerifiedWriteSessions: new Map(),
     _onDocumentMessage: null,
     _retryDekRotation: null,
     ephemeralSession: null,
@@ -78,11 +83,16 @@ function createDocumentState(
     _onRecoverableSyncGap: null,
     _lastJoinMode: "complete",
     _forceCompleteReconnect: false,
+    _lastCacheRestore: null,
+    _lastJoinDecision: null,
     offlineFlushCleanup: null,
     offlineResumeCleanup: null,
     loadedFromOfflineCache: false,
+    _verifiedContentPreviewReady: false,
+    _verifiedContentPreviewResolvers: [],
     _reauthResolvers: [],
     _headlessSync: false,
+    _preAutoSyncUserEdit: false,
     readOnly: access.kind === "share" ? !canSharedAccessWriteDurably(access) : false,
     writerLockCleanup: null,
     pendingSaveTimeout: null,
@@ -121,6 +131,9 @@ export async function acquireDocumentState(
       existing.offlineResumeCleanup?.();
       existing.offlineResumeCleanup = null;
       existing._headlessSync = false;
+      existing._verifiedContentPreviewReady = false;
+      existing._verifiedContentPreviewResolvers.splice(0).forEach((resolve) => resolve());
+      existing._preAutoSyncUserEdit = false;
       existing.awareness.destroy();
       existing.yDoc.destroy();
       existing.yDoc = new Y.Doc();
@@ -136,6 +149,10 @@ export async function acquireDocumentState(
       existing.latestVersion = 0;
       existing._admissionDirectoryRefreshRequired = false;
       existing.writeSession = null;
+      existing.writeSessionPromise = null;
+      existing.writeSessionReadyAt = null;
+      existing.writeSessionError = null;
+      existing.verifiedWriteSessions.clear();
       existing.awarenessClientOwners.clear();
       existing._pendingOutOfOrderUpdates = [];
       existing._drainingOutOfOrderUpdates = false;
@@ -145,6 +162,8 @@ export async function acquireDocumentState(
       }
       existing._onRecoverableSyncGap = null;
       existing._lastJoinMode = "complete";
+      existing._lastCacheRestore = null;
+      existing._lastJoinDecision = null;
       if (existing._reconnectTimer) {
         clearTimeout(existing._reconnectTimer);
         existing._reconnectTimer = null;
@@ -173,6 +192,47 @@ export async function acquireDocumentState(
 
 export function getDocumentState(stateKey: string): DocumentState | undefined {
   return documentStates.get(stateKey);
+}
+
+export function notifyDocumentVerifiedContentPreviewReady(state: DocumentState): void {
+  state._verifiedContentPreviewReady = true;
+  const resolvers = state._verifiedContentPreviewResolvers.splice(0);
+  for (const resolve of resolvers) resolve();
+}
+
+export function waitForDocumentVerifiedContentPreview(
+  stateKey: string,
+  initPromise?: Promise<unknown> | null,
+): Promise<void> {
+  const state = documentStates.get(stateKey);
+  if (!state) return Promise.reject(new Error("document_state_missing"));
+  if (state._verifiedContentPreviewReady || state.initialized) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      const index = state._verifiedContentPreviewResolvers.indexOf(onReady);
+      if (index >= 0) state._verifiedContentPreviewResolvers.splice(index, 1);
+    };
+    const onReady = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const current = documentStates.get(stateKey);
+      if (!current || (!current._verifiedContentPreviewReady && !current.initialized)) {
+        reject(new Error("document_content_preview_unavailable"));
+        return;
+      }
+      resolve();
+    };
+    state._verifiedContentPreviewResolvers.push(onReady);
+    void initPromise?.catch((error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    });
+  });
 }
 
 export function getAllActiveDocumentStates(): Map<string, DocumentState> {

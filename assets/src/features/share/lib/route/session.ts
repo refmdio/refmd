@@ -1,4 +1,4 @@
-import { authState, restoreSessionContext } from "@/entities/session";
+import { restoreSessionContext } from "@/entities/session";
 import { setPreferredSessionScope } from "@/shared/lib/auth/session-scope";
 import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
 import { clearActiveShareSocketSlug } from "../bootstrap/document";
@@ -29,7 +29,7 @@ export function leaveShareRouteSession(): void {
     resetPhoenixConnection();
     clearActiveShareSocketSlug();
 
-    if (authState()) {
+    if (!window.location.pathname.startsWith("/share/")) {
       void restoreSessionContext();
     }
   }, 0);

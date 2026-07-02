@@ -1,7 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { createEffect, For, Show } from "solid-js";
-import { PasswordReentryDialog } from "@/features/auth";
-import { PendingDeviceMonitor } from "@/features/devices";
+import { createEffect, For, lazy, Show } from "solid-js";
 import { authState, clearSession, deviceState, tofuErrors } from "@/entities/session";
 import { initializeApiClient } from "@/shared/api";
 import { queryClient } from "@/shared/lib/query/client";
@@ -11,6 +9,10 @@ import { ThemeProvider } from "@/shared/ui/theme-provider";
 import { isPublicPath, useSessionBootstrap } from "@/app/bootstrap/session";
 import { AppRoutes } from "@/app/router/AppRoutes";
 import "@/app.css";
+
+const PasswordReentryDialog = lazy(
+  () => import("@/features/auth/ui/session/PasswordReentryDialog"),
+);
 
 type SessionValidationResult =
   | { status: "active"; sessionId: string | null }
@@ -153,15 +155,13 @@ export default function App() {
         </Show>
         <Show when={tofuErrors().length === 0 && (!transientError() || isPublicPath())}>
           <QueryClientProvider client={queryClient}>
-            <PendingDeviceMonitor>
-              <Show when={!shouldBlockForPasswordReentry()}>
-                <AppRoutes />
-              </Show>
-              <PasswordReentryDialog
-                open={shouldBlockForPasswordReentry()}
-                onComplete={closePasswordReentry}
-              />
-            </PendingDeviceMonitor>
+            <Show when={!shouldBlockForPasswordReentry()}>
+              <AppRoutes />
+            </Show>
+            <PasswordReentryDialog
+              open={shouldBlockForPasswordReentry()}
+              onComplete={closePasswordReentry}
+            />
           </QueryClientProvider>
         </Show>
       </Show>

@@ -42,6 +42,15 @@ export default defineConfig({
       },
     },
     {
+      name: "app-strict-chromium",
+      testIgnore: pluginSandboxSpecGlob,
+      use: {
+        browserName: "chromium",
+        userAgent: chromium145LinuxUserAgent,
+        bypassCSP: false,
+      },
+    },
+    {
       name: "app-relaxed-firefox",
       testIgnore: pluginSandboxSpecGlob,
       use: {

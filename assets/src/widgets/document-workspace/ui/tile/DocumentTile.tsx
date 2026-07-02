@@ -68,6 +68,7 @@ import {
   pluginEditorContributionMatchesWorkspace,
   pluginUiEntryResourceContext,
 } from "./plugin-extension-context";
+import { readInitializedDocumentPreviewText } from "./document-preview";
 
 type Workspace = ReturnType<typeof usePanelWorkspace>;
 type EditorPlaintextContext = {
@@ -105,11 +106,75 @@ const ProseMirrorEditorImpl = lazy(async () => {
   return { default: mod.ProseMirrorEditor };
 });
 
-function EditorFallback() {
+const EDITOR_FALLBACK_PREVIEW_MAX_CHARS = 64 * 1024;
+const SHARE_CONTENT_VISIBLE_EVENT = "refmd:share-content-visible";
+
+function truncateEditorFallbackPreviewText(text: string): string {
+  return text.length > EDITOR_FALLBACK_PREVIEW_MAX_CHARS
+    ? text.slice(0, EDITOR_FALLBACK_PREVIEW_MAX_CHARS)
+    : text;
+}
+
+function notifyShareContentVisible(detail: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !window.location.pathname.startsWith("/share/")) return;
+  window.dispatchEvent(new CustomEvent(SHARE_CONTENT_VISIBLE_EVENT, { detail }));
+}
+
+function EditorFallback(props: { stateKey: string }) {
+  const [previewText, setPreviewText] = createSignal("");
+  let previewRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+  const clearPreviewRefreshTimer = () => {
+    if (previewRefreshTimer === null) return;
+    clearInterval(previewRefreshTimer);
+    previewRefreshTimer = null;
+  };
+  const applyPreviewText = (text: string) => {
+    const next = truncateEditorFallbackPreviewText(text);
+    setPreviewText(next);
+    if (next.trim().length > 0) {
+      notifyShareContentVisible({
+        source: "editor-fallback",
+        stateKey: props.stateKey,
+        previewTextLength: next.length,
+      });
+      clearPreviewRefreshTimer();
+    }
+  };
+  const refreshPreviewText = () => {
+    const next = readInitializedDocumentPreviewText(props.stateKey);
+    if (next.text.trim().length > 0) {
+      applyPreviewText(next.text);
+      return;
+    }
+    if (next.initialized) clearPreviewRefreshTimer();
+  };
+
+  createEffect(() => {
+    refreshPreviewText();
+    if (typeof window === "undefined" || previewRefreshTimer !== null) return;
+    previewRefreshTimer = window.setInterval(refreshPreviewText, 50);
+  });
+  onCleanup(clearPreviewRefreshTimer);
+
+  const visiblePreviewText = () => (previewText().trim().length > 0 ? previewText() : "");
+
   return (
-    <div class="flex h-full items-center justify-center bg-background">
-      <Spinner class="size-6" />
-    </div>
+    <Show
+      when={visiblePreviewText()}
+      fallback={
+        <div class="flex h-full items-center justify-center bg-background">
+          <Spinner class="size-6" />
+        </div>
+      }
+    >
+      <div
+        class="h-full overflow-auto bg-background px-6 py-5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+        data-refmd-content-preview="true"
+      >
+        {previewText()}
+      </div>
+    </Show>
   );
 }
 
@@ -435,8 +500,16 @@ export function DocumentTile(props: DocumentTileProps) {
       },
     };
   };
-  const handleDocChange = () => {
+  const handleDocChange = (change?: { persist?: boolean }) => {
     const { editor, documentView } = getDocumentEventContext();
+    if (change?.persist !== false) {
+      const state = getDocumentState(props.panel.targetKey);
+      if (state?.autoSync) {
+        state.autoSync.notifyLocalEdit();
+      } else if (state && !state.readOnly) {
+        state._preAutoSyncUserEdit = true;
+      }
+    }
     clearPluginEditorDecorations(props.panelId, pluginDecorationSources);
     schedulePluginEditorProviderRefresh();
     documentEvents.notifyDocumentChangeFor(props.panel.documentId, editor);
@@ -587,7 +660,7 @@ export function DocumentTile(props: DocumentTileProps) {
           stateKey={props.panel.targetKey}
           workspaceId={props.workspaceId}
         >
-          <Suspense fallback={<EditorFallback />}>
+          <Suspense fallback={<EditorFallback stateKey={props.panel.targetKey} />}>
             {isMarkdown() ? (
               <CodeMirrorEditorImpl
                 documentId={props.panel.documentId}

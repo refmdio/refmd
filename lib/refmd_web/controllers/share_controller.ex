@@ -2,8 +2,10 @@ defmodule RefMDWeb.ShareController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.Sharing
+  alias RefMD.{Documents, Sharing}
+  alias RefMD.Encryption.KeyDirectory.PinBootstrap
 
+  alias RefMDWeb.Channels.Document.Bootstrap, as: DocumentBootstrap
   alias RefMDWeb.Schemas
 
   operation(:show,
@@ -244,7 +246,7 @@ defmodule RefMDWeb.ShareController do
           {:ok, response} ->
             conn
             |> no_store()
-            |> json(encode_document_bootstrap(response))
+            |> json(encode_document_bootstrap(response, pin_hash))
 
           {:error, _reason} ->
             conn |> put_status(:not_found) |> json(%{error: "not_found"})
@@ -356,15 +358,45 @@ defmodule RefMDWeb.ShareController do
     put_resp_header(conn, "cache-control", "no-store")
   end
 
-  defp encode_document_bootstrap(%{bootstrap_required: true} = response), do: response
+  defp encode_document_bootstrap(
+         %{bootstrap_required: true} = response,
+         _authenticated_pin_hash
+       ),
+       do: response
 
-  defp encode_document_bootstrap(response) do
+  defp encode_document_bootstrap(response, authenticated_pin_hash) do
     response
+    |> maybe_put_initial_document(authenticated_pin_hash)
     |> Map.update!(:encrypted_dek, &encode_binary/1)
     |> Map.update!(:encrypted_title, &encode_binary/1)
     |> Map.update!(:encrypted_title_nonce, &encode_binary/1)
     |> Map.update!(:nonce, &encode_binary/1)
   end
+
+  defp maybe_put_initial_document(
+         %{document_id: document_id, share_id: share_id} = response,
+         authenticated_pin_hash
+       ) do
+    params =
+      %{"mode" => "complete"}
+      |> maybe_put_authenticated_pin_hash(authenticated_pin_hash)
+
+    with document when not is_nil(document) <- Documents.get_document(document_id),
+         {:ok, initial_document} <-
+           DocumentBootstrap.load_share_initial_data(document, params, share_id) do
+      Map.put(response, :initial_document, initial_document)
+    else
+      _ -> response
+    end
+  end
+
+  defp maybe_put_initial_document(response, _authenticated_pin_hash), do: response
+
+  defp maybe_put_authenticated_pin_hash(params, authenticated_pin_hash)
+       when is_binary(authenticated_pin_hash),
+       do: Map.put(params, "authenticated_workspace_pin_bootstrap_hash", authenticated_pin_hash)
+
+  defp maybe_put_authenticated_pin_hash(params, _authenticated_pin_hash), do: params
 
   defp encode_folder_bootstrap(%{bootstrap_required: true} = response), do: response
 
@@ -408,7 +440,9 @@ defmodule RefMDWeb.ShareController do
       capability_context_hash: result.capability_context_hash,
       share_capability_secret_commitment: result.share_capability_secret_commitment,
       password_capability_secret_commitment: result.password_capability_secret_commitment,
-      participant: result.participant
+      participant: result.participant,
+      root_document_bootstrap:
+        encode_optional_document_bootstrap(result[:root_document_bootstrap])
     })
   end
 
@@ -469,6 +503,20 @@ defmodule RefMDWeb.ShareController do
   defp render_bootstrap_result(conn, {:error, reason}) when is_atom(reason) do
     conn |> put_status(:unprocessable_entity) |> json(%{error: Atom.to_string(reason)})
   end
+
+  defp encode_optional_document_bootstrap(nil), do: nil
+
+  defp encode_optional_document_bootstrap(response),
+    do: encode_document_bootstrap(response, authenticated_pin_hash(response))
+
+  defp authenticated_pin_hash(%{workspace_id: workspace_id, workspace_pin_bootstrap: bootstrap})
+       when is_binary(workspace_id) and is_map(bootstrap) do
+    PinBootstrap.hash!(workspace_id, bootstrap)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp authenticated_pin_hash(_response), do: nil
 
   defp validate_canonical_pin_hash(%{"authenticated_workspace_pin_bootstrap_hash" => value})
        when is_binary(value) do

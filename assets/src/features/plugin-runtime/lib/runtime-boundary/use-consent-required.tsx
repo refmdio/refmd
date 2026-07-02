@@ -4,6 +4,7 @@ import {
   For,
   onCleanup,
   Show,
+  untrack,
   type Accessor,
   type JSX,
 } from "solid-js";
@@ -42,6 +43,7 @@ import {
 } from "../../model/host-ui/host-ui-validation";
 import { PLUGIN_RUNTIME_APPLICATION_REFRESH_EVENT } from "./use-runtime-applications";
 import { guardedPluginRuntimeWorkspaceRequest } from "./runtime-workspace-revocation";
+import type { PluginRuntimeApplicationDescriptor } from "./runtime-types";
 
 interface PluginConsentRequiredEnvelope {
   applications?: readonly PluginConsentRequiredEntry[];
@@ -78,6 +80,8 @@ interface PluginConsentRequiredEntry {
   high_risk_consents?: readonly string[];
   author?: string;
 }
+
+const PLUGIN_CONSENT_REQUIRED_REFRESH_MS = 120_000;
 
 export interface PluginConsentRequiredDescriptor {
   pluginId: string;
@@ -159,6 +163,8 @@ interface PluginConsentActionDependencies {
 interface PluginConsentRequiredOptions {
   onConsentChanged?: () => void;
   networkProxyRegistration?: () => PluginNetworkProxyRegistration | null;
+  runtimeApplications?: Accessor<readonly PluginRuntimeApplicationDescriptor[]>;
+  enabled?: Accessor<boolean>;
 }
 
 export function usePluginConsentRequired(
@@ -174,16 +180,23 @@ export function usePluginConsentRequired(
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let generation = 0;
   let refreshRequestId = 0;
+  const enabled = () => options.enabled?.() ?? true;
+  const currentRuntimeApplications = () => untrack(() => options.runtimeApplications?.());
 
-  const refresh = async (currentWorkspaceId = workspaceId()) => {
+  const refresh = async (
+    currentWorkspaceId = workspaceId(),
+    runtimeApplications = currentRuntimeApplications(),
+  ) => {
     const requestId = ++refreshRequestId;
-    if (!currentWorkspaceId || !authState() || !deviceState()?.deviceId) {
+    if (!enabled() || !currentWorkspaceId || !authState() || !deviceState()?.deviceId) {
       if (requestId === refreshRequestId) setDescriptors([]);
       return;
     }
 
     try {
-      const next = await listPluginConsentRequired(currentWorkspaceId);
+      const next = await listPluginConsentRequired(currentWorkspaceId, {
+        runtimeApplications,
+      });
       if (requestId === refreshRequestId) {
         setDescriptors(next.filter((descriptor) => !suppressed.has(descriptorKey(descriptor))));
       }
@@ -198,24 +211,28 @@ export function usePluginConsentRequired(
     const currentWorkspaceId = workspaceId();
     const auth = authState();
     const device = deviceState();
+    const runtimeApplications = currentRuntimeApplications();
 
     if (refreshTimer) {
       clearInterval(refreshTimer);
       refreshTimer = undefined;
     }
 
-    if (!currentWorkspaceId || !auth || !device?.deviceId) {
+    if (!enabled() || !currentWorkspaceId || !auth || !device?.deviceId) {
       setDescriptors([]);
       return;
     }
 
-    void refresh(currentWorkspaceId);
+    void refresh(currentWorkspaceId, runtimeApplications);
     refreshTimer = setInterval(() => {
-      if (generation === currentGeneration) void refresh(currentWorkspaceId);
-    }, 15_000);
+      if (generation === currentGeneration) {
+        void refresh(currentWorkspaceId, currentRuntimeApplications());
+      }
+    }, PLUGIN_CONSENT_REQUIRED_REFRESH_MS);
   });
 
   const refreshListener = (event: Event) => {
+    if (!enabled()) return;
     const currentWorkspaceId = workspaceId();
     if (!currentWorkspaceId) return;
     const detail =
@@ -226,7 +243,7 @@ export function usePluginConsentRequired(
         : null;
     if (!targetWorkspaceId || targetWorkspaceId === currentWorkspaceId) {
       setDescriptors([]);
-      void refresh(currentWorkspaceId);
+      void refresh(currentWorkspaceId, currentRuntimeApplications());
     }
   };
   window.addEventListener(PLUGIN_RUNTIME_APPLICATION_REFRESH_EVENT, refreshListener);
@@ -437,10 +454,13 @@ export function usePluginConsentRequired(
 
 export async function listPluginConsentRequired(
   workspaceId: string,
+  options: { runtimeApplications?: readonly PluginRuntimeApplicationDescriptor[] } = {},
 ): Promise<readonly PluginConsentRequiredDescriptor[]> {
   const [serverDescriptors, runtimeDescriptors] = await Promise.all([
     listServerPluginConsentRequired(workspaceId),
-    listPluginRuntimeConsentCandidates(workspaceId),
+    options.runtimeApplications
+      ? Promise.resolve(pluginRuntimeApplicationsToConsentCandidates(options.runtimeApplications))
+      : listPluginRuntimeConsentCandidates(workspaceId),
   ]);
   const auth = authState();
   const missingLocalPins = auth?.user.id
@@ -454,6 +474,78 @@ export async function listPluginConsentRequired(
     merged.set(descriptorKey(descriptor), descriptor);
   }
   return Array.from(merged.values());
+}
+
+function pluginRuntimeApplicationsToConsentCandidates(
+  applications: readonly PluginRuntimeApplicationDescriptor[],
+): readonly PluginConsentRequiredDescriptor[] {
+  return applications.flatMap((entry) => {
+    const applicationScopeKind = stringValue(entry.applicationScopeKind);
+    const version = stringValue(entry.version);
+    const bundleHash = stringValue(entry.bundleHash);
+    const manifestHash = stringValue(entry.manifestHash);
+    const resourceManifestHash = stringValue(entry.resourceManifestHash);
+    const permissionsHash = stringValue(entry.permissionsHash);
+    const endpointHash = stringValue(entry.endpointHash);
+    const rendererSlotsHash = stringValue(entry.rendererSlotsHash);
+    const documentScopeHash = stringValue(entry.documentScopeHash);
+    const approvalEventHash = stringValue(entry.approvalEventHash);
+    const signerDeviceId = stringValue(entry.signerDeviceId);
+    const signerUserId = stringValue(entry.signerUserId);
+    if (
+      !applicationScopeKind ||
+      !version ||
+      !bundleHash ||
+      !manifestHash ||
+      !resourceManifestHash ||
+      !permissionsHash ||
+      !endpointHash ||
+      !rendererSlotsHash ||
+      !documentScopeHash ||
+      !approvalEventHash ||
+      !signerDeviceId ||
+      !signerUserId
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        pluginId: entry.pluginId,
+        packageId: entry.packageId,
+        applicationId: entry.applicationId,
+        activationId: entry.activationId,
+        ownerScopeKind: entry.ownerScopeKind,
+        applicationScopeKind,
+        workspaceId: entry.workspaceId,
+        stateHeadHash: entry.stateHeadHash,
+        approvalEventHash,
+        consentHeadHash: stringValue(entry.consentHeadHash) || null,
+        consentEpoch: typeof entry.consentEpoch === "number" ? entry.consentEpoch : null,
+        version,
+        bundleHash,
+        manifestHash,
+        resourceManifestHash,
+        permissionsHash,
+        endpointHash,
+        rendererSlotsHash,
+        documentScopeHash,
+        signerDeviceId,
+        signerUserId,
+        documentScope: entry.documentScope
+          ? ({ ...entry.documentScope } as Record<string, unknown>)
+          : null,
+        title: stringValue(entry.title) || entry.pluginId,
+        author: stringValue(entry.author) || "Unknown author",
+        permissions: entry.permissions ?? [],
+        networkEndpoints: (entry.networkEndpoints ?? []) as unknown as readonly Record<
+          string,
+          unknown
+        >[],
+        highRiskConsents: entry.highRiskConsents ?? [],
+      },
+    ];
+  });
 }
 
 async function listServerPluginConsentRequired(

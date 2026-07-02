@@ -32,6 +32,10 @@ defmodule RefMDWeb.Channels.Document.Access do
   defp writable_document?(%{}), do: false
 
   @spec check_broadcast(Phoenix.Socket.t()) :: :ok | :evict | :skip
+  def check_broadcast(%{assigns: %{session_kind: :share_participant}} = socket) do
+    if share_participant_broadcast_socket?(socket), do: :ok, else: :evict
+  end
+
   def check_broadcast(socket) do
     if share_context?(socket) do
       share_read_access_result(socket)
@@ -300,23 +304,11 @@ defmodule RefMDWeb.Channels.Document.Access do
   end
 
   defp member_read_access(workspace_id, user_id) do
-    case Workspaces.get_member_with_role(workspace_id, user_id) do
-      nil ->
-        {:error, %{reason: "not_a_member"}}
-
-      {_member, role} ->
-        if role_allows_document_read?(role) do
-          :ok
-        else
-          {:error, %{reason: "permission_denied"}}
-        end
+    if Workspaces.member_permission_granted?(workspace_id, user_id, "document:read") do
+      :ok
+    else
+      {:error, %{reason: "permission_denied"}}
     end
-  end
-
-  defp role_allows_document_read?(role) do
-    role
-    |> Workspaces.effective_permissions()
-    |> MapSet.member?("document:read")
   end
 
   defp role_allows_document_write?(role) do
@@ -375,6 +367,18 @@ defmodule RefMDWeb.Channels.Document.Access do
     else
       true
     end
+  end
+
+  defp share_participant_broadcast_socket?(%{assigns: assigns}) do
+    session = Map.get(assigns, :current_session)
+
+    is_map(session) and
+      Map.get(assigns, :share_participant_grant) in ["view", "edit"] and
+      is_binary(Map.get(assigns, :current_share_id)) and
+      is_binary(Map.get(assigns, :share_participant_principal_id)) and
+      is_binary(Map.get(assigns, :device_id)) and
+      Map.get(session, :share_id) == Map.get(assigns, :current_share_id) and
+      Map.get(session, :device_id) == Map.get(assigns, :device_id)
   end
 
   defp share_participant_device_active?(%{

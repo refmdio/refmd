@@ -28,6 +28,7 @@ defmodule RefMD.Documents.Snapshots do
   def save_update(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
+      attrs = maybe_attach_share_participant_writer_context!(document, attrs)
       validate_writable!(document)
       validate_write_permission!(document, actor_id, attrs)
       validate_device_active!(actor_id, attrs)
@@ -41,6 +42,25 @@ defmodule RefMD.Documents.Snapshots do
         nil ->
           insert_new_update(document, document_id, actor_id, attrs)
       end
+    end)
+    |> case do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec admit_write_session(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
+          {:ok, map()} | {:error, atom()}
+  def admit_write_session(document_id, actor_id, attrs) do
+    with_serializable_retry(fn ->
+      document = lock_document(document_id)
+      attrs = maybe_attach_share_participant_writer_context!(document, attrs)
+      validate_writable!(document)
+      validate_write_permission!(document, actor_id, attrs)
+      validate_device_active!(actor_id, attrs)
+
+      admission_event_hash = Admission.append_write_session!(document, attrs)
+      %{admission_event_hash: admission_event_hash}
     end)
     |> case do
       {:ok, result} -> {:ok, result}
@@ -68,6 +88,7 @@ defmodule RefMD.Documents.Snapshots do
       clock: existing.clock,
       update_hash: existing.update_hash,
       version: existing.version,
+      admission_event_hash: existing.admission_event_hash,
       duplicate: true
     }
   end
@@ -214,7 +235,8 @@ defmodule RefMD.Documents.Snapshots do
           snapshot_id: ref_snapshot_id,
           clock: attrs.clock,
           update_hash: attrs.update_hash,
-          version: version
+          version: version,
+          admission_event_hash: attrs.admission_event_hash
         }
 
       [] ->
@@ -228,6 +250,7 @@ defmodule RefMD.Documents.Snapshots do
               clock: existing.clock,
               update_hash: existing.update_hash,
               version: existing.version,
+              admission_event_hash: existing.admission_event_hash,
               duplicate: true
             }
         end
@@ -442,6 +465,40 @@ defmodule RefMD.Documents.Snapshots do
     do: Repo.rollback(:document_write_disabled)
 
   defp validate_writable!(_document), do: :ok
+
+  defp maybe_attach_share_participant_writer_context!(
+         document,
+         %{
+           session_kind: :share_participant,
+           share_id: share_id,
+           principal_id: principal_id,
+           session_id: session_id,
+           grant: "edit",
+           signing_key_id: signing_key_id
+         } = attrs
+       )
+       when is_binary(share_id) and is_binary(principal_id) and is_binary(session_id) and
+              is_binary(signing_key_id) do
+    case Sharing.validate_share_participant_writer_admission(%{
+           share_id: share_id,
+           principal_id: principal_id,
+           device_id: owner_id!(attrs),
+           session_id: session_id,
+           signing_key_id: signing_key_id,
+           document_id: document.id
+         }) do
+      {:ok, writer} -> Map.put(attrs, :share_participant_writer_context, writer)
+      {:error, _reason} -> Repo.rollback(:permission_denied)
+    end
+  end
+
+  defp maybe_attach_share_participant_writer_context!(_document, attrs), do: attrs
+
+  defp validate_device_active!(
+         _actor_id,
+         %{session_kind: :share_participant, share_participant_writer_context: _}
+       ),
+       do: :ok
 
   defp validate_device_active!(_actor_id, %{session_kind: :share_participant} = attrs) do
     principal_id = Map.fetch!(attrs, :principal_id)
@@ -666,6 +723,13 @@ defmodule RefMD.Documents.Snapshots do
     )
   )
   """
+
+  defp validate_write_permission!(
+         _document,
+         _actor_id,
+         %{session_kind: :share_participant, share_participant_writer_context: _}
+       ),
+       do: :ok
 
   defp validate_write_permission!(
          document,

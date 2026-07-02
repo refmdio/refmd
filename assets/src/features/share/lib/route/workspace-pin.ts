@@ -1,18 +1,65 @@
-import { getKeyDirectoryPin } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  advanceKeyDirectoryPinWithProof,
+  getKeyDirectoryPin,
+  hashKeyDirectoryCheckpointEnvelope,
+} from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
 import {
   verifyAndInstallWorkspacePinBootstrap,
   type WorkspacePinBootstrapEnvelope,
 } from "@/shared/lib/key-directory/workspace-pin-bootstrap";
 
+function recordSharePinPerf(event: string, detail: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
+  const payload = {
+    event,
+    detail,
+    at: Date.now(),
+    now: performance.now(),
+  };
+  const target = window as Window & { __refmdE2ESyncPerf?: unknown[] };
+  target.__refmdE2ESyncPerf ??= [];
+  target.__refmdE2ESyncPerf.push(payload);
+  window.dispatchEvent(new CustomEvent("refmd:sync-perf", { detail: payload }));
+}
+
+const pendingWorkspacePinInstalls = new Map<string, Promise<void>>();
+
+function pendingWorkspacePinKey(params: {
+  workspaceId: string;
+  workspacePinBootstrapHash: string;
+}): string {
+  return `${params.workspaceId}:${params.workspacePinBootstrapHash}`;
+}
+
 export async function ensureShareWorkspaceKeyDirectoryPin(params: {
   workspaceId: string;
   workspacePinBootstrapHash?: string | null;
   workspacePinBootstrap?: WorkspacePinBootstrapEnvelope | null;
   workspaceKeyDirectoryCheckpoint?: KeyDirectoryEnvelope | null;
+  workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
+  workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
+  workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
   mismatchCode: string;
 }): Promise<void> {
-  if (await getKeyDirectoryPin("workspace", params.workspaceId)) return;
+  const startedAt = performance.now();
+  recordSharePinPerf("share_workspace_pin_check_start", {
+    workspaceId: params.workspaceId,
+  });
+  if (await getKeyDirectoryPin("workspace", params.workspaceId)) {
+    prewarmShareWorkspaceKeyDirectoryLineage(params);
+    recordSharePinPerf("share_workspace_pin_check_ready", {
+      workspaceId: params.workspaceId,
+      elapsedMs: performance.now() - startedAt,
+      existing: true,
+    });
+    return;
+  }
+  recordSharePinPerf("share_workspace_pin_check_ready", {
+    workspaceId: params.workspaceId,
+    elapsedMs: performance.now() - startedAt,
+    existing: false,
+  });
 
   if (
     !params.workspacePinBootstrapHash ||
@@ -21,18 +68,156 @@ export async function ensureShareWorkspaceKeyDirectoryPin(params: {
   ) {
     throw new Error(params.mismatchCode);
   }
+  const workspacePinBootstrapHash = params.workspacePinBootstrapHash;
+  const workspacePinBootstrap = params.workspacePinBootstrap;
+  const workspaceKeyDirectoryCheckpoint = params.workspaceKeyDirectoryCheckpoint;
+
+  const pendingKey = pendingWorkspacePinKey({
+    workspaceId: params.workspaceId,
+    workspacePinBootstrapHash,
+  });
+  const pending = pendingWorkspacePinInstalls.get(pendingKey);
+  if (pending) {
+    await pending;
+    recordSharePinPerf("share_workspace_pin_verify_ready", {
+      workspaceId: params.workspaceId,
+      elapsedMs: performance.now() - startedAt,
+      source: "pending",
+    });
+    return;
+  }
+
+  const verify = (async () => {
+    try {
+      recordSharePinPerf("share_workspace_pin_verify_start", {
+        workspaceId: params.workspaceId,
+        elapsedMs: performance.now() - startedAt,
+      });
+      await verifyAndInstallWorkspacePinBootstrap({
+        workspaceId: params.workspaceId,
+        authenticatedWorkspacePinBootstrapHash: workspacePinBootstrapHash,
+        bootstrap: workspacePinBootstrap,
+        checkpointEnvelope: workspaceKeyDirectoryCheckpoint,
+        operationSequence: checkpointEventHeadSequence(workspaceKeyDirectoryCheckpoint),
+      });
+      prewarmShareWorkspaceKeyDirectoryLineage(params);
+      recordSharePinPerf("share_workspace_pin_verify_ready", {
+        workspaceId: params.workspaceId,
+        elapsedMs: performance.now() - startedAt,
+      });
+    } catch {
+      throw new Error(params.mismatchCode);
+    }
+  })().finally(() => {
+    if (pendingWorkspacePinInstalls.get(pendingKey) === verify) {
+      pendingWorkspacePinInstalls.delete(pendingKey);
+    }
+  });
+  pendingWorkspacePinInstalls.set(pendingKey, verify);
+  await verify;
+}
+
+function prewarmShareWorkspaceKeyDirectoryLineage(params: {
+  workspaceId: string;
+  workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
+  workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
+  workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
+}): void {
+  if (!params.workspaceKeyDirectoryLatestCheckpoint) return;
+  const startedAt = performance.now();
+  recordSharePinPerf("share_workspace_lineage_prewarm_start", {
+    workspaceId: params.workspaceId,
+  });
+  void advanceShareWorkspaceKeyDirectoryLineage(params)
+    .then(() => {
+      recordSharePinPerf("share_workspace_lineage_prewarm_ready", {
+        workspaceId: params.workspaceId,
+        elapsedMs: performance.now() - startedAt,
+      });
+    })
+    .catch((error: unknown) => {
+      recordSharePinPerf("share_workspace_lineage_prewarm_failed", {
+        workspaceId: params.workspaceId,
+        elapsedMs: performance.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+async function advanceShareWorkspaceKeyDirectoryLineage(params: {
+  workspaceId: string;
+  workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
+  workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
+  workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
+}): Promise<void> {
+  if (!params.workspaceKeyDirectoryLatestCheckpoint) return;
+
+  const current = await getKeyDirectoryPin("workspace", params.workspaceId);
+  if (!current) return;
+
+  const latestSequence = checkpointSequence(params.workspaceKeyDirectoryLatestCheckpoint);
+  const latestHash = hashKeyDirectoryCheckpointEnvelope(
+    params.workspaceKeyDirectoryLatestCheckpoint,
+  );
+  if (
+    latestSequence < current.checkpointSequence ||
+    (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash)
+  ) {
+    return;
+  }
+  const checkpointAncestry = params.workspaceKeyDirectoryCheckpointAncestry ?? [];
+  const eventAncestry = params.workspaceKeyDirectoryEventAncestry ?? [];
+  const lineage = lineageFromCurrentPin(checkpointAncestry, eventAncestry, current);
+  if (latestSequence > current.checkpointSequence) {
+    if (!lineage) return;
+  }
 
   try {
-    await verifyAndInstallWorkspacePinBootstrap({
-      workspaceId: params.workspaceId,
-      authenticatedWorkspacePinBootstrapHash: params.workspacePinBootstrapHash,
-      bootstrap: params.workspacePinBootstrap,
-      checkpointEnvelope: params.workspaceKeyDirectoryCheckpoint,
-      operationSequence: checkpointEventHeadSequence(params.workspaceKeyDirectoryCheckpoint),
+    await advanceKeyDirectoryPinWithProof({
+      scopeKind: "workspace",
+      scopeId: params.workspaceId,
+      checkpointEnvelope: params.workspaceKeyDirectoryLatestCheckpoint,
+      checkpointAncestry: lineage?.checkpointAncestry ?? checkpointAncestry,
+      eventAncestry: lineage?.eventAncestry ?? eventAncestry,
+      authorityEventAncestry: eventAncestry,
     });
-  } catch {
-    throw new Error(params.mismatchCode);
+  } catch (error) {
+    if (isStaleLineageError(error)) return;
+    throw error;
   }
+}
+
+function lineageFromCurrentPin(
+  checkpointAncestry: KeyDirectoryEnvelope[],
+  eventAncestry: KeyDirectoryEnvelope[],
+  current: {
+    checkpointSequence: number;
+    checkpointHash: string;
+    eventHeadSequence: number;
+  },
+): { checkpointAncestry: KeyDirectoryEnvelope[]; eventAncestry: KeyDirectoryEnvelope[] } | null {
+  const currentCheckpointIndex = checkpointAncestry.findIndex(
+    (checkpoint) =>
+      checkpointSequence(checkpoint) === current.checkpointSequence &&
+      hashKeyDirectoryCheckpointEnvelope(checkpoint) === current.checkpointHash,
+  );
+  if (currentCheckpointIndex < 0) return null;
+  return {
+    checkpointAncestry: checkpointAncestry.slice(currentCheckpointIndex),
+    eventAncestry: eventAncestry.filter(
+      (event) => keyDirectoryEventSequence(event) > current.eventHeadSequence,
+    ),
+  };
+}
+
+function isStaleLineageError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "key_directory_checkpoint_rollback" ||
+      error.message === "key_directory_checkpoint_anchor_mismatch" ||
+      error.message === "key_directory_checkpoint_fork" ||
+      error.message === "key_directory_pin_conflict")
+  );
 }
 
 function checkpointEventHeadSequence(checkpointEnvelope: KeyDirectoryEnvelope): number {
@@ -41,6 +226,24 @@ function checkpointEventHeadSequence(checkpointEnvelope: KeyDirectoryEnvelope): 
   const sequence = head?.head_sequence;
   if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 0) {
     throw new Error("workspace_key_directory_checkpoint_head_invalid");
+  }
+  return sequence;
+}
+
+function checkpointSequence(checkpointEnvelope: KeyDirectoryEnvelope): number {
+  const payload = checkpointEnvelope.payload as Record<string, unknown> | undefined;
+  const sequence = payload?.sequence;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) {
+    throw new Error("workspace_key_directory_checkpoint_sequence_invalid");
+  }
+  return sequence;
+}
+
+function keyDirectoryEventSequence(event: KeyDirectoryEnvelope): number {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  const sequence = payload?.sequence;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) {
+    throw new Error("workspace_key_directory_event_sequence_invalid");
   }
   return sequence;
 }

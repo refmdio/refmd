@@ -814,6 +814,79 @@ defmodule RefMDWeb.DocumentChannelShareTest do
            )
   end
 
+  test "edit share participant oversized update marker fails closed without serializer crash" do
+    owner_id = create_user("owner-channel-share-oversized-update@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Oversized Update")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    Process.put(:workspace_pin_bootstrap_hash, test_workspace_pin_bootstrap_hash!(workspace.id))
+    folder = create_folder(workspace.id, owner_id)
+    document = create_document(workspace.id, owner_id, folder.id)
+
+    assert {:ok, created} =
+             Sharing.create_share(
+               folder,
+               owner_id,
+               with_test_share_security_artifacts(
+                 folder,
+                 owner_id,
+                 create_folder_share_attrs([document], permission: "edit")
+               )
+             )
+
+    participant_material = share_participant_material()
+    {encryption_public_key, _encryption_private_key} = :crypto.generate_key(:ecdh, :x25519)
+
+    assert {:ok, bootstrapped} =
+             bootstrap_share_participant(
+               created,
+               share_participant_bootstrap_attrs(
+                 "Edit Oversized Guest",
+                 participant_material,
+                 encryption_public_key
+               )
+             )
+
+    bootstrapped = authorize_bootstrapped_participant!(created, bootstrapped)
+
+    assert {:ok, _reply, socket} =
+             subscribe_and_join(
+               share_socket(created, bootstrapped),
+               RefMDWeb.DocumentChannel,
+               "document:#{document.id}",
+               join_params(
+                 document.id,
+                 created.share.id,
+                 bootstrapped.participant.principal_id,
+                 bootstrapped.participant.device_id,
+                 participant_material.private,
+                 bootstrapped.session
+               )
+             )
+
+    assert_push "document", _payload
+
+    Phoenix.ChannelTest.push(socket, "update", %{
+      "_refmd_strict_json_error" => "document_update_payload_too_large"
+    })
+
+    assert_push "update-save-failed", %{
+      reason: "document_update_payload_too_large",
+      requiresNewSnapshot: false
+    }
+
+    refute_receive %Phoenix.Socket.Broadcast{
+                     event: "phx_error",
+                     topic: "document:" <> _
+                   },
+                   100
+
+    assert Repo.aggregate(
+             from(u in DocumentUpdate, where: u.document_id == ^document.id),
+             :count
+           ) == 0
+  end
+
   test "edit share participant durable snapshot fails closed without workspace admission" do
     owner_id = create_user("owner-channel-share-snapshot@example.com")
     {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Share Snapshot Workspace")

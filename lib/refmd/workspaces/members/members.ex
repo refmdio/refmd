@@ -75,6 +75,44 @@ defmodule RefMD.Workspaces.Members do
     end
   end
 
+  @spec member_permission_granted?(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) :: boolean()
+  def member_permission_granted?(workspace_id, user_id, permission) when is_binary(permission) do
+    from(wm in WorkspaceMember,
+      join: r in WorkspaceRole,
+      on: r.id == wm.role_id and r.workspace_id == wm.workspace_id,
+      left_join: p in WorkspaceRolePermission,
+      on: p.role_id == r.id and p.permission == ^permission,
+      where: wm.workspace_id == ^workspace_id and wm.user_id == ^user_id,
+      select: %{
+        base_role: r.base_role,
+        catalog_version: r.catalog_version,
+        permission: p.permission,
+        granted: p.granted
+      },
+      limit: 1
+    )
+    |> Repo.one()
+    |> case do
+      nil ->
+        false
+
+      row ->
+        role = %{
+          base_role: row.base_role,
+          catalog_version: row.catalog_version,
+          permissions: permission_override(row)
+        }
+
+        RefMD.Workspaces.permission_granted?(role, permission)
+    end
+  end
+
+  defp permission_override(%{permission: permission, granted: granted})
+       when is_binary(permission) and is_boolean(granted),
+       do: [%{permission: permission, granted: granted}]
+
+  defp permission_override(_row), do: []
+
   @spec list_workspace_members(Ecto.UUID.t()) :: [map()]
   def list_workspace_members(workspace_id) do
     from(wm in WorkspaceMember,

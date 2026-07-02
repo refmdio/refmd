@@ -23,6 +23,7 @@ import type {
   RemoteSnapshotPayload,
   UpdateSavedPayload,
   UpdateSaveFailedPayload,
+  WriteSessionPayload,
   SnapshotSavedPayload,
   SnapshotSaveFailedPayload,
   EphemeralPayload,
@@ -65,6 +66,7 @@ export interface DocumentChannelCallbacks {
   onDocument: (payload: DocumentPayload) => void;
   onUpdate: (payload: UpdatePayload) => void;
   onSnapshot: (payload: RemoteSnapshotPayload) => void;
+  onWriteSession: (payload: WriteSessionPayload) => void;
   onUpdateSaved: (payload: UpdateSavedPayload) => void;
   onUpdateSaveFailed: (payload: UpdateSaveFailedPayload) => void;
   onSnapshotSaved: (payload: SnapshotSavedPayload) => void;
@@ -97,6 +99,9 @@ function configureDocumentChannel(
   channel.on("update", (payload) => callbacks.onUpdate(payload as unknown as UpdatePayload));
   channel.on("snapshot", (payload) =>
     callbacks.onSnapshot(payload as unknown as RemoteSnapshotPayload),
+  );
+  channel.on("write-session", (payload) =>
+    callbacks.onWriteSession(payload as unknown as WriteSessionPayload),
   );
   channel.on("update-saved", (payload) =>
     callbacks.onUpdateSaved(payload as unknown as UpdateSavedPayload),
@@ -263,6 +268,30 @@ export function pushSnapshot(
   }
   return true;
 }
+
+export function pushWriteSession(
+  documentId: string,
+  payload: Record<string, unknown>,
+  channelKey = documentId,
+): Promise<unknown> {
+  const channel = channels.get(channelKey);
+  const channelState = channel ? getChannelState(channel) : "missing";
+  if (!channel || channelState !== "joined") {
+    clientWarn("ws_push_write_session_dropped", { channelState });
+    return Promise.reject(new Error(`channel_not_joined:${channelState}`));
+  }
+  return new Promise((resolve, reject) => {
+    channel
+      .push("write-session", strictChannelPayload(payload))
+      .receive("ok", resolve)
+      .receive("error", reject)
+      .receive("timeout", () => {
+        recordAuthTransportNetworkFailure();
+        reject(new Error("write_session_push_timeout"));
+      });
+  });
+}
+
 export function pushEphemeral(
   documentId: string,
   payload: Record<string, unknown>,

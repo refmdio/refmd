@@ -3,6 +3,7 @@ defmodule RefMDWeb.EndpointHeaderSizeTest do
 
   @pop_signature_transport_size 6 * 1024
   @cookie_size 10 * 1024
+  @max_update_payload_raw_bytes 1_048_576
 
   test "Bandit endpoint accepts phase6-sized PoP header transport with total headers over 16KB" do
     {:ok, _} = Application.ensure_all_started(:inets)
@@ -23,6 +24,19 @@ defmodule RefMDWeb.EndpointHeaderSizeTest do
              :httpc.request(:get, {url, headers}, [], body_format: :binary)
 
     assert body =~ ~s("openapi")
+  end
+
+  test "document websocket caps frame size before channel payload parsing" do
+    assert [
+             {"/api/socket", RefMDWeb.UserSocket,
+              [
+                websocket: websocket_options,
+                longpoll: false
+              ]}
+           ] = RefMDWeb.Endpoint.__sockets__()
+
+    assert Keyword.fetch!(websocket_options, :max_frame_size) == 1_250_000
+    assert Keyword.fetch!(websocket_options, :max_frame_size) > @max_update_payload_raw_bytes
   end
 
   defp bandit_options do

@@ -43,10 +43,14 @@ export {
 } from "./model/document-state/signals";
 export { initializeDocumentSync } from "./lib/sync/initialize";
 export { initializeDocumentTile } from "./lib/sync/bootstrap-tile-lifecycle";
+export { primeDocumentContentPreview, primeDocumentSync } from "./lib/sync/prime-document-sync";
 export { canBufferDisconnectedChanges, isDocumentSyncReady } from "./lib/sync/readiness";
 export { retainUxLimitNotice } from "./lib/sync/ux-limit-notice";
 export { installPublicationRenameAutoSync } from "./lib/sync/outbound-publication";
-export { buildDeviceKeyCaches } from "./lib/sync/inbound-signing-keys";
+export {
+  buildDeviceKeyCaches,
+  prewarmShareDocumentSigningKeyCaches,
+} from "./lib/sync/inbound-signing-keys";
 export { createDocumentOffline } from "./lib/offline/create";
 export { syncOfflineCreatedDocuments } from "./lib/offline/sync-created";
 export { syncPendingDocuments } from "./lib/offline/pending-sync";

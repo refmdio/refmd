@@ -84,6 +84,10 @@ function inlineFromProseMirror(node: ProseMirrorNode): PhrasingContent[] {
         });
         break;
       }
+      case "hard_break": {
+        inlineChildren.push({ type: "break" });
+        break;
+      }
       default:
         if (childNode.textContent.length > 0) {
           inlineChildren.push({ type: "text", value: childNode.textContent });

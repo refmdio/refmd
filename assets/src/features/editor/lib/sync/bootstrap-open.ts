@@ -79,6 +79,7 @@ export function createFailClosedHandler(
     }
     state.error = reason;
     state.initialized = false;
+    state._verifiedContentPreviewReady = false;
     state.initPromise = null;
     state.channel = null;
     state._onDocumentMessage = null;
@@ -104,6 +105,10 @@ export function createFailClosedHandler(
     state.pendingSnapshotEnvelope = null;
     state.pendingUpdateBytes = null;
     state.pendingUpdateEnvelope = null;
+    state.writeSession = null;
+    state.writeSessionPromise = null;
+    state.writeSessionReadyAt = null;
+    state.writeSessionError = null;
     leaveDocument(documentId, state.stateKey);
   };
 }
@@ -151,8 +156,7 @@ export async function openInitialDocumentChannel(params: {
       },
       onUpdateSaveFailed: (payload) => {
         if (!payload.requiresNewSnapshot) {
-          state._forceCompleteReconnect = true;
-          triggerReconnect(state, documentId, workspaceId, localDeviceSigningKeyId, failClosed);
+          state.autoSync?.notifyLocalEdit();
         }
       },
       onSyncGap: (err) => {

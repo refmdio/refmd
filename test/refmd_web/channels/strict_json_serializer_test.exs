@@ -16,6 +16,19 @@ defmodule RefMDWeb.Channels.StrictJSONSerializerTest do
            } = StrictJSONSerializer.decode!(raw, opcode: :text)
   end
 
+  test "decodes final payload without delimiter-scanning large strings" do
+    large = String.duplicate("A", 64_000) <> "],still payload"
+    raw = Jason.encode!([nil, "2", "document:doc", "update", %{"ciphertext" => large}])
+
+    assert %Message{
+             join_ref: nil,
+             ref: "2",
+             topic: "document:doc",
+             event: "update",
+             payload: %{"ciphertext" => ^large}
+           } = StrictJSONSerializer.decode!(raw, opcode: :text)
+  end
+
   test "rejects duplicate keys in channel payload before channel handlers run" do
     raw = ~s(["1","2","document:doc","update",{"signature":{"a":1,"a":2}}])
 
@@ -30,6 +43,24 @@ defmodule RefMDWeb.Channels.StrictJSONSerializerTest do
     assert_raise ArgumentError, "json_invalid_number_form", fn ->
       StrictJSONSerializer.decode!(raw, opcode: :text)
     end
+  end
+
+  test "marks oversized update payloads before strict JSON parsing" do
+    raw =
+      Jason.encode!([
+        "1",
+        "2",
+        "document:doc",
+        "update",
+        %{"ciphertext" => String.duplicate("A", 1_048_577)}
+      ])
+
+    assert %Message{
+             event: "update",
+             payload: %{
+               "_refmd_strict_json_error" => "document_update_payload_too_large"
+             }
+           } = StrictJSONSerializer.decode!(raw, opcode: :text)
   end
 
   test "rejects binary Phoenix frames at the strict JSON boundary" do

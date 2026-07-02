@@ -13,7 +13,7 @@ import {
   resetDocumentState,
 } from "@/features/editor";
 import { documentNavigation } from "@/entities/document";
-import { documentRuntime } from "@/app/bootstrap/document-manager";
+import { documentQueries, documentRuntime } from "@/app/bootstrap/document-manager";
 import type { useNavigate } from "@solidjs/router";
 import type { usePanelWorkspace } from "@/features/panel";
 
@@ -63,7 +63,13 @@ export function initializeDocumentRuntime(
       return;
     }
 
-    documentWorkspace.openDocument({ id: documentId });
+    const workspaceId = currentWorkspaceId();
+    const documentInfo = documentQueries.getDocumentList().find((doc) => doc.id === documentId);
+    documentWorkspace.openDocument({
+      id: documentId,
+      title: documentInfo?.title,
+      workspaceId: documentInfo?.workspaceId ?? workspaceId,
+    });
     documentNavigation.openDocument(documentId);
   });
   documentRuntime.setCreateDocumentFn(async (wsId, title, parentId) => {

@@ -144,6 +144,36 @@ const lightTheme = createEditorTheme(false);
 const darkTheme = createEditorTheme(true);
 const lightHighlighting = createHighlighting(false);
 const darkHighlighting = createHighlighting(true);
+const REMOTE_CONTENT_READY_EVENT = "refmd:document-remote-content-ready";
+const REMOTE_CONTENT_RECONCILE_DELAY_MS = 32;
+const REMOTE_CURSOR_LABEL_RE =
+  /\u2060+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\u2060*/gi;
+
+function recordEditorPerf(event: string, detail: Record<string, unknown>): void {
+  if (typeof window === "undefined" || !window.__REFMD_E2E__) return;
+  const payload = {
+    event,
+    detail,
+    at: Date.now(),
+    now: performance.now(),
+  };
+  const target = window as Window & { __refmdE2ESyncPerf?: unknown[] };
+  target.__refmdE2ESyncPerf ??= [];
+  target.__refmdE2ESyncPerf.push(payload);
+  window.dispatchEvent(new CustomEvent("refmd:sync-perf", { detail: payload }));
+}
+
+function normalizeRenderedText(value: string): string {
+  return value.replace(REMOTE_CURSOR_LABEL_RE, "");
+}
+
+function readRenderedCodeMirrorText(editorView: EditorView): string {
+  const lines = [...editorView.contentDOM.querySelectorAll<HTMLElement>(".cm-line")].map((line) =>
+    normalizeRenderedText(line.textContent ?? ""),
+  );
+  if (lines.length > 0) return lines.join("\n");
+  return normalizeRenderedText(editorView.contentDOM.textContent ?? "");
+}
 
 function isDarkMode(): boolean {
   return document.documentElement.classList.contains("dark");
@@ -171,7 +201,7 @@ interface CodeMirrorEditorProps {
   panelId: string;
   workspaceId?: string | null;
   scrollGroupId?: string;
-  onDocChange?: () => void;
+  onDocChange?: (change: { persist: boolean }) => void;
   onEditorPaste?: (evt: ClipboardEvent) => void;
   onEditorDrop?: (evt: DragEvent) => void;
   readOnly?: boolean;
@@ -187,9 +217,27 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   let themeObserver: MutationObserver | undefined;
   let activeStateKey: string | undefined;
   let unsubScroll: (() => void) | undefined;
+  let cleanupContainerFocus: (() => void) | undefined;
+  let cleanupYTextRenderRefresh: (() => void) | undefined;
+  let cleanupRemoteContentReady: (() => void) | undefined;
+  let remoteContentReconcileTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressScroll = false;
+  let lastPointerFocusRequestAt = 0;
+
+  function clearRemoteContentReconcileTimer() {
+    if (remoteContentReconcileTimer === null) return;
+    clearTimeout(remoteContentReconcileTimer);
+    remoteContentReconcileTimer = null;
+  }
 
   function destroyEditor() {
+    clearRemoteContentReconcileTimer();
+    cleanupRemoteContentReady?.();
+    cleanupRemoteContentReady = undefined;
+    cleanupYTextRenderRefresh?.();
+    cleanupYTextRenderRefresh = undefined;
+    cleanupContainerFocus?.();
+    cleanupContainerFocus = undefined;
     unsubScroll?.();
     unsubScroll = undefined;
     themeObserver?.disconnect();
@@ -201,6 +249,20 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       releaseYDoc(activeStateKey);
       activeStateKey = undefined;
     }
+  }
+
+  function hasRecentPointerFocusRequest() {
+    return lastPointerFocusRequestAt > 0 && performance.now() - lastPointerFocusRequestAt < 1_000;
+  }
+
+  function scheduleEditorFocus() {
+    const focus = () => {
+      if (!view || props.readOnly || view.hasFocus) return;
+      view.focus();
+    };
+    queueMicrotask(focus);
+    requestAnimationFrame(focus);
+    window.setTimeout(focus, 0);
   }
 
   function createEditor(stateKey: string) {
@@ -232,7 +294,17 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         ViewPlugin.fromClass(
           class {
             update(update: ViewUpdate) {
-              if (update.docChanged) props.onDocChange?.();
+              if (!update.docChanged) return;
+              const userEdit = update.transactions.some(
+                (transaction) =>
+                  transaction.isUserEvent("input") ||
+                  transaction.isUserEvent("delete") ||
+                  transaction.isUserEvent("undo") ||
+                  transaction.isUserEvent("redo"),
+              );
+              props.onDocChange?.({
+                persist: userEdit && update.view.hasFocus,
+              });
             }
           },
         ),
@@ -257,6 +329,119 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         }, origin);
       },
     });
+
+    let renderRefreshFrame: number | null = null;
+    const clearRenderRefreshFrame = () => {
+      if (renderRefreshFrame === null) return;
+      cancelAnimationFrame(renderRefreshFrame);
+      renderRefreshFrame = null;
+    };
+    const scheduleRenderRefresh = () => {
+      clearRenderRefreshFrame();
+      renderRefreshFrame = requestAnimationFrame(() => {
+        renderRefreshFrame = null;
+        if (!view) return;
+        view.requestMeasure();
+      });
+    };
+    const yTextRenderObserver = (_event: unknown, transaction?: { origin?: unknown }) => {
+      if (transaction?.origin === view?.state.facet(ySyncFacet)) return;
+      scheduleRenderRefresh();
+    };
+    yText.observe(yTextRenderObserver);
+    cleanupYTextRenderRefresh = () => {
+      clearRenderRefreshFrame();
+      yText.unobserve(yTextRenderObserver);
+    };
+
+    const reconcileRemoteContent = () => {
+      const editorView = view;
+      if (!editorView || activeStateKey !== stateKey) return;
+      const expectedText = yText.toString();
+      const editorText = editorView.state.doc.toString();
+      const renderedText = readRenderedCodeMirrorText(editorView);
+      const editorMatches = editorText === expectedText;
+      const renderedMatches = renderedText === expectedText;
+      if (editorMatches && renderedMatches) return;
+      if (editorView.composing) {
+        recordEditorPerf("codemirror_remote_content_reconcile_deferred", {
+          documentId: props.documentId,
+          editorMatches,
+          expectedLength: expectedText.length,
+          renderedLength: renderedText.length,
+          renderedMatches,
+          stateKey,
+        });
+        return;
+      }
+
+      editorView.requestMeasure();
+      const selection = editorView.state.selection.main;
+      const shouldRestoreFocus = editorView.hasFocus || hasRecentPointerFocusRequest();
+      recordEditorPerf(
+        shouldRestoreFocus
+          ? "codemirror_remote_content_reconcile_focused_recreate"
+          : "codemirror_remote_content_reconcile_recreate",
+        {
+          documentId: props.documentId,
+          editorMatches,
+          expectedLength: expectedText.length,
+          renderedLength: renderedText.length,
+          renderedMatches,
+          stateKey,
+        },
+      );
+      destroyEditor();
+      createEditor(stateKey);
+      if (!view) return;
+      const docLength = view.state.doc.length;
+      view.dispatch({
+        selection: {
+          anchor: Math.min(selection.anchor, docLength),
+          head: Math.min(selection.head, docLength),
+        },
+      });
+      if (shouldRestoreFocus) scheduleEditorFocus();
+    };
+
+    if (hasRecentPointerFocusRequest()) {
+      scheduleEditorFocus();
+    }
+
+    recordEditorPerf("codemirror_editor_created", {
+      documentId: props.documentId,
+      stateKey,
+    });
+    const scheduleRemoteContentReconcile = () => {
+      clearRemoteContentReconcileTimer();
+      view?.requestMeasure();
+      queueMicrotask(reconcileRemoteContent);
+      remoteContentReconcileTimer = setTimeout(() => {
+        remoteContentReconcileTimer = null;
+        reconcileRemoteContent();
+      }, REMOTE_CONTENT_RECONCILE_DELAY_MS);
+    };
+    const handleRemoteContentReady = (event: Event) => {
+      const detail = (event as CustomEvent<{ stateKey?: string }>).detail;
+      if (detail?.stateKey !== stateKey) return;
+      scheduleRemoteContentReconcile();
+    };
+    window.addEventListener(REMOTE_CONTENT_READY_EVENT, handleRemoteContentReady);
+    cleanupRemoteContentReady = () => {
+      window.removeEventListener(REMOTE_CONTENT_READY_EVENT, handleRemoteContentReady);
+    };
+
+    const handleContainerPointerDown = (event: PointerEvent) => {
+      if (props.readOnly || event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof Node) || !containerEl?.contains(target)) return;
+      lastPointerFocusRequestAt = performance.now();
+      scheduleEditorFocus();
+    };
+    containerEl.addEventListener("pointerdown", handleContainerPointerDown);
+    cleanupContainerFocus = () => {
+      containerEl?.removeEventListener("pointerdown", handleContainerPointerDown);
+    };
 
     registerEditor(props.panelId, new EditorApi(view, undoManager));
 

@@ -41,6 +41,7 @@ export type OpenPanelTargetInput =
   | {
       id: string;
       title?: string;
+      workspaceId?: string | null;
     }
   | PanelTarget;
 
@@ -66,13 +67,18 @@ function generateInstanceId(): string {
   return `${Date.now()}-${++instanceCounter}`;
 }
 
-export function createWorkspaceTileTarget(documentId: string, title?: string): WorkspaceTileTarget {
+export function createWorkspaceTileTarget(
+  documentId: string,
+  title?: string,
+  workspaceId?: string | null,
+): WorkspaceTileTarget {
   return {
     source: "document",
     targetKey: documentId,
     documentId,
     routePath: `/document/${documentId}`,
     title,
+    workspaceId: workspaceId ?? null,
   };
 }
 
@@ -118,7 +124,7 @@ export function normalizePanelTarget(input: OpenPanelTargetInput): PanelTarget {
   if ("targetKey" in input) {
     return input;
   }
-  return createWorkspaceTileTarget(input.id, input.title);
+  return createWorkspaceTileTarget(input.id, input.title, input.workspaceId);
 }
 
 export function encodePanelId(

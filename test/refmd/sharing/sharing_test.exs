@@ -3,6 +3,7 @@ defmodule RefMD.Sharing.SharingTest do
 
   alias RefMD.Crypto.{Blake3, JCS, Signature}
   alias RefMD.Documents
+  alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate}
   alias RefMD.Repo
   alias RefMD.Sharing
 
@@ -58,6 +59,99 @@ defmodule RefMD.Sharing.SharingTest do
 
     folder
   end
+
+  defp test_hybrid_signature do
+    %{
+      "protocol" => "refmd.hybrid-signature",
+      "suite_id" => "refmd-test-suite",
+      "suite_rank" => 1000,
+      "version" => 1,
+      "signing_key_id" => "test-signing-key",
+      "transcript_hash" => Blake3.hash_base64url("test-transcript"),
+      "ed25519" => Blake3.hash_base64url("test-ed25519"),
+      "mldsa65" => Blake3.hash_base64url("test-mldsa65")
+    }
+  end
+
+  defp insert_active_snapshot_with_updates!(document, updates) do
+    now = DateTime.utc_now()
+    snapshot_id = Ecto.UUID.generate()
+    key_checkpoint_hash = Blake3.hash_base64url("test-checkpoint")
+    authority_context_key = "test-authority-context"
+    signing_key_id = "test-signing-key"
+    clock_key = "#{authority_context_key}:#{signing_key_id}"
+
+    snapshot =
+      Repo.insert!(%DocumentSnapshot{
+        id: snapshot_id,
+        document_id: document.id,
+        latest_version: length(updates),
+        data: <<1, 2, 3>>,
+        nonce: :crypto.strong_rand_bytes(24),
+        key_version: 1,
+        hybrid_signature: test_hybrid_signature(),
+        ciphertext_hash: Blake3.hash_base64url("snapshot-ciphertext:#{snapshot_id}"),
+        snapshot_signature_hash: Blake3.hash_base64url("snapshot-signature:#{snapshot_id}"),
+        snapshot_admission_event_hash: Blake3.hash_base64url("snapshot-admission:#{snapshot_id}"),
+        proof_chain_hash: Blake3.hash_base64url("snapshot-proof:#{snapshot_id}"),
+        clocks: %{clock_key => max_update_clock(updates)},
+        parent_snapshot_update_clocks: %{},
+        parent_proof_hash: "GENESIS",
+        created_by_signing_key_id: signing_key_id,
+        owner_kind: "device",
+        owner_id: "test-device",
+        authority_kind: "workspace_device",
+        authority_id: document.workspace_id,
+        authority_context_key: authority_context_key,
+        authority_scope_id: document.workspace_id,
+        authority_permission_version: 1,
+        key_checkpoint_sequence: 1,
+        key_checkpoint_hash: key_checkpoint_hash,
+        created_at: now
+      })
+
+    inserted_updates =
+      updates
+      |> Enum.with_index(1)
+      |> Enum.map(fn {clock, version} ->
+        Repo.insert!(%DocumentUpdate{
+          document_id: document.id,
+          snapshot_id: snapshot.id,
+          clock: clock,
+          version: version,
+          signing_key_id: signing_key_id,
+          update_data: <<version>>,
+          nonce: :crypto.strong_rand_bytes(24),
+          key_version: 1,
+          update_hash: Blake3.hash_base64url("update:#{snapshot.id}:#{version}"),
+          hybrid_signature: test_hybrid_signature(),
+          owner_kind: "device",
+          owner_id: "test-device",
+          authority_kind: "workspace_device",
+          authority_id: document.workspace_id,
+          authority_context_key: authority_context_key,
+          authority_scope_id: document.workspace_id,
+          authority_permission_version: 1,
+          key_checkpoint_sequence: 1,
+          key_checkpoint_hash: key_checkpoint_hash,
+          admission_event_hash:
+            Blake3.hash_base64url("update-admission:#{snapshot.id}:#{version}"),
+          write_session_counter: version,
+          timestamp: DateTime.to_unix(now, :millisecond),
+          created_at: now
+        })
+      end)
+
+    Repo.update_all(
+      from(d in Document, where: d.id == ^document.id),
+      set: [active_snapshot_id: snapshot.id]
+    )
+
+    {snapshot, inserted_updates, clock_key}
+  end
+
+  defp max_update_clock([]), do: -1
+  defp max_update_clock(updates), do: Enum.max(updates)
 
   defp create_share_attrs(opts \\ []) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
@@ -657,6 +751,10 @@ defmodule RefMD.Sharing.SharingTest do
     assert bootstrapped.root.document_token == landing.root.document_token
     assert bootstrapped.participant.grant == "edit"
     assert bootstrapped.session.grant == "edit"
+    assert bootstrapped.root_document_bootstrap.share_id == created.share.id
+    assert bootstrapped.root_document_bootstrap.document_id == document.id
+    assert bootstrapped.root_document_bootstrap.permission == "edit"
+    assert bootstrapped.root_document_bootstrap.share_token_hash == created.share.token_hash
 
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
 
@@ -714,7 +812,7 @@ defmodule RefMD.Sharing.SharingTest do
              Sharing.bootstrap_participant(created.share_slug, attrs)
   end
 
-  test "bootstrap_participant/2 establishes slug-only share participant session", %{
+  test "bootstrap_participant/2 coalesces root document bootstrap and records the open once", %{
     document: document,
     owner_id: owner_id
   } do
@@ -728,7 +826,8 @@ defmodule RefMD.Sharing.SharingTest do
     assert {:ok, bootstrapped} = bootstrap_share_participant(created, participant)
 
     assert bootstrapped.participant.device_id == participant["share_participant_device_id"]
-    assert %{view_count: 0} = Repo.get!(Share, created.share.id)
+    assert bootstrapped.root_document_bootstrap.document_id == document.id
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
 
     session_token_base64 = Base.url_encode64(bootstrapped.session_token, padding: false)
 
@@ -760,7 +859,7 @@ defmodule RefMD.Sharing.SharingTest do
              bootstrap_share_participant(created, participant)
   end
 
-  test "max_views reserves admission without updating view_count before canonical open",
+  test "max_views root document bootstrap records open and reserves further admission",
        %{
          document: document,
          owner_id: owner_id
@@ -774,7 +873,8 @@ defmodule RefMD.Sharing.SharingTest do
     second_participant = valid_share_participant_device_attrs(%{"display_name" => "Second Guest"})
 
     assert {:ok, first_bootstrapped} = bootstrap_share_participant(created, first_participant)
-    assert %{view_count: 0} = Repo.get!(Share, created.share.id)
+    assert first_bootstrapped.root_document_bootstrap.document_id == document.id
+    assert %{view_count: 1} = Repo.get!(Share, created.share.id)
     assert {:error, :not_found} = bootstrap_share_participant(created, second_participant)
 
     assert {:ok, first_canonical} =
@@ -1374,6 +1474,38 @@ defmodule RefMD.Sharing.SharingTest do
                session_token_base64,
                workspace_pin_bootstrap_hash()
              )
+  end
+
+  test "share initial document data applies delta clock filtering before returning updates", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} =
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
+
+    {snapshot, [_old_update, new_update], clock_key} =
+      insert_active_snapshot_with_updates!(document, [0, 1])
+
+    params = %{
+      "mode" => "delta",
+      "knownSnapshotId" => snapshot.id,
+      "knownSnapshotUpdateClocks" => %{clock_key => 0}
+    }
+
+    assert {:ok, {loaded_snapshot, updates}} =
+             Documents.get_initial_document_data_for_share(document.id, created.share.id, params)
+
+    assert loaded_snapshot.id == snapshot.id
+    assert Enum.map(updates, & &1.clock) == [1]
+    assert Enum.map(updates, & &1.update_hash) == [new_update.update_hash]
+
+    assert {:ok, {_loaded_snapshot, complete_updates}} =
+             Documents.get_initial_document_data_for_share(document.id, created.share.id, %{
+               "mode" => "complete",
+               "knownSnapshotId" => snapshot.id
+             })
+
+    assert Enum.map(complete_updates, & &1.clock) == [0, 1]
   end
 
   test "folder share creation skips excluded descendants", %{

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Request } from "@playwright/test";
 import { registerAccount } from "../../support/auth";
 import { newE2EContext } from "../../support/context";
 import {
@@ -79,6 +79,35 @@ async function closeTile(page: Page, tileId: string): Promise<void> {
     .toBe(0);
 }
 
+async function captureRequestPathsDuring(
+  page: Page,
+  action: () => Promise<void>,
+): Promise<string[]> {
+  const paths: string[] = [];
+  const handler = (request: Request) => {
+    paths.push(new URL(request.url()).pathname);
+  };
+
+  page.on("request", handler);
+  try {
+    await action();
+  } finally {
+    page.off("request", handler);
+  }
+
+  return paths;
+}
+
+function nonCriticalDocumentStartupPaths(paths: readonly string[]): string[] {
+  return paths.filter(
+    (path) =>
+      path === "/health" ||
+      path === "/api/devices/registrations" ||
+      path === "/api/security/notifications" ||
+      path.includes("/plugin-runtime"),
+  );
+}
+
 test.describe.serial("Document URL Routing", () => {
   test.beforeAll(async ({ browser }) => {
     sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
@@ -145,9 +174,13 @@ test.describe.serial("Document URL Routing", () => {
     });
 
     await test.step("direct document URL opens the target document", async () => {
-      await sharedPage.goto(`/document/${documentIdA}`, { waitUntil: "domcontentloaded" });
-      await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdA), { timeout: 10_000 });
-      await waitForTile(sharedPage, documentIdA);
+      const requestPaths = await captureRequestPathsDuring(sharedPage, async () => {
+        await sharedPage.goto(`/document/${documentIdA}`, { waitUntil: "domcontentloaded" });
+        await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdA), { timeout: 10_000 });
+        await waitForTile(sharedPage, documentIdA);
+      });
+
+      expect(nonCriticalDocumentStartupPaths(requestPaths)).toEqual([]);
     });
 
     await test.step("document route survives reload", async () => {

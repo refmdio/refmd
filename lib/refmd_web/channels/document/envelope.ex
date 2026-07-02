@@ -11,6 +11,10 @@ defmodule RefMDWeb.Channels.Document.Envelope do
                              ~w(minDekVersion writeSessionEventHash writeSessionId writeSessionCounter) ++
                              @authority_public_data_keys ++
                              @key_checkpoint_public_data_keys
+  @write_session_public_data_keys ~w(docId signingKeyId keyVersion) ++
+                                    ~w(minDekVersion writeSessionEventHash writeSessionId writeSessionCounter) ++
+                                    @authority_public_data_keys ++
+                                    @key_checkpoint_public_data_keys
   @snapshot_public_data_keys ~w(docId signingKeyId snapshotId keyVersion parentSnapshotId parentProofHash parentSnapshotUpdateClocks) ++
                                @authority_public_data_keys ++
                                @key_checkpoint_public_data_keys
@@ -20,6 +24,7 @@ defmodule RefMDWeb.Channels.Document.Envelope do
                                 @key_checkpoint_public_data_keys ++
                                 @workspace_event_head_public_data_keys
   @signed_document_envelope_keys ~w(admission ciphertext nonce publicData signature)
+  @write_session_envelope_keys ~w(admission publicData)
   @ephemeral_envelope_keys ~w(ciphertext nonce publicData signature)
 
   # ── Envelope Parsing ──────────────────────────
@@ -62,6 +67,30 @@ defmodule RefMDWeb.Channels.Document.Envelope do
          admission: admission,
          public_data: public_data
        }}
+    end
+  end
+
+  @spec parse_write_session_envelope(map(), Phoenix.Socket.t()) ::
+          {:ok, map()} | {:error, String.t()}
+  def parse_write_session_envelope(payload, socket) do
+    public_data = payload["publicData"]
+
+    with {:ok, admission} <- validate_admission_artifacts(payload),
+         :ok <-
+           validate_exact_keys(payload, @write_session_envelope_keys, "unexpected_envelope_keys"),
+         {:ok, _} <- validate_map(public_data, "publicData"),
+         :ok <- validate_exact_keys(public_data, @write_session_public_data_keys),
+         :ok <- validate_doc_id(public_data, socket),
+         :ok <- validate_signing_key_id(public_data, socket),
+         :ok <- validate_authority_fields(public_data, socket),
+         :ok <- validate_integer_field(public_data, "keyVersion"),
+         :ok <- validate_integer_field(public_data, "minDekVersion"),
+         :ok <- validate_hash_field(public_data, "writeSessionEventHash"),
+         :ok <- validate_string_field(public_data, "writeSessionId"),
+         :ok <- validate_integer_field(public_data, "writeSessionCounter"),
+         :ok <- validate_key_checkpoint_fields(public_data),
+         :ok <- validate_key_checkpoint_boundary(public_data, admission) do
+      {:ok, %{admission: admission, public_data: public_data}}
     end
   end
 
@@ -325,10 +354,11 @@ defmodule RefMDWeb.Channels.Document.Envelope do
 
   # ── Formatters ────────────────────────────────
 
-  @spec format_snapshot(nil | RefMD.Documents.DocumentSnapshot.t()) :: nil | map()
-  def format_snapshot(nil), do: nil
+  @spec format_snapshot(nil | RefMD.Documents.DocumentSnapshot.t(), keyword()) :: nil | map()
+  def format_snapshot(snap, opts \\ [])
+  def format_snapshot(nil, _opts), do: nil
 
-  def format_snapshot(snap) do
+  def format_snapshot(snap, opts) do
     %{
       ciphertext: Base.url_encode64(snap.data, padding: false),
       nonce: Base.url_encode64(snap.nonce, padding: false),
@@ -337,7 +367,8 @@ defmodule RefMDWeb.Channels.Document.Envelope do
         format_admission!(
           snap.document_id,
           "document_snapshot_accepted",
-          snap.snapshot_admission_event_hash
+          snap.snapshot_admission_event_hash,
+          opts
         ),
       publicData: %{
         docId: snap.document_id,
@@ -360,10 +391,60 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     }
   end
 
-  @spec format_update(RefMD.Documents.DocumentUpdate.t()) :: map()
-  def format_update(update) do
-    signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
+  @spec format_incremental_snapshot(RefMD.Documents.DocumentSnapshot.t()) :: map()
+  def format_incremental_snapshot(snap), do: format_snapshot(snap, incremental: true)
 
+  @spec format_update(RefMD.Documents.DocumentUpdate.t()) :: map()
+  def format_update(update), do: format_update(update, :full)
+
+  @spec format_compact_update(RefMD.Documents.DocumentUpdate.t()) :: map()
+  def format_compact_update(update), do: format_update(update, :compact)
+
+  @spec format_incremental_update(RefMD.Documents.DocumentUpdate.t()) :: map()
+  def format_incremental_update(update), do: format_update(update, :incremental)
+
+  @spec format_initial_updates([RefMD.Documents.DocumentUpdate.t()], boolean()) :: [map()]
+  def format_initial_updates(updates, admission_seeded?) do
+    {formatted, _cache, _seeded?} =
+      Enum.reduce(updates, {[], %{}, admission_seeded?}, fn update, {acc, cache, seeded?} ->
+        mode = if seeded?, do: :incremental, else: :full
+        {formatted_update, cache} = format_update_cached(update, mode, cache)
+        {[formatted_update | acc], cache, true}
+      end)
+
+    Enum.reverse(formatted)
+  end
+
+  defp format_update_cached(update, mode, cache) do
+    signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
+    cache_key = {mode, update.admission_event_hash}
+
+    {admission, cache} =
+      case Map.fetch(cache, cache_key) do
+        {:ok, cached} ->
+          {cached, cache}
+
+        :error ->
+          {admission, cache} = cached_update_admission(update, mode, cache)
+          {admission, Map.put(cache, cache_key, admission)}
+      end
+
+    {format_update_with_admission(update, signature, admission), cache}
+  end
+
+  defp cached_update_admission(update, :incremental, cache) do
+    admission =
+      format_admission!(
+        update.document_id,
+        "document_write_session_admitted",
+        update.admission_event_hash,
+        incremental: true
+      )
+
+    {admission, Map.put(cache, {:incremental, update.admission_event_hash}, admission)}
+  end
+
+  defp cached_update_admission(update, :full, cache) do
     admission =
       format_admission!(
         update.document_id,
@@ -371,6 +452,31 @@ defmodule RefMDWeb.Channels.Document.Envelope do
         update.admission_event_hash
       )
 
+    {admission, Map.put(cache, {:full, update.admission_event_hash}, admission)}
+  end
+
+  defp format_update(update, mode) when mode in [:full, :compact, :incremental] do
+    signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
+
+    admission_opts =
+      case mode do
+        :compact -> [compact: true]
+        :incremental -> [incremental: true]
+        :full -> []
+      end
+
+    admission =
+      format_admission!(
+        update.document_id,
+        "document_write_session_admitted",
+        update.admission_event_hash,
+        admission_opts
+      )
+
+    format_update_with_admission(update, signature, admission)
+  end
+
+  defp format_update_with_admission(update, signature, admission) do
     body = admission_event_body!(admission, "document_write_session_admitted")
 
     base = %{
@@ -406,8 +512,8 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     |> Map.put(:admission, admission)
   end
 
-  defp format_admission!(document_id, event_type, admission_event_hash) do
-    Documents.document_admission_package!(document_id, event_type, admission_event_hash)
+  defp format_admission!(document_id, event_type, admission_event_hash, opts \\ []) do
+    Documents.document_admission_package!(document_id, event_type, admission_event_hash, opts)
   end
 
   @spec build_snapshot_failure(map() | nil, Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
@@ -427,7 +533,7 @@ defmodule RefMDWeb.Channels.Document.Envelope do
 
     %{
       snapshot: format_snapshot(snapshot),
-      updates: Enum.map(updates, &format_update/1),
+      updates: format_initial_updates(updates, !is_nil(snapshot)),
       snapshotProofChain: proof_chain,
       proofChainHash: if(snapshot, do: snapshot.proof_chain_hash),
       ciphertextHash: if(snapshot, do: snapshot.ciphertext_hash),

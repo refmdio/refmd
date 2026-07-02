@@ -5,6 +5,7 @@ import { startAutoSync } from "../sync/outbound-auto-sync";
 import { setDocumentSyncPaused } from "../../model/document-state/signals";
 import { recoverDocumentFromCache } from "@/shared/lib/offline/cache/manager/recover";
 import { startPeriodicFlush } from "@/shared/lib/offline/cache/manager/write";
+import { getDocumentCache } from "@/shared/lib/offline/storage/store";
 import {
   isNetworkOnline,
   onOfflineModeChange,
@@ -13,6 +14,9 @@ import {
 import { getOfflineCreated } from "@/shared/lib/offline/storage/store";
 import { isSocketConnected } from "@/shared/lib/ws/phoenix-channel";
 import { DocumentSyncError } from "../sync/error";
+import { canSharedAccessWriteDurably } from "../../model/document-state/access";
+import { ensureSharedDekCached, getDocumentDekCacheKey } from "../sync/share-access";
+import { getDocumentCryptoWorker } from "../sync/crypto-worker";
 
 function teardownOfflineRuntime(state: DocumentState): void {
   if (state.autoSync) {
@@ -149,44 +153,89 @@ export async function restoreDocumentStateFromCache(
   workspaceId: string,
   state: DocumentState,
 ): Promise<boolean> {
-  if (state.access.kind === "share") return false;
+  state._lastCacheRestore = {
+    accessKind: state.access.kind,
+    attemptedAt: Date.now(),
+    restored: false,
+    reason: null,
+  };
+  let recoverOptions: Parameters<typeof recoverDocumentFromCache>[1];
+  let skipRecover = false;
+  try {
+    const access = state.access;
+    recoverOptions =
+      access.kind === "share"
+        ? await (async () => {
+            const cacheEntry = await getDocumentCache(documentId);
+            if (!cacheEntry) {
+              state._lastCacheRestore!.reason = "cache_miss";
+              skipRecover = true;
+              return undefined;
+            }
+            await ensureSharedDekCached(state, documentId, access.keyVersion);
+            return {
+              worker: getDocumentCryptoWorker(state),
+              cacheKey: getDocumentDekCacheKey(state, documentId),
+              includePendingChanges: false,
+              keyVersion: access.keyVersion,
+              requireOfflineDek: false,
+            };
+          })()
+        : undefined;
 
-  const recovered = await recoverDocumentFromCache(documentId);
-  if (!recovered) return false;
+    if (skipRecover) return false;
 
-  teardownOfflineRuntime(state);
+    const recovered = await recoverDocumentFromCache(documentId, recoverOptions);
+    if (!recovered) {
+      state._lastCacheRestore.reason = "cache_miss";
+      return false;
+    }
 
-  const recoveredState = Y.encodeStateAsUpdate(recovered.yDoc);
-  Y.applyUpdate(state.yDoc, recoveredState, "remote");
-  recovered.yDoc.destroy();
+    teardownOfflineRuntime(state);
 
-  state.activeSnapshotId = recovered.confirmedSnapshotId || null;
-  state.confirmedClocks = recovered.confirmedClocks;
-  state.knownClocks = { ...recovered.confirmedClocks };
-  state.latestVersion = recovered.confirmedVersion;
-  state.keyVersion = recovered.keyVersion;
-  state.dekResolved = true;
-  state.workspaceId = workspaceId;
-  state.error = null;
-  state.readOnly = false;
-  state.initialized = false;
-  state.loadedFromOfflineCache = false;
-  state.lastSavedState = recovered.confirmedBaseState ?? null;
-  state._cachedConfirmedStateVector = recovered.confirmedStateVector ?? null;
+    const recoveredState = Y.encodeStateAsUpdate(recovered.yDoc);
+    Y.applyUpdate(state.yDoc, recoveredState, "remote");
+    recovered.yDoc.destroy();
 
-  // Restore proof chain state from persisted pin for reconnect validation
-  const { getDocumentStatePin, hasCompleteSnapshotPin } =
-    await import("@/shared/lib/anti-rollback/document-state-pins");
-  const pin = await getDocumentStatePin(documentId).catch(() => null);
-  if (hasCompleteSnapshotPin(pin) && pin.latestSnapshotId === state.activeSnapshotId) {
-    state.snapshotProofHash = pin.latestSnapshotProofHash;
-    state.snapshotCiphertextHash = pin.latestSnapshotCiphertextHash;
-  } else {
-    state.snapshotProofHash = "";
-    state.snapshotCiphertextHash = "";
+    state.activeSnapshotId = recovered.confirmedSnapshotId || null;
+    state.confirmedClocks = recovered.confirmedClocks;
+    state.knownClocks = { ...recovered.confirmedClocks };
+    state.latestVersion = recovered.confirmedVersion;
+    state.keyVersion = recovered.keyVersion;
+    state.dekResolved = true;
+    state.workspaceId = workspaceId;
+    state.error = null;
+    state.readOnly =
+      state.access.kind === "share" ? !canSharedAccessWriteDurably(state.access) : false;
+    state.initialized = false;
+    state.loadedFromOfflineCache = false;
+    state.lastSavedState = recovered.confirmedBaseState ?? null;
+    state._cachedConfirmedStateVector = recovered.confirmedStateVector ?? null;
+    state.snapshotProofHash = recovered.confirmedSnapshotProofHash ?? "";
+    state.snapshotCiphertextHash = recovered.confirmedSnapshotCiphertextHash ?? "";
+
+    // Restore proof chain state from persisted pin for reconnect validation
+    const { buildDocumentStatePinKey, getDocumentStatePin, hasCompleteSnapshotPin } =
+      await import("@/shared/lib/anti-rollback/document-state-pins");
+    const pinKey =
+      state.access.kind === "share"
+        ? buildDocumentStatePinKey(documentId, state.access.shareId)
+        : documentId;
+    const pin = await getDocumentStatePin(pinKey).catch(() => null);
+    if (hasCompleteSnapshotPin(pin) && pin.latestSnapshotId === state.activeSnapshotId) {
+      state.snapshotProofHash = pin.latestSnapshotProofHash;
+      state.snapshotCiphertextHash = pin.latestSnapshotCiphertextHash;
+    } else if (!state.snapshotProofHash || !state.snapshotCiphertextHash) {
+      state.snapshotProofHash = "";
+      state.snapshotCiphertextHash = "";
+    }
+
+    state._lastCacheRestore.restored = true;
+    return true;
+  } catch (error) {
+    state._lastCacheRestore.reason = error instanceof Error ? error.message : String(error);
+    throw error;
   }
-
-  return true;
 }
 
 export async function initializeDocumentFromCache(
@@ -194,6 +243,7 @@ export async function initializeDocumentFromCache(
   workspaceId: string,
   state: DocumentState,
 ): Promise<boolean> {
+  if (state.access.kind === "share") return false;
   const restored = await restoreDocumentStateFromCache(documentId, workspaceId, state);
   if (!restored) return false;
 

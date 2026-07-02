@@ -104,6 +104,7 @@ export class CryptoWorkerClient {
   declare cacheDek: DekWorkerClientMethods["cacheDek"];
   declare unwrapShareDek: DekWorkerClientMethods["unwrapShareDek"];
   declare fetchShareDocumentBootstrap: DekWorkerClientMethods["fetchShareDocumentBootstrap"];
+  declare prepareShareDocumentBootstrap: DekWorkerClientMethods["prepareShareDocumentBootstrap"];
   declare fetchShareFolderBootstrap: DekWorkerClientMethods["fetchShareFolderBootstrap"];
   declare fetchMountedShareDocumentBootstrap: DekWorkerClientMethods["fetchMountedShareDocumentBootstrap"];
   declare fetchMountedShareFolderBootstrap: DekWorkerClientMethods["fetchMountedShareFolderBootstrap"];
@@ -187,6 +188,7 @@ export class CryptoWorkerClient {
   declare verifyKeyDirectoryCheckpointSignature: SignWorkerClientMethods["verifyKeyDirectoryCheckpointSignature"];
   declare verifyKeyDirectoryEventSignature: SignWorkerClientMethods["verifyKeyDirectoryEventSignature"];
   declare verifyWorkspacePinBootstrapSignature: SignWorkerClientMethods["verifyWorkspacePinBootstrapSignature"];
+  declare verifyDocumentUpdateEd25519Signature: SignWorkerClientMethods["verifyDocumentUpdateEd25519Signature"];
   declare verifyDocumentUpdateSignature: SignWorkerClientMethods["verifyDocumentUpdateSignature"];
   declare verifyDocumentSnapshotSignature: SignWorkerClientMethods["verifyDocumentSnapshotSignature"];
   declare verifyEditorEphemeralSignature: SignWorkerClientMethods["verifyEditorEphemeralSignature"];

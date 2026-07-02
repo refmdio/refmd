@@ -2,7 +2,6 @@ import { loadMountTrustAnchor, mountTrustAnchorRequest } from "@/entities/mount"
 import { restoreStoredShareParticipantSessionMaterial } from "@/shared/lib/auth/share-participant-session-store";
 import {
   assertWorkspacePinBootstrapEnvelope,
-  buildWorkspacePinBootstrapHash,
   type WorkspacePinBootstrapEnvelope,
 } from "@/shared/lib/key-directory/workspace-pin-bootstrap";
 import { normalizeShareVerificationDirectory } from "@/shared/lib/document/share-verification-directory";
@@ -18,6 +17,10 @@ import {
 } from "../../model/document-state/access";
 import { getDocumentCryptoWorker } from "./crypto-worker";
 import type { ShareSessionTrustAnchor } from "@/shared/lib/auth/share-participant-session-store";
+import {
+  getSharedDekCacheKey,
+  prewarmSharedDekForAccess,
+} from "@/shared/lib/crypto/share-dek-prewarm";
 
 function optionalKeyDirectoryEnvelope(
   value: unknown,
@@ -29,6 +32,17 @@ function optionalKeyDirectoryEnvelope(
   return assertKeyDirectoryEnvelope(value, code);
 }
 
+function optionalKeyDirectoryEnvelopeArray(
+  value: unknown,
+  fallback: KeyDirectoryEnvelope[] | undefined,
+  code: string,
+): KeyDirectoryEnvelope[] | undefined {
+  if (value === undefined) return fallback;
+  if (value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(code);
+  return value.map((entry) => assertKeyDirectoryEnvelope(entry, code));
+}
+
 function optionalWorkspacePinBootstrapEnvelope(
   value: unknown,
   fallback: WorkspacePinBootstrapEnvelope | null | undefined,
@@ -37,10 +51,6 @@ function optionalWorkspacePinBootstrapEnvelope(
   if (value === undefined) return fallback;
   if (value === null) return null;
   return assertWorkspacePinBootstrapEnvelope(value, code);
-}
-
-export function getSharedDekCacheKey(documentId: string, shareId: string): string {
-  return `share:${shareId}:${documentId}`;
 }
 
 export function getDocumentDekCacheKey(state: DocumentState, documentId: string): string {
@@ -88,9 +98,26 @@ function toSharedDocumentAccess(
     encryptedKeyRefs: stringArrayValue(response.encrypted_key_refs, "encrypted_key_refs_invalid"),
     workspaceKeyDirectoryCheckpoint: optionalKeyDirectoryEnvelope(
       response.workspace_key_directory_checkpoint,
-      undefined,
+      previous.workspaceKeyDirectoryCheckpoint,
       "share_workspace_key_directory_checkpoint_invalid",
     ),
+    workspaceKeyDirectoryLatestCheckpoint: optionalKeyDirectoryEnvelope(
+      response.workspace_key_directory_latest_checkpoint,
+      previous.workspaceKeyDirectoryLatestCheckpoint,
+      "share_workspace_key_directory_latest_checkpoint_invalid",
+    ),
+    workspaceKeyDirectoryCheckpointAncestry: optionalKeyDirectoryEnvelopeArray(
+      response.workspace_key_directory_checkpoint_ancestry,
+      previous.workspaceKeyDirectoryCheckpointAncestry,
+      "share_workspace_key_directory_checkpoint_ancestry_invalid",
+    ),
+    workspaceKeyDirectoryEventAncestry: optionalKeyDirectoryEnvelopeArray(
+      response.workspace_key_directory_event_ancestry,
+      previous.workspaceKeyDirectoryEventAncestry,
+      "share_workspace_key_directory_event_ancestry_invalid",
+    ),
+    workspacePinReady: previous.workspacePinReady,
+    shareDekReady: previous.shareDekReady,
     verificationDirectory: normalizeShareVerificationDirectory(response.verification_directory),
     shareTrustAnchor: updateShareTrustAnchor(previous.shareTrustAnchor, previous, response),
   };
@@ -176,6 +203,23 @@ function toMountedSharedDocumentAccess(
       previous.workspaceKeyDirectoryCheckpoint,
       "mounted_share_workspace_key_directory_checkpoint_invalid",
     ),
+    workspaceKeyDirectoryLatestCheckpoint: optionalKeyDirectoryEnvelope(
+      (document as Record<string, unknown>).workspace_key_directory_latest_checkpoint,
+      previous.workspaceKeyDirectoryLatestCheckpoint,
+      "mounted_share_workspace_key_directory_latest_checkpoint_invalid",
+    ),
+    workspaceKeyDirectoryCheckpointAncestry: optionalKeyDirectoryEnvelopeArray(
+      (document as Record<string, unknown>).workspace_key_directory_checkpoint_ancestry,
+      previous.workspaceKeyDirectoryCheckpointAncestry,
+      "mounted_share_workspace_key_directory_checkpoint_ancestry_invalid",
+    ),
+    workspaceKeyDirectoryEventAncestry: optionalKeyDirectoryEnvelopeArray(
+      (document as Record<string, unknown>).workspace_key_directory_event_ancestry,
+      previous.workspaceKeyDirectoryEventAncestry,
+      "mounted_share_workspace_key_directory_event_ancestry_invalid",
+    ),
+    workspacePinReady: previous.workspacePinReady,
+    shareDekReady: previous.shareDekReady,
     verificationDirectory: normalizeShareVerificationDirectory(document.verification_directory),
     shareTrustAnchor: previous.shareTrustAnchor,
   };
@@ -256,8 +300,15 @@ export async function ensureSharedDekCached(
   if (state.access.source === "mounted") {
     await refreshSharedDocumentAccess(state);
   }
-  const worker = getDocumentCryptoWorker(state);
+  if (
+    state.dekResolved &&
+    state.keyVersion >= keyVersion &&
+    state.access.keyVersion === keyVersion
+  ) {
+    return;
+  }
   const cacheKey = getSharedDekCacheKey(documentId, state.access.shareId);
+  const worker = getDocumentCryptoWorker(state);
   if (await worker.hasDek(documentId, keyVersion, cacheKey)) return;
 
   let access = state.access;
@@ -269,27 +320,9 @@ export async function ensureSharedDekCached(
     throw new Error(`share_dek_version_unavailable:${keyVersion}`);
   }
 
-  if (!access.workspacePinBootstrapHash || !access.workspacePinBootstrap) {
-    throw new Error("workspace_pin_bootstrap_unavailable");
-  }
-  if (
-    buildWorkspacePinBootstrapHash({
-      workspaceId: access.workspaceId,
-      bootstrap: access.workspacePinBootstrap,
-    }) !== access.workspacePinBootstrapHash
-  ) {
-    throw new Error("workspace_pin_bootstrap_mismatch");
-  }
-
-  await worker.unwrapShareDek({
-    documentId,
-    encryptedKeyRefs: access.encryptedKeyRefs,
-    shareSlug: access.shareSlug,
-    candidateShareSlugs: [access.shareSlug, access.shareId],
-    shareId: access.shareId,
-    keyVersion,
-    cacheKey,
-  });
+  await (keyVersion === access.keyVersion && access.shareDekReady
+    ? access.shareDekReady
+    : prewarmSharedDekForAccess(access, documentId, keyVersion));
 
   state.dekResolved = true;
   state.keyVersion = Math.max(state.keyVersion, keyVersion);
