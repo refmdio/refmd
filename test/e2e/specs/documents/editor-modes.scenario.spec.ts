@@ -259,6 +259,23 @@ test.describe.serial("Editor Modes", () => {
     });
 
     await test.step("collapse to Markdown only from Split", async () => {
+      if (!(await sharedPage.locator(".cm-content").isVisible().catch(() => false))) {
+        const trigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
+        await trigger.waitFor({ state: "visible", timeout: 10_000 });
+        await trigger.click();
+        await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+        const splitContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
+        await splitContent.waitFor({ state: "visible", timeout: 5_000 });
+        await splitContent.getByRole("menuitem", { name: "Switch to Split" }).click();
+        await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
+
+        await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
+        await expect(sharedPage.locator('[data-testid="markdown-preview"]')).toBeVisible({
+          timeout: 10_000,
+        });
+      }
+
       const trigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
       await trigger.waitFor({ state: "visible", timeout: 10_000 });
       await trigger.click();
@@ -276,6 +293,83 @@ test.describe.serial("Editor Modes", () => {
       await expectNoCodeMirrorHorizontalOverflow(sharedPage.locator(".cm-content"));
       await expect(sharedPage.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
       await expect(sharedPage.locator(".ProseMirror")).not.toBeVisible({ timeout: 5_000 });
+    });
+
+    await test.step("collapse to WYSIWYG only from Split preview menu after Markdown cursor activity", async () => {
+      const splitTrigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
+      await splitTrigger.waitFor({ state: "visible", timeout: 10_000 });
+      await splitTrigger.click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+      const splitContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
+      await splitContent.waitFor({ state: "visible", timeout: 5_000 });
+      await splitContent.getByRole("menuitem", { name: "Switch to Split" }).click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
+
+      const markdown = sharedPage.locator(".cm-content");
+      await expect(markdown).toBeVisible({ timeout: 10_000 });
+      await markdown.click();
+      await sharedPage.keyboard.press("End");
+      await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+      const trigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
+      await trigger.waitFor({ state: "visible", timeout: 10_000 });
+      await trigger.click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+      const menuContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
+      await menuContent.waitFor({ state: "visible", timeout: 5_000 });
+      await menuContent.getByRole("menuitem", { name: "WYSIWYG only" }).click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
+
+      await expect(sharedPage.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+      await expect(sharedPage.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(sharedPage.locator(".cm-content")).not.toBeVisible({ timeout: 5_000 });
+      await expect(sharedPage.locator('[data-testid="markdown-preview"]')).not.toBeVisible({
+        timeout: 5_000,
+      });
+      await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
+    });
+
+    await test.step("collapse to WYSIWYG only from Split markdown menu after Markdown cursor activity", async () => {
+      const splitTrigger = sharedPage.locator('[data-slot="dropdown-menu-trigger"]').last();
+      await splitTrigger.waitFor({ state: "visible", timeout: 10_000 });
+      await splitTrigger.click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+      const splitContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
+      await splitContent.waitFor({ state: "visible", timeout: 5_000 });
+      await splitContent.getByRole("menuitem", { name: "Switch to Split" }).click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
+
+      const markdown = sharedPage.locator(".cm-content");
+      await expect(markdown).toBeVisible({ timeout: 10_000 });
+      await markdown.click();
+      await sharedPage.keyboard.press("End");
+      await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+      const paneMenuTriggers = sharedPage.locator('[data-slot="dropdown-menu-trigger"]');
+      const trigger = paneMenuTriggers.nth((await paneMenuTriggers.count()) - 2);
+      await trigger.waitFor({ state: "visible", timeout: 10_000 });
+      await trigger.click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.poll);
+
+      const menuContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
+      await menuContent.waitFor({ state: "visible", timeout: 5_000 });
+      await menuContent.getByRole("menuitem", { name: "WYSIWYG only" }).click();
+      await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
+
+      await expect(sharedPage.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+      await expect(sharedPage.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(sharedPage.locator(".cm-content")).not.toBeVisible({ timeout: 5_000 });
+      await expect(sharedPage.locator('[data-testid="markdown-preview"]')).not.toBeVisible({
+        timeout: 5_000,
+      });
+      await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
     });
 
     await test.step("content preserved through all mode switches", async () => {

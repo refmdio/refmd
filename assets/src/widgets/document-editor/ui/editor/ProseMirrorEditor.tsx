@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { EditorView } from "prosemirror-view";
 import { EditorState, TextSelection, type Plugin } from "prosemirror-state";
 import * as Y from "yjs";
+import type { Awareness } from "y-protocols/awareness";
 import {
   acquireYDoc,
   emitScrollSync,
@@ -104,6 +105,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   let cleanupRemoteContentReady: (() => void) | undefined;
   let cleanupLocalBridgeDoc: (() => void) | undefined;
   let unsubScroll: (() => void) | undefined;
+  let activeAwareness: Awareness | undefined;
   let previewFrame: number | null = null;
   let renderRefreshFrame: number | null = null;
   let remoteContentReconcileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -193,6 +195,9 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     unsubScroll = undefined;
     destroyCollab?.();
     destroyCollab = undefined;
+    activeAwareness?.setLocalStateField("cursor", null);
+    activeAwareness?.setLocalStateField("pmCursor", null);
+    activeAwareness = undefined;
     unregisterEditor(props.panelId);
     if (activeStateKey) {
       recordEditorPerf("prosemirror_editor_destroyed", {
@@ -220,6 +225,8 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
     const { yDoc: sharedYDoc, awareness } = acquireYDoc(stateKey);
     activeStateKey = stateKey;
+    activeAwareness = awareness;
+    awareness.setLocalStateField("cursor", null);
     setInitialPreviewText(sharedYDoc);
     const localBridgeDoc = createLocalProseMirrorBridgeDoc(sharedYDoc);
     cleanupLocalBridgeDoc = localBridgeDoc.dispose;
@@ -258,7 +265,10 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const editorView = new EditorView(containerEl, {
       state,
       attributes: {
+        autocapitalize: "off",
+        autocorrect: "off",
         class: "refmd-markdown-surface refmd-editor-readable-surface",
+        spellcheck: "false",
       },
       editable: () => !props.readOnly,
       dispatchTransaction(tr) {

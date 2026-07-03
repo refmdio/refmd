@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { ORIGIN_INIT } from "@pm-cm/yjs";
 import { replaceYTextWithMinimalDiff } from "@/shared/lib/yjs/canonical-document";
 import { ensureYDocMarkdownText } from "./preview-text";
 
@@ -39,6 +40,7 @@ export function createLocalProseMirrorBridgeDoc(sharedDoc: Y.Doc): LocalProseMir
     },
   ) => {
     if (transaction?.origin === SHARED_TO_WYSIWYG_ORIGIN) return;
+    if (transaction?.origin === ORIGIN_INIT) return;
     sharedDoc.transact(() => {
       replaceYTextWithMinimalDiff(sharedText, bridgeText.toString());
     }, WYSIWYG_TO_SHARED_ORIGIN);

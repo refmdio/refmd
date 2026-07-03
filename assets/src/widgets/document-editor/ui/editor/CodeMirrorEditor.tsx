@@ -23,6 +23,7 @@ import {
 import { tags } from "@lezer/highlight";
 import { yCollab, ySyncFacet, yUndoManagerKeymap } from "y-codemirror.next";
 import * as Y from "yjs";
+import type { Awareness } from "y-protocols/awareness";
 import {
   acquireYDoc,
   emitScrollSync,
@@ -203,6 +204,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   let undoManager: Y.UndoManager | undefined;
   let themeObserver: MutationObserver | undefined;
   let activeStateKey: string | undefined;
+  let activeAwareness: Awareness | undefined;
   let unsubScroll: (() => void) | undefined;
   let cleanupContainerFocus: (() => void) | undefined;
   let cleanupYTextRenderRefresh: (() => void) | undefined;
@@ -231,6 +233,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     unsubScroll = undefined;
     themeObserver?.disconnect();
     themeObserver = undefined;
+    activeAwareness?.setLocalStateField("cursor", null);
+    activeAwareness = undefined;
     unregisterEditor(props.panelId);
     if (activeStateKey) {
       recordEditorPerf("codemirror_editor_destroyed", {
@@ -268,6 +272,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
     const { yDoc, awareness } = acquireYDoc(stateKey);
     activeStateKey = stateKey;
+    activeAwareness = awareness;
     const yText = ensureYDocMarkdownText(yDoc);
     undoManager = new Y.UndoManager(yText);
     const dark = isDarkMode();
