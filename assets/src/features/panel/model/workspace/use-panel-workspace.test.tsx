@@ -56,6 +56,24 @@ describe("panel workspace plugin actions", () => {
     });
   });
 
+  it("keeps split-mode document panes horizontal when adding another document tile", () => {
+    runWithWorkspace((workspace) => {
+      workspace.openDocument({ id: "document-one" });
+      workspace.addToTile({ id: "document-two" });
+
+      const state = workspace.mosaicState();
+      const documentSplits = collectMarkdownPreviewSplitNodes(state);
+      const splitDocumentIds = documentSplits
+        .map((node) => decodePanelId(node.first as string)?.documentId)
+        .sort();
+
+      expect(state).toMatchObject({ direction: "column" });
+      expect(documentSplits).toHaveLength(2);
+      expect(splitDocumentIds).toEqual(["document-one", "document-two"]);
+      expect(documentSplits.map((node) => node.direction)).toEqual(["row", "row"]);
+    });
+  });
+
   it("collapses a markdown-preview split to a real WYSIWYG pane", () => {
     runWithWorkspace((workspace) => {
       workspace.openDocument({ id: "document-one" });
@@ -414,4 +432,27 @@ function collectPanelIds(node: ReturnType<Workspace["mosaicState"]>): string[] {
   if (!node) return [];
   if (typeof node === "string") return [node];
   return [...collectPanelIds(node.first), ...collectPanelIds(node.second)];
+}
+
+function collectMarkdownPreviewSplitNodes(
+  node: ReturnType<Workspace["mosaicState"]>,
+): Array<Exclude<ReturnType<Workspace["mosaicState"]>, string | null>> {
+  if (!node || typeof node === "string") return [];
+
+  const first = typeof node.first === "string" ? decodePanelId(node.first) : null;
+  const second = typeof node.second === "string" ? decodePanelId(node.second) : null;
+  const isMarkdownPreviewSplit =
+    first &&
+    second &&
+    first.targetKey === second.targetKey &&
+    first.scrollGroupId === second.scrollGroupId &&
+    new Set([first.type, second.type]).size === 2 &&
+    new Set([first.type, second.type]).has("markdown") &&
+    new Set([first.type, second.type]).has("preview");
+
+  return [
+    ...(isMarkdownPreviewSplit ? [node] : []),
+    ...collectMarkdownPreviewSplitNodes(node.first),
+    ...collectMarkdownPreviewSplitNodes(node.second),
+  ];
 }

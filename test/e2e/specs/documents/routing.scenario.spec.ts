@@ -38,6 +38,133 @@ async function waitForTile(page: Page, documentId: string): Promise<void> {
     .toBeGreaterThan(0);
 }
 
+type ElementBox = {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+};
+
+type DocumentSplitBoxes = {
+  markdownBox: ElementBox;
+  previewBox: ElementBox;
+};
+
+async function expectDocumentSplitHorizontal(
+  page: Page,
+  documentId: string,
+): Promise<DocumentSplitBoxes> {
+  const markdown = page.locator(`[data-panel-id^="${documentId}:markdown:"]`).first();
+  const preview = page.locator(`[data-panel-id^="${documentId}:preview:"]`).first();
+
+  await expect(markdown).toBeVisible({ timeout: 10_000 });
+  await expect(preview).toBeVisible({ timeout: 10_000 });
+
+  const [markdownBox, previewBox] = await Promise.all([
+    markdown.boundingBox(),
+    preview.boundingBox(),
+  ]);
+  expect(markdownBox).toBeTruthy();
+  expect(previewBox).toBeTruthy();
+  expect(Math.abs(markdownBox!.y - previewBox!.y)).toBeLessThan(24);
+  expect(previewBox!.x).toBeGreaterThan(markdownBox!.x + markdownBox!.width * 0.5);
+
+  return {
+    markdownBox: markdownBox!,
+    previewBox: previewBox!,
+  };
+}
+
+function panelLocator(page: Page, documentId: string, paneType: string) {
+  return page.locator(`[data-panel-id^="${documentId}:${paneType}:"]`).first();
+}
+
+function panelWindowLocator(page: Page, documentId: string, paneType: string) {
+  return panelLocator(page, documentId, paneType).locator(
+    'xpath=ancestor::*[contains(concat(" ",normalize-space(@class)," ")," mosaic-window-body ")]/parent::*[contains(concat(" ",normalize-space(@class)," ")," mosaic-window ")]',
+  );
+}
+
+function panelTitleLocator(page: Page, documentId: string, paneType: string) {
+  return panelWindowLocator(page, documentId, paneType).locator(".mosaic-window-title").first();
+}
+
+async function expectPanelTitleDraggable(
+  page: Page,
+  documentId: string,
+  paneType: string,
+): Promise<void> {
+  const title = panelTitleLocator(page, documentId, paneType);
+  await expect(title).toBeVisible({ timeout: 10_000 });
+  await expect
+    .poll(() => title.evaluate((el) => getComputedStyle(el).pointerEvents), {
+      timeout: 10_000,
+      message: "pane title should receive pointer events for native drag",
+    })
+    .toBe("auto");
+  await expect
+    .poll(() => title.evaluate((el) => (el as HTMLElement).draggable), {
+      timeout: 10_000,
+      message: "pane title should be the native Mosaic drag handle",
+    })
+    .toBe(true);
+}
+
+async function expectPanelDropTargetsOnlyShowHoveredZone(
+  page: Page,
+  documentId: string,
+  paneType: string,
+): Promise<void> {
+  const dropTargets = panelWindowLocator(page, documentId, paneType).locator(
+    ".drop-target-container .drop-target",
+  );
+  const target = dropTargets.first();
+  await expect(target).toBeAttached({ timeout: 10_000 });
+  await expect
+    .poll(() => target.evaluate((el) => getComputedStyle(el).opacity), {
+      timeout: 10_000,
+      message: "inactive pane drop target should stay hidden",
+    })
+    .toBe("0");
+
+  await target.evaluate((el) => el.classList.add("drop-target-hover"));
+  await expect
+    .poll(() => target.evaluate((el) => Number(getComputedStyle(el).opacity)), {
+      timeout: 10_000,
+      message: "hovered pane drop target should become visible",
+    })
+    .toBeGreaterThan(0.2);
+
+  await target.evaluate((el) => el.classList.remove("drop-target-hover"));
+}
+
+async function dragPanelTitleToTopOfPanel(
+  page: Page,
+  source: { documentId: string; paneType: string },
+  target: { documentId: string; paneType: string },
+): Promise<void> {
+  const sourceTitle = panelTitleLocator(page, source.documentId, source.paneType);
+  const targetPanel = panelLocator(page, target.documentId, target.paneType);
+  const [sourceBox, targetBox] = await Promise.all([
+    sourceTitle.boundingBox(),
+    targetPanel.boundingBox(),
+  ]);
+
+  expect(sourceBox).toBeTruthy();
+  expect(targetBox).toBeTruthy();
+
+  await sourceTitle.dragTo(targetPanel, {
+    sourcePosition: {
+      x: Math.max(1, Math.min(sourceBox!.width / 2, sourceBox!.width - 1)),
+      y: Math.max(1, Math.min(sourceBox!.height / 2, sourceBox!.height - 1)),
+    },
+    targetPosition: {
+      x: Math.max(1, Math.min(targetBox!.width / 2, targetBox!.width - 1)),
+      y: Math.max(1, Math.min(targetBox!.height * 0.1, targetBox!.height - 1)),
+    },
+  });
+}
+
 async function openDocumentIds(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const ids = Array.from(document.querySelectorAll("[data-panel-id]"))
@@ -152,6 +279,35 @@ test.describe.serial("Document URL Routing", () => {
       expect(documentIdB).toBeTruthy();
       await waitForTile(sharedPage, documentIdB);
       await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdB), { timeout: 10_000 });
+      const splitA = await expectDocumentSplitHorizontal(sharedPage, documentIdA);
+      const splitB = await expectDocumentSplitHorizontal(sharedPage, documentIdB);
+      expect(splitB.markdownBox.y).toBeGreaterThan(
+        splitA.markdownBox.y + splitA.markdownBox.height * 0.5,
+      );
+
+      await expectPanelTitleDraggable(sharedPage, documentIdB, "markdown");
+      await expectPanelDropTargetsOnlyShowHoveredZone(sharedPage, documentIdB, "markdown");
+      await dragPanelTitleToTopOfPanel(
+        sharedPage,
+        { documentId: documentIdB, paneType: "markdown" },
+        { documentId: documentIdA, paneType: "markdown" },
+      );
+      await expect
+        .poll(
+          async () => {
+            const [draggedBox, targetBox] = await Promise.all([
+              panelLocator(sharedPage, documentIdB, "markdown").boundingBox(),
+              panelLocator(sharedPage, documentIdA, "markdown").boundingBox(),
+            ]);
+            if (!draggedBox || !targetBox) return null;
+            return draggedBox.y < targetBox.y;
+          },
+          {
+            timeout: 10_000,
+            message: "dragged pane did not move above the target pane",
+          },
+        )
+        .toBe(true);
 
       await sharedPage.locator(`[data-panel-id^="${documentIdA}:"]`).first().click();
       await expect(sharedPage).toHaveURL(documentRouteRegex(documentIdA), { timeout: 10_000 });

@@ -43,18 +43,27 @@
 .mosaic.mosaic-blueprint-theme .mosaic-window .mosaic-window-title,
 .mosaic.mosaic-blueprint-theme .mosaic-preview .mosaic-window-title {
   position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
-  display: block !important;
+  z-index: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
   flex: none !important;
-  height: auto !important;
+  height: 100% !important;
   font-size: 13px;
   font-weight: 500;
   color: var(--muted-foreground) !important;
   text-align: center !important;
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+.mosaic.mosaic-blueprint-theme .mosaic-window-toolbar.draggable .mosaic-window-title {
+  cursor: grab;
 }
 
 .mosaic.mosaic-blueprint-theme .mosaic-window .mosaic-window-title:active {
@@ -102,8 +111,20 @@
 }
 
 .mosaic.mosaic-blueprint-theme .drop-target-container .drop-target {
+  background: transparent !important;
+  border-color: transparent !important;
+  opacity: 0;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+  border-radius: 0;
+}
+
+.mosaic.mosaic-blueprint-theme .drop-target-container .drop-target.drop-target-hover {
   background: var(--primary) !important;
-  opacity: 0.3;
+  border-color: var(--primary) !important;
+  opacity: 0.24;
   border-radius: 0;
 }
 

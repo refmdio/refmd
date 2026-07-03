@@ -1,7 +1,6 @@
 import { createRoot, createSignal } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { MosaicNode } from "solid-mosaic-component";
-import { createBalancedTreeFromLeaves } from "solid-mosaic-component";
 import { authState } from "@/entities/session";
 import type { SettingsResponse } from "@/shared/api";
 import type { WorkspaceDocumentQueryConfig } from "@/shared/lib/workspace/app";
@@ -41,6 +40,55 @@ export interface WorkspaceTileActionRecord {
 function getPrimaryPanelId(node: MosaicNode<string>): string {
   return typeof node === "string" ? node : getPrimaryPanelId(node.first);
 }
+
+function createBalancedTreeFromUnits(
+  units: Array<MosaicNode<string>>,
+  startDirection: "row" | "column" = "row",
+): MosaicNode<string> | null {
+  if (units.length === 0) return null;
+  let direction: "row" | "column" = startDirection;
+  let current = [...units];
+  let next: Array<MosaicNode<string>> = [];
+  while (current.length > 1) {
+    while (current.length > 0) {
+      const first = current.shift();
+      const second = current.shift();
+      if (first && second) {
+        next.push({
+          direction,
+          first,
+          second,
+          splitPercentage: 50,
+        });
+      } else if (first) {
+        next.unshift(first);
+      }
+    }
+    current = next;
+    next = [];
+    direction = direction === "row" ? "column" : "row";
+  }
+  return current[0];
+}
+
+function isMarkdownPreviewSplitUnit(unit: MosaicNode<string>): boolean {
+  if (typeof unit === "string") return false;
+  const first = typeof unit.first === "string" ? decodePanelId(unit.first) : null;
+  const second = typeof unit.second === "string" ? decodePanelId(unit.second) : null;
+  if (!first || !second) return false;
+  const types = new Set([first.type, second.type]);
+  return (
+    first.targetKey === second.targetKey &&
+    first.scrollGroupId === second.scrollGroupId &&
+    types.has("markdown") &&
+    types.has("preview")
+  );
+}
+
+function getDocumentUnitStartDirection(units: Array<MosaicNode<string>>): "row" | "column" {
+  return units.some(isMarkdownPreviewSplitUnit) ? "column" : "row";
+}
+
 function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () => void) {
   const [openDocuments, setOpenDocuments] = createSignal<Map<string, PanelTarget>>(new Map());
   const [mosaicState, setMosaicState] = createSignal<MosaicNode<string> | null>(null);
@@ -201,7 +249,9 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
       } else {
         const existingUnits = extractDocumentSubtrees(state);
         const allUnits: MosaicNode<string>[] = [...existingUnits, splitNode];
-        setMosaicState(createBalancedTreeFromLeaves(allUnits));
+        setMosaicState(
+          createBalancedTreeFromUnits(allUnits, getDocumentUnitStartDirection(allUnits)),
+        );
       }
     }
     setFocusedPanelIdSignal(getPrimaryPanelId(splitNode));
