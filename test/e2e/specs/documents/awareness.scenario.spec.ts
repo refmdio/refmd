@@ -80,7 +80,7 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
         .isVisible()
         .catch(() => false);
       const pmVisible = await sharedPage
-        .locator(".ProseMirror")
+        .locator('[data-testid="markdown-preview"]')
         .isVisible()
         .catch(() => false);
       const alreadySplit = cmVisible && pmVisible;
@@ -100,15 +100,18 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
       }
 
       await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
-      await expect(sharedPage.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+      await expect(sharedPage.locator('[data-testid="markdown-preview"]')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(sharedPage.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
+      await expect(sharedPage.locator(".ProseMirror")).not.toBeVisible({ timeout: 5_000 });
 
       const errors = await collectErrors(sharedPage, async () => {
         await sharedPage.locator(".cm-content").click();
-        await sharedPage.keyboard.insertText("Split CM edit. ");
+        await sharedPage.keyboard.insertText("Split Markdown edit. ");
         await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
 
-        await sharedPage.locator(".ProseMirror").click();
-        await sharedPage.keyboard.insertText("Split PM edit. ");
+        await sharedPage.locator('[data-testid="markdown-preview"]').click();
         await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
       });
 
@@ -122,14 +125,16 @@ test.describe.serial("Awareness & Ephemeral Session (4-23)", () => {
       expect(splitErrors).toHaveLength(0);
     });
 
-    await test.step("content syncs between CM and PM in split view", async () => {
+    await test.step("content syncs between Markdown editor and preview in split view", async () => {
       const cmTexts = await sharedPage.locator(".cm-content").allTextContents();
-      const pmTexts = await sharedPage.locator(".ProseMirror").allTextContents();
+      const previewTexts = await sharedPage
+        .locator('[data-testid="markdown-preview"]')
+        .allTextContents();
       const allCmText = cmTexts.join(" ");
-      const allPmText = pmTexts.join(" ");
+      const allPreviewText = previewTexts.join(" ");
 
-      expect(allCmText).toContain("Split PM edit.");
-      expect(allPmText).toContain("Split PM edit.");
+      expect(allCmText).toContain("Split Markdown edit.");
+      expect(allPreviewText).toContain("Split Markdown edit.");
     });
   });
 });

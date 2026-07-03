@@ -295,6 +295,7 @@ body:has([data-slot="dialog-overlay"][aria-hidden="true"]) {
   --muted-foreground: #596272;
   --accent: #6e63d6;
   --accent-foreground: #ffffff;
+  --selection-background: color-mix(in srgb, var(--accent) 28%, transparent);
   --destructive: #cd4f51;
   --border: rgba(18, 20, 28, 0.08);
   --input: rgba(18, 20, 28, 0.08);
@@ -338,6 +339,7 @@ body:has([data-slot="dialog-overlay"][aria-hidden="true"]) {
   --muted-foreground: #9aa1b0;
   --accent: #8f86e8;
   --accent-foreground: #14141b;
+  --selection-background: color-mix(in srgb, var(--accent) 30%, transparent);
   --destructive: #ff6b6b;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.08);
@@ -389,6 +391,10 @@ body:has([data-slot="dialog-overlay"][aria-hidden="true"]) {
   }
   body {
     @apply bg-background text-foreground;
+  }
+  ::selection {
+    background-color: var(--selection-background);
+    color: var(--foreground);
   }
   input[type="checkbox"] {
     @apply cursor-pointer;

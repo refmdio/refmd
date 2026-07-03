@@ -1,12 +1,17 @@
-.public-markdown-view {
+.refmd-markdown-view {
   outline: none;
   min-height: 0;
   line-height: 1.5;
   font-size: 16px;
-  color: hsl(var(--foreground));
 }
 
-.public-markdown-view h1 {
+.refmd-markdown-view,
+.refmd-markdown-view * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.refmd-markdown-view h1 {
   font-size: 1.875rem;
   font-weight: 700;
   margin: 0.125rem 0;
@@ -14,7 +19,7 @@
   scroll-margin-top: 5rem;
 }
 
-.public-markdown-view h2 {
+.refmd-markdown-view h2 {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0.125rem 0;
@@ -22,8 +27,8 @@
   scroll-margin-top: 5rem;
 }
 
-.public-markdown-view h3,
-.public-markdown-view h4 {
+.refmd-markdown-view h3,
+.refmd-markdown-view h4 {
   font-size: 1.25rem;
   font-weight: 600;
   margin: 0.125rem 0;
@@ -31,19 +36,19 @@
   scroll-margin-top: 5rem;
 }
 
-.public-markdown-view p {
+.refmd-markdown-view p {
   margin: 0.125rem 0;
 }
 
-.public-markdown-view blockquote {
-  border-left: 3px solid hsl(var(--border));
+.refmd-markdown-view blockquote {
+  border-left: 3px solid var(--border);
   padding-left: 1rem;
   margin: 0.5rem 0;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
-.public-markdown-view pre {
-  background: hsl(var(--muted));
+.refmd-markdown-view pre {
+  background: var(--muted);
   padding: 0.75rem 1rem;
   margin: 0.5rem 0;
   overflow-x: auto;
@@ -53,69 +58,65 @@
   line-height: 1.6;
 }
 
-.public-markdown-view pre code {
+.refmd-markdown-view pre code {
   background: none;
   padding: 0;
   font-size: inherit;
 }
 
-.public-markdown-view code {
-  background: hsl(var(--muted));
+.refmd-markdown-view code {
+  background: var(--muted);
   padding: 0.125rem 0.375rem;
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.875em;
 }
 
-.public-markdown-view ul,
-.public-markdown-view ol {
+.refmd-markdown-view ul,
+.refmd-markdown-view ol {
   margin: 0.25rem 0;
   padding-left: 1.5rem;
 }
 
-.public-markdown-view ul {
+.refmd-markdown-view ul {
   list-style-type: disc;
 }
 
-.public-markdown-view ol {
+.refmd-markdown-view ol {
   list-style-type: decimal;
 }
 
-.public-markdown-view li {
+.refmd-markdown-view li {
   margin: 0.125rem 0;
 }
 
-.public-markdown-view li p {
+.refmd-markdown-view li p {
   margin: 0;
 }
 
-.public-markdown-view hr {
+.refmd-markdown-view hr {
   border: none;
-  border-top: 1px solid hsl(var(--border));
+  border-top: 1px solid var(--border);
   margin: 1rem 0;
 }
 
-.public-markdown-view a {
-  color: hsl(var(--primary));
+.refmd-markdown-view a {
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.public-markdown-view a:hover {
+.refmd-markdown-view a:hover {
   opacity: 0.8;
 }
 
-.public-markdown-view img {
+.refmd-markdown-view img {
   max-width: 100%;
   height: auto;
   margin: 0.5rem 0;
 }
 
-.public-markdown-view ::selection {
-  background: hsl(var(--primary) / 0.2);
-}
-
-.public-markdown-view del {
+.refmd-markdown-view del {
   text-decoration: line-through;
   opacity: 0.65;
 }

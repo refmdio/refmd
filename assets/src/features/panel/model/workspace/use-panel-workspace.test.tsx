@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { workspaceManager } from "../../lib/manager/workspace-manager";
-import { decodeWorkspacePluginTileId } from "../../lib/workspace/panel-utils";
+import { decodePanelId, decodeWorkspacePluginTileId } from "../../lib/workspace/panel-utils";
 import { closeWorkspaceTiles } from "../../lib/workspace/close-document-panels";
 import {
   disposePanelWorkspace,
@@ -43,6 +43,33 @@ describe("panel workspace plugin actions", () => {
   afterEach(() => {
     workspaceManager.reset();
     disposePanelWorkspace();
+  });
+
+  it("uses a dedicated preview pane for document split mode", () => {
+    runWithWorkspace((workspace) => {
+      workspace.openDocument({ id: "document-one" });
+
+      const panelIds = collectPanelIds(workspace.mosaicState());
+      const panelTypes = panelIds.map((panelId) => decodePanelId(panelId)?.type).sort();
+
+      expect(panelTypes).toEqual(["markdown", "preview"]);
+    });
+  });
+
+  it("collapses a markdown-preview split to a real WYSIWYG pane", () => {
+    runWithWorkspace((workspace) => {
+      workspace.openDocument({ id: "document-one" });
+      const markdownPanelId = collectPanelIds(workspace.mosaicState()).find(
+        (panelId) => decodePanelId(panelId)?.type === "markdown",
+      );
+
+      expect(markdownPanelId).toBeTruthy();
+      workspace.collapseSplitTo(markdownPanelId!, "wysiwyg");
+
+      const panelIds = collectPanelIds(workspace.mosaicState());
+      expect(panelIds).toHaveLength(1);
+      expect(decodePanelId(panelIds[0])?.type).toBe("wysiwyg");
+    });
   });
 
   it("rejects forged, mismatched, and consumed workspace tile actions", () => {

@@ -103,6 +103,12 @@ function readVisibleEditorSurfaceText(): string {
     if (!isVisibleElement(editor)) continue;
     fragments.push(editor.innerText || editor.textContent || "");
   }
+  for (const preview of document.querySelectorAll<HTMLElement>(
+    "[data-testid='markdown-preview']",
+  )) {
+    if (!isVisibleElement(preview)) continue;
+    fragments.push(preview.innerText || preview.textContent || "");
+  }
   for (const editor of document.querySelectorAll<HTMLTextAreaElement>("textarea:not([readonly])")) {
     if (!isVisibleElement(editor)) continue;
     fragments.push(editor.value);
@@ -206,7 +212,7 @@ function DocumentReadyPreviewOverlay(props: { stateKey: string; active: boolean 
   const isEditorInteractionTarget = (target: EventTarget | null) =>
     target instanceof Element &&
     !!target.closest(
-      ".cm-editor, .cm-content, .ProseMirror, [data-testid='document-editor'], [role='textbox']",
+      ".cm-editor, .cm-content, .ProseMirror, [data-testid='document-editor'], [data-testid='markdown-preview'], [role='textbox']",
     );
   const handleEditorInteraction = (event: Event) => {
     if (!props.active || !isEditorInteractionTarget(event.target)) return;

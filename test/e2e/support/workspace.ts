@@ -24,7 +24,9 @@ export async function waitForWorkspaceReady(page: Page): Promise<void> {
               hasWorkspaceMenu,
               hasWorkspaceSidebar,
               url: window.location.pathname,
-              hasEditor: !!document.querySelector(".cm-content, .ProseMirror"),
+              hasEditor: !!document.querySelector(
+                '.cm-content, .ProseMirror, [data-testid="markdown-preview"]',
+              ),
               bodyText: document.body.textContent?.trim().slice(0, 160) ?? "",
             });
       });
@@ -74,7 +76,9 @@ export async function waitForWorkspaceReadyOrLogin(page: Page): Promise<boolean>
         hasWorkspaceMenu,
         hasWorkspaceSidebar,
         url,
-        hasEditor: !!document.querySelector(".cm-content, .ProseMirror"),
+        hasEditor: !!document.querySelector(
+          '.cm-content, .ProseMirror, [data-testid="markdown-preview"]',
+        ),
         bodyText: document.body.textContent?.trim().slice(0, 160) ?? "",
       });
     });

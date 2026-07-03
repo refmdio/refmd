@@ -82,7 +82,7 @@ interface PanelRef {
   source: "document" | "share-link-document" | "mounted-share-document";
   targetKey: string;
   documentId: string;
-  type: "markdown" | "wysiwyg";
+  type: "markdown" | "wysiwyg" | "preview";
   scrollGroupId: string;
 }
 
@@ -104,6 +104,11 @@ const CodeMirrorEditorImpl = lazy(async () => {
 const ProseMirrorEditorImpl = lazy(async () => {
   const mod = await import("@/widgets/document-editor");
   return { default: mod.ProseMirrorEditor };
+});
+
+const MarkdownPreviewImpl = lazy(async () => {
+  const mod = await import("@/widgets/document-editor");
+  return { default: mod.MarkdownPreview };
 });
 
 const EDITOR_FALLBACK_PREVIEW_MAX_CHARS = 64 * 1024;
@@ -210,6 +215,7 @@ export function DocumentTile(props: DocumentTileProps) {
   let editorProviderRefreshGeneration = 0;
   const maxEditorProviderRefreshAttempts = 40;
   const isMarkdown = () => props.panel.type === "markdown";
+  const isPreview = () => props.panel.type === "preview";
   const syncLimitNotice = () => {
     const state = getDocumentState(props.panel.targetKey);
     if (!state?.initialized) return null;
@@ -487,7 +493,7 @@ export function DocumentTile(props: DocumentTileProps) {
     if (allowed === false) return;
     props.workspace.openWorkspaceTile(panel.id, props.panel.documentId);
   };
-  const panelLabel = () => (isMarkdown() ? "Markdown" : "WYSIWYG");
+  const panelLabel = () => (isMarkdown() ? "Markdown" : isPreview() ? "Preview" : "WYSIWYG");
   const isAlreadySplit = () => {
     const state = props.workspace.mosaicState();
     return state ? hasScrollGroupPeer(state, props.panel.scrollGroupId, props.panelId) : false;
@@ -676,6 +682,11 @@ export function DocumentTile(props: DocumentTileProps) {
                 onDocChange={handleDocChange}
                 onEditorPaste={handleEditorPaste}
                 onEditorDrop={handleEditorDrop}
+              />
+            ) : isPreview() ? (
+              <MarkdownPreviewImpl
+                stateKey={props.panel.targetKey}
+                scrollGroupId={props.panel.scrollGroupId}
               />
             ) : (
               <ProseMirrorEditorImpl

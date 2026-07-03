@@ -71,10 +71,16 @@ async function expectSharedDocumentWorkspaceOpen(
     })
     .toContain(title);
   await expect
-    .poll(() => page.locator("[data-panel-id], .cm-content, .ProseMirror").count(), {
-      timeout: 30_000,
-      message,
-    })
+    .poll(
+      () =>
+        page
+          .locator('[data-panel-id], .cm-content, .ProseMirror, [data-testid="markdown-preview"]')
+          .count(),
+      {
+        timeout: 30_000,
+        message,
+      },
+    )
     .toBeGreaterThan(0);
   await expectNoVisibleShareRouteError(page);
 }

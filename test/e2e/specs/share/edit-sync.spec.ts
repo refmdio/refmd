@@ -264,7 +264,12 @@ async function readVisibleEditorSurfaceText(page: Page): Promise<string> {
       fragments.push(lines.length > 0 ? lines.join("\n") : normalize(editor.textContent));
     }
     for (const editor of document.querySelectorAll<HTMLElement>(
-      '.ProseMirror[contenteditable="true"], [role="textbox"][contenteditable="true"], textarea',
+      [
+        ".ProseMirror",
+        '[data-testid="markdown-preview"]',
+        '[role="textbox"][contenteditable="true"]',
+        "textarea",
+      ].join(", "),
     )) {
       if (!isVisible(editor)) continue;
       fragments.push(normalize(editor.innerText || editor.textContent));
@@ -414,10 +419,10 @@ async function readVisibleProseMirrorText(page: Page): Promise<string> {
         style.opacity !== "0"
       );
     };
-    const editor = [
-      ...document.querySelectorAll<HTMLElement>('.ProseMirror[contenteditable="true"]'),
-    ].find(isVisible);
-    if (!editor) throw new Error("ProseMirror editor content element was not mounted");
+    const editor = [...document.querySelectorAll<HTMLElement>(
+      '.ProseMirror, [data-testid="markdown-preview"]',
+    )].find(isVisible);
+    if (!editor) throw new Error("WYSIWYG preview content element was not mounted");
     return editor.innerText || editor.textContent || "";
   });
 }
@@ -1184,7 +1189,7 @@ async function ensureSplitEditor(page: Page): Promise<void> {
     .isVisible()
     .catch(() => false);
   const pmVisible = await page
-    .locator(".ProseMirror")
+    .locator('[data-testid="markdown-preview"]')
     .isVisible()
     .catch(() => false);
   if (cmVisible && pmVisible) return;
@@ -1206,7 +1211,46 @@ async function ensureSplitEditor(page: Page): Promise<void> {
   await page.waitForTimeout(E2E_DELAYS.routeSettle);
 
   await expect(page.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="markdown-preview"]')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
+  await expect(page.locator(".ProseMirror")).not.toBeVisible({ timeout: 5_000 });
+}
+
+async function switchToWysiwygOnly(page: Page): Promise<void> {
+  const cmVisible = await page
+    .locator(".cm-content")
+    .isVisible()
+    .catch(() => false);
+  const pmVisible = await page
+    .locator('.ProseMirror, [data-testid="markdown-preview"]')
+    .isVisible()
+    .catch(() => false);
+  const pmEditable = await page
+    .locator('.ProseMirror[contenteditable="true"]')
+    .isVisible()
+    .catch(() => false);
+  if (!cmVisible && pmVisible && pmEditable) return;
+
+  const trigger = page
+    .locator(
+      ".mosaic-window-toolbar [data-slot='dropdown-menu-trigger'], .mosaic-window-toolbar button",
+    )
+    .last();
+  await trigger.waitFor({ state: "visible", timeout: 10_000 });
+  await trigger.click();
+  await page.waitForTimeout(E2E_DELAYS.poll);
+
+  const menuContent = page.locator('[data-slot="dropdown-menu-content"]');
+  await menuContent.waitFor({ state: "visible", timeout: 5_000 });
+  const itemName = cmVisible && pmVisible ? "WYSIWYG only" : "Switch to WYSIWYG";
+  await menuContent.getByRole("menuitem", { name: itemName }).click();
+  await page.waitForTimeout(E2E_DELAYS.routeSettle);
+
   await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.locator(".cm-content")).not.toBeVisible({ timeout: 5_000 });
 }
 
 async function typeByUserClickAndKeyboard(page: Page, text: string): Promise<void> {
@@ -1992,6 +2036,7 @@ test("anonymous edit share editor accepts real click focus and keyboard input", 
     await typeByEditorSurfaceClickAndKeyboard(guestPage, "guest-surface-keyboard-edit");
     await expectEditorTextContains(ownerPage, "guest-surface-keyboard-edit", 60_000);
 
+    await switchToWysiwygOnly(guestPage);
     await typeByProseMirrorSurfaceClickAndKeyboard(guestPage, "guest-wysiwyg-keyboard-edit");
     await expectEditorTextContains(ownerPage, "guest-wysiwyg-keyboard-edit", 60_000);
 
@@ -3080,7 +3125,9 @@ test("anonymous edit share converges whole-document WYSIWYG paragraph edits", as
     await expectVisibleProseMirrorContainsMarkdownText(guestPage, initialText, 60_000);
 
     await ownerPage.bringToFront();
+    await switchToWysiwygOnly(ownerPage);
     await appendProseMirrorParagraphsByKeyboard(ownerPage, ownerAppendParagraphs);
+    await ensureSplitEditor(ownerPage);
     await expectRegisteredEditorValuesEqual(ownerPage, ownerExtendedText, 5_000);
     await expectVisibleMarkdownEditorTextEquals(ownerPage, ownerExtendedText, 5_000);
     await expectDocumentStateTextEquals(ownerPage, ownerExtendedText, 5_000);
@@ -3127,7 +3174,9 @@ test("anonymous edit share converges whole-document WYSIWYG paragraph edits", as
     await expectVisibleProseMirrorContainsMarkdownText(guestPage, ownerExtendedText, 60_000);
 
     await guestPage.bringToFront();
+    await switchToWysiwygOnly(guestPage);
     await appendProseMirrorParagraphsByKeyboard(guestPage, guestAppendParagraphs);
+    await ensureSplitEditor(guestPage);
     await expectRegisteredEditorValuesEqual(guestPage, guestExtendedText, 5_000);
     await expectVisibleMarkdownEditorTextEquals(guestPage, guestExtendedText, 5_000);
     await expectDocumentStateTextEquals(guestPage, guestExtendedText, 5_000);

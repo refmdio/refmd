@@ -318,7 +318,7 @@ async function switchToSplitMode(page: Page): Promise<void> {
     .isVisible({ timeout: 2_000 })
     .catch(() => false);
   const pmVisible = await page
-    .locator(".ProseMirror")
+    .locator('[data-testid="markdown-preview"]')
     .isVisible({ timeout: 2_000 })
     .catch(() => false);
   if (cmVisible && pmVisible) return;
@@ -336,7 +336,7 @@ async function switchToSplitMode(page: Page): Promise<void> {
     .locator('[data-slot="dropdown-menu-item"]', { hasText: "Switch to Split" })
     .click();
   await expect(page.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="markdown-preview"]')).toBeVisible({ timeout: 10_000 });
 }
 
 function collectConsoleErrorsAcross(pages: Page[]): {
@@ -414,7 +414,10 @@ async function openDocumentRoute(page: Page, documentId: string): Promise<Page> 
               .textContent()
               .catch(() => "")) ?? ""
           ).trim();
-          const hasEditor = (await activePage.locator(".cm-content, .ProseMirror").count()) > 0;
+          const hasEditor =
+            (await activePage
+              .locator('.cm-content, .ProseMirror, [data-testid="markdown-preview"]')
+              .count()) > 0;
           return hasEditor || body.includes("Failed to load document");
         },
         { timeout: 30_000, message: "document route never rendered" },
@@ -572,10 +575,10 @@ test.describe("Multi-User Awareness & Presence (4-23)", () => {
       await pageA.locator(".cm-content").click();
       await appendDocumentText(pageA, "Alice split awareness.");
       await expectTextWithRecovery(pageB, DOC_TITLE, "Alice split awareness.");
-      await pageB.locator(".ProseMirror").click();
-      await appendDocumentText(pageB, "Bob split awareness.");
+      await pageB.locator(".cm-content").click();
+      await appendDocumentText(pageB, "Bob split awareness.", { preferUiInput: true });
       await expectEditorTextContains(pageB, "Bob split awareness.", 15_000);
-      await pageA.locator(".ProseMirror").click();
+      await pageA.locator('[data-testid="markdown-preview"]').click();
       await pageB.locator(".cm-content").click();
 
       const recursiveFailures = capture.errors.filter(

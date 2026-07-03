@@ -138,7 +138,9 @@ export async function openDocument(page: Page, title: string): Promise<void> {
       async () => {
         const opened = await page.evaluate(
           () =>
-            document.querySelectorAll("[data-panel-id], .cm-content, .ProseMirror").length,
+            document.querySelectorAll(
+              '[data-panel-id], .cm-content, .ProseMirror, [data-testid="markdown-preview"]',
+            ).length,
         );
         if (opened === 0) await clickDocumentRow();
         return opened;
@@ -170,7 +172,7 @@ export async function openDocument(page: Page, title: string): Promise<void> {
   while (Date.now() < deadline) {
     lastState = await page.evaluate(() => ({
       hasCm: !!document.querySelector(".cm-content"),
-      hasPm: !!document.querySelector(".ProseMirror"),
+      hasPm: !!document.querySelector('.ProseMirror, [data-testid="markdown-preview"]'),
       panelCount: document.querySelectorAll("[data-panel-id]").length,
       url: window.location.href,
       workspaceId: localStorage.getItem("refmd_workspace_id"),

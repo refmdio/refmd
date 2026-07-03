@@ -33,31 +33,10 @@ import {
 } from "@/features/editor";
 import { EditorApi, pluginEditorDecorationsExtension } from "../../lib/editor-api/codemirror-api";
 import { pluginRendererSlotExtension } from "../../lib/codemirror/plugin-renderer-slots";
+import { ensureYDocMarkdownText } from "../../lib/prosemirror/preview-text";
 import "./codemirror-cursors.css";
 
-interface ThemeColors {
-  linkColor: string;
-  monospaceBg: string;
-  quoteColor: string;
-  selectionOpacity: string;
-}
-
-const LIGHT_COLORS: ThemeColors = {
-  linkColor: "#6e63d6",
-  monospaceBg: "rgba(0,0,0,0.05)",
-  quoteColor: "#596272",
-  selectionOpacity: "0.2",
-};
-
-const DARK_COLORS: ThemeColors = {
-  linkColor: "#8f86e8",
-  monospaceBg: "rgba(255,255,255,0.05)",
-  quoteColor: "#9aa1b0",
-  selectionOpacity: "0.3",
-};
-
 function createEditorTheme(dark: boolean) {
-  const colors = dark ? DARK_COLORS : LIGHT_COLORS;
   return EditorView.theme(
     {
       "&": {
@@ -81,8 +60,11 @@ function createEditorTheme(dark: boolean) {
         backgroundColor: "var(--muted)",
       },
       ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-        backgroundColor: "var(--accent)",
-        opacity: colors.selectionOpacity,
+        backgroundColor: "var(--selection-background)",
+      },
+      ".cm-content::selection, .cm-content *::selection": {
+        backgroundColor: "var(--selection-background)",
+        color: "var(--foreground)",
       },
       ".cm-gutters": {
         backgroundColor: "var(--background)",
@@ -118,8 +100,7 @@ function createEditorTheme(dark: boolean) {
   );
 }
 
-function createHighlighting(dark: boolean) {
-  const colors = dark ? DARK_COLORS : LIGHT_COLORS;
+function createHighlighting() {
   return HighlightStyle.define([
     { tag: tags.heading1, fontWeight: "bold", fontSize: "1.5em" },
     { tag: tags.heading2, fontWeight: "bold", fontSize: "1.3em" },
@@ -127,23 +108,22 @@ function createHighlighting(dark: boolean) {
     { tag: tags.heading, fontWeight: "bold" },
     { tag: tags.emphasis, fontStyle: "italic" },
     { tag: tags.strong, fontWeight: "bold" },
-    { tag: tags.link, color: colors.linkColor, textDecoration: "underline" },
-    { tag: tags.url, color: colors.linkColor },
+    { tag: tags.link, color: "var(--primary)", textDecoration: "underline" },
+    { tag: tags.url, color: "var(--primary)" },
     {
       tag: tags.monospace,
       fontFamily: "var(--font-mono)",
-      backgroundColor: colors.monospaceBg,
+      backgroundColor: "var(--muted)",
     },
-    { tag: tags.quote, color: colors.quoteColor, fontStyle: "italic" },
+    { tag: tags.quote, color: "var(--muted-foreground)", fontStyle: "italic" },
     { tag: tags.strikethrough, textDecoration: "line-through" },
-    { tag: tags.processingInstruction, color: colors.quoteColor },
+    { tag: tags.processingInstruction, color: "var(--muted-foreground)" },
   ]);
 }
 
 const lightTheme = createEditorTheme(false);
 const darkTheme = createEditorTheme(true);
-const lightHighlighting = createHighlighting(false);
-const darkHighlighting = createHighlighting(true);
+const markdownHighlighting = createHighlighting();
 const REMOTE_CONTENT_READY_EVENT = "refmd:document-remote-content-ready";
 const REMOTE_CONTENT_RECONCILE_DELAY_MS = 32;
 const REMOTE_CURSOR_LABEL_RE =
@@ -282,7 +262,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
     const { yDoc, awareness } = acquireYDoc(stateKey);
     activeStateKey = stateKey;
-    const yText = yDoc.getText("content");
+    const yText = ensureYDocMarkdownText(yDoc);
     undoManager = new Y.UndoManager(yText);
     const dark = isDarkMode();
 
@@ -297,7 +277,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         }),
         themeCompartment.of([
           dark ? darkTheme : lightTheme,
-          syntaxHighlighting(dark ? darkHighlighting : lightHighlighting),
+          syntaxHighlighting(markdownHighlighting),
         ]),
         editableCompartment.of(EditorView.editable.of(!props.readOnly)),
         yCollab(yText, awareness, {
@@ -489,7 +469,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       view.dispatch({
         effects: themeCompartment.reconfigure([
           currentDark ? darkTheme : lightTheme,
-          syntaxHighlighting(currentDark ? darkHighlighting : lightHighlighting),
+          syntaxHighlighting(markdownHighlighting),
         ]),
       });
     });

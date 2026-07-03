@@ -1,6 +1,6 @@
 import type { MosaicNode } from "solid-mosaic-component";
 
-export type PanelType = "markdown" | "wysiwyg";
+export type PanelType = "markdown" | "wysiwyg" | "preview";
 
 export interface WorkspaceTileTarget {
   source: "document";
@@ -199,22 +199,19 @@ export function decodeWorkspacePluginTileId(panelId: string): WorkspacePluginTil
 }
 
 export function decodePanelId(panelId: string): PanelId | null {
+  const isPanelType = (value: string | undefined): value is PanelType =>
+    value === "markdown" || value === "wysiwyg" || value === "preview";
   const parts = panelId.split(":");
   if (parts.length === 4) {
     const [documentId, type, instanceId, scrollGroupId] = parts;
-    if (
-      !documentId ||
-      (type !== "markdown" && type !== "wysiwyg") ||
-      !instanceId ||
-      !scrollGroupId
-    ) {
+    if (!documentId || !isPanelType(type) || !instanceId || !scrollGroupId) {
       return null;
     }
     return {
       source: "document",
       targetKey: documentId,
       documentId,
-      type: type as PanelType,
+      type,
       instanceId,
       scrollGroupId,
     };
@@ -222,20 +219,14 @@ export function decodePanelId(panelId: string): PanelId | null {
 
   if (parts[0] === "share" && parts[1] === "d" && parts.length === 7) {
     const [, , documentToken, documentId, type, instanceId, scrollGroupId] = parts;
-    if (
-      !documentToken ||
-      !documentId ||
-      (type !== "markdown" && type !== "wysiwyg") ||
-      !instanceId ||
-      !scrollGroupId
-    ) {
+    if (!documentToken || !documentId || !isPanelType(type) || !instanceId || !scrollGroupId) {
       return null;
     }
     return {
       source: "share-link-document",
       targetKey: `share:d:${documentToken}`,
       documentId,
-      type: type as PanelType,
+      type,
       instanceId,
       scrollGroupId,
     };
@@ -247,7 +238,7 @@ export function decodePanelId(panelId: string): PanelId | null {
       !mountId ||
       !shareId ||
       !documentId ||
-      (type !== "markdown" && type !== "wysiwyg") ||
+      !isPanelType(type) ||
       !instanceId ||
       !scrollGroupId
     ) {
@@ -257,7 +248,7 @@ export function decodePanelId(panelId: string): PanelId | null {
       source: "mounted-share-document",
       targetKey: `mount:${mountId}:${shareId}`,
       documentId,
-      type: type as PanelType,
+      type,
       instanceId,
       scrollGroupId,
     };

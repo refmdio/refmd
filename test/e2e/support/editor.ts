@@ -12,6 +12,10 @@ export async function readEditorText(page: Page): Promise<string> {
       pushText(node.innerText);
       pushText(node.textContent);
     }
+    for (const node of document.querySelectorAll<HTMLElement>('[data-testid="markdown-preview"]')) {
+      pushText(node.innerText);
+      pushText(node.textContent);
+    }
     for (const node of document.querySelectorAll<HTMLElement>(".cm-content")) {
       pushText(node.innerText);
       pushText(node.textContent);

@@ -10,6 +10,40 @@ import { E2E_DELAYS, E2E_TIMEOUTS } from "../../support/timeouts";
 
 let sharedPage: Page;
 
+async function dragSelectMarkdownPreviewText(page: Page, text: string): Promise<void> {
+  const selectionBox = await page
+    .locator('[data-testid="markdown-preview"]')
+    .evaluate((root, expectedText) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        const textOffset = (node.textContent ?? "").indexOf(expectedText);
+        if (textOffset < 0) continue;
+
+        const range = document.createRange();
+        range.setStart(node, textOffset);
+        range.setEnd(node, textOffset + expectedText.length);
+        const rect = [...range.getClientRects()].find(
+          (candidate) => candidate.width > 0 && candidate.height > 0,
+        );
+        if (rect) {
+          return {
+            startX: rect.left + 1,
+            endX: rect.right - 1,
+            y: rect.top + rect.height / 2,
+          };
+        }
+      }
+      throw new Error(`Markdown preview text was not rendered: ${expectedText}`);
+    }, text);
+
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await page.mouse.move(selectionBox.startX, selectionBox.y);
+  await page.mouse.down();
+  await page.mouse.move(selectionBox.endX, selectionBox.y, { steps: 8 });
+  await page.mouse.up();
+}
+
 test.describe.serial("Editor Modes", () => {
   test.beforeAll(async ({ browser }) => {
     sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
@@ -68,7 +102,18 @@ test.describe.serial("Editor Modes", () => {
       await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
 
       await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
-      await expect(sharedPage.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
+      await expect(sharedPage.locator('[data-testid="markdown-preview"]')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(sharedPage.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
+      await expect(sharedPage.locator(".ProseMirror")).not.toBeVisible({ timeout: 5_000 });
+      await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
+      await dragSelectMarkdownPreviewText(sharedPage, "Hello from Markdown");
+      await expect
+        .poll(() => sharedPage.evaluate(() => window.getSelection()?.toString() ?? ""), {
+          timeout: 5_000,
+        })
+        .toContain("Hello from Markdown");
     });
 
     await test.step("collapse to Markdown only from Split", async () => {
@@ -79,10 +124,13 @@ test.describe.serial("Editor Modes", () => {
 
       const mdContent = sharedPage.locator('[data-slot="dropdown-menu-content"]');
       await mdContent.waitFor({ state: "visible", timeout: 5_000 });
-      await mdContent.locator('[data-slot="dropdown-menu-item"]', { hasText: "Markdown only" }).click();
+      await mdContent
+        .locator('[data-slot="dropdown-menu-item"]', { hasText: "Markdown only" })
+        .click();
       await sharedPage.waitForTimeout(E2E_DELAYS.editorSettle);
 
       await expect(sharedPage.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
+      await expect(sharedPage.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
       await expect(sharedPage.locator(".ProseMirror")).not.toBeVisible({ timeout: 5_000 });
     });
 

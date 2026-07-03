@@ -83,11 +83,24 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     if (mode === "wysiwyg") {
       return encodePanelIdForTarget(target, "wysiwyg", undefined, scrollGroupId);
     }
+    return createMarkdownPreviewSplit(target, scrollGroupId, "row").node;
+  }
+  function createMarkdownPreviewSplit(
+    target: PanelTarget,
+    scrollGroupId: string,
+    direction: "row" | "column",
+  ): { node: MosaicNode<string>; markdownPanelId: string; previewPanelId: string } {
+    const markdownPanelId = encodePanelIdForTarget(target, "markdown", undefined, scrollGroupId);
+    const previewPanelId = encodePanelIdForTarget(target, "preview", undefined, scrollGroupId);
     return {
-      direction: "row" as const,
-      first: encodePanelIdForTarget(target, "markdown", undefined, scrollGroupId),
-      second: encodePanelIdForTarget(target, "wysiwyg", undefined, scrollGroupId),
-      splitPercentage: 50,
+      node: {
+        direction,
+        first: markdownPanelId,
+        second: previewPanelId,
+        splitPercentage: 50,
+      },
+      markdownPanelId,
+      previewPanelId,
     };
   }
   const focusedDocumentId = () => {
@@ -344,24 +357,15 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     }
     const panel = decodePanelId(panelId);
     if (!panel) return;
-    const newType: PanelType = panel.type === "markdown" ? "wysiwyg" : "markdown";
     const pairGroupId = generateScrollGroupId();
     const target =
       openDocuments().get(panel.targetKey) ?? createWorkspaceTileTarget(panel.documentId);
-    const updatedPanelId = encodePanelIdForTarget(target, panel.type, undefined, pairGroupId);
-    const newPanelId = encodePanelIdForTarget(target, newType, undefined, pairGroupId);
     const state = mosaicState();
     if (!state) return;
-    setMosaicState(
-      replacePanelInMosaic(state, panelId, {
-        direction,
-        first: updatedPanelId,
-        second: newPanelId,
-        splitPercentage: 50,
-      }),
-    );
+    const split = createMarkdownPreviewSplit(target, pairGroupId, direction);
+    setMosaicState(replacePanelInMosaic(state, panelId, split.node));
     if (focusedPanelIdSignal() === panelId) {
-      setFocusedPanelIdSignal(updatedPanelId);
+      setFocusedPanelIdSignal(split.markdownPanelId);
     }
   }
   function splitWorkspaceTilePanel(
@@ -396,20 +400,12 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     const pairGroupId = generateScrollGroupId();
     const target =
       openDocuments().get(panel.targetKey) ?? createWorkspaceTileTarget(panel.documentId);
-    const markdownPanelId = encodePanelIdForTarget(target, "markdown", undefined, pairGroupId);
-    const wysiwygPanelId = encodePanelIdForTarget(target, "wysiwyg", undefined, pairGroupId);
     const state = mosaicState();
     if (!state) return;
-    setMosaicState(
-      replacePanelInMosaic(state, panelId, {
-        direction: "row" as const,
-        first: markdownPanelId,
-        second: wysiwygPanelId,
-        splitPercentage: 50,
-      }),
-    );
+    const split = createMarkdownPreviewSplit(target, pairGroupId, "row");
+    setMosaicState(replacePanelInMosaic(state, panelId, split.node));
     if (focusedPanelIdSignal() === panelId) {
-      setFocusedPanelIdSignal(markdownPanelId);
+      setFocusedPanelIdSignal(split.markdownPanelId);
     }
   }
   function switchPanelType(panelId: string) {
@@ -438,12 +434,27 @@ function createPanelWorkspaceContext(queryClient: QueryClient, disposeRoot: () =
     if (!state) return;
     const peerId = findScrollGroupPeerId(state, panel.scrollGroupId, panelId);
     if (!peerId) return;
-    const keepId = panel.type === targetType ? panelId : peerId;
-    const removeId = panel.type === targetType ? peerId : panelId;
-    const newState = removeFromMosaic(state, removeId);
+    const peer = decodePanelId(peerId);
+    const keepExistingId =
+      panel.type === targetType ? panelId : peer?.type === targetType ? peerId : null;
+    const target =
+      openDocuments().get(panel.targetKey) ?? createWorkspaceTileTarget(panel.documentId);
+    const removeId = keepExistingId === panelId ? peerId : panelId;
+    let newState = removeFromMosaic(state, removeId);
+    let nextFocusId = keepExistingId;
+    if (!keepExistingId && newState) {
+      const replacementId = encodePanelIdForTarget(target, targetType);
+      const remainingId = removeId === panelId ? peerId : panelId;
+      newState = replacePanelIdInMosaic(newState, remainingId, replacementId);
+      nextFocusId = replacementId;
+    }
     setMosaicState(newState);
-    if (focusedPanelIdSignal() === removeId && newState) {
-      setFocusedPanelIdSignal(keepId);
+    if (
+      focusedPanelIdSignal() === removeId ||
+      focusedPanelIdSignal() === panelId ||
+      focusedPanelIdSignal() === peerId
+    ) {
+      setFocusedPanelIdSignal(newState ? nextFocusId : null);
     }
   }
   function focusPanel(panelId: string) {
