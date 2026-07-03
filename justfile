@@ -178,6 +178,10 @@ db-reset:
 
 # ── Generation ────────────────────────────────────
 
+# Add frontend UI components
+ui-add +args:
+    cd assets && pnpm dlx shadcn@latest add --yes {{args}}
+
 api-gen:
     mix openapi.gen
 

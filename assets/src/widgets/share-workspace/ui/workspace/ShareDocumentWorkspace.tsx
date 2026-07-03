@@ -17,10 +17,11 @@ import {
   resolveShareDocumentRoute,
   type ResolvedShareDocumentRoute,
   type ResolvedShareFolderEntry,
+  ShareRoutePhaseContent,
+  type ShareRoutePhase,
 } from "@/features/share";
 import { ApiError } from "@/shared/api";
 import { getDocumentEvents } from "@/shared/lib/document/manager";
-import { Spinner } from "@/shared/ui/spinner";
 import { ShareWorkspaceShell } from "./ShareWorkspaceShell";
 
 function shareLandingPath(shareSlug: string, fallbackHash?: string | null): string {
@@ -45,6 +46,43 @@ function ensureCanonicalShareHash(shareSlug: string): string {
 }
 
 type ReadyShareDocumentRoute = Extract<ResolvedShareDocumentRoute, { kind: "ready" }>;
+const SHARE_DOCUMENT_PROGRESS = {
+  resolving: {
+    label: "Resolving shared document",
+    detail: "Checking the document route and share session state.",
+    value: 18,
+  },
+  restoringSession: {
+    label: "Restoring anonymous session",
+    detail: "Recreating share access material before opening the document.",
+    value: 42,
+  },
+  resolvingAfterSession: {
+    label: "Verifying restored access",
+    detail: "Rechecking the document route with the restored anonymous session.",
+    value: 52,
+  },
+  keys: {
+    label: "Preparing document keys",
+    detail: "Warming signing and key-directory verification caches.",
+    value: 60,
+  },
+  mountingWorkspace: {
+    label: "Mounting share workspace",
+    detail: "Connecting the document route to the workspace surface.",
+    value: 74,
+  },
+  primingContent: {
+    label: "Preparing document content",
+    detail: "Priming the first encrypted content preview before editor mount.",
+    value: 86,
+  },
+  mountingDom: {
+    label: "Mounting editor DOM",
+    detail: "Rendering the shared document workspace and editor surfaces.",
+    value: 96,
+  },
+} satisfies Record<string, ShareRoutePhase>;
 
 function shareRouteErrorCode(error: unknown): string | null {
   if (error instanceof ApiError) return error.code;
@@ -109,6 +147,7 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
     entry: ResolvedShareFolderEntry;
     resolved: ReadyShareDocumentRoute;
   } | null>(null);
+  const [progress, setProgress] = createSignal<ShareRoutePhase>(SHARE_DOCUMENT_PROGRESS.resolving);
   let requestVersion = 0;
   let pendingDocumentToken: string | null = null;
   let resolvedDocumentToken: string | null = null;
@@ -148,6 +187,7 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
     const currentRequest = ++requestVersion;
     pendingDocumentToken = documentToken;
     setError(null);
+    setProgress(SHARE_DOCUMENT_PROGRESS.resolving);
     recordShareDocumentWorkspacePerf("share_document_workspace_route_started", {
       documentToken,
     });
@@ -167,7 +207,9 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
         if (ready.kind === "bootstrap-required") {
           const shareSlug = ready.shareSlug;
           try {
+            setProgress(SHARE_DOCUMENT_PROGRESS.restoringSession);
             await bootstrapShareParticipantSession(shareSlug);
+            setProgress(SHARE_DOCUMENT_PROGRESS.resolvingAfterSession);
             ready = await resolveShareDocumentRoute(documentToken);
           } catch (error) {
             if (currentRequest === requestVersion) pendingDocumentToken = null;
@@ -195,6 +237,7 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
         pendingDocumentToken = null;
         resolvedDocumentToken = documentToken;
         reentryHash = ensureCanonicalShareHash(ready.access.shareSlug) || reentryHash;
+        setProgress(SHARE_DOCUMENT_PROGRESS.keys);
         prewarmShareDocumentSigningKeyCaches({
           kind: "share",
           source: "link",
@@ -205,7 +248,9 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
           disposeSharedDocumentRoute(preactivatedStateKey);
         }
         preactivatedStateKey = target.targetKey;
+        setProgress(SHARE_DOCUMENT_PROGRESS.mountingWorkspace);
         activateSharedDocumentRoute(target.targetKey, ready.access);
+        setProgress(SHARE_DOCUMENT_PROGRESS.primingContent);
         await primeDocumentContentPreview(
           ready.target.documentId,
           ready.target.workspaceId,
@@ -217,6 +262,7 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
           documentId: ready.target.documentId,
           stateKey: target.targetKey,
         });
+        setProgress(SHARE_DOCUMENT_PROGRESS.mountingDom);
         setShareRoot({
           shareSlug: ready.access.shareSlug,
           documentToken,
@@ -281,7 +327,7 @@ export function ShareDocumentWorkspace(props: { children: JSX.Element }) {
         </ShareWorkspaceShell>
       ) : (
         <div class="flex h-screen w-screen items-center justify-center bg-background p-6">
-          <Spinner class="size-6" />
+          <ShareRoutePhaseContent phase={progress()} />
         </div>
       )}
     </>

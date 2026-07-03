@@ -34,7 +34,7 @@ import {
   type WorkspaceTileConfig,
 } from "@/shared/lib/workspace/app";
 import { DocumentTileShell } from "./DocumentTileShell";
-import { Spinner } from "@/shared/ui/spinner";
+import { DocumentTilePhaseContent } from "./DocumentTilePhaseContent";
 import {
   getDefaultPluginUiContributionRegistry,
   pluginUiCommandId,
@@ -164,7 +164,11 @@ function EditorFallback(props: { stateKey: string }) {
       when={visiblePreviewText()}
       fallback={
         <div class="flex h-full items-center justify-center bg-background">
-          <Spinner class="size-6" />
+          <DocumentTilePhaseContent
+            label="Mounting editor DOM"
+            detail="Preparing plugin contributions and editor surface."
+            value={72}
+          />
         </div>
       }
     >

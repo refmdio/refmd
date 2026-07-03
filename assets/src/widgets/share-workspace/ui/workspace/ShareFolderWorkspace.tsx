@@ -5,9 +5,10 @@ import {
   enterShareRouteSession,
   leaveShareRouteSession,
   resolveShareFolderRoute,
+  ShareRoutePhaseContent,
+  type ShareRoutePhase,
   type ResolvedShareFolderEntry,
 } from "@/features/share";
-import { Spinner } from "@/shared/ui/spinner";
 import { ShareWorkspaceShell } from "./ShareWorkspaceShell";
 
 function shareLandingPath(shareSlug: string, fallbackHash?: string | null): string {
@@ -31,6 +32,29 @@ function ensureCanonicalShareHash(shareSlug: string): string {
   return hash;
 }
 
+const SHARE_FOLDER_PROGRESS = {
+  resolving: {
+    label: "Resolving shared folder",
+    detail: "Checking the folder route and share session state.",
+    value: 24,
+  },
+  restoringSession: {
+    label: "Restoring anonymous session",
+    detail: "Recreating share access material before opening the folder.",
+    value: 48,
+  },
+  resolvingAfterSession: {
+    label: "Verifying restored access",
+    detail: "Rechecking the folder route with the restored anonymous session.",
+    value: 62,
+  },
+  mountingWorkspace: {
+    label: "Mounting shared folder",
+    detail: "Rendering the shared folder workspace and entry list.",
+    value: 90,
+  },
+} satisfies Record<string, ShareRoutePhase>;
+
 export function ShareFolderWorkspace(props: { children: JSX.Element }) {
   const navigate = useNavigate();
   const params = useParams<{ folderToken?: string }>();
@@ -39,6 +63,7 @@ export function ShareFolderWorkspace(props: { children: JSX.Element }) {
   const [entries, setEntries] = createSignal<ResolvedShareFolderEntry[]>([]);
   const [shareSlug, setShareSlug] = createSignal<string | null>(null);
   const [loaded, setLoaded] = createSignal(false);
+  const [progress, setProgress] = createSignal<ShareRoutePhase>(SHARE_FOLDER_PROGRESS.resolving);
   let requestVersion = 0;
   let pendingFolderToken: string | null = null;
   let resolvedFolderToken: string | null = null;
@@ -71,6 +96,7 @@ export function ShareFolderWorkspace(props: { children: JSX.Element }) {
     const currentRequest = ++requestVersion;
     pendingFolderToken = folderToken;
     setError(null);
+    setProgress(SHARE_FOLDER_PROGRESS.resolving);
     if (folder()?.folder_token !== folderToken) {
       setFolder(null);
       setEntries([]);
@@ -87,7 +113,9 @@ export function ShareFolderWorkspace(props: { children: JSX.Element }) {
         if (ready.kind === "bootstrap-required") {
           const shareSlug = ready.shareSlug;
           try {
+            setProgress(SHARE_FOLDER_PROGRESS.restoringSession);
             await bootstrapShareParticipantSession(shareSlug);
+            setProgress(SHARE_FOLDER_PROGRESS.resolvingAfterSession);
             ready = await resolveShareFolderRoute(folderToken);
           } catch {
             if (currentRequest === requestVersion) pendingFolderToken = null;
@@ -112,6 +140,7 @@ export function ShareFolderWorkspace(props: { children: JSX.Element }) {
         resolvedFolderToken = folderToken;
         reentryHash = ensureCanonicalShareHash(ready.shareSlug) || reentryHash;
         clearCanonicalHash();
+        setProgress(SHARE_FOLDER_PROGRESS.mountingWorkspace);
         setFolder(ready.folder);
         setEntries(ready.entries);
         setShareSlug(ready.shareSlug);
@@ -134,7 +163,7 @@ export function ShareFolderWorkspace(props: { children: JSX.Element }) {
         </div>
       ) : !loaded() ? (
         <div class="flex h-screen w-screen items-center justify-center bg-background">
-          <Spinner class="size-6" />
+          <ShareRoutePhaseContent phase={progress()} />
         </div>
       ) : folder() && shareSlug() ? (
         <ShareWorkspaceShell

@@ -1,6 +1,7 @@
 import { Show, type JSX } from "solid-js";
 import { useSettings, useUpdateSettings } from "@/entities/settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
+import { Spinner } from "@/shared/ui/spinner";
 
 const MODE_OPTIONS = [
   { value: "split", label: "Split" },
@@ -44,7 +45,14 @@ export function EditorSection() {
         <p class="text-sm text-muted-foreground">Configure the default editor behavior.</p>
       </div>
 
-      <Show when={settings.data} fallback={<p class="text-sm text-muted-foreground">Loading...</p>}>
+      <Show
+        when={settings.data}
+        fallback={
+          <div class="flex items-center justify-center py-4">
+            <Spinner class="size-5" />
+          </div>
+        }
+      >
         <div class="space-y-4">
           <SettingRow
             label="Default Editor Mode"

@@ -22,6 +22,7 @@ import { Button } from "@/shared/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
+import { ShareRoutePhaseContent, type ShareRoutePhase } from "./ShareRoutePhaseContent";
 
 function isDocumentRoot(root: ShareLandingRoot): root is { document_token: string } {
   return typeof root.document_token === "string";
@@ -32,6 +33,34 @@ function isFolderRoot(root: ShareLandingRoot): root is { folder_token: string } 
 }
 
 type PageState = "loading" | "password" | "error";
+
+const SHARE_OPEN_PROGRESS = {
+  start: {
+    label: "Opening share link",
+    detail: "Reading link material from the URL.",
+    value: 12,
+  },
+  verify: {
+    label: "Verifying share link",
+    detail: "Checking the share route and access requirements.",
+    value: 32,
+  },
+  session: {
+    label: "Preparing anonymous session",
+    detail: "Creating participant keys and restoring share access.",
+    value: 56,
+  },
+  preloading: {
+    label: "Preparing shared workspace",
+    detail: "Preloading document modules and encrypted content metadata.",
+    value: 78,
+  },
+  opening: {
+    label: "Opening shared document",
+    detail: "Switching to the canonical share workspace route.",
+    value: 92,
+  },
+} satisfies Record<string, ShareRoutePhase>;
 
 function preloadDocumentEditorModule(): void {
   void import("@/widgets/document-editor").catch(() => {});
@@ -97,6 +126,7 @@ export function ShareLandingPage() {
   const [password, setPassword] = createSignal("");
   const [pageState, setPageState] = createSignal<PageState>("loading");
   const [submittingPassword, setSubmittingPassword] = createSignal(false);
+  const [progress, setProgress] = createSignal<ShareRoutePhase>(SHARE_OPEN_PROGRESS.start);
   let pageActive = true;
   let requestVersion = 0;
   let pendingShareSlug: string | null = null;
@@ -110,6 +140,7 @@ export function ShareLandingPage() {
 
   async function navigateToCanonical(root: ShareLandingRoot, isActive: () => boolean) {
     if (!isActive()) return;
+    setProgress(SHARE_OPEN_PROGRESS.opening);
     const shareSlug = params.shareSlug;
     const hash = shareSlug ? canonicalShareHash(shareSlug) : "";
     if (isDocumentRoot(root)) {
@@ -131,6 +162,7 @@ export function ShareLandingPage() {
       void prewarmShareParticipantKeypair(shareSlug).catch(() => {});
     }
 
+    setProgress(SHARE_OPEN_PROGRESS.verify);
     const resolution = await resolveShareLandingRoute(shareSlug, {
       preferBootstrap: hasDirectBootstrapMaterial,
     });
@@ -139,6 +171,7 @@ export function ShareLandingPage() {
     switch (resolution.kind) {
       case "ready":
         if (isDocumentRoot(resolution.root)) {
+          setProgress(SHARE_OPEN_PROGRESS.preloading);
           preloadDocumentShareOpen(resolution.root.document_token, shareSlug);
         }
         await navigateToCanonical(resolution.root, isActive);
@@ -151,7 +184,9 @@ export function ShareLandingPage() {
       case "bootstrap": {
         const root = resolution.landing.root;
         let navigatedFromActiveSession = false;
+        setProgress(SHARE_OPEN_PROGRESS.session);
         if (root && isDocumentRoot(root)) {
+          setProgress(SHARE_OPEN_PROGRESS.preloading);
           preloadShareDocumentPageModule();
           preloadDocumentEditorModule();
           preloadDocumentSyncBootstrapModule();
@@ -160,6 +195,7 @@ export function ShareLandingPage() {
           landing: resolution.landing,
           onActiveSessionReady: ({ bootstrap: activeBootstrap }) => {
             if (isDocumentRoot(activeBootstrap.root)) {
+              setProgress(SHARE_OPEN_PROGRESS.preloading);
               preloadDocumentShareOpen(
                 activeBootstrap.root.document_token,
                 shareSlug,
@@ -174,6 +210,7 @@ export function ShareLandingPage() {
         });
         if (!isActive() || navigatedFromActiveSession) return;
         if (isDocumentRoot(bootstrap.root)) {
+          setProgress(SHARE_OPEN_PROGRESS.preloading);
           preloadDocumentShareOpen(
             bootstrap.root.document_token,
             shareSlug,
@@ -247,6 +284,7 @@ export function ShareLandingPage() {
     setError(null);
     setPassword("");
     setPageState("loading");
+    setProgress(SHARE_OPEN_PROGRESS.start);
 
     const isActive = () =>
       pageActive && currentRequest === requestVersion && params.shareSlug === shareSlug;
@@ -275,7 +313,7 @@ export function ShareLandingPage() {
           pageState() === "error" ? (
             <div class="text-sm text-muted-foreground">{error()}</div>
           ) : (
-            <Spinner class="size-6" />
+            <ShareRoutePhaseContent phase={progress()} />
           )
         }
       >

@@ -13,6 +13,7 @@ import {
   getShareMountForRoute,
   openMountedShareDocument,
   respondShareMountPasswordChallenge,
+  ShareRoutePhaseContent,
 } from "@/features/share";
 import { getRateLimitRetryMs } from "@/shared/api";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -244,7 +245,22 @@ export function MountedShareWorkspace(props: { fallback: JSX.Element }) {
     <Show
       when={lockedDetail()}
       fallback={
-        <Show when={routeError()} fallback={props.fallback}>
+        <Show
+          when={routeError()}
+          fallback={
+            <Show when={pendingRouteKey()} fallback={props.fallback}>
+              <main class="flex min-h-screen items-center justify-center p-6">
+                <ShareRoutePhaseContent
+                  phase={{
+                    label: "Opening saved share",
+                    detail: "Restoring the mount trust anchor and document route.",
+                    value: 64,
+                  }}
+                />
+              </main>
+            </Show>
+          }
+        >
           {(message) => (
             <main class="flex min-h-screen items-center justify-center p-6">
               <div class="w-full max-w-md border border-border/60 bg-background/60 p-8 shadow-[var(--glass-shadow-outline)] backdrop-blur">

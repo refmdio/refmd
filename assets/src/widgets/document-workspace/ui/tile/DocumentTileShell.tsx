@@ -1,5 +1,4 @@
 import { Show, createSignal, createEffect, onCleanup, type ParentProps } from "solid-js";
-import { Spinner } from "@/shared/ui/spinner";
 import { AlertCircleIcon } from "lucide-solid";
 import { currentWorkspaceId } from "@/entities/workspace";
 import {
@@ -11,6 +10,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { PasswordReentryDialog } from "@/features/auth";
 import { offlineMode } from "@/shared/lib/offline/offline-state";
+import { DocumentTilePhaseContent } from "./DocumentTilePhaseContent";
 import { readInitializedDocumentPreviewText } from "./document-preview";
 
 interface DocumentTileShellProps {
@@ -154,7 +154,11 @@ function DocumentLoadingFallback(props: { stateKey: string }) {
       when={visiblePreviewText()}
       fallback={
         <div class="flex items-center justify-center h-full bg-background">
-          <Spinner class="size-6" />
+          <DocumentTilePhaseContent
+            label="Mounting document editor"
+            detail="Preparing encrypted content, sync state, and editor DOM."
+            value={68}
+          />
         </div>
       }
     >
@@ -455,11 +459,13 @@ export function DocumentTileShell(props: ParentProps<DocumentTileShellProps>) {
               active={!isLoading() && !showWarmCacheLoadingOverlay()}
             />
             <Show when={showWarmCacheLoadingOverlay()}>
-              <div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/55 backdrop-blur-[1px]">
-                <Spinner class="size-5" />
-                <p class="text-xs text-muted-foreground">
-                  Showing cached content while loading the latest version...
-                </p>
+              <div class="absolute inset-0 z-10 flex items-center justify-center bg-background/55 p-6 backdrop-blur-[1px]">
+                <DocumentTilePhaseContent
+                  label="Refreshing document content"
+                  detail="Showing cached content while syncing the latest version."
+                  value={82}
+                  class="max-w-xs"
+                />
               </div>
             </Show>
           </div>
