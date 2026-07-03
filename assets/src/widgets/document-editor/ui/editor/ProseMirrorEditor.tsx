@@ -27,6 +27,7 @@ import { proseMirrorDocToMarkdown } from "../../lib/prosemirror/markdown-to";
 import { SlashMenu } from "./SlashMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 
+import "@/shared/lib/markdown/markdown-surface.css";
 import "./prosemirror-editor.css";
 
 interface ProseMirrorEditorProps {
@@ -252,6 +253,9 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
     const editorView = new EditorView(containerEl, {
       state,
+      attributes: {
+        class: "refmd-markdown-surface refmd-editor-readable-surface",
+      },
       editable: () => !props.readOnly,
       dispatchTransaction(tr) {
         if (destroyed) return;
@@ -470,10 +474,12 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
         />
         <Show when={previewText().trim().length > 0}>
           <div
-            class="pointer-events-none absolute inset-0 overflow-auto bg-background px-6 py-5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+            class="pointer-events-none absolute inset-0 overflow-auto bg-background text-foreground"
             data-refmd-content-preview="true"
           >
-            {previewText()}
+            <div class="refmd-editor-readable-surface px-[3.25rem] py-4 whitespace-pre-wrap break-words text-sm leading-6">
+              {previewText()}
+            </div>
           </div>
         </Show>
       </div>

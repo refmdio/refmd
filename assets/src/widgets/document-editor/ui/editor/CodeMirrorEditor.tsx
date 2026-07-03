@@ -50,8 +50,13 @@ function createEditorTheme(dark: boolean) {
         fontFamily: "var(--font-mono)",
       },
       ".cm-content": {
+        boxSizing: "border-box",
+        minWidth: "0",
         padding: "1rem",
         caretColor: "var(--foreground)",
+      },
+      ".cm-line": {
+        overflowWrap: "anywhere",
       },
       ".cm-cursor": {
         borderLeftColor: "var(--foreground)",
@@ -164,6 +169,7 @@ function createBaseExtensions(): Extension[] {
     lineNumbers(),
     highlightActiveLineGutter(),
     highlightSpecialChars(),
+    EditorView.lineWrapping,
     drawSelection(),
     dropCursor(),
     EditorState.allowMultipleSelections.of(true),

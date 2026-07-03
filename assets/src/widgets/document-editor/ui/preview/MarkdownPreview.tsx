@@ -92,10 +92,12 @@ export function MarkdownPreview(props: MarkdownPreviewProps) {
         containerEl = el;
         createPreview(props.stateKey);
       }}
-      class="h-full overflow-auto bg-background px-6 py-5 select-text"
+      class="h-full overflow-auto bg-background select-text"
       data-testid="markdown-preview"
     >
-      <MarkdownView root={root()} />
+      <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
+        <MarkdownView root={root()} />
+      </div>
     </div>
   );
 }

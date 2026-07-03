@@ -19,7 +19,7 @@ import type {
   Text,
 } from "mdast";
 import { parseMarkdownRoot } from "./parse";
-import "./markdown-view.css";
+import "./markdown-surface.css";
 
 export type MarkdownViewHeading = {
   id: string;
@@ -196,5 +196,9 @@ export function markdownViewHeadings(root: Root): MarkdownViewHeading[] {
 }
 
 export function MarkdownView(props: { root: Root }) {
-  return <div class="refmd-markdown-view">{renderBlockChildren(props.root.children)}</div>;
+  return (
+    <div class="refmd-markdown-view refmd-markdown-surface">
+      {renderBlockChildren(props.root.children)}
+    </div>
+  );
 }

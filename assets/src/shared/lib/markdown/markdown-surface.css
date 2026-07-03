@@ -1,17 +1,18 @@
-.refmd-markdown-view {
+.refmd-markdown-surface {
   outline: none;
   min-height: 0;
   line-height: 1.5;
   font-size: 16px;
+  color: var(--foreground);
 }
 
-.refmd-markdown-view,
-.refmd-markdown-view * {
+.refmd-markdown-surface,
+.refmd-markdown-surface * {
   user-select: text;
   -webkit-user-select: text;
 }
 
-.refmd-markdown-view h1 {
+.refmd-markdown-surface h1 {
   font-size: 1.875rem;
   font-weight: 700;
   margin: 0.125rem 0;
@@ -19,7 +20,7 @@
   scroll-margin-top: 5rem;
 }
 
-.refmd-markdown-view h2 {
+.refmd-markdown-surface h2 {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0.125rem 0;
@@ -27,8 +28,8 @@
   scroll-margin-top: 5rem;
 }
 
-.refmd-markdown-view h3,
-.refmd-markdown-view h4 {
+.refmd-markdown-surface h3,
+.refmd-markdown-surface h4 {
   font-size: 1.25rem;
   font-weight: 600;
   margin: 0.125rem 0;
@@ -36,19 +37,20 @@
   scroll-margin-top: 5rem;
 }
 
-.refmd-markdown-view p {
+.refmd-markdown-surface p {
   margin: 0.125rem 0;
 }
 
-.refmd-markdown-view blockquote {
+.refmd-markdown-surface blockquote {
   border-left: 3px solid var(--border);
   padding-left: 1rem;
   margin: 0.5rem 0;
   color: var(--muted-foreground);
 }
 
-.refmd-markdown-view pre {
+.refmd-markdown-surface pre {
   background: var(--muted);
+  border-radius: 0.375rem;
   padding: 0.75rem 1rem;
   margin: 0.5rem 0;
   overflow-x: auto;
@@ -58,65 +60,75 @@
   line-height: 1.6;
 }
 
-.refmd-markdown-view pre code {
+.refmd-markdown-surface pre code {
   background: none;
   padding: 0;
+  border-radius: 0;
   font-size: inherit;
 }
 
-.refmd-markdown-view code {
+.refmd-markdown-surface code {
   background: var(--muted);
+  border-radius: 0.25rem;
   padding: 0.125rem 0.375rem;
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.875em;
 }
 
-.refmd-markdown-view ul,
-.refmd-markdown-view ol {
+.refmd-markdown-surface ul,
+.refmd-markdown-surface ol {
   margin: 0.25rem 0;
   padding-left: 1.5rem;
 }
 
-.refmd-markdown-view ul {
+.refmd-markdown-surface ul {
   list-style-type: disc;
 }
 
-.refmd-markdown-view ol {
+.refmd-markdown-surface ol {
   list-style-type: decimal;
 }
 
-.refmd-markdown-view li {
+.refmd-markdown-surface li {
   margin: 0.125rem 0;
 }
 
-.refmd-markdown-view li p {
+.refmd-markdown-surface li p {
   margin: 0;
 }
 
-.refmd-markdown-view hr {
+.refmd-markdown-surface hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 1rem 0;
 }
 
-.refmd-markdown-view a {
+.refmd-markdown-surface a {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.refmd-markdown-view a:hover {
+.refmd-markdown-surface a:hover {
   opacity: 0.8;
 }
 
-.refmd-markdown-view img {
+.refmd-markdown-surface img {
   max-width: 100%;
   height: auto;
+  border-radius: 0.375rem;
   margin: 0.5rem 0;
 }
 
-.refmd-markdown-view del {
+.refmd-markdown-surface del {
   text-decoration: line-through;
   opacity: 0.65;
+}
+
+.refmd-editor-readable-surface {
+  box-sizing: border-box;
+  max-width: var(--refmd-editor-readable-width);
+  margin-right: auto;
+  margin-left: auto;
 }
