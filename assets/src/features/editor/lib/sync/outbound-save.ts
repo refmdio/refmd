@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { encodeCanonicalStateAsUpdate } from "@/shared/lib/yjs/canonical-document";
 import { getNextClockForDevice } from "@/shared/lib/anti-rollback/clock-observations";
 import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
@@ -288,7 +289,7 @@ export async function handleUpdateSaved(
     const serverDoc = new Y.Doc();
     Y.applyUpdate(serverDoc, state.lastSavedState, "remote");
     Y.applyUpdate(serverDoc, state.pendingUpdateBytes, "remote");
-    state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
+    state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
     serverDoc.destroy();
   }
   state.pendingUpdateBytes = null;
@@ -411,7 +412,7 @@ export async function handleSnapshotSaved(
 
   const serverDoc = new Y.Doc();
   Y.applyUpdateV2(serverDoc, pendingSnapshot.snapshotYjsState, "remote");
-  state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
+  state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
   serverDoc.destroy();
   state.snapshotUpdatesCount = 0;
   state.snapshotBaseClocks = { ...pendingSnapshot.knownClocksAtSend };

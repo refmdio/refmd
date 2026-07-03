@@ -184,52 +184,8 @@ declare global {
   }
 }
 
-const E2E_PREVIEW_BLOCK_NODE_NAMES = new Set([
-  "blockquote",
-  "code_block",
-  "heading",
-  "list_item",
-  "ordered_list",
-  "paragraph",
-  "bullet_list",
-]);
-
-type E2EXmlPreviewNode = Y.XmlElement | Y.XmlText | Y.XmlHook;
-
-function appendE2EPreviewBoundary(parts: string[]): void {
-  if (parts.length === 0) return;
-  const last = parts[parts.length - 1] ?? "";
-  if (!last.endsWith("\n")) parts.push("\n");
-}
-
-function readE2EXmlNodeText(node: E2EXmlPreviewNode, parts: string[]): void {
-  const children = (node as { toArray?: () => E2EXmlPreviewNode[] }).toArray;
-  if (typeof children === "function") {
-    const nodeName = (node as { nodeName?: string }).nodeName;
-    const isBlock = typeof nodeName === "string" && E2E_PREVIEW_BLOCK_NODE_NAMES.has(nodeName);
-    if (isBlock) appendE2EPreviewBoundary(parts);
-    for (const child of children.call(node)) readE2EXmlNodeText(child, parts);
-    if (isBlock) appendE2EPreviewBoundary(parts);
-    return;
-  }
-
-  const text = (node as { toString?: () => string }).toString?.() ?? "";
-  if (text.length > 0) parts.push(text);
-}
-
 function readE2EDocumentText(doc: Y.Doc): string {
-  const sharedText = doc.getText("content").toString();
-  if (sharedText.trim().length > 0) return sharedText;
-
-  const parts: string[] = [];
-  for (const node of doc.getXmlFragment("prosemirror").toArray()) {
-    readE2EXmlNodeText(node as E2EXmlPreviewNode, parts);
-  }
-  return parts
-    .join("")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return doc.getText("content").toString();
 }
 
 function installE2EEditorHook(): void {

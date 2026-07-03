@@ -23,6 +23,7 @@ import { pluginRendererSlotPlugin } from "../../lib/prosemirror/plugin-renderer-
 import { INACTIVE, slashCommandsPlugin } from "../../lib/prosemirror/plugin-slash-commands";
 import type { SlashCommand, SlashMenuState } from "../../lib/prosemirror/plugin-slash-commands";
 import { readYDocMarkdownPreview } from "../../lib/prosemirror/preview-text";
+import { createLocalProseMirrorBridgeDoc } from "../../lib/prosemirror/shared-text-bridge";
 import { proseMirrorDocToMarkdown } from "../../lib/prosemirror/markdown-to";
 import { SlashMenu } from "./SlashMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
@@ -101,6 +102,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   let destroyCollab: (() => void) | undefined;
   let cleanupYTextRenderRefresh: (() => void) | undefined;
   let cleanupRemoteContentReady: (() => void) | undefined;
+  let cleanupLocalBridgeDoc: (() => void) | undefined;
   let unsubScroll: (() => void) | undefined;
   let previewFrame: number | null = null;
   let renderRefreshFrame: number | null = null;
@@ -115,12 +117,10 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
   function setInitialPreviewText(yDoc: Y.Doc) {
     const sharedTextLength = yDoc.getText("content").length;
-    const sharedProseMirrorLength = yDoc.getXmlFragment("prosemirror").length;
     const text = readYDocMarkdownPreview(yDoc);
     recordEditorPerf("prosemirror_preview_computed", {
       documentId: props.documentId,
       previewTextLength: text.length,
-      sharedProseMirrorLength,
       sharedTextLength,
     });
     setPreviewText(
@@ -204,6 +204,8 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     view = undefined;
     undoManager?.destroy();
     undoManager = undefined;
+    cleanupLocalBridgeDoc?.();
+    cleanupLocalBridgeDoc = undefined;
     setCurrentView(null);
     slashPlugin = null;
     if (activeStateKey) {
@@ -216,12 +218,14 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     if (!containerEl) return;
     const rootEl = containerEl;
 
-    const { yDoc, awareness } = acquireYDoc(stateKey);
+    const { yDoc: sharedYDoc, awareness } = acquireYDoc(stateKey);
     activeStateKey = stateKey;
-    setInitialPreviewText(yDoc);
+    setInitialPreviewText(sharedYDoc);
+    const localBridgeDoc = createLocalProseMirrorBridgeDoc(sharedYDoc);
+    cleanupLocalBridgeDoc = localBridgeDoc.dispose;
 
     const collab = setupCollabPlugins({
-      yDoc,
+      yDoc: localBridgeDoc.yDoc,
       schema: markdownSchema,
       awareness,
     });
@@ -264,8 +268,9 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
         editorView.updateState(newState);
 
         if (tr.docChanged) {
+          const isYjsSyncChange = collab.bridge.isYjsSyncChange(tr);
           props.onDocChange?.({
-            persist: editorView.hasFocus() || !collab.bridge.isYjsSyncChange(tr),
+            persist: !isYjsSyncChange && editorView.hasFocus(),
           });
         }
 
@@ -286,7 +291,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     });
     setCurrentView(editorView);
     schedulePreviewClear(editorView);
-    const yText = yDoc.getText("content");
+    const yText = localBridgeDoc.yText;
     const scheduleRenderRefresh = () => {
       clearRenderRefreshFrame();
       renderRefreshFrame = requestAnimationFrame(() => {
@@ -305,7 +310,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const reconcileRemoteContent = () => {
       const editorView = view;
       if (!editorView || activeStateKey !== stateKey) return;
-      const expectedText = readYDocMarkdownPreview(yDoc);
+      const expectedText = yText.toString();
       if (expectedText.trim().length === 0) return;
       const editorText = proseMirrorDocToMarkdown(editorView.state.doc);
       const renderedText = editorView.dom.innerText || editorView.dom.textContent || "";

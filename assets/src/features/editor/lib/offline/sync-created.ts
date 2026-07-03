@@ -1,4 +1,9 @@
 import * as Y from "yjs";
+import {
+  encodeCanonicalStateAsUpdate,
+  encodeCanonicalStateAsUpdateV2,
+  encodeCanonicalStateVector,
+} from "@/shared/lib/yjs/canonical-document";
 import { getKekResolverSession } from "@/entities/session";
 import { acquireDocumentState, getDocumentState } from "../../model/document-state/store";
 import { releaseDocumentState } from "../../model/document-state/lifecycle";
@@ -144,7 +149,7 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
   try {
     const liveState = getDocumentState(entry.documentId);
     if (liveState) {
-      Y.applyUpdate(yDoc, Y.encodeStateAsUpdate(liveState.yDoc));
+      Y.applyUpdate(yDoc, encodeCanonicalStateAsUpdate(liveState.yDoc));
     } else {
       const cacheEntry = await getDocumentCache(entry.documentId);
       if (cacheEntry) {
@@ -196,7 +201,7 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
     );
     disposeChannel = dispose;
 
-    const yjsState = Y.encodeStateAsUpdateV2(yDoc);
+    const yjsState = encodeCanonicalStateAsUpdateV2(yDoc);
     const snapshotId = crypto.randomUUID();
     const { ciphertext, nonce } = await worker.encryptSnapshot({
       plaintext: yjsState,
@@ -335,7 +340,7 @@ async function persistConfirmedOfflineCreatedState(
     await advanceKeyDirectoryPinWithProof(keyDirectoryAdvance);
 
     const worker = getCryptoWorker();
-    const confirmedState = Y.encodeStateAsUpdate(yDoc);
+    const confirmedState = encodeCanonicalStateAsUpdate(yDoc);
     const { ciphertext: cachedCt, nonce: cachedNonce } = await worker.encryptOfflineCache({
       plaintext: confirmedState,
       documentId: entry.documentId,
@@ -349,7 +354,7 @@ async function persistConfirmedOfflineCreatedState(
       encryptedState: cachedCt,
       stateNonce: cachedNonce,
       keyVersion: entry.dekKeyVersion,
-      confirmedStateVector: Y.encodeStateVector(yDoc),
+      confirmedStateVector: encodeCanonicalStateVector(yDoc),
       confirmedSnapshotId: snapshotId,
       confirmedVersion: 0,
       confirmedClocks: {},

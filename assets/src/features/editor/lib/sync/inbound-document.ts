@@ -6,6 +6,11 @@ import { hasCompleteSnapshotPin } from "@/shared/lib/anti-rollback/document-stat
 import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapshot-proof";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import {
+  encodeCanonicalDiffAsUpdate,
+  encodeCanonicalStateAsUpdate,
+  replaceDocWithCanonicalMarkdown,
+} from "@/shared/lib/yjs/canonical-document";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   documentOperationAuthorityBoundary,
@@ -53,6 +58,23 @@ import {
   writeSessionCacheKey,
 } from "./inbound-verify-decrypt";
 import { nextLocalClockForDevice } from "./local-clock";
+
+function isLiveDocumentEmpty(doc: Y.Doc): boolean {
+  return doc.getText("content").length === 0 && doc.getXmlFragment("prosemirror").length === 0;
+}
+
+function applyCanonicalServerDocToLive(
+  state: DocumentState,
+  serverDoc: Y.Doc,
+  origin: unknown,
+): void {
+  if (isLiveDocumentEmpty(state.yDoc) || !state.lastSavedState) {
+    replaceDocWithCanonicalMarkdown(state.yDoc, serverDoc, origin);
+    return;
+  }
+
+  Y.applyUpdate(state.yDoc, encodeCanonicalDiffAsUpdate(serverDoc, state.lastSavedState), origin);
+}
 
 // ── Initial document load ────────────────────────────────────
 // Pattern: decrypt all async FIRST, then apply atomically in transact
@@ -336,17 +358,23 @@ export async function handleDocumentMessage(
     throw createRollbackAttackError("Version regression detected");
   }
 
+  // Rebuild the server baseline in a side document and copy only canonical
+  // Markdown text into the live editor doc. ProseMirror XML is UI-derived.
+  const isDeltaSameSnapshot = !payload.snapshot && state.activeSnapshotId !== null;
+  const serverDoc = new Y.Doc();
+  if (decryptedSnapshot) {
+    Y.applyUpdateV2(serverDoc, decryptedSnapshot, "remote");
+  } else if (isDeltaSameSnapshot && state.lastSavedState) {
+    Y.applyUpdate(serverDoc, state.lastSavedState, "remote");
+  }
+  for (const { decrypted } of decryptedUpdates) {
+    Y.applyUpdate(serverDoc, decrypted, "remote");
+  }
+
   // Apply atomically inside the transaction without awaits.
   state._applyingRemote = true;
   try {
-    state.yDoc.transact(() => {
-      if (decryptedSnapshot) {
-        Y.applyUpdateV2(state.yDoc, decryptedSnapshot, "remote");
-      }
-      for (const { decrypted } of decryptedUpdates) {
-        Y.applyUpdate(state.yDoc, decrypted, "remote");
-      }
-    }, "remote");
+    applyCanonicalServerDocToLive(state, serverDoc, "remote");
   } finally {
     state._applyingRemote = false;
   }
@@ -371,18 +399,8 @@ export async function handleDocumentMessage(
   // Build lastSavedState from server data only (decoded snapshot + updates, not live Y.Doc).
   // For same-snapshot delta reconnect (snapshot: null, already initialized),
   // preserve existing lastSavedState and update count — only apply delta to Y.Doc.
-  const isDeltaSameSnapshot = !payload.snapshot && state.activeSnapshotId !== null;
   if (!isDeltaSameSnapshot) {
-    const serverDoc = new Y.Doc();
-    if (decryptedSnapshot) {
-      Y.applyUpdateV2(serverDoc, decryptedSnapshot, "remote");
-    }
-    for (const { decrypted } of decryptedUpdates) {
-      Y.applyUpdate(serverDoc, decrypted, "remote");
-    }
-    state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
-    serverDoc.destroy();
-
+    state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
     state.snapshotUpdatesCount = payload.updates.length;
   } else {
     // Delta reconnect: update lastSavedState incrementally with delta updates
@@ -392,11 +410,12 @@ export async function handleDocumentMessage(
       for (const { decrypted } of decryptedUpdates) {
         Y.applyUpdate(trackingDoc, decrypted, "remote");
       }
-      state.lastSavedState = Y.encodeStateAsUpdate(trackingDoc);
+      state.lastSavedState = encodeCanonicalStateAsUpdate(trackingDoc);
       trackingDoc.destroy();
     }
     state.snapshotUpdatesCount += payload.updates.length;
   }
+  serverDoc.destroy();
   recordSyncPerf("initial_saved_baseline_ready", {
     documentId,
     elapsedMs: performance.now() - startedAt,
@@ -595,9 +614,21 @@ export async function handleRemoteUpdate(
     elapsedMs: performance.now() - receivedAt,
   });
 
+  let trackingDoc: Y.Doc | null = null;
+  if (state.lastSavedState) {
+    trackingDoc = new Y.Doc();
+    Y.applyUpdate(trackingDoc, state.lastSavedState, "remote");
+    Y.applyUpdate(trackingDoc, result.decrypted, "remote");
+  }
+
   state._applyingRemote = true;
   try {
-    Y.applyUpdate(state.yDoc, result.decrypted, "remote");
+    if (trackingDoc) {
+      applyCanonicalServerDocToLive(state, trackingDoc, "remote");
+    } else {
+      Y.applyUpdate(state.yDoc, result.decrypted, "remote");
+      replaceDocWithCanonicalMarkdown(state.yDoc, state.yDoc, "remote");
+    }
   } finally {
     state._applyingRemote = false;
   }
@@ -632,12 +663,11 @@ export async function handleRemoteUpdate(
   state.confirmedClocks[result.deviceKey] = result.clock;
 
   // Update lastSavedState: reuse decrypted bytes (no re-decryption)
-  if (state.lastSavedState) {
-    const trackingDoc = new Y.Doc();
-    Y.applyUpdate(trackingDoc, state.lastSavedState, "remote");
-    Y.applyUpdate(trackingDoc, result.decrypted, "remote");
-    state.lastSavedState = Y.encodeStateAsUpdate(trackingDoc);
+  if (trackingDoc) {
+    state.lastSavedState = encodeCanonicalStateAsUpdate(trackingDoc);
     trackingDoc.destroy();
+  } else {
+    state.lastSavedState = encodeCanonicalStateAsUpdate(state.yDoc);
   }
 
   // Invalidate pre-send rollback state since server baseline has advanced
@@ -913,9 +943,12 @@ export async function handleRemoteSnapshot(
     (update) => update.publicData.refSnapshotId !== previousActiveSnapshotId,
   );
 
+  const serverDoc = new Y.Doc();
+  Y.applyUpdateV2(serverDoc, decrypted, "remote");
+
   state._applyingRemote = true;
   try {
-    Y.applyUpdateV2(state.yDoc, decrypted, "remote");
+    applyCanonicalServerDocToLive(state, serverDoc, "remote");
   } finally {
     state._applyingRemote = false;
   }
@@ -939,9 +972,7 @@ export async function handleRemoteSnapshot(
   state.localClock = nextLocalClockForDevice(state.knownClocks, state, getLocalSigningKeyId(state));
 
   // Build lastSavedState from server data only (not live Y.Doc which may have local edits)
-  const serverDoc = new Y.Doc();
-  Y.applyUpdateV2(serverDoc, decrypted, "remote");
-  state.lastSavedState = Y.encodeStateAsUpdate(serverDoc);
+  state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
   serverDoc.destroy();
 
   // Persist anti-rollback pin

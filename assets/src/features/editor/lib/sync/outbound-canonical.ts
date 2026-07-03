@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { encodeCanonicalStateAsUpdate } from "@/shared/lib/yjs/canonical-document";
 import type { DocumentState } from "../../model/document-state/types";
 
 function textFromUpdate(update: Uint8Array | null): string | null {
@@ -19,5 +20,5 @@ export function hasUnsavedCanonicalText(state: DocumentState): boolean {
 }
 
 export function refreshSavedBaselineToCurrent(state: DocumentState): void {
-  state.lastSavedState = Y.encodeStateAsUpdate(state.yDoc);
+  state.lastSavedState = encodeCanonicalStateAsUpdate(state.yDoc);
 }

@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { encodeCanonicalStateAsUpdate } from "@/shared/lib/yjs/canonical-document";
 import {
   getDocumentCache,
   getOfflineDek,
@@ -62,7 +63,7 @@ export async function recoverDocumentFromCache(
       });
       Y.applyUpdate(yDoc, decryptedDiff);
     }
-    const confirmedBaseState = Y.encodeStateAsUpdate(yDoc);
+    const confirmedBaseState = encodeCanonicalStateAsUpdate(yDoc);
     return {
       yDoc,
       confirmedBaseState,
@@ -131,7 +132,9 @@ export async function recoverDocumentFromCache(
     Y.applyUpdate(yDoc, decryptedDiff);
     hasPending = true;
   }
-  const recoveredConfirmedBaseState = confirmedBaseState ?? (hasPending ? null : decryptedState);
+  const recoveredConfirmedBaseState = canonicalizeRecoveredBaseState(
+    confirmedBaseState ?? (hasPending ? null : decryptedState),
+  );
 
   return {
     yDoc,
@@ -146,4 +149,15 @@ export async function recoverDocumentFromCache(
     workspaceId: cacheEntry.workspaceId,
     hasPendingChanges: hasPending,
   };
+}
+
+function canonicalizeRecoveredBaseState(update: Uint8Array | null): Uint8Array | null {
+  if (!update) return null;
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, update, "remote");
+    return encodeCanonicalStateAsUpdate(doc);
+  } finally {
+    doc.destroy();
+  }
 }

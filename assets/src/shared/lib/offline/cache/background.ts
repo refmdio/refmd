@@ -22,6 +22,10 @@ import {
 import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import * as Y from "yjs";
 import {
+  encodeCanonicalStateAsUpdate,
+  encodeCanonicalStateVector,
+} from "@/shared/lib/yjs/canonical-document";
+import {
   getOfflineDocumentMeta,
   getAllOfflineDocumentMetas,
   getDocumentCache,
@@ -308,7 +312,7 @@ async function cacheDocumentSilently(
             }
           }
           // Encrypt and cache
-          const yjsState = Y.encodeStateAsUpdate(yDoc);
+          const yjsState = encodeCanonicalStateAsUpdate(yDoc);
           const { ciphertext, nonce } = await worker.encryptOfflineCache({
             plaintext: yjsState,
             documentId,
@@ -336,7 +340,7 @@ async function cacheDocumentSilently(
             encryptedState: ciphertext,
             stateNonce: nonce,
             keyVersion: activeDek.key_version,
-            confirmedStateVector: Y.encodeStateVector(yDoc),
+            confirmedStateVector: encodeCanonicalStateVector(yDoc),
             confirmedSnapshotId: snapshotId,
             confirmedVersion,
             confirmedClocks,

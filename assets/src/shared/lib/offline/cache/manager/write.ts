@@ -1,6 +1,11 @@
 import * as Y from "yjs";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import {
+  encodeCanonicalDiffAsUpdate,
+  encodeCanonicalStateAsUpdate,
+  encodeCanonicalStateVector,
+} from "@/shared/lib/yjs/canonical-document";
+import {
   deletePendingChanges,
   getDocumentCache,
   getOfflineDocumentMeta,
@@ -37,7 +42,7 @@ export async function cacheDocumentState(
   try {
     const worker = options.worker ?? getCryptoWorker();
     const confirmedState = state.lastSavedState;
-    const fullState = confirmedState ?? Y.encodeStateAsUpdate(state.yDoc);
+    const fullState = confirmedState ?? encodeCanonicalStateAsUpdate(state.yDoc);
     const { ciphertext, nonce } = await worker.encryptOfflineCache({
       plaintext: fullState,
       documentId,
@@ -47,7 +52,7 @@ export async function cacheDocumentState(
     const encryptedConfirmedState = confirmedState ? { ciphertext, nonce } : null;
     const confirmedStateVector = state.lastSavedState
       ? Y.encodeStateVectorFromUpdate(state.lastSavedState)
-      : (state._cachedConfirmedStateVector ?? Y.encodeStateVector(state.yDoc));
+      : (state._cachedConfirmedStateVector ?? encodeCanonicalStateVector(state.yDoc));
     entry = {
       documentId,
       workspaceId,
@@ -110,13 +115,7 @@ export async function cachePendingChanges(
 ): Promise<void> {
   let pendingEntry: PendingChangesEntry | null = null;
   try {
-    const confirmedVector = state.lastSavedState
-      ? Y.encodeStateVectorFromUpdate(state.lastSavedState)
-      : (state._cachedConfirmedStateVector ?? new Uint8Array(0));
-    const diff =
-      confirmedVector.length > 0
-        ? Y.encodeStateAsUpdate(state.yDoc, confirmedVector)
-        : Y.encodeStateAsUpdate(state.yDoc);
+    const diff = encodeCanonicalDiffAsUpdate(state.yDoc, state.lastSavedState);
     if (diff.length <= 2) {
       await deletePendingChanges(documentId).catch(() => {});
       const meta = await getOfflineDocumentMeta(documentId).catch(() => null);

@@ -39,14 +39,11 @@ export function MarkdownPreview(props: MarkdownPreviewProps) {
     const rootEl = containerEl;
     const { yDoc } = acquireYDoc(stateKey);
     const yText = ensureYDocMarkdownText(yDoc);
-    const yProseMirror = yDoc.getXmlFragment("prosemirror");
     activeStateKey = stateKey;
 
     const refreshMarkdown = () => setMarkdown(readYDocMarkdownPreview(yDoc));
-    const refreshProseMirrorMarkdown = () => refreshMarkdown();
     refreshMarkdown();
     yText.observe(refreshMarkdown);
-    yProseMirror.observeDeep(refreshProseMirrorMarkdown);
 
     const groupId = props.scrollGroupId;
     const handleScroll = () => {
@@ -72,7 +69,6 @@ export function MarkdownPreview(props: MarkdownPreviewProps) {
 
     cleanupPreview = () => {
       yText.unobserve(refreshMarkdown);
-      yProseMirror.unobserveDeep(refreshProseMirrorMarkdown);
       rootEl.removeEventListener("scroll", handleScroll);
     };
   }

@@ -5,6 +5,10 @@ import { setWsConnected } from "@/shared/lib/offline/offline-state";
 import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import { getChannelState, pushSnapshot, pushUpdate } from "@/shared/lib/ws/phoenix-channel";
+import {
+  encodeCanonicalDiffAsUpdate,
+  encodeCanonicalStateAsUpdate,
+} from "@/shared/lib/yjs/canonical-document";
 import { removeAwarenessStates } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { notifyAwarenessReady } from "../../model/document-state/signals";
@@ -31,19 +35,12 @@ function isChannelJoined(state: DocumentState): boolean {
 
 function buildUnsavedLocalUpdate(state: DocumentState): Uint8Array | null {
   if (!state.lastSavedState) {
-    const fullState = Y.encodeStateAsUpdate(state.yDoc);
+    const fullState = encodeCanonicalStateAsUpdate(state.yDoc);
     return fullState.length > 2 ? fullState : null;
   }
 
-  const savedDoc = new Y.Doc();
-  try {
-    Y.applyUpdate(savedDoc, state.lastSavedState, "remote");
-    const savedVector = Y.encodeStateVector(savedDoc);
-    const update = Y.encodeStateAsUpdate(state.yDoc, savedVector);
-    return update.length > 2 ? update : null;
-  } finally {
-    savedDoc.destroy();
-  }
+  const update = encodeCanonicalDiffAsUpdate(state.yDoc, state.lastSavedState);
+  return update.length > 2 ? update : null;
 }
 
 export async function resumeReconnectDocument(

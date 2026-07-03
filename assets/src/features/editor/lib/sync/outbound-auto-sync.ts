@@ -1,9 +1,12 @@
-import * as Y from "yjs";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { deviceState } from "@/entities/session";
 import { clientError } from "@/shared/lib/logger";
 import { getChannelState, pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
 import { getDocumentVerificationCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
+import {
+  encodeCanonicalDiffAsUpdate,
+  encodeCanonicalStateAsUpdateV2,
+} from "@/shared/lib/yjs/canonical-document";
 import type { AutoSyncHandle, DocumentState } from "../../model/document-state/types";
 import type { WriteSessionState } from "../../model/document-state/types";
 import {
@@ -624,27 +627,13 @@ async function sendPendingChanges(
       return;
     }
 
-    // Compute diff from last saved state
-    let updateBytes: Uint8Array;
-    if (state.lastSavedState) {
-      const tempDoc = new Y.Doc();
-      Y.applyUpdate(tempDoc, state.lastSavedState);
-      const savedVector = Y.encodeStateVector(tempDoc);
-      updateBytes = Y.encodeStateAsUpdate(state.yDoc, savedVector);
-      tempDoc.destroy();
-
-      if (updateBytes.length <= 2) {
-        refreshSavedBaselineToCurrent(state);
-        state.sending = false;
-        return;
-      }
-    } else {
-      updateBytes = Y.encodeStateAsUpdate(state.yDoc);
-      if (updateBytes.length <= 2) {
-        refreshSavedBaselineToCurrent(state);
-        state.sending = false;
-        return;
-      }
+    // Compute a canonical Markdown diff. ProseMirror XML is a WYSIWYG-derived view state and
+    // must not be persisted into document updates.
+    const updateBytes = encodeCanonicalDiffAsUpdate(state.yDoc, state.lastSavedState);
+    if (updateBytes.length <= 2) {
+      refreshSavedBaselineToCurrent(state);
+      state.sending = false;
+      return;
     }
     recordSyncPerf("update_encoded", {
       documentId,
@@ -843,8 +832,8 @@ async function createAndSendGenesisSnapshot(
     await ensureSharedDekCached(state, documentId, state.keyVersion);
   }
 
-  // Encode full Y.Doc state (V2 format)
-  const yjsState = Y.encodeStateAsUpdateV2(state.yDoc);
+  // Encode canonical Markdown state only (V2 format).
+  const yjsState = encodeCanonicalStateAsUpdateV2(state.yDoc);
   if (yjsState.length <= 2) {
     state.sending = false;
     return;
@@ -986,8 +975,8 @@ async function createAndSendSnapshot(
     state.sending = false;
     return;
   }
-  // Encode full Y.Doc state (V2 format)
-  const yjsState = Y.encodeStateAsUpdateV2(state.yDoc);
+  // Encode canonical Markdown state only (V2 format).
+  const yjsState = encodeCanonicalStateAsUpdateV2(state.yDoc);
 
   // For rotation snapshots, use the pending new key version
   const snapshotKeyVersion = state.pendingRotationKeyVersion ?? state.keyVersion;
