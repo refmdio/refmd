@@ -23,10 +23,7 @@ function emitAwarenessUpdateKeepalive(awareness: Awareness): void {
     awareness as unknown as {
       emit: (
         event: "update",
-        args: [
-          { added: number[]; updated: number[]; removed: number[] },
-          origin: unknown,
-        ],
+        args: [{ added: number[]; updated: number[]; removed: number[] }, origin: unknown],
       ) => void;
     }
   ).emit("update", [

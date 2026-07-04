@@ -806,7 +806,18 @@ defmodule RefMDWeb.ShareMountControllerTest do
           created.share.authenticated_workspace_pin_bootstrap_hash
       })
 
-    assert %{"mount" => %{"id" => ^mount_id}} = json_response(reopen_conn, 200)
+    assert %{
+             "mount" => %{"id" => ^mount_id},
+             "document" => %{
+               "workspace_key_directory_latest_checkpoint" => latest_checkpoint,
+               "workspace_key_directory_checkpoint_ancestry" => checkpoint_ancestry,
+               "workspace_key_directory_event_ancestry" => event_ancestry
+             }
+           } = json_response(reopen_conn, 200)
+
+    assert is_integer(get_in(latest_checkpoint, ["payload", "sequence"]))
+    assert is_list(checkpoint_ancestry)
+    assert is_list(event_ancestry)
 
     refute get_resp_header(reopen_conn, "set-cookie")
            |> Enum.any?(&String.contains?(&1, "_refmd_share_session"))

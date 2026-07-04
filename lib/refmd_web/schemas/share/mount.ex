@@ -358,6 +358,18 @@ defmodule RefMDWeb.Schemas.MountedShareDocument do
       workspace_key_directory_checkpoint: %Schema{
         allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
         nullable: true
+      },
+      workspace_key_directory_latest_checkpoint: %Schema{
+        allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
+        nullable: true
+      },
+      workspace_key_directory_checkpoint_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_event_ancestry: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
       }
     },
     required: [
@@ -376,7 +388,10 @@ defmodule RefMDWeb.Schemas.MountedShareDocument do
       :nonce,
       :verification_directory,
       :workspace_pin_bootstrap,
-      :workspace_key_directory_checkpoint
+      :workspace_key_directory_checkpoint,
+      :workspace_key_directory_latest_checkpoint,
+      :workspace_key_directory_checkpoint_ancestry,
+      :workspace_key_directory_event_ancestry
     ]
   })
 end

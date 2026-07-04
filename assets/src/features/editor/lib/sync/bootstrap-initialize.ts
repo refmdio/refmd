@@ -9,6 +9,7 @@ import type { DocumentState } from "../../model/document-state/types";
 import { createInitCancelledError, isInitCancelledError } from "./bootstrap-cancel";
 import {
   leaveDocument,
+  getPhoenixJoinErrorReason,
   isPhoenixJoinError,
   PhoenixChannelTransportError,
 } from "@/shared/lib/ws/phoenix-channel";
@@ -30,12 +31,18 @@ import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations"
 import type { FailClosedHandler } from "./bootstrap-open";
 import { runPostInitializationTasks } from "./bootstrap-post-init";
 import { openInitialDocumentChannel } from "./bootstrap-open";
-import { prepareInitializationSession, type PreparedInitialization } from "./bootstrap-prepare";
+import {
+  prepareInitializationSession,
+  refreshWorkspaceKeyDirectoryForDocumentJoin,
+  type PreparedInitialization,
+} from "./bootstrap-prepare";
 import { recordSyncPerf } from "./perf";
 import { localDocumentClockKey, nextLocalClockForDevice } from "./local-clock";
 
 const INITIAL_OPEN_RETRY_BASE_MS = 500;
 const INITIAL_OPEN_RETRY_MAX_MS = 10_000;
+const WORKSPACE_KEY_DIRECTORY_REFRESH_REQUIRED = "workspace_key_directory_refresh_required";
+const INITIAL_OPEN_KEY_DIRECTORY_REFRESH_RETRY_LIMIT = 2;
 
 function throwIfInitializationCancelled(state: DocumentState, signal: AbortSignal): void {
   if (
@@ -80,6 +87,10 @@ function failClosedForInitialLoad(failClosed: FailClosedHandler, error: unknown)
 
   failClosed("initial_load_failed", normalized);
   return normalized;
+}
+
+function isWorkspaceKeyDirectoryRefreshRequired(error: unknown): boolean {
+  return getPhoenixJoinErrorReason(error) === WORKSPACE_KEY_DIRECTORY_REFRESH_REQUIRED;
 }
 
 async function awaitInitialDocumentPrerequisites(
@@ -181,6 +192,7 @@ export async function doInitializeDocumentSync(
   let appliedDocumentPayloadForClock: DocumentPayload | undefined;
   let appliedBootstrapInitialDocument = false;
   let failClosed: FailClosedHandler | null = null;
+  let keyDirectoryRefreshRetries = 0;
 
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -244,12 +256,29 @@ export async function doInitializeDocumentSync(
       break;
     } catch (err) {
       if (isInitCancelledError(err)) throw err;
-      const normalized = normalizeDocumentSyncError(err);
-      const retryMs = getRateLimitRetryMs(err);
+      let retryError = err;
+      if (isWorkspaceKeyDirectoryRefreshRequired(err)) {
+        if (keyDirectoryRefreshRetries >= INITIAL_OPEN_KEY_DIRECTORY_REFRESH_RETRY_LIMIT) {
+          throw new DocumentSyncError(
+            "verification_failed",
+            "Workspace key directory anchor could not be refreshed",
+          );
+        }
+        keyDirectoryRefreshRetries += 1;
+        try {
+          await refreshWorkspaceKeyDirectoryForDocumentJoin(state, workspaceId, signal);
+          assertActive();
+          continue;
+        } catch (refreshError) {
+          retryError = refreshError;
+        }
+      }
+      const normalized = normalizeDocumentSyncError(retryError);
+      const retryMs = getRateLimitRetryMs(retryError);
       const canRetry =
         retryMs !== null ||
         (normalized instanceof DocumentSyncError && normalized.code === "server_unreachable");
-      if (!canRetry) throw err;
+      if (!canRetry) throw retryError;
       await waitForAuthTransport(signal);
       assertActive();
       const retryDelay = Math.min(
@@ -325,7 +354,8 @@ export async function doInitializeDocumentSync(
   if (localDeviceSigningKeyId) {
     const clockPayload = appliedDocumentPayloadForClock ?? documentPayload;
     const localClockKey = localDocumentClockKey(state, localDeviceSigningKeyId);
-    let baseClock = nextLocalClockForDevice(state.confirmedClocks, state, localDeviceSigningKeyId) - 1;
+    let baseClock =
+      nextLocalClockForDevice(state.confirmedClocks, state, localDeviceSigningKeyId) - 1;
     for (const update of clockPayload.updates) {
       if (
         documentClockKey(update.publicData) === localClockKey &&

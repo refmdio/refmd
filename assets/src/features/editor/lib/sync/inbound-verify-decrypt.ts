@@ -33,7 +33,7 @@ import {
   verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
 import { recordSyncPerf } from "./perf";
-import { refreshAdmissionKeyDirectory } from "./admission-key-directory";
+import { createAdmissionKeyDirectoryRefresh } from "./admission-key-directory";
 import { computeDocumentUpdateHash } from "./update-hash";
 function createProcessingCancelledError(): Error {
   const error = new Error("document_processing_cancelled");
@@ -334,7 +334,7 @@ export async function verifyAndDecryptSingleUpdate(
       await verifyDocumentOperationAdmissionAncestry({
         admission: update.admission,
         workspaceId: state.workspaceId,
-        refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+        refreshKeyDirectory: createAdmissionKeyDirectoryRefresh(state, documentId),
       });
       admissionAncestryVerified = true;
       const admittedKey = resolveDocumentWriteSessionSigningKeyFromAdmission({
@@ -499,7 +499,7 @@ export async function verifyAndDecryptSingleUpdate(
         await verifyDocumentOperationAdmissionAncestry({
           admission: update.admission,
           workspaceId: state.workspaceId,
-          refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+          refreshKeyDirectory: createAdmissionKeyDirectoryRefresh(state, documentId),
         });
         recordVerifyStep("admission_ancestry_verified");
       }

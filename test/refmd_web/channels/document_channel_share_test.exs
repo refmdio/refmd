@@ -3,6 +3,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
 
   import Phoenix.ChannelTest
 
+  alias RefMD.Auth
   alias RefMD.Crypto.{Blake3, Hash, JCS, Signature, Suite}
   alias RefMD.Devices.Device
   alias RefMD.Documents
@@ -226,9 +227,15 @@ defmodule RefMDWeb.DocumentChannelShareTest do
        ) do
     {:ok, challenge} = Sharing.create_pop_challenge(share_id, principal_id, device_id, session.id)
     challenge_b64 = Base.url_encode64(challenge, padding: false)
-    join_payload = %{"mode" => "complete"}
     device = Sharing.get_participant_device(share_id, principal_id, device_id)
     workspace_id = Sharing.share_workspace_id!(share_id)
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+
+    join_payload = %{
+      "mode" => "complete",
+      "workspaceKeyDirectoryPinSequence" => checkpoint.sequence,
+      "workspaceKeyDirectoryPinHash" => checkpoint.checkpoint_hash
+    }
 
     strict_channel_payload(%{
       "pop_device_id" => device_id,
@@ -252,7 +259,9 @@ defmodule RefMDWeb.DocumentChannelShareTest do
             "topic" => "document:#{document_id}"
           }
         ),
-      "mode" => "complete"
+      "mode" => "complete",
+      "workspaceKeyDirectoryPinSequence" => checkpoint.sequence,
+      "workspaceKeyDirectoryPinHash" => checkpoint.checkpoint_hash
     })
   end
 
@@ -486,6 +495,65 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       share_participant_grant: bootstrapped.session.grant,
       share_participant_principal_id: bootstrapped.participant.principal_id,
       session_kind: :share_participant
+    })
+  end
+
+  defp user_socket(user_id, session) do
+    socket(RefMDWeb.UserSocket, nil, %{
+      current_user_id: user_id,
+      current_session: session
+    })
+  end
+
+  defp user_join_params(
+         document_id,
+         user_id,
+         device,
+         signing_private_material,
+         session,
+         opts \\ []
+       ) do
+    {:ok, challenge} = Auth.create_pop_challenge(user_id, device.id, session.id)
+    challenge_b64 = Base.url_encode64(challenge, padding: false)
+    document = Repo.get!(Document, document_id)
+
+    checkpoint =
+      Keyword.get_lazy(opts, :workspace_pin_checkpoint, fn ->
+        KeyDirectory.current_checkpoint("workspace", document.workspace_id)
+      end)
+
+    join_payload =
+      %{
+        "mode" => "complete",
+        "workspaceKeyDirectoryPinSequence" => checkpoint.sequence,
+        "workspaceKeyDirectoryPinHash" => checkpoint.checkpoint_hash
+      }
+
+    strict_channel_payload(%{
+      "pop_device_id" => device.id,
+      "pop_actor_variant" => "user_device",
+      "pop_challenge" => challenge_b64,
+      "pop_signature" =>
+        signing_private_material
+        |> signed_pop_signature_for_actor(
+          "channel_user_device",
+          PopTranscript.user_actor!(device, user_id),
+          challenge_b64,
+          PopSessionBinding.for_user_session(session),
+          %{
+            "channel_event" => "phx_join",
+            "document_id" => document_id,
+            "event_name" => "phx_join",
+            "join_push_kind" => "join",
+            "payload_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(join_payload)),
+            "scope_kind" => "user",
+            "share_id" => "none",
+            "topic" => "document:#{document_id}"
+          }
+        ),
+      "mode" => "complete",
+      "workspaceKeyDirectoryPinSequence" => checkpoint.sequence,
+      "workspaceKeyDirectoryPinHash" => checkpoint.checkpoint_hash
     })
   end
 
@@ -1266,6 +1334,215 @@ defmodule RefMDWeb.DocumentChannelShareTest do
     end
   end
 
+  test "write session broadcast and cache use server-normalized admission" do
+    owner_id = create_user("owner-write-session-normalized@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Write Session Normalized Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+    device = ensure_test_user_pop_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
+
+    {:ok, session, _token} = Auth.create_session(owner_id, %{device_id: device.id})
+
+    assert {:ok, _reply, socket_a} =
+             subscribe_and_join(
+               user_socket(owner_id, session),
+               RefMDWeb.DocumentChannel,
+               "document:#{document.id}",
+               user_join_params(document.id, owner_id, device, signer.signing_private, session)
+             )
+
+    assert_push "document", _payload
+
+    assert {:ok, _reply, _socket_b} =
+             subscribe_and_join(
+               user_socket(owner_id, session),
+               RefMDWeb.DocumentChannel,
+               "document:#{document.id}",
+               user_join_params(document.id, owner_id, device, signer.signing_private, session)
+             )
+
+    assert_push "document", _payload
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    attrs =
+      workspace_write_session_update_attrs(
+        document,
+        owner_id,
+        signer,
+        snapshot_id,
+        workspace.id,
+        clock: 0,
+        write_session_counter: 1
+      )
+
+    previous_checkpoint = KeyDirectory.current_checkpoint("workspace", workspace.id)
+
+    client_admission =
+      attrs.admission
+      |> Map.put("workspaceKeyDirectoryCheckpointAncestry", [
+        %{
+          "payload" => previous_checkpoint.payload,
+          "signatures" => previous_checkpoint.signatures,
+          "clientSentinel" => true
+        }
+      ])
+      |> Map.put(
+        "workspaceKeyDirectoryEventAncestry",
+        attrs.admission["workspaceKeyDirectoryEvents"]
+      )
+
+    ref =
+      Phoenix.ChannelTest.push(
+        socket_a,
+        "write-session",
+        strict_channel_payload(%{
+          "admission" => client_admission,
+          "publicData" => write_session_public_data(attrs.public_data)
+        })
+      )
+
+    assert_reply ref, :ok, %{writeSessionEventHash: write_session_event_hash}, 1_000
+
+    assert_push "write-session", pushed
+    refute admission_has_client_sentinel?(payload_admission(pushed))
+
+    assert [
+             %{
+               admission: cached_admission,
+               publicData: %{"writeSessionEventHash" => ^write_session_event_hash}
+             }
+           ] = Documents.active_write_sessions(document.id)
+
+    refute admission_has_client_sentinel?(cached_admission)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    latest_after_session = KeyDirectory.current_checkpoint("workspace", workspace.id)
+
+    assert {:ok, _reply, _socket_c} =
+             subscribe_and_join(
+               user_socket(owner_id, session),
+               RefMDWeb.DocumentChannel,
+               "document:#{document.id}",
+               user_join_params(document.id, owner_id, device, signer.signing_private, session,
+                 workspace_pin_checkpoint: latest_after_session
+               )
+             )
+
+    assert_push "document", _payload
+    assert_push "write-session", active_pushed
+    active_admission = payload_admission(active_pushed)
+    refute admission_has_client_sentinel?(active_admission)
+
+    active_checkpoint_sequence =
+      get_in(active_admission, ["workspaceKeyDirectoryCheckpoint", "payload", "sequence"])
+
+    active_event_head_sequence =
+      get_in(active_admission, [
+        "workspaceKeyDirectoryCheckpoint",
+        "payload",
+        "covered_event_head",
+        "head_sequence"
+      ])
+
+    checkpoint_ancestry_sequences = checkpoint_ancestry_sequences(active_admission)
+    event_ancestry_sequences = event_ancestry_sequences(active_admission)
+
+    assert latest_after_session.sequence > active_checkpoint_sequence
+    assert checkpoint_ancestry_sequences == [active_checkpoint_sequence - 1]
+    refute latest_after_session.sequence in checkpoint_ancestry_sequences
+    assert event_ancestry_sequences == [active_event_head_sequence]
+    refute latest_after_session.covered_event_head_sequence in event_ancestry_sequences
+  end
+
+  test "initial bootstrap snapshot admission uses supplied workspace pin anchor" do
+    owner_id = create_user("owner-bootstrap-bounded-admission@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Bootstrap Bounded Admission Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    stale_checkpoint = KeyDirectory.current_checkpoint("workspace", workspace.id)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    document = create_document(workspace.id, owner_id, nil)
+    create_active_snapshot(document.id, owner_id)
+
+    append_workspace_key_directory_event!(
+      workspace.id,
+      "suite_policy_changed",
+      suite_policy_changed_body()
+    )
+
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+    device = ensure_test_user_pop_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
+    {:ok, session, _token} = Auth.create_session(owner_id, %{device_id: device.id})
+
+    assert {:ok, _reply, _socket} =
+             subscribe_and_join(
+               user_socket(owner_id, session),
+               RefMDWeb.DocumentChannel,
+               "document:#{document.id}",
+               user_join_params(document.id, owner_id, device, signer.signing_private, session,
+                 workspace_pin_checkpoint: stale_checkpoint
+               )
+             )
+
+    assert_push "document", pushed
+    snapshot = Map.fetch!(pushed, :snapshot)
+    admission = Map.fetch!(snapshot, :admission)
+
+    candidate_sequence =
+      get_in(admission, ["workspaceKeyDirectoryCheckpoint", "payload", "sequence"])
+
+    assert checkpoint_ancestry_sequences(admission) ==
+             Enum.to_list(stale_checkpoint.sequence..(candidate_sequence - 1))
+
+    assert first_checkpoint_ancestry_sequence(admission) == stale_checkpoint.sequence
+  end
+
   test "document snapshot persistence preserves semantic verifier failures" do
     owner_id = create_user("owner-snapshot-semantic@example.com")
 
@@ -1499,6 +1776,56 @@ defmodule RefMDWeb.DocumentChannelShareTest do
     event = put_in(event, ["payload", "body"], fun.(body))
 
     Map.put(attrs, :admission, %{admission | "workspaceKeyDirectoryEvents" => [event]})
+  end
+
+  defp admission_has_client_sentinel?(admission) do
+    admission
+    |> Map.get("workspaceKeyDirectoryCheckpointAncestry", [])
+    |> Enum.any?(&Map.has_key?(&1, "clientSentinel"))
+  end
+
+  defp payload_admission(payload) do
+    Map.get(payload, :admission) || Map.get(payload, "admission")
+  end
+
+  defp first_checkpoint_ancestry_sequence(admission) do
+    admission
+    |> Map.fetch!("workspaceKeyDirectoryCheckpointAncestry")
+    |> List.first()
+    |> get_in(["payload", "sequence"])
+  end
+
+  defp checkpoint_ancestry_sequences(admission) do
+    admission
+    |> Map.fetch!("workspaceKeyDirectoryCheckpointAncestry")
+    |> Enum.map(&get_in(&1, ["payload", "sequence"]))
+  end
+
+  defp event_ancestry_sequences(admission) do
+    admission
+    |> Map.fetch!("workspaceKeyDirectoryEventAncestry")
+    |> Enum.map(&get_in(&1, ["payload", "sequence"]))
+  end
+
+  defp write_session_public_data(public_data) do
+    Map.take(public_data, [
+      "docId",
+      "signingKeyId",
+      "keyVersion",
+      "minDekVersion",
+      "writeSessionEventHash",
+      "writeSessionId",
+      "writeSessionCounter",
+      "ownerKind",
+      "ownerId",
+      "authorityKind",
+      "authorityId",
+      "authorityContextKey",
+      "authorityScopeId",
+      "authorityPermissionVersion",
+      "keyCheckpointSequence",
+      "keyCheckpointHash"
+    ])
   end
 
   defp append_workspace_key_directory_event!(workspace_id, event_type, body_or_fun) do

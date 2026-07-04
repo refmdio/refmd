@@ -10,6 +10,7 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
+  verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
@@ -27,7 +28,7 @@ import {
 } from "./inbound-signing-keys";
 import { completeDekRotationIfNeeded } from "./bootstrap-key-rotation";
 import { primeHistoricalDeks } from "./bootstrap-post-init";
-import { ensureSharedDekCached } from "./share-access";
+import { ensureSharedDekCached, refreshSharedDocumentAccess } from "./share-access";
 import {
   getCachedWorkspaceDirectory,
   rememberShareWorkspaceCheckpoint,
@@ -60,6 +61,40 @@ function toDeviceKeyCacheOutcome(
     (result) => ({ result }),
     (error) => ({ error }),
   );
+}
+
+export async function refreshWorkspaceKeyDirectoryForDocumentJoin(
+  state: DocumentState,
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (state.access.kind === "share") {
+    await refreshSharedDocumentAccess(state);
+    if (state.access.kind !== "share") {
+      throw new Error("share_access_changed");
+    }
+    await state.access.workspacePinReady;
+    await fetchVerifiedKeyDirectory({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      popDeviceId: state.access.participantDeviceId,
+      popScope: "share",
+      popWorker: getShareParticipantCryptoWorker(state.access.shareSlug),
+      signal,
+    });
+  } else {
+    const device = deviceState();
+    if (!device?.deviceId) throw new Error("key_directory_pop_device_required");
+    await fetchVerifiedKeyDirectory({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      popDeviceId: device.deviceId,
+      signal,
+    });
+  }
+
+  const workspacePin = await getKeyDirectoryPin("workspace", workspaceId);
+  if (!workspacePin) throw new Error("key_directory_pin_required");
 }
 
 export async function prepareInitializationSession(
@@ -119,7 +154,9 @@ export async function prepareInitializationSession(
       );
     const initialSigningKeyCachePromise = initialDocument
       ? toDeviceKeyCacheOutcome(
-          buildDocumentSigningKeyCachesForInitialPayload(state, initialDocument, signal),
+          ensureLiveKeyDirectoryReady().then(() =>
+            buildDocumentSigningKeyCachesForInitialPayload(state, initialDocument, signal),
+          ),
         )
       : Promise.resolve(null);
     let startDeviceKeyCache: (() => void) | undefined;
@@ -219,6 +256,23 @@ export async function prepareInitializationSession(
           : await getDocumentStatePin(buildDocumentStatePinKey(documentId, access.shareId)).catch(
               () => null,
             );
+      await ensureLiveKeyDirectoryReady();
+      let workspacePin = await getKeyDirectoryPin("workspace", workspaceId).catch(() => null);
+      if (!workspacePin) {
+        await fetchVerifiedKeyDirectory({
+          scopeKind: "workspace",
+          scopeId: workspaceId,
+          popDeviceId: access.participantDeviceId,
+          popScope: "share",
+          popWorker:
+            access.shareSlug === initialShareSlug
+              ? activeShareWorker
+              : getShareParticipantCryptoWorker(access.shareSlug),
+          signal,
+        });
+        workspacePin = await getKeyDirectoryPin("workspace", workspaceId);
+      }
+      if (!workspacePin) throw new Error("key_directory_pin_required");
       assertActive();
 
       const stateSnapshotId =
@@ -234,18 +288,22 @@ export async function prepareInitializationSession(
         (!pinSnapshotId || pinSnapshotId === stateSnapshotId);
       const joinPayload: Record<string, unknown> = {
         mode: useDelta ? "delta" : "complete",
-        ...(access.workspacePinBootstrapHash
-          ? {
-              authenticated_workspace_pin_bootstrap_hash: access.workspacePinBootstrapHash,
-            }
-          : {}),
         ...(access.source === "mounted" && access.mountId
           ? {
+              ...(access.workspacePinBootstrapHash
+                ? {
+                    authenticated_workspace_pin_bootstrap_hash: access.workspacePinBootstrapHash,
+                  }
+                : {}),
               mount_id: access.mountId,
               share_id: access.shareId,
             }
           : {}),
       };
+      if (workspacePin) {
+        joinPayload.workspaceKeyDirectoryPinSequence = workspacePin.checkpointSequence;
+        joinPayload.workspaceKeyDirectoryPinHash = workspacePin.checkpointHash;
+      }
       state._lastJoinMode = useDelta ? "delta" : "complete";
       const knownSnapshotId = useDelta ? stateSnapshotId : (pinSnapshotId ?? stateSnapshotId);
       if (knownSnapshotId) {
@@ -357,6 +415,20 @@ export async function prepareInitializationSession(
 
   const buildJoinParams = async (): Promise<Record<string, unknown>> => {
     const existingPin = await existingPinPromise;
+    const cacheOutcome = await deviceKeyCachePromise;
+    if ("error" in cacheOutcome) throw cacheOutcome.error;
+    let workspacePin = await getKeyDirectoryPin("workspace", workspaceId).catch(() => null);
+    if (!workspacePin) {
+      if (!device?.deviceId) throw new Error("key_directory_pop_device_required");
+      await fetchVerifiedKeyDirectory({
+        scopeKind: "workspace",
+        scopeId: workspaceId,
+        popDeviceId: device.deviceId,
+        signal,
+      });
+      workspacePin = await getKeyDirectoryPin("workspace", workspaceId);
+    }
+    if (!workspacePin) throw new Error("key_directory_pin_required");
 
     assertActive();
 
@@ -372,6 +444,10 @@ export async function prepareInitializationSession(
     const joinParams: Record<string, unknown> = {
       mode: useDelta ? "delta" : "complete",
     };
+    if (workspacePin) {
+      joinParams.workspaceKeyDirectoryPinSequence = workspacePin.checkpointSequence;
+      joinParams.workspaceKeyDirectoryPinHash = workspacePin.checkpointHash;
+    }
 
     state._lastJoinMode = useDelta ? "delta" : "complete";
 
@@ -428,15 +504,33 @@ async function ensureInitialShareKeyDirectoryLineage(
   const latestHash = hashKeyDirectoryCheckpointEnvelope(
     access.workspaceKeyDirectoryLatestCheckpoint,
   );
-  if (
-    latestSequence < current.checkpointSequence ||
-    (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash)
-  ) {
+  if (latestSequence < current.checkpointSequence) {
     return;
+  }
+  if (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash) {
+    throw new Error("share_workspace_key_directory_checkpoint_fork");
   }
 
   const checkpointAncestry = access.workspaceKeyDirectoryCheckpointAncestry ?? [];
   const eventAncestry = access.workspaceKeyDirectoryEventAncestry ?? [];
+  if (latestSequence === current.checkpointSequence && latestHash === current.checkpointHash) {
+    if (
+      !access.workspaceKeyDirectoryCheckpoint ||
+      (checkpointAncestry.length < 1 && eventAncestry.length < 1)
+    ) {
+      return;
+    }
+    await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      trustedCheckpointEnvelope: access.workspaceKeyDirectoryCheckpoint,
+      checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
+      checkpointAncestry,
+      eventAncestry,
+      authorityEventAncestry: eventAncestry,
+    });
+    return;
+  }
   const lineage = lineageFromCurrentPin(checkpointAncestry, eventAncestry, current);
   if (latestSequence > current.checkpointSequence) {
     if (!lineage) {
@@ -462,7 +556,7 @@ async function ensureInitialShareKeyDirectoryLineage(
       elapsedMs: performance.now() - startedAt,
     });
   } catch (error) {
-    if (isStaleLineageError(error)) return;
+    if (latestSequence < current.checkpointSequence && isStaleLineageError(error)) return;
     throw error;
   }
 }

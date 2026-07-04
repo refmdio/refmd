@@ -19,6 +19,8 @@ defmodule RefMD.Documents do
   alias RefMD.Workspaces
 
   @max_nesting_depth 10
+  @checkpoint_state_keys ~w(identity_keys device_keys share_participant_keys revoked_key_ids)
+  @checkpoint_state_compression "inherit_checkpoint_state_v1"
 
   # ── Snapshots (delegated to RefMD.Documents.Snapshots) ──
 
@@ -77,8 +79,7 @@ defmodule RefMD.Documents do
         admission_event_hash
       ) || raise ArgumentError, "document_admission_event_required"
 
-    if event.event_type != event_type,
-      do: raise(ArgumentError, "document_admission_event_required")
+    ensure_document_admission_event_type!(event, event_type)
 
     checkpoint =
       Encryption.workspace_key_directory_checkpoint_covering_event_head(
@@ -90,6 +91,9 @@ defmodule RefMD.Documents do
       Keyword.get(opts, :compact, false) ->
         compact_document_admission_package(event, checkpoint)
 
+      Keyword.has_key?(opts, :from_checkpoint_sequence) ->
+        anchored_document_admission_package(document.workspace_id, event, checkpoint, opts)
+
       Keyword.get(opts, :current_incremental, false) ->
         current_incremental_document_admission_package(document.workspace_id, event, checkpoint)
 
@@ -100,6 +104,11 @@ defmodule RefMD.Documents do
         full_document_admission_package(document.workspace_id, event, checkpoint)
     end
   end
+
+  defp ensure_document_admission_event_type!(%{event_type: event_type}, event_type), do: :ok
+
+  defp ensure_document_admission_event_type!(_event, _event_type),
+    do: raise(ArgumentError, "document_admission_event_required")
 
   defp full_document_admission_package(workspace_id, event, checkpoint) do
     current_pin =
@@ -121,24 +130,24 @@ defmodule RefMD.Documents do
       )
 
     %{
-      workspaceKeyDirectoryEvents: [
+      "workspaceKeyDirectoryEvents" => [
         key_directory_envelope(event)
       ],
-      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
-      workspaceKeyDirectoryCheckpointAncestry:
-        Enum.map(checkpoint_ancestry, &key_directory_envelope/1),
-      workspaceKeyDirectoryEventAncestry: Enum.map(event_ancestry, &key_directory_envelope/1)
+      "workspaceKeyDirectoryCheckpoint" => key_directory_envelope(checkpoint),
+      "workspaceKeyDirectoryCheckpointAncestry" =>
+        compressed_checkpoint_ancestry(checkpoint_ancestry),
+      "workspaceKeyDirectoryEventAncestry" => Enum.map(event_ancestry, &key_directory_envelope/1)
     }
   end
 
   defp compact_document_admission_package(event, checkpoint) do
     %{
-      workspaceKeyDirectoryEvents: [
+      "workspaceKeyDirectoryEvents" => [
         key_directory_envelope(event)
       ],
-      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
-      workspaceKeyDirectoryCheckpointAncestry: [],
-      workspaceKeyDirectoryEventAncestry: []
+      "workspaceKeyDirectoryCheckpoint" => key_directory_envelope(checkpoint),
+      "workspaceKeyDirectoryCheckpointAncestry" => [],
+      "workspaceKeyDirectoryEventAncestry" => []
     }
   end
 
@@ -167,46 +176,115 @@ defmodule RefMD.Documents do
       )
 
     %{
-      workspaceKeyDirectoryEvents: [
+      "workspaceKeyDirectoryEvents" => [
         key_directory_envelope(event)
       ],
-      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
-      workspaceKeyDirectoryCheckpointAncestry:
+      "workspaceKeyDirectoryCheckpoint" => key_directory_envelope(checkpoint),
+      "workspaceKeyDirectoryCheckpointAncestry" =>
         previous_checkpoint
         |> List.wrap()
         |> Enum.map(&key_directory_envelope/1),
-      workspaceKeyDirectoryEventAncestry: Enum.map(event_ancestry, &key_directory_envelope/1)
+      "workspaceKeyDirectoryEventAncestry" => Enum.map(event_ancestry, &key_directory_envelope/1)
     }
   end
 
-  defp current_incremental_document_admission_package(workspace_id, event, checkpoint) do
-    current_pin =
-      Encryption.current_workspace_key_directory_pin(workspace_id) ||
-        raise ArgumentError, "document_admission_pin_required"
+  defp anchored_document_admission_package(workspace_id, event, checkpoint, opts) do
+    with sequence when is_integer(sequence) and sequence > 0 <-
+           Keyword.get(opts, :from_checkpoint_sequence),
+         hash when is_binary(hash) <- Keyword.get(opts, :from_checkpoint_hash),
+         %{checkpoint_hash: ^hash} = anchor <-
+           workspace_id
+           |> Encryption.workspace_key_directory_checkpoints_between(sequence, sequence)
+           |> List.first() do
+      bounded_document_admission_package(workspace_id, event, checkpoint, anchor)
+    else
+      _ -> raise ArgumentError, "document_admission_anchor_required"
+    end
+  end
 
+  defp bounded_document_admission_package(workspace_id, event, checkpoint, anchor) do
+    if anchor.sequence >= checkpoint.sequence do
+      candidate_local_document_admission_package(workspace_id, event, checkpoint)
+    else
+      anchored_bounded_document_admission_package(workspace_id, event, checkpoint, anchor)
+    end
+  end
+
+  defp anchored_bounded_document_admission_package(workspace_id, event, checkpoint, anchor) do
     checkpoint_ancestry =
       Encryption.workspace_key_directory_checkpoints_between(
         workspace_id,
-        checkpoint.sequence + 1,
-        current_pin.checkpoint_sequence
+        anchor.sequence,
+        checkpoint.sequence - 1
       )
 
     event_ancestry =
       Encryption.workspace_key_directory_events_after_until(
         workspace_id,
-        checkpoint.covered_event_head_sequence,
-        current_pin.event_head_sequence
+        anchor.covered_event_head_sequence,
+        checkpoint.covered_event_head_sequence
       )
 
     %{
-      workspaceKeyDirectoryEvents: [
+      "workspaceKeyDirectoryEvents" => [
         key_directory_envelope(event)
       ],
-      workspaceKeyDirectoryCheckpoint: key_directory_envelope(checkpoint),
-      workspaceKeyDirectoryCheckpointAncestry:
-        Enum.map(checkpoint_ancestry, &key_directory_envelope/1),
-      workspaceKeyDirectoryEventAncestry: Enum.map(event_ancestry, &key_directory_envelope/1)
+      "workspaceKeyDirectoryCheckpoint" => key_directory_envelope(checkpoint),
+      "workspaceKeyDirectoryCheckpointAncestry" =>
+        compressed_checkpoint_ancestry(checkpoint_ancestry),
+      "workspaceKeyDirectoryEventAncestry" => Enum.map(event_ancestry, &key_directory_envelope/1)
     }
+  end
+
+  defp current_incremental_document_admission_package(workspace_id, event, checkpoint) do
+    candidate_local_document_admission_package(workspace_id, event, checkpoint)
+  end
+
+  defp candidate_local_document_admission_package(workspace_id, event, checkpoint) do
+    previous_checkpoint = previous_checkpoint(workspace_id, checkpoint)
+    start_event_head_sequence = previous_checkpoint_event_head_sequence(previous_checkpoint)
+
+    event_ancestry =
+      Encryption.workspace_key_directory_events_after_until(
+        workspace_id,
+        start_event_head_sequence,
+        checkpoint.covered_event_head_sequence
+      )
+
+    %{
+      "workspaceKeyDirectoryEvents" => [
+        key_directory_envelope(event)
+      ],
+      "workspaceKeyDirectoryCheckpoint" => key_directory_envelope(checkpoint),
+      "workspaceKeyDirectoryCheckpointAncestry" =>
+        previous_checkpoint
+        |> List.wrap()
+        |> Enum.map(&key_directory_envelope/1),
+      "workspaceKeyDirectoryEventAncestry" => Enum.map(event_ancestry, &key_directory_envelope/1)
+    }
+  end
+
+  defp previous_checkpoint(workspace_id, %{sequence: sequence}) when sequence > 1 do
+    workspace_id
+    |> Encryption.workspace_key_directory_checkpoints_between(sequence - 1, sequence - 1)
+    |> List.first()
+  end
+
+  defp previous_checkpoint(_workspace_id, _checkpoint), do: nil
+
+  defp previous_checkpoint_event_head_sequence(nil), do: 0
+
+  defp previous_checkpoint_event_head_sequence(previous_checkpoint),
+    do: previous_checkpoint.covered_event_head_sequence
+
+  defp compressed_checkpoint_ancestry(checkpoints, anchor_payload \\ nil) do
+    {envelopes, _previous_payload} =
+      Enum.reduce(checkpoints, {[], anchor_payload}, fn checkpoint, {acc, previous_payload} ->
+        envelope = key_directory_envelope(checkpoint, previous_payload)
+        {[envelope | acc], checkpoint.payload}
+      end)
+
+    Enum.reverse(envelopes)
   end
 
   defp key_directory_envelope(envelope) do
@@ -214,6 +292,26 @@ defmodule RefMD.Documents do
       "payload" => envelope.payload,
       "signatures" => envelope.signatures
     }
+  end
+
+  defp key_directory_envelope(envelope, previous_payload) when is_map(previous_payload) do
+    if checkpoint_state_equal?(envelope.payload, previous_payload) do
+      %{
+        "payload" => Map.drop(envelope.payload, @checkpoint_state_keys),
+        "payloadStateCompression" => @checkpoint_state_compression,
+        "signatures" => envelope.signatures
+      }
+    else
+      key_directory_envelope(envelope)
+    end
+  end
+
+  defp key_directory_envelope(envelope, _previous_payload), do: key_directory_envelope(envelope)
+
+  defp checkpoint_state_equal?(payload, previous_payload) do
+    Enum.all?(@checkpoint_state_keys, fn key ->
+      Map.get(payload, key, []) == Map.get(previous_payload, key, [])
+    end)
   end
 
   # ── Reordering (delegated to RefMD.Documents.Reordering) ──

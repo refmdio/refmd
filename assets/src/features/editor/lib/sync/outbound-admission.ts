@@ -18,8 +18,6 @@ import {
   lookupVerifiedKeyDirectoryLineage,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { pushWriteSession } from "@/shared/lib/ws/phoenix-channel";
-import { pinFromCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/verification";
-import type { SignedKeyDirectoryEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/types";
 import type { SharedDocumentAccess } from "../../model/document-state/access";
 import type { DocumentState, WriteSessionState } from "../../model/document-state/types";
 import { getDocumentCryptoWorker } from "./crypto-worker";
@@ -361,29 +359,12 @@ export async function buildDocumentOperationAdmission(params: {
     maxUpdateCount: params.maxUpdateCount,
     maxCiphertextBytes: params.maxCiphertextBytes,
   });
-  const directoryCheckpoint = directory.checkpoint as unknown as SignedKeyDirectoryEnvelope;
-  const directoryPin = pinFromCheckpoint(
-    "workspace",
-    params.state.workspaceId,
-    directoryCheckpoint,
-  );
-  const lineage = lookupVerifiedKeyDirectoryLineage(
-    "workspace",
-    params.state.workspaceId,
-    directoryPin,
-  );
-
   return {
     admission: {
       workspaceKeyDirectoryEvents: append.events,
       workspaceKeyDirectoryCheckpoint: append.checkpoint,
-      workspaceKeyDirectoryCheckpointAncestry: (lineage?.checkpoints as unknown as
-        | KeyDirectoryEnvelope[]
-        | undefined) ?? [directory.checkpoint],
-      workspaceKeyDirectoryEventAncestry: [
-        ...((lineage?.events as unknown as KeyDirectoryEnvelope[] | undefined) ?? []),
-        ...append.events,
-      ],
+      workspaceKeyDirectoryCheckpointAncestry: [directory.checkpoint],
+      workspaceKeyDirectoryEventAncestry: append.events,
     },
     keyDirectoryAdvance: {
       scopeKind: "workspace",
@@ -391,10 +372,7 @@ export async function buildDocumentOperationAdmission(params: {
       checkpointEnvelope: append.checkpoint,
       checkpointAncestry: [directory.checkpoint],
       eventAncestry: append.events,
-      authorityEventAncestry: [
-        ...((lineage?.events as unknown as KeyDirectoryEnvelope[] | undefined) ?? []),
-        ...append.events,
-      ],
+      authorityEventAncestry: append.events,
     },
     admissionEventHash: eventHash(append.events[0]!.payload as unknown as Record<string, unknown>),
   };

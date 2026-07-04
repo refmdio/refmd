@@ -5,6 +5,8 @@ defmodule RefMD.Documents.Admission do
 
   alias RefMD.Crypto.{Blake3, Hash, JCS, Signature}
   alias RefMD.Documents.DocumentUpdate
+  alias RefMD.Documents.Runtime.Registry, as: DocumentRuntimeRegistry
+  alias RefMD.Documents.Runtime.Server, as: DocumentRuntimeServer
   alias RefMD.Encryption
   alias RefMD.Encryption.KeyDirectory.Envelope
   alias RefMD.Repo
@@ -795,10 +797,10 @@ defmodule RefMD.Documents.Admission do
   end
 
   defp active_write_session_payload(document_id, event_hash) do
-    case Registry.lookup(RefMD.Documents.Runtime.Registry, document_id) do
+    case Registry.lookup(DocumentRuntimeRegistry, document_id) do
       [{_pid, _value}] ->
         document_id
-        |> RefMD.Documents.Runtime.Server.active_write_sessions()
+        |> DocumentRuntimeServer.active_write_sessions()
         |> Enum.find(&(write_session_payload_event_hash(&1) == event_hash))
 
       [] ->

@@ -25,7 +25,8 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
   @spec validate_join_params(map()) :: :ok | {:error, %{reason: String.t()}}
   def validate_join_params(%{"mode" => "delta"} = params) do
     with :ok <- validate_exact_join_keys(params),
-         :ok <- validate_optional_join_uuid(params, "knownSnapshotId") do
+         :ok <- validate_optional_join_uuid(params, "knownSnapshotId"),
+         :ok <- validate_required_workspace_pin_anchor(params) do
       case params["knownSnapshotUpdateClocks"] do
         clocks when is_map(clocks) -> validate_clock_values(clocks)
         _ -> {:error, %{reason: "knownSnapshotUpdateClocks required for delta mode"}}
@@ -37,21 +38,24 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
     do:
       with(
         :ok <- validate_exact_join_keys(params),
-        do: validate_optional_join_uuid(params, "knownSnapshotId")
+        :ok <- validate_optional_join_uuid(params, "knownSnapshotId"),
+        do: validate_required_workspace_pin_anchor(params)
       )
 
   def validate_join_params(%{"mode" => nil} = params),
     do:
       with(
         :ok <- validate_exact_join_keys(params),
-        do: validate_optional_join_uuid(params, "knownSnapshotId")
+        :ok <- validate_optional_join_uuid(params, "knownSnapshotId"),
+        do: validate_required_workspace_pin_anchor(params)
       )
 
   def validate_join_params(%{"mode" => _}), do: {:error, %{reason: "invalid mode"}}
 
   def validate_join_params(params) do
-    with :ok <- validate_exact_join_keys(params) do
-      validate_optional_join_uuid(params, "knownSnapshotId")
+    with :ok <- validate_exact_join_keys(params),
+         :ok <- validate_optional_join_uuid(params, "knownSnapshotId") do
+      validate_required_workspace_pin_anchor(params)
     end
   end
 
@@ -66,26 +70,28 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
         {:error, %{reason: "document_error"}}
 
       {:ok, {snapshot, all_updates}} ->
-        initial_data =
-          document.id
-          |> build_initial_data(snapshot, all_updates, mode, params)
-          |> Map.put(:archived, !is_nil(document.archived_at))
-          |> Map.put(:readOnly, !Access.workspace_write_allowed?(document, user_id))
-          |> Map.put(
-            :authorityPermissionVersion,
-            Workspaces.get_member_permission_version(document.workspace_id, user_id)
-          )
-          |> Map.put(
-            :publicState,
-            document.id
-            |> Public.get_public_state()
+        with {:ok, initial_data} <-
+               safe_build_initial_data(document, snapshot, all_updates, mode, params) do
+          initial_data =
+            initial_data
+            |> Map.put(:archived, !is_nil(document.archived_at))
+            |> Map.put(:readOnly, !Access.workspace_write_allowed?(document, user_id))
             |> Map.put(
-              :can_sync,
-              Access.publication_sync_allowed?(document, user_id, socket, nil)
+              :authorityPermissionVersion,
+              Workspaces.get_member_permission_version(document.workspace_id, user_id)
             )
-          )
+            |> Map.put(
+              :publicState,
+              document.id
+              |> Public.get_public_state()
+              |> Map.put(
+                :can_sync,
+                Access.publication_sync_allowed?(document, user_id, socket, nil)
+              )
+            )
 
-        {:ok, initial_data}
+          {:ok, initial_data}
+        end
     end
   end
 
@@ -96,14 +102,19 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
 
     case Documents.get_initial_document_data_for_share(document.id, share_id, params) do
       {:ok, {snapshot, all_updates}} ->
-        initial_data =
-          document.id
-          |> build_initial_data(snapshot, all_updates, mode, params)
-          |> Map.put(:archived, !is_nil(document.archived_at))
-          |> Map.put(:readOnly, !Sharing.can_write_document?(share_id, document.id))
-          |> Map.put(:authorityPermissionVersion, Sharing.get_share_permission_version(share_id))
+        with {:ok, initial_data} <-
+               safe_build_initial_data(document, snapshot, all_updates, mode, params) do
+          initial_data =
+            initial_data
+            |> Map.put(:archived, !is_nil(document.archived_at))
+            |> Map.put(:readOnly, !Sharing.can_write_document?(share_id, document.id))
+            |> Map.put(
+              :authorityPermissionVersion,
+              Sharing.get_share_permission_version(share_id)
+            )
 
-        {:ok, initial_data}
+          {:ok, initial_data}
+        end
 
       {:error, :unauthorized} ->
         {:error, %{reason: "permission_denied"}}
@@ -118,6 +129,8 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
     snapshot_id = if snapshot, do: snapshot.id
     delta_same = mode == "delta" && params["knownSnapshotId"] == snapshot_id
     latest_version = if snapshot, do: snapshot.latest_version, else: 0
+    admission_opts = admission_opts(params)
+    sends_snapshot? = !delta_same and !is_nil(snapshot)
 
     proof_chain =
       Documents.build_snapshot_proof_chain(
@@ -127,9 +140,13 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
       )
 
     %{
-      snapshot:
-        if(delta_same, do: nil, else: Envelope.format_snapshot(snapshot, snapshot_opts(params))),
-      updates: Envelope.format_initial_updates(updates, !delta_same and !is_nil(snapshot)),
+      snapshot: if(sends_snapshot?, do: Envelope.format_snapshot(snapshot, admission_opts)),
+      updates:
+        Envelope.format_initial_updates(
+          updates,
+          sends_snapshot?,
+          admission_opts
+        ),
       snapshotProofChain: proof_chain,
       proofChainHash: if(snapshot, do: snapshot.proof_chain_hash),
       ciphertextHash: if(snapshot, do: snapshot.ciphertext_hash),
@@ -137,6 +154,22 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
       latestVersion: latest_version
     }
   end
+
+  defp safe_build_initial_data(document, snapshot, all_updates, mode, params) do
+    {:ok, build_initial_data(document.id, snapshot, all_updates, mode, params)}
+  rescue
+    error in ArgumentError ->
+      if key_directory_anchor_error?(error) do
+        {:error, %{reason: "workspace_key_directory_refresh_required"}}
+      else
+        {:error, %{reason: "document_error"}}
+      end
+  end
+
+  defp key_directory_anchor_error?(%ArgumentError{message: "document_admission_anchor_required"}),
+    do: true
+
+  defp key_directory_anchor_error?(_), do: false
 
   defp filter_updates(_snapshot, updates, "complete", _params), do: updates
 
@@ -154,11 +187,15 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
 
   defp filter_updates(_snapshot, updates, _mode, _params), do: updates
 
-  defp snapshot_opts(%{"authenticated_workspace_pin_bootstrap_hash" => hash})
-       when is_binary(hash),
-       do: [current_incremental: true]
+  defp admission_opts(%{
+         "workspaceKeyDirectoryPinSequence" => sequence,
+         "workspaceKeyDirectoryPinHash" => hash
+       })
+       when is_integer(sequence) and sequence > 0 and is_binary(hash) do
+    [from_checkpoint_sequence: sequence, from_checkpoint_hash: hash]
+  end
 
-  defp snapshot_opts(_params), do: []
+  defp admission_opts(_params), do: []
 
   defp filter_by_clocks(updates, known_clocks) do
     Enum.filter(updates, fn u ->
@@ -183,6 +220,23 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
     end
   end
 
+  defp validate_required_workspace_pin_anchor(params) do
+    sequence = params["workspaceKeyDirectoryPinSequence"]
+    hash = params["workspaceKeyDirectoryPinHash"]
+
+    cond do
+      is_nil(sequence) and is_nil(hash) ->
+        {:error, %{reason: "workspaceKeyDirectoryPin required"}}
+
+      is_integer(sequence) and sequence > 0 and is_binary(hash) and
+        byte_size(hash) == 43 and Regex.match?(~r/^[A-Za-z0-9\-_]+$/, hash) ->
+        :ok
+
+      true ->
+        {:error, %{reason: "invalid_workspaceKeyDirectoryPin"}}
+    end
+  end
+
   defp validate_exact_join_keys(params) do
     allowed = [
       "knownSnapshotId",
@@ -190,6 +244,8 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
       "mode",
       "mount_id",
       "authenticated_workspace_pin_bootstrap_hash",
+      "workspaceKeyDirectoryPinHash",
+      "workspaceKeyDirectoryPinSequence",
       "pop_actor_variant",
       "pop_challenge",
       "pop_device_id",

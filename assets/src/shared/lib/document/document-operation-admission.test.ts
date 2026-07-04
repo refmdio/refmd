@@ -1,15 +1,69 @@
-import { describe, expect, it } from "vitest";
-import type { SignedKeyDirectoryEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/types";
-import { eventHash } from "@/shared/lib/anti-rollback/key-directory-pin/primitives";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  KeyDirectoryPin,
+  SignedKeyDirectoryEnvelope,
+} from "@/shared/lib/anti-rollback/key-directory-pin/types";
+import { checkpointHash, eventHash } from "@/shared/lib/anti-rollback/key-directory-pin/primitives";
 import type { DocumentOperationAdmission } from "@/shared/lib/ws/document-payloads";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import { currentSuitePolicy } from "@/shared/lib/crypto/suite";
+import {
+  installVerifiedTransferredKeyDirectoryCheckpoint,
+  rememberVerifiedKeyDirectoryLineage,
+} from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  pinFromCheckpoint,
+  verifyCheckpointAncestry,
+  verifyEventAncestry,
+} from "@/shared/lib/anti-rollback/key-directory-pin/verification";
 import {
   assertWriteSessionNotInvalidatedByEvents,
+  expandDocumentAdmissionCheckpointAncestry,
   resolveDocumentWriteSessionSigningKeyFromAdmission,
   verifyDocumentOperationAdmission,
+  verifyDocumentOperationAdmissionAncestry,
   verifyDocumentWriteSessionAdmission,
+  verifyDocumentWriteSessionNotInvalidated,
 } from "./document-operation-admission";
+
+const pinStore = vi.hoisted(() => new Map<string, KeyDirectoryPin>());
+
+vi.mock("@/shared/lib/storage/idb", () => ({
+  openIdb: vi.fn(async () => ({})),
+  idbGet: vi.fn(async (_db: unknown, _storeName: string, key: string) => pinStore.get(key)),
+  idbConditionalPut: vi.fn(
+    async (
+      _db: unknown,
+      _storeName: string,
+      key: string,
+      value: KeyDirectoryPin,
+      predicate: (existing: KeyDirectoryPin | undefined) => boolean,
+    ) => {
+      const existing = pinStore.get(key);
+      if (!predicate(existing)) return false;
+      pinStore.set(key, value);
+      return true;
+    },
+  ),
+}));
+
+vi.mock("@/shared/lib/anti-rollback/key-directory-pin/verification", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/shared/lib/anti-rollback/key-directory-pin/verification")
+  >("@/shared/lib/anti-rollback/key-directory-pin/verification");
+
+  return {
+    ...actual,
+    verifyCheckpointAncestry: vi.fn(async () => {}),
+    verifyEventAncestry: vi.fn(async () => {}),
+  };
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  pinStore.clear();
+});
 
 function event(
   eventType: string,
@@ -81,6 +135,397 @@ function signed(payload: Record<string, unknown>): SignedKeyDirectoryEnvelope {
     signatures: [{ signer: { signer_kind: "device" }, signature: { test: true } }],
   } as unknown as SignedKeyDirectoryEnvelope;
 }
+
+function keyDirectoryEvent(
+  sequence: number,
+  workspaceId = "workspace-1",
+): SignedKeyDirectoryEnvelope {
+  return signed({
+    protocol: "refmd.key-directory-event",
+    version: 1,
+    scope_kind: "workspace",
+    scope_id: workspaceId,
+    sequence,
+    event_type: "suite_policy_changed",
+    ...(sequence > 1 ? { previous_event_hash: `event-${sequence - 1}` } : {}),
+    actor: {
+      signer_kind: "device",
+      user_id: "admin-user",
+      device_id: "admin-device",
+      signing_key_id: "admin-key",
+    },
+    body: {
+      suite_policy_version: currentSuitePolicy().suite_policy_version,
+      min_suite_rank: currentSuitePolicy().min_suite_rank,
+      allowed_suite_ids: currentSuitePolicy().allowed_suite_ids,
+    },
+  });
+}
+
+function keyDirectoryCheckpoint(
+  sequence: number,
+  eventEnvelope: SignedKeyDirectoryEnvelope,
+  previousCheckpoint?: SignedKeyDirectoryEnvelope,
+  workspaceId = "workspace-1",
+): SignedKeyDirectoryEnvelope {
+  const policy = currentSuitePolicy();
+  return signed({
+    protocol: "refmd.key-directory-checkpoint",
+    version: 1,
+    scope_kind: "workspace",
+    scope_id: workspaceId,
+    sequence,
+    ...(previousCheckpoint ? { previous_checkpoint_hash: checkpointHash(previousCheckpoint) } : {}),
+    covered_event_head: {
+      head_sequence: sequence,
+      head_hash: eventHash(eventEnvelope),
+    },
+    suite_policy_version: policy.suite_policy_version,
+    min_suite_rank: policy.min_suite_rank,
+    allowed_suite_ids: policy.allowed_suite_ids,
+    identity_keys: [],
+    device_keys: [],
+    share_participant_keys: [],
+    revoked_key_ids: [],
+  });
+}
+
+describe("expandDocumentAdmissionCheckpointAncestry", () => {
+  it("expands compressed checkpoint state from the admission candidate anchor", () => {
+    const identityKeys = [{ key_id: "identity-1", key_material: { test: "identity" } }];
+    const deviceKeys = [{ key_id: "device-1", key_material: { test: "device" } }];
+    const shareParticipantKeys = [{ key_id: "share-1", key_material: { test: "share" } }];
+    const revokedKeyIds = ["revoked-1"];
+    const candidate = signed({
+      sequence: 1,
+      covered_event_head: { head_sequence: 1, head_hash: "event-1" },
+      identity_keys: identityKeys,
+      device_keys: deviceKeys,
+      share_participant_keys: shareParticipantKeys,
+      revoked_key_ids: revokedKeyIds,
+    });
+    const compressed = {
+      payload: {
+        sequence: 2,
+        previous_checkpoint_hash: "checkpoint-1",
+        covered_event_head: { head_sequence: 2, head_hash: "event-2" },
+      },
+      payloadStateCompression: "inherit_checkpoint_state_v1",
+      signatures: candidate.signatures,
+    };
+    const admission = {
+      workspaceKeyDirectoryEvents: [],
+      workspaceKeyDirectoryCheckpoint: candidate as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [compressed],
+    } satisfies DocumentOperationAdmission;
+
+    const [expanded] = expandDocumentAdmissionCheckpointAncestry(admission);
+
+    expect(expanded?.payload.identity_keys).toEqual(identityKeys);
+    expect(expanded?.payload.device_keys).toEqual(deviceKeys);
+    expect(expanded?.payload.share_participant_keys).toEqual(shareParticipantKeys);
+    expect(expanded?.payload.revoked_key_ids).toEqual(revokedKeyIds);
+    expect("identity_keys" in compressed.payload).toBe(false);
+  });
+
+  it("rejects compressed checkpoint state without an expansion anchor", () => {
+    const candidate = signed({
+      sequence: 2,
+      covered_event_head: { head_sequence: 2, head_hash: "event-2" },
+    });
+    const admission = {
+      workspaceKeyDirectoryEvents: [],
+      workspaceKeyDirectoryCheckpoint: candidate as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [
+        {
+          payload: {
+            sequence: 1,
+            covered_event_head: { head_sequence: 1, head_hash: "event-1" },
+          },
+          payloadStateCompression: "inherit_checkpoint_state_v1",
+          signatures: candidate.signatures,
+        },
+      ],
+    } satisfies DocumentOperationAdmission;
+
+    expect(() => expandDocumentAdmissionCheckpointAncestry(admission)).toThrow(
+      "key_directory_checkpoint_compression_anchor_missing",
+    );
+  });
+});
+
+describe("verifyDocumentOperationAdmissionAncestry", () => {
+  it("accepts an older candidate when the admission carries bounded membership proof to current", async () => {
+    const events = [1, 2, 3, 4].map((sequence) => keyDirectoryEvent(sequence));
+    const checkpoints: SignedKeyDirectoryEnvelope[] = [];
+    for (let index = 0; index < events.length; index += 1) {
+      checkpoints.push(keyDirectoryCheckpoint(index + 1, events[index]!, checkpoints[index - 1]));
+    }
+    await installVerifiedTransferredKeyDirectoryCheckpoint({
+      scopeKind: "workspace",
+      scopeId: "workspace-1",
+      checkpointEnvelope: checkpoints[3]!,
+    });
+
+    const admission = {
+      workspaceKeyDirectoryEvents: [events[1] as unknown as Record<string, unknown>],
+      workspaceKeyDirectoryCheckpoint: checkpoints[1] as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [
+        checkpoints[0],
+        checkpoints[2],
+        checkpoints[3],
+      ] as unknown as Record<string, unknown>[],
+      workspaceKeyDirectoryEventAncestry: [events[2], events[3]] as unknown as Record<
+        string,
+        unknown
+      >[],
+    } satisfies DocumentOperationAdmission;
+
+    await expect(
+      verifyDocumentOperationAdmissionAncestry({
+        admission,
+        workspaceId: "workspace-1",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refreshes candidate-to-current lineage when bounded old admission lacks current proof", async () => {
+    const events = [1, 2, 3, 4].map((sequence) => keyDirectoryEvent(sequence));
+    const checkpoints: SignedKeyDirectoryEnvelope[] = [];
+    for (let index = 0; index < events.length; index += 1) {
+      checkpoints.push(keyDirectoryCheckpoint(index + 1, events[index]!, checkpoints[index - 1]));
+    }
+    await installVerifiedTransferredKeyDirectoryCheckpoint({
+      scopeKind: "workspace",
+      scopeId: "workspace-1",
+      checkpointEnvelope: checkpoints[3]!,
+    });
+
+    const refreshKeyDirectory = vi.fn(
+      async (params?: { trustedCheckpointEnvelope?: SignedKeyDirectoryEnvelope }) => {
+        expect(params?.trustedCheckpointEnvelope).toEqual(checkpoints[1]);
+        rememberVerifiedKeyDirectoryLineage({
+          scopeKind: "workspace",
+          scopeId: "workspace-1",
+          checkpointEnvelope: checkpoints[3]!,
+          checkpointAncestry: [checkpoints[1]!, checkpoints[2]!],
+          eventAncestry: [events[2]!, events[3]!],
+        });
+      },
+    );
+    vi.mocked(verifyCheckpointAncestry).mockRejectedValueOnce(
+      new Error("document_admission_current_checkpoint_missing"),
+    );
+
+    const admission = {
+      workspaceKeyDirectoryEvents: [],
+      workspaceKeyDirectoryCheckpoint: checkpoints[1] as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [checkpoints[0]] as unknown as Record<
+        string,
+        unknown
+      >[],
+      workspaceKeyDirectoryEventAncestry: [events[1]] as unknown as Record<string, unknown>[],
+    } satisfies DocumentOperationAdmission;
+
+    await expect(
+      verifyDocumentOperationAdmissionAncestry({
+        admission,
+        workspaceId: "workspace-1",
+        refreshKeyDirectory,
+      }),
+    ).resolves.toBeUndefined();
+    expect(refreshKeyDirectory).toHaveBeenCalledTimes(1);
+    expect(verifyCheckpointAncestry).toHaveBeenLastCalledWith(
+      "workspace",
+      "workspace-1",
+      expect.objectContaining({
+        checkpointSequence: 2,
+        eventHeadSequence: 2,
+      }),
+      [checkpoints[1], checkpoints[2]],
+      checkpoints[3],
+      [events[2], events[3]],
+      [events[1]],
+    );
+  });
+
+  it("refreshes candidate-to-current lineage when compact checkpoint proof has a gap", async () => {
+    const events = [1, 2, 3, 4].map((sequence) => keyDirectoryEvent(sequence));
+    const checkpoints: SignedKeyDirectoryEnvelope[] = [];
+    for (let index = 0; index < events.length; index += 1) {
+      checkpoints.push(keyDirectoryCheckpoint(index + 1, events[index]!, checkpoints[index - 1]));
+    }
+    await installVerifiedTransferredKeyDirectoryCheckpoint({
+      scopeKind: "workspace",
+      scopeId: "workspace-1",
+      checkpointEnvelope: checkpoints[3]!,
+    });
+
+    const refreshKeyDirectory = vi.fn(
+      async (params?: { trustedCheckpointEnvelope?: SignedKeyDirectoryEnvelope }) => {
+        expect(params?.trustedCheckpointEnvelope).toEqual(checkpoints[1]);
+        rememberVerifiedKeyDirectoryLineage({
+          scopeKind: "workspace",
+          scopeId: "workspace-1",
+          checkpointEnvelope: checkpoints[3]!,
+          checkpointAncestry: [checkpoints[1]!, checkpoints[2]!],
+          eventAncestry: [events[1]!, events[2]!, events[3]!],
+        });
+      },
+    );
+    vi.mocked(verifyCheckpointAncestry).mockRejectedValueOnce(
+      new Error("key_directory_checkpoint_sequence_gap"),
+    );
+
+    const admission = {
+      workspaceKeyDirectoryEvents: [],
+      workspaceKeyDirectoryCheckpoint: checkpoints[1] as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [checkpoints[0]] as unknown as Record<
+        string,
+        unknown
+      >[],
+      workspaceKeyDirectoryEventAncestry: [events[1]] as unknown as Record<string, unknown>[],
+    } satisfies DocumentOperationAdmission;
+
+    await expect(
+      verifyDocumentOperationAdmissionAncestry({
+        admission,
+        workspaceId: "workspace-1",
+        refreshKeyDirectory,
+      }),
+    ).resolves.toBeUndefined();
+    expect(refreshKeyDirectory).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("verifyDocumentWriteSessionNotInvalidated", () => {
+  it("uses verified cached current checkpoint when an old admission does not carry it", async () => {
+    const workspaceId = "workspace-cached-current-checkpoint";
+    const event1 = keyDirectoryEvent(1, workspaceId);
+    const sessionEvent = signed({
+      protocol: "refmd.key-directory-event",
+      version: 1,
+      scope_kind: "workspace",
+      scope_id: workspaceId,
+      sequence: 2,
+      event_type: "document_write_session_admitted",
+      previous_event_hash: eventHash(event1),
+      actor: {
+        signer_kind: "device",
+        user_id: "writer-user",
+        device_id: "writer-device",
+        signing_key_id: "writer-key",
+      },
+      body: {},
+    });
+    const event3 = keyDirectoryEvent(3, workspaceId);
+    const event4 = keyDirectoryEvent(4, workspaceId);
+    const checkpoint1 = keyDirectoryCheckpoint(1, event1, undefined, workspaceId);
+    const sessionCheckpoint = keyDirectoryCheckpoint(2, sessionEvent, checkpoint1, workspaceId);
+    const checkpoint3 = keyDirectoryCheckpoint(3, event3, sessionCheckpoint, workspaceId);
+    const currentCheckpoint = keyDirectoryCheckpoint(4, event4, checkpoint3, workspaceId);
+    await installVerifiedTransferredKeyDirectoryCheckpoint({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      checkpointEnvelope: currentCheckpoint,
+    });
+    rememberVerifiedKeyDirectoryLineage({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      checkpointEnvelope: currentCheckpoint,
+      checkpointAncestry: [checkpoint3],
+      eventAncestry: [event3, event4],
+    });
+    const admission = {
+      workspaceKeyDirectoryEvents: [sessionEvent as unknown as Record<string, unknown>],
+      workspaceKeyDirectoryCheckpoint: sessionCheckpoint as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [],
+      workspaceKeyDirectoryEventAncestry: [event3, event4] as unknown as Record<string, unknown>[],
+    } satisfies DocumentOperationAdmission;
+
+    await expect(
+      verifyDocumentWriteSessionNotInvalidated({
+        admission,
+        publicData: {
+          ownerKind: "device",
+          signingKeyId: "writer-key",
+        },
+        workspaceId,
+        documentId: "doc-1",
+        keyVersion: 1,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("uses retained current checkpoint body when compact current lineage is unavailable", async () => {
+    const workspaceId = "workspace-retained-checkpoint";
+    const event1 = keyDirectoryEvent(1, workspaceId);
+    const sessionEvent = signed({
+      protocol: "refmd.key-directory-event",
+      version: 1,
+      scope_kind: "workspace",
+      scope_id: workspaceId,
+      sequence: 2,
+      event_type: "document_write_session_admitted",
+      previous_event_hash: eventHash(event1),
+      actor: {
+        signer_kind: "device",
+        user_id: "writer-user",
+        device_id: "writer-device",
+        signing_key_id: "writer-key",
+      },
+      body: {},
+    });
+    const event3 = keyDirectoryEvent(3, workspaceId);
+    const event4 = keyDirectoryEvent(4, workspaceId);
+    const checkpoint1 = keyDirectoryCheckpoint(1, event1, undefined, workspaceId);
+    const sessionCheckpoint = keyDirectoryCheckpoint(2, sessionEvent, checkpoint1, workspaceId);
+    const checkpoint3 = keyDirectoryCheckpoint(3, event3, sessionCheckpoint, workspaceId);
+    const currentCheckpoint = keyDirectoryCheckpoint(4, event4, checkpoint3, workspaceId);
+    pinStore.set(
+      `workspace:${workspaceId}`,
+      pinFromCheckpoint("workspace", workspaceId, currentCheckpoint),
+    );
+    rememberVerifiedKeyDirectoryLineage({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      checkpointEnvelope: checkpoint3,
+      checkpointAncestry: [currentCheckpoint],
+      eventAncestry: [event3, event4],
+    });
+    const admission = {
+      workspaceKeyDirectoryEvents: [sessionEvent as unknown as Record<string, unknown>],
+      workspaceKeyDirectoryCheckpoint: sessionCheckpoint as unknown as Record<string, unknown>,
+      workspaceKeyDirectoryCheckpointAncestry: [],
+      workspaceKeyDirectoryEventAncestry: [event3, event4] as unknown as Record<string, unknown>[],
+    } satisfies DocumentOperationAdmission;
+
+    await expect(
+      verifyDocumentWriteSessionNotInvalidated({
+        admission,
+        publicData: {
+          ownerKind: "device",
+          signingKeyId: "writer-key",
+        },
+        workspaceId,
+        documentId: "doc-1",
+        keyVersion: 1,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(vi.mocked(verifyEventAncestry)).toHaveBeenCalledWith(
+      "workspace",
+      workspaceId,
+      expect.objectContaining({
+        checkpointSequence: 2,
+        checkpointHash: checkpointHash(sessionCheckpoint),
+      }),
+      [event3, event4],
+      currentCheckpoint,
+      sessionCheckpoint.payload,
+    );
+  });
+});
 
 function writeSessionAdmission(bodyOverrides: Record<string, unknown> = {}) {
   const actor = {

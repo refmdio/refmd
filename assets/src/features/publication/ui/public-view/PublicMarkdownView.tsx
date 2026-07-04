@@ -4,7 +4,7 @@ import {
   markdownViewHeadings,
   parseMarkdownView,
   type MarkdownViewHeading,
-} from "@/shared/lib/markdown/MarkdownView";
+} from "@/shared/lib/markdown/markdown-view";
 
 export type PublicMarkdownHeading = MarkdownViewHeading;
 

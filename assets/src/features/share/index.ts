@@ -42,10 +42,7 @@ export { readShareUrl } from "./lib/manage/manage-tokens";
 export { listDocumentShares, type ShareListItem } from "./lib/manage/list-shares";
 export { SaveShareMountButton } from "./ui/view/SaveShareMountButton";
 export { ShareLandingPage } from "./ui/view/ShareLandingPage";
-export {
-  ShareRoutePhaseContent,
-  type ShareRoutePhase,
-} from "./ui/view/ShareRoutePhaseContent";
+export { ShareRoutePhaseContent, type ShareRoutePhase } from "./ui/view/ShareRoutePhaseContent";
 export { useSaveShareMount } from "./model/view/use-save-share-mount";
 export { useShareMountTree } from "./model/view/use-share-mount-tree";
 export { openMountedShareDocument } from "./model/view/open-mounted-share-document";

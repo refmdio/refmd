@@ -52,6 +52,11 @@ function isBootstrapRequired(
   return "bootstrap_required" in response && response.bootstrap_required === true;
 }
 
+function keyDirectoryEnvelopeArray(value: unknown, code: string) {
+  if (!Array.isArray(value)) throw new Error(code);
+  return value.map((entry) => assertKeyDirectoryEnvelope(entry, code));
+}
+
 export async function resolveShareFolderRoute(
   folderToken: string,
 ): Promise<ResolvedShareFolderRoute> {
@@ -138,14 +143,33 @@ export async function resolveShareFolderRoute(
           canonicalResponse.workspace_pin_bootstrap,
           "folder_workspace_pin_bootstrap_invalid",
         );
+  const workspaceKeyDirectoryCheckpoint = assertKeyDirectoryEnvelope(
+    canonicalResponse.workspace_key_directory_checkpoint,
+    "folder_workspace_key_directory_checkpoint_invalid",
+  );
+  const workspaceKeyDirectoryLatestCheckpoint =
+    canonicalResponse.workspace_key_directory_latest_checkpoint === null
+      ? null
+      : assertKeyDirectoryEnvelope(
+          canonicalResponse.workspace_key_directory_latest_checkpoint,
+          "folder_workspace_key_directory_latest_checkpoint_invalid",
+        );
+  const workspaceKeyDirectoryCheckpointAncestry = keyDirectoryEnvelopeArray(
+    canonicalResponse.workspace_key_directory_checkpoint_ancestry,
+    "folder_workspace_key_directory_checkpoint_ancestry_invalid",
+  );
+  const workspaceKeyDirectoryEventAncestry = keyDirectoryEnvelopeArray(
+    canonicalResponse.workspace_key_directory_event_ancestry,
+    "folder_workspace_key_directory_event_ancestry_invalid",
+  );
   await ensureShareWorkspaceKeyDirectoryPin({
     workspaceId: canonicalResponse.workspace_id,
     workspacePinBootstrapHash: anchor.workspacePinBootstrapHash,
     workspacePinBootstrap,
-    workspaceKeyDirectoryCheckpoint: assertKeyDirectoryEnvelope(
-      canonicalResponse.workspace_key_directory_checkpoint,
-      "folder_workspace_key_directory_checkpoint_invalid",
-    ),
+    workspaceKeyDirectoryCheckpoint,
+    workspaceKeyDirectoryLatestCheckpoint,
+    workspaceKeyDirectoryCheckpointAncestry,
+    workspaceKeyDirectoryEventAncestry,
     mismatchCode: "folder_workspace_pin_bootstrap_hash_mismatch",
   });
 

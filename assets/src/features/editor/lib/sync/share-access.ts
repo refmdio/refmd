@@ -4,6 +4,12 @@ import {
   assertWorkspacePinBootstrapEnvelope,
   type WorkspacePinBootstrapEnvelope,
 } from "@/shared/lib/key-directory/workspace-pin-bootstrap";
+import {
+  advanceKeyDirectoryPinWithProof,
+  getKeyDirectoryPin,
+  hashKeyDirectoryCheckpointEnvelope,
+  verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
+} from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { normalizeShareVerificationDirectory } from "@/shared/lib/document/share-verification-directory";
 import {
   assertKeyDirectoryEnvelope,
@@ -69,7 +75,7 @@ function toSharedDocumentAccess(
     throw new Error("share_bootstrap_required");
   }
 
-  return {
+  const access: SharedDocumentAccess = {
     kind: "share",
     source: previous.source,
     documentToken: previous.documentToken,
@@ -121,6 +127,11 @@ function toSharedDocumentAccess(
     verificationDirectory: normalizeShareVerificationDirectory(response.verification_directory),
     shareTrustAnchor: updateShareTrustAnchor(previous.shareTrustAnchor, previous, response),
   };
+  return withRefreshedWorkspacePinReady(
+    previous,
+    access,
+    "share_workspace_pin_bootstrap_hash_mismatch",
+  );
 }
 
 function updateShareTrustAnchor(
@@ -169,7 +180,7 @@ function toMountedSharedDocumentAccess(
 ): SharedDocumentAccess {
   const document = recordValue(response.document, "mounted_share_document_unavailable");
 
-  return {
+  const access: SharedDocumentAccess = {
     kind: "share",
     source: previous.source,
     documentToken: previous.documentToken,
@@ -223,6 +234,92 @@ function toMountedSharedDocumentAccess(
     verificationDirectory: normalizeShareVerificationDirectory(document.verification_directory),
     shareTrustAnchor: previous.shareTrustAnchor,
   };
+  return withRefreshedWorkspacePinReady(
+    previous,
+    access,
+    "mounted_share_workspace_pin_bootstrap_invalid",
+  );
+}
+
+function withRefreshedWorkspacePinReady(
+  previous: SharedDocumentAccess,
+  access: SharedDocumentAccess,
+  mismatchCode: string,
+): SharedDocumentAccess {
+  if (!access.workspaceKeyDirectoryLatestCheckpoint) return access;
+
+  const workspacePinReady = (async () => {
+    await previous.workspacePinReady?.catch(() => {});
+    try {
+      await advanceRefreshedShareWorkspaceLineage(access);
+    } catch {
+      throw new Error(mismatchCode);
+    }
+  })();
+  void workspacePinReady.catch(() => {});
+
+  return {
+    ...access,
+    workspacePinReady,
+  };
+}
+
+async function advanceRefreshedShareWorkspaceLineage(access: SharedDocumentAccess): Promise<void> {
+  if (!access.workspaceKeyDirectoryLatestCheckpoint) return;
+
+  const current = await getKeyDirectoryPin("workspace", access.workspaceId);
+  if (!current) throw new Error("key_directory_pin_required");
+
+  const latestSequence = checkpointSequence(access.workspaceKeyDirectoryLatestCheckpoint);
+  const latestHash = hashKeyDirectoryCheckpointEnvelope(
+    access.workspaceKeyDirectoryLatestCheckpoint,
+  );
+  if (latestSequence < current.checkpointSequence) {
+    return;
+  }
+  if (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash) {
+    throw new Error("share_workspace_key_directory_checkpoint_fork");
+  }
+
+  const checkpointAncestry = access.workspaceKeyDirectoryCheckpointAncestry ?? [];
+  const eventAncestry = access.workspaceKeyDirectoryEventAncestry ?? [];
+  if (latestSequence === current.checkpointSequence && latestHash === current.checkpointHash) {
+    if (
+      !access.workspaceKeyDirectoryCheckpoint ||
+      (checkpointAncestry.length < 1 && eventAncestry.length < 1)
+    ) {
+      return;
+    }
+    await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
+      scopeKind: "workspace",
+      scopeId: access.workspaceId,
+      trustedCheckpointEnvelope: access.workspaceKeyDirectoryCheckpoint,
+      checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
+      checkpointAncestry,
+      eventAncestry,
+      authorityEventAncestry: eventAncestry,
+    });
+    return;
+  }
+
+  const lineage = lineageFromCurrentPin(checkpointAncestry, eventAncestry, current);
+  if (latestSequence > current.checkpointSequence && !lineage) {
+    throw new Error("key_directory_event_ancestry_required");
+  }
+
+  try {
+    await advanceKeyDirectoryPinWithProof({
+      scopeKind: "workspace",
+      scopeId: access.workspaceId,
+      checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
+      checkpointAncestry: lineage?.checkpointAncestry ?? checkpointAncestry,
+      eventAncestry: lineage?.eventAncestry ?? eventAncestry,
+      authorityEventAncestry: eventAncestry,
+    });
+  } catch (error) {
+    if (latestSequence < current.checkpointSequence && isStaleLineageError(error)) return;
+    throw error;
+  }
 }
 
 export async function refreshSharedDocumentAccess(
@@ -360,6 +457,57 @@ function stringArrayValue(value: unknown, code: string): string[] {
     throw new Error(code);
   }
   return value;
+}
+
+function lineageFromCurrentPin(
+  checkpointAncestry: KeyDirectoryEnvelope[],
+  eventAncestry: KeyDirectoryEnvelope[],
+  current: {
+    checkpointSequence: number;
+    checkpointHash: string;
+    eventHeadSequence: number;
+  },
+): { checkpointAncestry: KeyDirectoryEnvelope[]; eventAncestry: KeyDirectoryEnvelope[] } | null {
+  const currentCheckpointIndex = checkpointAncestry.findIndex(
+    (checkpoint) =>
+      checkpointSequence(checkpoint) === current.checkpointSequence &&
+      hashKeyDirectoryCheckpointEnvelope(checkpoint) === current.checkpointHash,
+  );
+  if (currentCheckpointIndex < 0) return null;
+  return {
+    checkpointAncestry: checkpointAncestry.slice(currentCheckpointIndex),
+    eventAncestry: eventAncestry.filter(
+      (event) => keyDirectoryEventSequence(event) > current.eventHeadSequence,
+    ),
+  };
+}
+
+function checkpointSequence(checkpointEnvelope: KeyDirectoryEnvelope): number {
+  const payload = checkpointEnvelope.payload as Record<string, unknown> | undefined;
+  const sequence = payload?.sequence;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) {
+    throw new Error("workspace_key_directory_checkpoint_sequence_invalid");
+  }
+  return sequence;
+}
+
+function keyDirectoryEventSequence(event: KeyDirectoryEnvelope): number {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  const sequence = payload?.sequence;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) {
+    throw new Error("workspace_key_directory_event_sequence_invalid");
+  }
+  return sequence;
+}
+
+function isStaleLineageError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "key_directory_checkpoint_rollback" ||
+      error.message === "key_directory_checkpoint_anchor_mismatch" ||
+      error.message === "key_directory_checkpoint_fork" ||
+      error.message === "key_directory_pin_conflict")
+  );
 }
 
 function permissionValue(value: unknown): "view" | "edit" {

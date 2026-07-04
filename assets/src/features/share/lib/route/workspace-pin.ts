@@ -2,6 +2,7 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
+  verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
 import {
@@ -47,7 +48,7 @@ export async function ensureShareWorkspaceKeyDirectoryPin(params: {
     workspaceId: params.workspaceId,
   });
   if (await getKeyDirectoryPin("workspace", params.workspaceId)) {
-    prewarmShareWorkspaceKeyDirectoryLineage(params);
+    await verifyShareWorkspaceKeyDirectoryLineage(params, startedAt);
     recordSharePinPerf("share_workspace_pin_check_ready", {
       workspaceId: params.workspaceId,
       elapsedMs: performance.now() - startedAt,
@@ -100,7 +101,7 @@ export async function ensureShareWorkspaceKeyDirectoryPin(params: {
         checkpointEnvelope: workspaceKeyDirectoryCheckpoint,
         operationSequence: checkpointEventHeadSequence(workspaceKeyDirectoryCheckpoint),
       });
-      prewarmShareWorkspaceKeyDirectoryLineage(params);
+      await verifyShareWorkspaceKeyDirectoryLineage(params, startedAt);
       recordSharePinPerf("share_workspace_pin_verify_ready", {
         workspaceId: params.workspaceId,
         elapsedMs: performance.now() - startedAt,
@@ -117,35 +118,36 @@ export async function ensureShareWorkspaceKeyDirectoryPin(params: {
   await verify;
 }
 
-function prewarmShareWorkspaceKeyDirectoryLineage(params: {
-  workspaceId: string;
-  workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
-  workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
-  workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
-}): void {
-  if (!params.workspaceKeyDirectoryLatestCheckpoint) return;
-  const startedAt = performance.now();
-  recordSharePinPerf("share_workspace_lineage_prewarm_start", {
-    workspaceId: params.workspaceId,
-  });
-  void advanceShareWorkspaceKeyDirectoryLineage(params)
-    .then(() => {
-      recordSharePinPerf("share_workspace_lineage_prewarm_ready", {
-        workspaceId: params.workspaceId,
-        elapsedMs: performance.now() - startedAt,
-      });
-    })
-    .catch((error: unknown) => {
-      recordSharePinPerf("share_workspace_lineage_prewarm_failed", {
-        workspaceId: params.workspaceId,
-        elapsedMs: performance.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
+async function verifyShareWorkspaceKeyDirectoryLineage(
+  params: {
+    workspaceId: string;
+    workspaceKeyDirectoryCheckpoint?: KeyDirectoryEnvelope | null;
+    workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
+    workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
+    workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
+    mismatchCode: string;
+  },
+  startedAt: number,
+): Promise<void> {
+  try {
+    await advanceShareWorkspaceKeyDirectoryLineage(params);
+    recordSharePinPerf("share_workspace_lineage_ready", {
+      workspaceId: params.workspaceId,
+      elapsedMs: performance.now() - startedAt,
     });
+  } catch (error) {
+    recordSharePinPerf("share_workspace_lineage_failed", {
+      workspaceId: params.workspaceId,
+      elapsedMs: performance.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error(params.mismatchCode);
+  }
 }
 
 async function advanceShareWorkspaceKeyDirectoryLineage(params: {
   workspaceId: string;
+  workspaceKeyDirectoryCheckpoint?: KeyDirectoryEnvelope | null;
   workspaceKeyDirectoryLatestCheckpoint?: KeyDirectoryEnvelope | null;
   workspaceKeyDirectoryCheckpointAncestry?: KeyDirectoryEnvelope[];
   workspaceKeyDirectoryEventAncestry?: KeyDirectoryEnvelope[];
@@ -159,17 +161,36 @@ async function advanceShareWorkspaceKeyDirectoryLineage(params: {
   const latestHash = hashKeyDirectoryCheckpointEnvelope(
     params.workspaceKeyDirectoryLatestCheckpoint,
   );
-  if (
-    latestSequence < current.checkpointSequence ||
-    (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash)
-  ) {
+  if (latestSequence < current.checkpointSequence) {
     return;
+  }
+  if (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash) {
+    throw new Error("share_workspace_key_directory_checkpoint_fork");
   }
   const checkpointAncestry = params.workspaceKeyDirectoryCheckpointAncestry ?? [];
   const eventAncestry = params.workspaceKeyDirectoryEventAncestry ?? [];
+  if (latestSequence === current.checkpointSequence && latestHash === current.checkpointHash) {
+    if (
+      !params.workspaceKeyDirectoryCheckpoint ||
+      (checkpointAncestry.length < 1 && eventAncestry.length < 1)
+    ) {
+      return;
+    }
+    await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
+      scopeKind: "workspace",
+      scopeId: params.workspaceId,
+      trustedCheckpointEnvelope: params.workspaceKeyDirectoryCheckpoint,
+      checkpointEnvelope: params.workspaceKeyDirectoryLatestCheckpoint,
+      checkpointAncestry,
+      eventAncestry,
+      authorityEventAncestry: eventAncestry,
+    });
+    return;
+  }
+
   const lineage = lineageFromCurrentPin(checkpointAncestry, eventAncestry, current);
   if (latestSequence > current.checkpointSequence) {
-    if (!lineage) return;
+    if (!lineage) throw new Error("share_workspace_key_directory_lineage_missing");
   }
 
   try {
@@ -182,7 +203,7 @@ async function advanceShareWorkspaceKeyDirectoryLineage(params: {
       authorityEventAncestry: eventAncestry,
     });
   } catch (error) {
-    if (isStaleLineageError(error)) return;
+    if (latestSequence < current.checkpointSequence && isStaleLineageError(error)) return;
     throw error;
   }
 }

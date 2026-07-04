@@ -21,7 +21,8 @@ defmodule RefMD.Crypto.JCS do
     |> Jason.decode!(objects: :ordered_objects)
     |> strict_decoded_root!()
   rescue
-    _ in Jason.DecodeError -> raise ArgumentError, "json_unexpected_token"
+    _ in Jason.DecodeError ->
+      reraise ArgumentError, [message: "json_unexpected_token"], __STACKTRACE__
   end
 
   defp encode_value(value, root?) when is_map(value) do

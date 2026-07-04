@@ -89,6 +89,7 @@ defmodule RefMDWeb.DocumentChannel do
         )
         |> assign(:mount_id, params["mount_id"])
         |> assign(:mounted_share_id, mounted_share_id)
+        |> assign(:workspace_key_directory_pin_anchor, workspace_key_directory_pin_anchor(params))
         |> assign(
           :mounted_trust_anchor,
           %{
@@ -635,15 +636,13 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   defp handle_write_session_result({:ok, saved}, parsed, socket) do
-    admission =
-      Documents.document_admission_package!(
-        socket.assigns.document_id,
-        "document_write_session_admitted",
-        saved.admission_event_hash
-      )
-
     payload = %{
-      admission: admission,
+      admission:
+        write_session_admission(
+          socket.assigns.document_id,
+          saved.admission_event_hash,
+          current_incremental: true
+        ),
       publicData: parsed.public_data
     }
 
@@ -663,8 +662,14 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   defp handle_update_result({:ok, saved}, parsed, payload, socket) do
-    record_update_write_session(saved, parsed, socket)
-    maybe_broadcast_update(saved, payload, socket)
+    write_session_admission =
+      if Map.get(saved, :duplicate) do
+        nil
+      else
+        record_update_write_session(saved, parsed, socket)
+      end
+
+    maybe_broadcast_update(saved, payload, socket, write_session_admission)
 
     push(socket, "update-saved", %{
       snapshotId: saved.snapshot_id,
@@ -725,17 +730,24 @@ defmodule RefMDWeb.DocumentChannel do
     event_hash = parsed.public_data["writeSessionEventHash"]
 
     if is_binary(event_hash) and event_hash == saved.admission_event_hash do
+      admission =
+        write_session_admission(
+          socket.assigns.document_id,
+          saved.admission_event_hash,
+          current_incremental: true
+        )
+
       Documents.record_write_session(
         socket.assigns.document_id,
         %{
-          admission: parsed.admission,
+          admission: admission,
           publicData: Map.put(parsed.public_data, "writeSessionCounter", 0)
         },
         write_session_expires_at_ms(parsed)
       )
-    end
 
-    :ok
+      admission
+    end
   end
 
   defp handle_snapshot_result({:ok, saved}, _parsed, socket) do
@@ -758,7 +770,7 @@ defmodule RefMDWeb.DocumentChannel do
     snapshot_payload =
       saved.snapshot_id
       |> Documents.get_snapshot()
-      |> Envelope.format_snapshot()
+      |> Envelope.format_snapshot(current_incremental: true)
 
     broadcast_from(socket, "snapshot", %{
       snapshotId: saved.snapshot_id,
@@ -783,7 +795,8 @@ defmodule RefMDWeb.DocumentChannel do
       Envelope.build_snapshot_failure(
         recovery,
         socket.assigns.document_id,
-        parsed.public_data["parentSnapshotId"]
+        parsed.public_data["parentSnapshotId"],
+        active_write_session_admission_opts(socket.assigns.workspace_key_directory_pin_anchor)
       )
 
     push(socket, "snapshot-save-failed", failure_data)
@@ -806,9 +819,10 @@ defmodule RefMDWeb.DocumentChannel do
     {:reply, {:error, %{reason: to_string(reason)}}, socket}
   end
 
-  defp maybe_broadcast_update(%{duplicate: true}, _payload, _socket), do: :ok
+  defp maybe_broadcast_update(%{duplicate: true}, _payload, _socket, _write_session_admission),
+    do: :ok
 
-  defp maybe_broadcast_update(saved, payload, socket) do
+  defp maybe_broadcast_update(saved, payload, socket, write_session_admission) do
     Documents.update_clocks(
       socket.assigns.document_id,
       payload["publicData"]["authorityContextKey"],
@@ -819,36 +833,20 @@ defmodule RefMDWeb.DocumentChannel do
     broadcast_envelope =
       payload
       |> Map.put("version", saved.version)
-      |> Map.put("admission", live_update_admission(socket.assigns.document_id, saved, payload))
+      |> Map.put(
+        "admission",
+        live_update_admission(socket.assigns.document_id, saved, payload, write_session_admission)
+      )
 
     broadcast_from(socket, "update", broadcast_envelope)
   end
 
-  defp live_update_admission(_document_id, saved, %{
-         "admission" => admission,
-         "publicData" => %{"writeSessionEventHash" => event_hash}
-       })
-       when is_map(admission) and event_hash == saved.admission_event_hash do
+  defp live_update_admission(_document_id, _saved, _payload, admission) when is_map(admission) do
     admission
   end
 
-  defp live_update_admission(document_id, saved, _payload) do
-    active_write_session_admission(document_id, saved.admission_event_hash) ||
-      Documents.document_admission_package!(
-        document_id,
-        "document_write_session_admitted",
-        saved.admission_event_hash
-      )
-  end
-
-  defp active_write_session_admission(document_id, admission_event_hash) do
-    document_id
-    |> Documents.active_write_sessions()
-    |> Enum.find(&(write_session_event_hash(&1) == admission_event_hash))
-    |> case do
-      nil -> nil
-      payload -> get_in(payload, [:admission]) || get_in(payload, ["admission"])
-    end
+  defp live_update_admission(document_id, saved, _payload, _admission) do
+    write_session_admission(document_id, saved.admission_event_hash, current_incremental: true)
   end
 
   defp push_active_write_sessions(%{assigns: %{silent: true}}), do: :ok
@@ -857,18 +855,18 @@ defmodule RefMDWeb.DocumentChannel do
     socket.assigns.document_id
     |> Documents.active_write_sessions()
     |> Enum.sort_by(&write_session_key_checkpoint_sequence/1)
-    |> Enum.map(&refresh_active_write_session_admission(socket.assigns.document_id, &1))
+    |> Enum.map(&refresh_active_write_session_admission(socket, &1))
     |> Enum.each(&push(socket, "write-session", &1))
   end
 
-  defp refresh_active_write_session_admission(document_id, payload) do
+  defp refresh_active_write_session_admission(socket, payload) do
     case write_session_event_hash(payload) do
       event_hash when is_binary(event_hash) ->
         admission =
-          Documents.document_admission_package!(
-            document_id,
-            "document_write_session_admitted",
-            event_hash
+          write_session_admission(
+            socket.assigns.document_id,
+            event_hash,
+            active_write_session_admission_opts(socket.assigns.workspace_key_directory_pin_anchor)
           )
 
         put_payload_admission(payload, admission)
@@ -876,6 +874,21 @@ defmodule RefMDWeb.DocumentChannel do
       _ ->
         payload
     end
+  end
+
+  defp active_write_session_admission_opts(%{sequence: sequence, hash: hash}) do
+    [from_checkpoint_sequence: sequence, from_checkpoint_hash: hash]
+  end
+
+  defp active_write_session_admission_opts(_anchor), do: [current_incremental: true]
+
+  defp write_session_admission(document_id, admission_event_hash, opts) do
+    Documents.document_admission_package!(
+      document_id,
+      "document_write_session_admitted",
+      admission_event_hash,
+      opts
+    )
   end
 
   defp put_payload_admission(payload, admission) do
@@ -914,4 +927,14 @@ defmodule RefMDWeb.DocumentChannel do
       _ -> System.system_time(:millisecond) + 60_000
     end
   end
+
+  defp workspace_key_directory_pin_anchor(%{
+         "workspaceKeyDirectoryPinSequence" => sequence,
+         "workspaceKeyDirectoryPinHash" => hash
+       })
+       when is_integer(sequence) and sequence > 0 and is_binary(hash) do
+    %{sequence: sequence, hash: hash}
+  end
+
+  defp workspace_key_directory_pin_anchor(_params), do: nil
 end

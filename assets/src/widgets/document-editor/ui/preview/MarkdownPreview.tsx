@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { acquireYDoc, emitScrollSync, onScrollSync, releaseYDoc } from "@/features/editor";
-import { MarkdownView, parseMarkdownView } from "@/shared/lib/markdown/MarkdownView";
+import { MarkdownView, parseMarkdownView } from "@/shared/lib/markdown/markdown-view";
 import {
   ensureYDocMarkdownText,
   readYDocMarkdownPreview,

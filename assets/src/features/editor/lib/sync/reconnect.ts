@@ -1,4 +1,5 @@
 import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { deviceState } from "@/entities/session";
 import { getRateLimitRetryMs } from "@/shared/api/core";
 import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
 import {
@@ -6,8 +7,10 @@ import {
   getDocumentStatePin,
   hasCompleteSnapshotPin,
 } from "@/shared/lib/anti-rollback/document-state-pins";
+import { getKeyDirectoryPin } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import {
   getChannelState,
+  getPhoenixJoinErrorReason,
   leaveDocument,
   rejoinDocument,
   isPhoenixJoinError,
@@ -16,6 +19,7 @@ import {
 } from "@/shared/lib/ws/phoenix-channel";
 import { ensurePhoenixWsToken } from "@/shared/lib/ws/socket";
 import { getShareParticipantCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
+import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import { isRecoverableSyncGapError } from "./error";
 import {
   needsShareReentry,
@@ -26,6 +30,7 @@ import {
 import { getDocumentState } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { buildDocumentChannelCallbacks } from "./bootstrap-callbacks";
+import { refreshWorkspaceKeyDirectoryForDocumentJoin } from "./bootstrap-prepare";
 import { resumeReconnectDocument } from "./reconnect-resume";
 import { refreshSharedDocumentAccess } from "./share-access";
 import { recordSyncPerf } from "./perf";
@@ -34,6 +39,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_BASE_MS = 100;
 const RECONNECT_MAX_MS = 5_000;
 const RECONNECT_DOCUMENT_TIMEOUT_MS = 8_000;
+const WORKSPACE_KEY_DIRECTORY_REFRESH_REQUIRED = "workspace_key_directory_refresh_required";
 
 function getStateKnownSnapshotId(state: DocumentState): string | null {
   return state.activeSnapshotId && state.snapshotProofHash && state.snapshotCiphertextHash
@@ -71,6 +77,10 @@ function isTransientReconnectError(error: unknown): boolean {
     error instanceof PhoenixChannelTransportError ||
     getRateLimitRetryMs(error) !== null
   );
+}
+
+function isWorkspaceKeyDirectoryRefreshRequired(error: unknown): boolean {
+  return getPhoenixJoinErrorReason(error) === WORKSPACE_KEY_DIRECTORY_REFRESH_REQUIRED;
 }
 
 export function triggerReconnect(
@@ -162,6 +172,43 @@ async function attemptReconnect(
       await ensurePhoenixWsToken(transportScope);
       const stateKnownSnapshotId = getStateKnownSnapshotId(state);
       const pin = await getDocumentStatePin(getPinKey(documentId, state)).catch(() => null);
+      const mountedShareReconnect =
+        state.access.kind === "share" &&
+        state.access.source === "mounted" &&
+        !!state.access.mountId;
+      if (mountedShareReconnect) {
+        const access = await refreshSharedDocumentAccess(state);
+        await access.workspacePinReady;
+      }
+      let workspacePin = await getKeyDirectoryPin("workspace", state.workspaceId).catch(() => null);
+      if (!workspacePin) {
+        if (state.access.kind === "share") {
+          const access = mountedShareReconnect
+            ? state.access
+            : await refreshSharedDocumentAccess(state);
+          await access.workspacePinReady;
+          workspacePin = await getKeyDirectoryPin("workspace", state.workspaceId).catch(() => null);
+          if (!workspacePin) {
+            await fetchVerifiedKeyDirectory({
+              scopeKind: "workspace",
+              scopeId: state.workspaceId,
+              popDeviceId: state.access.participantDeviceId,
+              popScope: "share",
+              popWorker: getShareParticipantCryptoWorker(state.access.shareSlug),
+            });
+          }
+        } else {
+          const device = deviceState();
+          if (!device?.deviceId) throw new Error("key_directory_pop_device_required");
+          await fetchVerifiedKeyDirectory({
+            scopeKind: "workspace",
+            scopeId: state.workspaceId,
+            popDeviceId: device.deviceId,
+          });
+        }
+        workspacePin = await getKeyDirectoryPin("workspace", state.workspaceId);
+      }
+      if (!workspacePin) throw new Error("key_directory_pin_required");
       const pinSnapshotId = hasCompleteSnapshotPin(pin) ? pin.latestSnapshotId : null;
       useDelta =
         useDelta &&
@@ -173,18 +220,21 @@ async function attemptReconnect(
       const joinParams: Record<string, unknown> = {
         mode: useDelta ? "delta" : "complete",
       };
+      if (workspacePin) {
+        joinParams.workspaceKeyDirectoryPinSequence = workspacePin.checkpointSequence;
+        joinParams.workspaceKeyDirectoryPinHash = workspacePin.checkpointHash;
+      }
       if (
         state.access.kind === "share" &&
         state.access.source === "mounted" &&
         state.access.mountId
       ) {
-        await refreshSharedDocumentAccess(state);
+        if (state.access.workspacePinBootstrapHash) {
+          joinParams.authenticated_workspace_pin_bootstrap_hash =
+            state.access.workspacePinBootstrapHash;
+        }
         joinParams.mount_id = state.access.mountId;
         joinParams.share_id = state.access.shareId;
-      }
-      if (state.access.kind === "share" && state.access.workspacePinBootstrapHash) {
-        joinParams.authenticated_workspace_pin_bootstrap_hash =
-          state.access.workspacePinBootstrapHash;
       }
       state._lastJoinMode = useDelta ? "delta" : "complete";
       if (knownSnapshotId) {
@@ -363,6 +413,26 @@ async function attemptReconnect(
       }
       const resp = isPhoenixJoinError(err) ? err.joinErrorResp : undefined;
       const reason = resp?.reason;
+      if (isWorkspaceKeyDirectoryRefreshRequired(err)) {
+        if (attempt >= MAX_RECONNECT_ATTEMPTS - 1) {
+          failClosed(WORKSPACE_KEY_DIRECTORY_REFRESH_REQUIRED);
+          return;
+        }
+        try {
+          await refreshWorkspaceKeyDirectoryForDocumentJoin(state, workspaceId);
+          useDelta = false;
+          state._forceCompleteReconnect = false;
+          continue;
+        } catch (refreshError) {
+          lastError = refreshError;
+          if (isTransientReconnectError(refreshError)) {
+            useDelta = false;
+            continue;
+          }
+          failClosed("reconnect_failed", refreshError);
+          return;
+        }
+      }
       if (reason === "not_a_member" || reason === "permission_denied") {
         if (state.access.kind === "share") {
           requestShareReentry(state.stateKey);
@@ -433,5 +503,5 @@ async function attemptReconnect(
     return;
   }
 
-  await new Promise((resolve) => setTimeout(resolve, RECONNECT_MAX_MS));
+  failClosed("reconnect_failed", lastError ?? new Error("Reconnect attempts exhausted"));
 }

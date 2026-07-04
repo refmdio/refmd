@@ -5,7 +5,10 @@ import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { getShareParticipantCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
-import { assertKeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
+import {
+  assertKeyDirectoryEnvelope,
+  type KeyDirectoryEnvelope,
+} from "@/shared/lib/crypto/key-directory/types";
 import { assertWorkspacePinBootstrapEnvelope } from "@/shared/lib/key-directory/workspace-pin-bootstrap";
 import { normalizeShareVerificationDirectory } from "@/shared/lib/document/share-verification-directory";
 import { ensureShareParticipantDeviceReady } from "../session/session";
@@ -107,16 +110,33 @@ export async function resolveMountedShareOpen(
           document.workspace_pin_bootstrap,
           "mount_workspace_pin_bootstrap_invalid",
         );
-  await ensureShareWorkspaceKeyDirectoryPin({
+  const workspaceKeyDirectoryCheckpoint = assertKeyDirectoryEnvelope(
+    (document as Record<string, unknown>).workspace_key_directory_checkpoint,
+    "mount_workspace_key_directory_checkpoint_invalid",
+  );
+  const workspaceKeyDirectoryLatestCheckpoint = optionalKeyDirectoryEnvelope(
+    (document as Record<string, unknown>).workspace_key_directory_latest_checkpoint,
+    "mount_workspace_key_directory_latest_checkpoint_invalid",
+  );
+  const workspaceKeyDirectoryCheckpointAncestry = keyDirectoryEnvelopeArray(
+    (document as Record<string, unknown>).workspace_key_directory_checkpoint_ancestry,
+    "mount_workspace_key_directory_checkpoint_ancestry_invalid",
+  );
+  const workspaceKeyDirectoryEventAncestry = keyDirectoryEnvelopeArray(
+    (document as Record<string, unknown>).workspace_key_directory_event_ancestry,
+    "mount_workspace_key_directory_event_ancestry_invalid",
+  );
+  const workspacePinReady = ensureShareWorkspaceKeyDirectoryPin({
     workspaceId: document.workspace_id,
     workspacePinBootstrapHash: anchor.workspacePinBootstrapHash,
     workspacePinBootstrap,
-    workspaceKeyDirectoryCheckpoint: assertKeyDirectoryEnvelope(
-      (document as Record<string, unknown>).workspace_key_directory_checkpoint,
-      "mount_workspace_key_directory_checkpoint_invalid",
-    ),
+    workspaceKeyDirectoryCheckpoint,
+    workspaceKeyDirectoryLatestCheckpoint,
+    workspaceKeyDirectoryCheckpointAncestry,
+    workspaceKeyDirectoryEventAncestry,
     mismatchCode: "mount_workspace_pin_bootstrap_hash_mismatch",
   });
+  await workspacePinReady;
 
   return {
     title: await resolveMountedShareTitle(mountId, document),
@@ -139,9 +159,25 @@ export async function resolveMountedShareOpen(
       workspaceId: document.workspace_id,
       workspacePinBootstrapHash: anchor.workspacePinBootstrapHash,
       workspacePinBootstrap,
+      workspaceKeyDirectoryCheckpoint,
+      workspaceKeyDirectoryLatestCheckpoint,
+      workspaceKeyDirectoryCheckpointAncestry,
+      workspaceKeyDirectoryEventAncestry,
+      workspacePinReady,
       keyVersion: document.key_version,
       encryptedKeyRefs: document.encrypted_key_refs,
       verificationDirectory: normalizeShareVerificationDirectory(document.verification_directory),
     },
   };
+}
+
+function optionalKeyDirectoryEnvelope(value: unknown, code: string): KeyDirectoryEnvelope | null {
+  if (value === undefined || value === null) return null;
+  return assertKeyDirectoryEnvelope(value, code);
+}
+
+function keyDirectoryEnvelopeArray(value: unknown, code: string): KeyDirectoryEnvelope[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(code);
+  return value.map((entry) => assertKeyDirectoryEnvelope(entry, code));
 }

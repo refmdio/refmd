@@ -2,8 +2,10 @@ defmodule RefMDWeb.ShareControllerTest do
   use RefMDWeb.ConnCase, async: true
   import Ecto.Query
 
-  alias RefMD.Crypto.Blake3
+  alias RefMD.Crypto.{Blake3, JCS, Signature}
   alias RefMD.Documents
+  alias RefMD.Documents.DocumentSnapshot
+  alias RefMD.Encryption.KeyDirectory
   alias RefMD.Repo
   alias RefMD.Sharing
   alias RefMD.Sharing.SharePasswordChallenge
@@ -60,6 +62,139 @@ defmodule RefMDWeb.ShareControllerTest do
       })
 
     folder
+  end
+
+  defp insert_active_snapshot!(document, owner_id) do
+    signer = Process.get({:test_workspace_signer_material, document.workspace_id})
+    snapshot_id = Ecto.UUID.generate()
+    ciphertext = <<7, 7, 7>>
+    nonce = :crypto.strong_rand_bytes(24)
+    ciphertext_b64 = Base.url_encode64(ciphertext, padding: false)
+    nonce_b64 = Base.url_encode64(nonce, padding: false)
+    signing_key_id = Signature.compute_signing_key_id!(signer.signing_public)
+    previous_checkpoint = KeyDirectory.current_checkpoint("workspace", document.workspace_id)
+
+    public_data = %{
+      "docId" => document.id,
+      "signingKeyId" => signing_key_id,
+      "snapshotId" => snapshot_id,
+      "keyVersion" => 1,
+      "parentSnapshotId" => "GENESIS",
+      "parentProofHash" => "GENESIS",
+      "parentSnapshotUpdateClocks" => %{},
+      "ownerKind" => "device",
+      "ownerId" => signer.device_id,
+      "authorityKind" => "workspace_device",
+      "authorityId" => document.workspace_id,
+      "authorityContextKey" => signing_key_id,
+      "authorityScopeId" => document.workspace_id,
+      "authorityPermissionVersion" => 1,
+      "keyCheckpointSequence" => previous_checkpoint.sequence,
+      "keyCheckpointHash" => previous_checkpoint.checkpoint_hash
+    }
+
+    signature =
+      sign_document_snapshot(
+        signer.signing_private,
+        owner_id,
+        signer.device_id,
+        ciphertext_b64,
+        nonce_b64,
+        public_data,
+        test_authority_boundary(public_data, "document_snapshot_accepted"),
+        document.workspace_id
+      )
+
+    admission =
+      document_operation_admission(%{
+        workspace_id: document.workspace_id,
+        document_id: document.id,
+        user_id: owner_id,
+        device_id: signer.device_id,
+        private_material: signer.signing_private,
+        event_type: "document_snapshot_accepted",
+        operation_hash: Blake3.hash_base64url(ciphertext),
+        signature: signature,
+        key_version: 1,
+        min_dek_version: 1
+      })
+
+    [snapshot_event] = admission["workspaceKeyDirectoryEvents"]
+    snapshot_admission_event_hash = KeyDirectory.event_hash(snapshot_event["payload"])
+
+    KeyDirectory.append_signed_scope!(
+      "workspace",
+      document.workspace_id,
+      admission["workspaceKeyDirectoryEvents"],
+      admission["workspaceKeyDirectoryCheckpoint"],
+      checkpoint_signer_kind: "device"
+    )
+
+    snapshot_signature_hash = Blake3.hash_base64url(JCS.canonical_bytes!(signature))
+    ciphertext_hash = Blake3.hash_base64url(ciphertext)
+
+    proof_chain_hash =
+      Blake3.hash_base64url(
+        JCS.canonical_bytes!(%{
+          "protocol" => "refmd.snapshot-proof-link",
+          "version" => 1,
+          "document_id" => document.id,
+          "snapshot_id" => snapshot_id,
+          "parent_snapshot_id" => "GENESIS",
+          "parent_proof_hash" => "GENESIS",
+          "ciphertext_hash" => ciphertext_hash,
+          "snapshot_signature_hash" => snapshot_signature_hash,
+          "snapshot_admission_event_hash" => snapshot_admission_event_hash
+        })
+      )
+
+    %DocumentSnapshot{}
+    |> DocumentSnapshot.changeset(%{
+      id: snapshot_id,
+      document_id: document.id,
+      parent_snapshot_id: nil,
+      device_id: signer.device_id,
+      latest_version: 0,
+      data: ciphertext,
+      nonce: nonce,
+      key_version: 1,
+      hybrid_signature: signature,
+      ciphertext_hash: ciphertext_hash,
+      snapshot_signature_hash: snapshot_signature_hash,
+      snapshot_admission_event_hash: snapshot_admission_event_hash,
+      proof_chain_hash: proof_chain_hash,
+      clocks: %{},
+      parent_snapshot_update_clocks: %{},
+      parent_proof_hash: "GENESIS",
+      created_by_signing_key_id: signing_key_id,
+      owner_kind: "device",
+      owner_id: signer.device_id,
+      authority_kind: "workspace_device",
+      authority_id: document.workspace_id,
+      authority_context_key: signing_key_id,
+      authority_scope_id: document.workspace_id,
+      authority_permission_version: 1,
+      key_checkpoint_sequence: previous_checkpoint.sequence,
+      key_checkpoint_hash: previous_checkpoint.checkpoint_hash
+    })
+    |> Repo.insert!()
+
+    document
+    |> Ecto.Changeset.change(active_snapshot_id: snapshot_id)
+    |> Repo.update!()
+
+    snapshot_id
+  end
+
+  defp test_authority_boundary(public_data, event_type) do
+    %{
+      "previous_workspace_event_sequence" => public_data["keyCheckpointSequence"],
+      "previous_workspace_event_hash" => public_data["keyCheckpointHash"],
+      "admission_event_type" => event_type,
+      "admission_nonce" => public_data["keyCheckpointHash"],
+      "min_dek_version" => public_data["keyVersion"],
+      "document_permission_proof_hash" => public_data["keyCheckpointHash"]
+    }
   end
 
   defp create_share(document, owner_id) do
@@ -207,6 +342,7 @@ defmodule RefMDWeb.ShareControllerTest do
     owner_id: owner_id
   } do
     created = create_share(document, owner_id)
+    insert_active_snapshot!(document, owner_id)
 
     conn =
       post(
@@ -218,7 +354,94 @@ defmodule RefMDWeb.ShareControllerTest do
     assert %{"root" => %{"kind" => "document"}, "participant" => %{"grant" => "view"}} =
              json_response(conn, 200)
 
+    response = json_response(conn, 200)
+    root_bootstrap = response["root_document_bootstrap"]
+
+    latest_sequence =
+      get_in(root_bootstrap, ["workspace_key_directory_latest_checkpoint", "payload", "sequence"])
+
+    snapshot_admission = get_in(root_bootstrap, ["initial_document", "snapshot", "admission"])
+
+    candidate_sequence =
+      get_in(snapshot_admission, ["workspaceKeyDirectoryCheckpoint", "payload", "sequence"])
+
+    ancestry_sequences =
+      root_bootstrap
+      |> get_in([
+        "initial_document",
+        "snapshot",
+        "admission",
+        "workspaceKeyDirectoryCheckpointAncestry"
+      ])
+      |> Enum.map(&get_in(&1, ["payload", "sequence"]))
+
+    assert is_integer(latest_sequence)
+    assert latest_sequence > 1
+    assert candidate_sequence == latest_sequence
+    refute 1 in ancestry_sequences
+    refute candidate_sequence in ancestry_sequences
+
     assert conn.resp_cookies["_refmd_share_session"].path == "/api"
+  end
+
+  test "POST /api/shares/:share_slug/bootstrap keeps old snapshot admission bounded", %{
+    conn: conn,
+    document: document,
+    owner_id: owner_id
+  } do
+    insert_active_snapshot!(document, owner_id)
+    created = create_share(document, owner_id)
+
+    conn =
+      post(
+        conn,
+        "/api/shares/#{created.share_slug}/bootstrap",
+        share_participant_request_attrs("Guest User", created, open_admission_key())
+      )
+
+    response = json_response(conn, 200)
+    root_bootstrap = response["root_document_bootstrap"]
+
+    latest_sequence =
+      get_in(root_bootstrap, ["workspace_key_directory_latest_checkpoint", "payload", "sequence"])
+
+    latest_event_head_sequence =
+      get_in(root_bootstrap, [
+        "workspace_key_directory_latest_checkpoint",
+        "payload",
+        "covered_event_head",
+        "head_sequence"
+      ])
+
+    snapshot_admission = get_in(root_bootstrap, ["initial_document", "snapshot", "admission"])
+
+    candidate_sequence =
+      get_in(snapshot_admission, ["workspaceKeyDirectoryCheckpoint", "payload", "sequence"])
+
+    candidate_event_head_sequence =
+      get_in(snapshot_admission, [
+        "workspaceKeyDirectoryCheckpoint",
+        "payload",
+        "covered_event_head",
+        "head_sequence"
+      ])
+
+    checkpoint_ancestry_sequences =
+      snapshot_admission
+      |> Map.fetch!("workspaceKeyDirectoryCheckpointAncestry")
+      |> Enum.map(&get_in(&1, ["payload", "sequence"]))
+
+    event_ancestry_sequences =
+      snapshot_admission
+      |> Map.fetch!("workspaceKeyDirectoryEventAncestry")
+      |> Enum.map(&get_in(&1, ["payload", "sequence"]))
+
+    assert latest_sequence > candidate_sequence
+    assert checkpoint_ancestry_sequences == [candidate_sequence - 1]
+    refute latest_sequence in checkpoint_ancestry_sequences
+    refute candidate_sequence in checkpoint_ancestry_sequences
+    assert event_ancestry_sequences == [candidate_event_head_sequence]
+    refute latest_event_head_sequence in event_ancestry_sequences
   end
 
   test "POST /api/shares/:share_slug/bootstrap rejects password-protected shares", %{

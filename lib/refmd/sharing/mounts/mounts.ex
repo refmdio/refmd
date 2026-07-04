@@ -936,6 +936,9 @@ defmodule RefMD.Sharing.Mounts do
           :nonce,
           :workspace_pin_bootstrap,
           :workspace_key_directory_checkpoint,
+          :workspace_key_directory_latest_checkpoint,
+          :workspace_key_directory_checkpoint_ancestry,
+          :workspace_key_directory_event_ancestry,
           :verification_directory
         ])
         |> Map.put(:document_token, token.token)

@@ -1356,21 +1356,21 @@ export function handleVerifyDocumentUpdateEd25519Signature(
   validatePublicDataOwner(publicKeyMaterial, publicData);
 
   return verifyDocumentUpdateEd25519SignatureAsync({
-      publicKeyMaterial,
-      signature: p.signature as never,
-      transcript: buildDocumentUpdateTranscript({
-        ownerKind: publicKeyMaterial.owner_kind,
-        ownerId: publicKeyMaterial.owner_id,
-        actorUserId: p.actorUserId as string,
-        actorDeviceId: publicData.ownerId as string,
-        signingKeyId: publicData.signingKeyId as string,
-        workspaceId: p.workspaceId as string,
-        publicData,
-        authorityBoundary: p.authorityBoundary as Record<string, unknown>,
-        ciphertext: p.ciphertext as string,
-        nonce: p.nonce as string,
-      }),
-    }).then((valid) => ({ valid }));
+    publicKeyMaterial,
+    signature: p.signature as never,
+    transcript: buildDocumentUpdateTranscript({
+      ownerKind: publicKeyMaterial.owner_kind,
+      ownerId: publicKeyMaterial.owner_id,
+      actorUserId: p.actorUserId as string,
+      actorDeviceId: publicData.ownerId as string,
+      signingKeyId: publicData.signingKeyId as string,
+      workspaceId: p.workspaceId as string,
+      publicData,
+      authorityBoundary: p.authorityBoundary as Record<string, unknown>,
+      ciphertext: p.ciphertext as string,
+      nonce: p.nonce as string,
+    }),
+  }).then((valid) => ({ valid }));
 }
 
 export function handleVerifyDocumentSnapshotSignature(

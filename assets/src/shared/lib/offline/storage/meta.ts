@@ -34,7 +34,8 @@ export interface OfflineCreatedDocument {
 export type OfflineCreatedSyncBlockReason =
   | "not_a_member"
   | "permission_denied"
-  | "workspace_unavailable";
+  | "workspace_unavailable"
+  | "key_directory_unavailable";
 export type OfflineDocumentWriteState = "writable" | "read_only" | "archived" | "write_disabled";
 interface OfflineWorkspace {
   id: string;

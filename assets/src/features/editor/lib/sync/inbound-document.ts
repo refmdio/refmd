@@ -1,7 +1,5 @@
 import * as Y from "yjs";
-import {
-  documentClockKey,
-} from "@/shared/lib/anti-rollback/clock-observations";
+import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
 import { hasCompleteSnapshotPin } from "@/shared/lib/anti-rollback/document-state-pins";
 import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapshot-proof";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
@@ -43,7 +41,7 @@ import { rememberDocumentAdmissionCheckpoint } from "./outbound-admission";
 import { applyInitialPublicationState, queuePublicationAutoSync } from "./outbound-publication";
 import { setDocumentReadOnly } from "../../model/document-state/signals";
 import { recordSyncPerf } from "./perf";
-import { refreshAdmissionKeyDirectory } from "./admission-key-directory";
+import { createAdmissionKeyDirectoryRefresh } from "./admission-key-directory";
 import {
   checkRotationSnapshot,
   createRollbackAttackError,
@@ -209,7 +207,7 @@ export async function handleDocumentMessage(
         await verifyDocumentOperationAdmissionAncestry({
           admission: snap.admission,
           workspaceId: state.workspaceId,
-          refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+          refreshKeyDirectory: createAdmissionKeyDirectoryRefresh(state, documentId),
         });
       }
       recordSyncPerf("initial_snapshot_admission_verified", {
@@ -482,7 +480,7 @@ export async function handleRemoteWriteSession(
     await verifyDocumentOperationAdmissionAncestry({
       admission: payload.admission,
       workspaceId: state.workspaceId,
-      refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+      refreshKeyDirectory: createAdmissionKeyDirectoryRefresh(state, documentId),
     });
     recordSyncPerf("write_session_broadcast_ancestry_ready", {
       documentId,
@@ -906,7 +904,7 @@ export async function handleRemoteSnapshot(
       await verifyDocumentOperationAdmissionAncestry({
         admission: snap.admission,
         workspaceId: state.workspaceId,
-        refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, documentId),
+        refreshKeyDirectory: createAdmissionKeyDirectoryRefresh(state, documentId),
       });
     }
   } catch (err) {
@@ -999,7 +997,7 @@ async function resolveSnapshotSigningKey(
       await verifyDocumentOperationAdmissionAncestry({
         admission: snap.admission,
         workspaceId: state.workspaceId,
-        refreshKeyDirectory: () => refreshAdmissionKeyDirectory(state, state.documentId),
+        refreshKeyDirectory: createAdmissionKeyDirectoryRefresh(state, state.documentId),
       });
       admissionAncestryVerified = true;
       const admittedKey = resolveDocumentOperationSigningKeyFromAdmission({

@@ -403,17 +403,27 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   @spec format_incremental_update(RefMD.Documents.DocumentUpdate.t()) :: map()
   def format_incremental_update(update), do: format_update(update, :incremental)
 
-  @spec format_initial_updates([RefMD.Documents.DocumentUpdate.t()], boolean()) :: [map()]
-  def format_initial_updates(updates, admission_seeded?) do
+  @spec format_initial_updates([RefMD.Documents.DocumentUpdate.t()], boolean(), keyword()) :: [
+          map()
+        ]
+  def format_initial_updates(updates, admission_seeded?, opts \\ []) do
     {formatted, _cache, _seeded?} =
-      Enum.reduce(updates, {[], %{}, admission_seeded?}, fn update, {acc, cache, seeded?} ->
-        mode = if seeded?, do: :incremental, else: :full
-        {formatted_update, cache} = format_update_cached(update, mode, cache)
-        {[formatted_update | acc], cache, true}
+      Enum.reduce(updates, {[], %{}, initial_update_admission_state(admission_seeded?)}, fn
+        update, {acc, cache, admission_state} ->
+          mode = initial_update_admission_mode(admission_state, opts)
+          {formatted_update, cache} = format_update_cached(update, mode, cache)
+          {[formatted_update | acc], cache, :tail_seeded}
       end)
 
     Enum.reverse(formatted)
   end
+
+  defp initial_update_admission_state(true), do: :tail_seeded
+  defp initial_update_admission_state(false), do: :first_admission
+
+  defp initial_update_admission_mode(:first_admission, []), do: :full
+  defp initial_update_admission_mode(:first_admission, opts), do: {:bounded, opts}
+  defp initial_update_admission_mode(:tail_seeded, _opts), do: :incremental
 
   defp format_update_cached(update, mode, cache) do
     signature = update.hybrid_signature || raise ArgumentError, "hybrid_signature_required"
@@ -442,6 +452,18 @@ defmodule RefMDWeb.Channels.Document.Envelope do
       )
 
     {admission, Map.put(cache, {:incremental, update.admission_event_hash}, admission)}
+  end
+
+  defp cached_update_admission(update, {:bounded, opts}, cache) do
+    admission =
+      format_admission!(
+        update.document_id,
+        "document_write_session_admitted",
+        update.admission_event_hash,
+        opts
+      )
+
+    {admission, Map.put(cache, {{:bounded, opts}, update.admission_event_hash}, admission)}
   end
 
   defp cached_update_admission(update, :full, cache) do
@@ -516,15 +538,19 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     Documents.document_admission_package!(document_id, event_type, admission_event_hash, opts)
   end
 
-  @spec build_snapshot_failure(map() | nil, Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
-  def build_snapshot_failure(nil, _document_id, _known_snapshot_id) do
+  @spec build_snapshot_failure(map() | nil, Ecto.UUID.t(), Ecto.UUID.t() | nil, keyword()) ::
+          map()
+  def build_snapshot_failure(recovery, document_id, known_snapshot_id, opts \\ [])
+
+  def build_snapshot_failure(nil, _document_id, _known_snapshot_id, _opts) do
     %{snapshot: nil, updates: [], snapshotProofChain: []}
   end
 
   def build_snapshot_failure(
         %{snapshot: snapshot, updates: updates},
         document_id,
-        known_snapshot_id
+        known_snapshot_id,
+        opts
       ) do
     active_snapshot_id = if snapshot, do: snapshot.id
 
@@ -532,8 +558,8 @@ defmodule RefMDWeb.Channels.Document.Envelope do
       Documents.build_snapshot_proof_chain(document_id, known_snapshot_id, active_snapshot_id)
 
     %{
-      snapshot: format_snapshot(snapshot),
-      updates: format_initial_updates(updates, !is_nil(snapshot)),
+      snapshot: format_snapshot(snapshot, opts),
+      updates: format_initial_updates(updates, !is_nil(snapshot), opts),
       snapshotProofChain: proof_chain,
       proofChainHash: if(snapshot, do: snapshot.proof_chain_hash),
       ciphertextHash: if(snapshot, do: snapshot.ciphertext_hash),

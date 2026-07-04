@@ -26,9 +26,5 @@ export function nextLocalClockForDevice(
   state: DocumentState,
   signingKeyId?: string | null,
 ): number {
-  return getNextClockForDevice(
-    clocks,
-    signingKeyId,
-    localAuthorityContextKey(state, signingKeyId),
-  );
+  return getNextClockForDevice(clocks, signingKeyId, localAuthorityContextKey(state, signingKeyId));
 }

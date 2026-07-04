@@ -4,18 +4,22 @@ import {
   encodeCanonicalStateAsUpdateV2,
   encodeCanonicalStateVector,
 } from "@/shared/lib/yjs/canonical-document";
-import { getKekResolverSession } from "@/entities/session";
+import { deviceState, getKekResolverSession } from "@/entities/session";
 import { acquireDocumentState, getDocumentState } from "../../model/document-state/store";
 import { releaseDocumentState } from "../../model/document-state/lifecycle";
 import { ApiError } from "@/shared/api";
 import { documentsApi } from "@/shared/api/documents";
 import { encryptionApi } from "@/shared/api/encryption";
 import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
-import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  advanceKeyDirectoryPinWithProof,
+  getKeyDirectoryPin,
+} from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { clientWarn } from "@/shared/lib/logger";
+import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import {
   blockOfflineCreatedSync,
   deleteOfflineCreated,
@@ -46,6 +50,24 @@ interface ErrorWithStatusBody {
 
 const syncingOfflineCreatedDocuments = new Set<string>();
 
+async function workspaceJoinPin(workspaceId: string): Promise<{
+  checkpointSequence: number;
+  checkpointHash: string;
+}> {
+  let pin = await getKeyDirectoryPin("workspace", workspaceId).catch(() => null);
+  const device = deviceState();
+  if (pin && device?.deviceId) {
+    await fetchVerifiedKeyDirectory({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      popDeviceId: device.deviceId,
+    }).catch(() => {});
+    pin = (await getKeyDirectoryPin("workspace", workspaceId).catch(() => null)) ?? pin;
+  }
+  if (!pin) throw new Error("key_directory_pin_required");
+  return pin;
+}
+
 function getErrorWithStatusBody(error: unknown): ErrorWithStatusBody | null {
   if (error instanceof ApiError) {
     return {
@@ -68,10 +90,21 @@ function serializeClientError(error: unknown): unknown {
 }
 
 function isOfflineCreatedBlockedReason(value: unknown): value is OfflineCreatedSyncBlockReason {
-  return value === "not_a_member" || value === "permission_denied";
+  return (
+    value === "not_a_member" ||
+    value === "permission_denied" ||
+    value === "key_directory_unavailable"
+  );
 }
 
 function resolveOfflineCreatedBlockReason(error: unknown): OfflineCreatedSyncBlockReason | null {
+  if (
+    error instanceof Error &&
+    (error.message === "key_directory_pin_required" ||
+      error.message === "key_directory_pop_device_required")
+  ) {
+    return "key_directory_unavailable";
+  }
   const errorWithStatus = getErrorWithStatusBody(error);
   const bodyError = errorWithStatus?.body?.error ?? errorWithStatus?.data?.error;
   if (isOfflineCreatedBlockedReason(bodyError)) return bodyError;
@@ -98,7 +131,9 @@ export async function syncOfflineCreatedDocuments(workspaceId?: string): Promise
         await blockOfflineCreatedSync(entry.documentId, blockedReason);
       }
       const message = blockedReason
-        ? "Offline document could not be synced — workspace access may have been revoked. Local copy preserved."
+        ? blockedReason === "key_directory_unavailable"
+          ? "Offline document could not be synced because workspace verification material is unavailable. Local copy preserved."
+          : "Offline document could not be synced — workspace access may have been revoked. Local copy preserved."
         : "Failed to sync offline document. It will be retried on next connection.";
       clientWarn("offline_created_sync_failed", {
         message,
@@ -182,7 +217,12 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
     }
 
     await ensurePhoenixWsToken("user");
-    const joinPayload = { mode: "complete" };
+    const workspacePin = await workspaceJoinPin(entry.workspaceId);
+    const joinPayload = {
+      mode: "complete",
+      workspaceKeyDirectoryPinSequence: workspacePin.checkpointSequence,
+      workspaceKeyDirectoryPinHash: workspacePin.checkpointHash,
+    };
     const popParams = await getChannelPopParams(
       undefined,
       undefined,

@@ -606,10 +606,7 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
   },
 
   async verifyDocumentUpdateEd25519Signature(params) {
-    const result = (await this[workerSend](
-      "verify-document-update-ed25519-signature",
-      params,
-    )) as {
+    const result = (await this[workerSend]("verify-document-update-ed25519-signature", params)) as {
       valid: boolean;
     };
     return result.valid;

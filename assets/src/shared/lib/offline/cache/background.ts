@@ -20,6 +20,13 @@ import {
   verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
 import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations";
+import { getKeyDirectoryPin } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import type { SignedKeyDirectoryEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/types";
+import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
+import {
+  fetchVerifiedKeyDirectory,
+  fetchVerifiedKeyDirectoryFromTrustedCheckpoint,
+} from "@/shared/lib/key-directory/fetch";
 import * as Y from "yjs";
 import {
   encodeCanonicalStateAsUpdate,
@@ -153,6 +160,24 @@ async function cacheDocumentSilently(
   // Resolve KEK and cache to offline-kek-cache
   const { kekVersion } = await resolveActiveKek(workspaceId, getKekResolverSession());
   await cacheKek(workspaceId, kekVersion).catch(() => {});
+  const refreshKeyDirectory = async (params?: {
+    trustedCheckpointEnvelope?: SignedKeyDirectoryEnvelope;
+  }) => {
+    const fetchParams = {
+      scopeKind: "workspace" as const,
+      scopeId: workspaceId,
+      popDeviceId: await worker.getDeviceId(),
+    };
+    if (params?.trustedCheckpointEnvelope) {
+      await fetchVerifiedKeyDirectoryFromTrustedCheckpoint({
+        ...fetchParams,
+        trustedCheckpointEnvelope:
+          params.trustedCheckpointEnvelope as unknown as KeyDirectoryEnvelope,
+      });
+      return;
+    }
+    await fetchVerifiedKeyDirectory(fetchParams);
+  };
   const dekResp = await encryptionApi.getDocumentKeys(documentId);
   const activeDek = dekResp.keys.find((key: DocumentKey) => key.is_active);
   if (!activeDek) return;
@@ -178,6 +203,10 @@ async function cacheDocumentSilently(
     mode: "complete",
     silent: true,
   };
+  const workspacePin = await getKeyDirectoryPin("workspace", workspaceId).catch(() => null);
+  if (!workspacePin) throw new Error("key_directory_pin_required");
+  joinParams.workspaceKeyDirectoryPinSequence = workspacePin.checkpointSequence;
+  joinParams.workspaceKeyDirectoryPinHash = workspacePin.checkpointHash;
   if (hasCompleteSnapshotPin(bgPin)) {
     joinParams.knownSnapshotId = bgPin.latestSnapshotId;
   }
@@ -248,6 +277,7 @@ async function cacheDocumentSilently(
             await verifyDocumentOperationAdmissionAncestry({
               admission: snap.admission,
               workspaceId,
+              refreshKeyDirectory,
             });
             const decrypted = await worker.decryptSnapshot({
               ciphertext: base64UrlDecode(snap.ciphertext),
@@ -301,6 +331,7 @@ async function cacheDocumentSilently(
               await verifyDocumentOperationAdmissionAncestry({
                 admission: update.admission,
                 workspaceId,
+                refreshKeyDirectory,
               });
               const decrypted = await worker.decryptContent({
                 ciphertext: base64UrlDecode(update.ciphertext),

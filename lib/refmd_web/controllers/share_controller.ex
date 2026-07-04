@@ -3,7 +3,7 @@ defmodule RefMDWeb.ShareController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Documents, Sharing}
-  alias RefMD.Encryption.KeyDirectory.PinBootstrap
+  alias RefMD.Encryption.KeyDirectory.{PinBootstrap, Protocol}
 
   alias RefMDWeb.Channels.Document.Bootstrap, as: DocumentBootstrap
   alias RefMDWeb.Schemas
@@ -380,8 +380,10 @@ defmodule RefMDWeb.ShareController do
     params =
       %{"mode" => "complete"}
       |> maybe_put_authenticated_pin_hash(authenticated_pin_hash)
+      |> maybe_put_workspace_pin_anchor(response)
 
-    with document when not is_nil(document) <- Documents.get_document(document_id),
+    with true <- Map.has_key?(params, "workspaceKeyDirectoryPinSequence"),
+         document when not is_nil(document) <- Documents.get_document(document_id),
          {:ok, initial_document} <-
            DocumentBootstrap.load_share_initial_data(document, params, share_id) do
       Map.put(response, :initial_document, initial_document)
@@ -397,6 +399,32 @@ defmodule RefMDWeb.ShareController do
        do: Map.put(params, "authenticated_workspace_pin_bootstrap_hash", authenticated_pin_hash)
 
   defp maybe_put_authenticated_pin_hash(params, _authenticated_pin_hash), do: params
+
+  defp maybe_put_workspace_pin_anchor(params, %{
+         workspace_key_directory_latest_checkpoint: checkpoint
+       }) do
+    put_workspace_pin_anchor(params, checkpoint_payload(checkpoint))
+  end
+
+  defp maybe_put_workspace_pin_anchor(params, _response), do: params
+
+  defp put_workspace_pin_anchor(params, payload) when is_map(payload) do
+    case Map.get(payload, "sequence") do
+      sequence when is_integer(sequence) and sequence > 0 ->
+        params
+        |> Map.put("workspaceKeyDirectoryPinSequence", sequence)
+        |> Map.put("workspaceKeyDirectoryPinHash", Protocol.checkpoint_hash(payload))
+
+      _ ->
+        params
+    end
+  end
+
+  defp put_workspace_pin_anchor(params, _payload), do: params
+
+  defp checkpoint_payload(%{payload: payload}), do: payload
+  defp checkpoint_payload(%{"payload" => payload}), do: payload
+  defp checkpoint_payload(_checkpoint), do: nil
 
   defp encode_folder_bootstrap(%{bootstrap_required: true} = response), do: response
 

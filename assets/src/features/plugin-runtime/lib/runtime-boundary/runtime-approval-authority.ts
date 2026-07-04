@@ -4,6 +4,8 @@ import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/cryp
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import {
   getKeyDirectoryPin,
+  lookupVerifiedKeyDirectoryCheckpointBodies,
+  lookupVerifiedKeyDirectoryEventBodies,
   lookupVerifiedKeyDirectoryLineage,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import {
@@ -38,7 +40,7 @@ export async function verifyPluginRuntimeApprovalAuthorityFromKeyDirectory({
     return;
   }
 
-  await fetchVerifiedKeyDirectory({
+  const directory = await fetchVerifiedKeyDirectory({
     scopeKind,
     scopeId,
     popDeviceId: device.deviceId,
@@ -58,7 +60,11 @@ export async function verifyPluginRuntimeApprovalAuthorityFromKeyDirectory({
     authority.checkpoint_hash,
     "approval_authority_checkpoint_hash_invalid",
   );
-  const checkpoint = lineage.checkpoints.find(
+  const checkpoint = [
+    directory.checkpoint,
+    ...lookupVerifiedKeyDirectoryCheckpointBodies(scopeKind, scopeId),
+    ...lineage.checkpoints,
+  ].find(
     (entry) =>
       numberField(entry.payload.sequence, "checkpoint_sequence_invalid") ===
         authorityCheckpointSequence &&
@@ -67,7 +73,10 @@ export async function verifyPluginRuntimeApprovalAuthorityFromKeyDirectory({
   );
   if (!checkpoint) throw new Error("approval_authority_checkpoint_required");
 
-  assertApprovalAuthorityFromVerifiedLineage(authority, checkpoint.payload, lineage.events);
+  assertApprovalAuthorityFromVerifiedLineage(authority, checkpoint.payload, [
+    ...lineage.events,
+    ...lookupVerifiedKeyDirectoryEventBodies(scopeKind, scopeId),
+  ]);
 }
 
 async function verifiedApprovalAuthorityLineageFromProof(

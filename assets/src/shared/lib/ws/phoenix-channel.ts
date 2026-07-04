@@ -31,7 +31,11 @@ import type {
   PublicStatusChangedPayload,
 } from "./document-payloads";
 
-export { isPhoenixJoinError, PhoenixChannelTransportError } from "./channel";
+export {
+  getPhoenixJoinErrorReason,
+  isPhoenixJoinError,
+  PhoenixChannelTransportError,
+} from "./channel";
 
 const channels = new Map<string, Channel>();
 const channelDocumentIds = new Map<string, string>();
