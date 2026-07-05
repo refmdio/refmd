@@ -94,6 +94,25 @@
   margin: 0.125rem 0;
 }
 
+.refmd-markdown-surface li[data-checked] {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  list-style: none;
+}
+
+.refmd-markdown-surface li[data-checked] > input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0.25rem 0 0;
+  accent-color: var(--primary);
+}
+
+.refmd-markdown-surface .refmd-task-list-content {
+  min-width: 0;
+}
+
 .refmd-markdown-surface li p {
   margin: 0;
 }
@@ -112,6 +131,31 @@
 
 .refmd-markdown-surface a:hover {
   opacity: 0.8;
+}
+
+.refmd-markdown-table-wrapper {
+  width: 100%;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+
+.refmd-markdown-surface table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.refmd-markdown-surface th,
+.refmd-markdown-surface td {
+  min-width: 6rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.refmd-markdown-surface th {
+  background: var(--muted);
+  font-weight: 600;
 }
 
 .refmd-markdown-surface img {

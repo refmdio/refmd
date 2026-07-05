@@ -26,9 +26,59 @@ export function blockHandlePlugin(): Plugin {
   let handleEl: HTMLDivElement | null = null;
   let hoveredBlockPos = -1;
   let menuFrozen = false;
+  let activeView: EditorView | null = null;
+
+  function hideHandle() {
+    handleEl?.classList.remove("visible");
+  }
+
+  function positionHandle(view: EditorView, blockPos: number): boolean {
+    if (!handleEl) return false;
+
+    const node = view.state.doc.nodeAt(blockPos);
+    if (!node) {
+      hideHandle();
+      return false;
+    }
+
+    const dom = view.nodeDOM(blockPos);
+    if (!dom || !(dom instanceof HTMLElement)) {
+      hideHandle();
+      return false;
+    }
+
+    const container = view.dom.parentElement;
+    if (!container) {
+      hideHandle();
+      return false;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const blockRect = dom.getBoundingClientRect();
+    const handleWidth = handleEl.offsetWidth || 44;
+    const gap = 8;
+    const minLeft = container.scrollLeft + 4;
+    const maxLeft = container.scrollLeft + container.clientWidth - handleWidth - 4;
+    const blockLeft = blockRect.left - containerRect.left + container.scrollLeft;
+    const handleLeft = Math.max(minLeft, Math.min(blockLeft - handleWidth - gap, maxLeft));
+
+    handleEl.style.left = `${handleLeft}px`;
+    handleEl.style.top = `${blockRect.top - containerRect.top + container.scrollTop}px`;
+
+    const lineHeight = parseFloat(getComputedStyle(dom).lineHeight) || 24;
+    handleEl.style.paddingTop = `${Math.max(0, (lineHeight - 20) / 2)}px`;
+    handleEl.classList.add("visible");
+    return true;
+  }
+
+  function refreshVisibleHandle() {
+    if (hoveredBlockPos < 0 || !handleEl?.classList.contains("visible") || !activeView) return;
+    positionHandle(activeView, hoveredBlockPos);
+  }
 
   return new Plugin({
     view(editorView: EditorView) {
+      activeView = editorView;
       handleEl = document.createElement("div");
       handleEl.className = "pm-block-handle";
 
@@ -36,6 +86,7 @@ export function blockHandlePlugin(): Plugin {
       addBtn.type = "button";
       addBtn.className = "pm-block-handle-add";
       setStaticHtml(addBtn, PLUS_SVG);
+      addBtn.setAttribute("aria-label", "Add block below");
       addBtn.title = "Add block below";
 
       const dragBtn = document.createElement("button");
@@ -43,6 +94,7 @@ export function blockHandlePlugin(): Plugin {
       dragBtn.className = "pm-block-handle-drag";
       dragBtn.draggable = true;
       setStaticHtml(dragBtn, GRIP_SVG);
+      dragBtn.setAttribute("aria-label", "Drag to move block");
       dragBtn.title = "Drag to move";
 
       handleEl.appendChild(addBtn);
@@ -50,6 +102,12 @@ export function blockHandlePlugin(): Plugin {
 
       const container = editorView.dom.parentElement!;
       container.appendChild(handleEl);
+      const resizeObserver =
+        typeof ResizeObserver !== "undefined" ? new ResizeObserver(refreshVisibleHandle) : null;
+      resizeObserver?.observe(container);
+      resizeObserver?.observe(editorView.dom);
+      container.addEventListener("scroll", refreshVisibleHandle, { passive: true });
+      window.addEventListener("resize", refreshVisibleHandle);
 
       addBtn.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -67,6 +125,7 @@ export function blockHandlePlugin(): Plugin {
 
       dragBtn.addEventListener("dragstart", (e) => {
         if (hoveredBlockPos < 0) return;
+        if (!e.dataTransfer) return;
         menuFrozen = true;
 
         const state = editorView.state;
@@ -79,7 +138,7 @@ export function blockHandlePlugin(): Plugin {
 
         const slice = editorView.state.selection.content();
         e.dataTransfer?.setData("text/plain", node.textContent);
-        e.dataTransfer!.effectAllowed = "move";
+        e.dataTransfer.effectAllowed = "move";
 
         editorView.dragging = {
           slice,
@@ -100,10 +159,16 @@ export function blockHandlePlugin(): Plugin {
       });
 
       return {
-        update() {},
+        update() {
+          refreshVisibleHandle();
+        },
         destroy() {
+          container.removeEventListener("scroll", refreshVisibleHandle);
+          window.removeEventListener("resize", refreshVisibleHandle);
+          resizeObserver?.disconnect();
           handleEl?.remove();
           handleEl = null;
+          activeView = null;
         },
       };
     },
@@ -124,57 +189,36 @@ export function blockHandlePlugin(): Plugin {
             top: event.clientY,
           });
           if (!pos) {
-            handleEl.classList.remove("visible");
+            hideHandle();
             return false;
           }
 
           const $pos = view.state.doc.resolve(pos.pos);
           const depth = $pos.depth;
           if (depth === 0) {
-            handleEl.classList.remove("visible");
+            hideHandle();
             return false;
           }
 
           const blockPos = $pos.before(1);
           if (blockPos === hoveredBlockPos && handleEl.classList.contains("visible")) {
+            positionHandle(view, blockPos);
             return false;
           }
 
           hoveredBlockPos = blockPos;
-          const node = view.state.doc.nodeAt(blockPos);
-          if (!node) {
-            handleEl.classList.remove("visible");
-            return false;
-          }
-
-          const dom = view.nodeDOM(blockPos);
-          if (!dom || !(dom instanceof HTMLElement)) {
-            handleEl.classList.remove("visible");
-            return false;
-          }
-
-          const container = view.dom.parentElement!;
-          const containerRect = container.getBoundingClientRect();
-          const blockRect = dom.getBoundingClientRect();
-
-          handleEl.style.top = `${blockRect.top - containerRect.top}px`;
-          const lineHeight = parseFloat(getComputedStyle(dom).lineHeight) || 24;
-          handleEl.style.paddingTop = `${(lineHeight - 20) / 2}px`;
-
-          handleEl.classList.add("visible");
+          positionHandle(view, blockPos);
           return false;
         },
 
         keydown(_view, _event) {
-          if (handleEl) {
-            handleEl.classList.remove("visible");
-          }
+          hideHandle();
           return false;
         },
 
         mouseleave(_view, _event) {
           if (!menuFrozen && handleEl) {
-            handleEl.classList.remove("visible");
+            hideHandle();
           }
           return false;
         },

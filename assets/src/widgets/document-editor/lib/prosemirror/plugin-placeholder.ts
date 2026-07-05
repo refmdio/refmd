@@ -1,5 +1,6 @@
 import { Plugin } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
+import { isBlankProseMirrorDocument } from "./blank-document";
 
 export function placeholderPlugin(): Plugin {
   return new Plugin({
@@ -8,10 +9,12 @@ export function placeholderPlugin(): Plugin {
         const { doc, selection } = state;
         const decorations: Decoration[] = [];
 
-        if (doc.childCount === 1 && doc.firstChild!.content.size === 0) {
+        if (isBlankProseMirrorDocument(doc) && doc.firstChild) {
           decorations.push(
             Decoration.node(0, doc.firstChild!.nodeSize, {
-              "data-placeholder": "Type '/' for commands",
+              "data-placeholder": "Start writing, or type / for blocks",
+              "data-placeholder-detail":
+                "Add headings, tables, tasks, code, and more from the slash menu.",
               class: "is-empty is-doc-empty",
             }),
           );

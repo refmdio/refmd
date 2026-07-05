@@ -1,4 +1,4 @@
-import type { BlockContent, ListItem, PhrasingContent, Root } from "mdast";
+import type { BlockContent, ListItem, PhrasingContent, Root, TableCell, TableRow } from "mdast";
 import type { Mark, Node as ProseMirrorNode } from "prosemirror-model";
 import remarkGfm from "remark-gfm";
 import remarkStringify from "remark-stringify";
@@ -142,11 +142,15 @@ function blockFromProseMirror(node: ProseMirrorNode): BlockContent | null {
           const mapped = blockFromProseMirror(c);
           if (mapped) listItemChildren.push(mapped);
         });
-        children.push({
+        const item: ListItem = {
           type: "listItem",
           spread: false,
           children: listItemChildren,
-        });
+        };
+        if (typeof childNode.attrs.checked === "boolean") {
+          item.checked = childNode.attrs.checked;
+        }
+        children.push(item);
       });
       return { type: "list", ordered: false, spread: false, children };
     }
@@ -159,11 +163,15 @@ function blockFromProseMirror(node: ProseMirrorNode): BlockContent | null {
           const mapped = blockFromProseMirror(c);
           if (mapped) listItemChildren.push(mapped);
         });
-        children.push({
+        const item: ListItem = {
           type: "listItem",
           spread: false,
           children: listItemChildren,
-        });
+        };
+        if (typeof childNode.attrs.checked === "boolean") {
+          item.checked = childNode.attrs.checked;
+        }
+        children.push(item);
       });
       return {
         type: "list",
@@ -173,9 +181,51 @@ function blockFromProseMirror(node: ProseMirrorNode): BlockContent | null {
         children,
       };
     }
+    case "table": {
+      const rows: TableRow[] = [];
+      node.forEach((rowNode) => {
+        if (rowNode.type.name !== "table_row") return;
+        const cells: TableCell[] = [];
+
+        rowNode.forEach((cellNode) => {
+          if (cellNode.type.name !== "table_cell" && cellNode.type.name !== "table_header") return;
+          cells.push({
+            type: "tableCell",
+            children: inlineFromTableCell(cellNode),
+          });
+        });
+
+        rows.push({ type: "tableRow", children: cells });
+      });
+
+      return {
+        type: "table",
+        align: [],
+        children: rows,
+      };
+    }
     default:
       return null;
   }
+}
+
+function inlineFromTableCell(node: ProseMirrorNode): PhrasingContent[] {
+  const inlineChildren: PhrasingContent[] = [];
+
+  node.forEach((childNode) => {
+    if (childNode.type.name === "paragraph") {
+      if (inlineChildren.length > 0) inlineChildren.push({ type: "break" });
+      inlineChildren.push(...inlineFromProseMirror(childNode));
+      return;
+    }
+
+    if (childNode.textContent.length > 0) {
+      if (inlineChildren.length > 0) inlineChildren.push({ type: "break" });
+      inlineChildren.push({ type: "text", value: childNode.textContent });
+    }
+  });
+
+  return inlineChildren;
 }
 
 export function proseMirrorDocToMarkdown(doc: ProseMirrorNode): string {

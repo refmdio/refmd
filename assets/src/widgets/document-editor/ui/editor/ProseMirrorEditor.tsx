@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { EditorView } from "prosemirror-view";
 import { EditorState, TextSelection, type Plugin } from "prosemirror-state";
 import * as Y from "yjs";
@@ -15,8 +15,10 @@ import {
   ProseMirrorEditorApi,
   pluginEditorDecorationsPlugin,
 } from "../../lib/editor-api/prosemirror-api";
+import { MarkdownView, parseMarkdownView } from "@/shared/lib/markdown/markdown-view";
 import { markdownSchema } from "../../lib/prosemirror/schema";
 import { buildCollabPlugins } from "../../lib/prosemirror/plugin-base";
+import { isBlankProseMirrorDocument } from "../../lib/prosemirror/blank-document";
 import { setupCollabPlugins } from "../../lib/prosemirror/plugin-collab";
 import { blockHandlePlugin } from "../../lib/prosemirror/plugin-block-handle";
 import { placeholderPlugin } from "../../lib/prosemirror/plugin-placeholder";
@@ -53,16 +55,28 @@ function normalizeMarkdownText(value: string): string {
 }
 
 function expectedRenderedTokens(markdownText: string): string[] {
+  let inFence = false;
   return normalizeMarkdownText(markdownText)
     .split("\n")
-    .map((line) =>
-      line
-        .trim()
-        .replace(/^#{1,6}\s+/, "")
-        .replace(/^[-*+]\s+/, "")
-        .replace(/^\d+\.\s+/, "")
-        .trim(),
-    )
+    .flatMap((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("```")) {
+        inFence = !inFence;
+        return [];
+      }
+
+      if (inFence) return [trimmed];
+
+      return [
+        trimmed
+          .replace(/^#{1,6}\s+/, "")
+          .replace(/^[-*+]\s+/, "")
+          .replace(/^\d+\.\s+/, "")
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+          .replace(/[*_~`]/g, "")
+          .trim(),
+      ];
+    })
     .filter((line) => line.length > 0);
 }
 
@@ -116,6 +130,8 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   const [selectionVersion, setSelectionVersion] = createSignal(0);
   const [currentView, setCurrentView] = createSignal<EditorView | null>(null);
   const [previewText, setPreviewText] = createSignal("");
+  const [isBlankDocument, setIsBlankDocument] = createSignal(false);
+  const previewRoot = createMemo(() => parseMarkdownView(previewText()));
 
   function setInitialPreviewText(yDoc: Y.Doc) {
     const sharedTextLength = yDoc.getText("content").length;
@@ -169,9 +185,9 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       if (view !== editorView) return;
       const expectedPreview = previewText().trim();
       const renderedText = (editorView.dom.textContent ?? "").replace(/\s+/g, " ").trim();
-      const expectedPrefix = expectedPreview.replace(/\s+/g, " ").trim().slice(0, 80);
       const hasRenderedPreview =
-        expectedPrefix.length === 0 || renderedText.includes(expectedPrefix);
+        normalizeMarkdownText(expectedPreview).length === 0 ||
+        renderedContainsMarkdown(expectedPreview, renderedText);
       if (hasRenderedPreview || performance.now() - startedAt > 4_000) {
         clearPreviewText(hasRenderedPreview ? "editor-rendered" : "timeout");
         return;
@@ -212,6 +228,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     cleanupLocalBridgeDoc?.();
     cleanupLocalBridgeDoc = undefined;
     setCurrentView(null);
+    setIsBlankDocument(false);
     slashPlugin = null;
     if (activeStateKey) {
       releaseYDoc(activeStateKey);
@@ -246,6 +263,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
     const editorPlugins = [
       ...collab.plugins,
+      ...(!props.readOnly ? [sp] : []),
       ...buildCollabPlugins(markdownSchema),
       pluginRendererSlotPlugin({
         documentId: props.documentId,
@@ -254,7 +272,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       pluginEditorDecorationsPlugin(),
     ];
     if (!props.readOnly) {
-      editorPlugins.push(placeholderPlugin(), sp, blockHandlePlugin());
+      editorPlugins.push(placeholderPlugin(), blockHandlePlugin());
     }
 
     const state = EditorState.create({
@@ -265,9 +283,12 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const editorView = new EditorView(containerEl, {
       state,
       attributes: {
+        "aria-label": "WYSIWYG markdown editor",
+        "aria-multiline": "true",
         autocapitalize: "off",
         autocorrect: "off",
         class: "refmd-markdown-surface refmd-editor-readable-surface",
+        role: "textbox",
         spellcheck: "false",
       },
       editable: () => !props.readOnly,
@@ -276,6 +297,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
         const newState = editorView.state.apply(tr);
         editorView.updateState(newState);
+        setIsBlankDocument(isBlankProseMirrorDocument(newState.doc));
 
         if (tr.docChanged) {
           const isYjsSyncChange = collab.bridge.isYjsSyncChange(tr);
@@ -300,6 +322,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       stateKey,
     });
     setCurrentView(editorView);
+    setIsBlankDocument(isBlankProseMirrorDocument(editorView.state.doc));
     schedulePreviewClear(editorView);
     const yText = localBridgeDoc.yText;
     const scheduleRenderRefresh = () => {
@@ -487,13 +510,30 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
           }}
           class="h-full overflow-auto relative"
         />
+        <Show when={!props.readOnly && isBlankDocument() && previewText().trim().length === 0}>
+          <div
+            class="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+            data-refmd-wysiwyg-empty-guide="true"
+          >
+            <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
+              <div class="max-w-md pt-1">
+                <div class="text-base font-medium text-foreground/60">
+                  Start writing, or type / for blocks
+                </div>
+                <div class="mt-1 text-sm leading-6 text-muted-foreground/75">
+                  Add headings, tables, tasks, code, and more from the slash menu.
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
         <Show when={previewText().trim().length > 0}>
           <div
             class="pointer-events-none absolute inset-0 overflow-auto bg-background text-foreground"
             data-refmd-content-preview="true"
           >
-            <div class="refmd-editor-readable-surface px-[3.25rem] py-4 whitespace-pre-wrap break-words text-sm leading-6">
-              {previewText()}
+            <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
+              <MarkdownView root={previewRoot()} />
             </div>
           </div>
         </Show>

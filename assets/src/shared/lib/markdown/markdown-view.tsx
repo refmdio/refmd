@@ -16,6 +16,9 @@ import type {
   Root,
   RootContent,
   Strong,
+  Table,
+  TableCell,
+  TableRow,
   Text,
 } from "mdast";
 import { parseMarkdownRoot } from "./parse";
@@ -138,13 +141,76 @@ function renderBlock(node: RootContent | Content | DefinitionContent, index: () 
       );
       return list.ordered ? <ol start={list.start ?? 1}>{children}</ol> : <ul>{children}</ul>;
     }
+    case "table":
+      return renderTable(node as Table);
     default:
       return null;
   }
 }
 
 function renderListItem(node: ListItem, index: () => number) {
-  return <li data-item-index={index()}>{renderBlockChildren(node.children as BlockContent[])}</li>;
+  const isTask = typeof node.checked === "boolean";
+  return (
+    <li
+      data-checked={isTask ? (node.checked ? "true" : "false") : undefined}
+      data-item-index={index()}
+    >
+      {isTask ? (
+        <>
+          <input
+            aria-label={node.checked ? "Completed task" : "Incomplete task"}
+            checked={node.checked === true}
+            disabled
+            type="checkbox"
+          />
+          <div class="refmd-task-list-content">
+            {renderBlockChildren(node.children as BlockContent[])}
+          </div>
+        </>
+      ) : (
+        renderBlockChildren(node.children as BlockContent[])
+      )}
+    </li>
+  );
+}
+
+function renderTable(node: Table) {
+  const [head, ...body] = node.children as TableRow[];
+
+  return (
+    <div class="refmd-markdown-table-wrapper">
+      <table>
+        <thead>
+          {head && (
+            <tr>
+              <For each={head.children as TableCell[]}>
+                {(cell, index) => (
+                  <th style={{ "text-align": node.align?.[index()] ?? undefined }}>
+                    {renderInlineChildren(cell.children)}
+                  </th>
+                )}
+              </For>
+            </tr>
+          )}
+        </thead>
+        <tbody>
+          <For each={body}>
+            {(row) => (
+              <tr>
+                <For each={row.children as TableCell[]}>
+                  {(cell, index) => (
+                    <td style={{ "text-align": node.align?.[index()] ?? undefined }}>
+                      {renderInlineChildren(cell.children)}
+                    </td>
+                  )}
+                </For>
+              </tr>
+            )}
+          </For>
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function renderBlockChildren(children: Array<RootContent | Content | DefinitionContent>) {

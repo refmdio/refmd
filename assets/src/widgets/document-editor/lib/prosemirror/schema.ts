@@ -1,8 +1,56 @@
 import { Schema } from "prosemirror-model";
 import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
+import { tableNodes } from "prosemirror-tables";
 
 let nodes = addListNodes(basicSchema.spec.nodes, "paragraph block*", "block");
+
+nodes = nodes.update("list_item", {
+  ...nodes.get("list_item")!,
+  attrs: { checked: { default: null } },
+  parseDOM: [
+    {
+      tag: "li",
+      getAttrs(dom: HTMLElement) {
+        const dataChecked = dom.getAttribute("data-checked");
+        if (dataChecked === "true") return { checked: true };
+        if (dataChecked === "false") return { checked: false };
+
+        const checkbox = dom.querySelector<HTMLInputElement>('input[type="checkbox"]');
+        if (checkbox) return { checked: checkbox.checked };
+
+        return { checked: null };
+      },
+    },
+  ],
+  toDOM(node) {
+    const checked = node.attrs.checked;
+    if (typeof checked !== "boolean") return ["li", 0];
+
+    const inputAttrs: Record<string, string> = {
+      "aria-label": checked ? "Completed task" : "Incomplete task",
+      contenteditable: "false",
+      tabindex: "-1",
+      type: "checkbox",
+    };
+    if (checked) inputAttrs.checked = "";
+
+    return [
+      "li",
+      { "data-checked": checked ? "true" : "false" },
+      ["input", inputAttrs],
+      ["div", { class: "refmd-task-list-content" }, 0],
+    ];
+  },
+});
+
+nodes = nodes.append(
+  tableNodes({
+    tableGroup: "block",
+    cellContent: "block+",
+    cellAttributes: {},
+  }),
+);
 
 // Override hard_break: filter ProseMirror-trailingBreak
 nodes = nodes.update("hard_break", {

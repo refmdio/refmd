@@ -1,7 +1,7 @@
 import { setBlockType } from "prosemirror-commands";
 import type { Schema } from "prosemirror-model";
 import { wrapInList } from "prosemirror-schema-list";
-import { Plugin, PluginKey } from "prosemirror-state";
+import { Plugin, PluginKey, Selection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 
 export type SlashCommandCategory = "text" | "list" | "other";
@@ -85,6 +85,25 @@ function buildCommands(schema: Schema): SlashCommand[] {
         return cmd(view.state, view.dispatch);
       },
     });
+    commands.push({
+      label: "Task List",
+      description: "Checklist item",
+      shortcut: "todo",
+      category: "list",
+      icon: "check-square",
+      execute: (view) => {
+        const { $from } = view.state.selection;
+        const from = $from.before();
+        const to = $from.after();
+        const paragraph = schema.nodes.paragraph.create();
+        const item = schema.nodes.list_item.create({ checked: false }, [paragraph]);
+        const list = schema.nodes.bullet_list.create(null, [item]);
+        const tr = view.state.tr.replaceRangeWith(from, to, list);
+        tr.setSelection(Selection.near(tr.doc.resolve(Math.min(from + 3, tr.doc.content.size))));
+        view.dispatch(tr);
+        return true;
+      },
+    });
   }
   if (schema.nodes.ordered_list) {
     commands.push({
@@ -148,11 +167,42 @@ function buildCommands(schema: Schema): SlashCommand[] {
       },
     });
   }
+  if (schema.nodes.table && schema.nodes.table_row && schema.nodes.table_cell) {
+    commands.push({
+      label: "Table",
+      description: "Table with header row",
+      shortcut: "table",
+      category: "other",
+      icon: "table",
+      execute: (view) => {
+        const { $from } = view.state.selection;
+        const from = $from.before();
+        const to = $from.after();
+        const rows = Array.from({ length: 3 }, (_, rowIndex) =>
+          schema.nodes.table_row.create(
+            null,
+            Array.from({ length: 3 }, () => {
+              const cellType =
+                rowIndex === 0 && schema.nodes.table_header
+                  ? schema.nodes.table_header
+                  : schema.nodes.table_cell;
+              return cellType.create(null, [schema.nodes.paragraph.create()]);
+            }),
+          ),
+        );
+        const table = schema.nodes.table.create(null, rows);
+        const tr = view.state.tr.replaceRangeWith(from, to, table);
+        tr.setSelection(Selection.near(tr.doc.resolve(Math.min(from + 3, tr.doc.content.size))));
+        view.dispatch(tr);
+        return true;
+      },
+    });
+  }
   commands.sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category));
   return commands;
 }
 
-const slashCommandsKey = new PluginKey("slashCommands");
+const slashCommandsKey = new PluginKey<SlashMenuState>("slashCommands");
 
 export interface SlashMenuState {
   active: boolean;
@@ -170,6 +220,22 @@ export const INACTIVE: SlashMenuState = {
   pos: 0,
 };
 
+function selectedCommand(state: SlashMenuState): SlashCommand | null {
+  if (state.commands.length === 0) return null;
+  const index = Math.min(Math.max(state.selectedIndex, 0), state.commands.length - 1);
+  return state.commands[index] ?? null;
+}
+
+function deleteSlashQuery(view: EditorView, state: SlashMenuState) {
+  const from = state.pos;
+  const to = view.state.selection.from;
+  const tr =
+    to > from
+      ? view.state.tr.delete(from, to).setMeta(slashCommandsKey, INACTIVE)
+      : view.state.tr.setMeta(slashCommandsKey, INACTIVE);
+  view.dispatch(tr);
+}
+
 export function slashCommandsPlugin(schema: Schema): Plugin {
   const allCommands = buildCommands(schema);
 
@@ -177,7 +243,11 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
     if (!query) return allCommands;
     const q = query.toLowerCase();
     return allCommands.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.shortcut.toLowerCase().includes(q),
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.shortcut.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q) ||
+        CATEGORY_LABELS[c.category].toLowerCase().includes(q),
     );
   }
 
@@ -188,11 +258,28 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
       apply(tr, prev) {
         const meta = tr.getMeta(slashCommandsKey);
         if (meta !== undefined) return meta as SlashMenuState;
-        return prev;
+        if (!prev.active) return prev;
+
+        const next = tr.docChanged
+          ? {
+              ...prev,
+              pos: tr.mapping.map(prev.pos, -1),
+            }
+          : prev;
+
+        if (tr.selectionSet) {
+          const cursor = tr.selection.from;
+          const queryEnd = next.pos + next.query.length + 1;
+          if (cursor < next.pos || cursor > queryEnd) return INACTIVE;
+        }
+
+        return next;
       },
     },
     props: {
       handleKeyDown(view, event) {
+        if (event.isComposing) return false;
+
         const state = slashCommandsKey.getState(view.state) as SlashMenuState | undefined;
         if (!state?.active) {
           if (event.key === "/") {
@@ -202,6 +289,7 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
               $from.parent.content.size === 0 &&
               $from.parentOffset === 0
             ) {
+              event.preventDefault();
               const pos = $from.pos;
               const tr = view.state.tr.insertText("/", pos, pos).setMeta(slashCommandsKey, {
                 active: true,
@@ -217,10 +305,13 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           return false;
         }
         if (event.key === "Escape") {
+          event.preventDefault();
           view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
           return true;
         }
         if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (state.commands.length === 0) return true;
           const next = {
             ...state,
             selectedIndex: (state.selectedIndex + 1) % state.commands.length,
@@ -229,6 +320,8 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           return true;
         }
         if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (state.commands.length === 0) return true;
           const next = {
             ...state,
             selectedIndex:
@@ -237,17 +330,15 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(view.state.tr.setMeta(slashCommandsKey, next));
           return true;
         }
-        if (event.key === "Enter") {
-          const cmd = state.commands[state.selectedIndex];
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+          const cmd = selectedCommand(state);
           if (cmd) {
-            const from = state.pos;
-            const to = view.state.selection.from;
-            if (to > from) {
-              view.dispatch(view.state.tr.delete(from, to).setMeta(slashCommandsKey, INACTIVE));
-            } else {
-              view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
-            }
-            queueMicrotask(() => cmd.execute(view));
+            deleteSlashQuery(view, state);
+            queueMicrotask(() => {
+              cmd.execute(view);
+              view.focus();
+            });
           }
           return true;
         }
@@ -256,6 +347,7 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
             view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
             return false;
           }
+          event.preventDefault();
           const newQuery = state.query.slice(0, -1);
           const filtered = filterCommands(newQuery);
           const cursorPos = view.state.selection.from;
@@ -268,13 +360,10 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(tr);
           return true;
         }
-        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
           const newQuery = state.query + event.key;
           const filtered = filterCommands(newQuery);
-          if (filtered.length === 0) {
-            view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
-            return false;
-          }
           const cursorPos = view.state.selection.from;
           const tr = view.state.tr
             .insertText(event.key, cursorPos, cursorPos)

@@ -50,4 +50,14 @@ describe("ProseMirror markdown trailing newlines", () => {
 
     expect(proseMirrorDocToMarkdown(doc)).toBe("alpha\\\nbeta");
   });
+
+  test("preserves GFM task list state", () => {
+    expect(roundTrip("- [ ] Todo\n- [x] Done")).toBe("- [ ] Todo\n- [x] Done");
+  });
+
+  test("preserves GFM tables as editable table nodes", () => {
+    expect(roundTrip("| Name | Status |\n| - | - |\n| RefMD | Active |")).toBe(
+      "| Name  | Status |\n| ----- | ------ |\n| RefMD | Active |",
+    );
+  });
 });

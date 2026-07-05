@@ -1,4 +1,5 @@
 @import "prosemirror-view/style/prosemirror.css";
+@import "prosemirror-tables/style/tables.css";
 
 .ProseMirror {
   padding: 1rem 3.25rem;
@@ -37,6 +38,22 @@
   text-decoration-color: #d97706;
 }
 
+.ProseMirror .tableWrapper {
+  margin: 0.75rem 0;
+}
+
+.ProseMirror .selectedCell::after {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.ProseMirror .column-resize-handle {
+  background-color: var(--primary);
+}
+
+.ProseMirror li[data-checked] > input[type="checkbox"] {
+  cursor: default;
+}
+
 /* Gap cursor */
 .ProseMirror .ProseMirror-gapcursor::after {
   border-top: 1px solid var(--foreground);
@@ -52,13 +69,25 @@
   height: 0;
 }
 
+.ProseMirror .is-doc-empty {
+  position: relative;
+  min-height: 8rem;
+}
+
+.ProseMirror .is-doc-empty::before,
+.ProseMirror .is-doc-empty::after {
+  display: none;
+  content: none;
+}
+
 /* ---- Block Handle ---- */
 .pm-block-handle {
   position: absolute;
   display: flex;
   align-items: center;
   gap: 2px;
-  left: 4px;
+  left: 0;
+  top: 0;
   opacity: 0;
   transition: opacity 0.15s ease;
   pointer-events: none;
@@ -84,6 +113,13 @@
 }
 
 .pm-block-handle button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.pm-block-handle button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
   background: var(--accent);
   color: var(--accent-foreground);
 }

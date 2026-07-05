@@ -10,6 +10,9 @@ import type {
   ListItem,
   PhrasingContent,
   Strong,
+  Table,
+  TableCell,
+  TableRow,
   Text,
 } from "mdast";
 import type { Mark, Node as ProseMirrorNode, Schema } from "prosemirror-model";
@@ -179,7 +182,10 @@ function blockChildrenToProseMirror(children: Content[], schema: Schema): ProseM
           const itemChildren = blockChildrenToProseMirror(item.children as Content[], schema);
           const normalized =
             itemChildren.length > 0 ? itemChildren : [schema.nodes.paragraph.create()];
-          return schema.nodes.list_item.create(null, normalized);
+          return schema.nodes.list_item.create(
+            { checked: typeof item.checked === "boolean" ? item.checked : null },
+            normalized,
+          );
         });
 
         if (listItems.length === 0) break;
@@ -191,12 +197,45 @@ function blockChildrenToProseMirror(children: Content[], schema: Schema): ProseM
         }
         break;
       }
+      case "table": {
+        if (!schema.nodes.table || !schema.nodes.table_row || !schema.nodes.table_cell) break;
+
+        const table = child as Table;
+        const columnCount = Math.max(1, ...table.children.map((row) => row.children.length));
+        const rows = table.children.map((row, rowIndex) =>
+          tableRowToProseMirror(row as TableRow, rowIndex === 0, columnCount, schema),
+        );
+
+        if (rows.length > 0) {
+          blockNodes.push(schema.nodes.table.create(null, rows));
+        }
+        break;
+      }
       default:
         break;
     }
   }
 
   return blockNodes;
+}
+
+function tableRowToProseMirror(
+  row: TableRow,
+  header: boolean,
+  columnCount: number,
+  schema: Schema,
+): ProseMirrorNode {
+  const cells = Array.from({ length: columnCount }, (_, index) => {
+    const sourceCell = row.children[index] as TableCell | undefined;
+    const inlineNodes = sourceCell ? inlineChildrenToProseMirror(sourceCell.children, schema) : [];
+    const paragraph = schema.nodes.paragraph.create(null, inlineNodes);
+    const cellType =
+      header && schema.nodes.table_header ? schema.nodes.table_header : schema.nodes.table_cell;
+
+    return cellType.create(null, [paragraph]);
+  });
+
+  return schema.nodes.table_row.create(null, cells);
 }
 
 export function markdownToProseMirrorDoc(markdown: string, schema: Schema): ProseMirrorNode {
