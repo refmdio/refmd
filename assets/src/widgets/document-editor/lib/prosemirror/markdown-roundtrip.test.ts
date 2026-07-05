@@ -9,6 +9,17 @@ function roundTrip(markdown: string): string {
   return proseMirrorDocToMarkdown(markdownToProseMirrorDoc(markdown, markdownSchema));
 }
 
+function firstRowAlignments(markdown: string): unknown[] {
+  const doc = markdownToProseMirrorDoc(markdown, markdownSchema);
+  const table = doc.firstChild;
+  const firstRow = table?.firstChild;
+  const alignments: unknown[] = [];
+  firstRow?.forEach((cell) => {
+    alignments.push(cell.attrs.align);
+  });
+  return alignments;
+}
+
 describe("ProseMirror markdown trailing newlines", () => {
   test.each(["Body", "Body\n", "Body\n\n", "Body\n\n\n", "\n", "\n\n"])(
     "preserves %j",
@@ -51,6 +62,10 @@ describe("ProseMirror markdown trailing newlines", () => {
     expect(proseMirrorDocToMarkdown(doc)).toBe("alpha\\\nbeta");
   });
 
+  test("preserves imported Markdown hard breaks", () => {
+    expect(roundTrip("alpha\\\nbeta")).toBe("alpha\\\nbeta");
+  });
+
   test("preserves GFM task list state", () => {
     expect(roundTrip("- [ ] Todo\n- [x] Done")).toBe("- [ ] Todo\n- [x] Done");
   });
@@ -59,5 +74,12 @@ describe("ProseMirror markdown trailing newlines", () => {
     expect(roundTrip("| Name | Status |\n| - | - |\n| RefMD | Active |")).toBe(
       "| Name  | Status |\n| ----- | ------ |\n| RefMD | Active |",
     );
+  });
+
+  test("preserves GFM table alignment semantically", () => {
+    const markdown = "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |";
+    const exported = roundTrip(markdown);
+
+    expect(firstRowAlignments(exported)).toEqual(["left", "center", "right"]);
   });
 });

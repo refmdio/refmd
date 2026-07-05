@@ -27,6 +27,10 @@ function textNode(schema: Schema, value: string, marks: Mark[] = []): ProseMirro
   return schema.text(value, marks);
 }
 
+function normalizeTableAlign(value: unknown): "left" | "center" | "right" | null {
+  return value === "left" || value === "center" || value === "right" ? value : null;
+}
+
 function inlineChildrenToProseMirror(
   children: PhrasingContent[],
   schema: Schema,
@@ -132,6 +136,10 @@ function inlineChildrenToProseMirror(
         }
         break;
       }
+      case "break": {
+        if (schema.nodes.hard_break) inlineNodes.push(schema.nodes.hard_break.create());
+        break;
+      }
       default:
         break;
     }
@@ -203,7 +211,7 @@ function blockChildrenToProseMirror(children: Content[], schema: Schema): ProseM
         const table = child as Table;
         const columnCount = Math.max(1, ...table.children.map((row) => row.children.length));
         const rows = table.children.map((row, rowIndex) =>
-          tableRowToProseMirror(row as TableRow, rowIndex === 0, columnCount, schema),
+          tableRowToProseMirror(row as TableRow, rowIndex === 0, columnCount, table.align, schema),
         );
 
         if (rows.length > 0) {
@@ -223,6 +231,7 @@ function tableRowToProseMirror(
   row: TableRow,
   header: boolean,
   columnCount: number,
+  align: Table["align"] | undefined,
   schema: Schema,
 ): ProseMirrorNode {
   const cells = Array.from({ length: columnCount }, (_, index) => {
@@ -231,8 +240,9 @@ function tableRowToProseMirror(
     const paragraph = schema.nodes.paragraph.create(null, inlineNodes);
     const cellType =
       header && schema.nodes.table_header ? schema.nodes.table_header : schema.nodes.table_cell;
+    const cellAlign = normalizeTableAlign(align?.[index]);
 
-    return cellType.create(null, [paragraph]);
+    return cellType.create({ align: cellAlign }, [paragraph]);
   });
 
   return schema.nodes.table_row.create(null, cells);

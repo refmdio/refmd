@@ -59,14 +59,14 @@ function splitBreakParagraphs(children: Content[]): Content[] {
       continue;
     }
 
-    if (!child.children.some((c) => c.type === "break")) {
+    if (!child.children.some((c) => c.type === "break" && !c.position)) {
       result.push(child);
       continue;
     }
 
     let current: PhrasingContent[] = [];
     for (const inline of child.children) {
-      if (inline.type === "break") {
+      if (inline.type === "break" && !inline.position) {
         result.push({ type: "paragraph", children: current });
         current = [];
       } else {

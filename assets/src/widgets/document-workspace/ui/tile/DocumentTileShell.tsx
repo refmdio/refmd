@@ -10,6 +10,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { PasswordReentryDialog } from "@/features/auth";
 import { offlineMode } from "@/shared/lib/offline/offline-state";
+import { DocumentMarkdownPreviewSurface } from "./DocumentMarkdownPreviewSurface";
 import { DocumentTilePhaseContent } from "./DocumentTilePhaseContent";
 import { readInitializedDocumentPreviewText } from "./document-preview";
 
@@ -168,11 +169,8 @@ function DocumentLoadingFallback(props: { stateKey: string }) {
         </div>
       }
     >
-      <div
-        class="h-full overflow-auto bg-background px-6 py-5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
-        data-refmd-content-preview="true"
-      >
-        {previewText()}
+      <div class="h-full overflow-auto bg-background" data-refmd-content-preview="true">
+        <DocumentMarkdownPreviewSurface markdown={previewText()} />
       </div>
     </Show>
   );
@@ -359,10 +357,10 @@ function DocumentReadyPreviewOverlay(props: { stateKey: string; active: boolean 
   return (
     <Show when={props.active && previewText().trim().length > 0}>
       <div
-        class="pointer-events-none absolute inset-0 z-20 overflow-auto bg-background px-6 py-5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+        class="pointer-events-none absolute inset-0 z-20 overflow-auto bg-background"
         data-refmd-content-preview="true"
       >
-        {previewText()}
+        <DocumentMarkdownPreviewSurface markdown={previewText()} />
       </div>
     </Show>
   );

@@ -1,7 +1,14 @@
 import { For, Show, Suspense, createEffect, createSignal, lazy, on, onCleanup } from "solid-js";
 import type { MosaicBranch } from "solid-mosaic-component";
 import { MosaicWindow } from "solid-mosaic-component";
-import { Columns2Icon, MoreVerticalIcon, RefreshCwIcon, SplitIcon, XIcon } from "lucide-solid";
+import {
+  Columns2Icon,
+  MoreVerticalIcon,
+  PencilIcon,
+  RefreshCwIcon,
+  SplitIcon,
+  XIcon,
+} from "lucide-solid";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,6 +76,7 @@ import {
   pluginUiEntryResourceContext,
 } from "./plugin-extension-context";
 import { readInitializedDocumentPreviewText } from "./document-preview";
+import { DocumentMarkdownPreviewSurface } from "./DocumentMarkdownPreviewSurface";
 
 type Workspace = ReturnType<typeof usePanelWorkspace>;
 type EditorPlaintextContext = {
@@ -177,11 +185,8 @@ function EditorFallback(props: { stateKey: string }) {
         </div>
       }
     >
-      <div
-        class="h-full overflow-auto bg-background px-6 py-5 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
-        data-refmd-content-preview="true"
-      >
-        {previewText()}
+      <div class="h-full overflow-auto bg-background" data-refmd-content-preview="true">
+        <DocumentMarkdownPreviewSurface markdown={previewText()} />
       </div>
     </Show>
   );
@@ -684,10 +689,27 @@ export function DocumentTile(props: DocumentTileProps) {
                 onEditorDrop={handleEditorDrop}
               />
             ) : isPreview() ? (
-              <MarkdownPreviewImpl
-                stateKey={props.panel.targetKey}
-                scrollGroupId={props.panel.scrollGroupId}
-              />
+              <div class="relative h-full">
+                <MarkdownPreviewImpl
+                  stateKey={props.panel.targetKey}
+                  scrollGroupId={props.panel.scrollGroupId}
+                />
+                <Show when={isAlreadySplit()}>
+                  <button
+                    type="button"
+                    class="absolute right-4 top-4 z-10 inline-flex size-8 items-center justify-center rounded border border-border bg-background/95 text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    aria-label="Edit in WYSIWYG"
+                    title="Edit in WYSIWYG"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      props.workspace.collapseSplitTo(props.panelId, "wysiwyg");
+                    }}
+                  >
+                    <PencilIcon class="size-4" />
+                  </button>
+                </Show>
+              </div>
             ) : (
               <ProseMirrorEditorImpl
                 documentId={props.panel.documentId}

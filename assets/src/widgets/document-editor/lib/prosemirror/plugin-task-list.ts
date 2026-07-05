@@ -33,9 +33,30 @@ function toggleTaskItem(view: EditorView, node: ProseMirrorNode, nodePos: number
   view.focus();
 }
 
+function findTaskListItemAtSelection(
+  view: EditorView,
+): { node: ProseMirrorNode; pos: number } | null {
+  const { $from } = view.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (isTaskListItem(node)) return { node, pos: $from.before(depth) };
+  }
+  return null;
+}
+
 export function taskListPlugin(): Plugin {
   return new Plugin({
     props: {
+      handleKeyDown(view, event) {
+        if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return false;
+
+        const item = findTaskListItemAtSelection(view);
+        if (!item) return false;
+
+        event.preventDefault();
+        toggleTaskItem(view, item.node, item.pos);
+        return true;
+      },
       handleDOMEvents: {
         click(view, event) {
           const target = event.target;

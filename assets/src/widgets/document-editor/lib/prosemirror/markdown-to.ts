@@ -13,6 +13,10 @@ const markdownStringifier = unified()
     join: [() => 0],
   });
 
+function normalizeTableAlign(value: unknown): "left" | "center" | "right" | null {
+  return value === "left" || value === "center" || value === "right" ? value : null;
+}
+
 function isEmptyParagraph(node: ProseMirrorNode): boolean {
   return node.type.name === "paragraph" && node.content.size === 0;
 }
@@ -183,12 +187,16 @@ function blockFromProseMirror(node: ProseMirrorNode): BlockContent | null {
     }
     case "table": {
       const rows: TableRow[] = [];
+      const align: Array<"left" | "center" | "right" | null> = [];
       node.forEach((rowNode) => {
         if (rowNode.type.name !== "table_row") return;
         const cells: TableCell[] = [];
 
-        rowNode.forEach((cellNode) => {
+        rowNode.forEach((cellNode, _offset, index) => {
           if (cellNode.type.name !== "table_cell" && cellNode.type.name !== "table_header") return;
+          if (rows.length === 0) {
+            align[index] = normalizeTableAlign(cellNode.attrs.align);
+          }
           cells.push({
             type: "tableCell",
             children: inlineFromTableCell(cellNode),
@@ -200,7 +208,7 @@ function blockFromProseMirror(node: ProseMirrorNode): BlockContent | null {
 
       return {
         type: "table",
-        align: [],
+        align: align.some(Boolean) ? align : [],
         children: rows,
       };
     }

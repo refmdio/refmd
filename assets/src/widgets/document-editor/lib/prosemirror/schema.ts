@@ -5,6 +5,10 @@ import { tableNodes } from "prosemirror-tables";
 
 let nodes = addListNodes(basicSchema.spec.nodes, "paragraph block*", "block");
 
+function isTableAlign(value: unknown): value is "left" | "center" | "right" {
+  return value === "left" || value === "center" || value === "right";
+}
+
 nodes = nodes.update("list_item", {
   ...nodes.get("list_item")!,
   attrs: { checked: { default: null } },
@@ -48,7 +52,22 @@ nodes = nodes.append(
   tableNodes({
     tableGroup: "block",
     cellContent: "block+",
-    cellAttributes: {},
+    cellAttributes: {
+      align: {
+        default: null,
+        getFromDOM(dom: HTMLElement) {
+          const align = dom.style.textAlign || dom.getAttribute("data-align");
+          return isTableAlign(align) ? align : null;
+        },
+        setDOMAttr(value, attrs) {
+          if (!isTableAlign(value)) return;
+          attrs.style = attrs.style
+            ? `${attrs.style}; text-align: ${value}`
+            : `text-align: ${value}`;
+          attrs["data-align"] = value;
+        },
+      },
+    },
   }),
 );
 

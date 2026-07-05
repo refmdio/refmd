@@ -113,6 +113,31 @@ async function expectNoCodeMirrorHorizontalOverflow(locator: Locator): Promise<v
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
 
+async function switchCurrentPaneToWysiwyg(page: Page): Promise<void> {
+  if (await page.locator('.ProseMirror[contenteditable="true"]').isVisible().catch(() => false)) {
+    return;
+  }
+
+  const trigger = page.locator('[data-slot="dropdown-menu-trigger"]').last();
+  await trigger.waitFor({ state: "visible", timeout: 10_000 });
+  await trigger.click();
+  await page.waitForTimeout(E2E_DELAYS.poll);
+
+  const menuContent = page.locator('[data-slot="dropdown-menu-content"]');
+  await menuContent.waitFor({ state: "visible", timeout: 5_000 });
+  const wysiwygOnly = menuContent.getByRole("menuitem", { name: "WYSIWYG only" });
+  if (await wysiwygOnly.isVisible({ timeout: 500 }).catch(() => false)) {
+    await wysiwygOnly.click();
+  } else {
+    await menuContent.locator('[data-slot="dropdown-menu-item"]', { hasText: "WYSIWYG" }).click();
+  }
+  await page.waitForTimeout(E2E_DELAYS.editorSettle);
+
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
 async function readSurfacePadding(locator: Locator): Promise<SurfacePadding> {
   return locator.evaluate((node) => {
     const style = getComputedStyle(node);
@@ -377,5 +402,55 @@ test.describe.serial("Editor Modes", () => {
       await openDocument(sharedPage, "Mode Test Doc");
       await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
     });
+  });
+
+  test("WYSIWYG slash menu opens and applies a command in a blank document", async () => {
+    test.setTimeout(E2E_TIMEOUTS.mediumScenario);
+
+    const title = `Slash Menu ${Date.now()}`;
+    await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
+    await createDocument(sharedPage, title);
+    await openDocument(sharedPage, title);
+    await switchCurrentPaneToWysiwyg(sharedPage);
+
+    const editor = sharedPage.locator('.ProseMirror[contenteditable="true"]').last();
+    await expect(editor).toBeVisible({ timeout: 10_000 });
+    await editor.click();
+    await sharedPage.keyboard.insertText("/");
+
+    const slashMenu = sharedPage.getByRole("listbox", { name: "Block commands" });
+    await expect(slashMenu).toBeVisible({ timeout: 5_000 });
+    await sharedPage.keyboard.insertText("h1");
+    await expect(slashMenu.getByText("Heading 1")).toBeVisible({ timeout: 5_000 });
+    await sharedPage.keyboard.press("Enter");
+    await expect(slashMenu).not.toBeVisible({ timeout: 5_000 });
+
+    await expect(editor.locator("h1").first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("WYSIWYG slash menu opens after typing a title and pressing Enter", async () => {
+    test.setTimeout(E2E_TIMEOUTS.mediumScenario);
+
+    const title = `Slash After Title ${Date.now()}`;
+    await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
+    await createDocument(sharedPage, title);
+    await openDocument(sharedPage, title);
+    await switchCurrentPaneToWysiwyg(sharedPage);
+
+    const editor = sharedPage.locator('.ProseMirror[contenteditable="true"]').last();
+    await expect(editor).toBeVisible({ timeout: 10_000 });
+    await editor.click();
+    await sharedPage.keyboard.insertText("ドキュメントタイトル");
+    await sharedPage.keyboard.press("Enter");
+    await sharedPage.keyboard.insertText("/");
+
+    const slashMenu = sharedPage.getByRole("listbox", { name: "Block commands" });
+    await expect(slashMenu).toBeVisible({ timeout: 5_000 });
+    await sharedPage.keyboard.insertText("h2");
+    await expect(slashMenu.getByText("Heading 2")).toBeVisible({ timeout: 5_000 });
+    await sharedPage.keyboard.press("Enter");
+    await expect(slashMenu).not.toBeVisible({ timeout: 5_000 });
+
+    await expect(editor.locator("h2").first()).toBeVisible({ timeout: 5_000 });
   });
 });

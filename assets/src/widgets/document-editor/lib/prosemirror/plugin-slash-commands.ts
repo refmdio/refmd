@@ -1,5 +1,5 @@
 import { setBlockType } from "prosemirror-commands";
-import type { Schema } from "prosemirror-model";
+import type { Node as ProseMirrorNode, ResolvedPos, Schema } from "prosemirror-model";
 import { wrapInList } from "prosemirror-schema-list";
 import { Plugin, PluginKey, Selection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
@@ -236,6 +236,27 @@ function deleteSlashQuery(view: EditorView, state: SlashMenuState) {
   view.dispatch(tr);
 }
 
+function textBeforeCursorOnCurrentLine(doc: ProseMirrorNode, $from: ResolvedPos): string {
+  const textBeforeCursor = doc.textBetween($from.start(), $from.pos, "\n", "\n");
+  return textBeforeCursor.slice(textBeforeCursor.lastIndexOf("\n") + 1);
+}
+
+function slashStartOnCurrentLine(doc: ProseMirrorNode, $from: ResolvedPos): number | null {
+  if (!$from.parent.isTextblock || $from.pos <= $from.start()) return null;
+  if (textBeforeCursorOnCurrentLine(doc, $from) !== "/") return null;
+  return $from.pos - 1;
+}
+
+function isSlashCommandStartSelection(view: EditorView): boolean {
+  if (!view.state.selection.empty) return false;
+  const { $from } = view.state.selection;
+  return $from.parent.isTextblock && textBeforeCursorOnCurrentLine(view.state.doc, $from) === "";
+}
+
+function sameCommands(a: SlashCommand[], b: SlashCommand[]): boolean {
+  return a.length === b.length && a.every((command, index) => command === b[index]);
+}
+
 export function slashCommandsPlugin(schema: Schema): Plugin {
   const allCommands = buildCommands(schema);
 
@@ -249,6 +270,32 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         c.description.toLowerCase().includes(q) ||
         CATEGORY_LABELS[c.category].toLowerCase().includes(q),
     );
+  }
+
+  function openSlashMenu(view: EditorView, from: number, to: number): boolean {
+    if (!isSlashCommandStartSelection(view)) return false;
+
+    const tr = view.state.tr.insertText("/", from, to).setMeta(slashCommandsKey, {
+      active: true,
+      query: "",
+      commands: allCommands,
+      selectedIndex: 0,
+      pos: from,
+    } satisfies SlashMenuState);
+    view.dispatch(tr);
+    return true;
+  }
+
+  function executeSelectedCommand(view: EditorView, state: SlashMenuState): boolean {
+    const cmd = selectedCommand(state);
+    if (!cmd) return false;
+
+    deleteSlashQuery(view, state);
+    queueMicrotask(() => {
+      cmd.execute(view);
+      view.focus();
+    });
+    return true;
   }
 
   return new Plugin({
@@ -267,7 +314,7 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
             }
           : prev;
 
-        if (tr.selectionSet) {
+        if (tr.selectionSet && !tr.docChanged) {
           const cursor = tr.selection.from;
           const queryEnd = next.pos + next.query.length + 1;
           if (cursor < next.pos || cursor > queryEnd) return INACTIVE;
@@ -276,6 +323,62 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         return next;
       },
     },
+    appendTransaction(transactions, _oldState, newState) {
+      if (!transactions.some((tr) => tr.docChanged)) return null;
+      if (transactions.some((tr) => tr.getMeta(slashCommandsKey) !== undefined)) return null;
+      if (!newState.selection.empty) return null;
+
+      const state = slashCommandsKey.getState(newState) as SlashMenuState | undefined;
+      const cursor = newState.selection.from;
+      const { $from } = newState.selection;
+
+      if (!state?.active) {
+        const slashStart = slashStartOnCurrentLine(newState.doc, $from);
+        if (slashStart === null) return null;
+
+        return newState.tr.setMeta(slashCommandsKey, {
+          active: true,
+          query: "",
+          commands: allCommands,
+          selectedIndex: 0,
+          pos: slashStart,
+        } satisfies SlashMenuState);
+      }
+
+      if (state.pos < 0 || state.pos >= newState.doc.content.size || cursor < state.pos + 1) {
+        return newState.tr.setMeta(slashCommandsKey, INACTIVE);
+      }
+      if (
+        !$from.parent.isTextblock ||
+        state.pos < $from.start() ||
+        state.pos >= cursor ||
+        cursor > $from.end()
+      ) {
+        return newState.tr.setMeta(slashCommandsKey, INACTIVE);
+      }
+      if (newState.doc.textBetween(state.pos, state.pos + 1, "", "") !== "/") {
+        return newState.tr.setMeta(slashCommandsKey, INACTIVE);
+      }
+
+      const query = newState.doc.textBetween(state.pos + 1, cursor, "", "");
+      const commands = filterCommands(query);
+      const selectedIndex =
+        commands.length === 0 ? 0 : Math.min(Math.max(state.selectedIndex, 0), commands.length - 1);
+      if (
+        query === state.query &&
+        selectedIndex === state.selectedIndex &&
+        sameCommands(commands, state.commands)
+      ) {
+        return null;
+      }
+
+      return newState.tr.setMeta(slashCommandsKey, {
+        ...state,
+        query,
+        commands,
+        selectedIndex,
+      } satisfies SlashMenuState);
+    },
     props: {
       handleKeyDown(view, event) {
         if (event.isComposing) return false;
@@ -283,22 +386,9 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         const state = slashCommandsKey.getState(view.state) as SlashMenuState | undefined;
         if (!state?.active) {
           if (event.key === "/") {
-            const { $from } = view.state.selection;
-            if (
-              $from.parent.isTextblock &&
-              $from.parent.content.size === 0 &&
-              $from.parentOffset === 0
-            ) {
+            const { from, to } = view.state.selection;
+            if (openSlashMenu(view, from, to)) {
               event.preventDefault();
-              const pos = $from.pos;
-              const tr = view.state.tr.insertText("/", pos, pos).setMeta(slashCommandsKey, {
-                active: true,
-                query: "",
-                commands: allCommands,
-                selectedIndex: 0,
-                pos,
-              } satisfies SlashMenuState);
-              view.dispatch(tr);
               return true;
             }
           }
@@ -330,16 +420,14 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           view.dispatch(view.state.tr.setMeta(slashCommandsKey, next));
           return true;
         }
-        if (event.key === "Enter" || event.key === "Tab") {
-          event.preventDefault();
-          const cmd = selectedCommand(state);
-          if (cmd) {
-            deleteSlashQuery(view, state);
-            queueMicrotask(() => {
-              cmd.execute(view);
-              view.focus();
-            });
+        if (event.key === "Enter" || event.key === "Tab" || event.key === " ") {
+          if (state.commands.length === 0) {
+            view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
+            return false;
           }
+
+          event.preventDefault();
+          executeSelectedCommand(view, state);
           return true;
         }
         if (event.key === "Backspace") {
@@ -377,6 +465,12 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           return true;
         }
         return false;
+      },
+      handleTextInput(view, from, to, text) {
+        if (text !== "/") return false;
+        const state = slashCommandsKey.getState(view.state) as SlashMenuState | undefined;
+        if (state?.active) return false;
+        return openSlashMenu(view, from, to);
       },
     },
   });

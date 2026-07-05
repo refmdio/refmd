@@ -23,6 +23,11 @@ import { setupCollabPlugins } from "../../lib/prosemirror/plugin-collab";
 import { blockHandlePlugin } from "../../lib/prosemirror/plugin-block-handle";
 import { placeholderPlugin } from "../../lib/prosemirror/plugin-placeholder";
 import { pluginRendererSlotPlugin } from "../../lib/prosemirror/plugin-renderer-slots";
+import {
+  focusBlankWysiwygEditor,
+  syncWysiwygEditorAccessibility,
+  WYSIWYG_EDITOR_LABEL,
+} from "../../lib/prosemirror/editor-readiness";
 import { INACTIVE, slashCommandsPlugin } from "../../lib/prosemirror/plugin-slash-commands";
 import type { SlashCommand, SlashMenuState } from "../../lib/prosemirror/plugin-slash-commands";
 import { readYDocMarkdownPreview } from "../../lib/prosemirror/preview-text";
@@ -108,6 +113,7 @@ function recordEditorPerf(event: string, detail: Record<string, unknown>): void 
 
 export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   const scrollSourceId = `pm-${Math.random().toString(36).slice(2)}`;
+  const emptyGuideId = `refmd-wysiwyg-empty-guide-${props.panelId}`;
   let containerEl: HTMLDivElement | undefined;
   let view: EditorView | undefined;
   let slashPlugin: Plugin | null = null;
@@ -283,7 +289,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const editorView = new EditorView(containerEl, {
       state,
       attributes: {
-        "aria-label": "WYSIWYG markdown editor",
+        "aria-label": WYSIWYG_EDITOR_LABEL,
         "aria-multiline": "true",
         autocapitalize: "off",
         autocorrect: "off",
@@ -298,6 +304,10 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
         const newState = editorView.state.apply(tr);
         editorView.updateState(newState);
         setIsBlankDocument(isBlankProseMirrorDocument(newState.doc));
+        syncWysiwygEditorAccessibility(editorView, {
+          emptyGuideId,
+          readOnly: props.readOnly,
+        });
 
         if (tr.docChanged) {
           const isYjsSyncChange = collab.bridge.isYjsSyncChange(tr);
@@ -323,6 +333,13 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     });
     setCurrentView(editorView);
     setIsBlankDocument(isBlankProseMirrorDocument(editorView.state.doc));
+    syncWysiwygEditorAccessibility(editorView, {
+      emptyGuideId,
+      readOnly: props.readOnly,
+    });
+    queueMicrotask(() => {
+      if (view === editorView) focusBlankWysiwygEditor(editorView, { readOnly: props.readOnly });
+    });
     schedulePreviewClear(editorView);
     const yText = localBridgeDoc.yText;
     const scheduleRenderRefresh = () => {
@@ -472,6 +489,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const readOnly = props.readOnly;
     if (view) {
       view.setProps({ editable: () => !readOnly });
+      syncWysiwygEditorAccessibility(view, { emptyGuideId, readOnly });
     }
   });
 
@@ -516,7 +534,7 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
             data-refmd-wysiwyg-empty-guide="true"
           >
             <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
-              <div class="max-w-md pt-1">
+              <div id={emptyGuideId} class="max-w-md pt-1">
                 <div class="text-base font-medium text-foreground/60">
                   Start writing, or type / for blocks
                 </div>

@@ -90,6 +90,22 @@ describe("panel workspace plugin actions", () => {
     });
   });
 
+  it("collapses a preview pane to a real WYSIWYG pane", () => {
+    runWithWorkspace((workspace) => {
+      workspace.openDocument({ id: "document-one" });
+      const previewPanelId = collectPanelIds(workspace.mosaicState()).find(
+        (panelId) => decodePanelId(panelId)?.type === "preview",
+      );
+
+      expect(previewPanelId).toBeTruthy();
+      workspace.collapseSplitTo(previewPanelId!, "wysiwyg");
+
+      const panelIds = collectPanelIds(workspace.mosaicState());
+      expect(panelIds).toHaveLength(1);
+      expect(decodePanelId(panelIds[0])?.type).toBe("wysiwyg");
+    });
+  });
+
   it("rejects forged, mismatched, and consumed workspace tile actions", () => {
     runWithWorkspace((workspace) => {
       workspace.openWorkspaceTile("plugin.panel", "document-one");

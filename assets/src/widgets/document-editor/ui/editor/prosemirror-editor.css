@@ -83,9 +83,10 @@
 /* ---- Block Handle ---- */
 .pm-block-handle {
   position: absolute;
+  z-index: 10;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   left: 0;
   top: 0;
   opacity: 0;
@@ -99,14 +100,14 @@
 }
 
 .pm-block-handle button {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--muted-foreground);
   cursor: pointer;
   padding: 0;
@@ -114,6 +115,11 @@
 
 .pm-block-handle button:hover {
   background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.pm-block-handle button:active {
+  background: color-mix(in srgb, var(--accent) 82%, var(--foreground));
   color: var(--accent-foreground);
 }
 
