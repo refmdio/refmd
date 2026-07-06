@@ -1,12 +1,16 @@
 import * as Y from "yjs";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { encodeCanonicalStateAsUpdate } from "@/shared/lib/yjs/canonical-document";
+import { encodeCanonicalSyncedStateAsUpdate } from "@/shared/lib/yjs/canonical-document";
 import {
   getDocumentCache,
   getOfflineDek,
   getOfflineKek,
   getPendingChanges,
 } from "@/shared/lib/offline/storage/store";
+import {
+  shouldReplayCachedPendingChanges,
+  shouldTreatCachedStateAsConfirmedBase,
+} from "./pending-replay";
 import type { RecoveredDocumentState } from "./types";
 type OfflineCacheWorker = ReturnType<typeof getCryptoWorker>;
 
@@ -52,7 +56,10 @@ export async function recoverDocumentFromCache(
       });
       if (decrypted.length > 0) Y.applyUpdate(yDoc, decrypted);
     }
-    const pendingEntry = includePendingChanges ? await getPendingChanges(documentId) : null;
+    const pendingEntry =
+      includePendingChanges && shouldReplayCachedPendingChanges(null, false)
+        ? await getPendingChanges(documentId)
+        : null;
     if (pendingEntry) {
       const decryptedDiff = await worker.decryptOfflinePending({
         ciphertext: pendingEntry.encryptedDiff,
@@ -63,7 +70,7 @@ export async function recoverDocumentFromCache(
       });
       Y.applyUpdate(yDoc, decryptedDiff);
     }
-    const confirmedBaseState = encodeCanonicalStateAsUpdate(yDoc);
+    const confirmedBaseState = encodeCanonicalSyncedStateAsUpdate(yDoc);
     return {
       yDoc,
       confirmedBaseState,
@@ -105,7 +112,6 @@ export async function recoverDocumentFromCache(
   });
 
   let hasPending = false;
-  const pendingEntry = includePendingChanges ? await getPendingChanges(documentId) : null;
   const confirmedBaseState =
     cacheEntry.encryptedConfirmedState && cacheEntry.confirmedStateNonce
       ? await worker.decryptOfflineCache({
@@ -116,6 +122,11 @@ export async function recoverDocumentFromCache(
           cacheKey: options.cacheKey,
         })
       : null;
+  const pendingCandidate = includePendingChanges ? await getPendingChanges(documentId) : null;
+  const canReplayPending =
+    pendingCandidate !== null &&
+    shouldReplayCachedPendingChanges(cacheEntry, confirmedBaseState !== null);
+  const pendingEntry = canReplayPending ? pendingCandidate : null;
   const yDoc = new Y.Doc();
   Y.applyUpdate(
     yDoc,
@@ -132,9 +143,13 @@ export async function recoverDocumentFromCache(
     Y.applyUpdate(yDoc, decryptedDiff);
     hasPending = true;
   }
-  const recoveredConfirmedBaseState = canonicalizeRecoveredBaseState(
-    confirmedBaseState ?? (hasPending ? null : decryptedState),
-  );
+  const recoveredConfirmedBaseState = shouldTreatCachedStateAsConfirmedBase(
+    cacheEntry,
+    confirmedBaseState !== null,
+    pendingCandidate !== null,
+  )
+    ? canonicalizeRecoveredBaseState(confirmedBaseState ?? decryptedState)
+    : null;
 
   return {
     yDoc,
@@ -156,7 +171,7 @@ function canonicalizeRecoveredBaseState(update: Uint8Array | null): Uint8Array |
   const doc = new Y.Doc();
   try {
     Y.applyUpdate(doc, update, "remote");
-    return encodeCanonicalStateAsUpdate(doc);
+    return encodeCanonicalSyncedStateAsUpdate(doc);
   } finally {
     doc.destroy();
   }

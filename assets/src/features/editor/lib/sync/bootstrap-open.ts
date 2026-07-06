@@ -12,6 +12,7 @@ import type { DocumentState } from "../../model/document-state/types";
 import { clientError } from "@/shared/lib/logger";
 import { buildDocumentChannelCallbacks } from "./bootstrap-callbacks";
 import { createInitCancelledError } from "./bootstrap-cancel";
+import { recordSyncPerf } from "./perf";
 
 interface PendingDocumentPromiseState {
   documentTimeout: ReturnType<typeof setTimeout> | null;
@@ -71,6 +72,11 @@ export function createFailClosedHandler(
     }
     if (state.error) return;
     const failure = createDocumentSyncFailure(reason, err);
+    recordSyncPerf("document_sync_fail_closed", {
+      documentId,
+      reason,
+      error: err instanceof Error ? err.message : err === undefined ? null : String(err),
+    });
     if (err) clientError("document_sync_open_failed", { reason, error: err });
     if (reason === "not_a_member" || reason === "permission_denied") {
       import("@/shared/lib/offline/storage/store").then(({ deleteOfflineKek }) =>

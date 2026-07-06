@@ -57,6 +57,7 @@ defmodule RefMD.Sharing.Verification.Directory do
         approval_signature_surface: d.approval_signature_surface,
         approval_proof: d.approval_proof,
         approval_delivery_commitments: d.approval_delivery_commitments,
+        approval_delivery_artifacts: d.approval_delivery_artifacts,
         client_nonce: d.client_nonce,
         identity_hybrid_encryption_public_key_material: ipk.hybrid_encryption_public_key_material,
         identity_hybrid_signing_public_key_material: ipk.hybrid_signing_public_key_material,
@@ -90,6 +91,7 @@ defmodule RefMD.Sharing.Verification.Directory do
         approval_signature_surface: d.approval_signature_surface,
         approval_proof: d.approval_proof,
         approval_delivery_commitments: d.approval_delivery_commitments,
+        approval_delivery_artifacts: d.approval_delivery_artifacts,
         client_nonce: d.client_nonce,
         identity_hybrid_encryption_public_key_material: ipk.hybrid_encryption_public_key_material,
         identity_hybrid_signing_public_key_material: ipk.hybrid_signing_public_key_material,
@@ -133,7 +135,9 @@ defmodule RefMD.Sharing.Verification.Directory do
   end
 
   defp encode_verification_device(device) do
-    encode_client_nonce(device)
+    device
+    |> encode_client_nonce()
+    |> denormalize_approval_delivery_artifacts()
   end
 
   defp encode_client_nonce(%{client_nonce: client_nonce} = device) when is_binary(client_nonce) do
@@ -141,6 +145,32 @@ defmodule RefMD.Sharing.Verification.Directory do
   end
 
   defp encode_client_nonce(device), do: device
+
+  defp denormalize_approval_delivery_artifacts(%{approval_delivery_artifacts: artifacts} = device)
+       when is_map(artifacts) do
+    Map.put(
+      device,
+      :approval_delivery_artifacts,
+      Map.update(
+        artifacts,
+        "device_approval_kek_initial_deliveries",
+        [],
+        &denormalize_device_approval_kek_initial_deliveries/1
+      )
+    )
+  end
+
+  defp denormalize_approval_delivery_artifacts(device), do: device
+
+  defp denormalize_device_approval_kek_initial_deliveries(deliveries) when is_map(deliveries) do
+    deliveries
+    |> Enum.map(fn {workspace_id, delivery} ->
+      %{"workspace_id" => workspace_id, "delivery" => delivery}
+    end)
+    |> Enum.sort_by(& &1["workspace_id"])
+  end
+
+  defp denormalize_device_approval_kek_initial_deliveries(deliveries), do: deliveries
 
   defp verification_key_id(%{signing_key_id: signing_key_id}) when is_binary(signing_key_id),
     do: signing_key_id

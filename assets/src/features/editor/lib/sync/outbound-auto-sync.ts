@@ -3,10 +3,7 @@ import { deviceState } from "@/entities/session";
 import { clientError } from "@/shared/lib/logger";
 import { getChannelState, pushUpdate, pushSnapshot } from "@/shared/lib/ws/phoenix-channel";
 import { getDocumentVerificationCryptoWorker } from "@/shared/lib/crypto/worker/scoped";
-import {
-  encodeCanonicalDiffAsUpdate,
-  encodeCanonicalStateAsUpdateV2,
-} from "@/shared/lib/yjs/canonical-document";
+import { encodeCanonicalStateAsUpdateV2 } from "@/shared/lib/yjs/canonical-document";
 import type { AutoSyncHandle, DocumentState } from "../../model/document-state/types";
 import type { WriteSessionState } from "../../model/document-state/types";
 import {
@@ -15,12 +12,15 @@ import {
   onOfflineModeChange,
 } from "@/shared/lib/offline/offline-state";
 import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
-import { cachePendingChanges } from "@/shared/lib/offline/cache/manager/write";
+import { cacheDocumentStateAndPendingChanges } from "@/shared/lib/offline/cache/manager/write";
 import { getLocalSigningKeyId } from "./share-identity";
 import { ensureSharedDekCached, getDocumentDekCacheKey } from "./share-access";
 import { getDocumentCryptoWorker } from "./crypto-worker";
 import { canBufferDisconnectedChanges } from "./readiness";
-import { hasUnsavedCanonicalText, refreshSavedBaselineToCurrent } from "./outbound-canonical";
+import {
+  encodeExistingSnapshotCanonicalUpdate,
+  hasUnsavedCanonicalText,
+} from "./outbound-canonical";
 import { armSaveAckWatchdog, clearSaveAckWatchdog } from "./outbound-save-watchdog";
 import {
   createSyncGapError,
@@ -230,9 +230,12 @@ export function startAutoSync(
       }
       if (state.initialized && state.keyVersion > 0) {
         dirty = false;
-        cachePendingChanges(documentId, state, getOfflineCacheOptions(state, documentId)).catch(
-          () => {},
-        );
+        cacheDocumentStateAndPendingChanges(
+          documentId,
+          state.workspaceId,
+          state,
+          getOfflineCacheOptions(state, documentId),
+        ).catch(() => {});
       }
       return;
     }
@@ -329,11 +332,9 @@ export function startAutoSync(
           documentId,
           originString: origin,
         });
-        refreshSavedBaselineToCurrent(state);
         return;
       }
       if (!hasCanonicalChanges) {
-        refreshSavedBaselineToCurrent(state);
         return;
       }
       recordSyncPerf("local_edit_observed", {
@@ -363,7 +364,8 @@ export function startAutoSync(
         documentId,
         accessKind: state.access.kind,
       });
-      refreshSavedBaselineToCurrent(state);
+      dirty = true;
+      scheduleSend();
     } else {
       if (hasPreAutoSyncUserEdit) {
         recordSyncPerf("pre_auto_sync_user_edit_queued", {
@@ -543,9 +545,12 @@ function isChannelJoined(state: DocumentState): boolean {
 function retryAfterDisconnectedSend(documentId: string, state: DocumentState): void {
   state.sending = false;
   if (canBufferDisconnectedChanges(state)) {
-    cachePendingChanges(documentId, state, getOfflineCacheOptions(state, documentId)).catch(
-      () => {},
-    );
+    cacheDocumentStateAndPendingChanges(
+      documentId,
+      state.workspaceId,
+      state,
+      getOfflineCacheOptions(state, documentId),
+    ).catch(() => {});
     return;
   }
   state.autoSync?.notifyLocalEdit();
@@ -622,19 +627,30 @@ async function sendPendingChanges(
     }
 
     if (!hasCanonicalChanges) {
-      refreshSavedBaselineToCurrent(state);
       state.sending = false;
       return;
     }
 
     // Compute a canonical Markdown diff. ProseMirror XML is a WYSIWYG-derived view state and
     // must not be persisted into document updates.
-    const updateBytes = encodeCanonicalDiffAsUpdate(state.yDoc, state.lastSavedState);
-    if (updateBytes.length <= 2) {
-      refreshSavedBaselineToCurrent(state);
+    const updateResult = encodeExistingSnapshotCanonicalUpdate(state);
+    if (updateResult.kind === "missing_baseline") {
+      state.sending = false;
+      state._forceCompleteReconnect = true;
+      state._onRecoverableSyncGap?.(createSyncGapError("canonical_baseline_missing"));
+      return;
+    }
+    if (updateResult.kind === "structural_unavailable") {
+      state.sending = false;
+      state._forceCompleteReconnect = true;
+      state._onRecoverableSyncGap?.(createSyncGapError("canonical_structural_diff_unavailable"));
+      return;
+    }
+    if (updateResult.kind === "empty") {
       state.sending = false;
       return;
     }
+    const updateBytes = updateResult.update;
     recordSyncPerf("update_encoded", {
       documentId,
       elapsedMs: performance.now() - sendStartedAt,

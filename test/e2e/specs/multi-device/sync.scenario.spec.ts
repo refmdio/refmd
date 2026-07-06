@@ -15,7 +15,7 @@ import {
   createDocument,
   openDocument,
 } from "../../support/documents";
-import { expectEditorTextContains } from "../../support/editor";
+import { expectEditorTextContains, readEditorText } from "../../support/editor";
 import { waitForWorkspaceReady } from "../../support/workspace";
 import { E2E_DELAYS, E2E_TIMEOUTS } from "../../support/timeouts";
 
@@ -46,6 +46,57 @@ async function typeLineBurst(page: Page, prefix: string, count: number): Promise
     await page.keyboard.insertText(`${prefix}-${i}`);
     await page.waitForTimeout(E2E_DELAYS.inputPropagation);
   }
+}
+
+async function readMarkdownEditorText(page: Page, documentId: string): Promise<string> {
+  const documentText = await page.evaluate((id) => {
+    const target = window as Window & {
+      __refmdGetDocumentText?: (documentId: string) => string | null;
+    };
+    return target.__refmdGetDocumentText?.(id) ?? null;
+  }, documentId);
+  if (documentText !== null) return documentText;
+
+  const lines = await page.locator(".cm-content .cm-line").allTextContents();
+  if (lines.length > 0) return lines.join("\n");
+  return readEditorText(page);
+}
+
+async function expectDocumentTextContains(
+  page: Page,
+  documentId: string,
+  snippet: string,
+  timeout = 30_000,
+): Promise<void> {
+  await expect
+    .poll(() => readMarkdownEditorText(page, documentId), {
+      timeout,
+      message: `document text never contained expected text: ${snippet}`,
+    })
+    .toContain(snippet);
+}
+
+async function expectMarkdownEditorsConverged(
+  pageA: Page,
+  pageB: Page,
+  documentId: string,
+  timeout = 30_000,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const [textA, textB] = await Promise.all([
+          readMarkdownEditorText(pageA, documentId),
+          readMarkdownEditorText(pageB, documentId),
+        ]);
+        return { converged: textA === textB };
+      },
+      {
+        timeout,
+        message: "markdown editor text did not converge exactly across devices",
+      },
+    )
+    .toMatchObject({ converged: true });
 }
 
 function collectSyncDiagnostics(pages: Page[]): {
@@ -84,6 +135,98 @@ async function collectClientLogs(page: Page): Promise<unknown[]> {
     const w = window as Window & { __refmdE2EClientLogs?: unknown[] };
     return (w.__refmdE2EClientLogs ?? []).slice(-20);
   });
+}
+
+async function collectSyncPerf(page: Page): Promise<unknown[]> {
+  return page.evaluate(() => {
+    const w = window as Window & { __refmdE2ESyncPerf?: unknown[] };
+    const relevantEvents = new Set([
+      "canonical_server_doc_apply",
+      "device_key_cache_key_changed",
+      "document_sync_fail_closed",
+      "local_edit_observed",
+      "remote_update_applied",
+      "remote_update_failed",
+      "remote_update_verify_step",
+      "remote_update_no_canonical_progress",
+      "remote_update_received",
+      "remote_update_verified",
+      "update_ack_admission_advance_failed",
+      "update_ack_admission_advance_ready",
+      "update_ack_admission_checkpoint_ready",
+      "update_ack_admission_checkpoint_start",
+      "update_encoded",
+      "update_push_start",
+      "update_saved_ack",
+      "update_saved_ack_failed",
+      "workspace_directory_identity_rejected",
+    ]);
+    return (w.__refmdE2ESyncPerf ?? [])
+      .filter((item) => {
+        const event = (item as { event?: unknown }).event;
+        return typeof event === "string" && relevantEvents.has(event);
+      })
+      .slice(-80);
+  });
+}
+
+async function collectDocumentSyncState(page: Page, docId: string): Promise<unknown> {
+  return page.evaluate((id) => {
+    const state = window.__refmdGetDocumentSyncState?.(id) ?? null;
+    if (!state) return null;
+    return {
+      activeSnapshotId: state.activeSnapshotId,
+      autoSync: state.autoSync,
+      candidates: state.candidates.map((candidate) => ({
+        channelState: candidate.channelState,
+        readOnly: candidate.readOnly,
+        savedText: candidate.savedText,
+        savedStateVector: candidate.savedStateVector,
+        stateKey: candidate.stateKey,
+        text: candidate.text,
+      })),
+      channelState: state.channelState,
+      confirmedClocks: state.confirmedClocks,
+      error: state.error,
+      pendingUpdate: state.pendingUpdate,
+      readOnly: state.readOnly,
+      recentSaveEvents: state.recentSaveEvents,
+      savedText: state.savedText,
+      savedStateVector: state.savedStateVector,
+      sending: state.sending,
+      stateKey: state.stateKey,
+      text: state.text,
+      unsavedCanonicalText: state.unsavedCanonicalText,
+    };
+  }, docId);
+}
+
+async function collectDivergenceDiagnostics(
+  label: string,
+  docId: string,
+  pages: { name: string; page: Page }[],
+): Promise<string> {
+  const diagnostics = await Promise.all(
+    pages.map(async ({ name, page }) => ({
+      name,
+      editorText: await readEditorText(page).catch((error) =>
+        `readEditorText failed: ${error instanceof Error ? error.message : String(error)}`,
+      ).then((text) => text.slice(0, 500)),
+      syncState: await collectDocumentSyncState(page, docId).catch((error) => ({
+        error: `collectDocumentSyncState failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      })),
+      clientLogs: await collectClientLogs(page).catch((error) => [
+        `collectClientLogs failed: ${error instanceof Error ? error.message : String(error)}`,
+      ]),
+      syncPerf: await collectSyncPerf(page).catch((error) => [
+        `collectSyncPerf failed: ${error instanceof Error ? error.message : String(error)}`,
+      ]),
+      url: page.url(),
+    })),
+  );
+  return `${label}: ${JSON.stringify(diagnostics)}`;
 }
 
 function criticalSyncMessages(messages: string[]): string[] {
@@ -290,8 +433,15 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
       await ensureEditorReady(pageB, "Multi Device Doc");
       await typeInVisibleEditor(pageB, "From device B. ");
       await expectEditorTextContains(pageA, "From device B.", 60_000).catch(async (error) => {
-        const logs = await collectClientLogs(pageA);
-        throw new Error(`${error instanceof Error ? error.message : String(error)}; pageA logs=${JSON.stringify(logs)}`);
+        const diagnostics = await collectDivergenceDiagnostics(
+          "device B edit did not appear on device A",
+          documentId,
+          [
+            { name: "deviceA", page: pageA },
+            { name: "deviceB", page: pageB },
+          ],
+        );
+        throw new Error(`${error instanceof Error ? error.message : String(error)}; ${diagnostics}`);
       });
     });
 
@@ -309,16 +459,40 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
         await ensureEditorReady(pageB, "Multi Device Doc");
 
         await typeLineBurst(pageB, "device-b-burst", 80);
-        await expectEditorTextContains(pageA, "device-b-burst-79", 90_000);
+        await expectDocumentTextContains(pageA, documentId, "device-b-burst-79", 90_000);
+        await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
 
         await pageB.reload({ waitUntil: "domcontentloaded" });
         await ensureEditorReady(pageB, "Multi Device Doc");
-        await expectEditorTextContains(pageB, "device-b-burst-79", 60_000);
+        await expectDocumentTextContains(pageB, documentId, "device-b-burst-79", 60_000);
         await waitForWritableDocumentSync(pageB, documentId, 90_000);
         await waitForWritableDocumentSync(pageA, documentId, 90_000);
+        await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
 
         await typeInVisibleEditor(pageA, "owner-after-device-burst");
-        await expectEditorTextContains(pageB, "owner-after-device-burst", 90_000);
+        await expectDocumentTextContains(pageA, documentId, "owner-after-device-burst", 10_000).catch(
+          async (error) => {
+            const state = await collectDivergenceDiagnostics("owner edit did not apply on device A", documentId, [
+              { name: "deviceA", page: pageA },
+              { name: "deviceB", page: pageB },
+            ]);
+            throw new Error(`${error instanceof Error ? error.message : String(error)}; ${state}`);
+          },
+        );
+        await expectDocumentTextContains(pageB, documentId, "owner-after-device-burst", 90_000).catch(
+          async (error) => {
+            const state = await collectDivergenceDiagnostics(
+              "owner edit did not propagate to device B",
+              documentId,
+              [
+                { name: "deviceA", page: pageA },
+                { name: "deviceB", page: pageB },
+              ],
+            );
+            throw new Error(`${error instanceof Error ? error.message : String(error)}; ${state}`);
+          },
+        );
+        await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
 
         expect(criticalSyncMessages(diagnostics.messages)).toEqual([]);
       } finally {

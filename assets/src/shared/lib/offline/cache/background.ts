@@ -29,7 +29,7 @@ import {
 } from "@/shared/lib/key-directory/fetch";
 import * as Y from "yjs";
 import {
-  encodeCanonicalStateAsUpdate,
+  encodeCanonicalSyncedStateAsUpdate,
   encodeCanonicalStateVector,
 } from "@/shared/lib/yjs/canonical-document";
 import {
@@ -343,7 +343,7 @@ async function cacheDocumentSilently(
             }
           }
           // Encrypt and cache
-          const yjsState = encodeCanonicalStateAsUpdate(yDoc);
+          const yjsState = encodeCanonicalSyncedStateAsUpdate(yDoc);
           const { ciphertext, nonce } = await worker.encryptOfflineCache({
             plaintext: yjsState,
             documentId,
@@ -352,7 +352,9 @@ async function cacheDocumentSilently(
           const snapshotId = payload.snapshot?.publicData.snapshotId ?? "";
           // Build confirmed sync metadata from payload
           let confirmedVersion = payload.latestVersion ?? 0;
-          const confirmedClocks: Record<string, number> = {};
+          const confirmedClocks: Record<string, number> = {
+            ...payload.snapshot?.publicData.parentSnapshotUpdateClocks,
+          };
           if (payload.updates) {
             for (const update of payload.updates) {
               const key = documentClockKey(update.publicData);
@@ -370,6 +372,7 @@ async function cacheDocumentSilently(
             workspaceId,
             encryptedState: ciphertext,
             stateNonce: nonce,
+            encryptedStateKind: "confirmed",
             keyVersion: activeDek.key_version,
             confirmedStateVector: encodeCanonicalStateVector(yDoc),
             confirmedSnapshotId: snapshotId,

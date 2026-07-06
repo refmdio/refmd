@@ -1,4 +1,5 @@
-import { replaceDocWithCanonicalMarkdown } from "@/shared/lib/yjs/canonical-document";
+import * as Y from "yjs";
+import { clearProseMirrorXml } from "@/shared/lib/yjs/canonical-document";
 import type { DocumentState } from "../../model/document-state/types";
 import { initializeDocumentSync } from "../sync/initialize";
 import { startAutoSync } from "../sync/outbound-auto-sync";
@@ -193,7 +194,8 @@ export async function restoreDocumentStateFromCache(
 
     teardownOfflineRuntime(state);
 
-    replaceDocWithCanonicalMarkdown(state.yDoc, recovered.yDoc, "remote");
+    Y.applyUpdate(state.yDoc, Y.encodeStateAsUpdate(recovered.yDoc), "remote");
+    clearProseMirrorXml(state.yDoc, "remote");
     recovered.yDoc.destroy();
 
     state.activeSnapshotId = recovered.confirmedSnapshotId || null;

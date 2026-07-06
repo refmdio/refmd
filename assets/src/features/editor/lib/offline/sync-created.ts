@@ -1,9 +1,10 @@
 import * as Y from "yjs";
 import {
-  encodeCanonicalStateAsUpdate,
   encodeCanonicalStateAsUpdateV2,
+  encodeCanonicalSyncedStateAsUpdate,
   encodeCanonicalStateVector,
 } from "@/shared/lib/yjs/canonical-document";
+import { shouldReplayCachedPendingChanges } from "@/shared/lib/offline/cache/manager/pending-replay";
 import { deviceState, getKekResolverSession } from "@/entities/session";
 import { acquireDocumentState, getDocumentState } from "../../model/document-state/store";
 import { releaseDocumentState } from "../../model/document-state/lifecycle";
@@ -184,7 +185,7 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
   try {
     const liveState = getDocumentState(entry.documentId);
     if (liveState) {
-      Y.applyUpdate(yDoc, encodeCanonicalStateAsUpdate(liveState.yDoc));
+      Y.applyUpdate(yDoc, encodeCanonicalSyncedStateAsUpdate(liveState.yDoc));
     } else {
       const cacheEntry = await getDocumentCache(entry.documentId);
       if (cacheEntry) {
@@ -204,7 +205,12 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
         });
         if (decrypted.length > 0) Y.applyUpdate(yDoc, decrypted);
       }
-      const pendingEntry = await getPendingChanges(entry.documentId);
+      const pendingEntry = shouldReplayCachedPendingChanges(
+        cacheEntry,
+        Boolean(cacheEntry?.encryptedConfirmedState && cacheEntry.confirmedStateNonce),
+      )
+        ? await getPendingChanges(entry.documentId)
+        : null;
       if (pendingEntry) {
         const decrypted = await worker.decryptOfflinePending({
           ciphertext: pendingEntry.encryptedDiff,
@@ -380,7 +386,7 @@ async function persistConfirmedOfflineCreatedState(
     await advanceKeyDirectoryPinWithProof(keyDirectoryAdvance);
 
     const worker = getCryptoWorker();
-    const confirmedState = encodeCanonicalStateAsUpdate(yDoc);
+    const confirmedState = encodeCanonicalSyncedStateAsUpdate(yDoc);
     const { ciphertext: cachedCt, nonce: cachedNonce } = await worker.encryptOfflineCache({
       plaintext: confirmedState,
       documentId: entry.documentId,
@@ -393,6 +399,7 @@ async function persistConfirmedOfflineCreatedState(
       workspaceId: entry.workspaceId,
       encryptedState: cachedCt,
       stateNonce: cachedNonce,
+      encryptedStateKind: "confirmed",
       keyVersion: entry.dekKeyVersion,
       confirmedStateVector: encodeCanonicalStateVector(yDoc),
       confirmedSnapshotId: snapshotId,

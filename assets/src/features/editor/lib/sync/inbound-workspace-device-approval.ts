@@ -7,6 +7,7 @@ import type {
   ShareVerificationParticipantDevice,
   ShareVerificationWorkspaceDevice,
 } from "../../model/document-state/access";
+import { recordSyncPerf } from "./perf";
 
 export async function verifyWorkspaceDirectoryDeviceIdentity(
   device: ShareVerificationWorkspaceDevice,
@@ -15,6 +16,7 @@ export async function verifyWorkspaceDirectoryDeviceIdentity(
     namespace?: string;
     allowFirstSeenIdentity?: boolean;
     deferTofuPersistence?: boolean;
+    approvalSigningKeys?: ReadonlyMap<string, HybridSigningPublicKeyMaterial>;
   } = {},
 ): Promise<boolean> {
   return verifyIdentitySignedWorkspaceDevice(
@@ -45,6 +47,7 @@ export async function verifyMountedWorkspaceDirectoryDeviceIdentity(
     namespace?: string;
     allowFirstSeenIdentity?: boolean;
     deferTofuPersistence?: boolean;
+    approvalSigningKeys?: ReadonlyMap<string, HybridSigningPublicKeyMaterial>;
   } = {},
 ): Promise<boolean> {
   if (
@@ -103,6 +106,7 @@ async function verifyIdentitySignedWorkspaceDevice(
     namespace?: string;
     allowFirstSeenIdentity?: boolean;
     deferTofuPersistence?: boolean;
+    approvalSigningKeys?: ReadonlyMap<string, HybridSigningPublicKeyMaterial>;
   } = {},
 ): Promise<boolean> {
   if (
@@ -111,6 +115,12 @@ async function verifyIdentitySignedWorkspaceDevice(
     params.deviceHybridSigningPublicKeyMaterial.owner_kind !== "device" ||
     params.deviceHybridSigningPublicKeyMaterial.owner_id !== params.deviceId
   ) {
+    recordWorkspaceDeviceIdentityRejected(params, "owner_mismatch", {
+      identityOwnerKind: params.identityHybridSigningPublicKeyMaterial.owner_kind,
+      identityOwnerId: params.identityHybridSigningPublicKeyMaterial.owner_id,
+      deviceOwnerKind: params.deviceHybridSigningPublicKeyMaterial.owner_kind,
+      deviceOwnerId: params.deviceHybridSigningPublicKeyMaterial.owner_id,
+    });
     return true;
   }
 
@@ -127,10 +137,14 @@ async function verifyIdentitySignedWorkspaceDevice(
     identityTofuResult.status === "identity_key_changed" ||
     identityTofuResult.status === "ecdh_key_mismatch"
   ) {
+    recordWorkspaceDeviceIdentityRejected(params, "identity_tofu_changed", {
+      tofuStatus: identityTofuResult.status,
+    });
     return true;
   }
 
   if (identityTofuResult.status === "first_seen" && !options.allowFirstSeenIdentity) {
+    recordWorkspaceDeviceIdentityRejected(params, "identity_first_seen_unpinned");
     return true;
   }
 
@@ -140,7 +154,28 @@ async function verifyIdentitySignedWorkspaceDevice(
       purpose: params.identitySignaturePurpose,
       proof: params.identitySignatureContext,
       namespace: options.namespace,
+      approvalSigningKeys: options.approvalSigningKeys,
     });
+  if (
+    params.identitySignaturePurpose === "device_approval" &&
+    !approvalHybridSigningPublicKeyMaterial
+  ) {
+    recordWorkspaceDeviceIdentityRejected(params, "approval_signing_key_missing", {
+      approvingOwnerId:
+        typeof params.identitySignatureContext.approving_owner_id === "string"
+          ? params.identitySignatureContext.approving_owner_id
+          : null,
+      approvingSigningKeyId:
+        typeof params.identitySignatureContext.approving_signing_key_id === "string"
+          ? params.identitySignatureContext.approving_signing_key_id
+          : null,
+      ...describeApprovalSigningKeyLookup(
+        params.identitySignatureContext,
+        options.approvalSigningKeys,
+      ),
+    });
+    return true;
+  }
   const verificationParams = {
     deviceId: params.deviceId,
     deviceHybridSigningPublicKeyMaterial: params.deviceHybridSigningPublicKeyMaterial,
@@ -163,7 +198,10 @@ async function verifyIdentitySignedWorkspaceDevice(
           ? await worker.verifyRecoveryDeviceApprovalSignature(verificationParams)
           : false;
 
-  if (!valid) return true;
+  if (!valid) {
+    recordWorkspaceDeviceIdentityRejected(params, "approval_signature_invalid");
+    return true;
+  }
 
   const persist =
     identityTofuResult.status === "first_seen"
@@ -189,11 +227,59 @@ async function verifyIdentitySignedWorkspaceDevice(
   return false;
 }
 
+function recordWorkspaceDeviceIdentityRejected(
+  params: {
+    userId: string;
+    deviceId: string;
+    identitySignaturePurpose: string;
+  },
+  reason: string,
+  detail: Record<string, unknown> = {},
+): void {
+  recordSyncPerf("workspace_directory_identity_rejected", {
+    userId: params.userId,
+    deviceId: params.deviceId,
+    purpose: params.identitySignaturePurpose,
+    reason,
+    ...detail,
+  });
+}
+
+function describeApprovalSigningKeyLookup(
+  proof: Record<string, unknown>,
+  approvalSigningKeys?: ReadonlyMap<string, HybridSigningPublicKeyMaterial>,
+): Record<string, unknown> {
+  if (
+    typeof proof.approving_signing_key_id !== "string" ||
+    typeof proof.approving_owner_id !== "string"
+  ) {
+    return { approvalSigningKeyCount: approvalSigningKeys?.size ?? 0 };
+  }
+
+  const candidate = approvalSigningKeys?.get(proof.approving_signing_key_id);
+  if (!candidate) {
+    return {
+      approvalSigningKeyCount: approvalSigningKeys?.size ?? 0,
+      hasApprovalSigningKeyCandidate: false,
+    };
+  }
+
+  return {
+    approvalSigningKeyCount: approvalSigningKeys?.size ?? 0,
+    hasApprovalSigningKeyCandidate: true,
+    approvalSigningKeyCandidateOwnerKind: candidate.owner_kind,
+    approvalSigningKeyCandidateOwnerId: candidate.owner_id,
+    approvalSigningKeyCandidateKeyMatches:
+      computeSigningKeyId(candidate) === proof.approving_signing_key_id,
+  };
+}
+
 async function resolveApprovalHybridSigningPublicKeyMaterial(params: {
   userId: string;
   purpose: string;
   proof: Record<string, unknown>;
   namespace?: string;
+  approvalSigningKeys?: ReadonlyMap<string, HybridSigningPublicKeyMaterial>;
 }): Promise<HybridSigningPublicKeyMaterial | null> {
   if (params.purpose !== "device_approval") return null;
   if (
@@ -202,6 +288,15 @@ async function resolveApprovalHybridSigningPublicKeyMaterial(params: {
     typeof params.proof.approving_signing_key_id !== "string"
   ) {
     return null;
+  }
+
+  const directoryMaterial = params.approvalSigningKeys?.get(params.proof.approving_signing_key_id);
+  if (
+    directoryMaterial?.owner_kind === "device" &&
+    directoryMaterial.owner_id === params.proof.approving_owner_id &&
+    computeSigningKeyId(directoryMaterial) === params.proof.approving_signing_key_id
+  ) {
+    return directoryMaterial;
   }
 
   const approver = await getTofuEntry(

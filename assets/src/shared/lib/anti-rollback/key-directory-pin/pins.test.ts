@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { openIdb } from "@/shared/lib/storage/idb";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import { currentSuitePolicy } from "@/shared/lib/crypto/suite";
@@ -375,38 +374,6 @@ describe("key-directory anti-rollback pins", () => {
       hashKeyDirectoryCheckpointEnvelope(chain[1]!.checkpoint),
       hashKeyDirectoryCheckpointEnvelope(chain[2]!.checkpoint),
     ]);
-  });
-
-  it("resets persisted verified lineage cache on security database upgrade", async () => {
-    await getKeyDirectoryPin("workspace", WORKSPACE_TRANSFER_ID);
-
-    const upgrade = vi.mocked(openIdb).mock.calls[0]?.[2];
-    expect(upgrade).toBeTypeOf("function");
-
-    const stores = new Set([
-      "document-state-pins",
-      "key-directory-pins",
-      "key-directory-verified-lineages",
-    ]);
-    const db = {
-      objectStoreNames: {
-        contains: (name: string) => stores.has(name),
-      },
-      createObjectStore: vi.fn((name: string) => {
-        stores.add(name);
-        return {};
-      }),
-      deleteObjectStore: vi.fn((name: string) => {
-        stores.delete(name);
-      }),
-    } as unknown as IDBDatabase;
-
-    upgrade!(db, 3);
-
-    expect(db.deleteObjectStore).toHaveBeenCalledWith("key-directory-verified-lineages");
-    expect(db.createObjectStore).toHaveBeenCalledWith("key-directory-verified-lineages", {
-      keyPath: "key",
-    });
   });
 });
 

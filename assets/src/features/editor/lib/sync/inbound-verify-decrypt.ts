@@ -86,6 +86,10 @@ export function commitWriteSessionCounter(update: UpdatePayload, state: Document
   state.writeSessionCounters[key] = counter;
 }
 
+export function resetWriteSessionCountersForSnapshotBaseline(state: DocumentState): void {
+  state.writeSessionCounters = {};
+}
+
 export async function rememberVerifiedWriteSessionAdmission(params: {
   payload: WriteSessionPayload;
   state: DocumentState;

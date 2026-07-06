@@ -1083,6 +1083,54 @@ defmodule RefMD.Sharing.SharingTest do
            )
   end
 
+  test "verification directory exposes denormalized workspace approval delivery artifacts", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:ok, created} =
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
+
+    {%RefMD.Devices.Device{} = device, _private_material} =
+      Process.get({:test_share_actor_device, owner_id})
+
+    approval_delivery_artifacts = %{
+      "umk_distribution_initial_delivery" => %{
+        "initial_key_delivery" => %{"delivery" => "umk"}
+      },
+      "trust_transfer_initial_delivery" => %{
+        "initial_key_delivery" => %{"delivery" => "trust"}
+      },
+      "device_approval_kek_initial_deliveries" => %{
+        document.workspace_id => %{"initial_key_delivery" => %{"delivery" => "kek"}}
+      }
+    }
+
+    device
+    |> Ecto.Changeset.change(approval_delivery_artifacts: approval_delivery_artifacts)
+    |> Repo.update!()
+
+    directory = Sharing.verification_directory(created.share.id, document.id)
+
+    workspace_device =
+      Enum.find(
+        directory.workspace_devices,
+        &(&1.device_id == device.id and &1.historical == false)
+      )
+
+    assert workspace_device.approval_delivery_artifacts["umk_distribution_initial_delivery"] == %{
+             "initial_key_delivery" => %{"delivery" => "umk"}
+           }
+
+    assert workspace_device.approval_delivery_artifacts[
+             "device_approval_kek_initial_deliveries"
+           ] == [
+             %{
+               "workspace_id" => document.workspace_id,
+               "delivery" => %{"initial_key_delivery" => %{"delivery" => "kek"}}
+             }
+           ]
+  end
+
   test "canonical bootstrap requires re-entry when share session is missing", %{
     document: document,
     owner_id: owner_id

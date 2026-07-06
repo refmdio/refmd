@@ -135,6 +135,7 @@ declare global {
         loadedFromOfflineCache: boolean;
         readOnly: boolean;
         refCount: number;
+        savedStateVector: number[] | null;
         savedText: string | null;
         stateKey: string;
         syncPaused: boolean;
@@ -156,6 +157,7 @@ declare global {
       readOnly: boolean;
       recentSaveEvents: unknown[];
       reconnecting: boolean;
+      savedStateVector: number[] | null;
       savedText: string | null;
       sending: boolean;
       stateKey: string;
@@ -186,6 +188,10 @@ declare global {
 
 function readE2EDocumentText(doc: Y.Doc): string {
   return doc.getText("content").toString();
+}
+
+function readE2EStateVector(update: Uint8Array | null): number[] | null {
+  return update ? Array.from(Y.encodeStateVectorFromUpdate(update)) : null;
 }
 
 function installE2EEditorHook(): void {
@@ -258,6 +264,7 @@ function installE2EEditorHook(): void {
           readOnly: item.readOnly,
           refCount: item.refCount,
           savedText,
+          savedStateVector: readE2EStateVector(item.lastSavedState),
           stateKey: item.stateKey,
           syncPaused: item._syncPaused,
           text: readE2EDocumentText(item.yDoc),
@@ -314,6 +321,7 @@ function installE2EEditorHook(): void {
         recentSaveEvents: state._recentSaveEvents.slice(-8),
         reconnecting: state._reconnecting,
         savedText,
+        savedStateVector: readE2EStateVector(state.lastSavedState),
         sending: state.sending,
         stateKey: state.stateKey,
         syncPaused: state._syncPaused,

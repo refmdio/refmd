@@ -5,9 +5,11 @@ import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapsho
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import {
+  canonicalMarkdownText,
+  clearProseMirrorXml,
   encodeCanonicalDiffAsUpdate,
-  encodeCanonicalStateAsUpdate,
-  replaceDocWithCanonicalMarkdown,
+  encodeCanonicalSyncedStateAsUpdate,
+  replaceDocWithCanonicalText,
 } from "@/shared/lib/yjs/canonical-document";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
@@ -42,6 +44,7 @@ import { applyInitialPublicationState, queuePublicationAutoSync } from "./outbou
 import { setDocumentReadOnly } from "../../model/document-state/signals";
 import { recordSyncPerf } from "./perf";
 import { createAdmissionKeyDirectoryRefresh } from "./admission-key-directory";
+import { hasCanonicalLocalChanges } from "./inbound-document-decisions";
 import {
   checkRotationSnapshot,
   createRollbackAttackError,
@@ -49,6 +52,7 @@ import {
   createVerificationFailedError,
   ensureDekCached,
   rememberVerifiedWriteSessionAdmission,
+  resetWriteSessionCountersForSnapshotBaseline,
   throwIfDocumentProcessingCancelled,
   verifyAndDecryptSingleUpdate,
   verifyAndDecryptUpdates,
@@ -57,21 +61,298 @@ import {
 } from "./inbound-verify-decrypt";
 import { nextLocalClockForDevice } from "./local-clock";
 
-function isLiveDocumentEmpty(doc: Y.Doc): boolean {
-  return doc.getText("content").length === 0 && doc.getXmlFragment("prosemirror").length === 0;
+function canonicalTextFromUpdate(update: Uint8Array | null): string | null {
+  if (!update) return null;
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, update, "remote");
+    return canonicalMarkdownText(doc);
+  } finally {
+    doc.destroy();
+  }
 }
 
-function applyCanonicalServerDocToLive(
+function canonicalTextAfterApplyingServerDoc(targetDoc: Y.Doc, serverDoc: Y.Doc): string {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(targetDoc), "remote");
+    Y.applyUpdate(doc, encodeCanonicalSyncedStateAsUpdate(serverDoc), "remote");
+    clearProseMirrorXml(doc, "remote");
+    return canonicalMarkdownText(doc);
+  } finally {
+    doc.destroy();
+  }
+}
+
+function replaceLiveWithServerCanonicalDoc(
   state: DocumentState,
   serverDoc: Y.Doc,
   origin: unknown,
 ): void {
-  if (isLiveDocumentEmpty(state.yDoc) || !state.lastSavedState) {
-    replaceDocWithCanonicalMarkdown(state.yDoc, serverDoc, origin);
+  const serverText = canonicalMarkdownText(serverDoc);
+  const serverUpdate = encodeCanonicalSyncedStateAsUpdate(serverDoc);
+  const simulatedText = canonicalTextAfterApplyingServerDoc(state.yDoc, serverDoc);
+  if (simulatedText === serverText) {
+    Y.applyUpdate(state.yDoc, serverUpdate, origin);
+    clearProseMirrorXml(state.yDoc, origin);
     return;
   }
 
-  Y.applyUpdate(state.yDoc, encodeCanonicalDiffAsUpdate(serverDoc, state.lastSavedState), origin);
+  replaceDocWithCanonicalText(state.yDoc, "", origin);
+  Y.applyUpdate(state.yDoc, serverUpdate, origin);
+  clearProseMirrorXml(state.yDoc, origin);
+}
+
+function applyServerCanonicalDocAndLocalDiff(
+  perfEvent: "canonical_server_doc_apply" | "canonical_snapshot_doc_apply",
+  syncGapMessage:
+    | "canonical_structural_merge_unavailable"
+    | "canonical_structural_snapshot_merge_unavailable",
+  documentId: string,
+  state: DocumentState,
+  serverDoc: Y.Doc,
+  localUpdate: Uint8Array,
+  expectedText: string,
+  origin: unknown,
+): void {
+  replaceDocWithCanonicalText(state.yDoc, "", origin);
+  Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
+  if (localUpdate.length > 2) {
+    Y.applyUpdate(state.yDoc, localUpdate, origin);
+  }
+  clearProseMirrorXml(state.yDoc, origin);
+  const actualText = canonicalMarkdownText(state.yDoc);
+  if (actualText !== expectedText) {
+    recordSyncPerf(perfEvent, {
+      documentId,
+      mode: "sync-gap",
+      liveTextAfterLength: actualText.length,
+      expectedTextLength: expectedText.length,
+    });
+    throw createSyncGapError(syncGapMessage);
+  }
+}
+
+function applyReencodedServerDocAndLocalText(
+  documentId: string,
+  state: DocumentState,
+  serverDoc: Y.Doc,
+  serverText: string,
+  liveText: string,
+  origin: unknown,
+): boolean {
+  replaceDocWithCanonicalText(state.yDoc, "", origin);
+  Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
+  clearProseMirrorXml(state.yDoc, origin);
+  if (canonicalMarkdownText(state.yDoc) !== serverText) {
+    recordSyncPerf("canonical_rebaseline_local_text_failed", {
+      documentId,
+      expectedServerTextLength: serverText.length,
+      actualServerTextLength: canonicalMarkdownText(state.yDoc).length,
+      liveTextLength: liveText.length,
+    });
+    return false;
+  }
+  replaceDocWithCanonicalText(state.yDoc, liveText, origin);
+  return canonicalMarkdownText(state.yDoc) === liveText;
+}
+
+function canonicalLocalDiffAfterApplyingServerDoc(
+  liveDoc: Y.Doc,
+  serverDoc: Y.Doc,
+  savedState: Uint8Array | null,
+  savedText: string | null = canonicalTextFromUpdate(savedState),
+): { localUpdate: Uint8Array; mergedText: string } | null {
+  if (!savedState || savedText === null) return null;
+  const liveText = canonicalMarkdownText(liveDoc);
+  const localUpdate = encodeCanonicalDiffAsUpdate(liveDoc, savedState);
+  if (!localUpdate) return null;
+  const mergedDoc = new Y.Doc();
+  try {
+    Y.applyUpdate(mergedDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), "remote");
+    if (localUpdate.length > 2) Y.applyUpdate(mergedDoc, localUpdate, "local");
+    const mergedText = canonicalMarkdownText(mergedDoc);
+    const serverText = canonicalMarkdownText(serverDoc);
+    if (mergedText !== serverText || liveText === savedText) {
+      return { localUpdate, mergedText };
+    }
+    return null;
+  } finally {
+    mergedDoc.destroy();
+  }
+}
+
+function applyCanonicalServerDocToLive(
+  documentId: string,
+  state: DocumentState,
+  serverDoc: Y.Doc,
+  origin: unknown,
+): { hasMergedLocalChanges: boolean } {
+  const serverText = canonicalMarkdownText(serverDoc);
+  const liveText = canonicalMarkdownText(state.yDoc);
+  const savedText = canonicalTextFromUpdate(state.lastSavedState);
+  const hasLocalChanges = hasCanonicalLocalChanges({ savedText, liveText, serverText });
+  const simulatedText = canonicalTextAfterApplyingServerDoc(state.yDoc, serverDoc);
+  let applyMode = hasLocalChanges ? "yjs-merge" : "yjs-apply";
+
+  if (!hasLocalChanges) {
+    replaceLiveWithServerCanonicalDoc(state, serverDoc, origin);
+  } else {
+    const structuralMerge =
+      savedText !== null
+        ? canonicalLocalDiffAfterApplyingServerDoc(
+            state.yDoc,
+            serverDoc,
+            state.lastSavedState,
+            savedText,
+          )
+        : null;
+    if (structuralMerge === null) {
+      if (
+        savedText !== null &&
+        serverText === savedText &&
+        applyReencodedServerDocAndLocalText(
+          documentId,
+          state,
+          serverDoc,
+          serverText,
+          liveText,
+          origin,
+        )
+      ) {
+        applyMode = "server-structs-with-local-text";
+      } else {
+        recordSyncPerf("canonical_server_doc_apply", {
+          documentId,
+          mode: "sync-gap",
+          savedTextLength: savedText?.length ?? null,
+          liveTextBeforeLength: liveText.length,
+          serverTextLength: serverText.length,
+          liveTextAfterLength: liveText.length,
+          simulatedTextLength: simulatedText.length,
+          liveMatchesSavedBefore: savedText !== null && liveText === savedText,
+          serverMatchesSavedBefore: savedText !== null && serverText === savedText,
+          hasMergedLocalChanges: false,
+        });
+        throw createSyncGapError("canonical_structural_merge_unavailable");
+      }
+    } else if (simulatedText === structuralMerge.mergedText) {
+      Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
+      clearProseMirrorXml(state.yDoc, origin);
+    } else {
+      applyMode = "server-structs-with-local-diff";
+      applyServerCanonicalDocAndLocalDiff(
+        "canonical_server_doc_apply",
+        "canonical_structural_merge_unavailable",
+        documentId,
+        state,
+        serverDoc,
+        structuralMerge.localUpdate,
+        structuralMerge.mergedText,
+        origin,
+      );
+    }
+  }
+  recordSyncPerf("canonical_server_doc_apply", {
+    documentId,
+    mode: applyMode,
+    savedTextLength: savedText?.length ?? null,
+    liveTextBeforeLength: liveText.length,
+    serverTextLength: serverText.length,
+    liveTextAfterLength: canonicalMarkdownText(state.yDoc).length,
+    simulatedTextLength: simulatedText.length,
+    liveMatchesSavedBefore: savedText !== null && liveText === savedText,
+    serverMatchesSavedBefore: savedText !== null && serverText === savedText,
+    hasMergedLocalChanges: hasLocalChanges,
+  });
+  return { hasMergedLocalChanges: hasLocalChanges };
+}
+
+function applyCanonicalSnapshotDocToLive(
+  documentId: string,
+  state: DocumentState,
+  serverDoc: Y.Doc,
+  origin: unknown,
+): { hasMergedLocalChanges: boolean } {
+  const serverText = canonicalMarkdownText(serverDoc);
+  const liveText = canonicalMarkdownText(state.yDoc);
+  const savedText = canonicalTextFromUpdate(state.lastSavedState);
+  const hasLocalChanges = hasCanonicalLocalChanges({ savedText, liveText, serverText });
+  const simulatedText = canonicalTextAfterApplyingServerDoc(state.yDoc, serverDoc);
+  let applyMode = hasLocalChanges ? "yjs-merge" : "server-struct-replace";
+
+  if (hasLocalChanges) {
+    const structuralMerge =
+      savedText !== null
+        ? canonicalLocalDiffAfterApplyingServerDoc(
+            state.yDoc,
+            serverDoc,
+            state.lastSavedState,
+            savedText,
+          )
+        : null;
+    if (structuralMerge === null) {
+      if (
+        savedText !== null &&
+        serverText === savedText &&
+        applyReencodedServerDocAndLocalText(
+          documentId,
+          state,
+          serverDoc,
+          serverText,
+          liveText,
+          origin,
+        )
+      ) {
+        applyMode = "server-structs-with-local-text";
+      } else {
+        recordSyncPerf("canonical_snapshot_doc_apply", {
+          documentId,
+          mode: "sync-gap",
+          savedTextLength: savedText?.length ?? null,
+          liveTextBeforeLength: liveText.length,
+          serverTextLength: serverText.length,
+          liveTextAfterLength: liveText.length,
+          simulatedTextLength: simulatedText.length,
+          hasMergedLocalChanges: false,
+        });
+        throw createSyncGapError("canonical_structural_snapshot_merge_unavailable");
+      }
+    } else if (simulatedText === structuralMerge.mergedText) {
+      Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
+      clearProseMirrorXml(state.yDoc, origin);
+    } else {
+      applyMode = "server-structs-with-local-diff";
+      applyServerCanonicalDocAndLocalDiff(
+        "canonical_snapshot_doc_apply",
+        "canonical_structural_snapshot_merge_unavailable",
+        documentId,
+        state,
+        serverDoc,
+        structuralMerge.localUpdate,
+        structuralMerge.mergedText,
+        origin,
+      );
+    }
+  } else {
+    replaceLiveWithServerCanonicalDoc(state, serverDoc, origin);
+  }
+  recordSyncPerf("canonical_snapshot_doc_apply", {
+    documentId,
+    mode: applyMode,
+    savedTextLength: savedText?.length ?? null,
+    liveTextBeforeLength: liveText.length,
+    serverTextLength: serverText.length,
+    liveTextAfterLength: canonicalMarkdownText(state.yDoc).length,
+    simulatedTextLength: simulatedText.length,
+    hasMergedLocalChanges: hasLocalChanges,
+  });
+  return { hasMergedLocalChanges: hasLocalChanges };
+}
+
+function markMergedLocalChangesForSync(state: DocumentState): void {
+  state._preAutoSyncUserEdit = true;
+  state.autoSync?.notifyLocalEdit();
 }
 
 // ── Initial document load ────────────────────────────────────
@@ -311,8 +592,9 @@ export async function handleDocumentMessage(
   if (snapshotMeta) {
     state.activeSnapshotId = snapshotMeta.snapshotId;
     state.snapshotBaseClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
-    state.knownClocks = {};
-    state.confirmedClocks = {};
+    state.knownClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
+    state.confirmedClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
+    resetWriteSessionCountersForSnapshotBaseline(state);
     state._pendingOutOfOrderUpdates = [];
     clearOutOfOrderGapTimeout(state);
   }
@@ -356,8 +638,8 @@ export async function handleDocumentMessage(
     throw createRollbackAttackError("Version regression detected");
   }
 
-  // Rebuild the server baseline in a side document and copy only canonical
-  // Markdown text into the live editor doc. ProseMirror XML is UI-derived.
+  // Rebuild the server baseline in a side document, then apply the server
+  // Yjs structs into the live editor doc so local CRDT edits can compose.
   const isDeltaSameSnapshot = !payload.snapshot && state.activeSnapshotId !== null;
   const serverDoc = new Y.Doc();
   if (decryptedSnapshot) {
@@ -370,9 +652,14 @@ export async function handleDocumentMessage(
   }
 
   // Apply atomically inside the transaction without awaits.
+  let appliedCanonicalResult: { hasMergedLocalChanges: boolean } = {
+    hasMergedLocalChanges: false,
+  };
   state._applyingRemote = true;
   try {
-    applyCanonicalServerDocToLive(state, serverDoc, "remote");
+    appliedCanonicalResult = decryptedSnapshot
+      ? applyCanonicalSnapshotDocToLive(documentId, state, serverDoc, "remote")
+      : applyCanonicalServerDocToLive(documentId, state, serverDoc, "remote");
   } finally {
     state._applyingRemote = false;
   }
@@ -398,7 +685,7 @@ export async function handleDocumentMessage(
   // For same-snapshot delta reconnect (snapshot: null, already initialized),
   // preserve existing lastSavedState and update count — only apply delta to Y.Doc.
   if (!isDeltaSameSnapshot) {
-    state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
+    state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(serverDoc);
     state.snapshotUpdatesCount = payload.updates.length;
   } else {
     // Delta reconnect: update lastSavedState incrementally with delta updates
@@ -408,12 +695,15 @@ export async function handleDocumentMessage(
       for (const { decrypted } of decryptedUpdates) {
         Y.applyUpdate(trackingDoc, decrypted, "remote");
       }
-      state.lastSavedState = encodeCanonicalStateAsUpdate(trackingDoc);
+      state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(trackingDoc);
       trackingDoc.destroy();
     }
     state.snapshotUpdatesCount += payload.updates.length;
   }
   serverDoc.destroy();
+  if (appliedCanonicalResult.hasMergedLocalChanges) {
+    markMergedLocalChangesForSync(state);
+  }
   recordSyncPerf("initial_saved_baseline_ready", {
     documentId,
     elapsedMs: performance.now() - startedAt,
@@ -590,14 +880,7 @@ export async function handleRemoteUpdate(
   // Verify and decrypt (single decryption — includes refSnapshotId + TOFU + signature)
   let result: Awaited<ReturnType<typeof verifyAndDecryptSingleUpdate>>;
   try {
-    result = await verifyAndDecryptSingleUpdate(
-      payload,
-      state,
-      documentId,
-      false,
-      false,
-      Boolean(onDeferredVerificationFailed),
-    );
+    result = await verifyAndDecryptSingleUpdate(payload, state, documentId, false, false, false);
   } catch (err) {
     if (isRecoverableSyncGapError(err)) {
       enqueueOutOfOrderUpdate(state, payload);
@@ -612,21 +895,37 @@ export async function handleRemoteUpdate(
     elapsedMs: performance.now() - receivedAt,
   });
 
-  let trackingDoc: Y.Doc | null = null;
+  const trackingDoc = new Y.Doc();
   if (state.lastSavedState) {
-    trackingDoc = new Y.Doc();
     Y.applyUpdate(trackingDoc, state.lastSavedState, "remote");
-    Y.applyUpdate(trackingDoc, result.decrypted, "remote");
+  }
+  Y.applyUpdate(trackingDoc, result.decrypted, "remote");
+  const savedTextBeforeUpdate = canonicalTextFromUpdate(state.lastSavedState);
+  const trackedTextAfterUpdate = canonicalMarkdownText(trackingDoc);
+  if (
+    savedTextBeforeUpdate !== null &&
+    trackedTextAfterUpdate === savedTextBeforeUpdate &&
+    result.decrypted.length > 2
+  ) {
+    recordSyncPerf("remote_update_no_canonical_progress", {
+      documentId,
+      updateHash: payload.publicData.updateHash,
+      savedTextLength: savedTextBeforeUpdate.length,
+      decryptedBytes: result.decrypted.length,
+    });
   }
 
+  let appliedCanonicalResult: { hasMergedLocalChanges: boolean } = {
+    hasMergedLocalChanges: false,
+  };
   state._applyingRemote = true;
   try {
-    if (trackingDoc) {
-      applyCanonicalServerDocToLive(state, trackingDoc, "remote");
-    } else {
-      Y.applyUpdate(state.yDoc, result.decrypted, "remote");
-      replaceDocWithCanonicalMarkdown(state.yDoc, state.yDoc, "remote");
-    }
+    appliedCanonicalResult = applyCanonicalServerDocToLive(
+      documentId,
+      state,
+      trackingDoc,
+      "remote",
+    );
   } finally {
     state._applyingRemote = false;
   }
@@ -661,11 +960,10 @@ export async function handleRemoteUpdate(
   state.confirmedClocks[result.deviceKey] = result.clock;
 
   // Update lastSavedState: reuse decrypted bytes (no re-decryption)
-  if (trackingDoc) {
-    state.lastSavedState = encodeCanonicalStateAsUpdate(trackingDoc);
-    trackingDoc.destroy();
-  } else {
-    state.lastSavedState = encodeCanonicalStateAsUpdate(state.yDoc);
+  state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(trackingDoc);
+  trackingDoc.destroy();
+  if (appliedCanonicalResult.hasMergedLocalChanges) {
+    markMergedLocalChangesForSync(state);
   }
 
   // Invalidate pre-send rollback state since server baseline has advanced
@@ -944,9 +1242,17 @@ export async function handleRemoteSnapshot(
   const serverDoc = new Y.Doc();
   Y.applyUpdateV2(serverDoc, decrypted, "remote");
 
+  let appliedCanonicalResult: { hasMergedLocalChanges: boolean } = {
+    hasMergedLocalChanges: false,
+  };
   state._applyingRemote = true;
   try {
-    applyCanonicalServerDocToLive(state, serverDoc, "remote");
+    appliedCanonicalResult = applyCanonicalSnapshotDocToLive(
+      documentId,
+      state,
+      serverDoc,
+      "remote",
+    );
   } finally {
     state._applyingRemote = false;
   }
@@ -963,15 +1269,19 @@ export async function handleRemoteSnapshot(
   state.snapshotProofHash = payload.proofChainHash;
 
   state.snapshotBaseClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
-  state.knownClocks = {};
-  state.confirmedClocks = {};
+  state.knownClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
+  state.confirmedClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
+  resetWriteSessionCountersForSnapshotBaseline(state);
   state._pendingOutOfOrderUpdates = retainedQueuedUpdates;
   state.snapshotUpdatesCount = 0;
   state.localClock = nextLocalClockForDevice(state.knownClocks, state, getLocalSigningKeyId(state));
 
   // Build lastSavedState from server data only (not live Y.Doc which may have local edits)
-  state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
+  state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(serverDoc);
   serverDoc.destroy();
+  if (appliedCanonicalResult.hasMergedLocalChanges) {
+    markMergedLocalChangesForSync(state);
+  }
 
   // Persist anti-rollback pin
   persistDocumentRollbackPin(documentId, state);

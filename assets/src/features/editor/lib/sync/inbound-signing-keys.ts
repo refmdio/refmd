@@ -39,10 +39,7 @@ type DeviceKeyCacheResult =
       memberNames: Map<string, string>;
       revokedSigningKeys: Set<string>;
       rejectedSigningKeys: Set<string>;
-      directorySigningKeys: Map<
-        string,
-        { material: HybridSigningPublicKeyMaterial; revoked: boolean }
-      >;
+      directorySigningKeys: DirectorySigningKeyEntries;
     }
   | { status: "key_changed"; warning: TofuKeyChangeWarning };
 
@@ -50,6 +47,11 @@ export type ResolveSigningKeyResult =
   | { status: "found"; key: HybridSigningPublicKeyMaterial; ownerId: string }
   | { status: "not_found" }
   | { status: "key_changed"; warning: TofuKeyChangeWarning };
+
+type DirectorySigningKeyEntries = Map<
+  string,
+  { material: HybridSigningPublicKeyMaterial; revoked: boolean }
+>;
 
 type SuccessfulDeviceKeyCacheResult = Extract<DeviceKeyCacheResult, { status: "ok" }>;
 
@@ -170,6 +172,13 @@ export async function buildDeviceKeyCaches(
   throwIfAborted(signal);
 
   if (baseResult.status === "key_changed") {
+    recordSyncPerf("device_key_cache_key_changed", {
+      source: "workspace_base",
+      workspaceId,
+      documentId: documentId ?? null,
+      userId: baseResult.warning.userId,
+      deviceId: baseResult.warning.deviceId ?? null,
+    });
     return baseResult;
   }
 
@@ -190,6 +199,7 @@ export async function buildDeviceKeyCaches(
     getWorkspaceTofuNamespace(workspaceId),
     result.signingKeys,
     result.historicalSigningKeys,
+    result.directorySigningKeys,
     result.signingKeyOwners,
     worker,
   );
@@ -337,7 +347,7 @@ async function doBuildWorkspaceDeviceKeyCaches(workspaceId: string): Promise<Dev
 
 function workspaceSigningKeyEntries(
   checkpointEnvelope: Record<string, unknown>,
-): Map<string, { material: HybridSigningPublicKeyMaterial; revoked: boolean }> {
+): DirectorySigningKeyEntries {
   const payload = checkpointEnvelope.payload;
   if (!payload || typeof payload !== "object") throw new Error("key_directory_checkpoint_invalid");
   const deviceKeys = (payload as { device_keys?: unknown }).device_keys;
@@ -345,7 +355,7 @@ function workspaceSigningKeyEntries(
     .share_participant_keys;
   if (!Array.isArray(deviceKeys)) throw new Error("key_directory_device_keys_invalid");
 
-  const entries = new Map<string, { material: HybridSigningPublicKeyMaterial; revoked: boolean }>();
+  const entries: DirectorySigningKeyEntries = new Map();
   for (const entry of [
     ...deviceKeys,
     ...(Array.isArray(shareParticipantKeys) ? shareParticipantKeys : []),
@@ -560,21 +570,38 @@ async function addWorkspaceDirectoryDevicesToCache(
   namespace: string,
   signingKeys: Map<string, HybridSigningPublicKeyMaterial>,
   historicalSigningKeys: Map<string, HybridSigningPublicKeyMaterial>,
+  directorySigningKeys: DirectorySigningKeyEntries,
   signingKeyOwners: Map<string, string>,
   worker: ReturnType<typeof getCryptoWorker>,
 ): Promise<DeviceKeyCacheResult | null> {
-  for (const device of devices) {
+  const approvalSigningKeys = new Map<string, HybridSigningPublicKeyMaterial>([
+    ...signingKeys,
+    ...historicalSigningKeys,
+  ]);
+  for (const [keyId, entry] of directorySigningKeys) {
+    if (!entry.revoked && entry.material.owner_kind === "device") {
+      approvalSigningKeys.set(keyId, entry.material);
+    }
+  }
+  for (const device of orderWorkspaceDirectoryDevicesForVerification(devices)) {
     const material = device.hybrid_signing_public_key_material;
     if (!material) continue;
     const signingKey = computeSigningKeyId(material);
-    if (signingKeys.has(signingKey) || historicalSigningKeys.has(signingKey)) {
-      continue;
-    }
+    const hasSigningKey = signingKeys.has(signingKey);
+    const hasHistoricalSigningKey = historicalSigningKeys.has(signingKey);
     const ecdhPk = base64UrlDecode(device.hybrid_encryption_public_key_material.x25519_public);
     const identityWarning = await verifyWorkspaceDirectoryDeviceIdentity(device, worker, {
       namespace,
+      allowFirstSeenIdentity: true,
+      approvalSigningKeys,
     });
     if (identityWarning) {
+      recordSyncPerf("device_key_cache_key_changed", {
+        source: "workspace_directory_identity",
+        namespace,
+        userId: device.user_id,
+        deviceId: device.device_id,
+      });
       return {
         status: "key_changed",
         warning: { userId: device.user_id, deviceId: device.device_id },
@@ -582,8 +609,13 @@ async function addWorkspaceDirectoryDevicesToCache(
     }
 
     if (device.historical) {
-      historicalSigningKeys.set(signingKey, material);
-      signingKeyOwners.set(signingKey, device.user_id);
+      if (!hasSigningKey && !hasHistoricalSigningKey) {
+        historicalSigningKeys.set(signingKey, material);
+      }
+      approvalSigningKeys.set(signingKey, material);
+      if (!signingKeyOwners.has(signingKey)) {
+        signingKeyOwners.set(signingKey, device.user_id);
+      }
       continue;
     }
 
@@ -596,6 +628,13 @@ async function addWorkspaceDirectoryDevicesToCache(
     });
 
     if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      recordSyncPerf("device_key_cache_key_changed", {
+        source: "workspace_directory_device_tofu",
+        namespace,
+        tofuStatus: tofuResult.status,
+        userId: device.user_id,
+        deviceId: device.device_id,
+      });
       return {
         status: "key_changed",
         warning: { userId: device.user_id, deviceId: device.device_id },
@@ -615,20 +654,39 @@ async function addWorkspaceDirectoryDevicesToCache(
       },
     });
 
-    if (device.historical) {
-      historicalSigningKeys.set(signingKey, material);
-    } else {
+    if (!hasSigningKey && !hasHistoricalSigningKey) {
       signingKeys.set(signingKey, material);
     }
-    signingKeyOwners.set(signingKey, device.user_id);
+    approvalSigningKeys.set(signingKey, material);
+    if (!signingKeyOwners.has(signingKey)) {
+      signingKeyOwners.set(signingKey, device.user_id);
+    }
   }
 
   return null;
 }
 
+function orderWorkspaceDirectoryDevicesForVerification(
+  devices: ShareVerificationWorkspaceDevice[],
+): ShareVerificationWorkspaceDevice[] {
+  const rank = (device: ShareVerificationWorkspaceDevice): number => {
+    switch (device.approval_signature_surface) {
+      case "genesis_device_bootstrap":
+        return 0;
+      case "recovery_device_approval":
+        return 1;
+      case "device_approval":
+        return 2;
+      default:
+        return 3;
+    }
+  };
+  return [...devices].sort((a, b) => rank(a) - rank(b));
+}
+
 async function addShareParticipantDevicesToCache(
   devices: ShareVerificationParticipantDevice[],
-  directorySigningKeys: Map<string, { material: HybridSigningPublicKeyMaterial; revoked: boolean }>,
+  directorySigningKeys: DirectorySigningKeyEntries,
   signingKeys: Map<string, HybridSigningPublicKeyMaterial>,
   historicalSigningKeys: Map<string, HybridSigningPublicKeyMaterial>,
   signingKeyOwners: Map<string, string>,
@@ -678,6 +736,13 @@ async function addShareParticipantDevicesToCache(
     });
 
     if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      recordSyncPerf("device_key_cache_key_changed", {
+        source: "share_participant_device_tofu",
+        namespace,
+        tofuStatus: tofuResult.status,
+        userId: device.principal_id,
+        deviceId: device.device_id,
+      });
       return {
         status: "key_changed",
         warning: { userId: device.principal_id, deviceId: device.device_id },
@@ -892,6 +957,18 @@ async function doBuildShareDeviceKeyCaches(
   const memberNames = new Map<string, string>();
   const namespace = getShareTofuNamespace(access);
   const deferTofuPersistence = Boolean(requiredSigningKeys);
+  const approvalSigningKeys = new Map<string, HybridSigningPublicKeyMaterial>();
+  for (const checkpoint of [
+    access.workspaceKeyDirectoryLatestCheckpoint,
+    access.workspaceKeyDirectoryCheckpoint,
+  ]) {
+    if (!checkpoint) continue;
+    for (const [keyId, entry] of workspaceSigningKeyEntries(checkpoint)) {
+      if (!entry.revoked && entry.material.owner_kind === "device") {
+        approvalSigningKeys.set(keyId, entry.material);
+      }
+    }
+  }
 
   const processDirectoryEntry = async (
     ownerId: string,
@@ -906,9 +983,8 @@ async function doBuildShareDeviceKeyCaches(
     if (requiredSigningKeys && !requiredSigningKeys.has(signingKey)) {
       return null;
     }
-    if (signingKeys.has(signingKey) || historicalSigningKeys.has(signingKey)) {
-      return null;
-    }
+    const hasSigningKey = signingKeys.has(signingKey);
+    const hasHistoricalSigningKey = historicalSigningKeys.has(signingKey);
     const ecdhPk = base64UrlDecode(encryptionPublicKey);
     if (workspaceDevice) {
       const identityWarning = await verifyWorkspaceDirectoryDeviceIdentity(
@@ -918,6 +994,7 @@ async function doBuildShareDeviceKeyCaches(
           namespace,
           allowFirstSeenIdentity: true,
           deferTofuPersistence,
+          approvalSigningKeys,
         },
       );
       if (identityWarning) {
@@ -928,9 +1005,15 @@ async function doBuildShareDeviceKeyCaches(
       }
     }
 
+    if (hasSigningKey || hasHistoricalSigningKey) {
+      approvalSigningKeys.set(signingKey, material);
+      return null;
+    }
+
     if (historical) {
       historicalSigningKeys.set(signingKey, material);
       signingKeyOwners.set(signingKey, ownerId);
+      approvalSigningKeys.set(signingKey, material);
       return null;
     }
 
@@ -979,6 +1062,7 @@ async function doBuildShareDeviceKeyCaches(
     } else {
       signingKeys.set(signingKey, material);
     }
+    approvalSigningKeys.set(signingKey, material);
     signingKeyOwners.set(signingKey, ownerId);
     if (!historical) {
       memberNames.set(ownerId, displayName ?? ownerId);

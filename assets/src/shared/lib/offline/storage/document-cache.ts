@@ -6,6 +6,7 @@ export interface DocumentCacheEntry {
   workspaceId: string;
   encryptedState: Uint8Array;
   stateNonce: Uint8Array;
+  encryptedStateKind?: "confirmed" | "live";
   encryptedConfirmedState?: Uint8Array | null;
   confirmedStateNonce?: Uint8Array | null;
   keyVersion: number;
@@ -24,6 +25,7 @@ interface DocumentCacheIdb {
   workspaceId: string;
   encryptedState: ArrayBuffer;
   stateNonce: ArrayBuffer;
+  encryptedStateKind?: "confirmed" | "live";
   encryptedConfirmedState?: ArrayBuffer | null;
   confirmedStateNonce?: ArrayBuffer | null;
   keyVersion: number;
@@ -43,6 +45,7 @@ function serializeDocumentCache(entry: DocumentCacheEntry): DocumentCacheIdb {
     workspaceId: entry.workspaceId,
     encryptedState: toArrayBuffer(entry.encryptedState),
     stateNonce: toArrayBuffer(entry.stateNonce),
+    encryptedStateKind: entry.encryptedStateKind,
     encryptedConfirmedState: entry.encryptedConfirmedState
       ? toArrayBuffer(entry.encryptedConfirmedState)
       : null,
@@ -67,6 +70,7 @@ function deserializeDocumentCache(raw: DocumentCacheIdb): DocumentCacheEntry {
     workspaceId: raw.workspaceId,
     encryptedState: new Uint8Array(raw.encryptedState),
     stateNonce: new Uint8Array(raw.stateNonce),
+    encryptedStateKind: raw.encryptedStateKind,
     encryptedConfirmedState: raw.encryptedConfirmedState
       ? new Uint8Array(raw.encryptedConfirmedState)
       : null,

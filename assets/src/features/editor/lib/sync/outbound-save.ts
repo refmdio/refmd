@@ -1,5 +1,10 @@
 import * as Y from "yjs";
-import { encodeCanonicalStateAsUpdate } from "@/shared/lib/yjs/canonical-document";
+import {
+  canonicalMarkdownText,
+  clearProseMirrorXml,
+  encodeCanonicalSyncedStateAsUpdate,
+  replaceDocWithCanonicalText,
+} from "@/shared/lib/yjs/canonical-document";
 import { getNextClockForDevice } from "@/shared/lib/anti-rollback/clock-observations";
 import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
@@ -23,6 +28,7 @@ import { DocumentSyncError, isRecoverableSyncGapError } from "./error";
 import { getDocumentState } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { handleDocumentMessage } from "./inbound-document";
+import { resetWriteSessionCountersForSnapshotBaseline } from "./inbound-verify-decrypt";
 import { getLocalDeviceId, getLocalSigningKeyId } from "./share-identity";
 import { getDocumentDekCacheKey } from "./share-access";
 import { getDocumentCryptoWorker } from "./crypto-worker";
@@ -31,7 +37,7 @@ import {
   rememberDocumentAdmissionCheckpoint,
   type KeyDirectoryAdvance,
 } from "./outbound-admission";
-import { hasUnsavedCanonicalText, refreshSavedBaselineToCurrent } from "./outbound-canonical";
+import { hasUnsavedCanonicalText } from "./outbound-canonical";
 import { queuePublicationSaveSync } from "./outbound-publication";
 import { clearSaveAckWatchdog } from "./outbound-save-watchdog";
 import { recordSyncPerf } from "./perf";
@@ -40,6 +46,27 @@ function getPinKey(state: DocumentState, documentId: string): string {
   return state.access.kind === "share"
     ? buildDocumentStatePinKey(documentId, state.access.shareId)
     : buildDocumentStatePinKey(documentId);
+}
+
+function rebaseLiveDocOntoAcceptedSnapshot(
+  state: DocumentState,
+  snapshotState: Uint8Array,
+  savedSnapshotState: Uint8Array,
+): void {
+  const liveText = canonicalMarkdownText(state.yDoc);
+  const snapshotDoc = new Y.Doc();
+  try {
+    Y.applyUpdateV2(snapshotDoc, snapshotState, "snapshot-ack");
+    const snapshotText = canonicalMarkdownText(snapshotDoc);
+    replaceDocWithCanonicalText(state.yDoc, "", "snapshot-ack-rebase");
+    Y.applyUpdate(state.yDoc, savedSnapshotState, "snapshot-ack-rebase");
+    clearProseMirrorXml(state.yDoc, "snapshot-ack-rebase");
+    if (liveText !== snapshotText) {
+      replaceDocWithCanonicalText(state.yDoc, liveText, "snapshot-ack-local-text");
+    }
+  } finally {
+    snapshotDoc.destroy();
+  }
 }
 
 function getOfflineCacheOptions(state: DocumentState, documentId: string) {
@@ -289,7 +316,7 @@ export async function handleUpdateSaved(
     const serverDoc = new Y.Doc();
     Y.applyUpdate(serverDoc, state.lastSavedState, "remote");
     Y.applyUpdate(serverDoc, state.pendingUpdateBytes, "remote");
-    state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
+    state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(serverDoc);
     serverDoc.destroy();
   }
   state.pendingUpdateBytes = null;
@@ -338,7 +365,6 @@ export async function handleUpdateSaved(
       clientError("auto_sync_flush_after_update_ack_failed", { documentId, error: err });
     });
   } else if (!hasUnsavedChanges) {
-    refreshSavedBaselineToCurrent(state);
     void state.autoSync?.prepareWriteSession();
   }
 }
@@ -412,8 +438,9 @@ export async function handleSnapshotSaved(
 
   const serverDoc = new Y.Doc();
   Y.applyUpdateV2(serverDoc, pendingSnapshot.snapshotYjsState, "remote");
-  state.lastSavedState = encodeCanonicalStateAsUpdate(serverDoc);
+  state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(serverDoc);
   serverDoc.destroy();
+  rebaseLiveDocOntoAcceptedSnapshot(state, pendingSnapshot.snapshotYjsState, state.lastSavedState);
   state.snapshotUpdatesCount = 0;
   state.snapshotBaseClocks = { ...pendingSnapshot.knownClocksAtSend };
   if (typeof payload.latestVersion === "number") {
@@ -431,8 +458,9 @@ export async function handleSnapshotSaved(
   }
   state.pendingRotationSnapshot = false;
   const signingKeyId = getLocalSigningKeyId(state) ?? deviceState()?.deviceSigningKeyId;
-  state.knownClocks = {};
-  state.confirmedClocks = {};
+  state.knownClocks = { ...pendingSnapshot.knownClocksAtSend };
+  state.confirmedClocks = { ...pendingSnapshot.knownClocksAtSend };
+  resetWriteSessionCountersForSnapshotBaseline(state);
   state.localClock = getNextClockForDevice(state.knownClocks, signingKeyId ?? undefined);
 
   if (documentId && state.workspaceId && state.keyVersion > 0) {
@@ -471,7 +499,6 @@ export async function handleSnapshotSaved(
   if (state.autoSync && hasUnsavedChanges) {
     state.autoSync.notifyLocalEdit();
   } else if (!hasUnsavedChanges) {
-    refreshSavedBaselineToCurrent(state);
     void state.autoSync?.prepareWriteSession();
   }
 }

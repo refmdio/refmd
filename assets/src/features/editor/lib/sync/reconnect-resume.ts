@@ -6,8 +6,9 @@ import { documentClockKey } from "@/shared/lib/anti-rollback/clock-observations"
 import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 import { getChannelState, pushSnapshot, pushUpdate } from "@/shared/lib/ws/phoenix-channel";
 import {
+  canonicalMarkdownText,
   encodeCanonicalDiffAsUpdate,
-  encodeCanonicalStateAsUpdate,
+  replaceDocWithCanonicalText,
 } from "@/shared/lib/yjs/canonical-document";
 import { removeAwarenessStates } from "y-protocols/awareness";
 import * as Y from "yjs";
@@ -16,6 +17,7 @@ import type { DocumentState } from "../../model/document-state/types";
 import { assignUserColor } from "../presence/user-colors";
 import { runPostReconnectSession } from "./reconnect-session";
 import { isRecoverableSyncGapError } from "./error";
+import { createSyncGapError } from "./inbound-verify-decrypt";
 import {
   handleDocumentMessage,
   handleRemoteSnapshot,
@@ -26,6 +28,10 @@ import { applyDeviceKeyCache, buildDocumentSigningKeyCaches } from "./inbound-si
 import { getLocalDeviceId, getLocalIdentity } from "./share-identity";
 import { armSaveAckWatchdog, clearSaveAckWatchdog } from "./outbound-save-watchdog";
 import { getDocumentCryptoWorker } from "./crypto-worker";
+import {
+  shouldRecomputeUnsavedLocalUpdate,
+  shouldFailNoBaselineLocalTextReconnect,
+} from "./reconnect-decisions";
 import { getDocumentDekCacheKey } from "./share-access";
 import { localDocumentClockKey, nextLocalClockForDevice } from "./local-clock";
 
@@ -33,14 +39,115 @@ function isChannelJoined(state: DocumentState): boolean {
   return !!state.channel && getChannelState(state.channel) === "joined";
 }
 
+function canonicalTextFromSnapshotState(snapshotState: Uint8Array): string | null {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdateV2(doc, snapshotState, "reconnect-replay-guard");
+    return canonicalMarkdownText(doc);
+  } catch {
+    return null;
+  } finally {
+    doc.destroy();
+  }
+}
+
+function canReplayPendingNoBaselineGenesisSnapshot(params: {
+  prevSnapshotId: string | null;
+  currentSnapshotId: string | null;
+  pendingSnapshot: DocumentState["pendingSnapshot"];
+  pendingSnapshotEnvelope: DocumentState["pendingSnapshotEnvelope"];
+  localText: string | null;
+}): boolean {
+  if (!params.pendingSnapshot || !params.pendingSnapshotEnvelope || params.localText === null) {
+    return false;
+  }
+  if (params.prevSnapshotId !== null || params.currentSnapshotId !== null) return false;
+  if (params.pendingSnapshot.parentSnapshotId !== "GENESIS") return false;
+
+  return (
+    canonicalTextFromSnapshotState(params.pendingSnapshot.snapshotYjsState) === params.localText
+  );
+}
+
 function buildUnsavedLocalUpdate(state: DocumentState): Uint8Array | null {
   if (!state.lastSavedState) {
-    const fullState = encodeCanonicalStateAsUpdate(state.yDoc);
-    return fullState.length > 2 ? fullState : null;
+    return null;
   }
 
   const update = encodeCanonicalDiffAsUpdate(state.yDoc, state.lastSavedState);
-  return update.length > 2 ? update : null;
+  return update && update.length > 2 ? update : null;
+}
+
+function unsavedLocalTextWithoutBaseline(state: DocumentState): string | null {
+  if (state.lastSavedState) return null;
+  const text = canonicalMarkdownText(state.yDoc);
+  return text.length > 0 ? text : null;
+}
+
+interface NoBaselineReconnectRollback {
+  text: string;
+  activeSnapshotId: string | null;
+  localClock: number;
+  knownClocks: Record<string, number>;
+  confirmedClocks: Record<string, number>;
+  writeSessionCounters: Record<string, number>;
+  snapshotBaseClocks: Record<string, number>;
+  lastSavedState: Uint8Array | null;
+  snapshotUpdatesCount: number;
+  snapshotProofHash: string;
+  snapshotCiphertextHash: string;
+  latestVersion: number;
+  keyVersion: number;
+  pendingRemoteEvents: DocumentState["_pendingRemoteEvents"];
+  pendingOutOfOrderUpdates: DocumentState["_pendingOutOfOrderUpdates"];
+}
+
+function cloneBytes(bytes: Uint8Array | null): Uint8Array | null {
+  return bytes ? new Uint8Array(bytes) : null;
+}
+
+export function captureNoBaselineReconnectRollback(
+  state: DocumentState,
+  text: string,
+): NoBaselineReconnectRollback {
+  return {
+    text,
+    activeSnapshotId: state.activeSnapshotId,
+    localClock: state.localClock,
+    knownClocks: { ...state.knownClocks },
+    confirmedClocks: { ...state.confirmedClocks },
+    writeSessionCounters: { ...state.writeSessionCounters },
+    snapshotBaseClocks: { ...state.snapshotBaseClocks },
+    lastSavedState: cloneBytes(state.lastSavedState),
+    snapshotUpdatesCount: state.snapshotUpdatesCount,
+    snapshotProofHash: state.snapshotProofHash,
+    snapshotCiphertextHash: state.snapshotCiphertextHash,
+    latestVersion: state.latestVersion,
+    keyVersion: state.keyVersion,
+    pendingRemoteEvents: [...state._pendingRemoteEvents],
+    pendingOutOfOrderUpdates: [...state._pendingOutOfOrderUpdates],
+  };
+}
+
+export function rollbackNoBaselineReconnectState(
+  state: DocumentState,
+  snapshot: NoBaselineReconnectRollback,
+): void {
+  replaceDocWithCanonicalText(state.yDoc, snapshot.text, "reconnect-rollback");
+  state.activeSnapshotId = snapshot.activeSnapshotId;
+  state.localClock = snapshot.localClock;
+  state.knownClocks = { ...snapshot.knownClocks };
+  state.confirmedClocks = { ...snapshot.confirmedClocks };
+  state.writeSessionCounters = { ...snapshot.writeSessionCounters };
+  state.snapshotBaseClocks = { ...snapshot.snapshotBaseClocks };
+  state.lastSavedState = cloneBytes(snapshot.lastSavedState);
+  state.snapshotUpdatesCount = snapshot.snapshotUpdatesCount;
+  state.snapshotProofHash = snapshot.snapshotProofHash;
+  state.snapshotCiphertextHash = snapshot.snapshotCiphertextHash;
+  state.latestVersion = snapshot.latestVersion;
+  state.keyVersion = snapshot.keyVersion;
+  state._pendingRemoteEvents = [...snapshot.pendingRemoteEvents];
+  state._pendingOutOfOrderUpdates = [...snapshot.pendingOutOfOrderUpdates];
 }
 
 export async function resumeReconnectDocument(
@@ -70,7 +177,10 @@ export async function resumeReconnectDocument(
 
     const cacheResult = await buildDocumentSigningKeyCaches(state);
     if (cacheResult.status === "key_changed") {
-      failClosed("verification_failed");
+      failClosed(
+        "verification_failed",
+        new Error(`TOFU key change detected: device ${cacheResult.warning.deviceId ?? "unknown"}`),
+      );
       return;
     }
     applyDeviceKeyCache(state, cacheResult);
@@ -79,7 +189,14 @@ export async function resumeReconnectDocument(
     const savedUpdateBytes = state.pendingUpdateBytes;
     const savedPendingSnapshot = state.pendingSnapshot;
     const savedSnapshotEnvelope = state.pendingSnapshotEnvelope;
-    const unsavedLocalUpdate = buildUnsavedLocalUpdate(state);
+    const unsavedLocalUpdate = shouldRecomputeUnsavedLocalUpdate(savedUpdateBytes !== null)
+      ? buildUnsavedLocalUpdate(state)
+      : null;
+    const unsavedNoBaselineText = unsavedLocalTextWithoutBaseline(state);
+    const noBaselineRollback =
+      unsavedNoBaselineText !== null
+        ? captureNoBaselineReconnectRollback(state, unsavedNoBaselineText)
+        : null;
 
     clearSaveAckWatchdog(state);
     state.pendingSnapshot = null;
@@ -89,28 +206,63 @@ export async function resumeReconnectDocument(
     state.pendingUpdateEnvelope = null;
 
     const prevSnapshotId = state.activeSnapshotId;
+    const canReplayPendingSnapshot = () =>
+      canReplayPendingNoBaselineGenesisSnapshot({
+        prevSnapshotId,
+        currentSnapshotId: state.activeSnapshotId,
+        pendingSnapshot: savedPendingSnapshot,
+        pendingSnapshotEnvelope: savedSnapshotEnvelope,
+        localText: unsavedNoBaselineText,
+      });
 
-    await handleDocumentMessage(payload, state, documentId);
-    if (payload.archived) {
-      state.readOnly = true;
-    }
+    try {
+      await handleDocumentMessage(payload, state, documentId);
+      if (payload.archived) {
+        state.readOnly = true;
+      }
 
-    const queued = state._pendingRemoteEvents.splice(0);
-    for (const event of queued) {
-      if (event.type === "update") {
-        await handleRemoteUpdate(event.payload, state, documentId, localDeviceSigningKeyId);
-      } else if (event.type === "snapshot") {
-        await handleRemoteSnapshot(event.payload, state, documentId);
+      const queued = state._pendingRemoteEvents.splice(0);
+      for (const event of queued) {
+        if (event.type === "update") {
+          await handleRemoteUpdate(event.payload, state, documentId, localDeviceSigningKeyId);
+        } else if (event.type === "snapshot") {
+          await handleRemoteSnapshot(event.payload, state, documentId);
+        } else {
+          await handleRemoteWriteSession(event.payload, state, documentId);
+        }
+      }
+    } catch (err) {
+      if (noBaselineRollback && isRecoverableSyncGapError(err)) {
+        if (canReplayPendingSnapshot()) {
+          rollbackNoBaselineReconnectState(state, noBaselineRollback);
+          state.initialized = true;
+        } else {
+          rollbackNoBaselineReconnectState(state, noBaselineRollback);
+          failClosed("reconnect_failed", err);
+          return;
+        }
       } else {
-        await handleRemoteWriteSession(event.payload, state, documentId);
+        throw err;
       }
     }
 
+    const snapshotChanged = state.activeSnapshotId !== prevSnapshotId;
+
     if (unsavedLocalUpdate) {
       Y.applyUpdate(state.yDoc, unsavedLocalUpdate, "local-reconnect");
+    } else if (unsavedNoBaselineText !== null) {
+      const currentText = canonicalMarkdownText(state.yDoc);
+      if (shouldFailNoBaselineLocalTextReconnect(currentText, unsavedNoBaselineText)) {
+        if (canReplayPendingSnapshot() && noBaselineRollback) {
+          rollbackNoBaselineReconnectState(state, noBaselineRollback);
+        } else {
+          const err = createSyncGapError("no_baseline_local_text_reconnect_conflict");
+          if (noBaselineRollback) rollbackNoBaselineReconnectState(state, noBaselineRollback);
+          failClosed("reconnect_failed", err);
+          return;
+        }
+      }
     }
-
-    const snapshotChanged = state.activeSnapshotId !== prevSnapshotId;
 
     if (localDeviceSigningKeyId) {
       const localClockKey = localDocumentClockKey(state, localDeviceSigningKeyId);

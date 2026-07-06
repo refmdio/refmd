@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { DocumentState } from "../../model/document-state/types";
 import type { UpdatePayload } from "@/shared/lib/ws/document-payloads";
-import { commitWriteSessionCounter } from "./inbound-verify-decrypt";
+import {
+  commitWriteSessionCounter,
+  resetWriteSessionCountersForSnapshotBaseline,
+} from "./inbound-verify-decrypt";
 
 function update(
   counter: number,
@@ -84,5 +87,16 @@ describe("commitWriteSessionCounter", () => {
       "write-session-event-2:signing-key-1": 1,
       "write-session-event-1:signing-key-2": 1,
     });
+  });
+
+  it("resets counters when a snapshot becomes the new verification baseline", () => {
+    const documentState = state();
+
+    commitWriteSessionCounter(update(3), documentState);
+    resetWriteSessionCountersForSnapshotBaseline(documentState);
+
+    expect(documentState.writeSessionCounters).toEqual({});
+    expect(() => commitWriteSessionCounter(update(1), documentState)).not.toThrow();
+    expect(documentState.writeSessionCounters["write-session-event-1:signing-key-1"]).toBe(1);
   });
 });

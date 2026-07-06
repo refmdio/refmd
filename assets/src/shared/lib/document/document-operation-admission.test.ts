@@ -30,7 +30,15 @@ import {
 const pinStore = vi.hoisted(() => new Map<string, KeyDirectoryPin>());
 
 vi.mock("@/shared/lib/storage/idb", () => ({
-  openIdb: vi.fn(async () => ({})),
+  openIdb: vi.fn(async () => ({
+    objectStoreNames: {
+      contains: (name: string) =>
+        ["document-state-pins", "key-directory-pins", "key-directory-verified-lineages"].includes(
+          name,
+        ),
+    },
+    close: vi.fn(),
+  })),
   idbGet: vi.fn(async (_db: unknown, _storeName: string, key: string) => pinStore.get(key)),
   idbConditionalPut: vi.fn(
     async (

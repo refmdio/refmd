@@ -22,10 +22,43 @@ function getIncomingVersion(payload: DocumentPayload): number {
   return incomingVersion;
 }
 
-function collectRollbackWarnings(
+function collectPayloadClockObservations(
   payload: DocumentPayload,
-  state: DocumentState,
+  baselineClocks: Record<string, number> = {},
+): Map<string, { max: number; seen: Set<number> }> {
+  const observations = new Map<string, { max: number; seen: Set<number> }>();
+  for (const [deviceKey, clock] of Object.entries(baselineClocks)) {
+    observations.set(deviceKey, { max: clock, seen: new Set() });
+  }
+
+  for (const [deviceKey, observed] of collectClockObservations(payload.updates)) {
+    const existing = observations.get(deviceKey);
+    if (existing) {
+      existing.max = Math.max(existing.max, observed.max);
+      for (const clock of observed.seen) {
+        existing.seen.add(clock);
+      }
+      continue;
+    }
+    observations.set(deviceKey, observed);
+  }
+
+  const snapshotClocks = payload.snapshot?.publicData.parentSnapshotUpdateClocks ?? {};
+  for (const [deviceKey, clock] of Object.entries(snapshotClocks)) {
+    const existing = observations.get(deviceKey);
+    if (existing) {
+      existing.max = Math.max(existing.max, clock);
+      continue;
+    }
+    observations.set(deviceKey, { max: clock, seen: new Set() });
+  }
+  return observations;
+}
+
+export function collectRollbackWarnings(
+  payload: DocumentPayload,
   pin: DocumentStatePin,
+  baselineClocks: Record<string, number> = {},
 ): string[] {
   const rollbackWarnings: string[] = [];
   const incomingVersion = getIncomingVersion(payload);
@@ -36,24 +69,7 @@ function collectRollbackWarnings(
     );
   }
 
-  const sameSnapshot = payload.snapshot
-    ? payload.snapshot.publicData.snapshotId === pin.latestSnapshotId
-    : true;
-  if (!sameSnapshot || payload.updates.length === 0) {
-    return rollbackWarnings;
-  }
-
-  if (state._lastJoinMode === "complete") {
-    const clockObservations = collectClockObservations(payload.updates);
-    for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
-      const warning = summarizeClockWarning(deviceKey, pinnedClock, clockObservations);
-      if (warning) rollbackWarnings.push(warning);
-    }
-
-    return rollbackWarnings;
-  }
-
-  const clockObservations = collectClockObservations(payload.updates);
+  const clockObservations = collectPayloadClockObservations(payload, baselineClocks);
   for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
     const warning = summarizeClockWarning(deviceKey, pinnedClock, clockObservations);
     if (warning) rollbackWarnings.push(warning);
@@ -96,7 +112,8 @@ export async function detectDocumentRollback(
   const pin = await getDocumentStatePin(pinKey).catch(() => null);
   if (!pin) return null;
 
-  const rollbackWarnings = collectRollbackWarnings(payload, state, pin);
+  const baselineClocks = payload.snapshot === null ? state.confirmedClocks : undefined;
+  const rollbackWarnings = collectRollbackWarnings(payload, pin, baselineClocks);
   if (rollbackWarnings.length === 0) {
     return pin;
   }

@@ -31,6 +31,7 @@ import { getDocumentState } from "../../model/document-state/store";
 import type { DocumentState } from "../../model/document-state/types";
 import { buildDocumentChannelCallbacks } from "./bootstrap-callbacks";
 import { refreshWorkspaceKeyDirectoryForDocumentJoin } from "./bootstrap-prepare";
+import { shouldUseDeltaReconnect } from "./reconnect-decisions";
 import { resumeReconnectDocument } from "./reconnect-resume";
 import { refreshSharedDocumentAccess } from "./share-access";
 import { recordSyncPerf } from "./perf";
@@ -151,7 +152,12 @@ async function attemptReconnect(
   localDeviceSigningKeyId: string | undefined,
   failClosed: (reason: string, err?: unknown) => void,
 ): Promise<void> {
-  let useDelta = !!getStateKnownSnapshotId(state) && !state._forceCompleteReconnect;
+  let useDelta = shouldUseDeltaReconnect({
+    stateKnownSnapshotId: getStateKnownSnapshotId(state),
+    pinSnapshotId: null,
+    hasLastSavedState: state.lastSavedState !== null,
+    forceCompleteReconnect: state._forceCompleteReconnect,
+  });
   state._forceCompleteReconnect = false;
   let lastError: unknown = null;
   let sawNonTransientError = false;
@@ -212,8 +218,12 @@ async function attemptReconnect(
       const pinSnapshotId = hasCompleteSnapshotPin(pin) ? pin.latestSnapshotId : null;
       useDelta =
         useDelta &&
-        !!stateKnownSnapshotId &&
-        (!pinSnapshotId || pinSnapshotId === stateKnownSnapshotId);
+        shouldUseDeltaReconnect({
+          stateKnownSnapshotId,
+          pinSnapshotId,
+          hasLastSavedState: state.lastSavedState !== null,
+          forceCompleteReconnect: false,
+        });
       const knownSnapshotId = useDelta
         ? stateKnownSnapshotId
         : (pinSnapshotId ?? stateKnownSnapshotId);

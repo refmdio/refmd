@@ -8,15 +8,15 @@ import {
 } from "./verification";
 import { assertEnvelope, checkpointHash, eventHash, numberField } from "./primitives";
 import { verifyRotationDeletionEvidences } from "../rotation-deletion-evidence";
+import {
+  KEY_DIRECTORY_PIN_STORE_NAME as STORE_NAME,
+  KEY_DIRECTORY_VERIFIED_LINEAGE_STORE_NAME as VERIFIED_LINEAGE_STORE_NAME,
+  openSecurityDb,
+} from "../security-db";
 import type { KeyDirectoryPin } from "./types";
 import type { SignedKeyDirectoryEnvelope } from "./types";
-import { idbConditionalPut, idbGet, openIdb } from "@/shared/lib/storage/idb";
+import { idbConditionalPut, idbGet } from "@/shared/lib/storage/idb";
 
-const DB_NAME = "refmd-security";
-const DB_VERSION = 4;
-const STORE_NAME = "key-directory-pins";
-const DOCUMENT_STATE_STORE_NAME = "document-state-pins";
-const VERIFIED_LINEAGE_STORE_NAME = "key-directory-verified-lineages";
 const VERIFIED_LINEAGE_STORE_VERSION = 2;
 const MAX_LINEAGES_PER_SCOPE = 32;
 const MAX_VERIFIED_HASHES_PER_SCOPE = 512;
@@ -719,23 +719,6 @@ function storedLineageKey(scopeKey: string, lineageKey: string): string {
 
 function storedLineageIndexKey(scopeKey: string): string {
   return `${scopeKey}:__lineage_index__`;
-}
-
-function openSecurityDb(): Promise<IDBDatabase> {
-  return openIdb(DB_NAME, DB_VERSION, (db, oldVersion) => {
-    if (oldVersion < 1 && !db.objectStoreNames.contains(DOCUMENT_STATE_STORE_NAME)) {
-      db.createObjectStore(DOCUMENT_STATE_STORE_NAME, { keyPath: "documentId" });
-    }
-    if (oldVersion < 2 && !db.objectStoreNames.contains(STORE_NAME)) {
-      db.createObjectStore(STORE_NAME, { keyPath: "pinKey" });
-    }
-    if (oldVersion < 4 && db.objectStoreNames.contains(VERIFIED_LINEAGE_STORE_NAME)) {
-      db.deleteObjectStore(VERIFIED_LINEAGE_STORE_NAME);
-    }
-    if (!db.objectStoreNames.contains(VERIFIED_LINEAGE_STORE_NAME)) {
-      db.createObjectStore(VERIFIED_LINEAGE_STORE_NAME, { keyPath: "key" });
-    }
-  });
 }
 
 function pinKey(scopeKind: "user" | "workspace", scopeId: string): string {
