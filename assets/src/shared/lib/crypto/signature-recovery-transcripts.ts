@@ -222,7 +222,7 @@ export function buildDeviceKeyDeletionProofTranscript(params: {
       ),
       deleted_storage_classes_hash: blake3Base64Url(
         canonicalizeStrictBytes({
-          storage_classes: [...deletedStorageClasses].sort(),
+          storage_classes: [...deletedStorageClasses].sort((a, b) => a.localeCompare(b)),
         } as StrictJsonValue),
       ),
     },

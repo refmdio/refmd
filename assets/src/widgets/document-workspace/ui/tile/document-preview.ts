@@ -10,7 +10,7 @@ export function readInitializedDocumentPreviewText(stateKey: string): {
     return { initialized: false, text: "" };
   }
 
-  const sharedText = state.yDoc.getText("content").toString();
+  const sharedText = state.yDoc.getText("content").toJSON();
   return {
     initialized: contentPreviewReady,
     text: sharedText,

@@ -31,10 +31,23 @@ class FakeFrameWindow implements PluginHostFrameWindow {
 }
 
 function installSandboxDocumentLoadDispatch(): () => void {
-  const originalSetAttribute = HTMLIFrameElement.prototype.setAttribute;
+  const originalSetAttributeDescriptor = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "setAttribute",
+  );
+  const iframeSetAttributeDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLIFrameElement.prototype,
+    "setAttribute",
+  );
+  if (
+    !originalSetAttributeDescriptor ||
+    typeof originalSetAttributeDescriptor.value !== "function"
+  ) {
+    throw new Error("HTMLIFrameElement.setAttribute unavailable");
+  }
 
   HTMLIFrameElement.prototype.setAttribute = function patchedSetAttribute(name, value) {
-    const result = originalSetAttribute.call(this, name, value);
+    const result = originalSetAttributeDescriptor.value.call(this, name, value) as void;
     if (name === "src" && String(value).startsWith("/api/plugin-runtime/sandbox-documents/")) {
       queueMicrotask(() => this.dispatchEvent(new Event("load")));
     }
@@ -42,7 +55,15 @@ function installSandboxDocumentLoadDispatch(): () => void {
   };
 
   return () => {
-    HTMLIFrameElement.prototype.setAttribute = originalSetAttribute;
+    if (iframeSetAttributeDescriptor) {
+      Object.defineProperty(
+        HTMLIFrameElement.prototype,
+        "setAttribute",
+        iframeSetAttributeDescriptor,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLIFrameElement.prototype, "setAttribute");
+    }
   };
 }
 

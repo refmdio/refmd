@@ -71,7 +71,7 @@ export function useShareManagement(options: UseShareManagementOptions) {
   const invalidate = () => {
     const id = documentId();
     if (!id) return;
-    queryClient.invalidateQueries({ queryKey: ["document-shares", id] });
+    void queryClient.invalidateQueries({ queryKey: ["document-shares", id] });
   };
 
   const resetCreateState = () => {

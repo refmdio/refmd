@@ -81,8 +81,11 @@ self.addEventListener("fetch", (event) => {
           const cacheControl = response.headers.get("cache-control") || "";
           if (response.ok && !cacheControl.toLowerCase().includes("no-store")) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(new Request("/index.html"), clone).then(() => trimCache(cache));
+            void caches.open(CACHE_NAME).then((cache) => {
+              void cache
+                .put(new Request("/index.html"), clone)
+                .then(() => trimCache(cache))
+                .catch(() => {});
             });
           }
           return response;
@@ -112,7 +115,10 @@ self.addEventListener("fetch", (event) => {
           }
           return fetch(request).then((response) => {
             if (response.ok) {
-              cache.put(request, response.clone()).then(() => trimCache(cache));
+              void cache
+                .put(request, response.clone())
+                .then(() => trimCache(cache))
+                .catch(() => {});
             }
             return response;
           });

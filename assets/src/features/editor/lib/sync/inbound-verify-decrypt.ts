@@ -738,7 +738,7 @@ export async function ensureDekCached(
     kekVersion: key.kek_version,
   });
   // Persist new KEK and DEK to offline cache for offline recovery
-  import("@/shared/lib/offline/cache/manager/keys").then(({ cacheKek, cacheDek }) => {
+  void import("@/shared/lib/offline/cache/manager/keys").then(({ cacheKek, cacheDek }) => {
     cacheKek(workspaceId, key.kek_version).catch(() => {});
     cacheDek(documentId, key.key_version).catch(() => {});
   });

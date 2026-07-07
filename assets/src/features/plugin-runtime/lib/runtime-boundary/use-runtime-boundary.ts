@@ -521,7 +521,11 @@ async function reconcileRuntimes(
         highRiskConsents: loaded.highRiskConsents,
         capabilityId: issueRuntimeCapabilityId(),
         capabilityGrantId: descriptor.capabilityGrantId,
-        validateSession: runtimeSessionValidator(runtime.currentDescriptors, descriptor, loaded),
+        validateSession: runtimeSessionValidator(
+          () => runtime.currentDescriptors(),
+          descriptor,
+          loaded,
+        ),
         title: descriptor.title,
       });
     } catch (error) {
@@ -667,7 +671,15 @@ function formatDebugError(error: unknown): string {
   if (error instanceof Error) {
     return `${error.name}: ${error.message}`;
   }
-  return String(error);
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint") {
+    return error.toString();
+  }
+  try {
+    return JSON.stringify(error) ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function retryRuntimeBundleLoad(

@@ -44,7 +44,7 @@ export interface PluginLocalStore {
 }
 
 export interface PluginSyncedStorageStore {
-  get(params: PluginSyncedStorageReadParams): Promise<unknown | null>;
+  get(params: PluginSyncedStorageReadParams): Promise<unknown>;
   set(params: PluginSyncedStorageWriteParams): Promise<void>;
   delete(params: PluginSyncedStorageDeleteParams): Promise<void>;
   createRecord?(params: PluginSyncedRecordCreateParams): Promise<PluginSyncedRecordRef>;
@@ -561,12 +561,11 @@ function recordHandler(
     const documentId = surface === "document" ? storageDocumentId(payload) : null;
 
     if (operation === "create") {
-      const createRecord = syncedStore.createRecord;
-      if (!createRecord) throw recordStorageUnavailable();
+      if (!syncedStore.createRecord) throw recordStorageUnavailable();
       const kind = storageRecordKind(payload);
       assertJsonValue(payload.value ?? null);
       await auditStorageWriteOrThrow(context, surface, kind, payload.value ?? null);
-      const record = await createRecord({
+      const record = await syncedStore.createRecord({
         context,
         surface,
         kind,
@@ -579,15 +578,13 @@ function recordHandler(
     const recordId = storageRecordId(payload);
 
     if (operation === "get") {
-      const getRecord = syncedStore.getRecord;
-      if (!getRecord) throw recordStorageUnavailable();
-      const record = await getRecord({ context, surface, recordId, documentId });
+      if (!syncedStore.getRecord) throw recordStorageUnavailable();
+      const record = await syncedStore.getRecord({ context, surface, recordId, documentId });
       return record ? { record_id: record.id, kind: record.kind, value: record.value } : null;
     }
 
-    const deleteRecord = syncedStore.deleteRecord;
-    if (!deleteRecord) throw recordStorageUnavailable();
-    await deleteRecord({ context, surface, recordId, documentId });
+    if (!syncedStore.deleteRecord) throw recordStorageUnavailable();
+    await syncedStore.deleteRecord({ context, surface, recordId, documentId });
     return { deleted: true };
   };
 }

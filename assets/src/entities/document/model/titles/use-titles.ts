@@ -85,7 +85,7 @@ export function useDocumentTitles(
     const batchKey = `${wsId}:${needsDecryption.map((d) => d.id).join(",")}`;
     const existing = pendingBatches.get(batchKey);
     if (existing) {
-      existing.then(() => {
+      void existing.then(() => {
         if (currentVersion === decryptionVersion) {
           updateSignal();
         } else {

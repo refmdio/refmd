@@ -1251,7 +1251,7 @@ async function requestPluginUiContextualText<T extends PluginUiContribution>(
 
 async function requestPluginUiContextualTextResponse<T extends PluginUiContribution>(
   options: ContextualTextRequestOptions<T>,
-): Promise<unknown | null> {
+): Promise<unknown> {
   let executionContextId: string | undefined;
   try {
     const issued = issuePluginUiTextRefreshContext(options.services, options.session);

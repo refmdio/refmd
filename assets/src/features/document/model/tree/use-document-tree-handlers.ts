@@ -31,7 +31,7 @@ export function useDocumentTreeHandlers(options: UseDocumentTreeHandlersOptions)
   const [contextTarget, setContextTarget] = createSignal<DocumentResponse | null>(null);
 
   const invalidateDocuments = () => {
-    queryClient.invalidateQueries({ queryKey: ["documents", options.workspaceId()] });
+    void queryClient.invalidateQueries({ queryKey: ["documents", options.workspaceId()] });
   };
 
   const moveAndInvalidate = async (

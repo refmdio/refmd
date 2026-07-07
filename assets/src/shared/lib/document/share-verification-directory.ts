@@ -60,7 +60,7 @@ export interface ShareVerificationDirectory {
 type ApiShareVerificationDirectory = components["schemas"]["ShareVerificationDirectory"];
 
 export function normalizeShareVerificationDirectory(
-  directory: ApiShareVerificationDirectory | unknown,
+  directory: unknown,
 ): ShareVerificationDirectory {
   const record = directory as ApiShareVerificationDirectory;
   return {

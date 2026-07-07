@@ -31,7 +31,7 @@ describe("canonical-document", () => {
     const encoded = encodeCanonicalStateAsUpdate(source);
     const decoded = applyV1(encoded);
 
-    expect(decoded.getText("content").toString()).toBe("# Title\n\nbody");
+    expect(decoded.getText("content").toJSON()).toBe("# Title\n\nbody");
     expect(decoded.getXmlFragment("prosemirror").length).toBe(0);
 
     source.destroy();
@@ -46,7 +46,7 @@ describe("canonical-document", () => {
     const encoded = encodeCanonicalStateAsUpdateV2(source);
     const decoded = applyV2(encoded);
 
-    expect(decoded.getText("content").toString()).toBe("snapshot body");
+    expect(decoded.getText("content").toJSON()).toBe("snapshot body");
     expect(decoded.getXmlFragment("prosemirror").length).toBe(0);
 
     source.destroy();
@@ -67,7 +67,7 @@ describe("canonical-document", () => {
     expect(diff).not.toBeNull();
     Y.applyUpdate(remote, diff!, "remote");
 
-    expect(remote.getText("content").toString()).toBe("alpha beta");
+    expect(remote.getText("content").toJSON()).toBe("alpha beta");
     expect(remote.getXmlFragment("prosemirror").length).toBe(0);
 
     baseline.destroy();
@@ -80,7 +80,7 @@ describe("canonical-document", () => {
     source.getXmlFragment("prosemirror").insert(0, [new Y.XmlElement("paragraph")]);
     const decoded = applyV1(encodeCanonicalStateAsUpdate(source));
 
-    expect(decoded.getText("content").toString()).toBe("");
+    expect(decoded.getText("content").toJSON()).toBe("");
     expect(decoded.getXmlFragment("prosemirror").length).toBe(0);
 
     source.destroy();
@@ -96,7 +96,7 @@ describe("canonical-document", () => {
 
     replaceDocWithCanonicalMarkdown(target, source);
 
-    expect(target.getText("content").toString()).toBe("new");
+    expect(target.getText("content").toJSON()).toBe("new");
     expect(target.getXmlFragment("prosemirror").length).toBe(0);
 
     target.destroy();
@@ -109,9 +109,9 @@ describe("canonical-document", () => {
     target.getText("content").insert(0, "From device A. ");
     source.getText("content").insert(0, "From device A. \nFrom device B. ");
 
-    replaceDocWithCanonicalText(target, source.getText("content").toString(), "remote");
+    replaceDocWithCanonicalText(target, source.getText("content").toJSON(), "remote");
 
-    expect(target.getText("content").toString()).toBe("From device A. \nFrom device B. ");
+    expect(target.getText("content").toJSON()).toBe("From device A. \nFrom device B. ");
 
     target.destroy();
     source.destroy();
@@ -134,7 +134,7 @@ describe("canonical-document", () => {
 
     Y.applyUpdate(server, updateFromB!, "remote");
 
-    expect(server.getText("content").toString()).toBe("From device A. \nFrom device B. ");
+    expect(server.getText("content").toJSON()).toBe("From device A. \nFrom device B. ");
 
     deviceA.destroy();
     deviceB.destroy();
@@ -159,7 +159,7 @@ describe("canonical-document", () => {
     Y.applyUpdate(server, updateFromA!, "remote");
     Y.applyUpdate(server, updateFromB!, "remote");
 
-    expect(server.getText("content").toString()).toBe("A base B");
+    expect(server.getText("content").toJSON()).toBe("A base B");
 
     baseline.destroy();
     deviceA.destroy();
@@ -180,7 +180,7 @@ describe("canonical-document", () => {
     expect(pendingLocalUpdate).not.toBeNull();
     Y.applyUpdate(server, pendingLocalUpdate!, "remote");
 
-    const text = server.getText("content").toString();
+    const text = server.getText("content").toJSON();
     expect(text).toContain("local");
     expect(text).toContain("server");
     expect(text.match(/local/g) ?? []).toHaveLength(1);
@@ -198,10 +198,10 @@ describe("canonical-document", () => {
     const live = new Y.Doc();
     live.getText("content").insert(0, "snapshot body");
     Y.applyUpdate(live, encodeCanonicalSyncedStateAsUpdate(snapshotDoc), "remote");
-    expect(live.getText("content").toString()).toBe("snapshot bodysnapshot body");
+    expect(live.getText("content").toJSON()).toBe("snapshot bodysnapshot body");
 
-    replaceDocWithCanonicalText(live, snapshotDoc.getText("content").toString(), "remote");
-    expect(live.getText("content").toString()).toBe("snapshot body");
+    replaceDocWithCanonicalText(live, snapshotDoc.getText("content").toJSON(), "remote");
+    expect(live.getText("content").toJSON()).toBe("snapshot body");
 
     snapshotSource.destroy();
     snapshotDoc.destroy();
@@ -224,14 +224,14 @@ describe("canonical-document", () => {
     replaceDocWithCanonicalText(live, "snapshot body", "remote");
     const duplicate = applyV1(Y.encodeStateAsUpdate(live));
     Y.applyUpdate(duplicate, encodeCanonicalSyncedStateAsUpdate(server), "remote");
-    const duplicatedText = duplicate.getText("content").toString();
+    const duplicatedText = duplicate.getText("content").toJSON();
     expect(duplicatedText).toContain("snapshot body updated");
     expect(duplicatedText.match(/snapshot body/g) ?? []).toHaveLength(2);
 
     replaceDocWithCanonicalText(live, "", "remote");
     Y.applyUpdate(live, encodeCanonicalSyncedStateAsUpdate(server), "remote");
     clearProseMirrorXml(live, "remote");
-    expect(live.getText("content").toString()).toBe("snapshot body updated");
+    expect(live.getText("content").toJSON()).toBe("snapshot body updated");
 
     snapshotSource.destroy();
     server.destroy();
@@ -262,7 +262,7 @@ describe("canonical-document", () => {
     expect(diff).not.toBeNull();
     Y.applyUpdate(merged, diff!, "remote");
 
-    expect(merged.getText("content").toString()).toBe("line 1\nlocal\nline 2");
+    expect(merged.getText("content").toJSON()).toBe("line 1\nlocal\nline 2");
 
     snapshotSource.destroy();
     server.destroy();
@@ -279,7 +279,7 @@ describe("canonical-document", () => {
     const live = applyV1(savedState);
     live.getText("content").insert(live.getText("content").length, "Line 1 test. \n");
     live.getText("content").insert(live.getText("content").length, "Line 2 test. \n");
-    const liveText = live.getText("content").toString();
+    const liveText = live.getText("content").toJSON();
 
     const snapshotSource = new Y.Doc();
     snapshotSource.getText("content").insert(0, "Line 0 test. \n");
@@ -290,7 +290,7 @@ describe("canonical-document", () => {
     expect(directLocalUpdate).not.toBeNull();
     const directMerge = applyV1(serverBaseline);
     Y.applyUpdate(directMerge, directLocalUpdate!, "remote");
-    expect(directMerge.getText("content").toString()).toBe("Line 0 test. \n");
+    expect(directMerge.getText("content").toJSON()).toBe("Line 0 test. \n");
 
     replaceDocWithCanonicalText(live, "", "remote");
     Y.applyUpdate(live, serverBaseline, "remote");
@@ -300,7 +300,7 @@ describe("canonical-document", () => {
     expect(rebasedLocalUpdate).not.toBeNull();
     const rebasedMerge = applyV1(serverBaseline);
     Y.applyUpdate(rebasedMerge, rebasedLocalUpdate!, "remote");
-    expect(rebasedMerge.getText("content").toString()).toBe(liveText);
+    expect(rebasedMerge.getText("content").toJSON()).toBe(liveText);
 
     saved.destroy();
     live.destroy();
@@ -325,7 +325,7 @@ describe("canonical-document", () => {
     Y.applyUpdate(remote, diff!, "remote");
 
     expect(diff!.length).toBeLessThanOrEqual(2);
-    expect(remote.getText("content").toString()).toBe("same text");
+    expect(remote.getText("content").toJSON()).toBe("same text");
 
     baseline.destroy();
     live.destroy();
@@ -373,11 +373,11 @@ describe("canonical-document", () => {
     const tombstoned = applyV1(Y.encodeStateAsUpdate(live));
     replaceDocWithCanonicalText(tombstoned, "", "remote");
     Y.applyUpdate(tombstoned, serverUpdate, "remote");
-    expect(tombstoned.getText("content").toString()).toBe("B");
+    expect(tombstoned.getText("content").toJSON()).toBe("B");
 
     const applied = applyV1(Y.encodeStateAsUpdate(live));
     Y.applyUpdate(applied, serverUpdate, "remote");
-    expect(applied.getText("content").toString()).toBe("AB");
+    expect(applied.getText("content").toJSON()).toBe("AB");
 
     live.destroy();
     server.destroy();
@@ -392,7 +392,7 @@ describe("canonical-document", () => {
 
     clearProseMirrorXml(doc);
 
-    expect(doc.getText("content").toString()).toBe("body");
+    expect(doc.getText("content").toJSON()).toBe("body");
     expect(doc.getXmlFragment("prosemirror").length).toBe(0);
 
     doc.destroy();

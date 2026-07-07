@@ -231,7 +231,10 @@ function openingFence(
 function isClosingFence(lineText: string, block: FencedBlock): boolean {
   const trimmed = lineText.trim();
   if (trimmed.length < block.markerLength) return false;
-  return [...trimmed].every((character) => character === block.marker);
+  for (let index = 0; index < trimmed.length; index += 1) {
+    if (trimmed[index] !== block.marker) return false;
+  }
+  return true;
 }
 
 function trimFenceDelimiterNewline(source: string): string {

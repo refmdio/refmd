@@ -127,7 +127,7 @@ export function persistDocumentRollbackPin(documentId: string, state: DocumentSt
       ? buildDocumentStatePinKey(documentId, state.access.shareId)
       : buildDocumentStatePinKey(documentId);
 
-  getDocumentStatePin(pinKey).then((existing) => {
+  void getDocumentStatePin(pinKey).then((existing) => {
     const pin = updatePinFromState(
       existing,
       pinKey,

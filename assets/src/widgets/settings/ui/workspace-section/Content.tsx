@@ -39,7 +39,7 @@ export function WorkspaceSectionContent(props: WorkspaceSectionContentProps) {
                   value={state().newName()}
                   onInput={(event) => state().setNewName(event.currentTarget.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") state().handleUpdateName();
+                    if (event.key === "Enter") void state().handleUpdateName();
                     if (event.key === "Escape") state().setEditingName(false);
                   }}
                   class="flex-1"

@@ -71,7 +71,9 @@ describe("DSK plugin credential storage", () => {
       deviceId: "device-one",
     });
 
-    expect(dskIdb.deleteByPrefix.mock.calls.map(([prefix]) => prefix).sort()).toEqual(
+    expect(
+      dskIdb.deleteByPrefix.mock.calls.map(([prefix]) => prefix).sort((a, b) => a.localeCompare(b)),
+    ).toEqual(
       [
         "refmd-plugin-cache:package-one:application-one:activation-one:workspace-one:user-one:device-one:",
         "refmd-plugin-credential:package-one:application-one:activation-one:workspace-one:user-one:device-one:",

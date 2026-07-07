@@ -171,8 +171,11 @@ export async function joinDocument(
       .join()
       .receive("ok", (resp: unknown) => {
         const r = resp as Record<string, unknown> | undefined;
-        if (r?.connectionId) {
-          channel.__connectionId = String(r.connectionId);
+        const connectionId = r?.connectionId;
+        if (typeof connectionId === "string") {
+          channel.__connectionId = connectionId;
+        } else if (typeof connectionId === "number" || typeof connectionId === "bigint") {
+          channel.__connectionId = connectionId.toString();
         }
         channelJoinPromises.delete(channelKey);
         resolve(channel);

@@ -18,7 +18,7 @@ export function createLocalProseMirrorBridgeDoc(sharedDoc: Y.Doc): LocalProseMir
   const bridgeText = bridgeDoc.getText("content");
 
   if (sharedText.length > 0) {
-    bridgeText.insert(0, sharedText.toString());
+    bridgeText.insert(0, sharedText.toJSON());
   }
 
   const mirrorSharedToBridge = (
@@ -29,7 +29,7 @@ export function createLocalProseMirrorBridgeDoc(sharedDoc: Y.Doc): LocalProseMir
   ) => {
     if (transaction?.origin === WYSIWYG_TO_SHARED_ORIGIN) return;
     bridgeDoc.transact(() => {
-      replaceYTextWithMinimalDiff(bridgeText, sharedText.toString());
+      replaceYTextWithMinimalDiff(bridgeText, sharedText.toJSON());
     }, SHARED_TO_WYSIWYG_ORIGIN);
   };
 
@@ -42,7 +42,7 @@ export function createLocalProseMirrorBridgeDoc(sharedDoc: Y.Doc): LocalProseMir
     if (transaction?.origin === SHARED_TO_WYSIWYG_ORIGIN) return;
     if (transaction?.origin === ORIGIN_INIT) return;
     sharedDoc.transact(() => {
-      replaceYTextWithMinimalDiff(sharedText, bridgeText.toString());
+      replaceYTextWithMinimalDiff(sharedText, bridgeText.toJSON());
     }, WYSIWYG_TO_SHARED_ORIGIN);
   };
 

@@ -340,7 +340,7 @@ describe("plugin renderer ProseMirror slots", () => {
     await flushMicrotasks();
 
     expect(proseMirrorDocToMarkdown(view.state.doc)).toContain("rendered-output");
-    expect(yText.toString()).toContain("rendered-output");
+    expect(yText.toJSON()).toContain("rendered-output");
     await flushMicrotasks();
     collab.destroy();
     collabDestroyed = true;
@@ -369,6 +369,6 @@ describe("plugin renderer ProseMirror slots", () => {
     cleanupFns.push(() => collab.destroy());
 
     expect(proseMirrorDocToMarkdown(collab.doc)).toContain("rendered-output");
-    expect(yText.toString()).toContain("rendered-output");
+    expect(yText.toJSON()).toContain("rendered-output");
   });
 });

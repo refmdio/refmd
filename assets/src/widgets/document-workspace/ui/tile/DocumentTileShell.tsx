@@ -427,7 +427,7 @@ export function DocumentTileShell(props: ParentProps<DocumentTileShellProps>) {
                       new Notice("No cached content available");
                       return;
                     }
-                    const text = recovered.yDoc.getText("content").toString();
+                    const text = recovered.yDoc.getText("content").toJSON();
                     recovered.yDoc.destroy();
                     try {
                       await navigator.clipboard.writeText(text);

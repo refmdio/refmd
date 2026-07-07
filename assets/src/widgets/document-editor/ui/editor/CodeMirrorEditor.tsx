@@ -278,7 +278,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     const dark = isDarkMode();
 
     const startState = EditorState.create({
-      doc: yText.toString(),
+      doc: yText.toJSON(),
       extensions: [
         ...createBaseExtensions(),
         markdown(),
@@ -360,7 +360,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     const reconcileRemoteContent = () => {
       const editorView = view;
       if (!editorView || activeStateKey !== stateKey) return;
-      const expectedText = yText.toString();
+      const expectedText = yText.toJSON();
       const editorText = editorView.state.doc.toString();
       const renderedText = readRenderedCodeMirrorText(editorView);
       const editorMatches = editorText === expectedText;

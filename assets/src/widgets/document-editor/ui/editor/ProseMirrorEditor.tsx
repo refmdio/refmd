@@ -401,7 +401,7 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
     const reconcileRemoteContent = () => {
       const editorView = view;
       if (!editorView || activeStateKey !== stateKey) return;
-      const expectedText = yText.toString();
+      const expectedText = yText.toJSON();
       const editorText = proseMirrorDocToMarkdown(editorView.state.doc);
       const renderedText = editorView.dom.innerText || editorView.dom.textContent || "";
       const expectedNormalized = normalizeMarkdownText(expectedText);

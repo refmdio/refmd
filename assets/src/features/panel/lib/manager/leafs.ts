@@ -157,7 +157,7 @@ export class LeafsState {
       if (creator) {
         const view = creator(leaf);
         view.app = this.appRef;
-        leaf.open(view);
+        void leaf.open(view);
       }
     }
     this.leaves.set(panelId, leaf);
@@ -238,7 +238,7 @@ export class LeafsState {
     this.sidebarLeafIds.add(leaf.id);
     const view = creator(leaf);
     view.app = this.appRef;
-    leaf.open(view);
+    void leaf.open(view);
     return leaf;
   }
 

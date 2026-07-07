@@ -61,8 +61,9 @@ nodes = nodes.append(
         },
         setDOMAttr(value, attrs) {
           if (!isTableAlign(value)) return;
-          attrs.style = attrs.style
-            ? `${attrs.style}; text-align: ${value}`
+          const existingStyle = typeof attrs.style === "string" ? attrs.style : "";
+          attrs.style = existingStyle
+            ? `${existingStyle}; text-align: ${value}`
             : `text-align: ${value}`;
           attrs["data-align"] = value;
         },

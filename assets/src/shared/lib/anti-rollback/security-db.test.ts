@@ -25,25 +25,26 @@ describe("openSecurityDb", () => {
     expect(upgrade).toBeTypeOf("function");
 
     const stores = new Set<string>();
+    const createObjectStore = vi.fn((name: string) => {
+      stores.add(name);
+      return {};
+    });
     const db = {
       objectStoreNames: {
         contains: (name: string) => stores.has(name),
       },
-      createObjectStore: vi.fn((name: string) => {
-        stores.add(name);
-        return {};
-      }),
+      createObjectStore,
     } as unknown as IDBDatabase;
 
     upgrade!(db, 0);
 
-    expect(db.createObjectStore).toHaveBeenCalledWith(DOCUMENT_STATE_PIN_STORE_NAME, {
+    expect(createObjectStore).toHaveBeenCalledWith(DOCUMENT_STATE_PIN_STORE_NAME, {
       keyPath: "documentId",
     });
-    expect(db.createObjectStore).toHaveBeenCalledWith(KEY_DIRECTORY_PIN_STORE_NAME, {
+    expect(createObjectStore).toHaveBeenCalledWith(KEY_DIRECTORY_PIN_STORE_NAME, {
       keyPath: "pinKey",
     });
-    expect(db.createObjectStore).toHaveBeenCalledWith(KEY_DIRECTORY_VERIFIED_LINEAGE_STORE_NAME, {
+    expect(createObjectStore).toHaveBeenCalledWith(KEY_DIRECTORY_VERIFIED_LINEAGE_STORE_NAME, {
       keyPath: "key",
     });
   });

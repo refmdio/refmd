@@ -75,7 +75,7 @@ export function FloatingToolbar(props: FloatingToolbarProps) {
       },
     };
 
-    computePosition(virtualEl, toolbar, {
+    void computePosition(virtualEl, toolbar, {
       placement: "top",
       middleware: [offset(8), flip(), shift({ padding: 8 })],
     }).then(({ x, y }) => {

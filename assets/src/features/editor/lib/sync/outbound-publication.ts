@@ -43,7 +43,7 @@ function getSavedContent(state: DocumentState): string | null {
   const saved = new Y.Doc();
   try {
     Y.applyUpdate(saved, state.lastSavedState, "remote");
-    return saved.getText("content").toString();
+    return saved.getText("content").toJSON();
   } finally {
     saved.destroy();
   }

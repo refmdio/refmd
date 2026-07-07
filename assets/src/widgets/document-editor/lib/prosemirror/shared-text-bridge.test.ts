@@ -34,7 +34,7 @@ describe("createLocalProseMirrorBridgeDoc", () => {
       markdownToProseMirrorDoc("# Title\n\nUpdated from WYSIWYG", markdownSchema),
     );
 
-    expect(sharedDoc.getText("content").toString()).toContain("Updated from WYSIWYG");
+    expect(sharedDoc.getText("content").toJSON()).toContain("Updated from WYSIWYG");
     expect(sharedDoc.getXmlFragment("prosemirror").length).toBe(0);
     expect(localBridgeDoc.yDoc.getXmlFragment("prosemirror").length).toBeGreaterThan(0);
   });
@@ -56,8 +56,8 @@ describe("createLocalProseMirrorBridgeDoc", () => {
       localBridgeDoc.yText.insert(0, "Bootstrap canonical text");
     }, ORIGIN_INIT);
 
-    expect(localBridgeDoc.yText.toString()).toBe("Bootstrap canonical text");
-    expect(sharedDoc.getText("content").toString()).toBe(originalMarkdown);
+    expect(localBridgeDoc.yText.toJSON()).toBe("Bootstrap canonical text");
+    expect(sharedDoc.getText("content").toJSON()).toBe(originalMarkdown);
     expect(sharedChangeCount).toBe(0);
   });
 
@@ -75,6 +75,6 @@ describe("createLocalProseMirrorBridgeDoc", () => {
       sharedText.insert(0, "Remote update");
     }, "remote");
 
-    expect(localBridgeDoc.yText.toString()).toBe("Remote update");
+    expect(localBridgeDoc.yText.toJSON()).toBe("Remote update");
   });
 });

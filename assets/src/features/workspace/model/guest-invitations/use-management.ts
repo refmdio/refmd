@@ -85,7 +85,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
   const invalidate = () => {
     const id = workspaceId();
     if (!id) return;
-    queryClient.invalidateQueries({ queryKey: ["guest-invitations", id] });
+    void queryClient.invalidateQueries({ queryKey: ["guest-invitations", id] });
   };
 
   const removeInvitationFromCache = (invitationId: string) => {

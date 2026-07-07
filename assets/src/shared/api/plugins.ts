@@ -67,7 +67,7 @@ export interface PluginCapabilitySummary {
 export interface PluginScopeSummary {
   supported_owner_scopes?: readonly PluginOwnerScopeKind[];
   default_owner_scope?: PluginOwnerScopeKind | null;
-  workspace_application?: "none" | "optional" | "required" | string | null;
+  workspace_application?: string | null;
 }
 
 export interface PluginApprovalSummary {
@@ -87,7 +87,7 @@ export interface PluginBundleCandidateInfo {
   owner_workspace_id?: string | null;
   owner_user_id?: string | null;
   workspace_id?: string | null;
-  source_kind: "remote_https_url" | "local_upload" | string;
+  source_kind: string;
   source_url?: string | null;
   source_url_hash?: string | null;
   archive_hash?: string | null;

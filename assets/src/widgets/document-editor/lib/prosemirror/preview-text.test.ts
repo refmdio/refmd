@@ -17,7 +17,7 @@ describe("readYDocMarkdownPreview", () => {
     yDoc.getXmlFragment("prosemirror").insert(0, [new Y.XmlElement("paragraph")]);
     const yText = ensureYDocMarkdownText(yDoc);
 
-    expect(yText.toString()).toBe("");
+    expect(yText.toJSON()).toBe("");
     expect(readYDocMarkdownPreview(yDoc)).toBe("");
     expect(ensureYDocMarkdownText(yDoc)).toBe(yText);
 

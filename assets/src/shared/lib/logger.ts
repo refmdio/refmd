@@ -1,4 +1,4 @@
-export type ClientLogContext = Record<string, unknown> | readonly unknown[] | unknown;
+export type ClientLogContext = unknown;
 
 function serializeClientLogContext(context: ClientLogContext): ClientLogContext {
   if (context instanceof Error) {

@@ -39,7 +39,7 @@ export function useWorkspaceKekRotationMonitor(
         for (const workspace of initiatorWorkspaces) {
           attemptedRotations.delete(workspace.workspace_id);
         }
-        queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       })
       .catch(() => {
         for (const workspace of initiatorWorkspaces) {

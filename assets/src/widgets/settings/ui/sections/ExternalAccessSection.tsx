@@ -241,7 +241,7 @@ export function ExternalAccessSection() {
     void sharedPages.refetch();
     void publishedPages.refetch();
     if (id) {
-      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      void queryClient.invalidateQueries({ queryKey: ["documents", id] });
     }
   };
 

@@ -37,9 +37,9 @@ export function useWorkspaceRoleManagement(options: UseWorkspaceRoleManagementOp
     const id = workspaceId();
     if (!id) return;
 
-    queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-members", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-members", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
   };
 
   const [createDialogOpen, setCreateDialogOpen] = createSignal(false);
@@ -146,7 +146,7 @@ export function useWorkspaceRoleManagement(options: UseWorkspaceRoleManagementOp
       const response = (await workspacesApi.deleteRole(id, target.id)) as RoleDeleteResponse;
       setDeleteRoleTarget(null);
       invalidateRoles();
-      queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
 
       const count = response.invalidated_invitation_count;
       if (count > 0) {

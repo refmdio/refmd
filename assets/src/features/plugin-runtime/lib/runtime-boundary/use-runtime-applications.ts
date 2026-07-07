@@ -238,7 +238,7 @@ function publishPluginRuntimeDebug(
       rendererSlots: application.rendererSlots,
     })),
     rendererRegistry: getDefaultPluginRendererSlotRegistry().debugSnapshot(),
-    error: error instanceof Error ? error.message : error ? String(error) : null,
+    error: debugErrorMessage(error),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -265,19 +265,19 @@ export async function handlePluginRuntimeSecurityNotification(
   const reason = payload.type.replaceAll(".", "_");
 
   if (capabilityGrantId) {
-    runtimeBoundary?.closeByCapabilityGrant(capabilityGrantId, reason);
+    await runtimeBoundary?.closeByCapabilityGrant(capabilityGrantId, reason);
     router.closeByCapabilityGrant(capabilityGrantId, reason);
   } else if (payload.type === "plugin.runtime_activation_deleted" && activationId) {
-    runtimeBoundary?.closeByActivation(activationId, reason);
+    await runtimeBoundary?.closeByActivation(activationId, reason);
     router.closeByActivation(activationId, reason);
   } else if (applicationId) {
-    runtimeBoundary?.closeByApplication(applicationId, reason);
+    await runtimeBoundary?.closeByApplication(applicationId, reason);
     router.closeByApplication(applicationId, reason);
   } else if (bundleHash) {
-    runtimeBoundary?.closeByBundle(workspaceId, bundleHash, reason);
+    await runtimeBoundary?.closeByBundle(workspaceId, bundleHash, reason);
     router.closeByBundle(workspaceId, bundleHash, reason);
   } else {
-    runtimeBoundary?.closeByWorkspace(workspaceId, reason);
+    await runtimeBoundary?.closeByWorkspace(workspaceId, reason);
     router.closeByWorkspace(workspaceId, reason);
   }
 
@@ -301,6 +301,20 @@ export async function handlePluginRuntimeSecurityNotification(
     return true;
   }
   return true;
+}
+
+function debugErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint") {
+    return error.toString();
+  }
+  try {
+    return JSON.stringify(error) ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 function retainPluginRuntimeSecurityNotifications(

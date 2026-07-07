@@ -27,6 +27,17 @@ class FakeFrameWindow implements PluginHostFrameWindow {
 
 let releaseRetainedProxy: (() => void) | null = null;
 
+function parseJsonRequestBody(body: BodyInit | null | undefined): Record<string, unknown> {
+  if (typeof body !== "string") {
+    throw new Error("expected JSON request body string");
+  }
+  const parsed = JSON.parse(body) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("expected JSON request body object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
 afterEach(() => {
   releaseRetainedProxy?.();
   releaseRetainedProxy = null;
@@ -463,7 +474,7 @@ describe("plugin Host RPC network surface", () => {
       }),
     );
     const [, sessionInit] = fetch.mock.calls[0] as [RequestInfo | URL, RequestInit];
-    const sessionBody = JSON.parse(String(sessionInit.body));
+    const sessionBody = parseJsonRequestBody(sessionInit.body);
     expect(sessionBody).toMatchObject({
       target_url: "https://proxy.example",
       target_origin: "https://proxy.example",
@@ -497,7 +508,11 @@ describe("plugin Host RPC network surface", () => {
       credential_handle_used: false,
       request_bytes: 0,
     });
-    expect(sessionBody.executor_token).toMatch(/^[a-f0-9]{32}$/);
+    const executorToken = sessionBody.executor_token;
+    if (typeof executorToken !== "string") {
+      throw new Error("expected executor token string");
+    }
+    expect(executorToken).toMatch(/^[a-f0-9]{32}$/);
 
     const contentWindow = frame?.contentWindow;
     expect(contentWindow).toBeTruthy();
@@ -535,7 +550,7 @@ describe("plugin Host RPC network surface", () => {
       expect.objectContaining({
         protocol: "refmd.plugin-network-executor",
         kind: "execute",
-        executorToken: sessionBody.executor_token,
+        executorToken,
         route: "proxy",
         url: "https://proxy.example",
       }),
@@ -578,7 +593,7 @@ describe("plugin Host RPC network surface", () => {
       ).toBeTruthy();
     });
     const [, sessionInit] = fetch.mock.calls[0] as [RequestInfo | URL, RequestInit];
-    const sessionBody = JSON.parse(String(sessionInit.body));
+    const sessionBody = parseJsonRequestBody(sessionInit.body);
     expect(sessionBody).toMatchObject({
       network_header_names: ["accept"],
       credential_audience: "api.github.com",

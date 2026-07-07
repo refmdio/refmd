@@ -354,7 +354,10 @@ export function usePluginHostRpc(
                 plaintext: context.plaintext,
                 maxBytes: context.maxBytes,
               });
-              return { executionContextId: handle.executionContextId, dispose: handle.dispose };
+              return {
+                executionContextId: handle.executionContextId,
+                dispose: () => handle.dispose(),
+              };
             },
             editorContext(session) {
               const active = workspace.activeDocument();
@@ -372,7 +375,10 @@ export function usePluginHostRpc(
                 plaintext: context.plaintext,
                 maxBytes: context.maxBytes,
               });
-              return { executionContextId: handle.executionContextId, dispose: handle.dispose };
+              return {
+                executionContextId: handle.executionContextId,
+                dispose: () => handle.dispose(),
+              };
             },
           },
           resourceContext: {
@@ -686,10 +692,22 @@ function setUiIframeMountState(
     delete container.dataset.refmdPluginUiIframeReason;
   }
   if (error) {
-    container.dataset.refmdPluginUiIframeError =
-      error instanceof Error ? error.message : String(error);
+    container.dataset.refmdPluginUiIframeError = uiIframeErrorMessage(error);
   } else {
     delete container.dataset.refmdPluginUiIframeError;
+  }
+}
+
+function uiIframeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint") {
+    return error.toString();
+  }
+  try {
+    return JSON.stringify(error) ?? "unknown";
+  } catch {
+    return "unknown";
   }
 }
 

@@ -111,7 +111,7 @@ export class WorkspaceLeaf {
     if (this._detached) return;
     this._detached = true;
     if (this.view) {
-      this.view.onClose();
+      void this.view.onClose();
       this.view.containerEl.remove();
     }
   }

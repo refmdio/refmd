@@ -1,3 +1,4 @@
+import { Script, createContext } from "node:vm";
 import { describe, expect, it, vi } from "vite-plus/test";
 import serviceWorkerSource from "../../../public/sw.js?raw";
 
@@ -57,8 +58,16 @@ function loadServiceWorker(
     }),
   };
 
-  const runServiceWorker = new Function("self", "caches", "fetch", "Request", serviceWorkerSource);
-  runServiceWorker(scope, cacheStorage, fetchMock, ServiceWorkerTestRequest);
+  const context = createContext({
+    self: scope,
+    caches: cacheStorage,
+    fetch: fetchMock,
+    Request: ServiceWorkerTestRequest,
+    URL,
+  });
+  new Script(
+    `(function(self, caches, fetch, Request) {\n${serviceWorkerSource}\n})(self, caches, fetch, Request);`,
+  ).runInContext(context);
 
   const handler = listeners.get("fetch");
   if (typeof handler !== "function") throw new Error("service_worker_fetch_handler_missing");

@@ -81,7 +81,7 @@ describe("registration initial AKE prekeys", () => {
   });
 
   it("uses crypto.randomUUID without losing its browser method receiver", async () => {
-    const originalRandomUUID = crypto.randomUUID;
+    const originalRandomUUIDDescriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID");
     const randomUUID = vi.fn(() => "trust-operation");
     Object.defineProperty(crypto, "randomUUID", {
       configurable: true,
@@ -105,10 +105,11 @@ describe("registration initial AKE prekeys", () => {
         expect.objectContaining({ operationId: "trust-operation" }),
       );
     } finally {
-      Object.defineProperty(crypto, "randomUUID", {
-        configurable: true,
-        value: originalRandomUUID,
-      });
+      if (originalRandomUUIDDescriptor) {
+        Object.defineProperty(crypto, "randomUUID", originalRandomUUIDDescriptor);
+      } else {
+        Reflect.deleteProperty(crypto, "randomUUID");
+      }
     }
   });
 });

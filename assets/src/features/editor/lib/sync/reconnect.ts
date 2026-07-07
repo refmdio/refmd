@@ -105,28 +105,26 @@ export function triggerReconnect(
   state._reconnecting = true;
   setDocumentSyncPaused(state.stateKey, true);
 
-  attemptReconnect(documentId, workspaceId, state, localDeviceSigningKeyId, failClosed).finally(
-    () => {
-      state._reconnecting = false;
-      if (!state.error && state.initialized && state.channel) {
-        setDocumentSyncPaused(state.stateKey, false);
-      }
-      if (
-        !state.error &&
-        !state.channel &&
-        !needsShareReentry(state.stateKey) &&
-        getDocumentState(state.stateKey)
-      ) {
-        scheduleReconnectAttempt(
-          state,
-          documentId,
-          workspaceId,
-          localDeviceSigningKeyId,
-          failClosed,
-        );
-      }
-    },
-  );
+  void attemptReconnect(
+    documentId,
+    workspaceId,
+    state,
+    localDeviceSigningKeyId,
+    failClosed,
+  ).finally(() => {
+    state._reconnecting = false;
+    if (!state.error && state.initialized && state.channel) {
+      setDocumentSyncPaused(state.stateKey, false);
+    }
+    if (
+      !state.error &&
+      !state.channel &&
+      !needsShareReentry(state.stateKey) &&
+      getDocumentState(state.stateKey)
+    ) {
+      scheduleReconnectAttempt(state, documentId, workspaceId, localDeviceSigningKeyId, failClosed);
+    }
+  });
 }
 
 function scheduleReconnectAttempt(
@@ -455,7 +453,7 @@ async function attemptReconnect(
           state.autoSync.dispose();
           state.autoSync = null;
         }
-        import("@/shared/lib/offline/storage/store").then(({ deleteOfflineKek }) =>
+        void import("@/shared/lib/offline/storage/store").then(({ deleteOfflineKek }) =>
           deleteOfflineKek(workspaceId).catch(() => {}),
         );
         import("@/shared/lib/notice")

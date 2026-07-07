@@ -601,11 +601,18 @@ function shareSessionTrustAnchorKey(shareSlug: string): string {
   return `${SHARE_SESSION_TRUST_ANCHOR_KEY_PREFIX}${shareSlug}`;
 }
 
-function shareParticipantSessionKey(session: Record<string, unknown>): string {
+type ShareParticipantSessionRecord = Record<string, unknown> &
+  StrictJsonValue & {
+    deviceId: string;
+    shareId: string;
+    shareSlug: string;
+  };
+
+function shareParticipantSessionKey(session: ShareParticipantSessionRecord): string {
   return `${SHARE_PARTICIPANT_SESSION_KEY_PREFIX}${session.shareSlug}:${session.shareId}:${session.deviceId}`;
 }
 
-function assertShareParticipantSession(value: unknown): Record<string, unknown> & StrictJsonValue {
+function assertShareParticipantSession(value: unknown): ShareParticipantSessionRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new CryptoOperationError("invalid_payload", "share_participant_session_invalid");
   }
@@ -623,7 +630,10 @@ function assertShareParticipantSession(value: unknown): Record<string, unknown> 
     "shareSlug",
     "signingKeyId",
   ];
-  if (JSON.stringify(Object.keys(session).sort()) !== JSON.stringify(expectedKeys)) {
+  if (
+    JSON.stringify(Object.keys(session).sort((a, b) => a.localeCompare(b))) !==
+    JSON.stringify(expectedKeys)
+  ) {
     throw new CryptoOperationError("invalid_payload", "share_participant_session_unexpected_keys");
   }
   for (const field of expectedKeys.filter((field) => field !== "hybridSigningPublicKeyMaterial")) {
@@ -640,7 +650,7 @@ function assertShareParticipantSession(value: unknown): Record<string, unknown> 
   ) {
     throw new CryptoOperationError("invalid_payload", "hybrid_signing_public_key_material_invalid");
   }
-  return session as Record<string, unknown> & StrictJsonValue;
+  return session as ShareParticipantSessionRecord;
 }
 
 async function loadShareParticipantSessionIndex(state: WorkerKeyState): Promise<string[]> {

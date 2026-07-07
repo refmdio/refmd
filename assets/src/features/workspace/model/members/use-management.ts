@@ -51,11 +51,11 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     const id = workspaceId();
     if (!id) return;
 
-    queryClient.invalidateQueries({ queryKey: ["workspace", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-members", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-members", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
   };
 
   const [removeTarget, setRemoveTarget] = createSignal<{
@@ -122,7 +122,7 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
       const isSelfRemoval = target.user_id === currentUserId();
       if (isSelfRemoval) {
         setCurrentWorkspaceId(null);
-        queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
         navigate("/dashboard");
         return;
       }

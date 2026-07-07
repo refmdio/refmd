@@ -38,10 +38,12 @@ function markToMdastNode(
     case "strikethrough":
       return { type: "delete", children: [child] };
     case "link":
+      const href = attrs?.href;
+      const title = attrs?.title;
       return {
         type: "link",
-        url: String(attrs?.href ?? ""),
-        title: attrs?.title ? String(attrs.title) : null,
+        url: typeof href === "string" ? href : "",
+        title: typeof title === "string" && title ? title : null,
         children: [child],
       };
     default:

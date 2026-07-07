@@ -1039,12 +1039,12 @@ export function CommunityPluginsSection(props: CommunityPluginsSectionProps) {
 
   const refreshPluginManagement = () => {
     const id = workspaceId();
-    queryClient.invalidateQueries({ queryKey: ["plugin-packages", "user"] });
-    queryClient.invalidateQueries({ queryKey: ["plugin-activations"] });
+    void queryClient.invalidateQueries({ queryKey: ["plugin-packages", "user"] });
+    void queryClient.invalidateQueries({ queryKey: ["plugin-activations"] });
     if (id) {
-      queryClient.invalidateQueries({ queryKey: ["plugin-packages", "workspace", id] });
-      queryClient.invalidateQueries({ queryKey: ["plugin-applications", id] });
-      queryClient.invalidateQueries({ queryKey: ["plugin-runtime-applications", id] });
+      void queryClient.invalidateQueries({ queryKey: ["plugin-packages", "workspace", id] });
+      void queryClient.invalidateQueries({ queryKey: ["plugin-applications", id] });
+      void queryClient.invalidateQueries({ queryKey: ["plugin-runtime-applications", id] });
     }
   };
 
@@ -1211,7 +1211,9 @@ export function CommunityPluginsSection(props: CommunityPluginsSectionProps) {
       };
       await Promise.all(
         applicationsForCandidate(current).map((application) =>
-          props.closeRuntimeByApplication?.(application.id, "plugin_bundle_updated"),
+          Promise.resolve(
+            props.closeRuntimeByApplication?.(application.id, "plugin_bundle_updated"),
+          ),
         ),
       );
       const promotion = await pluginsApi.promoteCandidate(

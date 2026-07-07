@@ -44,7 +44,7 @@ export function WorkspaceInvitationFlow() {
   const navigateToWorkspace = () => {
     const currentMembership = membership();
     if (currentMembership?.workspaceId) {
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       setCurrentWorkspaceId(currentMembership.workspaceId);
     }
     navigate("/dashboard");

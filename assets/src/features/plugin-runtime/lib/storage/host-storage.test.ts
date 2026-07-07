@@ -15,8 +15,10 @@ import {
   registerPluginHostStorageHandlers,
   retainPluginHostStorageHandlers,
   type PluginCredentialBroker,
+  type PluginCredentialUseParams,
   type PluginHostStorageServices,
   type PluginLocalStore,
+  type PluginSyncedRecordCreateParams,
   type PluginSyncedStorageStore,
 } from "../storage/host-storage";
 import { PluginHostCredentialStore } from "../credential/host-credential";
@@ -448,9 +450,11 @@ describe("plugin Host RPC storage and credential surfaces", () => {
   });
 
   it("routes workspace and document storage through the Host-supplied synced store", async () => {
+    const syncedGet = vi.fn(async () => ({ saved: true }));
+    const syncedSet = vi.fn(async () => undefined);
     const syncedStore: PluginSyncedStorageStore = {
-      get: vi.fn(async () => ({ saved: true })),
-      set: vi.fn(async () => undefined),
+      get: syncedGet,
+      set: syncedSet,
       delete: vi.fn(async () => undefined),
     };
     const router = createRouterWithStorage(baseServices({ syncedStore }));
@@ -485,7 +489,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "response",
       payload: { stored: true },
     });
-    expect(syncedStore.set).toHaveBeenCalledWith(
+    expect(syncedSet).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: "document",
         key: "index",
@@ -521,7 +525,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "response",
       payload: { value: { saved: true } },
     });
-    expect(syncedStore.get).toHaveBeenCalledWith(
+    expect(syncedGet).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: "workspace",
         key: "settings",
@@ -534,9 +538,10 @@ describe("plugin Host RPC storage and credential surfaces", () => {
   });
 
   it("requires concrete Host document identity for active and selected document storage", async () => {
+    const syncedSet = vi.fn(async () => undefined);
     const syncedStore: PluginSyncedStorageStore = {
       get: vi.fn(async () => ({ saved: true })),
-      set: vi.fn(async () => undefined),
+      set: syncedSet,
       delete: vi.fn(async () => undefined),
     };
     const permissions = ["storage:read:document", "storage:write:document"] as const;
@@ -565,7 +570,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "error",
       error: { code: "document_scope_denied" },
     });
-    expect(syncedStore.set).not.toHaveBeenCalled();
+    expect(syncedSet).not.toHaveBeenCalled();
 
     const concreteRouter = createRouterWithStorage(baseServices({ syncedStore }));
     const concretePort = boot(concreteRouter, permissions, {
@@ -611,9 +616,10 @@ describe("plugin Host RPC storage and credential surfaces", () => {
   });
 
   it("does not write server-synced storage when durable audit fails", async () => {
+    const syncedSet = vi.fn(async () => undefined);
     const syncedStore: PluginSyncedStorageStore = {
       get: vi.fn(async () => null),
-      set: vi.fn(async () => undefined),
+      set: syncedSet,
       delete: vi.fn(async () => undefined),
     };
     const router = createRouterWithStorage(baseServices({ syncedStore }));
@@ -630,7 +636,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "error",
       error: { code: "storage_audit_unavailable" },
     });
-    expect(syncedStore.set).not.toHaveBeenCalled();
+    expect(syncedSet).not.toHaveBeenCalled();
   });
 
   it("uses writer activation metadata for server-synced KV storage AAD", async () => {
@@ -730,13 +736,23 @@ describe("plugin Host RPC storage and credential surfaces", () => {
   });
 
   it("routes workspace record storage through a distinct Host RPC surface", async () => {
+    const createRecord = vi.fn(async (params: PluginSyncedRecordCreateParams) => ({
+      id: "record-1",
+      kind: params.kind,
+    }));
+    const getRecord = vi.fn(async () => ({
+      id: "record-1",
+      kind: "annotation",
+      value: { text: "ok" },
+    }));
+    const deleteRecord = vi.fn(async () => undefined);
     const syncedStore: PluginSyncedStorageStore = {
       get: vi.fn(async () => null),
       set: vi.fn(async () => undefined),
       delete: vi.fn(async () => undefined),
-      createRecord: vi.fn(async (params) => ({ id: "record-1", kind: params.kind })),
-      getRecord: vi.fn(async () => ({ id: "record-1", kind: "annotation", value: { text: "ok" } })),
-      deleteRecord: vi.fn(async () => undefined),
+      createRecord,
+      getRecord,
+      deleteRecord,
     };
     const router = createRouterWithStorage(baseServices({ syncedStore }));
     const port = boot(router, ["storage:read:workspace", "storage:write:workspace"], {
@@ -755,7 +771,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "response",
       payload: { record_id: "record-1", kind: "annotation" },
     });
-    expect(syncedStore.createRecord).toHaveBeenCalledWith(
+    expect(createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: "workspace",
         kind: "annotation",
@@ -777,7 +793,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "response",
       payload: { record_id: "record-1", kind: "annotation", value: { text: "ok" } },
     });
-    expect(syncedStore.getRecord).toHaveBeenCalledWith(
+    expect(getRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         recordId: "record-1",
         context: expect.objectContaining({
@@ -797,7 +813,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "response",
       payload: { deleted: true },
     });
-    expect(syncedStore.deleteRecord).toHaveBeenCalledWith(
+    expect(deleteRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         recordId: "record-1",
         context: expect.objectContaining({
@@ -846,16 +862,14 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       },
     });
     const store = createEncryptedPluginSyncedStorageStore();
-    const createRecord = store.createRecord;
-    const getRecord = store.getRecord;
-    if (!createRecord || !getRecord) throw new Error("record storage unavailable");
+    if (!store.createRecord || !store.getRecord) throw new Error("record storage unavailable");
     const context = pluginHostContext({
       stateHeadHash: "state-head-1",
       consentHeadHash: "consent-head-1",
     });
 
     await expect(
-      createRecord({
+      store.createRecord({
         context,
         surface: "workspace",
         kind: "annotation",
@@ -879,7 +893,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
     );
 
     await expect(
-      getRecord({
+      store.getRecord({
         context,
         surface: "workspace",
         recordId,
@@ -903,11 +917,10 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       data: null,
     });
     const store = createEncryptedPluginSyncedStorageStore();
-    const getRecord = store.getRecord;
-    if (!getRecord) throw new Error("record storage unavailable");
+    if (!store.getRecord) throw new Error("record storage unavailable");
 
     await expect(
-      getRecord({
+      store.getRecord({
         context: pluginHostContext({
           stateHeadHash: "state-head-1",
           consentHeadHash: "consent-head-1",
@@ -970,15 +983,17 @@ describe("plugin Host RPC storage and credential surfaces", () => {
   });
 
   it("revokes credential handles when durable audit fails", async () => {
+    const useCredential = vi.fn(async (params: PluginCredentialUseParams) => ({
+      handle: "opaque-handle",
+      expiresAtMs: 1_775_000_000_000,
+      audience: params.audience,
+      endpoint: params.endpoint,
+      method: params.method,
+    }));
+    const revokeCredentialHandle = vi.fn();
     const credentialBroker: PluginCredentialBroker = {
-      use: vi.fn(async (params) => ({
-        handle: "opaque-handle",
-        expiresAtMs: 1_775_000_000_000,
-        audience: params.audience,
-        endpoint: params.endpoint,
-        method: params.method,
-      })),
-      revokeHandle: vi.fn(),
+      use: useCredential,
+      revokeHandle: revokeCredentialHandle,
     };
     const router = createRouterWithStorage(baseServices({ credentialBroker }));
     const port = boot(router, ["credential:use"], { auditSink: () => false });
@@ -996,17 +1011,18 @@ describe("plugin Host RPC storage and credential surfaces", () => {
       kind: "error",
       error: { code: "credential_audit_unavailable" },
     });
-    expect(credentialBroker.use).toHaveBeenCalled();
-    expect(credentialBroker.revokeHandle).toHaveBeenCalledWith("opaque-handle");
+    expect(useCredential).toHaveBeenCalled();
+    expect(revokeCredentialHandle).toHaveBeenCalledWith("opaque-handle");
   });
 
   it("does not record allowed credential use when the broker rejects handle issuance", async () => {
     const auditSink = vi.fn(() => true);
+    const revokeCredentialHandle = vi.fn();
     const credentialBroker: PluginCredentialBroker = {
       use: vi.fn(async () => {
         throw new Error("credential_not_found");
       }),
-      revokeHandle: vi.fn(),
+      revokeHandle: revokeCredentialHandle,
     };
     const router = createRouterWithStorage(baseServices({ credentialBroker }));
     const port = boot(router, ["credential:use"], { auditSink });
@@ -1026,7 +1042,7 @@ describe("plugin Host RPC storage and credential surfaces", () => {
     expect(auditSink).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "plugin.credential.used", result: "allow" }),
     );
-    expect(credentialBroker.revokeHandle).not.toHaveBeenCalled();
+    expect(revokeCredentialHandle).not.toHaveBeenCalled();
   });
 
   it("backs credential handles with the same Host store used by network fetch", async () => {

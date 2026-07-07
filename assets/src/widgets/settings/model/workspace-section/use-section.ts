@@ -73,11 +73,11 @@ export function useWorkspaceSection(options: UseWorkspaceSectionOptions = {}) {
 
   const refetchAll = () => {
     const id = wsId();
-    queryClient.invalidateQueries({ queryKey: ["workspace", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
-    queryClient.invalidateQueries({ queryKey: ["guest-invitations", id] });
-    queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
+    void queryClient.invalidateQueries({ queryKey: ["guest-invitations", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
   };
 
   const [editingName, setEditingName] = createSignal(false);

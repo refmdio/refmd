@@ -70,7 +70,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
   const invalidateInvitations = () => {
     const id = workspaceId();
     if (!id) return;
-    queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-invitations", id] });
   };
 
   const resetInviteState = () => {

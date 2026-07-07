@@ -3,7 +3,7 @@ import * as Y from "yjs";
 const CANONICAL_TEXT_FIELD = "content";
 
 export function canonicalMarkdownText(doc: Y.Doc): string {
-  return doc.getText(CANONICAL_TEXT_FIELD).toString();
+  return doc.getText(CANONICAL_TEXT_FIELD).toJSON();
 }
 
 function encodeEmptyUpdate(): Uint8Array {
@@ -34,7 +34,7 @@ function withCanonicalDoc<T>(doc: Y.Doc, fn: (canonicalDoc: Y.Doc) => T): T {
 }
 
 export function replaceYTextWithMinimalDiff(text: Y.Text, next: string): void {
-  const current = text.toString();
+  const current = text.toJSON();
   if (current === next) return;
 
   let start = 0;

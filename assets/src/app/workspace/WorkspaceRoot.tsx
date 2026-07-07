@@ -71,23 +71,26 @@ export function WorkspaceRoot(props: ParentProps) {
   } = {};
   const runtimeInvalidationSink: PluginRuntimeBoundaryInvalidationSink = {
     closeByActivation(activationId, reason) {
-      pluginRuntimeBoundaryInvalidation.current?.closeByActivation(activationId, reason);
+      void pluginRuntimeBoundaryInvalidation.current?.closeByActivation(activationId, reason);
     },
     closeByApplication(applicationId, reason) {
-      pluginRuntimeBoundaryInvalidation.current?.closeByApplication(applicationId, reason);
+      void pluginRuntimeBoundaryInvalidation.current?.closeByApplication(applicationId, reason);
     },
     closeByWorkspace(targetWorkspaceId, reason) {
-      pluginRuntimeBoundaryInvalidation.current?.closeByWorkspace(targetWorkspaceId, reason);
+      void pluginRuntimeBoundaryInvalidation.current?.closeByWorkspace(targetWorkspaceId, reason);
     },
     closeByBundle(targetWorkspaceId, bundleHash, reason) {
-      pluginRuntimeBoundaryInvalidation.current?.closeByBundle(
+      void pluginRuntimeBoundaryInvalidation.current?.closeByBundle(
         targetWorkspaceId,
         bundleHash,
         reason,
       );
     },
     closeByCapabilityGrant(capabilityGrantId, reason) {
-      pluginRuntimeBoundaryInvalidation.current?.closeByCapabilityGrant(capabilityGrantId, reason);
+      void pluginRuntimeBoundaryInvalidation.current?.closeByCapabilityGrant(
+        capabilityGrantId,
+        reason,
+      );
     },
   };
   const pluginRuntimeApplications = usePluginRuntimeApplications(
@@ -158,7 +161,7 @@ export function WorkspaceRoot(props: ParentProps) {
   };
 
   const closePluginRuntimeByApplication = async (applicationId: string, reason?: string) => {
-    runtimeInvalidationSink.closeByApplication(applicationId, reason);
+    await runtimeInvalidationSink.closeByApplication(applicationId, reason);
     pluginHost.router.closeByApplication(applicationId, reason);
     app.workspace.removeSurfacesByOwner(
       (owner) => owner.kind === "third_party" && owner.applicationId === applicationId,
@@ -169,7 +172,7 @@ export function WorkspaceRoot(props: ParentProps) {
   const closePluginRuntimeByWorkspace = async (targetWorkspaceId: string, reason?: string) => {
     beginPluginRuntimeWorkspaceRevocation(targetWorkspaceId);
     await waitForPluginRuntimeWorkspaceIdle(targetWorkspaceId);
-    runtimeInvalidationSink.closeByWorkspace(targetWorkspaceId, reason);
+    await runtimeInvalidationSink.closeByWorkspace(targetWorkspaceId, reason);
     pluginHost.router.closeByWorkspace(targetWorkspaceId, reason);
     app.workspace.removeSurfacesByOwner(
       (owner) => owner.kind === "third_party" && owner.workspaceId === targetWorkspaceId,

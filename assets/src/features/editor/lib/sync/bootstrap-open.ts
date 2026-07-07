@@ -75,11 +75,11 @@ export function createFailClosedHandler(
     recordSyncPerf("document_sync_fail_closed", {
       documentId,
       reason,
-      error: err instanceof Error ? err.message : err === undefined ? null : String(err),
+      error: err === undefined ? null : syncOpenErrorMessage(err),
     });
     if (err) clientError("document_sync_open_failed", { reason, error: err });
     if (reason === "not_a_member" || reason === "permission_denied") {
-      import("@/shared/lib/offline/storage/store").then(({ deleteOfflineKek }) =>
+      void import("@/shared/lib/offline/storage/store").then(({ deleteOfflineKek }) =>
         deleteOfflineKek(workspaceId).catch(() => {}),
       );
     }
@@ -117,6 +117,19 @@ export function createFailClosedHandler(
     state.writeSessionError = null;
     leaveDocument(documentId, state.stateKey);
   };
+}
+
+function syncOpenErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint") {
+    return error.toString();
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "unknown";
+  }
 }
 
 export async function openInitialDocumentChannel(params: {

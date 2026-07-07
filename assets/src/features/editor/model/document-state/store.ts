@@ -242,5 +242,5 @@ export function getAllActiveDocumentStates(): Map<string, DocumentState> {
 export function getDocText(documentId: string): string | null {
   const state = documentStates.get(documentId);
   if (!state || !state.initialized) return null;
-  return state.yDoc.getText("content").toString();
+  return state.yDoc.getText("content").toJSON();
 }

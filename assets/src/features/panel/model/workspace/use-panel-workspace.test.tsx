@@ -50,7 +50,9 @@ describe("panel workspace plugin actions", () => {
       workspace.openDocument({ id: "document-one" });
 
       const panelIds = collectPanelIds(workspace.mosaicState());
-      const panelTypes = panelIds.map((panelId) => decodePanelId(panelId)?.type).sort();
+      const panelTypes = panelIds
+        .map((panelId) => decodePanelId(panelId)?.type)
+        .sort((a, b) => (a ?? "").localeCompare(b ?? ""));
 
       expect(panelTypes).toEqual(["markdown", "preview"]);
     });
@@ -65,7 +67,7 @@ describe("panel workspace plugin actions", () => {
       const documentSplits = collectMarkdownPreviewSplitNodes(state);
       const splitDocumentIds = documentSplits
         .map((node) => decodePanelId(node.first as string)?.documentId)
-        .sort();
+        .sort((a, b) => (a ?? "").localeCompare(b ?? ""));
 
       expect(state).toMatchObject({ direction: "column" });
       expect(documentSplits).toHaveLength(2);

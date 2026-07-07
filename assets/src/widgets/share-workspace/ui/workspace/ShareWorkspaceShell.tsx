@@ -233,7 +233,7 @@ export function ShareWorkspaceShell(props: ShareWorkspaceShellProps) {
         source: "link",
         ...resolved.access,
       });
-      primeDocumentContentPreview(
+      void primeDocumentContentPreview(
         resolved.target.documentId,
         resolved.target.workspaceId,
         target.targetKey,

@@ -47,7 +47,7 @@ export function WorkspaceRoleManagementDialogs(props: WorkspaceRoleManagementDia
                 value={props.state.createRoleName()}
                 onInput={(event) => props.state.setCreateRoleName(event.currentTarget.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") props.state.handleCreateRole();
+                  if (event.key === "Enter") void props.state.handleCreateRole();
                 }}
               />
             </Field>

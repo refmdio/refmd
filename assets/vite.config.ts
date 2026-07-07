@@ -1,4 +1,5 @@
 import { defineConfig, lazyPlugins } from "vite-plus";
+import type { OxlintOverride } from "vite-plus/lint";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { sri } from "vite-plugin-sri3";
@@ -52,24 +53,26 @@ const fsdSlices = {
   widgets: ["document-editor", "document-workspace", "settings", "share-workspace", "sidebar"],
 } as const;
 
-function noSelfAliasImportOverrides() {
+function noSelfAliasImportOverrides(): OxlintOverride[] {
   return Object.entries(fsdSlices).flatMap(([layer, slices]) =>
-    slices.map((slice) => ({
-      files: [`src/${layer}/${slice}/**/*.{ts,tsx}`],
-      rules: {
-        "no-restricted-imports": [
-          "error",
-          {
-            patterns: [
-              {
-                group: [`@/${layer}/${slice}`, `@/${layer}/${slice}/*`],
-                message: "Use relative imports inside the same FSD slice.",
-              },
-            ],
-          },
-        ],
-      },
-    })),
+    slices.map(
+      (slice): OxlintOverride => ({
+        files: [`src/${layer}/${slice}/**/*.{ts,tsx}`],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: [`@/${layer}/${slice}`, `@/${layer}/${slice}/*`],
+                  message: "Use relative imports inside the same FSD slice.",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ),
   );
 }
 
@@ -84,6 +87,7 @@ export default defineConfig({
       correctness: "error",
     },
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
+    options: { typeAware: true, typeCheck: true },
     ignorePatterns: ["src/shared/api/schema.d.ts"],
     settings: {
       "boundaries/include": ["src/**"],

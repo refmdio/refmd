@@ -216,11 +216,11 @@ export function useSidebarTreeDrag(options: {
       if (!workspaceId) return;
       if (options.flatDocuments().some((doc) => doc.id === itemId)) {
         await moveDocument(itemId, workspaceId, parentId, position);
-        queryClient.invalidateQueries({ queryKey: ["documents", workspaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["documents", workspaceId] });
       } else if (options.shareMounts().some((mount) => mount.id === itemId)) {
         await moveShareMount(itemId, { parentId, position });
-        queryClient.invalidateQueries({ queryKey: ["share-mounts", workspaceId] });
-        queryClient.invalidateQueries({ queryKey: ["documents", workspaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["share-mounts", workspaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["documents", workspaceId] });
       }
       if (parentId) options.expand(parentId);
     } catch (error) {

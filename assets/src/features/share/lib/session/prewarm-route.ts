@@ -19,5 +19,5 @@ export function prewarmShareLandingPath(): void {
   const shareSlug = shareSlugFromLandingPath();
   if (!shareSlug || !hasDirectShareBootstrapMaterial()) return;
 
-  prewarmShareParticipantKeypair(shareSlug);
+  void prewarmShareParticipantKeypair(shareSlug);
 }

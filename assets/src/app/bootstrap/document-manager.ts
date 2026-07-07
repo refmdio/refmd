@@ -113,41 +113,40 @@ class DocumentManagerImpl
     if (!doc) return null;
 
     const title = this.getTitleFn?.({ id }) ?? doc.title;
-    const { acquireDocumentState, getDocumentState, releaseDocumentState, initializeDocumentSync } =
-      this.documentStateDeps;
+    const documentStateDeps = this.documentStateDeps;
 
     const text = this.getDocTextFn?.(id);
     if (text != null) {
-      const cached = getDocumentState(id);
+      const cached = documentStateDeps.getDocumentState(id);
       if (cached) {
         cached.refCount++;
       }
-      return { id, title, text, release: () => releaseDocumentState(id) };
+      return { id, title, text, release: () => documentStateDeps.releaseDocumentState(id) };
     }
 
     try {
-      await acquireDocumentState(id, wsId);
+      await documentStateDeps.acquireDocumentState(id, wsId);
     } catch {
       return null;
     }
 
-    const state = getDocumentState(id);
+    const state = documentStateDeps.getDocumentState(id);
     if (!state) return null;
 
     try {
       if (!state.initialized && !state.initPromise) {
-        state.initPromise = initializeDocumentSync(id, wsId, state);
+        state.initPromise = documentStateDeps.initializeDocumentSync(id, wsId, state);
       }
       if (state.initPromise) {
         await state.initPromise;
       }
     } catch {
-      releaseDocumentState(id);
+      documentStateDeps.releaseDocumentState(id);
       return null;
     }
 
     if (!state.initialized) {
-      releaseDocumentState(id);
+      documentStateDeps.releaseDocumentState(id);
       return null;
     }
 
@@ -155,7 +154,7 @@ class DocumentManagerImpl
       id,
       title,
       text: state.yDoc.getText("content").toString(),
-      release: () => releaseDocumentState(id),
+      release: () => documentStateDeps.releaseDocumentState(id),
     };
   }
 

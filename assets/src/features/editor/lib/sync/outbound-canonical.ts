@@ -13,14 +13,14 @@ function textFromUpdate(update: Uint8Array | null): string | null {
   const doc = new Y.Doc();
   try {
     Y.applyUpdate(doc, update, "remote");
-    return doc.getText("content").toString();
+    return doc.getText("content").toJSON();
   } finally {
     doc.destroy();
   }
 }
 
 export function hasUnsavedCanonicalText(state: DocumentState): boolean {
-  const current = state.yDoc.getText("content").toString();
+  const current = state.yDoc.getText("content").toJSON();
   const saved = textFromUpdate(state.lastSavedState);
   return saved === null ? current.length > 0 : current !== saved;
 }

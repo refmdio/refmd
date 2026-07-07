@@ -54,8 +54,8 @@ describe("strict JCS", () => {
     expect(() => canonicalizeStrict({ a: 9_007_199_254_740_992 })).toThrow();
     expect(() => canonicalizeStrict({ a: 1.5 })).toThrow();
     expect(() => canonicalizeStrict({ a: "\uD800" })).toThrow();
-    const sparse = Array.from({ length: 2 }) as unknown[];
-    delete sparse[0];
+    const sparse = Array.of<unknown>();
+    sparse.length = 2;
     sparse[1] = 1;
     expect(() => canonicalizeStrict({ a: sparse as never })).toThrow();
     expect(() => parseJsonStrict('{"a":1,"a":2}')).toThrow();

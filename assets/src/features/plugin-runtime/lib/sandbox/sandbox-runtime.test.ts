@@ -1,3 +1,4 @@
+import { Script, createContext } from "node:vm";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import {
@@ -104,6 +105,51 @@ class FakeSandboxMessagePort {
     this.posted.push(data);
   }
   start(): void {}
+}
+
+function runSandboxBootScript(
+  script: string,
+  options: {
+    sandboxGlobal: unknown;
+    eventTarget: unknown;
+    btoa?: (data: string) => string;
+  },
+): void {
+  const hasBtoa = options.btoa !== undefined;
+  const parameters = hasBtoa
+    ? "globalThis, window, atob, btoa, URL, Blob, MessagePort"
+    : "globalThis, window, atob, URL, Blob, MessagePort";
+  const args = hasBtoa
+    ? "sandboxGlobal, eventTarget, atob, btoa, URL, Blob, FakeSandboxMessagePort"
+    : "sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort";
+  const context = createContext({
+    sandboxGlobal: options.sandboxGlobal,
+    eventTarget: options.eventTarget,
+    atob,
+    btoa: options.btoa ?? btoa,
+    URL,
+    Blob,
+    document,
+    queueMicrotask,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    Promise,
+    Uint8Array,
+    ArrayBuffer,
+    TextEncoder,
+    TextDecoder,
+    WebAssembly,
+    FakeSandboxMessagePort,
+  });
+
+  new Script(`(function(${parameters}) {\n${script}\n})(${args});`).runInContext(context);
+}
+
+function expectRecordMethod(target: unknown, key: string): void {
+  const record = target && typeof target === "object" ? (target as Record<string, unknown>) : {};
+  expect(typeof record[key]).toBe("function");
 }
 
 async function waitForPosted(
@@ -396,16 +442,7 @@ describe("plugin sandbox runtime", () => {
       ...resourceBootContext(TEST_HASH),
     });
 
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
     const port = new FakeSandboxMessagePort();
     eventTarget.dispatch({
       data: {
@@ -491,16 +528,7 @@ describe("plugin sandbox runtime", () => {
       wasmCapable: true,
     });
 
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
     const port = new FakeSandboxMessagePort();
     eventTarget.dispatch({
       data: {
@@ -559,17 +587,7 @@ describe("plugin sandbox runtime", () => {
       btoa(String.fromCharCode(...corruptBytes)),
     );
 
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "btoa",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, btoa, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget, btoa });
     const port = new FakeSandboxMessagePort();
     eventTarget.dispatch({
       data: {
@@ -1403,9 +1421,22 @@ describe("plugin sandbox runtime", () => {
     const container = document.createElement("div");
     document.body.append(container);
     let handledDuringSrcAssignment = false;
-    const originalSetAttribute = HTMLIFrameElement.prototype.setAttribute;
+    const originalSetAttributeDescriptor = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "setAttribute",
+    );
+    const iframeSetAttributeDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLIFrameElement.prototype,
+      "setAttribute",
+    );
+    if (
+      !originalSetAttributeDescriptor ||
+      typeof originalSetAttributeDescriptor.value !== "function"
+    ) {
+      throw new Error("HTMLIFrameElement.setAttribute unavailable");
+    }
     HTMLIFrameElement.prototype.setAttribute = function patchedSetAttribute(name, value) {
-      const result = originalSetAttribute.call(this, name, value);
+      const result = originalSetAttributeDescriptor.value.call(this, name, value) as void;
       if (name === "src") {
         const session = Array.from(
           (
@@ -1469,7 +1500,15 @@ describe("plugin sandbox runtime", () => {
         title: "Runtime Plugin",
       });
     } finally {
-      HTMLIFrameElement.prototype.setAttribute = originalSetAttribute;
+      if (iframeSetAttributeDescriptor) {
+        Object.defineProperty(
+          HTMLIFrameElement.prototype,
+          "setAttribute",
+          iframeSetAttributeDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLIFrameElement.prototype, "setAttribute");
+      }
     }
 
     expect(runtime).not.toBeNull();
@@ -1624,16 +1663,7 @@ describe("plugin sandbox runtime", () => {
       refmd?: { runtime?: { connected: boolean } };
     } = {};
     const eventTarget = new FakeSandboxWindow();
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
 
     const leakedPorts: FakeSandboxMessagePort[] = [];
     eventTarget.addEventListener("message", (event) => {
@@ -1778,43 +1808,34 @@ describe("plugin sandbox runtime", () => {
       };
     } = {};
     const eventTarget = new FakeSandboxWindow();
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
 
     expect(sandboxGlobal.refmd).toBeTruthy();
-    expect(sandboxGlobal.refmd!.onload).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.onunload).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.commands?.register).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.commands?.onInvoke).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.status?.registerItem).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.status?.updateItem).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.status?.onRefresh).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.sidebar?.registerPanel).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.workspace?.registerTile).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.workspace?.registerTileAction).toBeTypeOf("function");
+    expectRecordMethod(sandboxGlobal.refmd, "onload");
+    expectRecordMethod(sandboxGlobal.refmd, "onunload");
+    expectRecordMethod(sandboxGlobal.refmd!.commands, "register");
+    expectRecordMethod(sandboxGlobal.refmd!.commands, "onInvoke");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.status, "registerItem");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.status, "updateItem");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.status, "onRefresh");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.sidebar, "registerPanel");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.workspace, "registerTile");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.workspace, "registerTileAction");
     expect(
       (sandboxGlobal.refmd!.ui?.workspace as { openTile?: unknown } | undefined)?.openTile,
     ).toBeUndefined();
-    expect(sandboxGlobal.refmd!.ui?.workspace?.onTileRender).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.workspace?.onTileAction).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.auxiliary?.registerPane).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.documentTree?.registerAction).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.documentTree?.registerBadge).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.documentTree?.onBadgeRefresh).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.documentTree?.registerDecoration).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.documentTree?.registerVirtualSection).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.settings?.registerIframe).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.settings?.registerDeclarative).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.menu?.registerItem).toBeTypeOf("function");
-    expect(sandboxGlobal.refmd!.ui?.modal?.registerDeclarative).toBeTypeOf("function");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.workspace, "onTileRender");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.workspace, "onTileAction");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.auxiliary, "registerPane");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.documentTree, "registerAction");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.documentTree, "registerBadge");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.documentTree, "onBadgeRefresh");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.documentTree, "registerDecoration");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.documentTree, "registerVirtualSection");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.settings, "registerIframe");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.settings, "registerDeclarative");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.menu, "registerItem");
+    expectRecordMethod(sandboxGlobal.refmd!.ui?.modal, "registerDeclarative");
     expect(sandboxGlobal.refmd!.documents).toBeTruthy();
     expect(sandboxGlobal.refmd!.renderer).toBeTruthy();
     const lifecycleEvents: string[] = [];
@@ -1862,7 +1883,7 @@ describe("plugin sandbox runtime", () => {
         id: `${payload.local_id as string}-id`,
         localId: payload.local_id,
       });
-      expect(handle.dispose).toBeTypeOf("function");
+      expectRecordMethod(handle, "dispose");
       return handle;
     }
 
@@ -2056,7 +2077,7 @@ describe("plugin sandbox runtime", () => {
     });
     const registrationHandle = await registration;
     expect(registrationHandle).toMatchObject({ id: "preview-id", localId: "preview" });
-    expect(registrationHandle.dispose).toBeTypeOf("function");
+    expectRecordMethod(registrationHandle, "dispose");
 
     await expectFacadeRequest(
       () =>
@@ -2531,16 +2552,7 @@ describe("plugin sandbox runtime", () => {
       };
     } = {};
     const eventTarget = new FakeSandboxWindow();
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
     const port = new FakeSandboxMessagePort();
     eventTarget.dispatch({
       data: {
@@ -2616,16 +2628,7 @@ describe("plugin sandbox runtime", () => {
       };
     } = {};
     const eventTarget = new FakeSandboxWindow();
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
     const port = new FakeSandboxMessagePort();
     eventTarget.dispatch({
       data: {
@@ -2793,16 +2796,7 @@ describe("plugin sandbox runtime", () => {
       };
     } = {};
     const eventTarget = new FakeSandboxWindow();
-    const runScript = new Function(
-      "globalThis",
-      "window",
-      "atob",
-      "URL",
-      "Blob",
-      "MessagePort",
-      script,
-    );
-    runScript(sandboxGlobal, eventTarget, atob, URL, Blob, FakeSandboxMessagePort);
+    runSandboxBootScript(script, { sandboxGlobal, eventTarget });
     const port = new FakeSandboxMessagePort();
     eventTarget.dispatch({
       data: {

@@ -168,7 +168,7 @@ export interface PluginHostRpcHandlerRequest {
 export type PluginHostRpcHandler = (
   context: PluginHostRpcContext,
   request: PluginHostRpcHandlerRequest,
-) => unknown | Promise<unknown>;
+) => unknown;
 
 interface PluginHostRpcHandlerRegistration {
   handler: PluginHostRpcHandler;
@@ -603,10 +603,12 @@ export class PluginHostRpcSession {
     }
 
     if (this.expectedInitialFrameLoads > 0 && event.type === "load") {
-      const readFrameSrc = this.frameElement?.getAttribute;
-      const frameSrc = readFrameSrc?.call(this.frameElement, "src");
-      if (readFrameSrc && (frameSrc === null || frameSrc === "")) {
-        return;
+      const frameElement = this.frameElement;
+      if (frameElement?.getAttribute) {
+        const frameSrc = frameElement.getAttribute("src");
+        if (frameSrc === null || frameSrc === "") {
+          return;
+        }
       }
       this.expectedInitialFrameLoads -= 1;
       return;

@@ -187,7 +187,7 @@ declare global {
 }
 
 function readE2EDocumentText(doc: Y.Doc): string {
-  return doc.getText("content").toString();
+  return doc.getText("content").toJSON();
 }
 
 function readE2EStateVector(update: Uint8Array | null): number[] | null {
@@ -344,7 +344,7 @@ function installE2EEditorHook(): void {
       (item) => item.documentId === documentId && item.autoSync && !item.readOnly,
     );
     if (states.length === 0) return false;
-    await Promise.all(states.map((state) => state.autoSync?.flushNow()));
+    await Promise.all(states.map((state) => Promise.resolve(state.autoSync?.flushNow())));
     return true;
   };
   window.__refmdAppendDocumentText = (documentId: string, text: string) => {

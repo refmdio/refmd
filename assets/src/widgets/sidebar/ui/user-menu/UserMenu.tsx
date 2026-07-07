@@ -149,7 +149,7 @@ export function UserMenu(props: UserMenuProps) {
               value={createName()}
               onInput={(e) => setCreateName(e.currentTarget.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
+                if (e.key === "Enter") void handleCreate();
               }}
             />
           </Field>

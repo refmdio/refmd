@@ -330,7 +330,7 @@ export async function handleUpdateSaved(
 
   if (documentId) {
     const pinKey = getPinKey(state, documentId);
-    getDocumentStatePin(pinKey).then((existing) => {
+    void getDocumentStatePin(pinKey).then((existing) => {
       const pin = updatePinFromState(
         existing,
         pinKey,
@@ -475,7 +475,7 @@ export async function handleSnapshotSaved(
 
   if (documentId) {
     const pinKey = getPinKey(state, documentId);
-    getDocumentStatePin(pinKey).then((existing) => {
+    void getDocumentStatePin(pinKey).then((existing) => {
       const pin = updatePinFromState(
         existing,
         pinKey,

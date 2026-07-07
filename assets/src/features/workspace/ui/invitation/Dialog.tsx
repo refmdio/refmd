@@ -91,7 +91,7 @@ export function WorkspaceInvitationDialog(props: WorkspaceInvitationDialogProps)
                 value={state().inviteEmail()}
                 onInput={(event) => state().setInviteEmail(event.currentTarget.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") state().createInvitation();
+                  if (event.key === "Enter") void state().createInvitation();
                 }}
               />
             </Field>
