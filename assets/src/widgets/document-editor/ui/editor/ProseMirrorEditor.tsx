@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { ProsemirrorAdapterProvider, usePluginViewFactory } from "@prosemirror-adapter/solid";
 import { EditorView } from "prosemirror-view";
 import { EditorState, TextSelection, type Plugin } from "prosemirror-state";
 import * as Y from "yjs";
@@ -18,7 +19,6 @@ import {
 import { MarkdownView, parseMarkdownView } from "@/shared/lib/markdown/markdown-view";
 import { markdownSchema } from "../../lib/prosemirror/schema";
 import { buildCollabPlugins } from "../../lib/prosemirror/plugin-base";
-import { isBlankProseMirrorDocument } from "../../lib/prosemirror/blank-document";
 import { setupCollabPlugins } from "../../lib/prosemirror/plugin-collab";
 import { blockHandlePlugin } from "../../lib/prosemirror/plugin-block-handle";
 import { placeholderPlugin } from "../../lib/prosemirror/plugin-placeholder";
@@ -28,13 +28,20 @@ import {
   syncWysiwygEditorAccessibility,
   WYSIWYG_EDITOR_LABEL,
 } from "../../lib/prosemirror/editor-readiness";
-import { INACTIVE, slashCommandsPlugin } from "../../lib/prosemirror/plugin-slash-commands";
+import {
+  closeSlashCommandMenu,
+  executeSlashCommand,
+  INACTIVE,
+  openSlashCommandMenuBelow,
+  slashCommandsPlugin,
+} from "../../lib/prosemirror/plugin-slash-commands";
 import type { SlashCommand, SlashMenuState } from "../../lib/prosemirror/plugin-slash-commands";
 import { readYDocMarkdownPreview } from "../../lib/prosemirror/preview-text";
 import { createLocalProseMirrorBridgeDoc } from "../../lib/prosemirror/shared-text-bridge";
 import { proseMirrorDocToMarkdown } from "../../lib/prosemirror/markdown-to";
 import { SlashMenu } from "./SlashMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
+import { createSolidBlockHandlePluginView } from "./BlockHandlePluginView";
 
 import "@/shared/lib/markdown/markdown-surface.css";
 import "./prosemirror-editor.css";
@@ -112,6 +119,16 @@ function recordEditorPerf(event: string, detail: Record<string, unknown>): void 
 }
 
 export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
+  return (
+    <ProsemirrorAdapterProvider>
+      <ProseMirrorEditorInner {...props} />
+    </ProsemirrorAdapterProvider>
+  );
+}
+
+function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
+  const pluginViewFactory = usePluginViewFactory();
+  const createBlockHandleView = createSolidBlockHandlePluginView(pluginViewFactory);
   const scrollSourceId = `pm-${Math.random().toString(36).slice(2)}`;
   const emptyGuideId = `refmd-wysiwyg-empty-guide-${props.panelId}`;
   let containerEl: HTMLDivElement | undefined;
@@ -136,7 +153,6 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
   const [selectionVersion, setSelectionVersion] = createSignal(0);
   const [currentView, setCurrentView] = createSignal<EditorView | null>(null);
   const [previewText, setPreviewText] = createSignal("");
-  const [isBlankDocument, setIsBlankDocument] = createSignal(false);
   const previewRoot = createMemo(() => parseMarkdownView(previewText()));
 
   function setInitialPreviewText(yDoc: Y.Doc) {
@@ -234,7 +250,6 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     cleanupLocalBridgeDoc?.();
     cleanupLocalBridgeDoc = undefined;
     setCurrentView(null);
-    setIsBlankDocument(false);
     slashPlugin = null;
     if (activeStateKey) {
       releaseYDoc(activeStateKey);
@@ -264,6 +279,13 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
     const sp = slashCommandsPlugin(markdownSchema);
     slashPlugin = sp;
+    let hasFocusedEditorInput = false;
+    let hasFocusedLocalDocChange = false;
+
+    const openBlockMenuBelow = (editorView: EditorView, blockPos: number): boolean => {
+      editorView.focus();
+      return openSlashCommandMenuBelow(editorView, blockPos);
+    };
 
     let destroyed = false;
 
@@ -278,7 +300,13 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       pluginEditorDecorationsPlugin(),
     ];
     if (!props.readOnly) {
-      editorPlugins.push(placeholderPlugin(), blockHandlePlugin());
+      editorPlugins.push(
+        placeholderPlugin(),
+        blockHandlePlugin({
+          createHandleView: createBlockHandleView,
+          openBlockMenuBelow,
+        }),
+      );
     }
 
     const state = EditorState.create({
@@ -303,7 +331,6 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
         const newState = editorView.state.apply(tr);
         editorView.updateState(newState);
-        setIsBlankDocument(isBlankProseMirrorDocument(newState.doc));
         syncWysiwygEditorAccessibility(editorView, {
           emptyGuideId,
           readOnly: props.readOnly,
@@ -311,8 +338,23 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
         if (tr.docChanged) {
           const isYjsSyncChange = collab.bridge.isYjsSyncChange(tr);
+          let sharedTextSynced = true;
+          if (!isYjsSyncChange) {
+            const syncResult = collab.bridge.syncToSharedText(newState.doc);
+            sharedTextSynced = syncResult.ok || syncResult.reason === "unchanged";
+            if (editorView.hasFocus() && sharedTextSynced) {
+              hasFocusedLocalDocChange = true;
+            }
+            if (!syncResult.ok && syncResult.reason !== "unchanged") {
+              recordEditorPerf("prosemirror_shared_text_sync_failed", {
+                documentId: props.documentId,
+                reason: syncResult.reason,
+                stateKey,
+              });
+            }
+          }
           props.onDocChange?.({
-            persist: !isYjsSyncChange && editorView.hasFocus(),
+            persist: !isYjsSyncChange && sharedTextSynced && editorView.hasFocus(),
           });
         }
 
@@ -332,7 +374,6 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       stateKey,
     });
     setCurrentView(editorView);
-    setIsBlankDocument(isBlankProseMirrorDocument(editorView.state.doc));
     syncWysiwygEditorAccessibility(editorView, {
       emptyGuideId,
       readOnly: props.readOnly,
@@ -361,12 +402,15 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       const editorView = view;
       if (!editorView || activeStateKey !== stateKey) return;
       const expectedText = yText.toString();
-      if (expectedText.trim().length === 0) return;
       const editorText = proseMirrorDocToMarkdown(editorView.state.doc);
       const renderedText = editorView.dom.innerText || editorView.dom.textContent || "";
-      const editorMatches =
-        normalizeMarkdownText(editorText) === normalizeMarkdownText(expectedText);
-      const renderedMatches = renderedContainsMarkdown(expectedText, renderedText);
+      const expectedNormalized = normalizeMarkdownText(expectedText);
+      const editorNormalized = normalizeMarkdownText(editorText);
+      const editorMatches = editorNormalized === expectedNormalized;
+      const renderedMatches =
+        expectedNormalized.length === 0
+          ? normalizeMarkdownText(renderedText).length === 0
+          : renderedContainsMarkdown(expectedText, renderedText);
       if (editorMatches && renderedMatches) return;
 
       scheduleRenderRefresh();
@@ -384,6 +428,22 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
 
       const selection = editorView.state.selection;
       const shouldRestoreFocus = editorView.hasFocus();
+      if (
+        expectedNormalized.length > 0 &&
+        shouldRestoreFocus &&
+        (hasFocusedEditorInput || hasFocusedLocalDocChange)
+      ) {
+        scheduleRenderRefresh();
+        recordEditorPerf("prosemirror_remote_content_reconcile_skipped_focused_local_change", {
+          documentId: props.documentId,
+          editorMatches,
+          expectedLength: expectedText.length,
+          renderedLength: renderedText.length,
+          renderedMatches,
+          stateKey,
+        });
+        return;
+      }
       recordEditorPerf(
         shouldRestoreFocus
           ? "prosemirror_remote_content_reconcile_focused_recreate"
@@ -438,12 +498,17 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const handlePaste = (event: ClipboardEvent) => props.onEditorPaste?.(event);
     const handleDrop = (event: DragEvent) => props.onEditorDrop?.(event);
     const handleEditorInteraction = () => clearPreviewText("editor-interaction");
+    const handleEditorInputIntent = () => {
+      hasFocusedEditorInput = true;
+      clearPreviewText("editor-interaction");
+    };
 
     editorView.dom.addEventListener("paste", handlePaste);
     editorView.dom.addEventListener("drop", handleDrop);
+    editorView.dom.addEventListener("beforeinput", handleEditorInputIntent, true);
     editorView.dom.addEventListener("pointerdown", handleEditorInteraction, true);
     editorView.dom.addEventListener("focusin", handleEditorInteraction, true);
-    editorView.dom.addEventListener("keydown", handleEditorInteraction, true);
+    editorView.dom.addEventListener("keydown", handleEditorInputIntent, true);
 
     const groupId = props.scrollGroupId;
     const handleScroll = () => {
@@ -471,9 +536,10 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
       destroyed = true;
       editorView.dom.removeEventListener("paste", handlePaste);
       editorView.dom.removeEventListener("drop", handleDrop);
+      editorView.dom.removeEventListener("beforeinput", handleEditorInputIntent, true);
       editorView.dom.removeEventListener("pointerdown", handleEditorInteraction, true);
       editorView.dom.removeEventListener("focusin", handleEditorInteraction, true);
-      editorView.dom.removeEventListener("keydown", handleEditorInteraction, true);
+      editorView.dom.removeEventListener("keydown", handleEditorInputIntent, true);
       rootEl.removeEventListener("scroll", handleScroll);
     };
   }
@@ -501,26 +567,25 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
     const ss = slashPlugin.getState(view.state) as SlashMenuState | undefined;
     if (!ss?.active) return;
 
-    const key = slashPlugin.spec.key!;
-    const from = ss.pos;
-    const to = view.state.selection.from;
+    const nextState = {
+      ...ss,
+      commands: [cmd],
+      selectedIndex: 0,
+    } satisfies SlashMenuState;
+    executeSlashCommand(view, nextState);
+  }
 
-    if (to > from) {
-      view.dispatch(view.state.tr.delete(from, to).setMeta(key, INACTIVE));
-    } else {
-      view.dispatch(view.state.tr.setMeta(key, INACTIVE));
-    }
-
-    const v = view;
-    queueMicrotask(() => {
-      cmd.execute(v);
-      v.focus();
-    });
+  function handleSlashDismiss() {
+    if (!view) return;
+    closeSlashCommandMenu(view);
   }
 
   return (
     <>
       <div class="relative h-full">
+        <span id={emptyGuideId} class="sr-only">
+          Start writing, or type / for blocks.
+        </span>
         <div
           ref={(el) => {
             containerEl = el;
@@ -528,36 +593,24 @@ export function ProseMirrorEditor(props: ProseMirrorEditorProps) {
           }}
           class="h-full overflow-auto relative"
         />
-        <Show when={!props.readOnly && isBlankDocument() && previewText().trim().length === 0}>
-          <div
-            class="pointer-events-none absolute inset-0 z-10 overflow-hidden"
-            data-refmd-wysiwyg-empty-guide="true"
-          >
-            <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
-              <div id={emptyGuideId} class="max-w-md pt-1">
-                <div class="text-base font-medium text-foreground/60">
-                  Start writing, or type / for blocks
-                </div>
-                <div class="mt-1 text-sm leading-6 text-muted-foreground/75">
-                  Add headings, tables, tasks, code, and more from the slash menu.
-                </div>
-              </div>
-            </div>
-          </div>
-        </Show>
         <Show when={previewText().trim().length > 0}>
           <div
             class="pointer-events-none absolute inset-0 overflow-auto bg-background text-foreground"
             data-refmd-content-preview="true"
           >
-            <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
+            <div class="refmd-editor-readable-surface py-4 pl-[4rem] pr-[3.25rem] text-foreground">
               <MarkdownView root={previewRoot()} />
             </div>
           </div>
         </Show>
       </div>
       <Show when={!props.readOnly && currentView() && slashState().active}>
-        <SlashMenu view={currentView()!} slashState={slashState()} onSelect={handleSlashSelect} />
+        <SlashMenu
+          view={currentView()!}
+          slashState={slashState()}
+          onDismiss={handleSlashDismiss}
+          onSelect={handleSlashSelect}
+        />
       </Show>
       <Show when={!props.readOnly && currentView() && hasSelection()}>
         <FloatingToolbar

@@ -57,15 +57,31 @@ function command(label: string, shortcut: string): SlashCommand {
   };
 }
 
-function renderSlashMenu(state: SlashMenuState) {
+function renderSlashMenu(
+  state: SlashMenuState,
+  handlers: {
+    onDismiss?: () => void;
+    onSelect?: (command: SlashCommand) => void;
+    prepareView?: (view: EditorView) => void;
+  } = {},
+) {
   vi.stubGlobal("ResizeObserver", ResizeObserverMock);
   Element.prototype.scrollIntoView = vi.fn();
   const view = createView();
+  handlers.prepareView?.(view);
   const dispose = render(
-    () => <SlashMenu view={view} slashState={state} onSelect={() => undefined} />,
+    () => (
+      <SlashMenu
+        view={view}
+        slashState={state}
+        onDismiss={handlers.onDismiss ?? (() => undefined)}
+        onSelect={handlers.onSelect ?? (() => undefined)}
+      />
+    ),
     document.body,
   );
   cleanupFns.push(dispose);
+  return view;
 }
 
 describe("SlashMenu accessibility", () => {
@@ -87,6 +103,7 @@ describe("SlashMenu accessibility", () => {
 
     const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')];
     expect(options).toHaveLength(2);
+    expect(options[0].getAttribute("data-slot")).toBe("command-item");
     expect(options[1].id).toBe(activeId);
     expect(options[1].getAttribute("aria-selected")).toBe("true");
     expect(options[0].getAttribute("aria-selected")).toBe("false");
@@ -112,5 +129,100 @@ describe("SlashMenu accessibility", () => {
     expect(listbox?.hasAttribute("aria-activedescendant")).toBe(false);
     expect(status?.textContent).toContain("No block commands match zzz");
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(0);
+  });
+
+  it("dismisses when Escape is pressed from a focused option", async () => {
+    const onDismiss = vi.fn();
+    renderSlashMenu(
+      {
+        active: true,
+        commands: [command("Heading 1", "h1")],
+        pos: 1,
+        query: "",
+        selectedIndex: 0,
+      },
+      { onDismiss },
+    );
+    await flush();
+
+    const option = document.querySelector<HTMLElement>('[role="option"]');
+    option?.focus();
+    option?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("positions virtual block menus below the handled block", async () => {
+    const block = document.createElement("p");
+    block.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          bottom: 260,
+          height: 40,
+          left: 120,
+          right: 520,
+          top: 220,
+          width: 400,
+          x: 120,
+          y: 220,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    );
+
+    renderSlashMenu(
+      {
+        active: true,
+        commands: [command("Heading 1", "h1")],
+        insertAfterBlockPos: 0,
+        mode: "virtual",
+        pos: 1,
+        query: "",
+        selectedIndex: 0,
+      },
+      {
+        prepareView: (view) => {
+          vi.spyOn(view, "nodeDOM").mockReturnValue(block);
+          vi.spyOn(view, "coordsAtPos").mockImplementation(() => {
+            throw new Error("stale ProseMirror position");
+          });
+        },
+      },
+    );
+    await flush();
+
+    const menu = document.querySelector<HTMLElement>(".refmd-slash-menu");
+    expect(Number.parseFloat(menu?.style.left ?? "0")).toBe(120);
+    expect(Number.parseFloat(menu?.style.top ?? "0")).toBe(264);
+  });
+
+  it("dismisses text slash menus when no caret or block anchor is available", async () => {
+    const onDismiss = vi.fn();
+    renderSlashMenu(
+      {
+        active: true,
+        commands: [command("Heading 1", "h1")],
+        mode: "text",
+        pos: 1,
+        query: "",
+        selectedIndex: 0,
+      },
+      {
+        onDismiss,
+        prepareView: (view) => {
+          vi.spyOn(view, "coordsAtPos").mockImplementation(() => {
+            throw new Error("stale ProseMirror position");
+          });
+          vi.spyOn(view, "domAtPos").mockImplementation(() => {
+            throw new Error("stale ProseMirror DOM position");
+          });
+        },
+      },
+    );
+    await flush();
+    await flush();
+
+    const menu = document.querySelector<HTMLElement>(".refmd-slash-menu");
+    expect(menu?.style.visibility).toBe("hidden");
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 });

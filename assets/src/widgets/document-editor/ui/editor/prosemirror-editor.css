@@ -2,7 +2,7 @@
 @import "prosemirror-tables/style/tables.css";
 
 .ProseMirror {
-  padding: 1rem 3.25rem;
+  padding: 1rem 3.25rem 1rem 4rem;
   min-height: 100%;
   caret-color: var(--foreground);
 }
@@ -17,6 +17,8 @@
   clip-path: inset(50%);
   opacity: 0;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ProseMirror .refmd-plugin-editor-decoration-highlight {
@@ -74,10 +76,14 @@
   min-height: 8rem;
 }
 
-.ProseMirror .is-doc-empty::before,
-.ProseMirror .is-doc-empty::after {
-  display: none;
-  content: none;
+.ProseMirror .is-doc-empty::before {
+  font-size: 1rem;
+  font-weight: 500;
+  opacity: 0.62;
+}
+
+.ProseMirror :where(p, h1, h2, h3, h4, h5, h6, pre, blockquote).ProseMirror-selectednode {
+  outline: none;
 }
 
 /* ---- Block Handle ---- */
@@ -87,11 +93,14 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  height: 20px;
   left: 0;
   top: 0;
   opacity: 0;
   transition: opacity 0.15s ease;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pm-block-handle.visible {
@@ -99,9 +108,21 @@
   pointer-events: auto;
 }
 
+.pm-block-handle.dragging {
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
+}
+
+.pm-block-handle,
+.pm-block-handle * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .pm-block-handle button {
-  width: 32px;
-  height: 32px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -111,6 +132,17 @@
   color: var(--muted-foreground);
   cursor: pointer;
   padding: 0;
+}
+
+.pm-block-handle button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pm-block-handle-bridge {
+  align-self: stretch;
+  flex: 0 0 10px;
+  pointer-events: auto;
 }
 
 .pm-block-handle button:hover {
@@ -132,10 +164,82 @@
 
 .pm-block-handle-drag {
   cursor: grab;
+  touch-action: none;
 }
 
-.pm-block-handle-drag:active {
+.pm-block-handle-drag:active,
+.pm-block-handle.dragging .pm-block-handle-drag {
   cursor: grabbing;
+}
+
+.pm-block-handle.dragging .pm-block-handle-drag {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.pm-block-drag-preview {
+  position: fixed;
+  top: -10000px;
+  left: -10000px;
+  z-index: -1;
+  max-width: 520px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popover);
+  box-shadow: var(--glass-shadow-outline-heavy);
+  color: var(--popover-foreground);
+  font: inherit;
+  line-height: 1.45;
+  opacity: 0.94;
+  padding: 8px 10px;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-block-drag-preview.visible {
+  z-index: 1000;
+}
+
+.refmd-wysiwyg-dropcursor {
+  position: relative;
+  background: var(--primary);
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 42%, transparent),
+    0 0 16px color-mix(in srgb, var(--primary) 36%, transparent);
+}
+
+.refmd-wysiwyg-dropcursor.prosemirror-dropcursor-block {
+  min-height: 4px;
+}
+
+.refmd-wysiwyg-dropcursor.prosemirror-dropcursor-block::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in srgb, var(--primary) 32%, transparent);
+  transform: translateY(-50%);
+}
+
+.refmd-wysiwyg-dropcursor.prosemirror-dropcursor-inline {
+  min-width: 3px;
+}
+
+.refmd-slash-menu,
+.refmd-slash-menu *,
+.refmd-floating-toolbar,
+.refmd-floating-toolbar * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ---- Remote Cursor (y-prosemirror) ---- */
@@ -146,6 +250,8 @@
   margin-right: -1px;
   pointer-events: none;
   word-break: normal;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ProseMirror > .ProseMirror-yjs-cursor:first-child {
@@ -165,6 +271,8 @@
   color: #fff;
   pointer-events: none;
   background-color: inherit;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Hide remote cursors when panel is not focused */

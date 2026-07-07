@@ -1,7 +1,7 @@
 import { setBlockType } from "prosemirror-commands";
 import type { Node as ProseMirrorNode, ResolvedPos, Schema } from "prosemirror-model";
 import { wrapInList } from "prosemirror-schema-list";
-import { Plugin, PluginKey, Selection } from "prosemirror-state";
+import { Plugin, PluginKey, Selection, type Transaction } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 
 export type SlashCommandCategory = "text" | "list" | "other";
@@ -210,6 +210,11 @@ export interface SlashMenuState {
   commands: SlashCommand[];
   selectedIndex: number;
   pos: number;
+  mode?: "text" | "virtual";
+  insertAfterBlockPos?: number;
+  insertAfterBlockNode?: ProseMirrorNode;
+  virtualOpenDoc?: ProseMirrorNode;
+  anchorPos?: number;
 }
 
 export const INACTIVE: SlashMenuState = {
@@ -218,6 +223,7 @@ export const INACTIVE: SlashMenuState = {
   commands: [],
   selectedIndex: 0,
   pos: 0,
+  mode: "text",
 };
 
 function selectedCommand(state: SlashMenuState): SlashCommand | null {
@@ -227,6 +233,11 @@ function selectedCommand(state: SlashMenuState): SlashCommand | null {
 }
 
 function deleteSlashQuery(view: EditorView, state: SlashMenuState) {
+  if (state.mode === "virtual") {
+    view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
+    return;
+  }
+
   const from = state.pos;
   const to = view.state.selection.from;
   const tr =
@@ -241,8 +252,12 @@ function textBeforeCursorOnCurrentLine(doc: ProseMirrorNode, $from: ResolvedPos)
   return textBeforeCursor.slice(textBeforeCursor.lastIndexOf("\n") + 1);
 }
 
+function isSlashCommandTextblock($from: ResolvedPos): boolean {
+  return $from.parent.isTextblock && !$from.parent.type.spec.code;
+}
+
 function slashStartOnCurrentLine(doc: ProseMirrorNode, $from: ResolvedPos): number | null {
-  if (!$from.parent.isTextblock || $from.pos <= $from.start()) return null;
+  if (!isSlashCommandTextblock($from) || $from.pos <= $from.start()) return null;
   if (textBeforeCursorOnCurrentLine(doc, $from) !== "/") return null;
   return $from.pos - 1;
 }
@@ -250,11 +265,110 @@ function slashStartOnCurrentLine(doc: ProseMirrorNode, $from: ResolvedPos): numb
 function isSlashCommandStartSelection(view: EditorView): boolean {
   if (!view.state.selection.empty) return false;
   const { $from } = view.state.selection;
-  return $from.parent.isTextblock && textBeforeCursorOnCurrentLine(view.state.doc, $from) === "";
+  return (
+    isSlashCommandTextblock($from) && textBeforeCursorOnCurrentLine(view.state.doc, $from) === ""
+  );
 }
 
 function sameCommands(a: SlashCommand[], b: SlashCommand[]): boolean {
   return a.length === b.length && a.every((command, index) => command === b[index]);
+}
+
+function validVirtualInsertTarget(doc: ProseMirrorNode, state: SlashMenuState): boolean {
+  if (state.mode !== "virtual") return true;
+  if (!state.virtualOpenDoc || !doc.eq(state.virtualOpenDoc)) return false;
+  if (typeof state.insertAfterBlockPos !== "number" || !state.insertAfterBlockNode) return false;
+  const node = doc.nodeAt(state.insertAfterBlockPos);
+  return !!node && node.eq(state.insertAfterBlockNode);
+}
+
+function mapVirtualMenuState(tr: Transaction, prev: SlashMenuState): SlashMenuState {
+  const insertAfterBlockPos =
+    typeof prev.insertAfterBlockPos === "number"
+      ? tr.mapping.map(prev.insertAfterBlockPos, -1)
+      : undefined;
+  const insertAfterBlockNode =
+    typeof insertAfterBlockPos === "number" ? tr.doc.nodeAt(insertAfterBlockPos) : null;
+
+  if (!insertAfterBlockNode || !prev.insertAfterBlockNode?.eq(insertAfterBlockNode)) {
+    return INACTIVE;
+  }
+
+  return {
+    ...prev,
+    pos: tr.mapping.map(prev.pos, -1),
+    insertAfterBlockPos,
+    insertAfterBlockNode,
+    virtualOpenDoc: tr.doc,
+    anchorPos: typeof prev.anchorPos === "number" ? tr.mapping.map(prev.anchorPos, -1) : undefined,
+  } satisfies SlashMenuState;
+}
+
+export function executeSlashCommand(view: EditorView, state: SlashMenuState): boolean {
+  const cmd = selectedCommand(state);
+  if (!cmd) return false;
+  if (!validVirtualInsertTarget(view.state.doc, state)) {
+    view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
+    return false;
+  }
+
+  const commandStartDoc = view.state.doc;
+  deleteSlashQuery(view, state);
+  queueMicrotask(() => {
+    let insertedTextPos: number | null = null;
+    if (state.mode === "virtual" && typeof state.insertAfterBlockPos === "number") {
+      if (!view.state.doc.eq(commandStartDoc) || !validVirtualInsertTarget(view.state.doc, state)) {
+        return;
+      }
+      const node = view.state.doc.nodeAt(state.insertAfterBlockPos);
+      const paragraphType = view.state.schema.nodes.paragraph;
+      if (!node || !paragraphType) return;
+
+      const insertAt = state.insertAfterBlockPos + node.nodeSize;
+      const tr = view.state.tr.insert(insertAt, paragraphType.create());
+      tr.setSelection(Selection.near(tr.doc.resolve(insertAt + 1)));
+      view.dispatch(tr);
+      insertedTextPos = insertAt + 1;
+    }
+
+    cmd.execute(view);
+    if (insertedTextPos !== null) {
+      const pos = Math.min(insertedTextPos, view.state.doc.content.size);
+      view.dispatch(view.state.tr.setSelection(Selection.near(view.state.doc.resolve(pos))));
+    }
+    view.focus();
+  });
+  return true;
+}
+
+export function openSlashCommandMenuBelow(view: EditorView, blockPos: number): boolean {
+  const node = view.state.doc.nodeAt(blockPos);
+  if (!node || !node.isBlock) return false;
+
+  const insertAt = blockPos + node.nodeSize;
+  view.dispatch(
+    view.state.tr.setMeta(slashCommandsKey, {
+      active: true,
+      query: "",
+      commands: buildCommands(view.state.schema),
+      selectedIndex: 0,
+      pos: Math.min(blockPos + 1, view.state.doc.content.size),
+      mode: "virtual",
+      insertAfterBlockPos: blockPos,
+      insertAfterBlockNode: node,
+      virtualOpenDoc: view.state.doc,
+      anchorPos: Math.min(insertAt, view.state.doc.content.size),
+    } satisfies SlashMenuState),
+  );
+  return true;
+}
+
+export function closeSlashCommandMenu(view: EditorView): boolean {
+  const state = slashCommandsKey.getState(view.state) as SlashMenuState | undefined;
+  if (!state?.active) return false;
+
+  view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
+  return true;
 }
 
 export function slashCommandsPlugin(schema: Schema): Plugin {
@@ -287,15 +401,7 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
   }
 
   function executeSelectedCommand(view: EditorView, state: SlashMenuState): boolean {
-    const cmd = selectedCommand(state);
-    if (!cmd) return false;
-
-    deleteSlashQuery(view, state);
-    queueMicrotask(() => {
-      cmd.execute(view);
-      view.focus();
-    });
-    return true;
+    return executeSlashCommand(view, state);
   }
 
   return new Plugin({
@@ -307,14 +413,20 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         if (meta !== undefined) return meta as SlashMenuState;
         if (!prev.active) return prev;
 
+        if (prev.mode === "virtual" && tr.docChanged) return mapVirtualMenuState(tr, prev);
+
         const next = tr.docChanged
           ? {
               ...prev,
               pos: tr.mapping.map(prev.pos, -1),
+              anchorPos:
+                typeof prev.anchorPos === "number" ? tr.mapping.map(prev.anchorPos, -1) : undefined,
             }
           : prev;
 
         if (tr.selectionSet && !tr.docChanged) {
+          if (next.mode === "virtual") return INACTIVE;
+
           const cursor = tr.selection.from;
           const queryEnd = next.pos + next.query.length + 1;
           if (cursor < next.pos || cursor > queryEnd) return INACTIVE;
@@ -345,11 +457,13 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         } satisfies SlashMenuState);
       }
 
+      if (state.mode === "virtual") return null;
+
       if (state.pos < 0 || state.pos >= newState.doc.content.size || cursor < state.pos + 1) {
         return newState.tr.setMeta(slashCommandsKey, INACTIVE);
       }
       if (
-        !$from.parent.isTextblock ||
+        !isSlashCommandTextblock($from) ||
         state.pos < $from.start() ||
         state.pos >= cursor ||
         cursor > $from.end()
@@ -433,18 +547,28 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
         if (event.key === "Backspace") {
           if (state.query.length === 0) {
             view.dispatch(view.state.tr.setMeta(slashCommandsKey, INACTIVE));
-            return false;
+            return state.mode === "virtual";
           }
           event.preventDefault();
           const newQuery = state.query.slice(0, -1);
           const filtered = filterCommands(newQuery);
-          const cursorPos = view.state.selection.from;
-          const tr = view.state.tr.delete(cursorPos - 1, cursorPos).setMeta(slashCommandsKey, {
-            ...state,
-            query: newQuery,
-            commands: filtered,
-            selectedIndex: 0,
-          } satisfies SlashMenuState);
+          const tr =
+            state.mode === "virtual"
+              ? view.state.tr.setMeta(slashCommandsKey, {
+                  ...state,
+                  query: newQuery,
+                  commands: filtered,
+                  selectedIndex: 0,
+                } satisfies SlashMenuState)
+              : (() => {
+                  const cursorPos = view.state.selection.from;
+                  return view.state.tr.delete(cursorPos - 1, cursorPos).setMeta(slashCommandsKey, {
+                    ...state,
+                    query: newQuery,
+                    commands: filtered,
+                    selectedIndex: 0,
+                  } satisfies SlashMenuState);
+                })();
           view.dispatch(tr);
           return true;
         }
@@ -452,23 +576,46 @@ export function slashCommandsPlugin(schema: Schema): Plugin {
           event.preventDefault();
           const newQuery = state.query + event.key;
           const filtered = filterCommands(newQuery);
-          const cursorPos = view.state.selection.from;
-          const tr = view.state.tr
-            .insertText(event.key, cursorPos, cursorPos)
-            .setMeta(slashCommandsKey, {
-              ...state,
-              query: newQuery,
-              commands: filtered,
-              selectedIndex: 0,
-            } satisfies SlashMenuState);
+          const tr =
+            state.mode === "virtual"
+              ? view.state.tr.setMeta(slashCommandsKey, {
+                  ...state,
+                  query: newQuery,
+                  commands: filtered,
+                  selectedIndex: 0,
+                } satisfies SlashMenuState)
+              : (() => {
+                  const cursorPos = view.state.selection.from;
+                  return view.state.tr
+                    .insertText(event.key, cursorPos, cursorPos)
+                    .setMeta(slashCommandsKey, {
+                      ...state,
+                      query: newQuery,
+                      commands: filtered,
+                      selectedIndex: 0,
+                    } satisfies SlashMenuState);
+                })();
           view.dispatch(tr);
           return true;
         }
         return false;
       },
       handleTextInput(view, from, to, text) {
-        if (text !== "/") return false;
         const state = slashCommandsKey.getState(view.state) as SlashMenuState | undefined;
+        if (state?.active && state.mode === "virtual") {
+          const newQuery = state.query + text;
+          view.dispatch(
+            view.state.tr.setMeta(slashCommandsKey, {
+              ...state,
+              query: newQuery,
+              commands: filterCommands(newQuery),
+              selectedIndex: 0,
+            } satisfies SlashMenuState),
+          );
+          return true;
+        }
+
+        if (text !== "/") return false;
         if (state?.active) return false;
         return openSlashMenu(view, from, to);
       },

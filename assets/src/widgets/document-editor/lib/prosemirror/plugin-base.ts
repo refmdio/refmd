@@ -43,7 +43,9 @@ export function buildCollabPlugins(schema: Schema): Plugin[] {
   plugins.push(markdownPasteDropPlugin(schema));
   plugins.push(keymap(markKeys));
   plugins.push(keymap(baseKeymap));
-  plugins.push(dropCursor());
+  plugins.push(
+    dropCursor({ color: "var(--primary)", width: 3, class: "refmd-wysiwyg-dropcursor" }),
+  );
   plugins.push(gapCursor());
   if (schema.nodes.list_item) {
     plugins.push(taskListPlugin());

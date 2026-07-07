@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { EditorState, TextSelection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { buildCollabPlugins } from "./plugin-base";
-import { type SlashMenuState, slashCommandsPlugin } from "./plugin-slash-commands";
+import {
+  executeSlashCommand,
+  openSlashCommandMenuBelow,
+  type SlashMenuState,
+  slashCommandsPlugin,
+} from "./plugin-slash-commands";
 import { markdownSchema } from "./schema";
 
 const cleanupFns: (() => void)[] = [];
@@ -18,11 +23,31 @@ function createContainer(): HTMLElement {
   return container;
 }
 
+function paragraph(text: string) {
+  return markdownSchema.nodes.paragraph.create(null, markdownSchema.text(text));
+}
+
 function createView() {
   const slashPlugin = slashCommandsPlugin(markdownSchema);
   const view = new EditorView(createContainer(), {
     state: EditorState.create({
       doc: markdownSchema.node("doc", null, [markdownSchema.nodes.paragraph.create()]),
+      plugins: [slashPlugin, ...buildCollabPlugins(markdownSchema)],
+    }),
+  });
+  cleanupFns.push(() => view.destroy());
+
+  return {
+    slashState: () => slashPlugin.getState(view.state) as SlashMenuState,
+    view,
+  };
+}
+
+function createCodeBlockView() {
+  const slashPlugin = slashCommandsPlugin(markdownSchema);
+  const view = new EditorView(createContainer(), {
+    state: EditorState.create({
+      doc: markdownSchema.node("doc", null, [markdownSchema.nodes.code_block.create()]),
       plugins: [slashPlugin, ...buildCollabPlugins(markdownSchema)],
     }),
   });
@@ -243,6 +268,111 @@ describe("slash commands ProseMirror plugin", () => {
         expect(handled).toBe(false);
       }
     }
+  });
+
+  it("treats slash as code text inside code blocks", () => {
+    const { slashState, view } = createCodeBlockView();
+
+    expect(inputText(view, "/")).toBe(false);
+    insertDefaultText(view, "/");
+
+    expect(view.state.doc.textContent).toBe("/");
+    expect(slashState().active).toBe(false);
+  });
+
+  it("opens the block-handle menu without writing a slash into the document", () => {
+    const { slashState, view } = createView();
+    insertDefaultText(view, "First");
+
+    expect(openSlashCommandMenuBelow(view, 0)).toBe(true);
+    expect(slashState()).toMatchObject({
+      active: true,
+      anchorPos: view.state.doc.child(0).nodeSize,
+      insertAfterBlockPos: 0,
+      mode: "virtual",
+      query: "",
+    });
+    expect(view.state.doc.textContent).toBe("First");
+
+    expect(press(view, "Escape")).toBe(true);
+    expect(slashState().active).toBe(false);
+    expect(view.state.doc.textContent).toBe("First");
+    expect(view.state.doc.childCount).toBe(1);
+  });
+
+  it("applies a block-handle menu command only after selection", async () => {
+    const { slashState, view } = createView();
+    insertDefaultText(view, "First");
+
+    expect(openSlashCommandMenuBelow(view, 0)).toBe(true);
+    expect(press(view, "h")).toBe(true);
+    expect(press(view, "2")).toBe(true);
+    expect(view.state.doc.textContent).toBe("First");
+    expect(slashState().query).toBe("h2");
+
+    expect(press(view, "Enter")).toBe(true);
+    await flushMicrotasks();
+
+    expect(slashState().active).toBe(false);
+    expect(view.state.doc.childCount).toBe(2);
+    expect(view.state.doc.child(0).textContent).toBe("First");
+    expect(view.state.doc.child(1).type).toBe(markdownSchema.nodes.heading);
+    expect(view.state.doc.child(1).attrs.level).toBe(2);
+    expect(view.state.doc.textContent).toBe("First");
+  });
+
+  it("keeps the block-handle virtual menu when an unrelated document change preserves the source block", () => {
+    const { slashState, view } = createView();
+    insertDefaultText(view, "First");
+
+    expect(openSlashCommandMenuBelow(view, 0)).toBe(true);
+    expect(slashState().active).toBe(true);
+
+    view.dispatch(view.state.tr.insert(view.state.doc.content.size, paragraph("Remote")));
+
+    expect(slashState()).toMatchObject({
+      active: true,
+      insertAfterBlockPos: 0,
+      mode: "virtual",
+    });
+    expect(view.state.doc.childCount).toBe(2);
+    expect(view.state.doc.child(0).textContent).toBe("First");
+    expect(view.state.doc.child(1).textContent).toBe("Remote");
+  });
+
+  it("closes the block-handle virtual menu when the source block changes before selection", () => {
+    const { slashState, view } = createView();
+    insertDefaultText(view, "First");
+
+    expect(openSlashCommandMenuBelow(view, 0)).toBe(true);
+    expect(slashState().active).toBe(true);
+
+    view.dispatch(view.state.tr.insertText("!", 1, 1));
+
+    expect(slashState().active).toBe(false);
+    expect(view.state.doc.child(0).textContent).toBe("!First");
+  });
+
+  it("rejects stale block-handle virtual menu state after the document changes", async () => {
+    const { slashState, view } = createView();
+    insertDefaultText(view, "First");
+
+    expect(openSlashCommandMenuBelow(view, 0)).toBe(true);
+    const staleState = {
+      ...slashState(),
+      commands: slashState().commands.filter((command) => command.label === "Heading 2"),
+      selectedIndex: 0,
+    } satisfies SlashMenuState;
+
+    view.dispatch(view.state.tr.insert(view.state.doc.content.size, paragraph("Remote")));
+
+    expect(executeSlashCommand(view, staleState)).toBe(false);
+    await flushMicrotasks();
+
+    expect(view.state.doc.childCount).toBe(2);
+    expect(view.state.doc.child(0).textContent).toBe("First");
+    expect(view.state.doc.child(1).textContent).toBe("Remote");
+    expect(view.state.doc.child(1).type).toBe(markdownSchema.nodes.paragraph);
   });
 
   it("creates task list and table blocks from slash commands", async () => {

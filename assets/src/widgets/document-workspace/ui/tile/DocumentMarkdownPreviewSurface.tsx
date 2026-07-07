@@ -11,7 +11,7 @@ export function DocumentMarkdownPreviewSurface(props: DocumentMarkdownPreviewSur
   const root = createMemo(() => parseMarkdownView(props.markdown));
 
   return (
-    <div class="refmd-editor-readable-surface px-[3.25rem] py-4 text-foreground">
+    <div class="refmd-editor-readable-surface py-4 pl-[4rem] pr-[3.25rem] text-foreground">
       <MarkdownView root={root()} />
     </div>
   );

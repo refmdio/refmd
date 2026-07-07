@@ -23,6 +23,7 @@ import {
   runFloatingToolbarAction,
   type FloatingToolbarActionId,
 } from "./floating-toolbar-commands";
+import { Button } from "@/shared/ui/button";
 
 interface ToolbarButtonDef {
   id: FloatingToolbarActionId;
@@ -125,7 +126,8 @@ export function FloatingToolbar(props: FloatingToolbarProps) {
         ref={(el) => {
           toolbarEl = el;
         }}
-        class="fixed z-40 flex items-center gap-0.5 border border-border/60 bg-muted/60 p-1 shadow-[var(--glass-shadow-outline)] backdrop-blur-[6px]"
+        class="refmd-floating-toolbar fixed z-40 flex items-center gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+        data-refmd-editor-chrome="floating-toolbar"
       >
         {[...availableMarkButtons(), ...availableBlockButtons()].map((btn, index) => {
           const Icon = btn.icon;
@@ -137,9 +139,11 @@ export function FloatingToolbar(props: FloatingToolbarProps) {
           return (
             <>
               <ShowSeparator when={index === availableMarkButtons().length} />
-              <button
+              <Button
                 type="button"
-                class={`flex size-7 items-center justify-center rounded-sm ${
+                variant="ghost"
+                size="icon-sm"
+                class={`size-7 rounded-sm p-0 ${
                   active
                     ? "bg-foreground text-background hover:bg-foreground/90 hover:text-background"
                     : "hover:bg-accent hover:text-accent-foreground"
@@ -152,7 +156,7 @@ export function FloatingToolbar(props: FloatingToolbarProps) {
                 }}
               >
                 <Icon class="size-3.5" />
-              </button>
+              </Button>
             </>
           );
         })}
