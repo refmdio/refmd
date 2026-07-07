@@ -1141,6 +1141,8 @@ defmodule RefMD.Devices do
 
     checkpoint_sequence = Map.fetch!(payload, "sequence")
     checkpoint_hash = Hash.blake3_base64url(JCS.canonical_bytes!(payload))
+    signing_public_key_material = Map.fetch!(attrs, :hybrid_signing_public_key_material)
+    encryption_public_key_material = Map.fetch!(attrs, :hybrid_encryption_public_key_material)
 
     %{
       "approving_signing_key_id" => identity_signing_key_id!(attrs.user_id),
@@ -1148,19 +1150,13 @@ defmodule RefMD.Devices do
       "approving_key_checkpoint_hash" => checkpoint_hash,
       "target_device_id" => attrs.id,
       "target_device_signing_key_id" =>
-        Signature.compute_signing_key_id!(Map.fetch!(attrs, :hybrid_signing_public_key_material)),
+        Signature.compute_signing_key_id!(signing_public_key_material),
       "target_device_hybrid_signing_public_key_material_hash" =>
-        Hash.blake3_base64url(
-          JCS.canonical_bytes!(Map.fetch!(attrs, :hybrid_signing_public_key_material))
-        ),
+        Hash.blake3_base64url(JCS.canonical_bytes!(signing_public_key_material)),
       "target_device_hybrid_encryption_public_key_material_hash" =>
-        Hash.blake3_base64url(
-          JCS.canonical_bytes!(Map.fetch!(attrs, :hybrid_encryption_public_key_material))
-        ),
+        Hash.blake3_base64url(JCS.canonical_bytes!(encryption_public_key_material)),
       "target_device_encryption_key_id" =>
-        HybridEncryptionMaterial.compute_key_id!(
-          Map.fetch!(attrs, :hybrid_encryption_public_key_material)
-        ),
+        HybridEncryptionMaterial.compute_key_id!(encryption_public_key_material),
       "target_device_client_nonce_hash" => Hash.blake3_base64url(attrs.client_nonce),
       "target_key_checkpoint_sequence" => checkpoint_sequence,
       "target_key_checkpoint_hash" => checkpoint_hash

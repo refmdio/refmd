@@ -353,9 +353,9 @@ defmodule RefMD.Plugins.RuntimeDescriptors do
 
   defp manifest_renderer_slots(_manifest), do: []
 
-  defp manifest_renderer_slot(%{"kind" => kind, "type" => type})
-       when kind == "block" and is_binary(type) and type != "" do
-    [%{"kind" => kind, "type" => type}]
+  defp manifest_renderer_slot(%{"kind" => "block", "type" => type})
+       when is_binary(type) and type != "" do
+    [%{"kind" => "block", "type" => type}]
   end
 
   defp manifest_renderer_slot(%{"kind" => "inline", "type" => "code"}) do

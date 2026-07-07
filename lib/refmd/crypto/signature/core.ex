@@ -1330,7 +1330,7 @@ defmodule RefMD.Crypto.Signature.Core do
        when key in ["proxy", "target", "endpoint", "runtime"],
        do: :map
 
-  defp nested_field_type(_field, key, _) when key == "password_protected", do: :boolean
+  defp nested_field_type(_field, "password_protected", _), do: :boolean
   defp nested_field_type(_field, "sequence", _), do: :positive_integer
   defp nested_field_type("public_data", key, _) when key in ["clock"], do: :non_negative_integer
 

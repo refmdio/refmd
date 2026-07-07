@@ -27,7 +27,7 @@ defmodule RefMD.Encryption.KeyDirectory.State do
       _entry ->
         raise ArgumentError, "checkpoint_state_entry_invalid"
     end)
-    |> Enum.sort_by(fn {key_id, canonical} -> {key_id, canonical} end)
+    |> Enum.sort()
     |> tap(fn keyed ->
       key_count = keyed |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length()
       if key_count != length(keyed), do: raise(ArgumentError, "checkpoint_state_entry_duplicate")

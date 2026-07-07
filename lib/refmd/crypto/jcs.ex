@@ -3,12 +3,21 @@ defmodule RefMD.Crypto.JCS do
 
   @max_safe_json_integer 9_007_199_254_740_991
 
-  def canonicalize!(value) when is_map(value), do: encode_value(value, true)
+  def canonicalize!(value) when is_map(value) do
+    value
+    |> encode_value(true)
+    |> IO.iodata_to_binary()
+  end
+
   def canonicalize!(_), do: raise(ArgumentError, "jcs_root_must_be_object")
 
   def canonical_bytes!(value), do: canonicalize!(value)
 
-  def canonical_value_bytes!(value), do: encode_value(value, false)
+  def canonical_value_bytes!(value) do
+    value
+    |> encode_value(false)
+    |> IO.iodata_to_binary()
+  end
 
   def parse_json_strict!(raw) when is_binary(raw) do
     reject_negative_number_tokens!(raw, 0, byte_size(raw))
@@ -26,20 +35,22 @@ defmodule RefMD.Crypto.JCS do
       raise ArgumentError, "jcs_object_key_must_be_string"
     end
 
-    value
-    |> Enum.map(fn
-      {key, item} when is_binary(key) -> {key, item}
-      _ -> raise ArgumentError, "jcs_object_key_must_be_string"
-    end)
-    |> Enum.sort_by(fn {key, _} -> key end, &utf8_lte?/2)
-    |> Enum.map_join(",", fn {key, item} ->
-      quote_string!(key) <> ":" <> encode_value(item, false)
-    end)
-    |> then(&("{" <> &1 <> "}"))
+    members =
+      value
+      |> Enum.map(fn
+        {key, item} when is_binary(key) -> {key, item}
+        _ -> raise ArgumentError, "jcs_object_key_must_be_string"
+      end)
+      |> Enum.sort_by(fn {key, _} -> key end, &utf8_lte?/2)
+      |> Enum.map(fn {key, item} ->
+        [quote_string!(key), ?:, encode_value(item, false)]
+      end)
+
+    [?{, Enum.intersperse(members, ?,), ?}]
   end
 
   defp encode_value(value, _root?) when is_list(value) do
-    "[" <> Enum.map_join(value, ",", &encode_value(&1, false)) <> "]"
+    [?[, value |> Enum.map(&encode_value(&1, false)) |> Enum.intersperse(?,), ?]]
   end
 
   defp encode_value(value, _root?) when is_binary(value), do: quote_string!(value)

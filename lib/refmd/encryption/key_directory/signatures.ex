@@ -623,9 +623,8 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     )
   end
 
-  defp assert_event_actor_authority!(_actor, _signer, _scope_kind, _scope_id, sequence)
-       when sequence == 1,
-       do: :ok
+  defp assert_event_actor_authority!(_actor, _signer, _scope_kind, _scope_id, 1),
+    do: :ok
 
   defp assert_event_actor_authority!(
          %{"signer_kind" => "invitation_redeem_authority"},

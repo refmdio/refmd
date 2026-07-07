@@ -45,7 +45,7 @@ defmodule RefMD.Storage.Local do
   end
 
   @impl true
-  def list(prefix, cursor) when is_binary(prefix) and prefix == "plugin-packages/" do
+  def list("plugin-packages/" = prefix, cursor) do
     root = root_path()
     offset = if is_integer(cursor) and cursor >= 0, do: cursor, else: 0
 

@@ -680,10 +680,7 @@ defmodule RefMDWeb.AuthController do
   defp check_device_verified(_user_id, nil), do: false
 
   defp check_device_verified(user_id, device_id) do
-    case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} -> true
-      _ -> false
-    end
+    match?(%{user_id: ^user_id, revoked_at: nil}, Devices.get_device(device_id))
   end
 
   defp build_login_response(user, session, device_id, device_verified) do

@@ -66,7 +66,7 @@ defmodule RefMD.Storage.S3 do
   end
 
   @impl true
-  def list(prefix, cursor) when is_binary(prefix) and prefix == "plugin-packages/" do
+  def list("plugin-packages/" = prefix, cursor) do
     query =
       [
         {"list-type", "2"},

@@ -418,7 +418,7 @@ defmodule RefMD.Workspaces.Invitations do
          admission
        ) do
     with :ok <- check_invitation_validity(invitation, user_email),
-         :ok <- check_workspace_acceptance_state_for_pending(invitation, workspace),
+         :ok <- validate_workspace_acceptance_state(invitation, workspace),
          {:ok, target_role} <- fetch_target_role(invitation),
          {:ok, _member} <- insert_member(invitation, user_id),
          :ok <- persist_invitation_admission!(invitation, user_id, requester_device_id, admission),
@@ -478,7 +478,7 @@ defmodule RefMD.Workspaces.Invitations do
     end
   end
 
-  defp check_workspace_acceptance_state(invitation, workspace) do
+  defp validate_workspace_acceptance_state(invitation, workspace) do
     cond do
       workspace.needs_kek_rotation ->
         {:error, :kek_rotation_in_progress}
@@ -490,14 +490,7 @@ defmodule RefMD.Workspaces.Invitations do
         {:error, :invitation_role_deleted}
 
       true ->
-        {:error, :not_found}
-    end
-  end
-
-  defp check_workspace_acceptance_state_for_pending(invitation, workspace) do
-    case check_workspace_acceptance_state(invitation, workspace) do
-      {:error, :not_found} -> :ok
-      other -> other
+        :ok
     end
   end
 

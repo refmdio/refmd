@@ -628,7 +628,7 @@ defmodule RefMD.Plugins.SandboxDocumentRenderer do
       "</body>",
       "</html>"
     ]
-    |> Enum.join("")
+    |> Enum.join()
   end
 
   defp script_sha256(script_text) do

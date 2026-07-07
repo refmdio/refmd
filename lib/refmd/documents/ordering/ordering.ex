@@ -161,13 +161,25 @@ defmodule RefMD.Documents.Ordering do
     )
   end
 
-  defp temporarily_negate_document_positions!(workspace_id, parent_id) do
-    {clause, params} = combined_parent_id_sql(parent_id, 3)
-
+  defp temporarily_negate_document_positions!(workspace_id, nil) do
     Repo.query!(
-      "UPDATE documents SET position = -(position + 1), updated_at = $1 " <>
-        "WHERE workspace_id = $2 AND #{clause} AND position >= 0",
-      [DateTime.utc_now(), Ecto.UUID.dump!(workspace_id) | params]
+      """
+      UPDATE documents
+      SET position = -(position + 1), updated_at = $1
+      WHERE workspace_id = $2 AND parent_id IS NULL AND position >= 0
+      """,
+      [DateTime.utc_now(), Ecto.UUID.dump!(workspace_id)]
+    )
+  end
+
+  defp temporarily_negate_document_positions!(workspace_id, parent_id) do
+    Repo.query!(
+      """
+      UPDATE documents
+      SET position = -(position + 1), updated_at = $1
+      WHERE workspace_id = $2 AND parent_id = $3 AND position >= 0
+      """,
+      [DateTime.utc_now(), Ecto.UUID.dump!(workspace_id), Ecto.UUID.dump!(parent_id)]
     )
   end
 
@@ -180,22 +192,28 @@ defmodule RefMD.Documents.Ordering do
     set_share_mount_position!(id, position)
   end
 
-  defp list_share_mount_sibling_rows(workspace_id, parent_id) do
-    {clause, params} = combined_parent_id_sql(parent_id, 2)
-
+  defp list_share_mount_sibling_rows(workspace_id, nil) do
     Repo.query!(
       """
       SELECT id, position
       FROM share_mounts
-      WHERE workspace_id = $1 AND #{clause}
+      WHERE workspace_id = $1 AND parent_id IS NULL
       """,
-      [Ecto.UUID.dump!(workspace_id) | params]
+      [Ecto.UUID.dump!(workspace_id)]
     )
-    |> then(fn %{rows: rows} ->
-      Enum.map(rows, fn [id, position] ->
-        %{kind: "mount", id: database_uuid_to_string(id), position: position}
-      end)
-    end)
+    |> share_mount_sibling_rows()
+  end
+
+  defp list_share_mount_sibling_rows(workspace_id, parent_id) do
+    Repo.query!(
+      """
+      SELECT id, position
+      FROM share_mounts
+      WHERE workspace_id = $1 AND parent_id = $2
+      """,
+      [Ecto.UUID.dump!(workspace_id), Ecto.UUID.dump!(parent_id)]
+    )
+    |> share_mount_sibling_rows()
   end
 
   defp set_share_mount_parent_position!(mount_id, parent_id, position) do
@@ -214,10 +232,10 @@ defmodule RefMD.Documents.Ordering do
     )
   end
 
-  defp combined_parent_id_sql(nil, _start_param), do: {"parent_id IS NULL", []}
-
-  defp combined_parent_id_sql(parent_id, start_param) do
-    {"parent_id = $#{start_param}", [Ecto.UUID.dump!(parent_id)]}
+  defp share_mount_sibling_rows(%{rows: rows}) do
+    Enum.map(rows, fn [id, position] ->
+      %{kind: "mount", id: database_uuid_to_string(id), position: position}
+    end)
   end
 
   defp maybe_filter_by_parent_id(query, nil), do: where(query, [row], is_nil(row.parent_id))

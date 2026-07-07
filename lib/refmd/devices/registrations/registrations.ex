@@ -500,8 +500,7 @@ defmodule RefMD.Devices.Registrations do
 
   defp initial_ake_prekey_source_rows(registration, now) do
     (registration.ake_responder_prekeys || %{})
-    |> Map.values()
-    |> Enum.map(&Map.get(&1, "payload"))
+    |> Enum.map(fn {_key, prekey} -> Map.get(prekey, "payload") end)
     |> Enum.map(fn payload ->
       if is_map(payload) do
         %{

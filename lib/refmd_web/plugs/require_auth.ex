@@ -101,10 +101,7 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   defp device_verified?(%{device_id: nil}), do: false
 
   defp device_verified?(%{device_id: device_id, user_id: user_id}) do
-    case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} -> true
-      _ -> false
-    end
+    match?(%{user_id: ^user_id, revoked_at: nil}, Devices.get_device(device_id))
   end
 
   defp share_device_verified?(%{device_id: nil}), do: false

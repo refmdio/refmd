@@ -404,8 +404,7 @@ defmodule RefMD.Plugins.JavaScriptSource do
   end
 
   defp escape_parser_breakout_tokens(source) do
-    ~r/<(\/(?:script|style))/iu
-    |> Regex.replace(source, fn _match, tail -> "\\x3c" <> tail end)
+    Regex.replace(~r/<(\/(?:script|style))/iu, source, fn _match, tail -> "\\x3c" <> tail end)
     |> String.replace("<!--", "\\x3c!--")
     |> String.replace("-->", "\\x2d->")
   end

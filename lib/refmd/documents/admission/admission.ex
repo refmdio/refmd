@@ -123,9 +123,8 @@ defmodule RefMD.Documents.Admission do
   defp validate_share_participant_writer_admission(
          [_single_event],
          _document,
-         %{admission_actor: %{"signer_kind" => signer_kind}}
-       )
-       when signer_kind == "device",
+         %{admission_actor: %{"signer_kind" => "device"}}
+       ),
        do: {:ok, %{}}
 
   defp validate_share_participant_writer_admission(
@@ -303,14 +302,14 @@ defmodule RefMD.Documents.Admission do
 
   defp write_session_validation_context(document, attrs, payload, body) do
     session_hash = Map.get(attrs, :cached_write_session_event_hash) || event_hash(payload)
+    admission_actor = Map.fetch!(attrs, :admission_actor)
 
     {session_update_count, session_ciphertext_bytes} =
       write_session_usage_with_current(document.id, session_hash, Map.fetch!(attrs, :update_data))
 
     %{
-      actor_hash:
-        Hash.blake3_base64url(JCS.canonical_bytes!(Map.fetch!(attrs, :admission_actor))),
-      expected_actor: Map.fetch!(attrs, :admission_actor),
+      actor_hash: Hash.blake3_base64url(JCS.canonical_bytes!(admission_actor)),
+      expected_actor: admission_actor,
       prewarm?: Map.get(attrs, :prewarm_write_session?) == true,
       session_ciphertext_bytes: session_ciphertext_bytes,
       session_hash: session_hash,
@@ -371,11 +370,13 @@ defmodule RefMD.Documents.Admission do
   end
 
   defp write_session_authority_valid?(document, attrs, body) do
+    authority_scope_id = Map.fetch!(attrs, :authority_scope_id)
+    authority_permission_version = Map.fetch!(attrs, :authority_permission_version)
+
     body["authority_kind"] == Map.fetch!(attrs, :authority_kind) and
-      body["authority_scope_id"] == Map.fetch!(attrs, :authority_scope_id) and
-      Map.fetch!(attrs, :authority_scope_id) == expected_authority_scope_id(document, attrs) and
-      Map.fetch!(attrs, :authority_permission_version) ==
-        expected_authority_permission_version(document, attrs)
+      body["authority_scope_id"] == authority_scope_id and
+      authority_scope_id == expected_authority_scope_id(document, attrs) and
+      authority_permission_version == expected_authority_permission_version(document, attrs)
   end
 
   defp write_session_public_data_valid?(attrs, body, context) do

@@ -68,8 +68,10 @@ defmodule RefMD.Documents.WriteStateAdmission do
       end)
 
     document_ids = Enum.map(bodies, fn {document_id, _body} -> document_id end)
-    true = MapSet.new(Map.keys(expected)) == MapSet.new(document_ids)
-    true = MapSet.size(MapSet.new(document_ids)) == length(document_ids)
+    document_id_set = MapSet.new(document_ids)
+
+    true = MapSet.new(Map.keys(expected)) == document_id_set
+    true = MapSet.size(document_id_set) == length(document_ids)
 
     Enum.each(bodies, fn {document_id, body} ->
       expected_body = Map.fetch!(expected, document_id)

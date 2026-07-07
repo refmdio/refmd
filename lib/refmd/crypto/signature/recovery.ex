@@ -155,6 +155,7 @@ defmodule RefMD.Crypto.Signature.Recovery do
     surface = SigningSurface.get_active!("device_key_deletion_proof", variant)
 
     subject_hash = Hash.blake3_base64url(JCS.canonical_bytes!(payload))
+    device_id = Map.fetch!(payload, "device_id")
 
     authority_boundary = %{
       "workspace_id" => Map.fetch!(payload, "workspace_id"),
@@ -177,7 +178,7 @@ defmodule RefMD.Crypto.Signature.Recovery do
         "device_key_deletion_proof",
         surface,
         "device",
-        Map.fetch!(payload, "device_id")
+        device_id
       )
       |> Map.merge(%{
         "subject_hash" => subject_hash,
@@ -191,7 +192,7 @@ defmodule RefMD.Crypto.Signature.Recovery do
       transcript,
       "device_key_deletion_proof",
       "device",
-      Map.fetch!(payload, "device_id")
+      device_id
     )
 
     transcript

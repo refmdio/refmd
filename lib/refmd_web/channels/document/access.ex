@@ -44,7 +44,7 @@ defmodule RefMDWeb.Channels.Document.Access do
           socket.assigns.current_user_id
         )
       rescue
-        _ -> :skip
+        _exception in [KeyError, FunctionClauseError] -> :skip
       end
     end
   end

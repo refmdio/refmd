@@ -221,16 +221,17 @@ defmodule RefMD.Workspaces.Guests.Invitations do
 
   defp validate_scope_kind(_workspace_id, "workspace", nil), do: :ok
 
-  defp validate_scope_kind(workspace_id, scope_kind, scope_id)
-       when scope_kind in ["document", "folder"] and is_binary(scope_id) do
+  defp validate_scope_kind(workspace_id, "document", scope_id) when is_binary(scope_id) do
     case Repo.get(Document, scope_id) do
-      %Document{workspace_id: ^workspace_id, doc_type: doc_type, archived_at: nil}
-      when (scope_kind == "document" and doc_type == "document") or
-             (scope_kind == "folder" and doc_type == "folder") ->
-        :ok
+      %Document{workspace_id: ^workspace_id, doc_type: "document", archived_at: nil} -> :ok
+      _ -> {:error, :invalid_scope}
+    end
+  end
 
-      _ ->
-        {:error, :invalid_scope}
+  defp validate_scope_kind(workspace_id, "folder", scope_id) when is_binary(scope_id) do
+    case Repo.get(Document, scope_id) do
+      %Document{workspace_id: ^workspace_id, doc_type: "folder", archived_at: nil} -> :ok
+      _ -> {:error, :invalid_scope}
     end
   end
 

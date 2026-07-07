@@ -839,9 +839,6 @@ defmodule RefMDWeb.PluginNetworkExecutorController do
   end
 
   defp ipv4_octet?(octet) do
-    case Integer.parse(octet) do
-      {value, ""} when value >= 0 and value <= 255 -> true
-      _ -> false
-    end
+    match?({value, ""} when value >= 0 and value <= 255, Integer.parse(octet))
   end
 end

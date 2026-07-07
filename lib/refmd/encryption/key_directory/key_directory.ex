@@ -400,19 +400,7 @@ defmodule RefMD.Encryption.KeyDirectory do
          ]
        )
        when is_binary(signing_key_id) do
-    if Enum.all?(revocation_events, &member_removal_key_revocation?/1) and
-         Enum.any?(
-           revocation_events,
-           &match?(
-             %Event{
-               payload: %{
-                 "event_type" => "signing_key_revoked",
-                 "body" => %{"key_id" => ^signing_key_id, "reason" => "member_removed"}
-               }
-             },
-             &1
-           )
-         ) do
+    if member_removal_revocations_authorize_signer?(revocation_events, signing_key_id) do
       [signing_key_id]
     else
       []
@@ -431,6 +419,31 @@ defmodule RefMD.Encryption.KeyDirectory do
        do: true
 
   defp member_removal_key_revocation?(_event), do: false
+
+  defp member_removal_revocations_authorize_signer?(revocation_events, signing_key_id) do
+    revocation_events
+    |> Enum.reduce_while(false, fn event, signing_key_revoked? ->
+      if member_removal_key_revocation?(event) do
+        {:cont,
+         signing_key_revoked? or member_removal_signing_key_revocation?(event, signing_key_id)}
+      else
+        {:halt, false}
+      end
+    end)
+  end
+
+  defp member_removal_signing_key_revocation?(
+         %Event{
+           payload: %{
+             "event_type" => "signing_key_revoked",
+             "body" => %{"key_id" => key_id, "reason" => "member_removed"}
+           }
+         },
+         key_id
+       ),
+       do: true
+
+  defp member_removal_signing_key_revocation?(_event, _signing_key_id), do: false
 
   def verify_complete_replay!(
         scope_kind,

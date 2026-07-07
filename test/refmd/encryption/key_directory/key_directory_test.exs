@@ -270,7 +270,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
       shares: %{},
       rotations: %{},
       key_owners: %{},
-      self_removed_members: %{}
+      self_removed_members: MapSet.new()
     }
 
     assert :ok =
@@ -310,7 +310,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         "member-encryption-key" => %{user_id: "member-user", device_id: "member-device"},
         "other-encryption-key" => %{user_id: "other-user", device_id: "other-device"}
       },
-      self_removed_members: %{}
+      self_removed_members: MapSet.new()
     }
 
     removal_payload = %{

@@ -14,7 +14,7 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
       shares: %{},
       rotations: %{},
       key_owners: %{},
-      self_removed_members: %{}
+      self_removed_members: MapSet.new()
     }
 
   def assert_event_authority!(payload) do
@@ -440,8 +440,8 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
          user_id
        )
        when is_binary(user_id) do
-    Map.update(state, :self_removed_members, %{user_id => true}, fn self_removed_members ->
-      Map.put(self_removed_members, user_id, true)
+    Map.update(state, :self_removed_members, MapSet.new([user_id]), fn self_removed_members ->
+      MapSet.put(self_removed_members, user_id)
     end)
   end
 
@@ -536,7 +536,11 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
        )
        when event_type in ["signing_key_revoked", "encryption_key_revoked"] and
               is_binary(user_id) and is_binary(key_id) do
-    self_removed? = Map.get(Map.get(state, :self_removed_members, %{}), user_id) == true
+    self_removed? =
+      state
+      |> Map.get(:self_removed_members, MapSet.new())
+      |> MapSet.member?(user_id)
+
     key_owner = Map.get(Map.get(state, :key_owners, %{}), key_id)
 
     self_removed? and (key_id == actor_signing_key_id or match?(%{user_id: ^user_id}, key_owner))
