@@ -1,7 +1,6 @@
 defmodule RefMDWeb.Payloads.DeviceRegistration do
   @moduledoc false
 
-  @spec valid_ake_responder_prekeys?(map()) :: boolean()
   def valid_ake_responder_prekeys?(%{
         "umk_distribution" => umk,
         "trust_transfer" => trust,
@@ -12,7 +11,6 @@ defmodule RefMDWeb.Payloads.DeviceRegistration do
 
   def valid_ake_responder_prekeys?(_), do: false
 
-  @spec normalize_ake_responder_prekeys(map() | nil) :: map() | nil
   def normalize_ake_responder_prekeys(nil), do: nil
 
   def normalize_ake_responder_prekeys(prekeys) when is_map(prekeys) do
@@ -27,7 +25,6 @@ defmodule RefMDWeb.Payloads.DeviceRegistration do
     )
   end
 
-  @spec denormalize_ake_responder_prekeys(map() | nil) :: map() | nil
   def denormalize_ake_responder_prekeys(nil), do: nil
 
   def denormalize_ake_responder_prekeys(prekeys) when is_map(prekeys) do
@@ -49,7 +46,6 @@ defmodule RefMDWeb.Payloads.DeviceRegistration do
     }
   end
 
-  @spec normalize_approval_delivery_artifacts(map()) :: map()
   def normalize_approval_delivery_artifacts(params) when is_map(params) do
     Map.update(
       params,
@@ -59,7 +55,6 @@ defmodule RefMDWeb.Payloads.DeviceRegistration do
     )
   end
 
-  @spec denormalize_approval_delivery_artifacts(map() | nil) :: map() | nil
   def denormalize_approval_delivery_artifacts(nil), do: nil
 
   def denormalize_approval_delivery_artifacts(artifacts) when is_map(artifacts) do

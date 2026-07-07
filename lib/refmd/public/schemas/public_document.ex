@@ -28,9 +28,6 @@ defmodule RefMD.Public.PublicDocument do
     timestamps(type: :utc_datetime_usec, inserted_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(public_document, attrs) do
     public_document
     |> cast(attrs, [
@@ -67,7 +64,6 @@ defmodule RefMD.Public.PublicDocument do
     |> foreign_key_constraint(:published_by)
   end
 
-  @spec settings_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def settings_changeset(public_document, attrs) do
     public_document
     |> cast(attrs, [:slug, :noindex])
@@ -76,7 +72,6 @@ defmodule RefMD.Public.PublicDocument do
     |> unique_constraint(:slug, name: :public_documents_author_profile_id_slug_index)
   end
 
-  @spec content_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def content_changeset(public_document, attrs) do
     public_document
     |> cast(attrs, [:title, :content, :content_hash])

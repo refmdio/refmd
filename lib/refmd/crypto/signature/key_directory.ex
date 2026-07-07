@@ -47,14 +47,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   alias RefMD.Crypto.JCS
   alias RefMD.Crypto.SigningSurface
 
-  @spec build_key_directory_checkpoint_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map() | nil
-        ) ::
-          map()
   def build_key_directory_checkpoint_transcript!(
         variant,
         owner_kind,
@@ -63,14 +55,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
         signer \\ nil
       )
 
-  @spec build_key_directory_checkpoint_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map() | nil
-        ) ::
-          map()
   def build_key_directory_checkpoint_transcript!(
         variant,
         owner_kind,
@@ -144,7 +128,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_key_directory_checkpoint_transcript!(_, _, _, _, _),
     do: raise(ArgumentError, "key_directory_checkpoint_transcript_invalid")
 
-  @spec build_key_directory_event_transcript!(binary(), binary(), binary(), map()) :: map()
   def build_key_directory_event_transcript!(event_type, owner_kind, owner_id, event_payload)
       when event_type in @key_directory_event_variants and is_binary(owner_kind) and
              is_binary(owner_id) and is_map(event_payload) do
@@ -277,7 +260,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   defp required_integer!(_),
     do: raise(ArgumentError, "key_directory_transcript_required_field_missing")
 
-  @spec build_workspace_pin_bootstrap_transcript!(binary(), binary(), map()) :: map()
   def build_workspace_pin_bootstrap_transcript!(owner_device_id, workspace_id, bootstrap)
       when is_binary(owner_device_id) and is_binary(workspace_id) and is_map(bootstrap) do
     surface = SigningSurface.get_active!("workspace_pin_bootstrap", "none")
@@ -313,7 +295,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_workspace_pin_bootstrap_transcript!(_, _, _),
     do: raise(ArgumentError, "workspace_pin_bootstrap_transcript_invalid")
 
-  @spec build_pq_wrap_transcript!(binary(), map(), map(), map()) :: map()
   def build_pq_wrap_transcript!(owner_device_id, actor, authority_boundary, subject_hashes)
       when is_binary(owner_device_id) and is_map(actor) and is_map(authority_boundary) and
              is_map(subject_hashes) do
@@ -339,16 +320,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_pq_wrap_transcript!(_, _, _, _),
     do: raise(ArgumentError, "pq_wrap_transcript_invalid")
 
-  @spec build_initial_key_delivery_transcript!(
-          binary(),
-          binary(),
-          map(),
-          map(),
-          map(),
-          map(),
-          map(),
-          map()
-        ) :: map()
   def build_initial_key_delivery_transcript!(
         owner_device_id,
         variant,
@@ -390,7 +361,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_initial_key_delivery_transcript!(_, _, _, _, _, _, _, _),
     do: raise(ArgumentError, "initial_key_delivery_transcript_invalid")
 
-  @spec build_initiator_ake_commitment_transcript!(binary(), map(), map(), map(), map()) :: map()
   def build_initiator_ake_commitment_transcript!(
         owner_device_id,
         commitment_payload,
@@ -426,7 +396,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_initiator_ake_commitment_transcript!(_, _, _, _, _),
     do: raise(ArgumentError, "initiator_ake_commitment_transcript_invalid")
 
-  @spec build_responder_prekey_transcript!(binary(), map(), map(), map()) :: map()
   def build_responder_prekey_transcript!(owner_device_id, prekey_payload, responder, freshness)
       when is_binary(owner_device_id) and is_map(prekey_payload) and is_map(responder) and
              is_map(freshness) do
@@ -449,7 +418,6 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_responder_prekey_transcript!(_, _, _, _),
     do: raise(ArgumentError, "responder_prekey_transcript_invalid")
 
-  @spec build_pin_gossip_statement_transcript!(binary(), map()) :: map()
   def build_pin_gossip_statement_transcript!(owner_device_id, pin_gossip)
       when is_binary(owner_device_id) and is_map(pin_gossip) do
     surface = SigningSurface.get_active!("pin_gossip_statement", "none")

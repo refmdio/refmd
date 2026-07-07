@@ -28,7 +28,6 @@ defmodule RefMD.Sharing.Mounts do
     SharePasswordChallenge
   }
 
-  @spec create_share_mount(Ecto.UUID.t(), map()) :: {:ok, map()} | {:error, term()}
   def create_share_mount(user_id, attrs) when is_binary(user_id) and is_map(attrs) do
     with {:ok, workspace_id} <- fetch_uuid(attrs, :workspace_id),
          {:ok, _share_slug, share_slug_bytes} <- fetch_url_token(attrs, :share_slug),
@@ -52,8 +51,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec list_share_mounts(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, %{mounts: [map()]}} | {:error, term()}
   def list_share_mounts(user_id, workspace_id)
       when is_binary(user_id) and is_binary(workspace_id) do
     with :ok <- validate_workspace_member(workspace_id, user_id) do
@@ -74,8 +71,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec list_share_mounts_for_share(Ecto.UUID.t(), String.t()) ::
-          {:ok, %{mounts: [map()]}} | {:error, term()}
   def list_share_mounts_for_share(user_id, share_slug)
       when is_binary(user_id) and is_binary(share_slug) do
     with {:ok, _share_slug, share_slug_bytes} <- validate_url_token(share_slug),
@@ -99,7 +94,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec get_share_mount(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
   def get_share_mount(user_id, mount_id) when is_binary(user_id) and is_binary(mount_id) do
     Repo.transaction(fn ->
       with {:ok, mount, share, target} <- fetch_owned_mount_payload(user_id, mount_id, false),
@@ -113,16 +107,6 @@ defmodule RefMD.Sharing.Mounts do
     |> normalize_transaction_result()
   end
 
-  @spec get_share_mount_document_by_token(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          String.t(),
-          Ecto.UUID.t(),
-          map(),
-          String.t() | nil,
-          map() | nil
-        ) ::
-          {:ok, map()} | {:error, term()}
   def get_share_mount_document_by_token(
         user_id,
         mount_id,
@@ -159,20 +143,11 @@ defmodule RefMD.Sharing.Mounts do
     |> normalize_transaction_result()
   end
 
-  @spec resolve_mounted_document_share_for_session(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, Ecto.UUID.t()} | {:error, term()}
   def resolve_mounted_document_share_for_session(share_id, mount_id, document_id)
       when is_binary(share_id) and is_binary(mount_id) and is_binary(document_id) do
     resolve_mounted_document_share_for_session(share_id, mount_id, document_id, nil)
   end
 
-  @spec resolve_mounted_document_share_for_session(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil
-        ) ::
-          {:ok, Ecto.UUID.t()} | {:error, term()}
   def resolve_mounted_document_share_for_session(
         share_id,
         mount_id,
@@ -188,14 +163,6 @@ defmodule RefMD.Sharing.Mounts do
     )
   end
 
-  @spec resolve_mounted_document_share_for_session(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil,
-          map() | nil
-        ) ::
-          {:ok, Ecto.UUID.t()} | {:error, term()}
   def resolve_mounted_document_share_for_session(
         share_id,
         mount_id,
@@ -218,8 +185,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec update_share_mount(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, term()}
   def update_share_mount(user_id, mount_id, attrs)
       when is_binary(user_id) and is_binary(mount_id) and is_map(attrs) do
     with {:ok, parent_id} <- fetch_optional_uuid(attrs, :parent_id),
@@ -231,7 +196,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec delete_share_mount(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
   def delete_share_mount(user_id, mount_id) when is_binary(user_id) and is_binary(mount_id) do
     Repo.transaction(fn -> delete_share_mount_tx(user_id, mount_id) end)
     |> case do
@@ -240,16 +204,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec get_share_mount_folder(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          String.t(),
-          Ecto.UUID.t(),
-          map(),
-          String.t() | nil,
-          map() | nil
-        ) ::
-          {:ok, map()} | {:error, term()}
   def get_share_mount_folder(
         user_id,
         mount_id,
@@ -279,8 +233,6 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec get_share_mount_challenge(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, %{challenge: binary(), salt: binary(), kdf_params: map()}} | {:error, term()}
   def get_share_mount_challenge(user_id, mount_id)
       when is_binary(user_id) and is_binary(mount_id) do
     Repo.transaction(fn ->
@@ -310,7 +262,6 @@ defmodule RefMD.Sharing.Mounts do
     |> normalize_transaction_result()
   end
 
-  @spec mount_challenge_rate_limit_share_id(Ecto.UUID.t()) :: Ecto.UUID.t() | nil
   def mount_challenge_rate_limit_share_id(mount_id) when is_binary(mount_id) do
     case Ecto.UUID.cast(mount_id) do
       {:ok, mount_id} ->
@@ -327,21 +278,11 @@ defmodule RefMD.Sharing.Mounts do
     end
   end
 
-  @spec share_mount_children?(Ecto.UUID.t()) :: boolean()
   def share_mount_children?(document_id) when is_binary(document_id) do
     from(m in ShareMount, where: m.parent_id == ^document_id, limit: 1)
     |> Repo.exists?()
   end
 
-  @spec respond_share_mount_challenge(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          binary(),
-          Ecto.UUID.t() | nil,
-          String.t(),
-          String.t() | nil
-        ) :: {:ok, map()} | {:error, term()}
   def respond_share_mount_challenge(
         user_id,
         mount_id,

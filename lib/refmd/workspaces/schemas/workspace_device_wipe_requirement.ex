@@ -17,7 +17,6 @@ defmodule RefMD.Workspaces.WorkspaceDeviceWipeRequirement do
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(requirement, attrs) do
     requirement
     |> cast(attrs, [

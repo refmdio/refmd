@@ -13,7 +13,6 @@ defmodule RefMDWeb.UserSocket do
   channel "document:*", RefMDWeb.DocumentChannel
   channel "security:*", RefMDWeb.SecurityChannel
 
-  @spec connect(map(), Phoenix.Socket.t(), map()) :: {:ok, Phoenix.Socket.t()} | :error
   def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
     if origin_required_but_missing?(), do: throw(:origin_required)
 
@@ -35,7 +34,6 @@ defmodule RefMDWeb.UserSocket do
 
   def connect(_params, _socket, _connect_info), do: :error
 
-  @spec id(Phoenix.Socket.t()) :: String.t()
   def id(socket) do
     case socket.assigns[:session_kind] do
       :share_participant -> "share_socket:#{socket.assigns.current_user_id}"

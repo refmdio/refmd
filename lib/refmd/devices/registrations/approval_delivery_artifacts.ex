@@ -3,8 +3,6 @@ defmodule RefMD.Devices.Registrations.ApprovalDeliveryArtifacts do
 
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
 
-  @spec approval_inputs_from_params(map(), boolean(), map() | nil, map()) ::
-          {:ok, map(), map() | nil} | {:error, :invalid_approval_commitments}
   def approval_inputs_from_params(_params, true, _approver_device, _device_registration),
     do: {:ok, %{}, nil}
 
@@ -29,7 +27,6 @@ defmodule RefMD.Devices.Registrations.ApprovalDeliveryArtifacts do
 
   def approval_inputs_from_params(_, _, _, _), do: {:error, :invalid_approval_commitments}
 
-  @spec delivery_artifact_matches?(String.t(), map(), map(), map(), map()) :: boolean()
   def delivery_artifact_matches?(
         purpose,
         %{"initial_ake" => initial_ake, "initial_key_delivery" => initial_key_delivery},
@@ -56,7 +53,6 @@ defmodule RefMD.Devices.Registrations.ApprovalDeliveryArtifacts do
 
   def delivery_artifact_matches?(_, _, _, _, _), do: false
 
-  @spec kek_delivery_artifacts_match?(map(), [map()], map(), map()) :: boolean()
   def kek_delivery_artifacts_match?(artifacts, commitments, approver_device, device_registration)
       when is_map(artifacts) and is_list(commitments) do
     map_size(artifacts) == length(commitments) and

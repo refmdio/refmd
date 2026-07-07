@@ -17,10 +17,8 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
-  @type t :: %__MODULE__{}
   @min_encrypted_material_bytes 16
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
     key
     |> cast(attrs, [

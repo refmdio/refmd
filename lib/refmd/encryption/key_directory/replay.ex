@@ -43,7 +43,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
   defdelegate assert_event_semantics_against_checkpoint!(payload, checkpoint_payload),
     to: Semantics
 
-  @spec apply_event_to_checkpoint_payload!(map(), map(), [map()], map(), map()) :: map()
   def apply_event_to_checkpoint_payload!(
         replay_payload,
         %{"event_type" => "identity_key_added"} = payload,
@@ -373,8 +372,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
           "key_directory_event_semantic_validator_missing:#{payload["event_type"]}"
   end
 
-  @spec apply_document_admission_event_to_checkpoint_payload!(map(), map(), [map()], map(), map()) ::
-          map()
   def apply_document_admission_event_to_checkpoint_payload!(
         replay_payload,
         payload,
@@ -427,7 +424,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     end
   end
 
-  @spec identity_entries_for_event([map()], map()) :: [map()]
   def identity_entries_for_event(entries, payload) do
     Enum.filter(entries, fn entry ->
       entry["valid_from"] == event_ref!(payload) and
@@ -435,7 +431,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     end)
   end
 
-  @spec append_identity_entries!([map()], map()) :: map()
   def append_identity_entries!([], _replay_payload),
     do: raise(ArgumentError, "key_directory_key_entry_missing")
 
@@ -470,7 +465,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     end)
   end
 
-  @spec initial_checkpoint_payload!(map(), [map()]) :: map()
   def initial_checkpoint_payload!(checkpoint_payload, event_envelopes) do
     base =
       checkpoint_payload

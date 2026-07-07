@@ -16,10 +16,8 @@ defmodule RefMDWeb.Plugs.CSP do
 
   import Plug.Conn
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     nonce = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 

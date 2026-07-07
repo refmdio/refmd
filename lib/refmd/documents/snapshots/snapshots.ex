@@ -16,15 +16,9 @@ defmodule RefMD.Documents.Snapshots do
   # update_snapshot_metadata populates this field as updates arrive.
   @initial_snapshot_clocks %{}
 
-  @spec build_snapshot_proof_chain(Ecto.UUID.t(), Ecto.UUID.t() | nil, Ecto.UUID.t() | nil) ::
-          [map()]
   defdelegate build_snapshot_proof_chain(document_id, pinned_snapshot_id, active_snapshot_id),
     to: ProofChain
 
-  # ── Save Update ─────────────────────────────────
-
-  @spec save_update(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, atom()}
   def save_update(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
@@ -49,8 +43,6 @@ defmodule RefMD.Documents.Snapshots do
     end
   end
 
-  @spec admit_write_session(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, atom()}
   def admit_write_session(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)
@@ -115,10 +107,6 @@ defmodule RefMD.Documents.Snapshots do
     end
   end
 
-  # ── Save Snapshot ──────────────────────────────
-
-  @spec save_snapshot(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, atom(), map() | nil}
   def save_snapshot(document_id, actor_id, attrs) do
     with_serializable_retry(fn ->
       document = lock_document(document_id)

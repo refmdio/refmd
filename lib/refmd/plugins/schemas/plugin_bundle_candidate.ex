@@ -47,8 +47,6 @@ defmodule RefMD.Plugins.PluginBundleCandidate do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [
     :package_id,
     :owner_scope_kind,
@@ -87,7 +85,6 @@ defmodule RefMD.Plugins.PluginBundleCandidate do
     :document_scope_hash
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(candidate, attrs) do
     candidate
     |> cast(

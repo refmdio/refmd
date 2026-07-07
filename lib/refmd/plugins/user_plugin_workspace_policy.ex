@@ -5,11 +5,6 @@ defmodule RefMD.Plugins.UserPluginWorkspacePolicy do
   @modes ~w(allow_safe allow_all deny_all)
   @plugin_id_pattern ~r/\A[a-z][a-z0-9._-]{2,127}\z/
 
-  @type t :: %{
-          optional(String.t()) => String.t() | boolean() | [String.t()]
-        }
-
-  @spec normalize(map() | nil) :: {:ok, map() | nil} | {:error, atom()}
   def normalize(nil), do: {:ok, nil}
 
   def normalize(policy) when is_map(policy) do
@@ -30,7 +25,6 @@ defmodule RefMD.Plugins.UserPluginWorkspacePolicy do
 
   def normalize(_policy), do: {:error, :invalid_policy}
 
-  @spec evaluate(map() | nil, String.t(), boolean()) :: String.t()
   def evaluate(policy, plugin_id, admin_approval_required?) do
     policy = normalize_or_default(policy)
     allowed_ids = Map.fetch!(policy, "allowed_plugin_ids")

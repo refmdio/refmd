@@ -11,8 +11,6 @@ defmodule RefMD.Workspaces.WorkspaceRolePermission do
     field :granted, :boolean
   end
 
-  @type t :: %__MODULE__{}
-
   @permissions ~w(
     document:read document:write document:manage_share document:delete document:archive
     workspace:update workspace:features workspace:admin workspace:delete
@@ -20,7 +18,6 @@ defmodule RefMD.Workspaces.WorkspaceRolePermission do
     role:manage
   )
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(perm, attrs) do
     perm
     |> cast(attrs, [:role_id, :permission, :granted])

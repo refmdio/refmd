@@ -4,7 +4,6 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
   alias RefMD.Crypto.{Hash, Suite}
   alias RefMD.Encryption.KeyDirectory.BodyAssertions, as: A
 
-  @spec assert!(binary(), map()) :: :ok
   def assert!("device_key_added", body) do
     A.assert_exact_keys!(
       body,

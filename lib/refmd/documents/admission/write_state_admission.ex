@@ -8,14 +8,6 @@ defmodule RefMD.Documents.WriteStateAdmission do
 
   @event_type "document_write_state_changed"
 
-  @type append :: %{events: [map()], checkpoint: map()}
-  @type affected_document :: %{
-          required(:id) => Ecto.UUID.t(),
-          required(:previous_write_state) => binary(),
-          required(:write_state) => binary()
-        }
-
-  @spec parse_append(map()) :: {:ok, append()} | {:error, :invalid_key_directory}
   def parse_append(attrs) do
     events = dual_key_get(attrs, :workspace_key_directory_events)
     checkpoint = dual_key_get(attrs, :workspace_key_directory_checkpoint)
@@ -25,7 +17,6 @@ defmodule RefMD.Documents.WriteStateAdmission do
       else: {:error, :invalid_key_directory}
   end
 
-  @spec append!(Document.t(), append(), [affected_document()], binary()) :: :ok | no_return()
   def append!(%Document{} = document, %{events: events, checkpoint: checkpoint}, affected, reason)
       when is_list(events) and is_list(affected) and is_binary(reason) do
     validate_events!(document, events, affected, reason)

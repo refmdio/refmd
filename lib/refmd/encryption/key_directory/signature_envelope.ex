@@ -3,7 +3,6 @@ defmodule RefMD.Encryption.KeyDirectory.SignatureEnvelope do
 
   alias RefMD.Encryption.KeyDirectory.Assertions
 
-  @spec parts!(map()) :: {map(), map()}
   def parts!(%{"signer" => signer, "signature" => signature})
       when is_map(signer) and is_map(signature) do
     Assertions.assert_non_empty_string!(signer["signer_kind"], "signer_kind_invalid")

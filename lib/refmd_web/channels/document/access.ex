@@ -5,7 +5,6 @@ defmodule RefMDWeb.Channels.Document.Access do
   alias RefMD.Sharing
   alias RefMD.Workspaces
 
-  @spec check_ephemeral(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def check_ephemeral(socket) do
     if share_context?(socket) do
       if writable_document?(socket.assigns.document) and
@@ -31,7 +30,6 @@ defmodule RefMDWeb.Channels.Document.Access do
   defp writable_document?(%{write_state: nil}), do: true
   defp writable_document?(%{}), do: false
 
-  @spec check_broadcast(Phoenix.Socket.t()) :: :ok | :evict | :skip
   def check_broadcast(%{assigns: %{session_kind: :share_participant}} = socket) do
     if share_participant_broadcast_socket?(socket), do: :ok, else: :evict
   end
@@ -51,8 +49,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     end
   end
 
-  @spec check_join(map(), Ecto.UUID.t(), Phoenix.Socket.t(), Ecto.UUID.t() | nil) ::
-          :ok | {:error, %{reason: String.t()}}
   def check_join(document, user_id, socket, mounted_share_id) do
     if socket.assigns[:session_kind] == :share_participant do
       share_id = mounted_share_id || socket.assigns.current_share_id
@@ -76,8 +72,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     end
   end
 
-  @spec resolve_mounted_share_id(map(), Ecto.UUID.t(), Ecto.UUID.t(), Phoenix.Socket.t()) ::
-          {:ok, Ecto.UUID.t() | nil} | {:error, %{reason: String.t()}}
   def resolve_mounted_share_id(
         %{"mount_id" => mount_id} = params,
         _user_id,
@@ -103,7 +97,6 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   def resolve_mounted_share_id(_params, _user_id, _document_id, _socket), do: {:ok, nil}
 
-  @spec share_session_still_authorized?(Phoenix.Socket.t()) :: boolean()
   def share_session_still_authorized?(socket) do
     Workspaces.share_links_enabled?(socket.assigns.document.workspace_id) and
       Sharing.participant_session_active?(socket.assigns.current_session.id) and
@@ -113,7 +106,6 @@ defmodule RefMDWeb.Channels.Document.Access do
       )
   end
 
-  @spec mounted_share_still_authorized?(Phoenix.Socket.t()) :: boolean()
   def mounted_share_still_authorized?(%{assigns: %{session_kind: :share_participant}} = socket) do
     with true <- Workspaces.share_links_enabled?(socket.assigns.document.workspace_id),
          true <- Sharing.participant_session_active?(socket.assigns.current_session.id),
@@ -140,7 +132,6 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   def mounted_share_still_authorized?(_socket), do: false
 
-  @spec subscribe_device_revocation(Phoenix.Socket.t()) :: :ok
   def subscribe_device_revocation(%{
         assigns: %{session_kind: :share_participant, current_session: %{device_id: device_id}}
       })
@@ -156,7 +147,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     :ok
   end
 
-  @spec maybe_subscribe_share_document_revocation(Ecto.UUID.t() | nil, Ecto.UUID.t()) :: :ok
   def maybe_subscribe_share_document_revocation(share_id, document_id)
       when is_binary(share_id) and is_binary(document_id) do
     Phoenix.PubSub.subscribe(RefMD.PubSub, "share_document_revocation:#{share_id}:#{document_id}")
@@ -165,7 +155,6 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   def maybe_subscribe_share_document_revocation(_share_id, _document_id), do: :ok
 
-  @spec maybe_subscribe_share_revocation(Ecto.UUID.t() | nil) :: :ok
   def maybe_subscribe_share_revocation(share_id) when is_binary(share_id) do
     Phoenix.PubSub.subscribe(RefMD.PubSub, "share:#{share_id}:revoked")
     :ok
@@ -173,7 +162,6 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   def maybe_subscribe_share_revocation(_share_id), do: :ok
 
-  @spec validate_write(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def validate_write(socket) do
     if socket.assigns[:session_kind] == :share_participant do
       validate_share_write_access(socket)
@@ -182,12 +170,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     end
   end
 
-  @spec publication_sync_allowed?(
-          map(),
-          Ecto.UUID.t(),
-          Phoenix.Socket.t() | nil,
-          Ecto.UUID.t() | nil
-        ) :: boolean()
   def publication_sync_allowed?(document, user_id, socket, mounted_share_id) do
     cond do
       share_participant_socket?(socket) ->
@@ -207,7 +189,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     end
   end
 
-  @spec workspace_write_allowed?(map(), Ecto.UUID.t()) :: boolean()
   def workspace_write_allowed?(document, user_id) do
     if Workspaces.guest_user?(user_id) do
       Workspaces.authorize_guest_permission(
@@ -224,7 +205,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     end
   end
 
-  @spec validate_device_active(Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def validate_device_active(socket) do
     if socket.assigns[:session_kind] == :share_participant do
       if share_participant_device_active?(socket) do

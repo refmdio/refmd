@@ -8,8 +8,6 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
   alias RefMDWeb.Channels.Document.Access
   alias RefMDWeb.Channels.Document.Envelope
 
-  @spec load_for_join(map(), map(), Phoenix.Socket.t(), Ecto.UUID.t() | nil, Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, %{reason: String.t()}}
   def load_for_join(document, params, socket, mounted_share_id, user_id) do
     if socket.assigns[:session_kind] == :share_participant do
       load_share_initial_data(
@@ -22,7 +20,6 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
     end
   end
 
-  @spec validate_join_params(map()) :: :ok | {:error, %{reason: String.t()}}
   def validate_join_params(%{"mode" => "delta"} = params) do
     with :ok <- validate_exact_join_keys(params),
          :ok <- validate_optional_join_uuid(params, "knownSnapshotId"),
@@ -95,8 +92,6 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
     end
   end
 
-  @spec load_share_initial_data(map(), map(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, %{reason: String.t()}}
   def load_share_initial_data(document, params, share_id) do
     mode = params["mode"] || "complete"
 

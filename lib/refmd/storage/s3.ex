@@ -424,6 +424,5 @@ defmodule RefMD.Storage.S3 do
   defp next_cursor([token | _]), do: token
   defp next_cursor(_), do: nil
 
-  @spec empty_payload_hash() :: String.t()
   def empty_payload_hash, do: @empty_sha256
 end

@@ -9,24 +9,18 @@ defmodule RefMD.Encryption.Users do
 
   alias RefMD.Repo
 
-  @spec create_identity_public_key(map()) ::
-          {:ok, UserIdentityPublicKey.t()} | {:error, Ecto.Changeset.t()}
   def create_identity_public_key(attrs) do
     %UserIdentityPublicKey{}
     |> UserIdentityPublicKey.changeset(attrs)
     |> Repo.insert()
   end
 
-  @spec create_encrypted_master_key(map()) ::
-          {:ok, UserEncryptedMasterKey.t()} | {:error, Ecto.Changeset.t()}
   def create_encrypted_master_key(attrs) do
     %UserEncryptedMasterKey{}
     |> UserEncryptedMasterKey.changeset(attrs)
     |> Repo.insert()
   end
 
-  @spec create_encrypted_identity_key(map()) ::
-          {:ok, UserEncryptedIdentityKey.t()} | {:error, Ecto.Changeset.t()}
   def create_encrypted_identity_key(attrs) do
     changeset =
       %UserEncryptedIdentityKey{}
@@ -40,11 +34,8 @@ defmodule RefMD.Encryption.Users do
     end
   end
 
-  @spec get_encrypted_master_key(Ecto.UUID.t()) :: UserEncryptedMasterKey.t() | nil
   def get_encrypted_master_key(user_id), do: Repo.get(UserEncryptedMasterKey, user_id)
 
-  @spec update_master_key_kdf(Ecto.UUID.t(), map()) ::
-          {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_master_key_kdf(user_id, attrs) do
     update_master_key(user_id, %{
       auth_key_hash: attrs.auth_key_hash,
@@ -54,8 +45,6 @@ defmodule RefMD.Encryption.Users do
     })
   end
 
-  @spec update_master_key_for_password_set(Ecto.UUID.t(), map()) ::
-          {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_master_key_for_password_set(user_id, attrs) do
     update_master_key(user_id, %{
       auth_type: "password",
@@ -68,8 +57,6 @@ defmodule RefMD.Encryption.Users do
     })
   end
 
-  @spec update_recovery_key(Ecto.UUID.t(), map()) ::
-          {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_recovery_key(user_id, attrs) do
     update_master_key(user_id, %{
       recovery_encrypted_umk: attrs.recovery_encrypted_umk,
@@ -79,10 +66,8 @@ defmodule RefMD.Encryption.Users do
     })
   end
 
-  @spec get_encrypted_identity_key(Ecto.UUID.t()) :: UserEncryptedIdentityKey.t() | nil
   def get_encrypted_identity_key(user_id), do: Repo.get(UserEncryptedIdentityKey, user_id)
 
-  @spec get_identity_public_key(Ecto.UUID.t()) :: UserIdentityPublicKey.t() | nil
   def get_identity_public_key(user_id), do: Repo.get(UserIdentityPublicKey, user_id)
 
   defp validate_identity_public_key_refs(changeset) do

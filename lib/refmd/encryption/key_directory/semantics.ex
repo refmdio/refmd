@@ -6,7 +6,6 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
   alias RefMD.Crypto.{Hash, JCS, Suite}
   alias RefMD.Encryption.KeyDirectory.Assertions
 
-  @spec assert_event_semantics_against_checkpoint!(map(), map()) :: :ok
   def assert_event_semantics_against_checkpoint!(
         %{
           "event_type" => type,
@@ -353,7 +352,6 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
           "key_directory_event_semantic_validator_missing:#{payload["event_type"]}"
   end
 
-  @spec assert_invitation_admission_wrap_event_semantics!(map(), map()) :: :ok
   def assert_invitation_admission_wrap_event_semantics!(
         %{"event_type" => "wrap_issued", "scope_kind" => scope_kind, "scope_id" => scope_id} =
           payload,

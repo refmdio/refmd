@@ -27,8 +27,6 @@ defmodule RefMDWeb.DocumentChannel do
   ]
 
   @impl true
-  @spec join(String.t(), map(), Phoenix.Socket.t()) ::
-          {:ok, map(), Phoenix.Socket.t()} | {:error, map()}
   def join("document:" <> document_id, raw_params, socket) do
     user_id = socket.assigns.current_user_id
     share_session? = socket.assigns[:session_kind] == :share_participant
@@ -125,8 +123,6 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   @impl true
-  @spec handle_info({:after_join, map()}, Phoenix.Socket.t()) ::
-          {:noreply, Phoenix.Socket.t()}
   def handle_info({:after_join, initial_data}, socket) do
     push(socket, "document", initial_data)
     push_active_write_sessions(socket)
@@ -206,8 +202,6 @@ defmodule RefMDWeb.DocumentChannel do
   end
 
   @impl true
-  @spec handle_in(String.t(), map(), Phoenix.Socket.t()) ::
-          {:reply, {:ok | :error, map()}, Phoenix.Socket.t()} | {:noreply, Phoenix.Socket.t()}
   def handle_in(_event, _payload, %{assigns: %{silent: true}} = socket) do
     {:reply, {:error, %{reason: "silent_connection"}}, socket}
   end

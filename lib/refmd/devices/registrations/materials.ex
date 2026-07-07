@@ -8,7 +8,6 @@ defmodule RefMD.Devices.Registrations.Materials do
   alias RefMD.Encryption.UserIdentityPublicKey
   alias RefMD.Repo
 
-  @spec validate_device_request_material(map()) :: :ok | {:error, atom()}
   def validate_device_request_material(material) do
     with :ok <-
            validate_device_keys(
@@ -32,8 +31,6 @@ defmodule RefMD.Devices.Registrations.Materials do
     end
   end
 
-  @spec validate_identity_signing_key_id(term(), term()) ::
-          :ok | {:error, :invalid_identity_signing_key_id}
   def validate_identity_signing_key_id(user_id, identity_signing_key_id)
       when is_binary(user_id) and is_binary(identity_signing_key_id) do
     from(k in UserIdentityPublicKey,
@@ -50,8 +47,6 @@ defmodule RefMD.Devices.Registrations.Materials do
 
   def validate_identity_signing_key_id(_, _), do: {:error, :invalid_identity_signing_key_id}
 
-  @spec validate_bootstrap_identity_material(term(), map()) ::
-          :ok | {:error, :invalid_identity_hybrid_signing_public_key_material}
   def validate_bootstrap_identity_material(user_id, %{
         identity_signing_key_id: signing_key_id,
         identity_hybrid_signing_public_key_material: material

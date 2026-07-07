@@ -10,16 +10,6 @@ defmodule RefMD.Devices.Revocations do
 
   @revocation_signature_ttl_ms 5 * 60 * 1000
 
-  @spec revoke_device(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          String.t(),
-          map(),
-          integer(),
-          map()
-        ) ::
-          {:ok, map()} | {:error, atom() | {atom(), Ecto.Changeset.t()}}
   def revoke_device(
         user_id,
         device_id,
@@ -99,16 +89,6 @@ defmodule RefMD.Devices.Revocations do
     end
   end
 
-  @spec verify_revocation_signature(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          String.t(),
-          Ecto.UUID.t(),
-          integer(),
-          map(),
-          map()
-        ) ::
-          boolean() | {:error, atom()}
   defp verify_revocation_signature(
          user_id,
          device_id,

@@ -13,10 +13,8 @@ defmodule RefMDWeb.Plugs.ClientIP do
 
   import Plug.Conn
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     if peer_is_trusted?(conn.remote_ip) do
       case get_client_ip(conn) do

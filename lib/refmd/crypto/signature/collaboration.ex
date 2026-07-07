@@ -14,18 +14,6 @@ defmodule RefMD.Crypto.Signature.Collaboration do
   alias RefMD.Crypto.JCS
   alias RefMD.Crypto.SigningSurface
 
-  @spec build_document_update_transcript!(%{
-          required(:owner_kind) => binary(),
-          required(:owner_id) => binary(),
-          required(:workspace_id) => binary(),
-          required(:actor_user_id) => binary(),
-          required(:actor_device_id) => binary(),
-          required(:signing_key_id) => binary(),
-          required(:public_data) => map(),
-          required(:authority_boundary) => map(),
-          required(:ciphertext) => binary(),
-          required(:nonce) => binary()
-        }) :: map()
   def build_document_update_transcript!(params) when is_map(params) do
     %{
       owner_kind: owner_kind,
@@ -87,18 +75,6 @@ defmodule RefMD.Crypto.Signature.Collaboration do
   def build_document_update_transcript!(_),
     do: raise(ArgumentError, "document_update_transcript_invalid")
 
-  @spec build_document_snapshot_transcript!(%{
-          required(:owner_kind) => binary(),
-          required(:owner_id) => binary(),
-          required(:workspace_id) => binary(),
-          required(:actor_user_id) => binary(),
-          required(:actor_device_id) => binary(),
-          required(:signing_key_id) => binary(),
-          required(:public_data) => map(),
-          required(:authority_boundary) => map(),
-          required(:ciphertext) => binary(),
-          required(:nonce) => binary()
-        }) :: map()
   def build_document_snapshot_transcript!(params) when is_map(params) do
     %{
       owner_kind: owner_kind,
@@ -256,18 +232,6 @@ defmodule RefMD.Crypto.Signature.Collaboration do
   defp assert_map!(value, _reason) when is_map(value), do: value
   defp assert_map!(_value, reason), do: raise(ArgumentError, reason)
 
-  @spec build_editor_ephemeral_transcript!(%{
-          required(:owner_kind) => binary(),
-          required(:owner_id) => binary(),
-          required(:workspace_id) => binary(),
-          required(:actor_user_id) => binary(),
-          required(:actor_device_id) => binary(),
-          required(:signing_key_id) => binary(),
-          required(:public_data) => map(),
-          required(:authority_boundary) => map(),
-          required(:ciphertext) => binary(),
-          required(:nonce) => binary()
-        }) :: map()
   def build_editor_ephemeral_transcript!(params) when is_map(params) do
     %{
       owner_kind: owner_kind,
@@ -333,7 +297,6 @@ defmodule RefMD.Crypto.Signature.Collaboration do
   def build_editor_ephemeral_transcript!(_),
     do: raise(ArgumentError, "editor_ephemeral_transcript_invalid")
 
-  @spec build_editor_ephemeral_session_transcript!(map()) :: map()
   def build_editor_ephemeral_session_transcript!(params) when is_map(params) do
     owner_kind = Map.fetch!(params, :owner_kind)
     owner_id = Map.fetch!(params, :owner_id)

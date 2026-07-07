@@ -6,12 +6,10 @@ defmodule RefMD.Crypto.Signature.ApprovalProof do
   @protocol "refmd.device-approval-proof"
   @version 1
 
-  @spec build!(binary(), map(), map()) :: map()
   def build!(approval_signature_surface, transcript, surface_details) do
     build!(approval_signature_surface, transcript, surface_details, %{})
   end
 
-  @spec build!(binary(), map(), map(), map()) :: map()
   def build!(approval_signature_surface, transcript, surface_details, proof_context)
       when is_binary(approval_signature_surface) and is_map(transcript) and
              is_map(surface_details) and is_map(proof_context) do

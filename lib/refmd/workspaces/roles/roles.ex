@@ -14,7 +14,6 @@ defmodule RefMD.Workspaces.Roles do
 
   @current_catalog_version 1
 
-  @spec list_workspace_roles(Ecto.UUID.t()) :: [WorkspaceRole.t()]
   def list_workspace_roles(workspace_id) do
     from(r in WorkspaceRole,
       where: r.workspace_id == ^workspace_id,
@@ -24,8 +23,6 @@ defmodule RefMD.Workspaces.Roles do
     |> Repo.all()
   end
 
-  @spec create_custom_role(Ecto.UUID.t(), String.t(), String.t(), list() | nil) ::
-          {:ok, WorkspaceRole.t()} | {:error, term()}
   def create_custom_role(workspace_id, name, base_role, permissions \\ nil) do
     with :ok <- validate_custom_base_role(base_role),
          {:ok, resolved_permissions} <-
@@ -36,8 +33,6 @@ defmodule RefMD.Workspaces.Roles do
     end
   end
 
-  @spec update_role(WorkspaceRole.t(), map(), keyword()) ::
-          {:ok, WorkspaceRole.t()} | {:error, term()}
   def update_role(role, attrs, opts \\ []) do
     permissions = Keyword.get(opts, :permissions)
 
@@ -49,8 +44,6 @@ defmodule RefMD.Workspaces.Roles do
     end
   end
 
-  @spec delete_role(WorkspaceRole.t()) ::
-          {:ok, non_neg_integer()} | {:error, :role_in_use | :cannot_delete_default_role}
   def delete_role(role) do
     Repo.transaction(fn ->
       fresh =
@@ -76,7 +69,6 @@ defmodule RefMD.Workspaces.Roles do
     end)
   end
 
-  @spec get_default_role_with_permissions(Ecto.UUID.t()) :: WorkspaceRole.t() | nil
   def get_default_role_with_permissions(workspace_id) do
     case get_default_role(workspace_id) do
       nil -> nil
@@ -84,7 +76,6 @@ defmodule RefMD.Workspaces.Roles do
     end
   end
 
-  @spec get_role_with_permissions(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceRole.t() | nil
   def get_role_with_permissions(workspace_id, role_id) do
     query =
       from(r in WorkspaceRole,
@@ -110,7 +101,6 @@ defmodule RefMD.Workspaces.Roles do
     end
   end
 
-  @spec get_default_role(Ecto.UUID.t()) :: WorkspaceRole.t() | nil
   def get_default_role(workspace_id) do
     from(r in WorkspaceRole,
       where: r.workspace_id == ^workspace_id and r.is_default == true

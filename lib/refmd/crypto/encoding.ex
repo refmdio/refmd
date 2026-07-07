@@ -3,13 +3,10 @@ defmodule RefMD.Crypto.Encoding do
 
   @base64url_re ~r/^[A-Za-z0-9_-]*$/
 
-  @spec encode_base64url(binary()) :: binary()
   def encode_base64url(bytes) when is_binary(bytes), do: Base.url_encode64(bytes, padding: false)
 
-  @spec decode_base64url!(binary()) :: binary()
   def decode_base64url!(value), do: decode_base64url!(value, nil)
 
-  @spec decode_base64url!(binary(), nil | non_neg_integer()) :: binary()
   def decode_base64url!(value, expected_bytes) when is_binary(value) do
     cond do
       not Regex.match?(@base64url_re, value) ->

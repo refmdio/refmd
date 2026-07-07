@@ -188,7 +188,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     ]
   }
 
-  @spec attrs_from_params!(map()) :: map()
   def attrs_from_params!(params) when is_map(params) do
     :ok = assert_wire_params!(params)
     params = normalize_wire_params(params)
@@ -201,7 +200,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     |> Map.merge(decoded_binary_attrs!(params))
   end
 
-  @spec attrs_from_container_params!(map()) :: map()
   def attrs_from_container_params!(params) when is_map(params) do
     :ok = assert_container_params!(params)
 
@@ -210,7 +208,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     |> attrs_from_params!()
   end
 
-  @spec admission_commitment_hash!(map()) :: String.t()
   def admission_commitment_hash!(params) when is_map(params) do
     params
     |> Map.take(@admission_commitment_field_names)
@@ -223,7 +220,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     |> Hash.blake3_base64url()
   end
 
-  @spec response_fields(map()) :: map()
   def response_fields(record) when is_map(record) do
     %{
       protocol: Map.fetch!(record, :wrap_protocol),
@@ -271,7 +267,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     }
   end
 
-  @spec validate_workspace_device_kek(map(), map()) :: :ok | {:error, atom()}
   def validate_workspace_device_kek(attrs, context) when is_map(attrs) and is_map(context) do
     recipient_key_id = encode_binary(attrs.recipient_key_id)
     sender_signing_key_id = encode_binary(attrs.sender_signing_key_id)
@@ -289,7 +284,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     end
   end
 
-  @spec validate_workspace_member_kek(map(), map()) :: :ok | {:error, atom()}
   def validate_workspace_member_kek(attrs, context) when is_map(attrs) and is_map(context) do
     recipient_key_id = encode_binary(attrs.recipient_key_id)
     sender_signing_key_id = encode_binary(attrs.sender_signing_key_id)
@@ -308,7 +302,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     end
   end
 
-  @spec validate_invitation_workspace_member_kek(map(), map()) :: :ok | {:error, atom()}
   def validate_invitation_workspace_member_kek(attrs, context)
       when is_map(attrs) and is_map(context) do
     recipient_key_id = encode_binary(attrs.recipient_key_id)
@@ -328,7 +321,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     end
   end
 
-  @spec validate_share_participant_bootstrap(map(), map()) :: :ok | {:error, atom()}
   def validate_share_participant_bootstrap(attrs, context)
       when is_map(attrs) and is_map(context) do
     validate_scoped_wrap(
@@ -339,7 +331,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     )
   end
 
-  @spec validate_share_link_secret_backup(map(), map()) :: :ok | {:error, atom()}
   def validate_share_link_secret_backup(attrs, context) when is_map(attrs) and is_map(context) do
     validate_scoped_wrap(
       attrs,
@@ -349,7 +340,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     )
   end
 
-  @spec validate_workspace_invitation_kek(map(), map()) :: :ok | {:error, atom()}
   def validate_workspace_invitation_kek(attrs, context) when is_map(attrs) and is_map(context) do
     validate_scoped_wrap(
       attrs,
@@ -359,7 +349,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     )
   end
 
-  @spec validate_guest_invitation_workspace_kek(map(), map()) :: :ok | {:error, atom()}
   def validate_guest_invitation_workspace_kek(attrs, context)
       when is_map(attrs) and is_map(context) do
     validate_scoped_wrap(
@@ -370,7 +359,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     )
   end
 
-  @spec validate_guest_invitation_share_key(map(), map()) :: :ok | {:error, atom()}
   def validate_guest_invitation_share_key(attrs, context)
       when is_map(attrs) and is_map(context) do
     validate_scoped_wrap(
@@ -542,7 +530,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     }
   end
 
-  @spec validate_wrap_event(map(), [map()]) :: :ok | {:error, atom()}
   def validate_wrap_event(attrs, events) when is_list(events) do
     case Enum.find(events, &matching_wrap_event?(&1, attrs)) do
       %{"payload" => %{"body" => body}} when is_map(body) ->
@@ -594,7 +581,6 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     end
   end
 
-  @spec verify_signature(map(), map()) :: :ok | {:error, atom()}
   def verify_signature(attrs, sender_signing_public_key_material)
       when is_map(attrs) and is_map(sender_signing_public_key_material) do
     with :ok <- validate_common(attrs),

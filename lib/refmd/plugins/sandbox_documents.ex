@@ -23,38 +23,10 @@ defmodule RefMD.Plugins.SandboxDocuments do
     :capability_grant_id
   ]
 
-  @type session :: %{
-          required(:id) => String.t(),
-          required(:expires_at_ms) => integer(),
-          required(:workspace_id) => Ecto.UUID.t(),
-          required(:package_id) => Ecto.UUID.t(),
-          required(:application_id) => Ecto.UUID.t(),
-          required(:activation_id) => Ecto.UUID.t(),
-          required(:owner_scope_kind) => String.t(),
-          required(:user_id) => Ecto.UUID.t(),
-          required(:device_id) => Ecto.UUID.t(),
-          required(:auth_session_id) => String.t(),
-          required(:bundle_id) => Ecto.UUID.t(),
-          required(:bundle_hash) => String.t(),
-          required(:manifest_hash) => String.t(),
-          required(:resource_manifest_hash) => String.t(),
-          required(:state_head_hash) => String.t(),
-          required(:consent_head_hash) => String.t(),
-          required(:consent_epoch) => pos_integer(),
-          required(:boot_nonce) => String.t(),
-          required(:frame_generation) => pos_integer(),
-          required(:capability_grant_id) => String.t(),
-          optional(:sandbox_document_frame_scope) => atom(),
-          optional(:sandbox_document_variant) => atom(),
-          optional(:wasm_browser_target) => String.t()
-        }
-
-  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @spec create(map()) :: session()
   def create(attrs) do
     now = System.system_time(:millisecond)
     id = random_token(32)
@@ -99,13 +71,11 @@ defmodule RefMD.Plugins.SandboxDocuments do
     session
   end
 
-  @spec mark_served(session()) :: :ok
   def mark_served(session) when is_map(session) do
     insert_frame_marker(session, :served, @served_frame_ttl_ms)
     :ok
   end
 
-  @spec activate_frame?(map()) :: boolean()
   def activate_frame?(attrs) when is_map(attrs) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -124,7 +94,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def activate_frame?(_attrs), do: false
 
-  @spec loadable_frame?(map()) :: boolean()
   def loadable_frame?(attrs) when is_map(attrs) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -140,7 +109,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def loadable_frame?(_attrs), do: false
 
-  @spec preload_frame?(map()) :: boolean()
   def preload_frame?(attrs) when is_map(attrs) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -156,7 +124,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def preload_frame?(_attrs), do: false
 
-  @spec terminal_frame?(map(), String.t()) :: boolean()
   def terminal_frame?(attrs, event_type) when is_map(attrs) and is_binary(event_type) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -171,7 +138,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def terminal_frame?(_attrs, _event_type), do: false
 
-  @spec terminate_frame?(map(), String.t()) :: boolean()
   def terminate_frame?(attrs, event_type) when is_map(attrs) and is_binary(event_type) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -194,7 +160,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def terminate_frame?(_attrs, _event_type), do: false
 
-  @spec revoke_frame(map()) :: :ok
   def revoke_frame(attrs) when is_map(attrs) do
     case frame_key(attrs) do
       {:ok, key} -> :ets.delete(@table, {:sandbox_frame, key})
@@ -207,7 +172,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def revoke_frame(_attrs), do: :ok
 
-  @spec current_frame?(map()) :: boolean()
   def current_frame?(attrs) when is_map(attrs) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -226,7 +190,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def current_frame?(_attrs), do: false
 
-  @spec cleanup_frame?(map()) :: boolean()
   def cleanup_frame?(attrs) when is_map(attrs) do
     with frame_generation when is_integer(frame_generation) and frame_generation > 0 <-
            Map.get(attrs, :frame_generation),
@@ -243,7 +206,6 @@ defmodule RefMD.Plugins.SandboxDocuments do
 
   def cleanup_frame?(_attrs), do: false
 
-  @spec consume(String.t(), map()) :: {:ok, session()} | {:error, atom()}
   def consume(id, expected) when is_binary(id) do
     now = System.system_time(:millisecond)
 

@@ -18,8 +18,6 @@ defmodule RefMD.Sharing.Access do
 
   @max_safe_integer 9_007_199_254_740_991
 
-  @spec get_share_permission(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, String.t()} | {:error, :not_found}
   def get_share_permission(share_id, document_id) do
     case active_share_for_document(share_id, document_id) do
       %Share{permission: permission} -> {:ok, permission}
@@ -27,37 +25,30 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec can_read_document?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def can_read_document?(share_id, document_id) do
     match?({:ok, _permission}, get_share_permission(share_id, document_id))
   end
 
-  @spec can_write_document?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def can_write_document?(share_id, document_id) do
     match?({:ok, "edit"}, get_share_permission(share_id, document_id))
   end
 
-  @spec can_continue_document_session?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def can_continue_document_session?(share_id, document_id) do
     match?(%Share{}, active_share_for_document(share_id, document_id))
   end
 
-  @spec can_join_document_session?(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def can_join_document_session?(share_id, document_id, session_id) do
     match?(%Share{}, active_participant_share_for_document(share_id, document_id, session_id))
   end
 
-  @spec share_accepting_participants?(Share.t()) :: boolean()
   def share_accepting_participants?(%Share{} = share) do
     not expired?(share) and not max_views_reached?(share)
   end
 
-  @spec share_session_accessible?(Share.t()) :: boolean()
   def share_session_accessible?(%Share{} = share) do
     not expired?(share)
   end
 
-  @spec share_session_accessible_now?(Ecto.UUID.t()) :: boolean()
   def share_session_accessible_now?(share_id) do
     from(s in Share, where: s.id == ^share_id)
     |> Repo.one()
@@ -67,7 +58,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec share_session_workspace_access?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def share_session_workspace_access?(share_id, workspace_id) do
     case current_workspace_event_sequence(workspace_id) do
       {:ok, current_sequence} ->
@@ -86,7 +76,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec expired?(Share.t()) :: boolean()
   def expired?(%Share{expires_event_sequence: @max_safe_integer}), do: false
 
   def expired?(%Share{} = share) do
@@ -98,7 +87,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec max_views_reached?(Share.t()) :: boolean()
   def max_views_reached?(%Share{max_views: @max_safe_integer}), do: false
 
   def max_views_reached?(%Share{max_views: max_views, view_count: view_count}) do
@@ -125,7 +113,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec document_accessible_in_share?(Share.t(), Ecto.UUID.t()) :: boolean()
   def document_accessible_in_share?(%Share{scope: "document"} = share, document_id) do
     document_in_share_scope?(share, document_id)
   end
@@ -140,7 +127,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec folder_share_entry_accessible?(Share.t(), Document.t()) :: boolean()
   def folder_share_entry_accessible?(%Share{} = share, %Document{} = document) do
     is_nil(document.archived_at) and
       document_in_share_scope?(share, document.id) and
@@ -149,8 +135,6 @@ defmodule RefMD.Sharing.Access do
       folder_share_parent_path_accessible?(share.id, share.document_id, document)
   end
 
-  @spec folder_token_accessible_in_share?(Share.t(), Share.t(), SharedFolderToken.t()) ::
-          boolean()
   def folder_token_accessible_in_share?(
         %Share{} = access_share,
         %Share{} = token_share,
@@ -169,7 +153,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec folder_token_document_accessible?(Share.t(), Ecto.UUID.t()) :: boolean()
   def folder_token_document_accessible?(%Share{} = access_share, document_id) do
     case Repo.get(Document, document_id) do
       %Document{} = document -> folder_share_entry_accessible?(access_share, document)
@@ -177,7 +160,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec descendant_of?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def descendant_of?(document_id, ancestor_id) do
     sql = """
     WITH RECURSIVE ancestors AS (
@@ -198,7 +180,6 @@ defmodule RefMD.Sharing.Access do
     end
   end
 
-  @spec folder_child_share_ready?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def folder_child_share_ready?(root_share_id, document_id) do
     from(s in Share,
       join: d in Document,

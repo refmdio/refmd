@@ -10,9 +10,6 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
   @max_connections_per_share 50
   @max_silent_per_user 50
 
-  # ── Silent join management ──────────────────────────
-
-  @spec check_and_increment_silent(String.t()) :: :ok | {:error, map()}
   def check_and_increment_silent(user_id) do
     silent_topic = "silent:#{user_id}"
     presences = Presence.list(silent_topic)
@@ -30,9 +27,6 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
     end
   end
 
-  # ── Connection tracking ─────────────────────────────
-
-  @spec track_and_subscribe(String.t(), String.t(), String.t()) :: {:ok, String.t()}
   def track_and_subscribe(document_id, user_id, signing_key_id) do
     topic = "document:#{document_id}"
     join_ref = inspect(make_ref())
@@ -49,8 +43,6 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
     {:ok, join_ref}
   end
 
-  @spec track_share_connection(String.t(), String.t(), String.t(), String.t()) ::
-          {:ok, String.t()} | {:error, map()}
   def track_share_connection(document_id, share_id, principal_id, signing_key_id) do
     lock_id = {{__MODULE__, :share_connection_cap, share_id}, :share_connection_cap}
 
@@ -89,22 +81,17 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
     end
   end
 
-  @spec cleanup_connection(String.t()) :: :ok
   def cleanup_connection(document_id) do
     :ets.match_delete(:refmd_presence_pids, {{"document:#{document_id}", :_, :_}, {self(), :_}})
     :ok
   end
 
-  @spec cleanup_connection_on_join_failure(String.t()) :: :ok
   def cleanup_connection_on_join_failure(document_id) do
     topic = "document:#{document_id}"
     :ets.match_delete(:refmd_presence_pids, {{topic, :_, :_}, {self(), :_}})
     :ok
   end
 
-  # ── Eviction ────────────────────────────────────────
-
-  @spec evict_excess(String.t(), String.t()) :: :ok
   def evict_excess(document_id, user_id) do
     topic = "document:#{document_id}"
     presences = Presence.list(topic)
@@ -141,7 +128,6 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
     end
   end
 
-  @spec evict_topic(String.t(), String.t()) :: String.t()
   def evict_topic(topic, user_id), do: "connection_evict:#{topic}:#{user_id}"
 
   defp share_topic(share_id), do: "share_connection:#{share_id}"
@@ -160,9 +146,6 @@ defmodule RefMDWeb.Channels.Document.ConnectionManager do
     |> Enum.reduce(0, fn presence, acc -> acc + length(presence.metas || []) end)
   end
 
-  # ── Peer-left broadcast ─────────────────────────────
-
-  @spec broadcast_peer_left(String.t(), String.t() | nil, String.t(), String.t() | nil) :: :ok
   def broadcast_peer_left(_document_id, nil, _user_id, _connection_id), do: :ok
 
   def broadcast_peer_left(document_id, signing_key_id, user_id, connection_id) do

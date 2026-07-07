@@ -36,8 +36,6 @@ defmodule RefMD.Security.AuditEvent do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [
     :class,
     :type,
@@ -49,7 +47,6 @@ defmodule RefMD.Security.AuditEvent do
     :correlation
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(event, attrs) do
     event
     |> cast(attrs, @required_fields)

@@ -369,7 +369,6 @@ defmodule RefMD.Crypto.SigningSurface do
     Enum.map(static_surfaces(), fn %{surface: surface} -> surface end)
   end
 
-  @spec get_active!(binary(), binary()) :: map()
   def get_active!(signing_purpose, variant)
       when is_binary(signing_purpose) and is_binary(variant) do
     active_by_purpose_variant =
@@ -385,7 +384,6 @@ defmodule RefMD.Crypto.SigningSurface do
 
   def get_active!(_, _), do: raise(ArgumentError, "signing_surface_not_active")
 
-  @spec semantic_validator!(map()) :: map()
   def semantic_validator!(%{signing_purpose: signing_purpose, variant: variant}) do
     {function, arity} =
       signing_purpose
@@ -401,7 +399,6 @@ defmodule RefMD.Crypto.SigningSurface do
 
   def semantic_validator!(_), do: raise(ArgumentError, "signing_surface_validator_not_registered")
 
-  @spec transcript_builder!(map()) :: map()
   def transcript_builder!(%{signing_purpose: signing_purpose, variant: variant}) do
     {module, function, arity} = transcript_builder_for!(signing_purpose, variant)
 
@@ -416,11 +413,9 @@ defmodule RefMD.Crypto.SigningSurface do
 
   if Mix.env() == :test do
     @doc false
-    @spec __test_active_surfaces__() :: [map()]
     def __test_active_surfaces__, do: active_surfaces()
 
     @doc false
-    @spec __test_owner_kinds__(binary(), binary()) :: [binary()]
     def __test_owner_kinds__(signing_purpose, variant),
       do: owner_kinds!(signing_purpose, variant)
   end
@@ -555,7 +550,6 @@ defmodule RefMD.Crypto.SigningSurface do
   defp semantic_validator_id(signing_purpose, variant),
     do: signing_purpose <> ":" <> variant <> ":semantic"
 
-  @spec assert_owner_kind!(map(), binary()) :: :ok
   def assert_owner_kind!(%{signing_purpose: signing_purpose, variant: variant}, owner_kind)
       when is_binary(owner_kind) do
     accepted = owner_kinds!(signing_purpose, variant)

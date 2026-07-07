@@ -18,10 +18,8 @@ defmodule RefMDWeb.Plugs.RequirePoP do
 
   @touch_interval_seconds 5 * 60
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, opts) do
     with {:ok, device_id} <- get_pop_device_id(conn),
          {:ok, actor_variant} <- get_actor_variant(conn, opts),

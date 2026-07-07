@@ -31,7 +31,6 @@ defmodule RefMD.Workspaces do
 
   defdelegate list_workspace_members(workspace_id), to: RefMD.Workspaces.Members
 
-  @spec get_member_permission_version(Ecto.UUID.t(), Ecto.UUID.t()) :: pos_integer()
   def get_member_permission_version(workspace_id, user_id) do
     from(m in WorkspaceMember,
       where: m.workspace_id == ^workspace_id and m.user_id == ^user_id,
@@ -45,7 +44,6 @@ defmodule RefMD.Workspaces do
     end
   end
 
-  @spec workspace_device_wipe_required?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def workspace_device_wipe_required?(workspace_id, device_id) do
     from(r in WorkspaceDeviceWipeRequirement,
       where: r.workspace_id == ^workspace_id and r.device_id == ^device_id
@@ -65,31 +63,20 @@ defmodule RefMD.Workspaces do
   defdelegate remove_member(workspace_id, target_user_id, actor_user_id, key_directory),
     to: RefMD.Workspaces.Members
 
-  # ── Roles (delegated to RefMD.Workspaces.Roles) ──
-
-  @spec permission_defined?(String.t()) :: boolean()
   defdelegate permission_defined?(permission), to: RefMD.Workspaces.Roles.Authorization
 
-  @spec effective_permissions(WorkspaceRole.t() | map()) :: MapSet.t(String.t())
   defdelegate effective_permissions(role), to: RefMD.Workspaces.Roles.Authorization
 
-  @spec permission_granted?(WorkspaceRole.t() | map(), String.t()) :: boolean()
   defdelegate permission_granted?(role, permission), to: RefMD.Workspaces.Roles.Authorization
 
-  @spec validate_role_assignment(WorkspaceRole.t() | map(), WorkspaceRole.t() | map()) ::
-          :ok | {:error, :role_escalation | :permission_escalation}
   defdelegate validate_role_assignment(actor_role, target_role),
     to: RefMD.Workspaces.Roles.Authorization
 
   defdelegate list_workspace_roles(workspace_id), to: RefMD.Workspaces.Roles
 
-  @spec create_custom_role(Ecto.UUID.t(), String.t(), String.t(), list() | nil) ::
-          {:ok, WorkspaceRole.t()} | {:error, term()}
   def create_custom_role(workspace_id, name, base_role, permissions \\ nil),
     do: WRoles.create_custom_role(workspace_id, name, base_role, permissions)
 
-  @spec update_role(WorkspaceRole.t(), map(), keyword()) ::
-          {:ok, WorkspaceRole.t()} | {:error, term()}
   def update_role(role, attrs, opts \\ []),
     do: WRoles.update_role(role, attrs, opts)
 
@@ -137,7 +124,6 @@ defmodule RefMD.Workspaces do
   defdelegate revoke_all_active_invitations(workspace_ids), to: RefMD.Workspaces.Invitations
   defdelegate revoke_all_active_guest_invitations(workspace_ids), to: RefMD.Workspaces.Guests
 
-  @spec lookup_invitation_kind(String.t()) :: {:ok, :workspace | :guest} | {:error, :not_found}
   def lookup_invitation_kind(token_hash) when is_binary(token_hash) do
     cond do
       Repo.exists?(from(i in WorkspaceInvitation, where: i.token_hash == ^token_hash)) ->
@@ -151,8 +137,6 @@ defmodule RefMD.Workspaces do
     end
   end
 
-  @spec lookup_invitation(String.t()) ::
-          {:ok, WorkspaceInvitation.t() | GuestInvitation.t()} | {:error, :not_found}
   def lookup_invitation(token_hash) when is_binary(token_hash) do
     case Repo.one(from(i in WorkspaceInvitation, where: i.token_hash == ^token_hash, limit: 1)) do
       %WorkspaceInvitation{} = invitation ->
@@ -166,8 +150,6 @@ defmodule RefMD.Workspaces do
     end
   end
 
-  @spec get_guest_invitation_redeem_context(String.t()) ::
-          {:ok, GuestInvitation.t()} | {:error, :not_found}
   def get_guest_invitation_redeem_context(token_hash) when is_binary(token_hash) do
     case Repo.one(from(i in GuestInvitation, where: i.token_hash == ^token_hash, limit: 1)) do
       %GuestInvitation{} = invitation -> {:ok, invitation}
@@ -175,10 +157,6 @@ defmodule RefMD.Workspaces do
     end
   end
 
-  @spec revoke_all_active_access_invitations([Ecto.UUID.t()]) :: %{
-          member_invitations: non_neg_integer(),
-          guest_invitations: non_neg_integer()
-        }
   def revoke_all_active_access_invitations(workspace_ids) do
     %{
       member_invitations: revoke_all_active_invitations(workspace_ids),
@@ -228,14 +206,12 @@ defmodule RefMD.Workspaces do
   defdelegate revoke_guest_grants(workspace_id, user_id), to: RefMD.Workspaces.Guests
   defdelegate guest_invites_enabled?(workspace_id), to: RefMD.Workspaces.Guests
 
-  @spec share_links_enabled?(Ecto.UUID.t()) :: boolean()
   def share_links_enabled?(workspace_id) when is_binary(workspace_id) do
     from(w in Workspace, where: w.id == ^workspace_id, select: w.share_links_enabled)
     |> Repo.one()
     |> Kernel.==(true)
   end
 
-  @spec public_publishing_enabled?(Ecto.UUID.t()) :: boolean()
   def public_publishing_enabled?(workspace_id) when is_binary(workspace_id) do
     from(w in Workspace, where: w.id == ^workspace_id, select: w.public_publishing_enabled)
     |> Repo.one()
@@ -247,11 +223,8 @@ defmodule RefMD.Workspaces do
   defdelegate create_default_workspace(user_id, name), to: RefMD.Workspaces.Creation
   defdelegate create_workspace(user_id, name, opts \\ %{}), to: RefMD.Workspaces.Creation
 
-  @spec get_workspace(Ecto.UUID.t()) :: Workspace.t() | nil
   def get_workspace(id), do: Repo.get(Workspace, id)
 
-  @spec update_workspace(Workspace.t(), map()) ::
-          {:ok, Workspace.t()} | {:error, Ecto.Changeset.t()}
   def update_workspace(%Workspace{} = workspace, attrs) do
     workspace
     |> Workspace.update_changeset(attrs)
@@ -272,29 +245,20 @@ defmodule RefMD.Workspaces do
 
   defp maybe_recompute_plugin_user_policy(result, _attrs), do: result
 
-  @spec delete_workspace(Workspace.t()) :: {:ok, Workspace.t()} | {:error, Ecto.Changeset.t()}
   def delete_workspace(%Workspace{} = workspace) do
     Repo.delete(workspace)
   end
 
-  # ── KEK Version ─────────────────────────────────
-
-  @spec update_current_kek_version(Ecto.UUID.t(), integer()) ::
-          {non_neg_integer(), nil | [term()]}
   def update_current_kek_version(workspace_id, version) do
     from(w in Workspace, where: w.id == ^workspace_id)
     |> Repo.update_all(set: [current_kek_version: version])
   end
 
-  @spec initialize_kek_version(Ecto.UUID.t()) :: {non_neg_integer(), nil | [term()]}
   def initialize_kek_version(workspace_id) do
     from(w in Workspace, where: w.id == ^workspace_id and w.current_kek_version == 0)
     |> Repo.update_all(set: [current_kek_version: 1])
   end
 
-  # ── User Workspace Queries ──────────────────────
-
-  @spec get_user_default_workspace(Ecto.UUID.t()) :: Workspace.t() | nil
   def get_user_default_workspace(user_id) do
     from(wm in WorkspaceMember,
       join: w in Workspace,
@@ -306,14 +270,6 @@ defmodule RefMD.Workspaces do
     |> Repo.one()
   end
 
-  @spec list_user_workspaces(Ecto.UUID.t()) :: [
-          %{
-            workspace: Workspace.t(),
-            is_default: boolean(),
-            role_id: Ecto.UUID.t(),
-            base_role: String.t()
-          }
-        ]
   def list_user_workspaces(user_id) do
     from(wm in WorkspaceMember,
       join: w in Workspace,
@@ -332,14 +288,6 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
-  @spec list_discoverable_workspaces(Ecto.UUID.t()) :: [
-          %{
-            workspace: Workspace.t(),
-            is_default: boolean(),
-            role_id: Ecto.UUID.t(),
-            base_role: String.t()
-          }
-        ]
   def list_discoverable_workspaces(user_id) do
     if guest_user?(user_id) do
       from(g in WorkspaceGuestGrant,
@@ -365,7 +313,6 @@ defmodule RefMD.Workspaces do
     end
   end
 
-  @spec get_user_workspace_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def get_user_workspace_ids(user_id) do
     from(wm in WorkspaceMember,
       where: wm.user_id == ^user_id,
@@ -374,7 +321,6 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
-  @spec get_discoverable_workspace_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def get_discoverable_workspace_ids(user_id) do
     if guest_user?(user_id) do
       from(g in WorkspaceGuestGrant,
@@ -388,7 +334,6 @@ defmodule RefMD.Workspaces do
     end
   end
 
-  @spec get_user_workspace_ids_with_kek_version(Ecto.UUID.t()) :: [{Ecto.UUID.t(), integer()}]
   def get_user_workspace_ids_with_kek_version(user_id) do
     from(wm in WorkspaceMember,
       join: w in Workspace,

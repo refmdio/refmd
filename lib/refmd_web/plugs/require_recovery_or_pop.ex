@@ -11,10 +11,8 @@ defmodule RefMDWeb.Plugs.RequireRecoveryOrPoP do
 
   alias RefMDWeb.Plugs.RequirePoP
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, opts) do
     session = conn.assigns.current_session
 

@@ -43,7 +43,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec consent_required(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def consent_required(conn, %{"workspace_id" => workspace_id}) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id
@@ -71,7 +70,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec index_plugins(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index_plugins(conn, %{"workspace_id" => workspace_id}) do
     plugins =
       workspace_id
@@ -95,7 +93,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec apply_plugin(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def apply_plugin(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id
@@ -123,7 +120,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec index_activations(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index_activations(conn, _params) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id
@@ -151,7 +147,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec update_activation(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_activation(conn, %{"activation_id" => activation_id} = params) do
     with %PluginActivation{} = activation <- Plugins.get_active_activation(activation_id),
          :ok <- authorize_activation_update(conn, activation),
@@ -181,7 +176,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec delete_activation(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete_activation(conn, %{"activation_id" => activation_id}) do
     with %PluginActivation{} = activation <- Plugins.get_active_activation(activation_id),
          :ok <- authorize_activation_update(conn, activation),
@@ -205,7 +199,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec index_user_packages(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index_user_packages(conn, _params) do
     packages =
       conn.assigns.current_user_id
@@ -226,7 +219,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec index_workspace_packages(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index_workspace_packages(conn, %{"workspace_id" => workspace_id}) do
     packages =
       workspace_id
@@ -248,7 +240,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec create_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_candidate(conn, %{"source_kind" => "remote_https_url"} = params),
     do: create_remote_candidate(conn, params)
 
@@ -273,7 +264,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec create_user_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_user_candidate(conn, params) do
     params =
       params
@@ -292,7 +282,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec create_manifest_routed_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_manifest_routed_candidate(conn, %{"source_kind" => "remote_https_url"} = params),
     do: create_manifest_routed_remote_candidate(conn, params)
 
@@ -369,7 +358,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec create_remote_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_remote_candidate(conn, %{"source_url" => source_url} = params)
       when is_binary(source_url) do
     with {:ok, attrs} <- candidate_attrs(conn, params),
@@ -395,7 +383,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec create_local_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_local_candidate(conn, %{"archive_base64" => archive_base64} = params)
       when is_binary(archive_base64) do
     with {:ok, attrs} <- candidate_attrs(conn, params),
@@ -431,7 +418,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec show_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_candidate(conn, params) do
     case fetch_candidate(params) do
       {:ok, candidate} -> json(conn, %{candidate: format_candidate(conn, candidate)})
@@ -453,7 +439,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec promote_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def promote_candidate(conn, params) do
     with {:ok, %PluginBundleCandidate{} = candidate} <- fetch_candidate(params),
          {:ok, package} <-
@@ -478,7 +463,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec show_candidate_resource(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_candidate_resource(conn, params) do
     case fetch_owned_candidate(conn, params) do
       {:ok, candidate} -> json(conn, %{candidate: format_candidate(conn, candidate)})
@@ -499,7 +483,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec promote_candidate_resource(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def promote_candidate_resource(conn, params) do
     with {:ok, %PluginBundleCandidate{} = candidate} <- fetch_owned_candidate(conn, params),
          {:ok, package} <-
@@ -524,7 +507,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec show_user_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_user_candidate(conn, params) do
     case fetch_user_candidate(conn, params) do
       {:ok, candidate} -> json(conn, %{candidate: format_candidate(conn, candidate)})
@@ -545,7 +527,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec promote_user_candidate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def promote_user_candidate(conn, params) do
     with {:ok, %PluginBundleCandidate{} = candidate} <- fetch_user_candidate(conn, params),
          {:ok, package} <-
@@ -572,7 +553,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec update_plugin(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_plugin(
         conn,
         %{"workspace_id" => workspace_id, "application_id" => application_id} = params
@@ -601,7 +581,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec delete_plugin(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete_plugin(conn, %{"workspace_id" => workspace_id, "application_id" => application_id}) do
     case application_in_workspace(application_id, workspace_id) do
       nil ->
@@ -636,7 +615,6 @@ defmodule RefMDWeb.PluginManagementController do
     ]
   )
 
-  @spec append_consent(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def append_consent(conn, params) do
     attrs = consent_attrs(conn, params)
 

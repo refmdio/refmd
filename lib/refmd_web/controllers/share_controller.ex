@@ -19,7 +19,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"share_slug" => share_slug}) do
     case Sharing.get_share_landing(share_slug, get_session_token(conn)) do
       {:ok, %{share: share, root: root}} ->
@@ -48,7 +47,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def bootstrap(conn, %{"share_slug" => share_slug} = params) do
     allowed = [
       "share_slug",
@@ -107,7 +105,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def challenge(conn, %{"share_slug" => share_slug}) do
     case Sharing.get_password_challenge(share_slug) do
       {:ok, response} ->
@@ -138,7 +135,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec respond_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def respond_challenge(conn, %{"share_slug" => share_slug} = params) do
     allowed = [
       "share_slug",
@@ -201,7 +197,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec document(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def document(conn, %{"document_token" => document_token}) do
     case Sharing.get_document_bootstrap(document_token, get_session_token(conn), nil) do
       {:ok, response} ->
@@ -234,7 +229,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec document_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def document_bootstrap(conn, %{"document_token" => document_token} = params) do
     case validate_canonical_pin_hash(params) do
       {:ok, pin_hash} ->
@@ -275,7 +269,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec folder(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def folder(conn, %{"folder_token" => folder_token}) do
     case Sharing.get_folder_bootstrap(folder_token, get_session_token(conn), nil) do
       {:ok, response} ->
@@ -308,7 +301,6 @@ defmodule RefMDWeb.ShareController do
     ]
   )
 
-  @spec folder_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def folder_bootstrap(conn, %{"folder_token" => folder_token} = params) do
     case validate_canonical_pin_hash(params) do
       {:ok, pin_hash} ->

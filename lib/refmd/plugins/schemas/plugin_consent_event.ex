@@ -37,8 +37,6 @@ defmodule RefMD.Plugins.PluginConsentEvent do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [
     :plugin_id,
     :package_id,
@@ -74,7 +72,6 @@ defmodule RefMD.Plugins.PluginConsentEvent do
     :event_hash
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(event, attrs) do
     event
     |> cast(attrs, @required_fields)

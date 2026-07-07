@@ -5,10 +5,6 @@ defmodule RefMD.Sharing.Input do
   alias RefMD.Documents.Document
 
   @max_safe_integer 9_007_199_254_740_991
-  @type validation_result :: :ok | {:error, term()}
-  @type fetch_result :: {:ok, term()} | {:error, term()}
-
-  @spec fetch_uuid(map(), atom()) :: {:ok, Ecto.UUID.t()} | {:error, term()}
   def fetch_uuid(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) -> parse_uuid_value(value, key)
@@ -16,7 +12,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_enum(map(), atom(), [String.t()]) :: {:ok, String.t()} | {:error, term()}
   def fetch_enum(attrs, key, allowed) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) ->
@@ -30,7 +25,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_boolean(map(), atom()) :: {:ok, boolean()} | {:error, term()}
   def fetch_boolean(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_boolean(value) -> {:ok, value}
@@ -39,7 +33,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_binary(map(), atom()) :: {:ok, binary()} | {:error, term()}
   def fetch_binary(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) -> {:ok, value}
@@ -47,7 +40,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_optional_binary(map(), atom()) :: {:ok, binary() | nil} | {:error, term()}
   def fetch_optional_binary(attrs, key) do
     case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
@@ -56,7 +48,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_authorization_public_key_material(map()) :: fetch_result()
   def fetch_authorization_public_key_material(attrs) do
     material = dual_key_get(attrs, :authorization_public_key_material)
 
@@ -71,7 +62,6 @@ defmodule RefMD.Sharing.Input do
     ArgumentError -> {:error, {:invalid_public_key, :authorization_public_key_material}}
   end
 
-  @spec validate_authorization_public_key_material(map(), String.t()) :: validation_result()
   def validate_authorization_public_key_material(
         %{"owner_kind" => "share_capability", "owner_id" => token_hash},
         token_hash
@@ -81,7 +71,6 @@ defmodule RefMD.Sharing.Input do
   def validate_authorization_public_key_material(_material, _token_hash),
     do: {:error, {:invalid_public_key, :authorization_public_key_material}}
 
-  @spec fetch_required_base64url_hash(map(), atom()) :: {:ok, String.t()} | {:error, term()}
   def fetch_required_base64url_hash(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) ->
@@ -97,8 +86,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_password_capability_secret_commitment(map(), boolean()) ::
-          {:ok, String.t()} | {:error, term()}
   def fetch_password_capability_secret_commitment(attrs, password_protected) do
     value = dual_key_get(attrs, :password_capability_secret_commitment)
 
@@ -123,7 +110,6 @@ defmodule RefMD.Sharing.Input do
   defp normalize_password_capability_secret_commitment(_, _),
     do: {:error, {:invalid_value, :password_capability_secret_commitment}}
 
-  @spec fetch_optional_map(map(), atom()) :: {:ok, map() | nil} | {:error, term()}
   def fetch_optional_map(attrs, key) do
     case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
@@ -132,7 +118,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_required_map(map(), atom()) :: {:ok, map()} | {:error, term()}
   def fetch_required_map(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_map(value) -> {:ok, value}
@@ -141,7 +126,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_optional_datetime(map(), atom()) :: {:ok, DateTime.t() | nil} | {:error, term()}
   def fetch_optional_datetime(attrs, key) do
     case dual_key_get(attrs, key) do
       nil ->
@@ -158,8 +142,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_optional_positive_integer(map(), atom()) ::
-          {:ok, pos_integer() | nil} | {:error, term()}
   def fetch_optional_positive_integer(attrs, key) do
     case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
@@ -168,7 +150,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_required_positive_integer(map(), atom()) :: {:ok, pos_integer()} | {:error, term()}
   def fetch_required_positive_integer(attrs, key) do
     case fetch_optional_positive_integer(attrs, key) do
       {:ok, nil} -> {:error, {:missing_field, key}}
@@ -176,7 +157,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_folder_share_keys(map(), String.t(), boolean()) :: {:ok, [map()]} | {:error, term()}
   def fetch_folder_share_keys(attrs, "document", _password_protected) do
     case dual_key_get(attrs, :share_keys) do
       nil -> {:ok, []}
@@ -200,8 +180,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_folder_share_exclusions(map(), String.t()) ::
-          {:ok, [Ecto.UUID.t()]} | {:error, term()}
   def fetch_folder_share_exclusions(attrs, "document") do
     case dual_key_get(attrs, :exclusions) do
       nil -> {:ok, []}
@@ -217,16 +195,13 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec validate_share_scope(Document.t(), String.t()) :: validation_result()
   def validate_share_scope(%Document{doc_type: "document"}, "document"), do: :ok
   def validate_share_scope(%Document{doc_type: "folder"}, "folder"), do: :ok
   def validate_share_scope(%Document{}, _scope), do: {:error, {:invalid_value, :scope}}
 
-  @spec validate_active_share_root(Document.t()) :: validation_result()
   def validate_active_share_root(%Document{archived_at: nil}), do: :ok
   def validate_active_share_root(%Document{}), do: {:error, {:invalid_value, :document_id}}
 
-  @spec fetch_token_prefix(map(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def fetch_token_prefix(attrs, share_slug) do
     expected = String.slice(share_slug, 0, 4)
 
@@ -236,8 +211,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec validate_password_share_fields(boolean(), binary() | nil, map() | nil) ::
-          validation_result()
   def validate_password_share_fields(false, nil, nil), do: :ok
 
   def validate_password_share_fields(false, _salt, _kdf_params),
@@ -252,7 +225,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec fetch_password_auth_key(map(), boolean()) :: {:ok, binary() | nil} | {:error, term()}
   def fetch_password_auth_key(_attrs, false), do: {:ok, nil}
 
   def fetch_password_auth_key(attrs, true) do
@@ -281,7 +253,6 @@ defmodule RefMD.Sharing.Input do
     end
   end
 
-  @spec validate_encrypted_dek(binary(), boolean()) :: validation_result()
   def validate_encrypted_dek(encrypted_dek, _password_protected)
       when byte_size(encrypted_dek) == 48,
       do: :ok
@@ -289,16 +260,13 @@ defmodule RefMD.Sharing.Input do
   def validate_encrypted_dek(_encrypted_dek, _password_protected),
     do: {:error, :invalid_encrypted_dek}
 
-  @spec validate_share_key_nonce(binary() | nil) :: validation_result()
   def validate_share_key_nonce(nil), do: :ok
   def validate_share_key_nonce(nonce) when byte_size(nonce) == 24, do: :ok
   def validate_share_key_nonce(_nonce), do: {:error, :invalid_nonce}
 
-  @spec validate_share_key_nonce(binary() | nil, boolean()) :: validation_result()
   def validate_share_key_nonce(nil, _password_protected), do: {:error, :invalid_nonce}
   def validate_share_key_nonce(nonce, _password_protected), do: validate_share_key_nonce(nonce)
 
-  @spec fetch_url_token(map(), atom()) :: {:ok, String.t(), binary()} | {:error, term()}
   def fetch_url_token(attrs, key) do
     token =
       case Map.get(attrs, key) do
@@ -309,7 +277,6 @@ defmodule RefMD.Sharing.Input do
     validate_url_token(token)
   end
 
-  @spec parse_uuid_list([term()], atom()) :: {:ok, [Ecto.UUID.t()]} | {:error, term()}
   def parse_uuid_list(values, field) do
     values
     |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
@@ -321,7 +288,6 @@ defmodule RefMD.Sharing.Input do
     |> reverse_parsed_list()
   end
 
-  @spec max_safe_integer() :: pos_integer()
   def max_safe_integer, do: @max_safe_integer
 
   defp parse_uuid_value(value, key) when is_binary(value) do

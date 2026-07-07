@@ -4,10 +4,6 @@ defmodule RefMD.Encryption.KeyDirectory.AppendPolicy do
   alias RefMD.{Devices, Encryption, Workspaces}
   alias RefMD.Encryption.KeyDirectory.State
 
-  @type validation_error :: {:error, :unprocessable_entity, String.t()}
-
-  @spec validate([map()], map(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          {:ok, String.t()} | validation_error()
   def validate([event], checkpoint, workspace_id, actor_user_id, pop_device_id) do
     case event do
       %{

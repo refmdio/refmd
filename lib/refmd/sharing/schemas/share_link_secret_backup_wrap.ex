@@ -16,7 +16,6 @@ defmodule RefMD.Sharing.ShareLinkSecretBackupWrap do
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(record, attrs) do
     record
     |> cast(attrs, [

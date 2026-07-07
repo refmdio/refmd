@@ -8,7 +8,6 @@ defmodule RefMD.Sharing.Ledger do
 
   @max_safe_integer 9_007_199_254_740_991
 
-  @spec consume!(Share.t(), String.t(), Ecto.UUID.t()) :: :ok | no_return()
   def consume!(%Share{} = share, consumer_kind, consumer_id)
       when is_binary(consumer_kind) and is_binary(consumer_id) do
     case Repo.transaction(fn -> consume_locked!(share, consumer_kind, consumer_id) end) do
@@ -17,7 +16,6 @@ defmodule RefMD.Sharing.Ledger do
     end
   end
 
-  @spec record_existing_open(Share.t(), String.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
   def record_existing_open(%Share{} = share, consumer_kind, consumer_id)
       when is_binary(consumer_kind) and is_binary(consumer_id) do
     case Repo.transaction(fn ->
@@ -28,7 +26,6 @@ defmodule RefMD.Sharing.Ledger do
     end
   end
 
-  @spec consumed?(Ecto.UUID.t(), String.t(), Ecto.UUID.t()) :: boolean()
   def consumed?(share_id, consumer_kind, consumer_id)
       when is_binary(share_id) and is_binary(consumer_kind) and is_binary(consumer_id) do
     from(c in ShareOpenConsumption,

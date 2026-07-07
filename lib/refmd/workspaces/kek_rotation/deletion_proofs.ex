@@ -17,10 +17,6 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     "pending_queue"
   ]
 
-  @spec validate!(Ecto.UUID.t(), pos_integer(), binary(), [map()], [binary()]) :: %{
-          active_device_deletion_proofs_hash: binary(),
-          wipe_required_device_ids_hash: binary()
-        }
   def validate!(
         workspace_id,
         old_kek_version,
@@ -100,7 +96,6 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
       do: raise(ArgumentError, "device_deletion_proof_coverage_incomplete")
   end
 
-  @spec deleted_workspace_kek_secret_ids_hash(Ecto.UUID.t(), pos_integer()) :: binary()
   def deleted_workspace_kek_secret_ids_hash(workspace_id, old_kek_version) do
     Hash.blake3_base64url(
       JCS.canonical_bytes!(%{
@@ -109,7 +104,6 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     )
   end
 
-  @spec active_device_deletion_proofs_hash([binary()]) :: binary()
   def active_device_deletion_proofs_hash(proof_hashes) when is_list(proof_hashes) do
     sorted_unique_hashes =
       proof_hashes
@@ -121,7 +115,6 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     Hash.blake3_base64url(JCS.canonical_bytes!(%{"proof_hashes" => sorted_unique_hashes}))
   end
 
-  @spec wipe_required_device_ids_hash([binary()]) :: binary()
   def wipe_required_device_ids_hash(device_ids) when is_list(device_ids) do
     sorted_unique_ids =
       device_ids

@@ -4,7 +4,6 @@ defmodule RefMDWeb.Payloads.DeviceIdentity do
   alias RefMD.Encryption
   alias RefMDWeb.Payloads.DeviceRegistration
 
-  @spec sender_fields(nil | map()) :: map()
   def sender_fields(nil), do: %{}
 
   def sender_fields(device) do
@@ -30,7 +29,6 @@ defmodule RefMDWeb.Payloads.DeviceIdentity do
     }
   end
 
-  @spec workspace_device_fields(map()) :: map()
   def workspace_device_fields(device) do
     identity = Encryption.get_user_identity_public_key(device.user_id)
 

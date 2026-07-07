@@ -4,8 +4,6 @@ defmodule RefMD.Documents.Snapshots.ProofChain do
   alias RefMD.Crypto.{Blake3, JCS}
   alias RefMD.Repo
 
-  @spec build_snapshot_proof_chain(Ecto.UUID.t(), Ecto.UUID.t() | nil, Ecto.UUID.t() | nil) ::
-          [map()]
   def build_snapshot_proof_chain(_document_id, _pinned, nil), do: []
 
   def build_snapshot_proof_chain(_document_id, pinned_snapshot_id, active_snapshot_id)
@@ -68,7 +66,6 @@ defmodule RefMD.Documents.Snapshots.ProofChain do
     format_proof_chain(result, pinned_snapshot_id)
   end
 
-  @spec compute_snapshot_proof_link_hash(map()) :: String.t()
   def compute_snapshot_proof_link_hash(snapshot) do
     snapshot
     |> snapshot_proof_link_payload()

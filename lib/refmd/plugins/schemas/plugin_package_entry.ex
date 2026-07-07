@@ -33,8 +33,6 @@ defmodule RefMD.Plugins.PluginPackageEntry do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [
     :owner_scope_kind,
     :entry_kind,
@@ -46,7 +44,6 @@ defmodule RefMD.Plugins.PluginPackageEntry do
     :status
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(entry, attrs) do
     entry
     |> cast(

@@ -13,9 +13,6 @@ defmodule RefMD.Sharing.ShareOpenConsumption do
     field :consumed_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(consumption, attrs) do
     consumption
     |> cast(attrs, [:share_id, :consumer_kind, :consumer_id, :consumed_at])

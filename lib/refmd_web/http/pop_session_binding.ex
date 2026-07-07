@@ -3,7 +3,6 @@ defmodule RefMDWeb.Http.PopSessionBinding do
 
   alias RefMD.Crypto.Hash
 
-  @spec for_user_session(map()) :: map()
   def for_user_session(session) do
     %{
       "session_id_hash" => Hash.blake3_base64url(session.id),
@@ -12,7 +11,6 @@ defmodule RefMDWeb.Http.PopSessionBinding do
     }
   end
 
-  @spec for_share_session(map()) :: map()
   def for_share_session(session) do
     %{
       "session_id_hash" => Hash.blake3_base64url(session.id),

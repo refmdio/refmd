@@ -5,7 +5,6 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
 
   @max_safe_integer 9_007_199_254_740_991
 
-  @spec assert_exact_keys!(map(), [binary()]) :: :ok
   def assert_exact_keys!(map, expected_keys) when is_map(map) do
     if Enum.sort(Map.keys(map)) == expected_keys do
       :ok
@@ -14,7 +13,6 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
     end
   end
 
-  @spec assert_guest_scope!(term(), term()) :: :ok
   def assert_guest_scope!("workspace", "none"), do: :ok
 
   def assert_guest_scope!(scope_kind, scope_id)
@@ -23,11 +21,9 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
 
   def assert_guest_scope!(_, _), do: raise(ArgumentError, "scope_invalid")
 
-  @spec assert_permission!(term()) :: :ok
   def assert_permission!(permission) when permission in ["view", "edit"], do: :ok
   def assert_permission!(_), do: raise(ArgumentError, "permission_invalid")
 
-  @spec assert_uuid!(term()) :: :ok
   def assert_uuid!(value) when is_binary(value) do
     case Ecto.UUID.cast(value) do
       {:ok, _} -> :ok
@@ -37,14 +33,12 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
 
   def assert_uuid!(_), do: raise(ArgumentError, "uuid_invalid")
 
-  @spec assert_positive_integer!(term(), binary()) :: :ok
   def assert_positive_integer!(value, _error)
       when is_integer(value) and value > 0 and value <= @max_safe_integer,
       do: :ok
 
   def assert_positive_integer!(_, error), do: raise(ArgumentError, error)
 
-  @spec assert_invitee_binding!(term()) :: :ok
   def assert_invitee_binding!(binding) when is_map(binding) do
     assert_exact_keys!(binding, Enum.sort(["email_hash", "kind"]))
     assert_literal!(binding["kind"], "email", "invitee_binding_kind_invalid")
@@ -53,7 +47,6 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
 
   def assert_invitee_binding!(_), do: raise(ArgumentError, "invitee_binding_invalid")
 
-  @spec assert_redeem_authority!(term()) :: :ok
   def assert_redeem_authority!(authority) when is_map(authority) do
     assert_exact_keys!(
       authority,
@@ -78,7 +71,6 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
 
   def assert_redeem_authority!(_), do: raise(ArgumentError, "redeem_authority_invalid")
 
-  @spec assert_invitation_bootstrap_update_common!(map()) :: :ok
   def assert_invitation_bootstrap_update_common!(body) do
     Hash.assert_blake3_base64url!(body["previous_bootstrap_package_hash"])
     Hash.assert_blake3_base64url!(body["bootstrap_package_hash"])
@@ -90,7 +82,6 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
     )
   end
 
-  @spec assert_key_version_context!(term(), term(), term()) :: :ok
   def assert_key_version_context!(context, "workspace", "none") when is_map(context) do
     assert_exact_keys!(
       context,
@@ -126,7 +117,6 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
   def assert_key_version_context!(_, _, _),
     do: raise(ArgumentError, "key_version_context_invalid")
 
-  @spec assert_rotation_common!(map()) :: :ok
   def assert_rotation_common!(body) do
     assert_rotation_kind_scope!(body["rotation_kind"], body["scope_kind"])
 
@@ -140,13 +130,11 @@ defmodule RefMD.Encryption.KeyDirectory.BodyAssertions do
     end
   end
 
-  @spec assert_rotation_kind_scope!(term(), term()) :: :ok
   def assert_rotation_kind_scope!("kek", "workspace"), do: :ok
   def assert_rotation_kind_scope!("dek", "document"), do: :ok
   def assert_rotation_kind_scope!("identity", "user"), do: :ok
   def assert_rotation_kind_scope!(_, _), do: raise(ArgumentError, "rotation_scope_invalid")
 
-  @spec assert_literal!(term(), term(), binary()) :: :ok
   def assert_literal!(value, value, _error), do: :ok
   def assert_literal!(_, _, error), do: raise(ArgumentError, error)
 

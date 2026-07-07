@@ -34,14 +34,12 @@ defmodule RefMD.Workspaces.Guests.Authorization do
     "guest" => MapSet.new(~w(document:read document:write document:archive))
   }
 
-  @spec guest_user?(Ecto.UUID.t()) :: boolean()
   def guest_user?(user_id) do
     from(u in Users.User, where: u.id == ^user_id, select: u.account_type == "guest")
     |> Repo.one()
     |> Kernel.==(true)
   end
 
-  @spec role_for_active_grants(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceRole.t() | nil
   def role_for_active_grants(workspace_id, user_id) do
     if active_grants(workspace_id, user_id) == [] do
       nil
@@ -50,13 +48,6 @@ defmodule RefMD.Workspaces.Guests.Authorization do
     end
   end
 
-  @spec authorize_permission(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          atom() | String.t(),
-          Document.t() | nil
-        ) ::
-          :ok | {:error, atom()}
   def authorize_permission(workspace_id, user_id, permission, document_or_conn \\ nil) do
     grants = active_grants(workspace_id, user_id)
     role = role_for_active_grants(workspace_id, user_id)
@@ -99,8 +90,6 @@ defmodule RefMD.Workspaces.Guests.Authorization do
   defp authorize_guest_permission(_permission, _grants, _document_or_conn),
     do: {:error, :permission_denied}
 
-  @spec authorize_document_create(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), Ecto.UUID.t() | nil) ::
-          :ok | {:error, atom()}
   def authorize_document_create(workspace_id, user_id, doc_type, parent_id)
       when doc_type in ["document", "folder"] do
     grants = active_grants(workspace_id, user_id)
@@ -121,13 +110,6 @@ defmodule RefMD.Workspaces.Guests.Authorization do
   def authorize_document_create(_workspace_id, _user_id, _doc_type, _parent_id),
     do: {:error, :permission_denied}
 
-  @spec authorize_document_reorder(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil,
-          Ecto.UUID.t() | nil
-        ) ::
-          :ok | {:error, atom()}
   def authorize_document_reorder(workspace_id, user_id, document_id, parent_id) do
     grants = active_grants(workspace_id, user_id)
     role = role_for_active_grants(workspace_id, user_id)
@@ -144,7 +126,6 @@ defmodule RefMD.Workspaces.Guests.Authorization do
     end
   end
 
-  @spec filter_documents(Ecto.UUID.t(), Ecto.UUID.t(), [Document.t()]) :: [Document.t()]
   def filter_documents(workspace_id, user_id, documents) do
     if guest_user?(user_id) do
       Enum.filter(documents, fn document ->

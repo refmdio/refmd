@@ -4,12 +4,6 @@ defmodule RefMD.Plugins.NetworkProxyRegistration do
   @allowed_scopes ~w(user workspace)
   @id_regex ~r/\A[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}\z/
 
-  @type scope :: String.t()
-  @type t :: %{
-          required(String.t()) => String.t() | boolean() | [String.t()] | map()
-        }
-
-  @spec normalize(term(), scope()) :: {:ok, t() | nil} | {:error, atom()}
   def normalize(nil, _expected_scope), do: {:ok, nil}
 
   def normalize(%{} = value, expected_scope) when expected_scope in @allowed_scopes do

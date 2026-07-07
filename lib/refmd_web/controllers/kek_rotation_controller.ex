@@ -22,7 +22,6 @@ defmodule RefMDWeb.KekRotationController do
     ]
   )
 
-  @spec start_kek_rotation(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def start_kek_rotation(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     base_role = Workspaces.get_member_role(workspace_id, user_id)
@@ -77,7 +76,6 @@ defmodule RefMDWeb.KekRotationController do
     ]
   )
 
-  @spec prepare_kek_rotation_completion(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def prepare_kek_rotation_completion(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
 
@@ -98,7 +96,6 @@ defmodule RefMDWeb.KekRotationController do
     end
   end
 
-  @spec complete_kek_rotation(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def complete_kek_rotation(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     new_kek_version = params["new_kek_version"]
@@ -139,7 +136,6 @@ defmodule RefMDWeb.KekRotationController do
     ]
   )
 
-  @spec save_member_envelopes(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def save_member_envelopes(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]
@@ -200,7 +196,6 @@ defmodule RefMDWeb.KekRotationController do
     ]
   )
 
-  @spec get_member_envelope(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_member_envelope(conn, %{"workspace_id" => workspace_id}) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]

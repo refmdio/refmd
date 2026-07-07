@@ -6,17 +6,6 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   alias RefMD.Encryption.KeyDirectory.{Event, Protocol}
   alias RefMD.Repo
 
-  @type state :: %{
-          members: %{optional(String.t()) => String.t()},
-          invitations: %{optional(String.t()) => String.t()},
-          guest_grants: %{optional(String.t()) => map()},
-          shares: %{optional(String.t()) => map()},
-          rotations: %{optional(tuple()) => map()},
-          key_owners: %{optional(String.t()) => %{user_id: String.t(), device_id: String.t()}},
-          self_removed_members: %{optional(String.t()) => true}
-        }
-
-  @spec empty_state() :: state()
   def empty_state,
     do: %{
       members: %{},
@@ -28,18 +17,12 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
       self_removed_members: %{}
     }
 
-  @spec assert_event_authority!(map()) :: :ok
   def assert_event_authority!(payload) do
     payload
     |> stored_authority_state()
     |> assert_event_authority!(payload)
   end
 
-  @spec assert_workspace_pin_bootstrap_issuer_authority!(
-          Ecto.UUID.t(),
-          non_neg_integer(),
-          map()
-        ) :: :ok
   def assert_workspace_pin_bootstrap_issuer_authority!(
         workspace_id,
         event_head_sequence,
@@ -62,11 +45,6 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   def assert_workspace_pin_bootstrap_issuer_authority!(_, _, _),
     do: raise(ArgumentError, "workspace_pin_issuer_authority_invalid")
 
-  @spec assert_workspace_admin_authority!(
-          Ecto.UUID.t(),
-          non_neg_integer(),
-          map()
-        ) :: :ok
   def assert_workspace_admin_authority!(
         workspace_id,
         event_head_sequence,
@@ -88,7 +66,6 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   def assert_workspace_admin_authority!(_, _, _),
     do: raise(ArgumentError, "workspace_admin_authority_invalid")
 
-  @spec stored_authority_state(map()) :: state()
   def stored_authority_state(%{
         "scope_kind" => "workspace",
         "scope_id" => workspace_id,
@@ -101,13 +78,11 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
 
   def stored_authority_state(_payload), do: empty_state()
 
-  @spec assert_and_apply_event!(state(), map()) :: state()
   def assert_and_apply_event!(state, payload) do
     assert_event_authority!(state, payload)
     apply_authority_event(%{event_type: payload["event_type"], payload: payload}, state)
   end
 
-  @spec assert_event_authority!(state(), map()) :: :ok
   def assert_event_authority!(
         state,
         %{

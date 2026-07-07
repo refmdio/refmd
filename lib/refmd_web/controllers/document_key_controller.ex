@@ -25,7 +25,6 @@ defmodule RefMDWeb.DocumentKeyController do
     ]
   )
 
-  @spec get_document_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_document_keys(conn, _params) do
     document = conn.assigns.document
 
@@ -57,7 +56,6 @@ defmodule RefMDWeb.DocumentKeyController do
     ]
   )
 
-  @spec create_document_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_document_key(conn, params) do
     document = conn.assigns.document
 

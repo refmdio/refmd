@@ -31,7 +31,6 @@ defmodule RefMDWeb.GuestInvitationController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     workspace_id = conn.assigns.workspace_id
     user_id = conn.assigns.current_user_id
@@ -60,7 +59,6 @@ defmodule RefMDWeb.GuestInvitationController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     invitations = Workspaces.list_guest_invitations(conn.assigns.workspace_id)
     json(conn, %{invitations: invitations})
@@ -82,7 +80,6 @@ defmodule RefMDWeb.GuestInvitationController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"invitation_id" => invitation_id} = params) do
     if Regex.match?(@uuid_regex, invitation_id) do
       case require_workspace_key_directory(params) do
@@ -141,7 +138,6 @@ defmodule RefMDWeb.GuestInvitationController do
     ]
   )
 
-  @spec redeem(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def redeem(conn, params) do
     with {:ok, validated} <- validate_redeem_params(params),
          {:ok, key_directory} <- require_workspace_key_directory(params),

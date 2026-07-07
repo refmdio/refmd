@@ -30,8 +30,6 @@ defmodule RefMD.Sharing.PasswordChallenges do
     "hash_length" => 32
   }
 
-  @spec get_password_challenge(String.t()) ::
-          {:ok, %{challenge: binary(), salt: binary(), kdf_params: map()}} | {:error, term()}
   def get_password_challenge(share_slug) when is_binary(share_slug) do
     now = DateTime.utc_now()
 
@@ -44,7 +42,6 @@ defmodule RefMD.Sharing.PasswordChallenges do
     |> normalize_transaction_result()
   end
 
-  @spec password_challenge_rate_limit_share_id(String.t()) :: Ecto.UUID.t() | nil
   def password_challenge_rate_limit_share_id(share_slug) when is_binary(share_slug) do
     case validate_url_token(share_slug) do
       {:ok, _share_slug, share_slug_bytes} ->
@@ -61,7 +58,6 @@ defmodule RefMD.Sharing.PasswordChallenges do
     end
   end
 
-  @spec delete_expired_password_challenges() :: {non_neg_integer(), nil}
   def delete_expired_password_challenges do
     now = DateTime.utc_now()
 
@@ -69,18 +65,6 @@ defmodule RefMD.Sharing.PasswordChallenges do
     |> Repo.delete_all()
   end
 
-  @spec respond_password_challenge(String.t(), map()) ::
-          {:ok,
-           %{
-             root: map(),
-             participant: %{
-               principal_id: Ecto.UUID.t(),
-               device_id: Ecto.UUID.t(),
-               grant: String.t()
-             },
-             session_token: binary()
-           }}
-          | {:error, term()}
   def respond_password_challenge(share_slug, attrs) when is_binary(share_slug) do
     with {:ok, response} <- fetch_binary(attrs, :response),
          :ok <- validate_hmac_response(response),
@@ -117,13 +101,10 @@ defmodule RefMD.Sharing.PasswordChallenges do
     end
   end
 
-  @spec mount_password_challenge_hash(Ecto.UUID.t()) :: String.t()
   def mount_password_challenge_hash(mount_id) do
     Blake3.hash_base64url("mount:" <> mount_id)
   end
 
-  @spec insert_password_challenge!(String.t(), Ecto.UUID.t() | nil, DateTime.t()) ::
-          SharePasswordChallenge.t() | no_return()
   def insert_password_challenge!(token_hash, share_id, now) do
     challenge = :crypto.strong_rand_bytes(32)
     expires_at = DateTime.add(now, @share_password_challenge_ttl, :second)
@@ -159,8 +140,6 @@ defmodule RefMD.Sharing.PasswordChallenges do
     end
   end
 
-  @spec respond_share_challenge_record(SharePasswordChallenge.t(), Share.t(), binary()) ::
-          :ok | no_return()
   def respond_share_challenge_record(challenge_record, share, response) do
     Repo.delete!(challenge_record)
 

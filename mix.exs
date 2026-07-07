@@ -11,10 +11,6 @@ defmodule RefMD.MixProject do
       aliases: aliases(),
       deps: deps(),
       listeners: [Phoenix.CodeReloader],
-      dialyzer: [
-        plt_add_apps: [:mix, :ex_unit],
-        plt_core_path: "_build/#{Mix.env()}"
-      ],
       releases: [
         refmd: [
           overlays: ["rel/inet_tls.conf"]
@@ -69,7 +65,6 @@ defmodule RefMD.MixProject do
 
       # Dev/test tools
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.5", only: [:dev, :test], runtime: false}
     ]
   end

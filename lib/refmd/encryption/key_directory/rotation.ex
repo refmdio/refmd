@@ -4,7 +4,6 @@ defmodule RefMD.Encryption.KeyDirectory.Rotation do
   alias RefMD.Crypto.Hash
   alias RefMD.Encryption.KeyDirectory.BodyAssertions, as: A
 
-  @spec assert!(binary(), map()) :: :ok
   def assert!("rotation_started", body) do
     A.assert_exact_keys!(
       body,

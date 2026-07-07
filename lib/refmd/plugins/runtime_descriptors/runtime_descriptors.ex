@@ -15,7 +15,6 @@ defmodule RefMD.Plugins.RuntimeDescriptors do
 
   alias RefMD.Repo
 
-  @spec list(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: [map()]
   def list(workspace_id, user_id, device_id) do
     Applications.ensure_personal_workspace_applications(workspace_id, user_id, device_id)
 
@@ -24,7 +23,6 @@ defmodule RefMD.Plugins.RuntimeDescriptors do
     |> Enum.flat_map(&runtime_descriptor(&1, user_id, device_id))
   end
 
-  @spec list_consent_required(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: [map()]
   def list_consent_required(workspace_id, user_id, device_id) do
     Applications.ensure_personal_workspace_applications(workspace_id, user_id, device_id)
 
@@ -180,14 +178,6 @@ defmodule RefMD.Plugins.RuntimeDescriptors do
     }
   end
 
-  @spec capability_grant_id(
-          PluginApplication.t(),
-          PluginBundle.t(),
-          PluginActivation.t() | nil,
-          PluginConsentEvent.t() | nil,
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil
-        ) :: Ecto.UUID.t()
   def capability_grant_id(application, bundle, activation, consent, user_id, device_id) do
     runtime_capability_grant_id(application, bundle, activation, consent, user_id, device_id)
   end

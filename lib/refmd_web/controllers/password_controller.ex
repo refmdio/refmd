@@ -24,7 +24,6 @@ defmodule RefMDWeb.PasswordController do
     ]
   )
 
-  @spec password_set(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def password_set(conn, params) do
     session = conn.assigns.current_session
 
@@ -85,7 +84,6 @@ defmodule RefMDWeb.PasswordController do
     ]
   )
 
-  @spec change_password(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def change_password(conn, params) do
     user_id = conn.assigns.current_user_id
     user = Users.get_user(user_id)
@@ -126,7 +124,6 @@ defmodule RefMDWeb.PasswordController do
     ]
   )
 
-  @spec regenerate_recovery_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def regenerate_recovery_key(conn, params) do
     user_id = conn.assigns.current_user_id
 
@@ -156,7 +153,6 @@ defmodule RefMDWeb.PasswordController do
     ]
   )
 
-  @spec password_reset_request(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def password_reset_request(conn, %{"email" => email}) do
     case Users.get_user_by_email(email) do
       nil ->
@@ -182,7 +178,6 @@ defmodule RefMDWeb.PasswordController do
     ]
   )
 
-  @spec password_reset_verify(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def password_reset_verify(conn, %{"token" => token_b64}) do
     with {:ok, raw_token} <- decode_base64url(token_b64),
          {:ok, user_id} <- Auth.verify_password_reset_token(raw_token) do

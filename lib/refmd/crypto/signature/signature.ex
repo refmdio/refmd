@@ -318,15 +318,11 @@ defmodule RefMD.Crypto.Signature do
     "wrap_issued"
   ]
 
-  @type verification_error :: :invalid_signature | atom()
-
-  @spec compute_signing_key_id!(map()) :: binary()
   def compute_signing_key_id!(public_key_material) when is_map(public_key_material) do
     assert_public_key_material!(public_key_material)
     Hash.blake3_base64url(JCS.canonical_bytes!(public_key_material))
   end
 
-  @spec verify_hybrid_signature(binary(), map(), map(), map()) :: boolean()
   def verify_hybrid_signature(signing_purpose, transcript, signature, public_key_material) do
     match?(
       :ok,
@@ -334,7 +330,6 @@ defmodule RefMD.Crypto.Signature do
     )
   end
 
-  @spec verify_hybrid_signature(binary(), map(), map(), map(), map()) :: boolean()
   def verify_hybrid_signature(
         signing_purpose,
         transcript,
@@ -354,7 +349,6 @@ defmodule RefMD.Crypto.Signature do
     )
   end
 
-  @spec verify_recovery_authorization_proof_signature(map(), map(), map()) :: boolean()
   def verify_recovery_authorization_proof_signature(transcript, signature, public_key_material)
       when is_map(transcript) and is_map(signature) and is_map(public_key_material) do
     verify_hybrid_signature(
@@ -367,8 +361,6 @@ defmodule RefMD.Crypto.Signature do
 
   def verify_recovery_authorization_proof_signature(_, _, _), do: false
 
-  @spec verify_hybrid_signature_result(binary(), map(), map(), map()) ::
-          :ok | {:error, verification_error()}
   def verify_hybrid_signature_result(signing_purpose, transcript, signature, public_key_material)
       when is_binary(signing_purpose) and is_map(transcript) and is_map(signature) and
              is_map(public_key_material) do
@@ -391,8 +383,6 @@ defmodule RefMD.Crypto.Signature do
 
   def verify_hybrid_signature_result(_, _, _, _), do: {:error, :invalid_signature}
 
-  @spec verify_hybrid_signature_result(binary(), map(), map(), map(), map()) ::
-          :ok | {:error, verification_error()}
   def verify_hybrid_signature_result(
         signing_purpose,
         transcript,
@@ -422,16 +412,12 @@ defmodule RefMD.Crypto.Signature do
 
   def verify_hybrid_signature_result(_, _, _, _, _), do: {:error, :invalid_signature}
 
-  @spec protocol_version() :: pos_integer()
   def protocol_version, do: @protocol_version
 
-  @spec suite_rank() :: pos_integer()
   def suite_rank, do: @suite_rank
 
-  @spec suite_id() :: String.t()
   def suite_id, do: @suite_id
 
-  @spec key_directory_event_variants() :: [String.t()]
   def key_directory_event_variants, do: @key_directory_event_variants
 
   defdelegate build_pop_transcript!(
@@ -585,7 +571,6 @@ defmodule RefMD.Crypto.Signature do
               to: ApprovalProof,
               as: :build!
 
-  @spec assert_hybrid_signature!(binary(), map(), map(), map()) :: :ok
   def assert_hybrid_signature!(signing_purpose, transcript, signature, public_key_material)
       when is_binary(signing_purpose) and is_map(transcript) and is_map(signature) and
              is_map(public_key_material) do
@@ -649,7 +634,6 @@ defmodule RefMD.Crypto.Signature do
 
   if Mix.env() == :test do
     @doc false
-    @spec __test_semantic_error_reason__(String.t()) :: atom()
     def __test_semantic_error_reason__(message) when is_binary(message) do
       semantic_error_reason(%ArgumentError{message: message})
     end
@@ -704,7 +688,6 @@ defmodule RefMD.Crypto.Signature do
   if Mix.env() == :test do
     alias RefMD.TestCrypto
 
-    @spec __test_sign_hybrid_signature__(binary(), map(), map(), map()) :: map()
     def __test_sign_hybrid_signature__(
           signing_purpose,
           transcript,
@@ -809,7 +792,6 @@ defmodule RefMD.Crypto.Signature do
     ])
   end
 
-  @spec assert_public_key_material!(map()) :: :ok
   def assert_public_key_material!(material) when is_map(material) do
     assert_exact_keys!(material, @public_material_keys)
 
@@ -833,7 +815,6 @@ defmodule RefMD.Crypto.Signature do
   if Mix.env() == :test do
     alias RefMD.TestCrypto
 
-    @spec assert_private_key_material!(map()) :: :ok
     def assert_private_key_material!(material) when is_map(material) do
       assert_exact_keys!(
         material,
@@ -901,7 +882,6 @@ defmodule RefMD.Crypto.Signature do
     end
   end
 
-  @spec assert_hybrid_signature_shape!(map()) :: :ok
   def assert_hybrid_signature_shape!(signature) when is_map(signature),
     do: assert_signature_shape!(signature)
 
@@ -947,7 +927,6 @@ defmodule RefMD.Crypto.Signature do
     :ok
   end
 
-  @spec assert_non_empty_string!(term(), String.t()) :: :ok
   def assert_non_empty_string!(value, _error) when is_binary(value) and byte_size(value) > 0,
     do: :ok
 

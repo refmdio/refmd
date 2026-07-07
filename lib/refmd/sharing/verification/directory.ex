@@ -12,7 +12,6 @@ defmodule RefMD.Sharing.Verification.Directory do
     ShareParticipantPrincipal
   }
 
-  @spec verification_directory(Ecto.UUID.t(), Ecto.UUID.t()) :: map()
   def verification_directory(share_id, document_id) do
     %{
       workspace_devices:
@@ -27,7 +26,6 @@ defmodule RefMD.Sharing.Verification.Directory do
     }
   end
 
-  @spec document_share_participant_verification_directory(Ecto.UUID.t()) :: map()
   def document_share_participant_verification_directory(document_id) do
     %{
       workspace_devices: list_historical_workspace_devices(document_id),

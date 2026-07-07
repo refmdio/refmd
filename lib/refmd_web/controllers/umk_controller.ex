@@ -21,7 +21,6 @@ defmodule RefMDWeb.UmkController do
     ]
   )
 
-  @spec distribute_umk(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def distribute_umk(conn, %{"device_id" => target_device_id} = params) do
     user_id = conn.assigns.current_user_id
     sender_device_id = conn.assigns.pop_device_id
@@ -50,7 +49,6 @@ defmodule RefMDWeb.UmkController do
     ]
   )
 
-  @spec get_umk(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_umk(conn, %{"device_id" => device_id}) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]

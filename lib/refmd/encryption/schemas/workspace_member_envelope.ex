@@ -43,8 +43,6 @@ defmodule RefMD.Encryption.WorkspaceMemberEnvelope do
     field :created_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
   @signed_wrap_fields [
     :wrap_protocol,
     :wrap_version,
@@ -76,7 +74,6 @@ defmodule RefMD.Encryption.WorkspaceMemberEnvelope do
     :mldsa65_signature
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(record, attrs) do
     record
     |> cast(attrs, [

@@ -18,7 +18,6 @@ defmodule RefMD.Workspaces.Members do
   alias RefMD.Workspaces.Guests, as: WGuests
   alias RefMD.Workspaces.Invitations, as: WInvitations
 
-  @spec list_workspace_member_user_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def list_workspace_member_user_ids(workspace_id) do
     from(wm in WorkspaceMember,
       where: wm.workspace_id == ^workspace_id,
@@ -27,7 +26,6 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.all()
   end
 
-  @spec get_workspace_member(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceMember.t() | nil
   def get_workspace_member(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       where: wm.workspace_id == ^workspace_id and wm.user_id == ^user_id
@@ -35,7 +33,6 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.one()
   end
 
-  @spec get_member_role(Ecto.UUID.t(), Ecto.UUID.t()) :: String.t() | nil
   def get_member_role(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       join: r in WorkspaceRole,
@@ -46,8 +43,6 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.one()
   end
 
-  @spec get_member_with_role(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {WorkspaceMember.t(), WorkspaceRole.t()} | nil
   def get_member_with_role(workspace_id, user_id) do
     query =
       from(wm in WorkspaceMember,
@@ -75,7 +70,6 @@ defmodule RefMD.Workspaces.Members do
     end
   end
 
-  @spec member_permission_granted?(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) :: boolean()
   def member_permission_granted?(workspace_id, user_id, permission) when is_binary(permission) do
     from(wm in WorkspaceMember,
       join: r in WorkspaceRole,
@@ -113,7 +107,6 @@ defmodule RefMD.Workspaces.Members do
 
   defp permission_override(_row), do: []
 
-  @spec list_workspace_members(Ecto.UUID.t()) :: [map()]
   def list_workspace_members(workspace_id) do
     from(wm in WorkspaceMember,
       join: r in WorkspaceRole,
@@ -136,8 +129,6 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.all()
   end
 
-  @spec change_member_role(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, WorkspaceMember.t()} | {:error, atom()}
   def change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id, key_directory) do
     Repo.transaction(fn ->
       owner_rows = lock_owner_rows(workspace_id)
@@ -173,8 +164,6 @@ defmodule RefMD.Workspaces.Members do
     |> normalize_transaction_result()
   end
 
-  @spec remove_member(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, atom()}
   def remove_member(workspace_id, target_user_id, actor_user_id, key_directory) do
     result =
       Repo.transaction(fn ->

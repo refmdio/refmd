@@ -17,7 +17,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
   alias RefMD.Encryption.KeyDirectory.State, as: State
   alias RefMD.Repo
 
-  @spec verify_event_signatures!(map(), [map()], map(), keyword()) :: :ok
   def verify_event_signatures!(payload, signatures, checkpoint_authority, opts \\ []) do
     checkpoint_payload =
       case checkpoint_authority do
@@ -79,7 +78,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     end)
   end
 
-  @spec invitation_admission_wrap_event?(map(), map() | nil) :: boolean()
   def invitation_admission_wrap_event?(
         %{
           "event_type" => "wrap_issued",
@@ -102,19 +100,10 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
 
   def invitation_admission_wrap_event?(_, _), do: false
 
-  @spec verify_checkpoint_signatures!(map(), [map()], String.t()) :: :ok
   def verify_checkpoint_signatures!(payload, signatures, expected_signer_kind) do
     verify_checkpoint_signatures!(payload, signatures, expected_signer_kind, payload)
   end
 
-  @spec checkpoint_signature_authority_payload!(
-          String.t(),
-          map(),
-          map(),
-          [Event.t()],
-          pos_integer()
-        ) ::
-          map()
   def checkpoint_signature_authority_payload!(
         "share_participant_device",
         _previous_payload,
@@ -153,7 +142,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
       ),
       do: previous_payload
 
-  @spec invitation_redeem_authority_payload_for_event(map(), map(), pos_integer()) :: map()
   def invitation_redeem_authority_payload_for_event(
         checkpoint_payload,
         %{"event_type" => event_type} = payload,
@@ -170,7 +158,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
   def invitation_redeem_authority_payload_for_event(checkpoint_payload, _payload, _sequence),
     do: checkpoint_payload
 
-  @spec invitation_redeem_payload_from_events([Event.t()]) :: map() | nil
   def invitation_redeem_payload_from_events(events) when is_list(events) do
     Enum.find_value(events, fn
       %Event{payload: %{"event_type" => event_type} = payload}
@@ -182,7 +169,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     end)
   end
 
-  @spec invitation_redeem_authority_entry!(map(), pos_integer()) :: map()
   def invitation_redeem_authority_entry!(payload, previous_head_sequence) do
     created_event = invitation_redeem_created_event!(payload, previous_head_sequence)
     authority = created_event.payload["body"]["redeem_authority"]
@@ -214,7 +200,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     }
   end
 
-  @spec invitation_redeem_created_event!(map(), pos_integer()) :: Event.t()
   def invitation_redeem_created_event!(
         %{
           "event_type" => "workspace_invitation_redeemed",
@@ -299,14 +284,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     end
   end
 
-  @spec find_invitation_created_event!(
-          String.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          pos_integer()
-        ) :: Event.t()
   def find_invitation_created_event!(
         scope_kind,
         scope_id,
@@ -332,7 +309,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     end
   end
 
-  @spec invitation_redeem_invitation_id!(map()) :: String.t()
   def invitation_redeem_invitation_id!(%{
         "event_type" => "workspace_invitation_redeemed",
         "body" => %{"invitation_id" => invitation_id}
@@ -345,7 +321,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
       }),
       do: invitation_id
 
-  @spec verify_checkpoint_signatures!(map(), [map()], String.t(), map()) :: :ok
   def verify_checkpoint_signatures!(
         payload,
         signatures,
@@ -361,7 +336,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     )
   end
 
-  @spec verify_checkpoint_signatures!(map(), [map()], String.t(), map(), map() | nil) :: :ok
   def verify_checkpoint_signatures!(
         payload,
         signatures,
@@ -379,8 +353,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     )
   end
 
-  @spec verify_checkpoint_signatures!(map(), [map()], String.t(), map(), map() | nil, keyword()) ::
-          :ok
   def verify_checkpoint_signatures!(
         payload,
         signatures,
@@ -468,7 +440,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     :ok
   end
 
-  @spec signing_key_material!(map(), String.t(), :event | :checkpoint) :: map()
   def signing_key_material!(signing_keys, signing_key_id, :event) do
     Map.get(signing_keys, signing_key_id) ||
       raise(ArgumentError, "key_directory_event_signer_unknown")
@@ -479,7 +450,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
       raise(ArgumentError, "key_directory_checkpoint_signer_unknown")
   end
 
-  @spec signing_key_material_for_checkpoint!(map(), map(), map(), map() | nil, map()) :: map()
   def signing_key_material_for_checkpoint!(
         signing_keys,
         checkpoint_signing_keys,
@@ -494,11 +464,9 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
       raise(ArgumentError, "key_directory_checkpoint_signer_unknown")
   end
 
-  @spec checkpoint_signature_variant!(map(), map()) :: String.t()
   def checkpoint_signature_variant!(payload, signer),
     do: checkpoint_signature_variant!(payload, signer, nil)
 
-  @spec checkpoint_signature_variant!(map(), map(), map() | nil) :: String.t()
   def checkpoint_signature_variant!(
         %{"scope_kind" => "user", "sequence" => 1},
         %{
@@ -598,7 +566,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
 
   defp identity_rotation_checkpoint?(_payload), do: false
 
-  @spec signing_key_material_by_id!(map()) :: map()
   def signing_key_material_by_id!(checkpoint_payload) do
     State.key_directory_authority_entries(checkpoint_payload)
     |> Enum.map(fn %{"key_id" => key_id, "key_material" => material} ->
@@ -612,7 +579,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     |> Map.new()
   end
 
-  @spec assert_event_actor_matches_signer!(map(), map()) :: :ok
   def assert_event_actor_matches_signer!(
         %{
           "actor" => actor,
@@ -684,7 +650,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     Assertions.assert_literal!(actor["key_scope_id"], scope_id, "event_actor_scope_mismatch")
   end
 
-  @spec assert_signer_matches_material!(map(), map()) :: :ok
   def assert_signer_matches_material!(%{"signer_kind" => signer_kind} = signer, material) do
     Assertions.assert_literal!(
       material["owner_kind"],
@@ -695,14 +660,12 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     assert_signer_owner_id_matches_material!(signer_kind, signer, material)
   end
 
-  @spec signer_owner_kind!(String.t()) :: String.t()
   def signer_owner_kind!("identity"), do: "identity"
   def signer_owner_kind!("device"), do: "device"
   def signer_owner_kind!("share_participant_device"), do: "share_participant_device"
   def signer_owner_kind!("invitation_redeem_authority"), do: "invitation_redeem_authority"
   def signer_owner_kind!(_), do: raise(ArgumentError, "signer_kind_invalid")
 
-  @spec assert_signer_owner_id_matches_material!(String.t(), map(), map()) :: :ok
   def assert_signer_owner_id_matches_material!(signer_kind, signer, material) do
     case signer_kind do
       "identity" ->
@@ -735,7 +698,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
     end
   end
 
-  @spec event_signature_checkpoint_payload(map(), [map()], map(), map(), map()) :: map()
   def event_signature_checkpoint_payload(
         %{"event_type" => event_type},
         signatures,
@@ -765,7 +727,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
       ),
       do: replay_payload
 
-  @spec document_event_signature_checkpoint_payload([map()], map(), map(), map()) :: map()
   def document_event_signature_checkpoint_payload(
         signatures,
         replay_payload,

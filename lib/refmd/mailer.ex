@@ -9,7 +9,6 @@ defmodule RefMD.Mailer do
 
   @from_address {"RefMD", "noreply@refmd.io"}
 
-  @spec send_password_reset(String.t(), binary()) :: {:ok, Swoosh.Email.t()} | {:error, any()}
   def send_password_reset(email, raw_token) do
     token_b64 = Base.url_encode64(raw_token, padding: false)
     base_url = RefMDWeb.Endpoint.url()

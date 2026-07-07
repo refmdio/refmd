@@ -7,8 +7,6 @@ defmodule RefMD.Workspaces.KekRotation do
   alias RefMD.Workspaces.KekRotation.Directory
   alias RefMD.Workspaces.{Workspace, WorkspaceDeviceWipeRequirement}
 
-  @spec mark_kek_rotation_needed([Ecto.UUID.t()], Ecto.UUID.t()) ::
-          {non_neg_integer(), nil | [term()]}
   def mark_kek_rotation_needed(workspace_ids, initiator_user_id) when workspace_ids != [] do
     from(w in Workspace,
       where: w.id in ^workspace_ids and w.needs_kek_rotation == false
@@ -20,7 +18,6 @@ defmodule RefMD.Workspaces.KekRotation do
 
   def mark_kek_rotation_needed([], _initiator_user_id), do: {0, nil}
 
-  @spec mark_dek_rotation_needed([Ecto.UUID.t()]) :: {non_neg_integer(), nil | [term()]}
   def mark_dek_rotation_needed(workspace_ids) when workspace_ids != [] do
     from(d in RefMD.Documents.Document,
       where: d.workspace_id in ^workspace_ids and d.needs_dek_rotation == false
@@ -30,9 +27,6 @@ defmodule RefMD.Workspaces.KekRotation do
 
   def mark_dek_rotation_needed([]), do: {0, nil}
 
-  @spec start_kek_rotation(Ecto.UUID.t(), Ecto.UUID.t(), keyword()) ::
-          {:ok, Workspace.t()}
-          | {:error, :not_found | :kek_rotation_already_in_progress | :invalid_key_directory}
   def start_kek_rotation(workspace_id, initiator_user_id, opts \\ []) do
     events = Keyword.get(opts, :workspace_key_directory_events)
     checkpoint = Keyword.get(opts, :workspace_key_directory_checkpoint)
@@ -72,15 +66,6 @@ defmodule RefMD.Workspaces.KekRotation do
     end
   end
 
-  @spec prepare_kek_rotation_completion(Ecto.UUID.t(), integer(), keyword()) ::
-          {:ok, map()}
-          | {:error,
-             :not_found
-             | :not_in_rotation
-             | :version_not_monotonic
-             | :missing_device_envelopes
-             | :missing_member_envelopes
-             | :invalid_key_directory}
   def prepare_kek_rotation_completion(workspace_id, new_kek_version, opts \\ []) do
     envelope_checks = Keyword.get(opts, :envelope_checks, fn -> :ok end)
 
@@ -113,7 +98,6 @@ defmodule RefMD.Workspaces.KekRotation do
     _ -> {:error, :invalid_key_directory}
   end
 
-  @spec complete_kek_rotation(Ecto.UUID.t(), integer(), keyword()) :: :ok | {:error, term()}
   def complete_kek_rotation(workspace_id, new_kek_version, opts \\ []) do
     envelope_checks = Keyword.get(opts, :envelope_checks, fn -> :ok end)
     workspace_events = Keyword.get(opts, :workspace_key_directory_events)
@@ -157,7 +141,6 @@ defmodule RefMD.Workspaces.KekRotation do
     end
   end
 
-  @spec list_workspaces_needing_kek_rotation() :: [map()]
   def list_workspaces_needing_kek_rotation do
     from(w in Workspace,
       where: w.needs_kek_rotation == true,
@@ -170,7 +153,6 @@ defmodule RefMD.Workspaces.KekRotation do
     |> Repo.all()
   end
 
-  @spec rotation_deletion_evidences_by_event_hash([String.t()]) :: map()
   def rotation_deletion_evidences_by_event_hash(event_hashes) when is_list(event_hashes) do
     from(e in RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence,
       where: e.old_key_deleted_event_hash in ^event_hashes

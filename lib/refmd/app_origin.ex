@@ -1,7 +1,6 @@
 defmodule RefMD.AppOrigin do
   @moduledoc false
 
-  @spec configured_origins() :: [String.t()]
   def configured_origins do
     :refmd
     |> Application.get_env(RefMDWeb.Endpoint, [])
@@ -10,12 +9,10 @@ defmodule RefMD.AppOrigin do
     |> List.wrap()
   end
 
-  @spec conn_origin(Plug.Conn.t()) :: String.t()
   def conn_origin(%Plug.Conn{} = conn) do
     canonical_origin(Atom.to_string(conn.scheme), conn.host, conn.port)
   end
 
-  @spec app_origin?(String.t(), [String.t()]) :: boolean()
   def app_origin?(origin, extra_origins \\ []) when is_binary(origin) do
     case canonical_origin_string(origin) do
       {:ok, canonical_origin} -> canonical_origin in canonical_origins(extra_origins)
@@ -23,7 +20,6 @@ defmodule RefMD.AppOrigin do
     end
   end
 
-  @spec uri_origin(URI.t()) :: String.t()
   def uri_origin(%URI{scheme: scheme, host: host, port: port})
       when is_binary(scheme) and is_binary(host) do
     canonical_origin(scheme, host, port)

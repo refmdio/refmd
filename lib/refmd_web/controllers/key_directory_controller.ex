@@ -23,7 +23,6 @@ defmodule RefMDWeb.KeyDirectoryController do
     ]
   )
 
-  @spec append(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def append(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]
@@ -74,7 +73,6 @@ defmodule RefMDWeb.KeyDirectoryController do
     ]
   )
 
-  @spec latest_user(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def latest_user(conn, %{"user_id" => user_id}) do
     if user_id == conn.assigns.current_user_id do
       send_latest(conn, "user", user_id, conn.params)
@@ -101,7 +99,6 @@ defmodule RefMDWeb.KeyDirectoryController do
     ]
   )
 
-  @spec latest_workspace(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def latest_workspace(conn, %{"workspace_id" => workspace_id}) do
     cond do
       Workspaces.get_workspace_member(workspace_id, conn.assigns.current_user_id) ->

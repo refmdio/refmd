@@ -18,9 +18,6 @@ defmodule RefMD.Sharing.ShareMount do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(mount, attrs) do
     mount
     |> cast(attrs, [
@@ -52,7 +49,6 @@ defmodule RefMD.Sharing.ShareMount do
     |> foreign_key_constraint(:parent_id)
   end
 
-  @spec position_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def position_changeset(mount, attrs) do
     mount
     |> cast(attrs, [:parent_id, :position])

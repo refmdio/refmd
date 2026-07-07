@@ -18,7 +18,6 @@ defmodule RefMD.Crypto.Signature.Recovery do
   alias RefMD.Crypto.Signature
   alias RefMD.Crypto.SigningSurface
 
-  @spec build_recovery_device_approval_transcript!(map()) :: map()
   def build_recovery_device_approval_transcript!(params) when is_map(params) do
     params = recovery_device_approval_params!(params)
     surface = SigningSurface.get_active!("recovery_device_approval", "none")
@@ -97,7 +96,6 @@ defmodule RefMD.Crypto.Signature.Recovery do
   def build_recovery_device_approval_transcript!(_),
     do: raise(ArgumentError, "recovery_device_approval_transcript_invalid")
 
-  @spec build_recovery_session_transcript!(map()) :: map()
   def build_recovery_session_transcript!(params) when is_map(params) do
     params = recovery_session_params!(params)
     surface = SigningSurface.get_active!("recovery_session", "none")
@@ -129,7 +127,6 @@ defmodule RefMD.Crypto.Signature.Recovery do
   def build_recovery_session_transcript!(_),
     do: raise(ArgumentError, "recovery_session_transcript_invalid")
 
-  @spec build_recovery_authorization_proof_transcript!(map()) :: map()
   def build_recovery_authorization_proof_transcript!(params) when is_map(params) do
     params = recovery_authorization_proof_params!(params)
     surface = SigningSurface.get_active!("recovery_authorization_proof", "none")
@@ -152,7 +149,6 @@ defmodule RefMD.Crypto.Signature.Recovery do
   def build_recovery_authorization_proof_transcript!(_),
     do: raise(ArgumentError, "recovery_authorization_proof_transcript_invalid")
 
-  @spec build_device_key_deletion_proof_transcript!(map(), map()) :: map()
   def build_device_key_deletion_proof_transcript!(payload, actor)
       when is_map(payload) and is_map(actor) do
     variant = Map.get(payload, "deletion_proof_kind", "device_key_deletion_proof")

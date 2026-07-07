@@ -18,7 +18,6 @@ defmodule RefMD.Workspaces.Guests.Invitations do
 
   @transaction_retry_max 3
 
-  @spec create_guest_invitation(map()) :: {:ok, GuestInvitation.t()} | {:error, term()}
   def create_guest_invitation(attrs) do
     with_transaction_retry(fn ->
       workspace =
@@ -55,7 +54,6 @@ defmodule RefMD.Workspaces.Guests.Invitations do
     end)
   end
 
-  @spec list_guest_invitations(Ecto.UUID.t()) :: [map()]
   def list_guest_invitations(workspace_id) do
     from(i in GuestInvitation,
       where: i.workspace_id == ^workspace_id and is_nil(i.revoked_at),
@@ -86,14 +84,10 @@ defmodule RefMD.Workspaces.Guests.Invitations do
     |> Repo.all()
   end
 
-  @spec revoke_guest_invitation(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, GuestInvitation.t()} | {:error, term()}
   def revoke_guest_invitation(workspace_id, invitation_id, actor_user_id) do
     revoke_guest_invitation(workspace_id, invitation_id, actor_user_id, nil)
   end
 
-  @spec revoke_guest_invitation(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map() | nil) ::
-          {:ok, GuestInvitation.t()} | {:error, term()}
   def revoke_guest_invitation(workspace_id, invitation_id, actor_user_id, key_directory) do
     with_transaction_retry(fn ->
       invitation =
@@ -139,14 +133,12 @@ defmodule RefMD.Workspaces.Guests.Invitations do
     end)
   end
 
-  @spec guest_invites_enabled?(Ecto.UUID.t()) :: boolean()
   def guest_invites_enabled?(workspace_id) do
     from(w in Workspace, where: w.id == ^workspace_id, select: w.guest_invites_enabled)
     |> Repo.one()
     |> Kernel.==(true)
   end
 
-  @spec revoke_all_active_guest_invitations([Ecto.UUID.t()]) :: non_neg_integer()
   def revoke_all_active_guest_invitations([]), do: 0
 
   def revoke_all_active_guest_invitations(workspace_ids) do

@@ -41,7 +41,6 @@ defmodule RefMDWeb.SecurityNotificationController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, params) do
     case notification_recipient(conn, params) do
       {:ok, {recipient_kind, recipient_id}} ->
@@ -59,12 +58,10 @@ defmodule RefMDWeb.SecurityNotificationController do
     end
   end
 
-  @spec read(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def read(conn, %{"notification_id" => notification_id}) do
     update_notification_state(conn, notification_id, &Security.mark_notification_read/3)
   end
 
-  @spec dismiss(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def dismiss(conn, %{"notification_id" => notification_id}) do
     update_notification_state(conn, notification_id, &Security.dismiss_notification/3)
   end

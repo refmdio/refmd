@@ -19,7 +19,6 @@ defmodule RefMD.Crypto.HybridEncryptionMaterial do
                           "x25519_public"
                         ])
 
-  @spec assert_public_key_material!(map()) :: :ok
   def assert_public_key_material!(material) when is_map(material) do
     assert_exact_keys!(material, @public_material_keys)
     assert_literal!(material["protocol"], @protocol, "hybrid_encryption_protocol_invalid")
@@ -47,19 +46,16 @@ defmodule RefMD.Crypto.HybridEncryptionMaterial do
   def assert_public_key_material!(_),
     do: raise(ArgumentError, "hybrid_encryption_material_invalid")
 
-  @spec compute_key_id!(map()) :: binary()
   def compute_key_id!(material) when is_map(material) do
     assert_public_key_material!(material)
     Hash.blake3_base64url(JCS.canonical_bytes!(material))
   end
 
-  @spec x25519_public!(map()) :: binary()
   def x25519_public!(material) when is_map(material) do
     assert_public_key_material!(material)
     Encoding.decode_base64url!(material["x25519_public"], @x25519_public_bytes)
   end
 
-  @spec mlkem768_public!(map()) :: binary()
   def mlkem768_public!(material) when is_map(material) do
     assert_public_key_material!(material)
     Encoding.decode_base64url!(material["mlkem768_public"], @mlkem768_public_bytes)

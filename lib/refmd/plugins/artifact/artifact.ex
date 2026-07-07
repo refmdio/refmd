@@ -80,10 +80,6 @@ defmodule RefMD.Plugins.Artifact do
   @forbidden_network_endpoint_fields ~w(proxy proxyUrl proxyURL proxy_url proxyCredential proxy_credential proxyId proxy_id)
   @network_header_name_pattern ~r/^[a-z0-9!#$%&'*+.^_`|~-]+$/
 
-  @type source_kind :: :remote_https_url | :local_upload | String.t()
-
-  @spec candidate_attrs_from_archive_path(Path.t(), source_kind(), String.t() | nil, map()) ::
-          {:ok, map()} | {:error, atom()}
   def candidate_attrs_from_archive_path(path, source_kind, source_url, attrs)
       when is_binary(path) and is_map(attrs) do
     with {:ok, source} <- source_metadata(source_kind, source_url),
@@ -140,34 +136,25 @@ defmodule RefMD.Plugins.Artifact do
     end
   end
 
-  @spec source_url_hash(source_kind(), String.t() | nil) :: {:ok, String.t()} | {:error, atom()}
   def source_url_hash(source_kind, source_url) do
     with {:ok, source} <- source_metadata(source_kind, source_url) do
       {:ok, source.url_hash}
     end
   end
 
-  @spec canonical_remote_source_url(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def canonical_remote_source_url(source_url) when is_binary(source_url),
     do: canonical_remote_url(source_url)
 
-  @spec verify_remote_source_targets(String.t()) :: :ok | {:error, atom()}
   def verify_remote_source_targets(canonical_url) when is_binary(canonical_url) do
     with {:ok, _target} <- verified_remote_source_target(canonical_url) do
       :ok
     end
   end
 
-  @spec verified_remote_source_target(String.t()) ::
-          {:ok, %{uri: URI.t(), host: String.t(), address: :inet.ip_address()}} | {:error, atom()}
   def verified_remote_source_target(canonical_url) when is_binary(canonical_url) do
     verified_remote_source_target(canonical_url, &resolve_host_addresses/1)
   end
 
-  @spec verified_remote_source_target(String.t(), (String.t() ->
-                                                     {:ok, [:inet.ip_address()]}
-                                                     | {:error, atom()})) ::
-          {:ok, %{uri: URI.t(), host: String.t(), address: :inet.ip_address()}} | {:error, atom()}
   def verified_remote_source_target(canonical_url, resolver)
       when is_binary(canonical_url) and is_function(resolver, 1) do
     uri = URI.parse(canonical_url)
@@ -189,13 +176,11 @@ defmodule RefMD.Plugins.Artifact do
     end
   end
 
-  @spec bundle_hash(binary(), binary(), binary()) :: String.t()
   def bundle_hash(main_js, styles_css, manifest_json)
       when is_binary(main_js) and is_binary(styles_css) and is_binary(manifest_json) do
     bundle_hash(main_js, styles_css, manifest_json, semantic_hash([]))
   end
 
-  @spec bundle_hash(binary(), binary(), binary(), String.t()) :: String.t()
   def bundle_hash(main_js, styles_css, manifest_json, resource_manifest_hash)
       when is_binary(main_js) and is_binary(styles_css) and is_binary(manifest_json) and
              is_binary(resource_manifest_hash) do
@@ -207,7 +192,6 @@ defmodule RefMD.Plugins.Artifact do
     )
   end
 
-  @spec bundle_hash_from_hashes(String.t(), String.t(), String.t(), String.t()) :: String.t()
   def bundle_hash_from_hashes(
         manifest_hash,
         main_js_hash,
@@ -226,7 +210,6 @@ defmodule RefMD.Plugins.Artifact do
     |> Hash.blake3_base64url()
   end
 
-  @spec validate_manifest_permission_grant(map()) :: :ok | {:error, atom()}
   def validate_manifest_permission_grant(manifest) when is_map(manifest) do
     with {:ok, permissions} <- validated_manifest_permissions(manifest),
          :ok <- validate_manifest_renderer_slots(manifest) do
@@ -498,7 +481,6 @@ defmodule RefMD.Plugins.Artifact do
   defp validate_endpoint_byte_limit(_limit),
     do: {:error, :plugin_manifest_invalid_network_endpoint}
 
-  @spec approval_subject(map(), map()) :: map()
   def approval_subject(candidate, attrs) when is_map(candidate) and is_map(attrs) do
     candidate
     |> approval_subject_base(attrs)
@@ -570,7 +552,6 @@ defmodule RefMD.Plugins.Artifact do
     end
   end
 
-  @spec approval_subject_hash(map(), map()) :: String.t()
   def approval_subject_hash(candidate, attrs) do
     candidate
     |> approval_subject(attrs)

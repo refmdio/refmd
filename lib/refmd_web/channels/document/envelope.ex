@@ -27,9 +27,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   @write_session_envelope_keys ~w(admission publicData)
   @ephemeral_envelope_keys ~w(ciphertext nonce publicData signature)
 
-  # ── Envelope Parsing ──────────────────────────
-
-  @spec parse_update_envelope(map(), Phoenix.Socket.t()) :: {:ok, map()} | {:error, String.t()}
   def parse_update_envelope(payload, socket) do
     public_data = payload["publicData"]
 
@@ -70,8 +67,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     end
   end
 
-  @spec parse_write_session_envelope(map(), Phoenix.Socket.t()) ::
-          {:ok, map()} | {:error, String.t()}
   def parse_write_session_envelope(payload, socket) do
     public_data = payload["publicData"]
 
@@ -94,7 +89,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     end
   end
 
-  @spec parse_snapshot_envelope(map(), Phoenix.Socket.t()) :: {:ok, map()} | {:error, String.t()}
   def parse_snapshot_envelope(payload, socket) do
     public_data = payload["publicData"]
 
@@ -129,7 +123,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     end
   end
 
-  @spec parse_ephemeral_envelope(map(), Phoenix.Socket.t()) :: {:ok, map()} | {:error, String.t()}
   def parse_ephemeral_envelope(payload, socket) do
     public_data = payload["publicData"]
 
@@ -152,10 +145,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     end
   end
 
-  # ── Signature Verification ────────────────────
-
-  @spec verify_envelope_signature(String.t(), map(), map(), Phoenix.Socket.t()) ::
-          :ok | {:error, String.t()}
   def verify_envelope_signature("refmd_update", payload, parsed, socket) do
     with {:ok, public_material} <- get_socket_public_material(socket),
          signing_key_id when is_binary(signing_key_id) <- socket.assigns[:device_signing_key_id],
@@ -330,7 +319,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
   defp share_authority_principal_id(%{assigns: %{session_kind: :share_participant}} = socket),
     do: socket.assigns.share_participant_principal_id
 
-  @spec verify_update_hash(map(), Phoenix.Socket.t()) :: :ok | {:error, String.t()}
   def verify_update_hash(parsed, socket) do
     claimed_hash = parsed.public_data["updateHash"]
 
@@ -352,9 +340,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     end
   end
 
-  # ── Formatters ────────────────────────────────
-
-  @spec format_snapshot(nil | RefMD.Documents.DocumentSnapshot.t(), keyword()) :: nil | map()
   def format_snapshot(snap, opts \\ [])
   def format_snapshot(nil, _opts), do: nil
 
@@ -391,21 +376,14 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     }
   end
 
-  @spec format_incremental_snapshot(RefMD.Documents.DocumentSnapshot.t()) :: map()
   def format_incremental_snapshot(snap), do: format_snapshot(snap, incremental: true)
 
-  @spec format_update(RefMD.Documents.DocumentUpdate.t()) :: map()
   def format_update(update), do: format_update(update, :full)
 
-  @spec format_compact_update(RefMD.Documents.DocumentUpdate.t()) :: map()
   def format_compact_update(update), do: format_update(update, :compact)
 
-  @spec format_incremental_update(RefMD.Documents.DocumentUpdate.t()) :: map()
   def format_incremental_update(update), do: format_update(update, :incremental)
 
-  @spec format_initial_updates([RefMD.Documents.DocumentUpdate.t()], boolean(), keyword()) :: [
-          map()
-        ]
   def format_initial_updates(updates, admission_seeded?, opts \\ []) do
     {formatted, _cache, _seeded?} =
       Enum.reduce(updates, {[], %{}, initial_update_admission_state(admission_seeded?)}, fn
@@ -538,8 +516,6 @@ defmodule RefMDWeb.Channels.Document.Envelope do
     Documents.document_admission_package!(document_id, event_type, admission_event_hash, opts)
   end
 
-  @spec build_snapshot_failure(map() | nil, Ecto.UUID.t(), Ecto.UUID.t() | nil, keyword()) ::
-          map()
   def build_snapshot_failure(recovery, document_id, known_snapshot_id, opts \\ [])
 
   def build_snapshot_failure(nil, _document_id, _known_snapshot_id, _opts) do

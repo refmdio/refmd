@@ -19,29 +19,6 @@ defmodule RefMD.Plugins.RuntimeBundles do
 
   alias RefMD.Repo
 
-  @type plugin_error ::
-          :application_not_found
-          | :not_found
-          | :plugin_bundle_candidate_missing
-          | :plugin_bundle_not_pinned
-          | :plugin_bundle_runtime_hash_mismatch
-          | :plugin_consent_head_pin_required
-          | :plugin_consent_not_allowed
-          | :plugin_consent_rollback
-          | :plugin_application_disabled
-          | :plugin_activation_disabled
-          | :plugin_workspace_policy_denied
-          | :plugin_state_head_pin_required
-          | :plugin_state_rollback
-
-  @spec with_pins(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          String.t() | nil,
-          String.t() | nil
-        ) :: {:ok, map()} | {:error, plugin_error()}
   def with_pins(
         runtime_target_id,
         workspace_id,

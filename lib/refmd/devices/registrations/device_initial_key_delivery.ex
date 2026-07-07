@@ -3,8 +3,6 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
 
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature, Suite}
 
-  @spec validate_bundle(binary(), binary(), map(), map(), map()) ::
-          :ok | {:error, :invalid_initial_key_delivery}
   def validate_bundle(user_id, target_device_id, sender_device, target_device, params) do
     binding = %{
       user_id: user_id,
@@ -44,8 +42,6 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
     end
   end
 
-  @spec prekey_consumptions_from_params(map()) ::
-          {:ok, [map()]} | {:error, :invalid_initial_ake_prekey}
   def prekey_consumptions_from_params(params) do
     rows =
       [

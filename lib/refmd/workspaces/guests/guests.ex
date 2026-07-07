@@ -5,7 +5,6 @@ defmodule RefMD.Workspaces.Guests do
 
   alias RefMD.Auth
   alias RefMD.Devices
-  alias RefMD.Documents.Document
   alias RefMD.Encryption
   alias RefMD.Repo
   alias RefMD.Users
@@ -19,68 +18,38 @@ defmodule RefMD.Workspaces.Guests do
 
   @transaction_retry_max 3
 
-  @spec guest_user?(Ecto.UUID.t()) :: boolean()
   defdelegate guest_user?(user_id), to: RefMD.Workspaces.Guests.Authorization
 
-  @spec guest_role_for_active_grants(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          RefMD.Workspaces.WorkspaceRole.t() | nil
   defdelegate guest_role_for_active_grants(workspace_id, user_id),
     to: RefMD.Workspaces.Guests.Authorization,
     as: :role_for_active_grants
 
-  @spec authorize_permission(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          atom() | String.t(),
-          Document.t() | nil
-        ) ::
-          :ok | {:error, atom()}
   defdelegate authorize_permission(workspace_id, user_id, permission, document_or_conn \\ nil),
     to: RefMD.Workspaces.Guests.Authorization
 
-  @spec authorize_document_create(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), Ecto.UUID.t() | nil) ::
-          :ok | {:error, atom()}
   defdelegate authorize_document_create(workspace_id, user_id, doc_type, parent_id),
     to: RefMD.Workspaces.Guests.Authorization
 
-  @spec authorize_document_reorder(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil,
-          Ecto.UUID.t() | nil
-        ) ::
-          :ok | {:error, atom()}
   defdelegate authorize_document_reorder(workspace_id, user_id, document_id, parent_id),
     to: RefMD.Workspaces.Guests.Authorization
 
-  @spec filter_documents(Ecto.UUID.t(), Ecto.UUID.t(), [Document.t()]) :: [Document.t()]
   defdelegate filter_documents(workspace_id, user_id, documents),
     to: RefMD.Workspaces.Guests.Authorization
 
-  @spec create_guest_invitation(map()) :: {:ok, GuestInvitation.t()} | {:error, term()}
   defdelegate create_guest_invitation(attrs), to: RefMD.Workspaces.Guests.Invitations
 
-  @spec list_guest_invitations(Ecto.UUID.t()) :: [map()]
   defdelegate list_guest_invitations(workspace_id), to: RefMD.Workspaces.Guests.Invitations
 
-  @spec revoke_guest_invitation(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, GuestInvitation.t()} | {:error, term()}
   defdelegate revoke_guest_invitation(workspace_id, invitation_id, actor_user_id),
     to: RefMD.Workspaces.Guests.Invitations
 
-  @spec revoke_guest_invitation(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map() | nil) ::
-          {:ok, GuestInvitation.t()} | {:error, term()}
   defdelegate revoke_guest_invitation(workspace_id, invitation_id, actor_user_id, key_directory),
     to: RefMD.Workspaces.Guests.Invitations
 
-  @spec redeem_guest_invitation(String.t(), map(), map()) ::
-          {:ok, map()} | {:error, term()}
   def redeem_guest_invitation(token_hash, device_attrs, session_attrs) do
     redeem_guest_invitation(token_hash, device_attrs, session_attrs, nil)
   end
 
-  @spec redeem_guest_invitation(String.t(), map(), map(), map() | nil) ::
-          {:ok, map()} | {:error, term()}
   def redeem_guest_invitation(token_hash, device_attrs, session_attrs, key_directory) do
     invitation =
       from(i in GuestInvitation, where: i.token_hash == ^token_hash)
@@ -98,7 +67,6 @@ defmodule RefMD.Workspaces.Guests do
     end
   end
 
-  @spec active_grants(Ecto.UUID.t(), Ecto.UUID.t()) :: [WorkspaceGuestGrant.t()]
   def active_grants(workspace_id, user_id) do
     from(g in WorkspaceGuestGrant,
       where:
@@ -109,7 +77,6 @@ defmodule RefMD.Workspaces.Guests do
     |> Repo.all()
   end
 
-  @spec revoke_guest_grants(Ecto.UUID.t(), Ecto.UUID.t()) :: non_neg_integer()
   def revoke_guest_grants(workspace_id, user_id) do
     now = DateTime.utc_now()
 
@@ -123,20 +90,15 @@ defmodule RefMD.Workspaces.Guests do
     |> elem(0)
   end
 
-  @spec guest_invites_enabled?(Ecto.UUID.t()) :: boolean()
   defdelegate guest_invites_enabled?(workspace_id), to: RefMD.Workspaces.Guests.Invitations
 
-  @spec revoke_all_active_guest_invitations([Ecto.UUID.t()]) :: non_neg_integer()
   defdelegate revoke_all_active_guest_invitations(workspace_ids),
     to: RefMD.Workspaces.Guests.Invitations
 
-  @spec has_active_grants?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def has_active_grants?(workspace_id, user_id) do
     active_grants(workspace_id, user_id) != []
   end
 
-  @spec active_guest_device_workspace_id(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, Ecto.UUID.t()} | {:error, :not_found}
   def active_guest_device_workspace_id(user_id, device_id) do
     from(g in WorkspaceGuestGrant,
       join: d in RefMD.Devices.Device,

@@ -14,9 +14,6 @@ defmodule RefMD.Sharing.SharedDocumentToken do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(shared_token, attrs) do
     shared_token
     |> cast(attrs, [:share_id, :document_id, :token])

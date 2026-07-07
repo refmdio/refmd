@@ -18,7 +18,6 @@ defmodule RefMDWeb.EncryptionController do
     ]
   )
 
-  @spec create_workspace_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_workspace_key(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]
@@ -92,7 +91,6 @@ defmodule RefMDWeb.EncryptionController do
     ]
   )
 
-  @spec get_workspace_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_workspace_keys(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     device_id = params["device_id"]
@@ -132,7 +130,6 @@ defmodule RefMDWeb.EncryptionController do
     ]
   )
 
-  @spec workspace_ids(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def workspace_ids(conn, _params) do
     user_id = conn.assigns.current_user_id
     ids = Workspaces.get_discoverable_workspace_ids(user_id)
@@ -146,7 +143,6 @@ defmodule RefMDWeb.EncryptionController do
     ]
   )
 
-  @spec setup_complete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def setup_complete(conn, _params) do
     user_id = conn.assigns.current_user_id
     workspace_ids = Workspaces.get_user_workspace_ids(user_id)

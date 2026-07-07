@@ -3,7 +3,6 @@ defmodule RefMDWeb.FallbackController do
 
   @index_path Path.join(:code.priv_dir(:refmd), "static/index.html")
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     if String.starts_with?(conn.request_path, "/assets/") do
       conn

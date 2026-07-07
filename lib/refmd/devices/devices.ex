@@ -30,13 +30,6 @@ defmodule RefMD.Devices do
 
   defdelegate replace_user_device_registration(user_id, session_id, attrs), to: WRegistrations
 
-  @spec approve_device_registration(
-          RefMD.Devices.DeviceRegistration.t(),
-          map(),
-          keyword()
-        ) ::
-          {:ok, Device.t() | RefMD.Devices.DeviceRegistration.t()}
-          | {:error, atom() | Ecto.Changeset.t()}
   def approve_device_registration(device_registration, approval_signature, opts \\ []),
     do: WRegistrations.approve_device_registration(device_registration, approval_signature, opts)
 
@@ -45,22 +38,18 @@ defmodule RefMD.Devices do
 
   defdelegate delete_expired_device_registrations(), to: WRegistrations
 
-  @spec validate_bootstrap_device_registration(Ecto.UUID.t(), map()) :: :ok | {:error, atom()}
   def validate_bootstrap_device_registration(user_id, material) do
     with :ok <- Materials.validate_device_request_material(material) do
       Materials.validate_bootstrap_identity_material(user_id, material)
     end
   end
 
-  @spec validate_device_registration(Ecto.UUID.t(), map()) :: :ok | {:error, atom()}
   def validate_device_registration(user_id, material) do
     with :ok <- Materials.validate_device_request_material(material) do
       Materials.validate_identity_signing_key_id(user_id, material.identity_signing_key_id)
     end
   end
 
-  @spec prepare_device_approval_inputs(map(), boolean(), Device.t() | nil, map()) ::
-          {:ok, map(), map() | nil} | {:error, atom()}
   def prepare_device_approval_inputs(params, is_recovery, approver_device, device_registration) do
     ApprovalDeliveryArtifacts.approval_inputs_from_params(
       params,
@@ -70,8 +59,6 @@ defmodule RefMD.Devices do
     )
   end
 
-  @spec finalize_pending_delivery_from_params(binary(), binary(), map(), map(), map()) ::
-          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def finalize_pending_delivery_from_params(
         user_id,
         target_device_id,
@@ -103,9 +90,6 @@ defmodule RefMD.Devices do
     end
   end
 
-  @spec issue_bootstrap_registration_challenge(Ecto.UUID.t(), Session.t()) ::
-          {:ok, %{challenge: binary(), expires_in_seconds: pos_integer()}}
-          | {:error, :already_has_devices | :session_not_found | :identity_key_not_found}
   def issue_bootstrap_registration_challenge(user_id, session) do
     if user_has_any_device_records?(user_id) do
       {:error, :already_has_devices}
@@ -117,9 +101,6 @@ defmodule RefMD.Devices do
     end
   end
 
-  @spec issue_registration_challenge(Ecto.UUID.t(), Session.t()) ::
-          {:ok, %{challenge: binary(), expires_in_seconds: pos_integer()}}
-          | {:error, :session_not_found}
   def issue_registration_challenge(user_id, session) do
     {challenge, challenge_hash, expires_at} = new_registration_challenge()
 
@@ -171,18 +152,13 @@ defmodule RefMD.Devices do
               ),
               to: WRevocations
 
-  # ── Device CRUD ─────────────────────────────────
-
-  @spec touch_device(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def touch_device(device_id) do
     from(d in Device, where: d.id == ^device_id and is_nil(d.revoked_at))
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
-  @spec get_device(Ecto.UUID.t()) :: Device.t() | nil
   def get_device(id), do: Repo.get(Device, id)
 
-  @spec get_user_devices(Ecto.UUID.t(), keyword()) :: [Device.t()]
   def get_user_devices(user_id, opts \\ []) do
     include_revoked = Keyword.get(opts, :include_revoked, false)
 
@@ -196,7 +172,6 @@ defmodule RefMD.Devices do
     |> Repo.all()
   end
 
-  @spec create_device(map()) :: {:ok, Device.t()} | {:error, Ecto.Changeset.t()}
   def create_device(attrs) do
     now = DateTime.utc_now()
 
@@ -216,8 +191,6 @@ defmodule RefMD.Devices do
     end
   end
 
-  @spec bootstrap_first_device(map(), map(), Ecto.UUID.t()) ::
-          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def bootstrap_first_device(attrs, approval_signature, session_id)
       when is_map(attrs) and is_map(approval_signature) and is_binary(session_id) do
     Repo.transaction(fn ->
@@ -261,8 +234,6 @@ defmodule RefMD.Devices do
 
   def bootstrap_first_device(_, _, _), do: {:error, :invalid_signature}
 
-  @spec bootstrap_first_user_device(map(), map()) ::
-          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def bootstrap_first_user_device(attrs, approval_signature)
       when is_map(attrs) and is_map(approval_signature) do
     Repo.transaction(fn ->
@@ -299,8 +270,6 @@ defmodule RefMD.Devices do
 
   def bootstrap_first_user_device(_, _), do: {:error, :invalid_signature}
 
-  @spec bootstrap_guest_device(map(), map(), map()) ::
-          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def bootstrap_guest_device(attrs, approval_signature, workspace_key_directory_checkpoint)
       when is_map(attrs) and is_map(approval_signature) and
              is_map(workspace_key_directory_checkpoint) do
@@ -340,25 +309,21 @@ defmodule RefMD.Devices do
 
   def bootstrap_guest_device(_, _, _), do: {:error, :invalid_signature}
 
-  @spec user_has_devices?(Ecto.UUID.t()) :: boolean()
   def user_has_devices?(user_id) do
     from(d in Device, where: d.user_id == ^user_id and is_nil(d.revoked_at))
     |> Repo.exists?()
   end
 
-  @spec user_has_any_device_records?(Ecto.UUID.t()) :: boolean()
   def user_has_any_device_records?(user_id) do
     from(d in Device, where: d.user_id == ^user_id)
     |> Repo.exists?()
   end
 
-  @spec device_exists?(Ecto.UUID.t()) :: boolean()
   def device_exists?(device_id) do
     from(d in Device, where: d.id == ^device_id)
     |> Repo.exists?()
   end
 
-  @spec user_owns_active_device?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_owns_active_device?(user_id, device_id) do
     from(d in Device,
       where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
@@ -366,8 +331,6 @@ defmodule RefMD.Devices do
     |> Repo.exists?()
   end
 
-  @spec rename_device(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, Device.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def rename_device(user_id, device_id, name) do
     case from(d in Device,
            where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
@@ -378,18 +341,12 @@ defmodule RefMD.Devices do
     end
   end
 
-  # ── Device Encrypted UMK ──────────────────────
-
-  @spec create_device_encrypted_umk(map()) ::
-          {:ok, DeviceEncryptedUMK.t()} | {:error, Ecto.Changeset.t()}
   def create_device_encrypted_umk(attrs) do
     %DeviceEncryptedUMK{created_at: DateTime.utc_now()}
     |> DeviceEncryptedUMK.changeset(attrs)
     |> Repo.insert()
   end
 
-  @spec create_device_encrypted_umk_with_prekey_consumption(map(), [map()]) ::
-          {:ok, DeviceEncryptedUMK.t()} | {:error, Ecto.Changeset.t() | atom()}
   def create_device_encrypted_umk_with_prekey_consumption(attrs, prekey_consumptions)
       when is_list(prekey_consumptions) do
     now = DateTime.utc_now()
@@ -437,8 +394,6 @@ defmodule RefMD.Devices do
     end
   end
 
-  @spec create_device_encrypted_umk_with_key_directory(map(), [map()], map()) ::
-          {:ok, DeviceEncryptedUMK.t()} | {:error, Ecto.Changeset.t() | atom()}
   def create_device_encrypted_umk_with_key_directory(attrs, user_events, user_checkpoint)
       when is_list(user_events) and is_map(user_checkpoint) do
     Repo.transaction(fn ->
@@ -507,7 +462,6 @@ defmodule RefMD.Devices do
   defp assert_device_umk_checkpoint_anchor!(_),
     do: raise(ArgumentError, "invalid_umk_operation_checkpoint")
 
-  @spec get_device_encrypted_umk(Ecto.UUID.t(), Ecto.UUID.t()) :: DeviceEncryptedUMK.t() | nil
   def get_device_encrypted_umk(user_id, device_id) do
     from(d in DeviceEncryptedUMK,
       where: d.user_id == ^user_id and d.device_id == ^device_id

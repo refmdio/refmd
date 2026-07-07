@@ -29,8 +29,6 @@ defmodule RefMD.Plugins.PluginPackage do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [
     :plugin_id,
     :version,
@@ -40,7 +38,6 @@ defmodule RefMD.Plugins.PluginPackage do
     :state_head_hash
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(package, attrs) do
     package
     |> cast(

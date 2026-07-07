@@ -17,9 +17,6 @@ defmodule RefMD.Public.PublicAuthorProfile do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(profile, attrs) do
     profile
     |> cast(attrs, [:workspace_id, :slug, :display_name, :bio])

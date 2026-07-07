@@ -5,7 +5,6 @@ defmodule RefMDWeb.PublicPageController do
 
   @index_path Path.join(:code.priv_dir(:refmd), "static/index.html")
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"author_slug" => author_slug, "document_slug" => document_slug}) do
     case Public.resolve_public_document(author_slug, document_slug) do
       {:ok, public_document} ->
@@ -16,7 +15,6 @@ defmodule RefMDWeb.PublicPageController do
     end
   end
 
-  @spec show_author(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_author(conn, %{"author_slug" => author_slug}) do
     case Public.list_author_documents(author_slug) do
       {:ok, author_page} -> render_author_html(conn, author_page)

@@ -24,9 +24,6 @@ defmodule RefMD.Encryption.KeyDirectory.Checkpoint do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(checkpoint, attrs) do
     checkpoint
     |> cast(attrs, [

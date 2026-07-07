@@ -16,16 +16,6 @@ defmodule RefMD.Crypto.Signature.Device do
   alias RefMD.Crypto.Signature
   alias RefMD.Crypto.SigningSurface
 
-  @spec build_pop_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          map() | nil
-        ) ::
-          map()
   def build_pop_transcript!(
         variant,
         owner_kind,
@@ -36,16 +26,6 @@ defmodule RefMD.Crypto.Signature.Device do
         resource \\ nil
       )
 
-  @spec build_pop_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          map() | nil
-        ) ::
-          map()
   def build_pop_transcript!(
         variant,
         owner_kind,
@@ -166,7 +146,6 @@ defmodule RefMD.Crypto.Signature.Device do
   defp maybe_put_pop_resource!(_payload, "channel_" <> _, _resource), do: raise(ArgumentError)
   defp maybe_put_pop_resource!(payload, _variant, _resource), do: payload
 
-  @spec build_genesis_device_bootstrap_transcript!(map()) :: map()
   def build_genesis_device_bootstrap_transcript!(params) when is_map(params) do
     user_id = fetch_binary!(params, :user_id)
     device_id = fetch_binary!(params, :device_id)
@@ -233,15 +212,6 @@ defmodule RefMD.Crypto.Signature.Device do
     end
   end
 
-  @spec build_device_approval_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          binary(),
-          map()
-        ) :: map()
   def build_device_approval_transcript!(
         user_id,
         approver_device_id,
@@ -331,14 +301,6 @@ defmodule RefMD.Crypto.Signature.Device do
   def build_device_approval_transcript!(_, _, _, _, _, _, _),
     do: raise(ArgumentError, "device_approval_transcript_invalid")
 
-  @spec build_device_revocation_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          integer()
-        ) :: map()
   def build_device_revocation_transcript!(
         user_id,
         actor_device_id,

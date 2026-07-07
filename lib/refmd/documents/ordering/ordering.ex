@@ -8,12 +8,10 @@ defmodule RefMD.Documents.Ordering do
 
   @temp_position -2_147_483_648
 
-  @spec count_combined_siblings(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   def count_combined_siblings(workspace_id, parent_id) do
     length(list_combined_siblings(workspace_id, parent_id, nil))
   end
 
-  @spec append_position(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   def append_position(workspace_id, parent_id) do
     workspace_id
     |> list_combined_sibling_rows(parent_id, nil)
@@ -22,14 +20,12 @@ defmodule RefMD.Documents.Ordering do
     |> Kernel.+(1)
   end
 
-  @spec normalize_combined_siblings!(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: :ok
   def normalize_combined_siblings!(workspace_id, parent_id) do
     workspace_id
     |> list_combined_siblings(parent_id, nil)
     |> then(&normalize_combined_sibling_order!(workspace_id, parent_id, &1))
   end
 
-  @spec normalize_combined_siblings_for_document!(Ecto.UUID.t()) :: :ok
   def normalize_combined_siblings_for_document!(document_id) do
     document_id
     |> affected_parent_groups_for_document()
@@ -38,9 +34,6 @@ defmodule RefMD.Documents.Ordering do
     :ok
   end
 
-  @spec affected_parent_groups_for_document(Ecto.UUID.t()) :: [
-          {Ecto.UUID.t(), Ecto.UUID.t() | nil}
-        ]
   def affected_parent_groups_for_document(document_id) do
     document_id
     |> affected_mount_parent_groups()
@@ -48,7 +41,6 @@ defmodule RefMD.Documents.Ordering do
     |> Enum.uniq()
   end
 
-  @spec normalize_combined_sibling_groups!([{Ecto.UUID.t(), Ecto.UUID.t() | nil}]) :: :ok
   def normalize_combined_sibling_groups!(groups) do
     Enum.each(groups, fn {workspace_id, parent_id} ->
       normalize_combined_siblings!(workspace_id, parent_id)
@@ -57,7 +49,6 @@ defmodule RefMD.Documents.Ordering do
     :ok
   end
 
-  @spec move_document!(Document.t(), Ecto.UUID.t() | nil, non_neg_integer()) :: :ok
   def move_document!(%Document{} = document, parent_id, position) do
     old_parent_id = document.parent_id
     set_document_parent_temp_position!(document.id, old_parent_id)
@@ -80,7 +71,6 @@ defmodule RefMD.Documents.Ordering do
     normalize_combined_sibling_order!(document.workspace_id, parent_id, ordered)
   end
 
-  @spec move_share_mount!(map(), Ecto.UUID.t() | nil, non_neg_integer()) :: :ok
   def move_share_mount!(
         %{id: mount_id, workspace_id: workspace_id, parent_id: old_parent_id},
         parent_id,

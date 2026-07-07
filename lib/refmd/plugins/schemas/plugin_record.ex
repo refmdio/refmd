@@ -23,9 +23,6 @@ defmodule RefMD.Plugins.PluginRecord do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(record, attrs) do
     record
     |> cast(attrs, [

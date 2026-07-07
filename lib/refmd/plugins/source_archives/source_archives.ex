@@ -8,7 +8,6 @@ defmodule RefMD.Plugins.SourceArchives do
   @remote_fetch_chunk_bytes 8_192
   @remote_fetch_redirect_hop_limit 5
 
-  @spec fetch_archive(String.t(), keyword()) :: {:ok, Path.t(), String.t()} | {:error, atom()}
   def fetch_archive(source_url, opts) when is_binary(source_url) and is_list(opts) do
     with {:requested, :ok} <- {:requested, audit_fetch_requested(source_url, opts)},
          {:clients, :ok} <- {:clients, ensure_http_clients_started()},

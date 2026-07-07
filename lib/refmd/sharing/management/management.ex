@@ -20,7 +20,6 @@ defmodule RefMD.Sharing.Management do
     Shares
   }
 
-  @spec list_document_shares(Document.t(), Ecto.UUID.t(), %{base_role: String.t()}) :: [map()]
   def list_document_shares(%Document{} = document, actor_user_id, role) do
     base_query =
       from(s in Share,
@@ -71,15 +70,6 @@ defmodule RefMD.Sharing.Management do
     end)
   end
 
-  @spec update_share_settings(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok,
-           %{
-             id: Ecto.UUID.t(),
-             expires_event_sequence: pos_integer(),
-             max_views: pos_integer(),
-             view_count: non_neg_integer()
-           }}
-          | {:error, term()}
   def update_share_settings(document_id, share_id, attrs)
       when is_binary(document_id) and is_binary(share_id) and is_map(attrs) do
     with {:ok, update_attrs} <- parse_share_update_attrs(attrs),
@@ -91,10 +81,8 @@ defmodule RefMD.Sharing.Management do
     end
   end
 
-  @spec delete_share(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
   def delete_share(document_id, share_id, attrs \\ %{})
 
-  @spec delete_share(Ecto.UUID.t(), Ecto.UUID.t(), map()) :: :ok | {:error, term()}
   def delete_share(document_id, share_id, attrs)
       when is_binary(document_id) and is_binary(share_id) do
     with {:ok, key_directory} <- KeyDirectory.parse_append(attrs) do
@@ -107,8 +95,6 @@ defmodule RefMD.Sharing.Management do
     end
   end
 
-  @spec update_share_exclusions(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, %{share_id: Ecto.UUID.t(), exclusions: [Ecto.UUID.t()]}} | {:error, term()}
   def update_share_exclusions(document_id, share_id, attrs)
       when is_binary(document_id) and is_binary(share_id) and is_map(attrs) do
     with {:ok, update_attrs} <- parse_share_exclusion_update_attrs(attrs),
@@ -120,9 +106,6 @@ defmodule RefMD.Sharing.Management do
     end
   end
 
-  @spec update_share_keys(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, %{share_id: Ecto.UUID.t(), added: [Ecto.UUID.t()], replaced: [Ecto.UUID.t()]}}
-          | {:error, term()}
   def update_share_keys(document_id, share_id, attrs) do
     with {:ok, update_attrs} <- parse_share_key_update_attrs(attrs),
          {:ok, key_directory} <- key_directory_for_share_key_update(attrs, update_attrs) do

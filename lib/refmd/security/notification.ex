@@ -26,11 +26,8 @@ defmodule RefMD.Security.Notification do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [:recipient_kind, :recipient_id, :type, :severity, :action_ref, :dedupe_key]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(notification, attrs) do
     notification
     |> cast(
@@ -46,7 +43,6 @@ defmodule RefMD.Security.Notification do
     |> unique_constraint([:recipient_kind, :recipient_id, :dedupe_key])
   end
 
-  @spec payload(t()) :: map()
   def payload(%__MODULE__{} = notification) do
     %{
       id: notification.id,

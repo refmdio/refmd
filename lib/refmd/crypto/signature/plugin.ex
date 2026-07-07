@@ -8,7 +8,6 @@ defmodule RefMD.Crypto.Signature.Plugin do
   alias RefMD.Crypto.{Hash, JCS}
   alias RefMD.Crypto.SigningSurface
 
-  @spec build_plugin_bundle_approval_transcript!(map()) :: map()
   def build_plugin_bundle_approval_transcript!(params) when is_map(params) do
     actor = fetch_map!(params, :actor)
     approval = fetch_map!(params, :approval)
@@ -33,7 +32,6 @@ defmodule RefMD.Crypto.Signature.Plugin do
   def build_plugin_bundle_approval_transcript!(_),
     do: raise(ArgumentError, "plugin_bundle_approval_transcript_invalid")
 
-  @spec build_plugin_consent_event_transcript!(map()) :: map()
   def build_plugin_consent_event_transcript!(params) when is_map(params) do
     actor = fetch_map!(params, :actor)
     consent = fetch_map!(params, :consent)
@@ -59,7 +57,6 @@ defmodule RefMD.Crypto.Signature.Plugin do
   def build_plugin_consent_event_transcript!(_),
     do: raise(ArgumentError, "plugin_consent_event_transcript_invalid")
 
-  @spec build_plugin_network_proxy_request_transcript!(map()) :: map()
   def build_plugin_network_proxy_request_transcript!(params) when is_map(params) do
     subject = fetch_map!(params, :subject)
 

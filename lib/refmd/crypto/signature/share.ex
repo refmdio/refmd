@@ -9,13 +9,6 @@ defmodule RefMD.Crypto.Signature.Share do
   alias RefMD.Crypto.JCS
   alias RefMD.Crypto.SigningSurface
 
-  @spec build_recipient_bound_authorization_transcript!(
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map()
-        ) :: map()
   def build_recipient_bound_authorization_transcript!(
         owner_id,
         actor_user_id,
@@ -77,7 +70,6 @@ defmodule RefMD.Crypto.Signature.Share do
   def build_recipient_bound_authorization_transcript!(_, _, _, _, _),
     do: raise(ArgumentError, "recipient_bound_authorization_transcript_invalid")
 
-  @spec build_share_capability_authorization_transcript!(map()) :: map()
   def build_share_capability_authorization_transcript!(params) when is_map(params) do
     surface = SigningSurface.get_active!("share_capability_authorization", "none")
     subject = share_capability_authorization_subject!(params)
@@ -100,7 +92,6 @@ defmodule RefMD.Crypto.Signature.Share do
   def build_share_capability_authorization_transcript!(_),
     do: raise(ArgumentError, "share_capability_authorization_transcript_invalid")
 
-  @spec build_share_participant_device_authorization_transcript!(map()) :: map()
   def build_share_participant_device_authorization_transcript!(params) when is_map(params) do
     params = share_participant_device_authorization_params!(params)
     surface = SigningSurface.get_active!("share_participant_device_authorization", "none")

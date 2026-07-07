@@ -6,8 +6,6 @@ defmodule RefMD.Documents.Reordering do
 
   @max_nesting_depth 10
 
-  @spec reorder_document(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil, non_neg_integer()) ::
-          {:ok, Document.t()} | {:error, term()}
   def reorder_document(workspace_id, document_id, new_parent_id, new_position) do
     Repo.transaction(fn ->
       document = Repo.get(Document, document_id)

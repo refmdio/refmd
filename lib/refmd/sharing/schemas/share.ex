@@ -32,9 +32,6 @@ defmodule RefMD.Sharing.Share do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(share, attrs) do
     share
     |> cast(attrs, [
@@ -168,7 +165,6 @@ defmodule RefMD.Sharing.Share do
     end
   end
 
-  @spec update_settings_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def update_settings_changeset(share, attrs) do
     share
     |> cast(attrs, [

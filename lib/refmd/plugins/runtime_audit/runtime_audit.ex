@@ -128,10 +128,8 @@ defmodule RefMD.Plugins.RuntimeAudit do
                  "plugin.document_write.requested"
                ])
 
-  @spec validate_event(map()) :: :ok | {:error, atom()}
   def validate_event(attrs) when is_map(attrs), do: validate_event(attrs, nil, nil)
 
-  @spec validate_event(map(), Ecto.UUID.t() | nil, Ecto.UUID.t() | nil) :: :ok | {:error, atom()}
   def validate_event(attrs, user_id, device_id) when is_map(attrs) do
     type = Map.get(attrs, "type")
 
@@ -157,8 +155,6 @@ defmodule RefMD.Plugins.RuntimeAudit do
     end
   end
 
-  @spec apply_frame_lifecycle(map(), Ecto.UUID.t() | nil, Ecto.UUID.t() | nil) ::
-          :ok | {:error, atom()}
   def apply_frame_lifecycle(%{"type" => type} = attrs, user_id, device_id)
       when type in [
              "plugin.sandbox.loaded",

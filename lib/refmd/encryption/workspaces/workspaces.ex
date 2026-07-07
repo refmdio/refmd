@@ -21,9 +21,6 @@ defmodule RefMD.Encryption.Workspaces do
     end
   end
 
-  @spec create_with_key_directory(map(), [map()], map()) ::
-          {:ok, WorkspaceEncryptedKey.t()}
-          | {:error, :invalid_sender_device | Ecto.Changeset.t() | atom()}
   def create_with_key_directory(attrs, workspace_events, workspace_checkpoint)
       when is_list(workspace_events) and is_map(workspace_checkpoint) do
     Repo.transaction(fn ->
@@ -54,15 +51,6 @@ defmodule RefMD.Encryption.Workspaces do
 
   def create_with_key_directory(_, _, _), do: {:error, :missing_key_directory}
 
-  @spec create_from_client_wrap(map(), map(), map(), [map()], map()) ::
-          {:ok, WorkspaceEncryptedKey.t()}
-          | {:error,
-             :invalid_sender_device
-             | :invalid_workspace_device_kek_wrap
-             | :missing_key_directory
-             | :invalid_key_directory
-             | Ecto.Changeset.t()
-             | atom()}
   def create_from_client_wrap(
         container,
         metadata,
@@ -87,8 +75,6 @@ defmodule RefMD.Encryption.Workspaces do
     _ -> {:error, :invalid_workspace_device_kek_wrap}
   end
 
-  @spec validate_share_link_secret_backup_wrap(map(), map()) ::
-          :ok | {:error, :invalid_share_link_secret_backup_wrap}
   def validate_share_link_secret_backup_wrap(wrap, context)
       when is_map(wrap) and is_map(context) do
     signed_attrs = SignedPQ.attrs_from_params!(wrap)
@@ -144,15 +130,12 @@ defmodule RefMD.Encryption.Workspaces do
     _ -> Repo.rollback(:invalid_workspace_device_kek_wrap)
   end
 
-  @spec build_device_key_wrap_attrs!(map(), map()) :: map()
   def build_device_key_wrap_attrs!(container, metadata) do
     container
     |> SignedPQ.attrs_from_container_params!()
     |> Map.merge(metadata)
   end
 
-  @spec validate_device_key_wrap(map(), map(), map(), map(), [map()] | nil) ::
-          :ok | {:error, :invalid_workspace_device_kek_wrap}
   def validate_device_key_wrap(attrs, context, sender_device, target_device, key_directory_events) do
     key_checkpoint = key_checkpoint_context!(attrs, context)
 
@@ -290,7 +273,6 @@ defmodule RefMD.Encryption.Workspaces do
     end
   end
 
-  @spec operation_checkpoint_envelope(WorkspaceEncryptedKey.t()) :: map() | nil
   def operation_checkpoint_envelope(%{operation_checkpoint_sequence: sequence} = key)
       when is_integer(sequence) do
     expected_hash = Base.url_encode64(key.operation_checkpoint_hash, padding: false)
@@ -311,7 +293,6 @@ defmodule RefMD.Encryption.Workspaces do
 
   def operation_checkpoint_envelope(_), do: nil
 
-  @spec operation_checkpoint_ancestry(WorkspaceEncryptedKey.t()) :: [map()]
   def operation_checkpoint_ancestry(%{operation_checkpoint_sequence: sequence} = key)
       when is_integer(sequence) and sequence > 1 do
     KeyDirectory.checkpoints_between("workspace", key.workspace_id, 1, sequence - 1)
@@ -320,7 +301,6 @@ defmodule RefMD.Encryption.Workspaces do
 
   def operation_checkpoint_ancestry(_), do: []
 
-  @spec operation_event_ancestry(WorkspaceEncryptedKey.t()) :: [map()]
   def operation_event_ancestry(%{operation_checkpoint_covered_head_sequence: sequence} = key)
       when is_integer(sequence) and sequence > 0 do
     KeyDirectory.events_after_until("workspace", key.workspace_id, 0, sequence)
@@ -329,7 +309,6 @@ defmodule RefMD.Encryption.Workspaces do
 
   def operation_event_ancestry(_), do: []
 
-  @spec assert_operation_checkpoint_matches_current_pin!(String.t(), Ecto.UUID.t(), map()) :: :ok
   def assert_operation_checkpoint_matches_current_pin!(scope_kind, scope_id, attrs) do
     pin = KeyDirectory.current_pin(scope_kind, scope_id)
     if is_nil(pin), do: raise(ArgumentError, "key_directory_checkpoint_required")
@@ -344,11 +323,9 @@ defmodule RefMD.Encryption.Workspaces do
     :ok
   end
 
-  @spec operation_checkpoint_sequence(map()) :: integer() | nil
   def operation_checkpoint_sequence(attrs),
     do: dual_key_get(attrs, :operation_checkpoint_sequence)
 
-  @spec operation_checkpoint_hash(map()) :: String.t() | nil
   def operation_checkpoint_hash(attrs) do
     case dual_key_get(attrs, :operation_checkpoint_hash) do
       value when is_binary(value) -> Encoding.encode_base64url(value)
@@ -356,12 +333,10 @@ defmodule RefMD.Encryption.Workspaces do
     end
   end
 
-  @spec operation_checkpoint_covered_head_sequence(map()) :: integer() | nil
   def operation_checkpoint_covered_head_sequence(attrs) do
     dual_key_get(attrs, :operation_checkpoint_covered_head_sequence)
   end
 
-  @spec operation_checkpoint_covered_head_hash(map()) :: String.t() | nil
   def operation_checkpoint_covered_head_hash(attrs) do
     case dual_key_get(attrs, :operation_checkpoint_covered_head_hash) do
       value when is_binary(value) -> Encoding.encode_base64url(value)
@@ -376,8 +351,6 @@ defmodule RefMD.Encryption.Workspaces do
     end
   end
 
-  @spec delete(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), integer()) ::
-          {non_neg_integer(), nil | [term()]}
   def delete(workspace_id, user_id, device_id, key_version) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -389,9 +362,6 @@ defmodule RefMD.Encryption.Workspaces do
     |> Repo.delete_all()
   end
 
-  @spec list_for_device(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: [
-          WorkspaceEncryptedKey.t()
-        ]
   def list_for_device(workspace_id, user_id, device_id) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -403,7 +373,6 @@ defmodule RefMD.Encryption.Workspaces do
     |> Repo.all()
   end
 
-  @spec user_has_active_kek?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_has_active_kek?(workspace_id, user_id) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -416,7 +385,6 @@ defmodule RefMD.Encryption.Workspaces do
     |> Kernel.>(0)
   end
 
-  @spec max_active_kek_version(Ecto.UUID.t()) :: integer() | nil
   def max_active_kek_version(workspace_id) do
     from(k in WorkspaceEncryptedKey,
       where: k.workspace_id == ^workspace_id and k.is_active == true,

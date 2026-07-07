@@ -39,9 +39,6 @@ defmodule RefMD.Workspaces.Workspace do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(workspace, attrs) do
     workspace
     |> cast(attrs, [
@@ -74,7 +71,6 @@ defmodule RefMD.Workspaces.Workspace do
     |> unique_constraint(:slug)
   end
 
-  @spec update_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def update_changeset(workspace, attrs) do
     workspace
     |> cast(attrs, [

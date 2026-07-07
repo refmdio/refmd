@@ -12,10 +12,8 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   @share_session_cookie "_refmd_share_session"
   @share_session_scope_header "x-refmd-session-scope"
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, opts) do
     with token when is_binary(token) <- get_session_token(conn, opts),
          {:ok, auth_assigns} <- resolve_session_assigns(token, opts) do

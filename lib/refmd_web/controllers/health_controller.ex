@@ -3,7 +3,6 @@ defmodule RefMDWeb.HealthController do
 
   alias RefMD.Repo
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     db_status = check_database()
     cluster_nodes = Node.list([:this, :visible])

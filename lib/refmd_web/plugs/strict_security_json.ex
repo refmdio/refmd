@@ -6,10 +6,8 @@ defmodule RefMDWeb.Plugs.StrictSecurityJson do
 
   alias RefMD.Crypto.JCS
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     raw = IO.iodata_to_binary(conn.private[:raw_body] || "")
 

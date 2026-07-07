@@ -18,7 +18,6 @@ defmodule RefMD.Documents.Admission do
   @max_write_session_lifetime_ms 60_000
   @write_session_failure_reasons [:write_session_expired, :write_session_invalid]
 
-  @spec append_update!(map(), map()) :: String.t()
   def append_update!(document, attrs) do
     operation_hash = Map.fetch!(attrs, :update_hash)
 
@@ -26,7 +25,6 @@ defmodule RefMD.Documents.Admission do
       append!(@update_event_type, document, attrs, operation_hash)
   end
 
-  @spec append_write_session!(map(), map()) :: String.t()
   def append_write_session!(document, attrs) do
     attrs =
       attrs
@@ -36,7 +34,6 @@ defmodule RefMD.Documents.Admission do
     append!(@update_event_type, document, attrs, "")
   end
 
-  @spec append_snapshot!(map(), map()) :: String.t()
   def append_snapshot!(document, attrs) do
     append!(
       @snapshot_event_type,
@@ -614,7 +611,6 @@ defmodule RefMD.Documents.Admission do
 
   if Mix.env() == :test do
     @doc false
-    @spec __test_write_session_invalidating_event?(map(), map(), map(), map()) :: boolean()
     def __test_write_session_invalidating_event?(event, document, attrs, session_payload),
       do: write_session_invalidating_event?(event, document, attrs, session_payload)
   end

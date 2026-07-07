@@ -7,7 +7,6 @@ defmodule RefMDWeb.Plugs.RateLimit.Storage do
 
   @clean_interval_ms 60_000
 
-  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

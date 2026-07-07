@@ -21,6 +21,4 @@ defmodule RefMD.Documents.DocumentSignerKey do
     field :first_seen_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
   end
-
-  @type t :: %__MODULE__{}
 end

@@ -10,7 +10,6 @@ defmodule RefMD.Sharing.Shares.LinkSecretBackupWraps do
 
   alias RefMD.Sharing.ShareLinkSecretBackupWrap
 
-  @spec insert!(map(), map(), map()) :: :ok | no_return()
   def insert!(share, document, attrs) do
     expected_recipients = expected_recipients!(document.workspace_id)
 

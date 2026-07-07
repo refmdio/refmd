@@ -15,23 +15,12 @@ defmodule RefMD.Plugins.BundleCandidates do
   alias RefMD.Repo
   alias RefMD.Security
 
-  @type plugin_error ::
-          :plugin_bundle_candidate_invalid
-          | :plugin_manifest_invalid_scope
-
-  @spec get(Ecto.UUID.t()) :: PluginBundleCandidate.t() | nil
   def get(id), do: Repo.get(PluginBundleCandidate, id)
 
-  @spec create_local(Path.t(), map()) ::
-          {:ok, PluginBundleCandidate.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error() | atom()}
   def create_local(path, attrs) when is_binary(path) and is_map(attrs) do
     create_local(path, attrs, [])
   end
 
-  @spec create_local(Path.t(), map(), keyword()) ::
-          {:ok, PluginBundleCandidate.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error() | atom()}
   def create_local(path, attrs, opts)
       when is_binary(path) and is_map(attrs) and is_list(opts) do
     record_fetch_requested =
@@ -64,16 +53,10 @@ defmodule RefMD.Plugins.BundleCandidates do
     end
   end
 
-  @spec create_remote(String.t(), map()) ::
-          {:ok, PluginBundleCandidate.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error() | atom()}
   def create_remote(source_url, attrs) when is_binary(source_url) and is_map(attrs) do
     create_remote(source_url, attrs, [])
   end
 
-  @spec create_remote(String.t(), map(), keyword()) ::
-          {:ok, PluginBundleCandidate.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error() | atom()}
   def create_remote(source_url, attrs, opts)
       when is_binary(source_url) and is_map(attrs) and is_list(opts) do
     case SourceArchives.fetch_archive(source_url, remote_fetch_opts(attrs, opts)) do
@@ -103,23 +86,11 @@ defmodule RefMD.Plugins.BundleCandidates do
     |> Keyword.put_new(:record_fetch_failed, &Security.record_plugin_fetch_failed/2)
   end
 
-  @spec create_from_archive_path(Path.t(), Artifact.source_kind(), String.t() | nil, map()) ::
-          {:ok, PluginBundleCandidate.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error() | atom()}
   def create_from_archive_path(path, source_kind, source_url, attrs)
       when is_binary(path) and is_map(attrs) do
     create_from_archive_path(path, source_kind, source_url, attrs, [])
   end
 
-  @spec create_from_archive_path(
-          Path.t(),
-          Artifact.source_kind(),
-          String.t() | nil,
-          map(),
-          keyword()
-        ) ::
-          {:ok, PluginBundleCandidate.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error() | atom()}
   def create_from_archive_path(path, source_kind, source_url, attrs, opts)
       when is_binary(path) and is_map(attrs) and is_list(opts) do
     case Artifact.candidate_attrs_from_archive_path(path, source_kind, source_url, attrs) do

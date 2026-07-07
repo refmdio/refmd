@@ -15,9 +15,6 @@ defmodule RefMD.Auth.PopChallenge do
     field :created_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(challenge, attrs) do
     challenge
     |> cast(attrs, [

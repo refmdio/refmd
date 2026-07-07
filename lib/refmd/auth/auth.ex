@@ -19,9 +19,6 @@ defmodule RefMD.Auth do
   defdelegate verify_password_reset_token(raw_token), to: WPasswordResets
   defdelegate delete_expired_password_reset_tokens(), to: WPasswordResets
 
-  # ── Sessions ───────────────────────────────────
-
-  @spec user_key_directory_event_ancestry(Ecto.UUID.t(), map() | nil) :: [map()]
   def user_key_directory_event_ancestry(_user_id, nil), do: []
 
   def user_key_directory_event_ancestry(user_id, user_pin) do
@@ -29,7 +26,6 @@ defmodule RefMD.Auth do
     |> Enum.map(&%{payload: &1.payload, signatures: &1.signatures})
   end
 
-  @spec user_key_directory_checkpoint_ancestry(Ecto.UUID.t(), map() | nil) :: [map()]
   def user_key_directory_checkpoint_ancestry(_user_id, nil), do: []
 
   def user_key_directory_checkpoint_ancestry(_user_id, %{checkpoint_sequence: sequence})
@@ -48,8 +44,6 @@ defmodule RefMD.Auth do
   @session_ttl_default 24 * 60 * 60
   @session_ttl_remember 30 * 24 * 60 * 60
 
-  @spec create_session(Ecto.UUID.t(), map()) ::
-          {:ok, Session.t(), binary()} | {:error, Ecto.Changeset.t()}
   def create_session(user_id, attrs \\ %{}) do
     token = :crypto.strong_rand_bytes(32)
     token_hash = Base.url_encode64(:crypto.hash(:sha256, token), padding: false)
@@ -89,7 +83,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  @spec get_valid_session_by_token(binary()) :: {:ok, Session.t()} | {:error, :invalid_session}
   def get_valid_session_by_token(raw_token) do
     token_hash = Base.url_encode64(:crypto.hash(:sha256, raw_token), padding: false)
     now = DateTime.utc_now()
@@ -106,8 +99,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  @spec get_valid_session_by_token_base64(String.t()) ::
-          {:ok, Session.t()} | {:error, :invalid_session | :invalid_token}
   def get_valid_session_by_token_base64(token_base64) do
     case Base.url_decode64(token_base64, padding: false) do
       {:ok, raw_token} -> get_valid_session_by_token(raw_token)
@@ -115,23 +106,18 @@ defmodule RefMD.Auth do
     end
   end
 
-  @spec get_session(Ecto.UUID.t()) :: Session.t() | nil
   def get_session(session_id), do: Repo.get(Session, session_id)
 
-  @spec delete_session(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_session(session_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.delete_all()
   end
 
-  @spec bind_device_registration_to_session(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {non_neg_integer(), nil}
   def bind_device_registration_to_session(session_id, device_registration_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.update_all(set: [device_registration_id: device_registration_id])
   end
 
-  @spec delete_other_sessions(Ecto.UUID.t(), Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_other_sessions(user_id, current_session_id) do
     from(s in Session,
       where: s.user_id == ^user_id and s.id != ^current_session_id
@@ -139,25 +125,21 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
-  @spec delete_all_sessions(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_all_sessions(user_id) do
     from(s in Session, where: s.user_id == ^user_id)
     |> Repo.delete_all()
   end
 
-  @spec touch_session(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def touch_session(session_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
-  @spec update_session_verified_at(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def update_session_verified_at(session_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.update_all(set: [last_verified_at: DateTime.utc_now()])
   end
 
-  @spec bind_session_to_device(Ecto.UUID.t(), Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def bind_session_to_device(session_id, device_id) do
     from(s in Session, where: s.id == ^session_id and is_nil(s.device_id))
     |> Repo.update_all(set: [device_id: device_id, is_recovery: false])
@@ -167,8 +149,6 @@ defmodule RefMD.Auth do
 
   @pop_challenge_ttl 5 * 60
 
-  @spec create_pop_challenge(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_pop_challenge(user_id, device_id, session_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
@@ -189,8 +169,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  @spec consume_pop_challenge(binary(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          :ok | {:error, :invalid_challenge}
   def consume_pop_challenge(challenge, user_id, device_id, session_id) do
     challenge_hash = :crypto.hash(:sha256, challenge)
     session_id_hash = Hash.blake3_base64url(session_id)
@@ -217,7 +195,6 @@ defmodule RefMD.Auth do
 
   @recovery_challenge_ttl 5 * 60
 
-  @spec create_recovery_challenge(Ecto.UUID.t()) :: {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_recovery_challenge(user_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
@@ -235,8 +212,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  @spec verify_recovery_session(Ecto.UUID.t(), binary(), map(), map()) ::
-          {:ok, map()} | {:error, :invalid_recovery}
   def verify_recovery_session(user_id, challenge, signature, proof)
       when is_binary(user_id) and is_binary(challenge) and is_map(signature) and
              is_map(proof) do
@@ -481,9 +456,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  # ── Cleanup ───────────────────────────────────
-
-  @spec delete_expired_pop_challenges() :: {non_neg_integer(), nil}
   def delete_expired_pop_challenges do
     now = DateTime.utc_now()
 
@@ -491,14 +463,11 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
-  @spec delete_device_sessions(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_device_sessions(device_id) do
     from(s in Session, where: s.device_id == ^device_id)
     |> Repo.delete_all()
   end
 
-  @spec delete_device_and_unbound_sessions(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {non_neg_integer(), nil}
   def delete_device_and_unbound_sessions(user_id, device_id) do
     from(s in Session,
       where: s.user_id == ^user_id and (s.device_id == ^device_id or is_nil(s.device_id))
@@ -506,7 +475,6 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
-  @spec has_unbound_sessions?(Ecto.UUID.t()) :: boolean()
   def has_unbound_sessions?(user_id) do
     now = DateTime.utc_now()
 
@@ -516,13 +484,11 @@ defmodule RefMD.Auth do
     |> Repo.exists?()
   end
 
-  @spec delete_device_pop_challenges(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_device_pop_challenges(device_id) do
     from(c in PopChallenge, where: c.device_id == ^device_id)
     |> Repo.delete_all()
   end
 
-  @spec delete_expired_sessions() :: {non_neg_integer(), nil}
   def delete_expired_sessions do
     now = DateTime.utc_now()
 
@@ -530,7 +496,6 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
-  @spec delete_expired_recovery_challenges() :: {non_neg_integer(), nil}
   def delete_expired_recovery_challenges do
     now = DateTime.utc_now()
 
@@ -538,10 +503,6 @@ defmodule RefMD.Auth do
     |> Repo.delete_all()
   end
 
-  # ── Authentication Helpers ─────────────────────
-
-  @spec get_salt_for_email(String.t()) ::
-          {:ok, RefMD.Encryption.UserEncryptedMasterKey.t() | nil, binary()}
   def get_salt_for_email(email) do
     case RefMD.Users.get_user_by_email(email) do
       nil ->
@@ -561,8 +522,6 @@ defmodule RefMD.Auth do
     end
   end
 
-  @spec verify_auth_key(String.t(), String.t()) ::
-          {:ok, RefMD.Users.User.t()} | {:error, :invalid_credentials}
   def verify_auth_key(email, auth_key) do
     with %RefMD.Users.User{} = user <- RefMD.Users.get_user_by_email(email),
          auth_key_hash when auth_key_hash != nil <- get_auth_key_hash(user.id) do
@@ -612,12 +571,10 @@ defmodule RefMD.Auth do
   @ws_token_salt "ws_auth_token"
   @ws_token_max_age 300
 
-  @spec generate_ws_token(Ecto.UUID.t()) :: String.t()
   def generate_ws_token(session_id) do
     TokenSigning.sign(@ws_token_salt, session_id)
   end
 
-  @spec verify_ws_token(String.t()) :: {:ok, Ecto.UUID.t(), Session.t()} | {:error, atom()}
   def verify_ws_token(token) do
     with {:ok, session_id} <-
            TokenSigning.verify(@ws_token_salt, token, max_age: @ws_token_max_age),

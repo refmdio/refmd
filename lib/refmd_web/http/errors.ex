@@ -2,7 +2,6 @@ defmodule RefMDWeb.Http.Errors do
   @moduledoc false
 
   @doc "Check if a changeset has a unique constraint error."
-  @spec has_unique_constraint_error?(Ecto.Changeset.t()) :: boolean()
   def has_unique_constraint_error?(%Ecto.Changeset{} = changeset) do
     Enum.any?(changeset.errors, fn {_field, {_msg, opts}} ->
       Keyword.get(opts, :constraint) == :unique
@@ -10,7 +9,6 @@ defmodule RefMDWeb.Http.Errors do
   end
 
   @doc "Format changeset or other errors into a serializable map."
-  @spec format_errors(Ecto.Changeset.t() | String.t() | atom() | term()) :: map()
   def format_errors(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->

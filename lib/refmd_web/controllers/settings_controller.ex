@@ -15,7 +15,6 @@ defmodule RefMDWeb.SettingsController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, _params) do
     user_id = conn.assigns.current_user_id
 
@@ -40,7 +39,6 @@ defmodule RefMDWeb.SettingsController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, params) do
     user_id = conn.assigns.current_user_id
 

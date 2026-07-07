@@ -6,7 +6,6 @@ defmodule RefMD.Sharing.Capability do
 
   @max_safe_integer 9_007_199_254_740_991
 
-  @spec hash!(map()) :: binary()
   def hash!(attrs) when is_map(attrs) do
     attrs
     |> context!()
@@ -14,7 +13,6 @@ defmodule RefMD.Sharing.Capability do
     |> Blake3.hash_base64url()
   end
 
-  @spec context!(map()) :: map()
   def context!(attrs) when is_map(attrs) do
     %{
       "protocol" => "refmd.share-capability-context",
@@ -39,8 +37,6 @@ defmodule RefMD.Sharing.Capability do
     }
   end
 
-  @spec from_share!(Share.t(), binary()) :: binary()
-  @spec from_share!(Share.t(), binary(), binary() | nil) :: binary()
   def from_share!(%Share{} = share, workspace_id, token_hash \\ nil) do
     hash!(%{
       workspace_id: workspace_id,

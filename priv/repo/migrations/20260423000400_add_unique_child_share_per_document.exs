@@ -17,7 +17,6 @@ defmodule RefMD.Repo.Migrations.AddUniqueChildSharePerDocument do
          )
   end
 
-  @spec duplicate_child_share_check_sql() :: String.t()
   def duplicate_child_share_check_sql do
     """
     DO $$
@@ -43,7 +42,6 @@ defmodule RefMD.Repo.Migrations.AddUniqueChildSharePerDocument do
     """
   end
 
-  @spec unreachable_child_share_check_sql() :: String.t()
   def unreachable_child_share_check_sql do
     """
     DO $$

@@ -5,7 +5,6 @@ defmodule RefMD.Plugins.Signing do
   alias RefMD.Devices.Device
   alias RefMD.Repo
 
-  @spec fetch_active_device(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, Device.t()} | {:error, atom()}
   def fetch_active_device(user_id, device_id)
       when is_binary(user_id) and is_binary(device_id) do
     case Repo.get(Device, device_id) do
@@ -27,7 +26,6 @@ defmodule RefMD.Plugins.Signing do
 
   def fetch_active_device(_user_id, _device_id), do: {:error, :signing_device_not_found}
 
-  @spec fetch_device(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, Device.t()} | {:error, atom()}
   def fetch_device(user_id, device_id)
       when is_binary(user_id) and is_binary(device_id) do
     case Repo.get(Device, device_id) do
@@ -48,7 +46,6 @@ defmodule RefMD.Plugins.Signing do
 
   def fetch_device(_user_id, _device_id), do: {:error, :signing_device_not_found}
 
-  @spec signing_key_id(Ecto.UUID.t()) :: String.t() | nil
   def signing_key_id(device_id) do
     case Repo.get(Device, device_id) do
       %Device{signing_key_id: signing_key_id} -> signing_key_id
@@ -56,7 +53,6 @@ defmodule RefMD.Plugins.Signing do
     end
   end
 
-  @spec actor(Device.t(), Ecto.UUID.t(), String.t()) :: map()
   def actor(%Device{} = device, scope_id, scope_kind \\ "workspace") do
     %{
       "device_id" => device.id,
@@ -70,7 +66,6 @@ defmodule RefMD.Plugins.Signing do
     }
   end
 
-  @spec verify(String.t(), map(), map(), Device.t(), map()) :: :ok | {:error, atom()}
   def verify(signing_purpose, transcript, signature, device, semantic_context)
       when is_binary(signing_purpose) and is_map(transcript) and is_map(signature) and
              is_map(semantic_context) do

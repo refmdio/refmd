@@ -5,7 +5,6 @@ defmodule RefMD.Documents.Snapshots.SignerKeys do
   alias RefMD.Repo
   alias RefMD.Sharing
 
-  @spec record_document_signer!(Ecto.UUID.t(), Ecto.UUID.t(), map()) :: any()
   def record_document_signer!(
         document_id,
         _actor_id,

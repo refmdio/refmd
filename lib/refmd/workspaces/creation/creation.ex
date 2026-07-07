@@ -6,8 +6,6 @@ defmodule RefMD.Workspaces.Creation do
   alias RefMD.Repo
   alias RefMD.Workspaces.{Workspace, WorkspaceMember, WorkspaceRole}
 
-  @spec create_default_workspace(Ecto.UUID.t(), String.t()) ::
-          {:ok, Workspace.t()} | {:error, term()}
   def create_default_workspace(user_id, name) do
     slug = generate_slug(name)
 
@@ -48,8 +46,6 @@ defmodule RefMD.Workspaces.Creation do
     end)
   end
 
-  @spec create_workspace(Ecto.UUID.t(), String.t(), map()) ::
-          {:ok, Workspace.t()} | {:error, term()}
   def create_workspace(user_id, name, opts \\ %{}) do
     slug = generate_slug(name)
     workspace_id = Map.get(opts, :workspace_id) || Ecto.UUID.generate()

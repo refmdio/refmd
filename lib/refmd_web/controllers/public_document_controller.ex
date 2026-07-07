@@ -29,7 +29,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"document_id" => document_id} = params) do
     attrs = Map.take(params, ["slug", "title", "content", "content_hash", "noindex"])
 
@@ -52,7 +51,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"document_id" => document_id}) do
     case Public.get_publication(document_id) do
       {:ok, response} -> json(conn, response)
@@ -73,7 +71,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, %{"document_id" => document_id} = params) do
     attrs = Map.take(params, ["slug", "noindex"])
 
@@ -93,7 +90,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"document_id" => document_id}) do
     case Public.delete_publication(document_id) do
       :ok -> send_resp(conn, :no_content, "")
@@ -115,7 +111,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec update_content(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_content(conn, %{"document_id" => document_id} = params) do
     attrs = Map.take(params, ["title", "content", "content_hash"])
 
@@ -147,7 +142,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec show_public(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_public(conn, %{"author_slug" => author_slug, "document_slug" => document_slug}) do
     case Public.resolve_public_document(author_slug, document_slug) do
       {:ok, response} ->
@@ -167,7 +161,6 @@ defmodule RefMDWeb.PublicDocumentController do
     ]
   )
 
-  @spec show_author(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_author(conn, %{"author_slug" => author_slug}) do
     case Public.list_author_documents(author_slug) do
       {:ok, response} -> json(conn, response)

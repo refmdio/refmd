@@ -14,9 +14,6 @@ defmodule RefMD.Users.UserExternalAccount do
     field :created_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(account, attrs) do
     account
     |> cast(attrs, [:user_id, :provider, :provider_user_id, :email])

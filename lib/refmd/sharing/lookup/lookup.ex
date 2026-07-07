@@ -16,7 +16,6 @@ defmodule RefMD.Sharing.Lookup do
     ShareKey
   }
 
-  @spec find_document_token_payload(String.t()) :: map() | nil
   def find_document_token_payload(document_token) do
     from(t in SharedDocumentToken,
       join: s in Share,
@@ -34,7 +33,6 @@ defmodule RefMD.Sharing.Lookup do
     |> normalize_document_token_payload()
   end
 
-  @spec find_folder_token_payload(String.t()) :: map() | nil
   def find_folder_token_payload(folder_token) do
     from(t in SharedFolderToken,
       join: s in Share,
@@ -48,7 +46,6 @@ defmodule RefMD.Sharing.Lookup do
     |> normalize_folder_token_payload()
   end
 
-  @spec get_root_document_token(Ecto.UUID.t(), Ecto.UUID.t()) :: SharedDocumentToken.t() | nil
   def get_root_document_token(share_id, document_id) do
     from(t in SharedDocumentToken,
       where: t.share_id == ^share_id and t.document_id == ^document_id
@@ -56,7 +53,6 @@ defmodule RefMD.Sharing.Lookup do
     |> Repo.one()
   end
 
-  @spec get_root_folder_token(Ecto.UUID.t(), Ecto.UUID.t()) :: SharedFolderToken.t() | nil
   def get_root_folder_token(share_id, document_id) do
     from(t in SharedFolderToken,
       where: t.share_id == ^share_id and t.document_id == ^document_id
@@ -64,15 +60,6 @@ defmodule RefMD.Sharing.Lookup do
     |> Repo.one()
   end
 
-  @spec authorized_document_bootstrap(
-          Share.t(),
-          Share.t(),
-          ShareKey.t(),
-          SharedDocumentToken.t(),
-          Document.t(),
-          String.t(),
-          String.t() | nil
-        ) :: {:ok, map()} | {:error, :not_found}
   def authorized_document_bootstrap(
         access_share,
         token_share,
@@ -120,13 +107,6 @@ defmodule RefMD.Sharing.Lookup do
      }}
   end
 
-  @spec build_authorized_folder_bootstrap(
-          Share.t(),
-          Share.t(),
-          SharedFolderToken.t(),
-          String.t(),
-          String.t() | nil
-        ) :: {:ok, map()} | {:error, :not_found}
   def build_authorized_folder_bootstrap(
         %Share{} = access_share,
         %Share{} = token_share,

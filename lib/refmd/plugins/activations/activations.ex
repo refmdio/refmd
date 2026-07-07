@@ -8,15 +8,12 @@ defmodule RefMD.Plugins.Activations do
   alias RefMD.Repo
   alias RefMD.Security
 
-  @spec create(map()) :: {:ok, PluginActivation.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) when is_map(attrs) do
     %PluginActivation{}
     |> PluginActivation.changeset(attrs)
     |> Repo.insert()
   end
 
-  @spec get_or_create_application(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          {:ok, PluginActivation.t()} | {:error, Ecto.Changeset.t()}
   def get_or_create_application(application_id, user_id, device_id) do
     case latest(application_id, user_id, device_id) do
       %PluginActivation{} = activation ->
@@ -33,7 +30,6 @@ defmodule RefMD.Plugins.Activations do
     end
   end
 
-  @spec list_for_actor(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: [PluginActivation.t()]
   def list_for_actor(user_id, device_id) do
     Repo.all(
       from(a in PluginActivation,
@@ -48,7 +44,6 @@ defmodule RefMD.Plugins.Activations do
     )
   end
 
-  @spec list_for_application(Ecto.UUID.t()) :: [PluginActivation.t()]
   def list_for_application(application_id) do
     Repo.all(
       from(a in PluginActivation,
@@ -58,7 +53,6 @@ defmodule RefMD.Plugins.Activations do
     )
   end
 
-  @spec get(Ecto.UUID.t()) :: PluginActivation.t() | nil
   def get(id) do
     case Ecto.UUID.cast(id) do
       {:ok, uuid} -> Repo.get(PluginActivation, uuid)
@@ -66,7 +60,6 @@ defmodule RefMD.Plugins.Activations do
     end
   end
 
-  @spec get_active(Ecto.UUID.t()) :: PluginActivation.t() | nil
   def get_active(id) do
     case get(id) do
       %PluginActivation{deleted_at: nil} = activation -> activation
@@ -75,8 +68,6 @@ defmodule RefMD.Plugins.Activations do
     end
   end
 
-  @spec update(PluginActivation.t(), map(), keyword()) ::
-          {:ok, PluginActivation.t()} | {:error, Ecto.Changeset.t()}
   def update(%PluginActivation{} = activation, attrs, opts \\ []) when is_map(attrs) do
     if activation.deleted_at do
       {:error, :not_found}
@@ -103,8 +94,6 @@ defmodule RefMD.Plugins.Activations do
     end
   end
 
-  @spec delete(PluginActivation.t(), keyword()) ::
-          {:ok, PluginActivation.t()} | {:error, Ecto.Changeset.t() | atom()}
   def delete(activation, opts \\ [])
 
   def delete(%PluginActivation{deleted_at: nil} = activation, opts) do
@@ -132,7 +121,6 @@ defmodule RefMD.Plugins.Activations do
 
   def delete(%PluginActivation{}, _opts), do: {:error, :not_found}
 
-  @spec latest(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil) :: PluginActivation.t() | nil
   def latest(application_id, user_id, device_id) do
     Repo.one(
       from(a in PluginActivation,
@@ -145,8 +133,6 @@ defmodule RefMD.Plugins.Activations do
     )
   end
 
-  @spec latest_for_actor(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          PluginActivation.t() | nil
   def latest_for_actor(application_id, user_id, device_id) do
     Repo.one(
       from(a in PluginActivation,

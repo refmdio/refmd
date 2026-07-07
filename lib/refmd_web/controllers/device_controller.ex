@@ -18,7 +18,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec bootstrap_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def bootstrap_challenge(conn, _params) do
     user_id = conn.assigns.current_user_id
     session = conn.assigns.current_session
@@ -45,7 +44,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec registration_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def registration_challenge(conn, _params) do
     user_id = conn.assigns.current_user_id
     session = conn.assigns.current_session
@@ -69,7 +67,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def bootstrap(conn, params) do
     user_id = conn.assigns.current_user_id
 
@@ -161,7 +158,6 @@ defmodule RefMDWeb.DeviceController do
   # Re-authentication threshold for sensitive operations (5 minutes)
   @reauth_max_age_seconds 300
 
-  @spec create_registration(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_registration(conn, params) do
     session = conn.assigns.current_session
 
@@ -296,7 +292,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec list_registrations(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def list_registrations(conn, _params) do
     user_id = conn.assigns.current_user_id
     device_registrations = Devices.get_user_device_registrations(user_id)
@@ -335,7 +330,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec reject_registration(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def reject_registration(conn, %{"device_id" => id}) do
     user_id = conn.assigns.current_user_id
 
@@ -362,7 +356,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec get_registration_sas(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_registration_sas(conn, %{"device_id" => id}) do
     user_id = conn.assigns.current_user_id
 
@@ -387,7 +380,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec approve(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def approve(conn, %{"device_id" => id} = params) do
     user_id = conn.assigns.current_user_id
 
@@ -413,7 +405,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec list(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def list(conn, _params) do
     user_id = conn.assigns.current_user_id
     devices = Devices.get_user_devices(user_id)
@@ -462,7 +453,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec revoke(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def revoke(conn, %{"device_id" => device_id} = params) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]
@@ -560,7 +550,6 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec rename(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def rename(conn, %{"device_id" => device_id} = params) do
     user_id = conn.assigns.current_user_id
     name = params["name"]

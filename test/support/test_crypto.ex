@@ -41,12 +41,10 @@ defmodule RefMD.TestCrypto do
     "pending_queue"
   ]
 
-  @spec hybrid_signing_private_key_material(binary(), binary()) :: map()
   def hybrid_signing_private_key_material(owner_kind, owner_id) do
     hybrid_signing_private_key_material(owner_kind, owner_id, nil)
   end
 
-  @spec hybrid_signing_private_key_material(binary(), binary(), binary() | nil) :: map()
   def hybrid_signing_private_key_material(owner_kind, owner_id, label) do
     seed_label =
       case label do
@@ -73,12 +71,10 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec mldsa65_keypair(binary()) :: {binary(), binary()}
   def mldsa65_keypair(seed) when is_binary(seed) do
     TestCryptoNative.keypair_from_seed(seed)
   end
 
-  @spec mldsa65_sign(binary(), binary(), binary()) :: binary()
   def mldsa65_sign(message, context, private_key)
       when is_binary(message) and is_binary(context) and is_binary(private_key) do
     TestCryptoNative.sign(message, context, private_key)
@@ -101,7 +97,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec hybrid_signing_public_key_material(map()) :: map()
   def hybrid_signing_public_key_material(private_material) do
     %{
       "protocol" => @public_material_protocol,
@@ -115,12 +110,6 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec recovery_authorization_material(Ecto.UUID.t()) :: %{
-          private: map(),
-          public: map(),
-          public_bytes: binary(),
-          key_id: binary()
-        }
   def recovery_authorization_material(user_id) do
     private = hybrid_signing_private_key_material("identity", user_id)
     public = hybrid_signing_public_key_material(private)
@@ -174,11 +163,6 @@ defmodule RefMD.TestCrypto do
     material
   end
 
-  @spec hybrid_device_material(Ecto.UUID.t()) :: %{
-          private: map(),
-          public: map(),
-          signing_key_id: binary()
-        }
   def hybrid_device_material(device_id) do
     private = hybrid_signing_private_key_material("device", device_id)
     public = hybrid_signing_public_key_material(private)
@@ -190,11 +174,6 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec hybrid_encryption_public_key_material(binary(), Ecto.UUID.t(), binary()) :: %{
-          public: map(),
-          mlkem768_public_key: binary(),
-          encryption_key_id: binary()
-        }
   def hybrid_encryption_public_key_material(owner_kind, owner_id, x25519_public_key)
       when is_binary(owner_kind) and is_binary(owner_id) and is_binary(x25519_public_key) do
     mlkem768_public_key = @valid_mlkem768_public_key
@@ -218,11 +197,6 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec hybrid_share_participant_device_material(Ecto.UUID.t()) :: %{
-          private: map(),
-          public: map(),
-          signing_key_id: binary()
-        }
   def hybrid_share_participant_device_material(device_id) do
     private = hybrid_signing_private_key_material("share_participant_device", device_id)
     public = hybrid_signing_public_key_material(private)
@@ -234,7 +208,6 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec share_capability_private_key_material(binary(), binary()) :: map()
   def share_capability_private_key_material(authorization_secret, share_token_hash)
       when is_binary(authorization_secret) and is_binary(share_token_hash) do
     ed25519_seed =
@@ -286,14 +259,12 @@ defmodule RefMD.TestCrypto do
     binary_part(output, 0, length)
   end
 
-  @spec share_capability_public_key_material(binary(), binary()) :: map()
   def share_capability_public_key_material(authorization_secret, share_token_hash) do
     authorization_secret
     |> share_capability_private_key_material(share_token_hash)
     |> hybrid_signing_public_key_material()
   end
 
-  @spec share_capability_public_key_material_for_slug(binary(), binary()) :: map()
   def share_capability_public_key_material_for_slug(authorization_secret, share_slug) do
     share_token_hash =
       share_slug
@@ -303,7 +274,6 @@ defmodule RefMD.TestCrypto do
     share_capability_public_key_material(authorization_secret, share_token_hash)
   end
 
-  @spec share_participant_attrs(binary()) :: map()
   def share_participant_attrs(display_name \\ "Guest User") do
     device_id = Ecto.UUID.generate()
     material = hybrid_share_participant_device_material(device_id)
@@ -329,14 +299,12 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec share_participant_request_attrs(binary()) :: map()
   def share_participant_request_attrs(display_name \\ "Guest User") do
     attrs = share_participant_attrs(display_name)
 
     encode_share_participant_request_attrs(attrs)
   end
 
-  @spec share_participant_request_attrs(binary(), map(), binary()) :: map()
   def share_participant_request_attrs(display_name, created_share, authorization_secret) do
     display_name
     |> share_participant_attrs()
@@ -344,7 +312,6 @@ defmodule RefMD.TestCrypto do
     |> encode_share_participant_request_attrs()
   end
 
-  @spec attach_share_participant_device_authorization(map(), map(), binary()) :: map()
   def attach_share_participant_device_authorization(
         attrs,
         created_share,
@@ -428,15 +395,12 @@ defmodule RefMD.TestCrypto do
     })
   end
 
-  @spec encode_share_participant_request_attrs(map()) :: map()
   def encode_share_participant_request_attrs(attrs) do
     attrs
     |> Map.drop(["__share_participant_private_material"])
     |> preserve_authorization_signature_object()
   end
 
-  @spec bootstrap_share_participant(map(), map() | binary(), binary()) ::
-          {:ok, map()} | {:error, term()}
   def bootstrap_share_participant(
         created_share,
         attrs_or_display,
@@ -466,26 +430,14 @@ defmodule RefMD.TestCrypto do
     end
   end
 
-  @spec open_admission_key() :: binary()
   def open_admission_key, do: :crypto.hash(:sha256, "refmd-test-open-share-admission")
 
-  @spec open_share_capability_secret_commitment() :: binary()
   def open_share_capability_secret_commitment do
     Hash.blake3_base64url(open_admission_key())
   end
 
   defp preserve_authorization_signature_object(attrs), do: attrs
 
-  @spec signed_pop_header_value(
-          map(),
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map() | nil,
-          map() | nil
-        ) ::
-          binary()
   def signed_pop_header_value(
         private_material,
         variant,
@@ -517,16 +469,6 @@ defmodule RefMD.TestCrypto do
     |> Encoding.encode_base64url()
   end
 
-  @spec signed_pop_signature(
-          map(),
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map() | nil,
-          map() | nil
-        ) ::
-          map()
   def signed_pop_signature(
         private_material,
         variant,
@@ -550,14 +492,12 @@ defmodule RefMD.TestCrypto do
     sign_pop_with_actor(private_material, variant, actor, challenge, session_binding, resource)
   end
 
-  @spec hybrid_signature_transport(map()) :: binary()
   def hybrid_signature_transport(signature) when is_map(signature) do
     signature
     |> JCS.canonical_bytes!()
     |> Encoding.encode_base64url()
   end
 
-  @spec sign_pop(map(), binary(), binary(), binary(), binary(), map() | nil, map() | nil) :: map()
   def sign_pop(
         private_material,
         variant,
@@ -807,14 +747,6 @@ defmodule RefMD.TestCrypto do
     Phoenix.json_library().encode_to_iodata!(body) |> IO.iodata_to_binary()
   end
 
-  @spec signed_document_update_header_value(
-          map(),
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map()
-        ) :: binary()
   def signed_document_update_header_value(
         private_material,
         user_id,
@@ -836,7 +768,6 @@ defmodule RefMD.TestCrypto do
     |> Encoding.encode_base64url()
   end
 
-  @spec sign_document_update(map(), binary(), binary(), binary(), binary(), map(), map()) :: map()
   def sign_document_update(
         private_material,
         user_id,
@@ -858,17 +789,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec sign_document_update(
-          map(),
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          binary()
-        ) ::
-          map()
   def sign_document_update(
         private_material,
         user_id,
@@ -898,8 +818,6 @@ defmodule RefMD.TestCrypto do
     sign_transcript(private_material, public_material, "document_update", transcript)
   end
 
-  @spec sign_document_snapshot(map(), binary(), binary(), binary(), binary(), map(), map()) ::
-          map()
   def sign_document_snapshot(
         private_material,
         user_id,
@@ -921,17 +839,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec sign_document_snapshot(
-          map(),
-          binary(),
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          binary()
-        ) ::
-          map()
   def sign_document_snapshot(
         private_material,
         user_id,
@@ -961,7 +868,6 @@ defmodule RefMD.TestCrypto do
     sign_transcript(private_material, public_material, "document_snapshot", transcript)
   end
 
-  @spec sign_editor_ephemeral(map(), binary(), binary(), binary(), binary(), map()) :: map()
   def sign_editor_ephemeral(
         private_material,
         user_id,
@@ -981,8 +887,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec sign_editor_ephemeral(map(), binary(), binary(), binary(), binary(), map(), binary()) ::
-          map()
   def sign_editor_ephemeral(
         private_material,
         user_id,
@@ -1080,7 +984,6 @@ defmodule RefMD.TestCrypto do
     end
   end
 
-  @spec sign_genesis_device_bootstrap(map(), binary(), map(), binary(), map(), binary()) :: map()
   def sign_genesis_device_bootstrap(
         identity_private_material,
         device_id,
@@ -1117,8 +1020,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec genesis_device_bootstrap_signature(binary(), binary(), map(), binary(), map(), binary()) ::
-          map()
   def genesis_device_bootstrap_signature(
         user_id,
         device_id,
@@ -1141,8 +1042,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec genesis_device_approval_proof(binary(), binary(), map(), binary(), map(), binary()) ::
-          map()
   def genesis_device_approval_proof(
         user_id,
         device_id,
@@ -1232,16 +1131,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec device_approval_proof(
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          binary(),
-          map()
-        ) ::
-          map()
   def device_approval_proof(
         user_id,
         approver_device_id,
@@ -1303,16 +1192,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec device_approval_signature(
-          binary(),
-          binary(),
-          binary(),
-          map(),
-          map(),
-          binary(),
-          map()
-        ) ::
-          map()
   def device_approval_signature(
         user_id,
         approver_device_id,
@@ -1371,7 +1250,6 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec sign_recipient_bound_authorization(map(), binary(), map()) :: map()
   def sign_recipient_bound_authorization(
         device_private_material,
         guest_user_id,
@@ -1398,15 +1276,6 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  @spec initial_key_directory_bootstrap(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          map(),
-          map(),
-          map(),
-          map()
-        ) :: map()
   def initial_key_directory_bootstrap(
         user_id,
         workspace_id,
@@ -1566,12 +1435,9 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  @spec signed_key_directory_event_envelope(map(), map()) :: map()
   def signed_key_directory_event_envelope(payload, private_material),
     do: signed_key_directory_event(payload, private_material)
 
-  @spec signed_key_directory_checkpoint_envelope(map(), binary(), map(), Ecto.UUID.t() | nil) ::
-          map()
   def signed_key_directory_checkpoint_envelope(
         payload,
         variant,
@@ -1580,11 +1446,9 @@ defmodule RefMD.TestCrypto do
       ),
       do: signed_key_directory_checkpoint(payload, variant, private_material, signer_user_id)
 
-  @spec key_directory_event_ref(binary(), Ecto.UUID.t(), map()) :: map()
   def key_directory_event_ref(scope_kind, scope_id, event),
     do: event_ref(scope_kind, scope_id, event)
 
-  @spec key_directory_event_head(map()) :: map()
   def key_directory_event_head(event), do: event_head(event)
 
   def with_test_share_security_artifacts(attrs, %RefMD.Documents.Document{} = document, owner_id)

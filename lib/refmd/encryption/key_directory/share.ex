@@ -4,7 +4,6 @@ defmodule RefMD.Encryption.KeyDirectory.Share do
   alias RefMD.Crypto.{Encoding, Hash, Signature}
   alias RefMD.Encryption.KeyDirectory.BodyAssertions, as: A
 
-  @spec assert!(binary(), map()) :: :ok
   def assert!("share_created", body) do
     A.assert_exact_keys!(
       body,

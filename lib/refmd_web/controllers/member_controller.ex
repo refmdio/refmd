@@ -48,7 +48,6 @@ defmodule RefMDWeb.MemberController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     members = Workspaces.list_workspace_members(conn.assigns.workspace_id)
     json(conn, %{members: members})
@@ -69,7 +68,6 @@ defmodule RefMDWeb.MemberController do
     ]
   )
 
-  @spec devices(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def devices(conn, params) do
     target_user_id = params["user_id"]
     workspace_id = conn.assigns.workspace_id
@@ -118,7 +116,6 @@ defmodule RefMDWeb.MemberController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, %{"user_id" => target_user_id, "role_id" => new_role_id}) do
     workspace_id = conn.assigns.workspace_id
     actor_user_id = conn.assigns.current_user_id
@@ -161,7 +158,6 @@ defmodule RefMDWeb.MemberController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"user_id" => target_user_id} = params) do
     workspace_id = conn.assigns.workspace_id
     actor_user_id = conn.assigns.current_user_id
@@ -193,7 +189,6 @@ defmodule RefMDWeb.MemberController do
     ]
   )
 
-  @spec identity_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def identity_keys(conn, _params) do
     members =
       conn.assigns.workspace_id

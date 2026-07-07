@@ -4,10 +4,8 @@ defmodule RefMDWeb.Plugs.OpenApiRequestValidation.RenderError do
   import Phoenix.Controller
   import Plug.Conn
 
-  @spec init(term()) :: term()
   def init(errors), do: errors
 
-  @spec call(Plug.Conn.t(), term()) :: Plug.Conn.t()
   def call(conn, errors) do
     conn
     |> put_status(:unprocessable_entity)

@@ -16,20 +16,6 @@ defmodule RefMD.Public do
                     ~w(index feed sitemap p api share auth document dashboard mounts invite)
                   )
 
-  @type publish_error ::
-          :not_found
-          | :already_published
-          | :content_too_large
-          | :invalid_hash
-          | :invalid_slug
-          | :invalid_value
-          | :public_publishing_disabled
-          | :public_author_profile_required
-          | {:slug_conflict, String.t()}
-          | Ecto.Changeset.t()
-
-  @spec upsert_author_profile(Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, :invalid_value | Ecto.Changeset.t()}
   def upsert_author_profile(workspace_id, attrs) when is_binary(workspace_id) and is_map(attrs) do
     with {:ok, display_name} <- fetch_string(attrs, "public_author_display_name"),
          {:ok, slug_base} <- normalize_slug(Map.get(attrs, "public_author_slug"), display_name),
@@ -52,7 +38,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec get_author_profile(Ecto.UUID.t()) :: map() | nil
   def get_author_profile(workspace_id) when is_binary(workspace_id) do
     case Repo.get(PublicAuthorProfile, workspace_id) do
       %PublicAuthorProfile{} = profile -> serialize_author_profile(profile)
@@ -60,8 +45,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec create_publication(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, map()} | {:error, publish_error()}
   def create_publication(document_id, user_id, attrs)
       when is_binary(document_id) and is_binary(user_id) and is_map(attrs) do
     Repo.transaction(fn ->
@@ -76,7 +59,6 @@ defmodule RefMD.Public do
     |> normalize_transaction_result()
   end
 
-  @spec get_publication(Ecto.UUID.t()) :: {:ok, map()} | {:error, :not_found}
   def get_publication(document_id) when is_binary(document_id) do
     case public_document_with_author(document_id) do
       %PublicDocument{} = public_document -> {:ok, serialize_publication(public_document)}
@@ -84,7 +66,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec update_publication(Ecto.UUID.t(), map()) :: {:ok, map()} | {:error, publish_error()}
   def update_publication(document_id, attrs) when is_binary(document_id) and is_map(attrs) do
     Repo.transaction(fn ->
       case public_document_with_author(document_id) do
@@ -95,7 +76,6 @@ defmodule RefMD.Public do
     |> normalize_transaction_result()
   end
 
-  @spec delete_publication(Ecto.UUID.t()) :: :ok | {:error, term()}
   def delete_publication(document_id) when is_binary(document_id) do
     Repo.transaction(fn ->
       case locked_public_document(document_id) do
@@ -114,8 +94,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec update_publication_content(Ecto.UUID.t(), map()) ::
-          {:ok, %{updated_at: DateTime.t()}} | {:error, publish_error()}
   def update_publication_content(document_id, attrs)
       when is_binary(document_id) and is_map(attrs) do
     with {:ok, title} <- fetch_string(attrs, "title"),
@@ -131,7 +109,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec resolve_public_document(String.t(), String.t()) :: {:ok, map()} | {:error, :not_found}
   def resolve_public_document(author_slug, document_slug)
       when is_binary(author_slug) and is_binary(document_slug) do
     case get_public_document_with_author(author_slug, document_slug) do
@@ -143,7 +120,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec list_author_documents(String.t()) :: {:ok, map()} | {:error, :not_found}
   def list_author_documents(author_slug) when is_binary(author_slug) do
     case get_enabled_author_profile(author_slug) do
       %PublicAuthorProfile{} = author_profile ->
@@ -169,7 +145,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec handle_document_deleted(Ecto.UUID.t()) :: :published_deleted | :ok
   def handle_document_deleted(document_id) when is_binary(document_id) do
     if Repo.exists?(from(p in PublicDocument, where: p.document_id == ^document_id)) do
       :published_deleted
@@ -178,21 +153,15 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec broadcast_unpublished(Ecto.UUID.t()) :: :ok
   def broadcast_unpublished(document_id) when is_binary(document_id) do
     broadcast_public_state(document_id, false, nil)
     :ok
   end
 
-  @spec published?(Ecto.UUID.t()) :: boolean()
   def published?(document_id) when is_binary(document_id) do
     Repo.exists?(from(p in PublicDocument, where: p.document_id == ^document_id))
   end
 
-  @spec get_public_state(Ecto.UUID.t()) :: %{
-          is_published: boolean(),
-          updated_at: DateTime.t() | nil
-        }
   def get_public_state(document_id) when is_binary(document_id) do
     case Repo.get(PublicDocument, document_id) do
       %PublicDocument{} = public_document ->
@@ -203,7 +172,6 @@ defmodule RefMD.Public do
     end
   end
 
-  @spec content_hash(String.t(), String.t()) :: String.t()
   def content_hash(title, content) when is_binary(title) and is_binary(content) do
     Blake3.hash_base64url(title <> "\n" <> content)
   end

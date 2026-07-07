@@ -13,9 +13,6 @@ defmodule RefMD.Sharing.SharedFolderToken do
     field :created_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(token, attrs) do
     token
     |> cast(attrs, [:share_id, :document_id, :token])

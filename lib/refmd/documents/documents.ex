@@ -52,24 +52,16 @@ defmodule RefMD.Documents do
   defdelegate update_clocks(document_id, authority_context_key, signing_key_id, clock),
     to: RefMD.Documents.Runtime.Server
 
-  @spec count_combined_siblings(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   defdelegate count_combined_siblings(workspace_id, parent_id), to: Ordering
 
-  @spec affected_parent_groups_for_document(Ecto.UUID.t()) :: [
-          {Ecto.UUID.t(), Ecto.UUID.t() | nil}
-        ]
   defdelegate affected_parent_groups_for_document(document_id), to: Ordering
 
-  @spec normalize_combined_siblings!(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: :ok
   defdelegate normalize_combined_siblings!(workspace_id, parent_id), to: Ordering
 
-  @spec normalize_combined_sibling_groups!([{Ecto.UUID.t(), Ecto.UUID.t() | nil}]) :: :ok
   defdelegate normalize_combined_sibling_groups!(groups), to: Ordering
 
-  @spec move_share_mount!(map(), Ecto.UUID.t() | nil, non_neg_integer()) :: :ok
   defdelegate move_share_mount!(mount, parent_id, position), to: Ordering
 
-  @spec document_admission_package!(Ecto.UUID.t(), String.t(), String.t(), keyword()) :: map()
   def document_admission_package!(document_id, event_type, admission_event_hash, opts \\ []) do
     document = get_document(document_id) || raise ArgumentError, "document_required"
 
@@ -319,9 +311,6 @@ defmodule RefMD.Documents do
   defdelegate reorder_document(workspace_id, document_id, new_parent_id, new_position),
     to: RefMD.Documents.Reordering
 
-  # ── Queries ──────────────────────────────────────
-
-  @spec list_documents(Ecto.UUID.t()) :: [Document.t()]
   def list_documents(workspace_id) do
     from(d in Document,
       where: d.workspace_id == ^workspace_id,
@@ -330,13 +319,10 @@ defmodule RefMD.Documents do
     |> Repo.all()
   end
 
-  @spec get_document(Ecto.UUID.t()) :: Document.t() | nil
   def get_document(id), do: Repo.get(Document, id)
 
-  @spec get_document!(Ecto.UUID.t()) :: Document.t()
   def get_document!(id), do: Repo.get!(Document, id)
 
-  @spec get_active_snapshot(Ecto.UUID.t()) :: DocumentSnapshot.t() | nil
   def get_active_snapshot(document_id) do
     from(d in Document,
       where: d.id == ^document_id,
@@ -349,10 +335,8 @@ defmodule RefMD.Documents do
     end
   end
 
-  @spec get_snapshot(Ecto.UUID.t()) :: DocumentSnapshot.t() | nil
   def get_snapshot(snapshot_id), do: Repo.get(DocumentSnapshot, snapshot_id)
 
-  @spec get_update_by_hash(Ecto.UUID.t(), String.t()) :: DocumentUpdate.t() | nil
   def get_update_by_hash(document_id, update_hash) do
     from(u in DocumentUpdate,
       where: u.document_id == ^document_id and u.update_hash == ^update_hash,
@@ -438,8 +422,6 @@ defmodule RefMD.Documents do
   ) u ON TRUE
   """
 
-  @spec get_initial_document_data(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
   def get_initial_document_data(document_id, workspace_id, user_id, params \\ %{}) do
     update_filter = initial_update_filter(params)
 
@@ -592,8 +574,6 @@ defmodule RefMD.Documents do
     )
   """
 
-  @spec get_initial_document_data_for_share(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, {DocumentSnapshot.t() | nil, [map()]}} | {:error, :unauthorized | :db_error}
   def get_initial_document_data_for_share(document_id, share_id, params \\ %{}) do
     update_filter = initial_update_filter(params)
 
@@ -738,7 +718,6 @@ defmodule RefMD.Documents do
     {snapshot, updates}
   end
 
-  @spec list_updates_for_snapshot(Ecto.UUID.t(), Ecto.UUID.t()) :: [DocumentUpdate.t()]
   def list_updates_for_snapshot(document_id, snapshot_id) do
     from(u in DocumentUpdate,
       where: u.document_id == ^document_id and u.snapshot_id == ^snapshot_id,
@@ -747,9 +726,6 @@ defmodule RefMD.Documents do
     |> Repo.all()
   end
 
-  # ── Create ───────────────────────────────────────
-
-  @spec create_document(map()) :: {:ok, Document.t()} | {:error, Ecto.Changeset.t()}
   def create_document(attrs) do
     encrypted_title = get_attr(attrs, :encrypted_title)
     title = get_attr(attrs, :title)
@@ -780,15 +756,6 @@ defmodule RefMD.Documents do
     |> Repo.insert()
   end
 
-  # ── Update ───────────────────────────────────────
-
-  @spec update_document(Document.t(), map()) ::
-          {:ok, Document.t()}
-          | {:error,
-             Ecto.Changeset.t()
-             | :document_archived
-             | :document_read_only
-             | :document_write_disabled}
   def update_document(%Document{} = document, attrs) do
     case writable_document?(document) do
       :ok ->
@@ -805,10 +772,6 @@ defmodule RefMD.Documents do
     end
   end
 
-  # ── Delete ───────────────────────────────────────
-
-  @spec delete_document(Document.t()) ::
-          {:ok, Document.t()} | {:error, Ecto.Changeset.t() | :folder_not_empty}
   def delete_document(%Document{} = document) do
     if document.doc_type == "folder" && has_children?(document.id) do
       {:error, :folder_not_empty}
@@ -881,10 +844,6 @@ defmodule RefMD.Documents do
     Ordering.normalize_combined_siblings!(updated.workspace_id, updated.parent_id)
   end
 
-  # ── Write State ───────────────────────────────────
-
-  @spec archive_document(Document.t(), map()) ::
-          {:ok, Document.t()} | {:error, :already_archived | :invalid_key_directory}
   def archive_document(%Document{} = document, write_state_admission) do
     if document_write_state(document) == "archived" do
       {:error, :already_archived}
@@ -893,9 +852,6 @@ defmodule RefMD.Documents do
     end
   end
 
-  @spec unarchive_document(Document.t(), map()) ::
-          {:ok, Document.t()}
-          | {:error, :not_archived | :ancestor_archived | :invalid_key_directory}
   def unarchive_document(%Document{} = document, write_state_admission) do
     cond do
       document_write_state(document) != "archived" ->
@@ -909,14 +865,6 @@ defmodule RefMD.Documents do
     end
   end
 
-  @spec enable_document_read_only(Document.t(), map()) ::
-          {:ok, Document.t()}
-          | {:error,
-             :already_read_only
-             | :document_archived
-             | :document_write_disabled
-             | :invalid_key_directory
-             | :invalid_write_state_transition}
   def enable_document_read_only(%Document{} = document, write_state_admission) do
     update_single_document_write_state(
       document,
@@ -926,14 +874,6 @@ defmodule RefMD.Documents do
     )
   end
 
-  @spec disable_document_read_only(Document.t(), map()) ::
-          {:ok, Document.t()}
-          | {:error,
-             :not_read_only
-             | :document_archived
-             | :document_write_disabled
-             | :invalid_key_directory
-             | :invalid_write_state_transition}
   def disable_document_read_only(%Document{} = document, write_state_admission) do
     update_single_document_write_state(
       document,
@@ -943,13 +883,6 @@ defmodule RefMD.Documents do
     )
   end
 
-  @spec disable_document_writes_by_policy(Document.t(), map()) ::
-          {:ok, Document.t()}
-          | {:error,
-             :already_write_disabled
-             | :document_archived
-             | :invalid_key_directory
-             | :invalid_write_state_transition}
   def disable_document_writes_by_policy(%Document{} = document, write_state_admission) do
     update_single_document_write_state(
       document,
@@ -1229,7 +1162,6 @@ defmodule RefMD.Documents do
   # ── Hierarchy Helpers (shared with Reordering) ──
 
   @doc false
-  @spec depth_from_root(Ecto.UUID.t()) :: non_neg_integer()
   def depth_from_root(parent_id) do
     {:ok, result} =
       Repo.query(
@@ -1249,7 +1181,6 @@ defmodule RefMD.Documents do
   end
 
   @doc false
-  @spec subtree_depth(Ecto.UUID.t()) :: non_neg_integer()
   def subtree_depth(document_id) do
     {:ok, result} =
       Repo.query(

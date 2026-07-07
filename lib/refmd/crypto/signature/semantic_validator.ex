@@ -5,12 +5,10 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
   alias RefMD.Crypto.Signature.Core
   alias RefMD.Encryption.KeyDirectory.Replay
 
-  @spec validate_transcript!(map(), binary(), binary(), binary()) :: :ok
   def validate_transcript!(transcript, signing_purpose, owner_kind, owner_id) do
     Core.assert_transcript!(transcript, signing_purpose, owner_kind, owner_id)
   end
 
-  @spec validate_device_approval!(map(), binary(), binary(), binary()) :: :ok
   def validate_device_approval!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     assert_binary!(transcript["approval_signature_surface"], "approval_signature_surface_invalid")
@@ -21,7 +19,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_device_approval!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_device_approval!(
         transcript,
         signing_purpose,
@@ -64,7 +61,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_recovery_approval!(map(), binary(), binary(), binary()) :: :ok
   def validate_recovery_approval!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     assert_binary!(transcript["approval_signature_surface"], "approval_signature_surface_invalid")
@@ -75,7 +71,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_recovery_approval!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_recovery_approval!(
         transcript,
         signing_purpose,
@@ -120,7 +115,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_plugin_bundle_approval!(map(), binary(), binary(), binary()) :: :ok
   def validate_plugin_bundle_approval!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
 
@@ -134,7 +128,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["approval"], "plugin_bundle_approval_subject_invalid")
   end
 
-  @spec validate_plugin_bundle_approval!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_plugin_bundle_approval!(
         transcript,
         signing_purpose,
@@ -191,7 +184,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_plugin_consent_event!(map(), binary(), binary(), binary()) :: :ok
   def validate_plugin_consent_event!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
 
@@ -205,7 +197,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["consent"], "plugin_consent_event_subject_invalid")
   end
 
-  @spec validate_plugin_consent_event!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_plugin_consent_event!(
         transcript,
         signing_purpose,
@@ -268,7 +259,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_plugin_network_proxy_request!(map(), binary(), binary(), binary()) :: :ok
   def validate_plugin_network_proxy_request!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
 
@@ -319,7 +309,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_plugin_network_proxy_request!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_plugin_network_proxy_request!(
         transcript,
         signing_purpose,
@@ -480,14 +469,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     assert_literal!(actor["key_scope_id"], approval["owner_user_id"], error)
   end
 
-  @spec validate_genesis_device_bootstrap!(map(), binary(), binary(), binary()) :: :ok
   def validate_genesis_device_bootstrap!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     assert_binary!(transcript["subject_protocol"], "subject_protocol_invalid")
     Core.assert_map!(transcript["bootstrap_authority"], "bootstrap_authority_invalid")
   end
 
-  @spec validate_genesis_device_bootstrap!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_genesis_device_bootstrap!(
         transcript,
         signing_purpose,
@@ -529,14 +516,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_document_admission!(map(), binary(), binary(), binary()) :: :ok
   def validate_document_admission!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["authority_boundary"], "authority_boundary_invalid")
     Core.assert_map!(transcript["actor"], "actor_invalid")
   end
 
-  @spec validate_document_admission!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_document_admission!(
         transcript,
         signing_purpose,
@@ -580,7 +565,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_key_directory_checkpoint!(map(), binary(), binary(), binary()) :: :ok
   def validate_key_directory_checkpoint!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["scope"], "checkpoint_scope_invalid")
@@ -589,7 +573,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["suite_policy"], "checkpoint_suite_policy_invalid")
   end
 
-  @spec validate_key_directory_checkpoint!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_key_directory_checkpoint!(
         transcript,
         signing_purpose,
@@ -648,7 +631,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_pq_wrap!(map(), binary(), binary(), binary()) :: :ok
   def validate_pq_wrap!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
@@ -656,7 +638,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["subject_hashes"], "subject_hashes_invalid")
   end
 
-  @spec validate_workspace_pin_bootstrap!(map(), binary(), binary(), binary()) :: :ok
   def validate_workspace_pin_bootstrap!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
@@ -664,7 +645,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["suite_policy"], "suite_policy_invalid")
   end
 
-  @spec validate_workspace_pin_bootstrap!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_workspace_pin_bootstrap!(
         transcript,
         signing_purpose,
@@ -694,13 +674,11 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_key_directory_event!(map(), binary(), binary(), binary()) :: :ok
   def validate_key_directory_event!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["event"], "event_invalid")
   end
 
-  @spec validate_key_directory_event!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_key_directory_event!(
         transcript,
         signing_purpose,
@@ -763,15 +741,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     :ok
   end
 
-  @spec validate_share_capability_authorization!(map(), binary(), binary(), binary()) :: :ok
   def validate_share_capability_authorization!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["authorization"], "authorization_invalid")
     Core.assert_map!(transcript["share_state"], "share_state_invalid")
   end
 
-  @spec validate_share_capability_authorization!(map(), binary(), binary(), binary(), map()) ::
-          :ok
   def validate_share_capability_authorization!(
         transcript,
         signing_purpose,
@@ -803,7 +778,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_pop!(map(), binary(), binary(), binary()) :: :ok
   def validate_pop!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     variant = transcript["surface_variant"]
@@ -820,7 +794,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     :ok
   end
 
-  @spec validate_pop!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_pop!(transcript, signing_purpose, owner_kind, owner_id, semantic_context) do
     :ok = validate_pop!(transcript, signing_purpose, owner_kind, owner_id)
 
@@ -844,14 +817,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     assert_pop_actor_matches_context!(transcript, device, semantic_context)
   end
 
-  @spec validate_ake_prekey!(map(), binary(), binary(), binary()) :: :ok
   def validate_ake_prekey!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["responder"], "responder_invalid")
     Core.assert_map!(transcript["freshness"], "freshness_invalid")
   end
 
-  @spec validate_ake_commitment!(map(), binary(), binary(), binary()) :: :ok
   def validate_ake_commitment!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["ake_inputs"], "ake_inputs_invalid")
@@ -860,14 +831,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["suite"], "suite_invalid")
   end
 
-  @spec validate_initial_key_delivery!(map(), binary(), binary(), binary()) :: :ok
   def validate_initial_key_delivery!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["delivery"], "delivery_invalid")
     Core.assert_map!(transcript["authority"], "authority_invalid")
   end
 
-  @spec validate_initial_key_delivery!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_initial_key_delivery!(
         transcript,
         signing_purpose,
@@ -901,7 +870,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_recipient_bound_authorization!(map(), binary(), binary(), binary()) :: :ok
   def validate_recipient_bound_authorization!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
@@ -910,13 +878,11 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["recipient"], "recipient_invalid")
   end
 
-  @spec validate_pin_gossip!(map(), binary(), binary(), binary()) :: :ok
   def validate_pin_gossip!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["pin_gossip"], "pin_gossip_invalid")
   end
 
-  @spec validate_recovery_authorization_proof!(map(), binary(), binary(), binary()) :: :ok
   def validate_recovery_authorization_proof!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
 
@@ -941,8 +907,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     assert_binary!(transcript["recipient_device_id"], "recipient_device_id_invalid")
   end
 
-  @spec validate_share_participant_device_authorization!(map(), binary(), binary(), binary()) ::
-          :ok
   def validate_share_participant_device_authorization!(
         transcript,
         signing_purpose,
@@ -989,13 +953,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     :ok
   end
 
-  @spec validate_share_participant_device_authorization!(
-          map(),
-          binary(),
-          binary(),
-          binary(),
-          map()
-        ) :: :ok
   def validate_share_participant_device_authorization!(
         transcript,
         signing_purpose,
@@ -1044,7 +1001,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_recovery_session!(map(), binary(), binary(), binary()) :: :ok
   def validate_recovery_session!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     assert_binary!(transcript["server_challenge_hash"], "server_challenge_hash_invalid")
@@ -1056,7 +1012,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_recovery_session!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_recovery_session!(
         transcript,
         signing_purpose,
@@ -1120,14 +1075,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_key_deletion!(map(), binary(), binary(), binary()) :: :ok
   def validate_key_deletion!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
     Core.assert_map!(transcript["authority_boundary"], "authority_boundary_invalid")
   end
 
-  @spec validate_key_deletion!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_key_deletion!(transcript, signing_purpose, owner_kind, owner_id, semantic_context) do
     :ok = validate_key_deletion!(transcript, signing_purpose, owner_kind, owner_id)
 
@@ -1179,7 +1132,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_device_revocation!(map(), binary(), binary(), binary()) :: :ok
   def validate_device_revocation!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
@@ -1187,7 +1139,6 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["revocation"], "revocation_invalid")
   end
 
-  @spec validate_device_revocation!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_device_revocation!(
         transcript,
         signing_purpose,
@@ -1224,14 +1175,12 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  @spec validate_ephemeral!(map(), binary(), binary(), binary()) :: :ok
   def validate_ephemeral!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
     Core.assert_map!(transcript["session"], "session_invalid")
   end
 
-  @spec validate_ephemeral!(map(), binary(), binary(), binary(), map()) :: :ok
   def validate_ephemeral!(transcript, signing_purpose, owner_kind, owner_id, semantic_context) do
     :ok = validate_ephemeral!(transcript, signing_purpose, owner_kind, owner_id)
 

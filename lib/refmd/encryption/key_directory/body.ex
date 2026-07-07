@@ -51,7 +51,6 @@ defmodule RefMD.Encryption.KeyDirectory.Body do
     "document_snapshot_accepted"
   ]
 
-  @spec assert!(binary(), map()) :: :ok
   def assert!(type, body) when type in @key_lifecycle_types,
     do: KeyLifecycle.assert!(type, body)
 

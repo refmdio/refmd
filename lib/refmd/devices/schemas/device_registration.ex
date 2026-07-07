@@ -29,9 +29,6 @@ defmodule RefMD.Devices.DeviceRegistration do
     field :expires_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(device_registration, attrs) do
     device_registration
     |> cast(attrs, [

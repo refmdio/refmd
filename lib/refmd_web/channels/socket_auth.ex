@@ -5,7 +5,6 @@ defmodule RefMDWeb.Channels.SocketAuth do
   origin_present?/0 provides fail-close for missing Origin in SameSite=None deployments.
   """
 
-  @spec check_origin(URI.t()) :: boolean()
   def check_origin(%URI{} = origin) do
     Process.put(:ws_origin_present, true)
     allowed = Application.get_env(:refmd, :cors_origins, [])
@@ -20,6 +19,5 @@ defmodule RefMDWeb.Channels.SocketAuth do
     end
   end
 
-  @spec origin_present?() :: boolean()
   def origin_present?, do: Process.get(:ws_origin_present, false)
 end

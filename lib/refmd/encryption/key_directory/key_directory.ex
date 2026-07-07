@@ -11,7 +11,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     Envelope,
     Event,
     Payload,
-    Pin,
     Protocol,
     Replay,
     Signatures,
@@ -29,22 +28,17 @@ defmodule RefMD.Encryption.KeyDirectory do
   @valid_scope_kinds ["user", "workspace"]
 
   @doc "Key-directory package boundary for supported event type literals."
-  @spec event_types() :: [binary()]
   def event_types, do: Payload.event_types()
 
   @doc "Key-directory package boundary for canonical event payload hashing."
-  @spec event_hash(map()) :: binary()
   def event_hash(payload), do: Protocol.event_hash(payload)
 
   @doc "Key-directory package boundary for canonical event body hashing."
-  @spec event_body_hash(map()) :: binary()
   def event_body_hash(body), do: Protocol.event_body_hash(body)
 
   @doc "Key-directory package boundary for canonical checkpoint payload hashing."
-  @spec checkpoint_hash(map()) :: binary()
   def checkpoint_hash(payload), do: Protocol.checkpoint_hash(payload)
 
-  @spec build_event_payload!(map()) :: map()
   def build_event_payload!(attrs) when is_map(attrs) do
     payload =
       %{
@@ -63,7 +57,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     payload
   end
 
-  @spec build_checkpoint_payload!(map()) :: map()
   def build_checkpoint_payload!(attrs) when is_map(attrs) do
     policy = Suite.current_suite_policy()
 
@@ -95,8 +88,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     payload
   end
 
-  @spec insert_signed_initial_scope!(binary(), Ecto.UUID.t(), [map()], map(), keyword()) ::
-          %{events: [Event.t()], checkpoint: Checkpoint.t(), pin: Pin.t()}
   def insert_signed_initial_scope!(
         scope_kind,
         scope_id,
@@ -193,8 +184,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     %{events: events, checkpoint: checkpoint, pin: pin}
   end
 
-  @spec append_signed_scope!(binary(), Ecto.UUID.t(), [map()], map(), keyword()) ::
-          %{events: [Event.t()], checkpoint: Checkpoint.t(), pin: Pin.t()}
   def append_signed_scope!(
         scope_kind,
         scope_id,
@@ -218,8 +207,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     end
   end
 
-  @spec append_signed_scope(binary(), Ecto.UUID.t(), [map()], map(), keyword()) ::
-          :ok | {:error, :invalid_key_directory}
   def append_signed_scope(scope_kind, scope_id, event_envelopes, checkpoint_envelope, opts \\ []) do
     append_signed_scope!(scope_kind, scope_id, event_envelopes, checkpoint_envelope, opts)
     :ok
@@ -445,7 +432,6 @@ defmodule RefMD.Encryption.KeyDirectory do
 
   defp member_removal_key_revocation?(_event), do: false
 
-  @spec verify_complete_replay!(binary(), Ecto.UUID.t(), [map()], map(), keyword()) :: :ok
   def verify_complete_replay!(
         scope_kind,
         scope_id,
@@ -610,34 +596,22 @@ defmodule RefMD.Encryption.KeyDirectory do
   end
 
   @doc "Key-directory package boundary for current checkpoint lookup."
-  @spec current_checkpoint(binary(), Ecto.UUID.t()) :: Checkpoint.t() | nil
   def current_checkpoint(scope_kind, scope_id), do: Store.current_checkpoint(scope_kind, scope_id)
 
   @doc "Key-directory package boundary for current pin lookup."
-  @spec current_pin(binary(), Ecto.UUID.t()) :: Pin.t() | nil
   def current_pin(scope_kind, scope_id), do: Store.current_pin(scope_kind, scope_id)
 
   @doc "Key-directory package boundary for stored checkpoint assertions."
-  @spec assert_stored_checkpoint!(Checkpoint.t()) :: :ok
   def assert_stored_checkpoint!(checkpoint), do: Store.assert_stored_checkpoint!(checkpoint)
 
   @doc "Key-directory package boundary for stored event assertions."
-  @spec assert_stored_event!(Event.t()) :: :ok
   def assert_stored_event!(event), do: Store.assert_stored_event!(event)
 
   @doc "Key-directory package boundary for active key lookup at the current checkpoint."
-  @spec active_key_material_in_current_checkpoint(binary(), Ecto.UUID.t(), binary()) ::
-          {:ok, map()} | {:error, :not_found}
   def active_key_material_in_current_checkpoint(scope_kind, scope_id, key_id),
     do: Store.active_key_material_in_current_checkpoint(scope_kind, scope_id, key_id)
 
   @doc "Key-directory package boundary for active owner signing material lookup."
-  @spec active_owner_signing_material_in_current_checkpoint(
-          binary(),
-          Ecto.UUID.t(),
-          binary(),
-          Ecto.UUID.t()
-        ) :: {:ok, map()} | {:error, :not_found}
   def active_owner_signing_material_in_current_checkpoint(
         scope_kind,
         scope_id,
@@ -653,12 +627,6 @@ defmodule RefMD.Encryption.KeyDirectory do
         )
 
   @doc "Key-directory package boundary for active owner encryption material lookup."
-  @spec active_owner_encryption_material_in_current_checkpoint(
-          binary(),
-          Ecto.UUID.t(),
-          binary(),
-          Ecto.UUID.t()
-        ) :: {:ok, map()} | {:error, :not_found}
   def active_owner_encryption_material_in_current_checkpoint(
         scope_kind,
         scope_id,
@@ -674,14 +642,6 @@ defmodule RefMD.Encryption.KeyDirectory do
         )
 
   @doc "Key-directory package boundary for historical key material lookup at a checkpoint."
-  @spec active_key_material_at_checkpoint(
-          binary(),
-          Ecto.UUID.t(),
-          binary(),
-          pos_integer(),
-          binary()
-        ) ::
-          {:ok, map()} | {:error, :not_found}
   def active_key_material_at_checkpoint(
         scope_kind,
         scope_id,
@@ -699,26 +659,17 @@ defmodule RefMD.Encryption.KeyDirectory do
         )
 
   @doc "Key-directory package boundary for ordered event history lookup."
-  @spec events_up_to(binary(), Ecto.UUID.t(), pos_integer()) :: [Event.t()]
   def events_up_to(scope_kind, scope_id, head_sequence),
     do: Store.events_up_to(scope_kind, scope_id, head_sequence)
 
   @doc "Key-directory package boundary for ordered event range lookup."
-  @spec events_after_until(binary(), Ecto.UUID.t(), non_neg_integer(), pos_integer()) :: [
-          Event.t()
-        ]
   def events_after_until(scope_kind, scope_id, after_sequence, head_sequence),
     do: Store.events_after_until(scope_kind, scope_id, after_sequence, head_sequence)
 
   @doc "Key-directory package boundary for ordered checkpoint range lookup."
-  @spec checkpoints_between(binary(), Ecto.UUID.t(), pos_integer(), pos_integer()) :: [
-          Checkpoint.t()
-        ]
   def checkpoints_between(scope_kind, scope_id, start_sequence, end_sequence),
     do: Store.checkpoints_between(scope_kind, scope_id, start_sequence, end_sequence)
 
-  @spec event_by_body_field(binary(), Ecto.UUID.t(), binary(), binary(), binary()) ::
-          Event.t() | nil
   def event_by_body_field(scope_kind, scope_id, event_type, body_key, body_value) do
     Repo.one(
       from(e in Event,
@@ -732,7 +683,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     )
   end
 
-  @spec event_by_hash(binary(), Ecto.UUID.t(), binary()) :: Event.t() | nil
   def event_by_hash(scope_kind, scope_id, event_hash) do
     Repo.one(
       from(e in Event,
@@ -744,7 +694,6 @@ defmodule RefMD.Encryption.KeyDirectory do
     )
   end
 
-  @spec checkpoint_covering_event_head(binary(), Ecto.UUID.t(), integer()) :: Checkpoint.t() | nil
   def checkpoint_covering_event_head(scope_kind, scope_id, event_head_sequence) do
     Repo.one(
       from(c in Checkpoint,

@@ -25,7 +25,6 @@ defmodule RefMD.Sharing.Participants do
   @ws_token_max_age 300
   @max_safe_integer 9_007_199_254_740_991
 
-  @spec create_participant_session(Share.t(), map()) :: map()
   def create_participant_session(share, authorization) do
     unless share_accepting_new_participant?(share) do
       Repo.rollback(:not_found)
@@ -81,7 +80,6 @@ defmodule RefMD.Sharing.Participants do
     end
   end
 
-  @spec resume_participant_session(Share.t(), ShareParticipantSession.t(), String.t()) :: map()
   def resume_participant_session(
         %Share{} = share,
         %ShareParticipantSession{} = session,
@@ -145,8 +143,6 @@ defmodule RefMD.Sharing.Participants do
     }
   end
 
-  @spec get_valid_participant_session_by_token_base64(String.t() | nil) ::
-          {:ok, ShareParticipantSession.t()} | {:error, :invalid_session | :invalid_token}
   def get_valid_participant_session_by_token_base64(token_base64) when is_binary(token_base64) do
     case Base.url_decode64(token_base64, padding: false) do
       {:ok, raw_token} -> get_valid_participant_session(raw_token)
@@ -156,24 +152,20 @@ defmodule RefMD.Sharing.Participants do
 
   def get_valid_participant_session_by_token_base64(_), do: {:error, :invalid_token}
 
-  @spec touch_participant_session(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def touch_participant_session(session_id) do
     from(s in ShareParticipantSession, where: s.id == ^session_id)
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
-  @spec delete_participant_session(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_participant_session(session_id) do
     from(s in ShareParticipantSession, where: s.id == ^session_id)
     |> Repo.delete_all()
   end
 
-  @spec participant_session_active?(Ecto.UUID.t()) :: boolean()
   def participant_session_active?(session_id) do
     match?({:ok, _session}, get_valid_participant_session_by_id(session_id))
   end
 
-  @spec participant_owns_device?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def participant_owns_device?(principal_id, device_id) do
     from(d in ShareParticipantDevice,
       where: d.id == ^device_id and d.principal_id == ^principal_id and is_nil(d.revoked_at)
@@ -181,7 +173,6 @@ defmodule RefMD.Sharing.Participants do
     |> Repo.exists?()
   end
 
-  @spec lock_participant_device_active(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, :not_found}
   def lock_participant_device_active(principal_id, device_id)
       when is_binary(principal_id) and is_binary(device_id) do
     from(d in ShareParticipantDevice,
@@ -197,19 +188,16 @@ defmodule RefMD.Sharing.Participants do
 
   def lock_participant_device_active(_, _), do: {:error, :not_found}
 
-  @spec share_accepting_new_participant?(Share.t()) :: boolean()
   def share_accepting_new_participant?(%Share{} = share) do
     Access.share_session_accessible?(share) and participant_admission_available?(share)
   end
 
-  @spec participant_admission_available?(Share.t()) :: boolean()
   def participant_admission_available?(%Share{max_views: @max_safe_integer}), do: true
 
   def participant_admission_available?(%Share{} = share) do
     max(share.view_count || 0, active_participant_device_count(share.id)) < share.max_views
   end
 
-  @spec participant_signing_public_material(Ecto.UUID.t()) :: {:ok, map()} | {:error, :not_found}
   def participant_signing_public_material(device_id) when is_binary(device_id) do
     from(d in ShareParticipantDevice,
       where: d.id == ^device_id and is_nil(d.revoked_at),
@@ -224,9 +212,6 @@ defmodule RefMD.Sharing.Participants do
 
   def participant_signing_public_material(_), do: {:error, :not_found}
 
-  @spec share_participant_signer(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, %{device_id: Ecto.UUID.t(), hybrid_signing_public_key_material: map()}}
-          | {:error, :not_found}
   def share_participant_signer(share_id, principal_id, device_id)
       when is_binary(share_id) and is_binary(principal_id) and is_binary(device_id) do
     from(d in ShareParticipantDevice,
@@ -250,8 +235,6 @@ defmodule RefMD.Sharing.Participants do
 
   def share_participant_signer(_, _, _), do: {:error, :not_found}
 
-  @spec get_participant_device(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          ShareParticipantDevice.t() | nil
   def get_participant_device(share_id, principal_id, device_id) do
     from(d in ShareParticipantDevice,
       where:
@@ -261,9 +244,6 @@ defmodule RefMD.Sharing.Participants do
     |> Repo.one()
   end
 
-  @spec validate_share_participant_writer_admission(map()) ::
-          {:ok, %{hybrid_signing_public_key_material: map()}}
-          | {:error, :invalid_share_participant_writer}
   def validate_share_participant_writer_admission(%{
         share_id: share_id,
         principal_id: principal_id,
@@ -295,8 +275,6 @@ defmodule RefMD.Sharing.Participants do
   def validate_share_participant_writer_admission(_),
     do: {:error, :invalid_share_participant_writer}
 
-  @spec create_pop_challenge(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_pop_challenge(share_id, principal_id, device_id, session_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
@@ -320,14 +298,6 @@ defmodule RefMD.Sharing.Participants do
     end
   end
 
-  @spec consume_pop_challenge(
-          binary(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t()
-        ) ::
-          :ok | {:error, :invalid_challenge}
   def consume_pop_challenge(challenge, share_id, principal_id, device_id, session_id) do
     challenge_hash = :crypto.hash(:sha256, challenge)
     session_id_hash = Hash.blake3_base64url(session_id)
@@ -368,13 +338,10 @@ defmodule RefMD.Sharing.Participants do
     )
   end
 
-  @spec generate_ws_token(Ecto.UUID.t()) :: String.t()
   def generate_ws_token(session_id) do
     TokenSigning.sign(@ws_token_salt, session_id)
   end
 
-  @spec verify_ws_token(String.t()) ::
-          {:ok, Ecto.UUID.t(), ShareParticipantSession.t()} | {:error, atom()}
   def verify_ws_token(token) do
     with {:ok, session_id} <-
            TokenSigning.verify(@ws_token_salt, token, max_age: @ws_token_max_age),
@@ -387,8 +354,6 @@ defmodule RefMD.Sharing.Participants do
     end
   end
 
-  @spec get_valid_participant_session(binary()) ::
-          {:ok, ShareParticipantSession.t()} | {:error, :invalid_session}
   def get_valid_participant_session(raw_token) do
     token_hash = Base.url_encode64(:crypto.hash(:sha256, raw_token), padding: false)
     now = DateTime.utc_now()
@@ -407,8 +372,6 @@ defmodule RefMD.Sharing.Participants do
     end
   end
 
-  @spec get_valid_participant_session_by_id(Ecto.UUID.t()) ::
-          {:ok, ShareParticipantSession.t()} | {:error, :invalid_session}
   def get_valid_participant_session_by_id(session_id) do
     now = DateTime.utc_now()
 

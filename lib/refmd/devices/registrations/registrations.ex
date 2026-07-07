@@ -10,7 +10,6 @@ defmodule RefMD.Devices.Registrations do
   alias RefMD.Repo
   alias RefMD.Security
 
-  @spec user_owns_device_registration?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_owns_device_registration?(user_id, device_id) do
     now = DateTime.utc_now()
 
@@ -20,8 +19,6 @@ defmodule RefMD.Devices.Registrations do
     |> Repo.exists?()
   end
 
-  @spec create_device_registration(map()) ::
-          {:ok, DeviceRegistration.t()} | {:error, Ecto.Changeset.t()}
   def create_device_registration(attrs) do
     now = DateTime.utc_now()
     expires_at = DateTime.add(now, 5 * 60, :second)
@@ -65,7 +62,6 @@ defmodule RefMD.Devices.Registrations do
     end
   end
 
-  @spec get_valid_device_registration(Ecto.UUID.t()) :: DeviceRegistration.t() | nil
   def get_valid_device_registration(id) do
     now = DateTime.utc_now()
 
@@ -75,7 +71,6 @@ defmodule RefMD.Devices.Registrations do
     |> Repo.one()
   end
 
-  @spec get_user_device_registrations(Ecto.UUID.t()) :: [DeviceRegistration.t()]
   def get_user_device_registrations(user_id) do
     now = DateTime.utc_now()
 
@@ -86,8 +81,6 @@ defmodule RefMD.Devices.Registrations do
     |> Repo.all()
   end
 
-  @spec get_device_registration_status(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, String.t()} | {:error, :not_found}
   def get_device_registration_status(user_id, device_id) do
     case Repo.get(DeviceRegistration, device_id) do
       nil ->
@@ -105,15 +98,11 @@ defmodule RefMD.Devices.Registrations do
     end
   end
 
-  @spec delete_device_registration(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_device_registration(id) do
     from(dr in DeviceRegistration, where: dr.id == ^id)
     |> Repo.delete_all()
   end
 
-  @spec replace_user_device_registration(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
-          {:ok, %{removed_ids: [Ecto.UUID.t()], pending: DeviceRegistration.t()}}
-          | {:error, atom(), term(), map()}
   def replace_user_device_registration(user_id, session_id, attrs) do
     now = DateTime.utc_now()
     expires_at = DateTime.add(now, 5 * 60, :second)
@@ -234,12 +223,8 @@ defmodule RefMD.Devices.Registrations do
     end
   end
 
-  @spec approve_device_registration(DeviceRegistration.t(), map(), keyword()) ::
-          {:ok, Device.t() | DeviceRegistration.t()} | {:error, atom() | Ecto.Changeset.t()}
   def approve_device_registration(device_registration, approval_signature, opts \\ [])
 
-  @spec approve_device_registration(DeviceRegistration.t(), map(), keyword()) ::
-          {:ok, Device.t() | DeviceRegistration.t()} | {:error, atom() | Ecto.Changeset.t()}
   def approve_device_registration(device_registration, approval_signature, opts)
       when is_map(approval_signature) do
     with {:ok, approval_material} <-
@@ -302,7 +287,6 @@ defmodule RefMD.Devices.Registrations do
     end
   end
 
-  @spec delete_expired_device_registrations() :: {non_neg_integer(), nil}
   def delete_expired_device_registrations do
     now = DateTime.utc_now()
 
@@ -339,8 +323,6 @@ defmodule RefMD.Devices.Registrations do
     |> Repo.update()
   end
 
-  @spec finalize_pending_delivery(DeviceRegistration.t(), map(), [map()]) ::
-          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def finalize_pending_delivery(device_registration, umk_attrs, prekey_consumptions)
       when is_map(umk_attrs) and is_list(prekey_consumptions) do
     now = DateTime.utc_now()

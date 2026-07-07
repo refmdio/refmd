@@ -22,9 +22,6 @@ defmodule RefMD.Sharing.Bootstrap do
 
   alias RefMD.Sharing.Participants.Authorization
 
-  @spec get_share_landing(String.t(), String.t() | nil) ::
-          {:ok, %{share: Share.t(), root: map()}}
-          | {:error, :not_found | :invalid_slug}
   def get_share_landing(share_slug, session_token_base64 \\ nil) do
     with {:ok, _share_slug, share_slug_bytes} <- validate_url_token(share_slug),
          %Share{} = share <-
@@ -43,18 +40,6 @@ defmodule RefMD.Sharing.Bootstrap do
     end
   end
 
-  @spec bootstrap_participant(String.t(), map()) ::
-          {:ok,
-           %{
-             root: map(),
-             participant: %{
-               principal_id: Ecto.UUID.t(),
-               device_id: Ecto.UUID.t(),
-               grant: String.t()
-             },
-             session_token: binary()
-           }}
-          | {:error, term()}
   def bootstrap_participant(share_slug, attrs) do
     with {:ok, _share_slug, share_slug_bytes} <- validate_url_token(share_slug),
          {:ok, display_name} <- fetch_display_name(attrs),
@@ -87,10 +72,6 @@ defmodule RefMD.Sharing.Bootstrap do
     end
   end
 
-  @type authenticated_pin_hash :: String.t() | nil
-
-  @spec get_document_bootstrap(String.t(), String.t() | nil, authenticated_pin_hash()) ::
-          {:ok, map()} | {:error, :not_found}
   def get_document_bootstrap(
         document_token,
         session_token_base64,
@@ -121,8 +102,6 @@ defmodule RefMD.Sharing.Bootstrap do
     end
   end
 
-  @spec get_folder_bootstrap(String.t(), String.t() | nil, authenticated_pin_hash()) ::
-          {:ok, map()} | {:error, :not_found}
   def get_folder_bootstrap(
         folder_token,
         session_token_base64,

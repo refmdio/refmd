@@ -6,26 +6,10 @@ defmodule RefMD.Plugins.Bundles do
   alias RefMD.Plugins.{Applications, PluginApplication, PluginBundle, PluginBundleCandidate}
   alias RefMD.Repo
 
-  @type plugin_error ::
-          :bundle_application_mismatch
-          | :application_not_found
-          | :plugin_bundle_candidate_invalid
-          | :plugin_bundle_candidate_missing
-          | :plugin_bundle_candidate_required
-          | :plugin_bundle_not_pinned
-          | :plugin_bundle_runtime_hash_mismatch
-          | :plugin_application_disabled
-          | :plugin_workspace_policy_denied
-          | :plugin_state_head_mismatch
-          | :plugin_state_head_pin_required
-          | :plugin_state_rollback
-
-  @spec create(map()) :: {:ok, PluginBundle.t()} | {:error, Ecto.Changeset.t() | plugin_error()}
   def create(attrs) when is_map(attrs) do
     {:error, :plugin_bundle_candidate_required}
   end
 
-  @spec list(Ecto.UUID.t()) :: [PluginBundle.t()]
   def list(application_id) do
     Repo.all(
       from(b in PluginBundle,
@@ -35,20 +19,14 @@ defmodule RefMD.Plugins.Bundles do
     )
   end
 
-  @spec pin_current(PluginApplication.t(), PluginBundle.t()) ::
-          {:ok, PluginApplication.t()} | {:error, Ecto.Changeset.t() | plugin_error()}
   def pin_current(application, bundle), do: pin_current(application, bundle, [])
 
-  @spec pin_current(PluginApplication.t(), PluginBundle.t(), keyword()) ::
-          {:ok, PluginApplication.t()} | {:error, Ecto.Changeset.t() | plugin_error()}
   def pin_current(%PluginApplication{} = application, %PluginBundle{} = bundle, opts) do
     with :ok <- validate_candidate_binding(bundle) do
       pin_candidate_backed_bundle(application, bundle, opts)
     end
   end
 
-  @spec current_with_pin(Ecto.UUID.t(), String.t() | nil) ::
-          {:ok, PluginBundle.t()} | {:error, plugin_error()}
   def current_with_pin(_application_id, nil),
     do: {:error, :plugin_state_head_pin_required}
 

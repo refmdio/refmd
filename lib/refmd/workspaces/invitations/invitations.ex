@@ -21,10 +21,6 @@ defmodule RefMD.Workspaces.Invitations do
 
   @max_serialization_retries 3
 
-  @spec lookup_ancestry(Ecto.UUID.t(), String.t(), String.t(), Ecto.UUID.t(), map() | nil) :: %{
-          checkpoints: [map()],
-          events: [map()]
-        }
   def lookup_ancestry(
         workspace_id,
         created_event_type,
@@ -41,8 +37,6 @@ defmodule RefMD.Workspaces.Invitations do
     )
   end
 
-  @spec validate_encrypted_bootstrap_package(map(), Ecto.UUID.t(), integer()) ::
-          :ok | {:error, term()}
   def validate_encrypted_bootstrap_package(package, workspace_id, key_version)
       when is_map(package) and is_integer(key_version) do
     with encrypted_payload when is_map(encrypted_payload) <- package["encrypted_payload"],
@@ -109,19 +103,14 @@ defmodule RefMD.Workspaces.Invitations do
   def validate_encrypted_bootstrap_package(_package, _workspace_id, _key_version),
     do: {:error, :invalid_encrypted_bootstrap_package}
 
-  @spec create_invitation(map()) :: {:ok, WorkspaceInvitation.t()} | {:error, term()}
   def create_invitation(attrs) do
     create_invitation_with_retry(attrs, 0)
   end
 
   @max_accept_retries 3
 
-  @spec accept_invitation(String.t(), Ecto.UUID.t(), String.t(), Ecto.UUID.t(), map() | nil) ::
-          {:ok, map()} | {:error, term()}
   def accept_invitation(token_hash, user_id, user_email, requester_device_id, admission \\ nil)
 
-  @spec accept_invitation(String.t(), Ecto.UUID.t(), String.t(), Ecto.UUID.t(), map() | nil) ::
-          {:ok, map()} | {:error, term()}
   def accept_invitation(
         token_hash,
         user_id,
@@ -149,7 +138,6 @@ defmodule RefMD.Workspaces.Invitations do
       ),
       do: {:error, :missing_device}
 
-  @spec list_active_invitations(Ecto.UUID.t()) :: [map()]
   def list_active_invitations(workspace_id) do
     now = DateTime.utc_now()
 
@@ -183,14 +171,10 @@ defmodule RefMD.Workspaces.Invitations do
     |> Repo.all()
   end
 
-  @spec revoke_invitation(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, WorkspaceInvitation.t()} | {:error, :not_found}
   def revoke_invitation(workspace_id, invitation_id) do
     revoke_invitation(workspace_id, invitation_id, nil, nil)
   end
 
-  @spec revoke_invitation(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil, map() | nil) ::
-          {:ok, WorkspaceInvitation.t()} | {:error, term()}
   def revoke_invitation(workspace_id, invitation_id, actor_user_id, key_directory) do
     Repo.transaction(fn ->
       case Repo.one(
@@ -227,7 +211,6 @@ defmodule RefMD.Workspaces.Invitations do
     end)
   end
 
-  @spec revoke_invitations_for_email(Ecto.UUID.t(), String.t()) :: non_neg_integer()
   def revoke_invitations_for_email(workspace_id, email) do
     now = DateTime.utc_now()
 
@@ -244,7 +227,6 @@ defmodule RefMD.Workspaces.Invitations do
     count
   end
 
-  @spec revoke_all_active_invitations([Ecto.UUID.t()]) :: non_neg_integer()
   def revoke_all_active_invitations([]), do: 0
 
   def revoke_all_active_invitations(workspace_ids) do

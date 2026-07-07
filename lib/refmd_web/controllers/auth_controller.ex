@@ -28,7 +28,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec salt(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def salt(conn, %{"email" => email}) do
     {master_key, salt} =
       case Auth.get_salt_for_email(email) do
@@ -58,7 +57,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec register(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def register(conn, %{"user_id" => user_id} = params) when is_binary(user_id) do
     with {:ok, hybrid_encryption_public_key_material} <-
            validate_identity_encryption_public_key_material(
@@ -260,7 +258,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec login(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def login(conn, %{"auth_key" => auth_key, "email" => email} = params) do
     case Auth.verify_auth_key(email, auth_key) do
       {:ok, user} ->
@@ -281,7 +278,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec me(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def me(conn, _params) do
     if conn.assigns[:session_kind] == :share_participant do
       conn |> put_status(:unauthorized) |> json(%{error: "unauthorized"})
@@ -347,7 +343,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec key_restore(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def key_restore(conn, _params) do
     cond do
       conn.assigns[:session_kind] == :share_participant ->
@@ -375,7 +370,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec kdf_migration(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def kdf_migration(conn, params) do
     user_id = conn.assigns.current_user_id
     master_key = Encryption.get_user_encrypted_master_key(user_id)
@@ -418,7 +412,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec verify_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def verify_key(conn, %{"auth_key" => auth_key}) do
     user = Users.get_user(conn.assigns.current_user_id)
     session = conn.assigns.current_session
@@ -450,7 +443,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec pop_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation(:ws_token,
     summary: "Generate a short-lived WebSocket authentication token",
     responses: [
@@ -459,7 +451,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec ws_token(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def ws_token(conn, _params) do
     session = conn.assigns.current_session
 
@@ -472,7 +463,6 @@ defmodule RefMDWeb.AuthController do
     json(conn, %{token: token})
   end
 
-  @spec pop_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def pop_challenge(conn, _params) do
     device_id = get_req_header(conn, "x-pop-device-id") |> List.first()
 
@@ -490,7 +480,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec logout(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def logout(conn, params) do
     session = conn.assigns.current_session
 
@@ -536,7 +525,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec get_recovery(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_recovery(conn, _params) do
     user_id = conn.assigns.current_user_id
     master_key = Encryption.get_user_encrypted_master_key(user_id)
@@ -560,7 +548,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec recovery_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def recovery_challenge(conn, %{"email" => email}) do
     case Users.get_user_by_email(email) do
       nil ->
@@ -591,7 +578,6 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  @spec recovery_session(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def recovery_session(conn, params) do
     email = params["email"]
 

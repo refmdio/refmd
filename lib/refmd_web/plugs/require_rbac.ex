@@ -24,7 +24,6 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
   import Plug.Conn
   alias RefMD.Workspaces
 
-  @spec init(keyword()) :: map()
   def init(opts) do
     permission = Keyword.fetch!(opts, :permission)
     not_member_status = Keyword.get(opts, :not_member_status, :forbidden)
@@ -45,7 +44,6 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
 
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
 
-  @spec call(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def call(conn, %{permission: permission, not_member_status: not_member_status}) do
     workspace_id =
       conn.path_params["workspace_id"] || conn.assigns[:workspace_id] ||

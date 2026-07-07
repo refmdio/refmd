@@ -26,18 +26,6 @@ defmodule RefMD.Plugins.Approvals do
 
   @genesis_event_hash "GENESIS"
 
-  @type plugin_error ::
-          :plugin_bundle_approval_forbidden
-          | :plugin_bundle_approval_hash_mismatch
-          | :plugin_bundle_approval_rollback
-          | :plugin_bundle_approval_signature_invalid
-          | :plugin_bundle_candidate_invalid
-          | :plugin_bundle_candidate_missing
-          | :plugin_bundle_candidate_required
-          | :plugin_bundle_runtime_hash_mismatch
-          | :plugin_state_head_mismatch
-
-  @spec subject(map() | PluginBundleCandidate.t(), map()) :: map()
   def subject(%PluginBundleCandidate{} = candidate, attrs),
     do: subject(Map.from_struct(candidate), attrs)
 
@@ -45,7 +33,6 @@ defmodule RefMD.Plugins.Approvals do
     Artifact.approval_subject(candidate, attrs)
   end
 
-  @spec subject_hash(map() | PluginBundleCandidate.t(), map()) :: String.t()
   def subject_hash(candidate, attrs) do
     candidate
     |> subject(attrs)
@@ -53,7 +40,6 @@ defmodule RefMD.Plugins.Approvals do
     |> Hash.blake3_base64url()
   end
 
-  @spec next_package_approval_chain(Ecto.UUID.t()) :: {pos_integer(), String.t()}
   def next_package_approval_chain(package_id) when is_binary(package_id) do
     case Packages.get(package_id) do
       %PluginPackage{state_head_hash: state_head_hash} = package
@@ -84,9 +70,6 @@ defmodule RefMD.Plugins.Approvals do
 
   def next_package_approval_chain(_package_id), do: {1, @genesis_event_hash}
 
-  @spec promote(PluginBundleCandidate.t(), map()) ::
-          {:ok, PluginPackage.t()}
-          | {:error, Ecto.Changeset.t() | plugin_error()}
   def promote(%PluginBundleCandidate{} = candidate, attrs) when is_map(attrs) do
     result =
       with :ok <- validate_candidate_can_promote(candidate),
@@ -102,12 +85,6 @@ defmodule RefMD.Plugins.Approvals do
     end
   end
 
-  @spec proof(PluginBundle.t()) ::
-          {:ok, map()}
-          | {:error,
-             :plugin_bundle_candidate_missing
-             | :plugin_bundle_runtime_hash_mismatch
-             | :plugin_bundle_approval_signature_invalid}
   def proof(%PluginBundle{} = bundle) do
     with %PluginBundleCandidate{} = candidate <- Repo.preload(bundle, :candidate).candidate,
          true <- acquisition_hashes_match?(candidate, bundle) do

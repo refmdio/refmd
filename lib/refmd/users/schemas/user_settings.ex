@@ -20,9 +20,6 @@ defmodule RefMD.Users.UserSettings do
     field :updated_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(settings, attrs) do
     settings
     |> cast(attrs, [

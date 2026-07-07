@@ -51,8 +51,6 @@ defmodule RefMD.Plugins.PluginBundle do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
-  @type t :: %__MODULE__{}
-
   @required_fields [
     :candidate_id,
     :package_id,
@@ -101,7 +99,6 @@ defmodule RefMD.Plugins.PluginBundle do
     :approval_authority_checkpoint_sequence
   ]
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(bundle, attrs) do
     bundle
     |> cast(

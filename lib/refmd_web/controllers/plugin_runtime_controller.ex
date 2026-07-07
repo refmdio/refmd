@@ -23,7 +23,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, %{"workspace_id" => workspace_id}) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id
@@ -67,7 +66,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     ]
   )
 
-  @spec create_sandbox_document(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_sandbox_document(conn, params) do
     user_id = conn.assigns.current_user_id
     current_session = conn.assigns.current_session
@@ -131,7 +129,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     end
   end
 
-  @spec show_sandbox_document(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation(:show_sandbox_document,
     summary: "Load a single-use plugin sandbox document",
     parameters: [
@@ -216,7 +213,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, params) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id
@@ -262,7 +258,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     ]
   )
 
-  @spec removed_bundle_endpoint(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def removed_bundle_endpoint(conn, _params) do
     conn
     |> put_status(:gone)
@@ -283,7 +278,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     ]
   )
 
-  @spec audit(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def audit(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id
@@ -415,7 +409,6 @@ defmodule RefMDWeb.PluginRuntimeController do
     }
   end
 
-  @spec format_runtime_descriptor(map()) :: map()
   def format_runtime_descriptor(descriptor) do
     %{
       plugin_id: descriptor.plugin_id,

@@ -10,19 +10,8 @@ defmodule RefMD.Plugins.PackageEntries do
 
   @package_prefix "plugin-packages/"
 
-  @type raw_entry :: %{
-          required(:entry_kind) => String.t(),
-          required(:logical_path) => String.t(),
-          required(:media_type) => String.t(),
-          required(:bytes) => binary(),
-          optional(:resource_kind) => String.t() | nil
-        }
-
-  @spec storage_path(Ecto.UUID.t()) :: String.t()
   def storage_path(entry_id), do: @package_prefix <> entry_id
 
-  @spec create_candidate_entries(struct(), [raw_entry()]) ::
-          {:ok, [PluginPackageEntry.t()]} | {:error, Ecto.Changeset.t() | atom()}
   def create_candidate_entries(candidate, raw_entries) when is_list(raw_entries) do
     Enum.reduce_while(raw_entries, {:ok, []}, fn raw_entry, {:ok, acc} ->
       entry_id = generate_entry_id()
@@ -56,7 +45,6 @@ defmodule RefMD.Plugins.PackageEntries do
     end
   end
 
-  @spec cleanup_entries([PluginPackageEntry.t()]) :: :ok
   def cleanup_entries(entries) when is_list(entries) do
     Enum.each(entries, fn entry ->
       _ = Storage.delete(entry.storage_path)
@@ -65,7 +53,6 @@ defmodule RefMD.Plugins.PackageEntries do
     :ok
   end
 
-  @spec cleanup_storage(keyword()) :: {:ok, map()} | {:error, atom()}
   def cleanup_storage(opts \\ []) when is_list(opts) do
     stats = %{pending_deleted: 0, scanned_deleted: 0, protected: 0, failed: 0}
 
@@ -74,8 +61,6 @@ defmodule RefMD.Plugins.PackageEntries do
     |> scan_storage(nil, Keyword.get(opts, :max_pages, :infinity))
   end
 
-  @spec pin_candidate_entries(struct(), struct(), struct()) ::
-          {:ok, [PluginPackageEntry.t()]} | {:error, Ecto.Changeset.t() | atom()}
   def pin_candidate_entries(candidate, package, bundle) do
     entries =
       Repo.all(
@@ -109,16 +94,12 @@ defmodule RefMD.Plugins.PackageEntries do
     end
   end
 
-  @spec bundle_bytes(Ecto.UUID.t()) ::
-          {:ok, %{String.t() => binary()}} | {:error, atom()}
   def bundle_bytes(bundle_id) do
     with {:ok, entries} <- bundle_entries(bundle_id) do
       {:ok, Map.new(entries, fn %{entry: entry, bytes: bytes} -> {entry.logical_path, bytes} end)}
     end
   end
 
-  @spec bundle_entries(Ecto.UUID.t()) ::
-          {:ok, [%{entry: PluginPackageEntry.t(), bytes: binary()}]} | {:error, atom()}
   def bundle_entries(bundle_id) do
     entries =
       Repo.all(

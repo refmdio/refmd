@@ -12,10 +12,8 @@ defmodule RefMDWeb.Plugs.VerifyOrigin do
 
   import Plug.Conn
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     samesite_mode = Application.get_env(:refmd, :samesite_mode, "lax")
 

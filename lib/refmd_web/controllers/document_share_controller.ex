@@ -59,7 +59,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     if Workspaces.share_links_enabled?(conn.assigns.document.workspace_id) do
       create_share_when_enabled(conn, params)
@@ -133,7 +132,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     shares =
       Sharing.list_document_shares(
@@ -156,7 +154,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec verification_directory(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def verification_directory(conn, _params) do
     json(
       conn,
@@ -179,7 +176,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, %{"share_id" => share_id} = params) do
     case validate_uuid_param(share_id, :share_id) do
       :ok ->
@@ -227,7 +223,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"share_id" => share_id} = params) do
     case validate_uuid_param(share_id, :share_id) do
       :ok -> delete_valid_share(conn, share_id, params)
@@ -265,7 +260,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec admin_delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def admin_delete(conn, %{"share_id" => share_id} = params) do
     case validate_uuid_param(share_id, :share_id) do
       :ok -> admin_delete_valid_share(conn, share_id, params)
@@ -302,7 +296,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec update_exclusions(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_exclusions(conn, %{"share_id" => share_id} = params) do
     case validate_uuid_param(share_id, :share_id) do
       :ok ->
@@ -348,7 +341,6 @@ defmodule RefMDWeb.DocumentShareController do
     ]
   )
 
-  @spec update_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_keys(conn, %{"share_id" => share_id} = params) do
     with :ok <- validate_uuid_param(share_id, :share_id),
          {:ok, attrs} <-

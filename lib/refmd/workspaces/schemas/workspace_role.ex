@@ -16,11 +16,8 @@ defmodule RefMD.Workspaces.WorkspaceRole do
     has_many :permissions, RefMD.Workspaces.WorkspaceRolePermission, foreign_key: :role_id
   end
 
-  @type t :: %__MODULE__{}
-
   @base_roles ~w(owner admin editor viewer guest)
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(role, attrs) do
     role
     |> cast(attrs, [:workspace_id, :name, :base_role, :is_default, :catalog_version])

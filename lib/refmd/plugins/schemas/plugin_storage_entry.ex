@@ -5,7 +5,6 @@ defmodule RefMD.Plugins.PluginStorageEntry do
 
   @scopes ~w(document workspace)
 
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(entry, attrs) do
     entry
     |> cast(attrs, [

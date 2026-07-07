@@ -33,7 +33,6 @@ defmodule RefMDWeb.InvitationController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     workspace_id = conn.assigns.workspace_id
     user_id = conn.assigns.current_user_id
@@ -64,7 +63,6 @@ defmodule RefMDWeb.InvitationController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     invitations = Workspaces.list_active_invitations(conn.assigns.workspace_id)
     json(conn, %{invitations: invitations})
@@ -89,7 +87,6 @@ defmodule RefMDWeb.InvitationController do
 
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"invitation_id" => invitation_id} = params) do
     if Regex.match?(@uuid_regex, invitation_id) do
       case require_workspace_key_directory(params) do
@@ -135,7 +132,6 @@ defmodule RefMDWeb.InvitationController do
     ]
   )
 
-  @spec lookup(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def lookup(conn, %{"token" => token}) do
     with {:ok, token_bytes} <- decode_token(token),
          {:ok, token_hash} <- compute_token_hash(token_bytes),
@@ -163,7 +159,6 @@ defmodule RefMDWeb.InvitationController do
     ]
   )
 
-  @spec accept(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def accept(conn, %{"token" => token}) do
     with {:ok, requester_device_id} <- require_pop_device_id(conn),
          {:ok, admission} <- require_acceptance_admission(conn.body_params),

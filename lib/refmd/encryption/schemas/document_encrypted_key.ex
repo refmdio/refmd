@@ -15,13 +15,10 @@ defmodule RefMD.Encryption.DocumentEncryptedKey do
     field :created_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
   alias RefMD.Crypto.Validate
 
   @dek_bytes 32
 
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
     key
     |> cast(attrs, [:document_id, :key_version, :encrypted_dek, :nonce, :kek_version, :is_active])

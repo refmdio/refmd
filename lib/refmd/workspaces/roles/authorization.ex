@@ -1,8 +1,6 @@
 defmodule RefMD.Workspaces.Roles.Authorization do
   @moduledoc false
 
-  alias RefMD.Workspaces.WorkspaceRole
-
   @permission_catalog %{
     "document:read" => %{base_role_ceiling: "viewer", since_version: 1},
     "document:write" => %{base_role_ceiling: "editor", since_version: 1},
@@ -50,8 +48,6 @@ defmodule RefMD.Workspaces.Roles.Authorization do
     {"document:read", "member:list"}
   ]
 
-  @spec validate_create_permissions(list() | nil, String.t()) ::
-          {:ok, list() | nil} | {:error, term()}
   def validate_create_permissions(nil, _base_role), do: {:ok, nil}
 
   def validate_create_permissions(permissions, base_role) when is_list(permissions) do
@@ -69,8 +65,6 @@ defmodule RefMD.Workspaces.Roles.Authorization do
   def validate_create_permissions(_permissions, _base_role),
     do: {:error, {:invalid_permission, nil}}
 
-  @spec validate_update_permissions(list() | nil, WorkspaceRole.t() | map()) ::
-          {:ok, {list() | nil, [String.t()] | nil}} | {:error, term()}
   def validate_update_permissions(nil, _role), do: {:ok, {nil, nil}}
 
   def validate_update_permissions(permissions, role) when is_list(permissions) do
@@ -94,8 +88,6 @@ defmodule RefMD.Workspaces.Roles.Authorization do
 
   def validate_update_permissions(_permissions, _role), do: {:error, {:invalid_permission, nil}}
 
-  @spec validate_role_assignment(WorkspaceRole.t() | map(), WorkspaceRole.t() | map()) ::
-          :ok | {:error, :role_escalation | :permission_escalation}
   def validate_role_assignment(actor_role, target_role) do
     actor_power = @role_power[actor_role.base_role]
     target_power = @role_power[target_role.base_role]
@@ -112,10 +104,8 @@ defmodule RefMD.Workspaces.Roles.Authorization do
     end
   end
 
-  @spec permission_defined?(String.t()) :: boolean()
   def permission_defined?(permission), do: Map.has_key?(@permission_catalog, permission)
 
-  @spec effective_permissions(WorkspaceRole.t() | map()) :: MapSet.t(String.t())
   def effective_permissions(%{base_role: "owner"}), do: @base_role_defaults["owner"]
 
   def effective_permissions(role) do
@@ -131,7 +121,6 @@ defmodule RefMD.Workspaces.Roles.Authorization do
     end)
   end
 
-  @spec permission_granted?(WorkspaceRole.t() | map(), String.t()) :: boolean()
   def permission_granted?(role, permission) when is_binary(permission) do
     case Map.get(@permission_catalog, permission) do
       nil ->

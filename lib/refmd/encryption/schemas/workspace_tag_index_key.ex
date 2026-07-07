@@ -13,9 +13,6 @@ defmodule RefMD.Encryption.WorkspaceTagIndexKey do
     field :created_at, :utc_datetime_usec
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
     key
     |> cast(attrs, [:workspace_id, :encrypted_key, :nonce, :kek_version])

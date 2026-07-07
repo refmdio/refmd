@@ -9,15 +9,10 @@ defmodule RefMD.Plugins.SandboxDocumentArtifacts do
   @ttl_ms 15 * 60 * 1000
   @cleanup_interval_ms 60_000
 
-  @type key :: term()
-  @type artifact :: map()
-
-  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @spec get(key()) :: {:ok, artifact()} | :miss
   def get(key) do
     case table() do
       :undefined ->
@@ -42,7 +37,6 @@ defmodule RefMD.Plugins.SandboxDocumentArtifacts do
     end
   end
 
-  @spec put(key(), artifact(), non_neg_integer()) :: :ok
   def put(key, artifact, bytes) when is_integer(bytes) and bytes >= 0 do
     case table() do
       :undefined ->

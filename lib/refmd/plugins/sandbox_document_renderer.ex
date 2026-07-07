@@ -47,8 +47,6 @@ defmodule RefMD.Plugins.SandboxDocumentRenderer do
   ]
   @html_subresource_fragments ["<script", "<link"]
 
-  @spec render(map(), map(), keyword()) ::
-          {:ok, %{html: String.t(), csp: String.t()}} | {:error, atom()}
   def render(payload, session, opts \\ []) do
     with {:ok, variant_context} <- sandbox_document_variant(payload, session, opts),
          {:ok, main_script} <- plugin_source(payload.main_js, :plugin_source_encoding_invalid),

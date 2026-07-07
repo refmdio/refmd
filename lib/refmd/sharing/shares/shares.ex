@@ -22,16 +22,6 @@ defmodule RefMD.Sharing.Shares do
     ShareKey
   }
 
-  @type create_share_result ::
-          {:ok,
-           %{
-             share: Share.t(),
-             share_slug: String.t(),
-             created_event_sequence: pos_integer()
-           }}
-          | {:error, term()}
-
-  @spec get_share_permission_version(Ecto.UUID.t()) :: pos_integer()
   def get_share_permission_version(share_id) do
     case Repo.get(Share, share_id) do
       %{permission_version: version} when is_integer(version) and version > 0 -> version
@@ -39,7 +29,6 @@ defmodule RefMD.Sharing.Shares do
     end
   end
 
-  @spec share_workspace_id!(Ecto.UUID.t()) :: Ecto.UUID.t()
   def share_workspace_id!(share_id) when is_binary(share_id) do
     from(s in Share,
       join: d in Document,
@@ -54,7 +43,6 @@ defmodule RefMD.Sharing.Shares do
     end
   end
 
-  @spec create_share(Document.t(), Ecto.UUID.t(), map()) :: create_share_result()
   def create_share(%Document{} = document, user_id, attrs) do
     with {:ok, share_id} <- Input.fetch_uuid(attrs, :id),
          {:ok, share_slug, share_slug_bytes} <- Input.fetch_url_token(attrs, :share_slug),
@@ -160,12 +148,6 @@ defmodule RefMD.Sharing.Shares do
     end
   end
 
-  @spec apply_folder_share_key_update(Share.t(), %{
-          required(:add_keys) => [map()],
-          required(:replace_keys) => [map()]
-        }) ::
-          {:ok, %{share_id: Ecto.UUID.t(), added: [Ecto.UUID.t()], replaced: [Ecto.UUID.t()]}}
-          | {:error, term()}
   def apply_folder_share_key_update(share, %{add_keys: add_keys, replace_keys: replace_keys}) do
     with :ok <- validate_root_folder_share(share),
          {:ok, descendant_documents} <- list_folder_descendant_documents(share.document_id),

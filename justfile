@@ -105,11 +105,11 @@ check:
 
 # API verification
 api-check:
-    mix compile --warnings-as-errors
+    mix compile --force --warnings-as-errors
+    MIX_ENV=test mix compile --force --warnings-as-errors
     mix format --check-formatted
     mix credo --strict
     just api-test
-    mix dialyzer --format short
 
 # Frontend verification
 web-check:

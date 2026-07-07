@@ -7,7 +7,6 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
   alias RefMD.Repo
   alias RefMD.Sharing.Share
 
-  @spec parse_append(map()) :: {:ok, %{events: [map()], checkpoint: map()}} | {:error, term()}
   def parse_append(attrs) do
     events = dual_key_get(attrs, :workspace_key_directory_events)
     checkpoint = dual_key_get(attrs, :workspace_key_directory_checkpoint)
@@ -24,7 +23,6 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
     end
   end
 
-  @spec append_management!(Share.t(), map(), String.t(), map() | nil) :: map() | no_return()
   def append_management!(
         share,
         %{events: events, checkpoint: checkpoint},
@@ -46,7 +44,6 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
     _ -> Repo.rollback(:invalid_key_directory)
   end
 
-  @spec append_scope!(Share.t(), map(), map()) :: :ok | no_return()
   def append_scope!(share, %{events: events, checkpoint: checkpoint}, update_attrs) do
     workspace_id = share_workspace_id!(share)
     :ok = validate_scope_append!(share, events, update_attrs)
@@ -63,7 +60,6 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
     _ -> Repo.rollback(:invalid_key_directory)
   end
 
-  @spec latest_event_hash!(map(), String.t()) :: String.t() | no_return()
   def latest_event_hash!(%{events: events}, event_type) when is_list(events) do
     %{"payload" => %{"event_type" => ^event_type} = payload} =
       Enum.find(events, &(get_in(&1, ["payload", "event_type"]) == event_type))
@@ -73,7 +69,6 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
     _ -> Repo.rollback(:invalid_key_directory)
   end
 
-  @spec signed_share_settings_update_attrs!(map(), map()) :: map() | no_return()
   def signed_share_settings_update_attrs!(body, client_update_attrs) do
     signed_update_attrs = %{
       expires_event_sequence:

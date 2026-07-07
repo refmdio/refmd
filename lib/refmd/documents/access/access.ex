@@ -3,12 +3,6 @@ defmodule RefMD.Documents.Access do
 
   alias RefMD.Workspaces
 
-  @spec publication_sync_allowed?(
-          map(),
-          Ecto.UUID.t(),
-          Phoenix.Socket.t() | nil,
-          Ecto.UUID.t() | nil
-        ) :: boolean()
   def publication_sync_allowed?(document, user_id, socket, mounted_share_id) do
     cond do
       share_participant_socket?(socket) ->

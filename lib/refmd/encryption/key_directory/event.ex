@@ -20,9 +20,6 @@ defmodule RefMD.Encryption.KeyDirectory.Event do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(event, attrs) do
     event
     |> cast(attrs, [

@@ -17,10 +17,8 @@ defmodule RefMDWeb do
   those modules here.
   """
 
-  @spec static_paths() :: [String.t()]
   def static_paths, do: ~w(assets fonts images favicon.ico robots.txt index.html sw.js)
 
-  @spec router() :: Macro.t()
   def router do
     quote do
       use Phoenix.Router, helpers: false
@@ -31,14 +29,12 @@ defmodule RefMDWeb do
     end
   end
 
-  @spec channel() :: Macro.t()
   def channel do
     quote do
       use Phoenix.Channel
     end
   end
 
-  @spec controller() :: Macro.t()
   def controller do
     quote do
       use Phoenix.Controller, formats: [:html, :json]
@@ -56,7 +52,6 @@ defmodule RefMDWeb do
     end
   end
 
-  @spec verified_routes() :: Macro.t()
   def verified_routes do
     quote do
       use Phoenix.VerifiedRoutes,
@@ -69,7 +64,6 @@ defmodule RefMDWeb do
   @doc """
   When used, dispatch to the appropriate controller/live_view/etc.
   """
-  @spec __using__(atom()) :: Macro.t()
   defmacro __using__(which) when is_atom(which) do
     apply(__MODULE__, which, [])
   end

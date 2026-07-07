@@ -61,7 +61,6 @@ defmodule RefMDWeb.PluginStorageController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, params) do
     with {:ok, storage} <- storage_ref(params),
          {:ok, context} <- authorize_storage_request(conn, params, storage, "read"),
@@ -92,7 +91,6 @@ defmodule RefMDWeb.PluginStorageController do
     ]
   )
 
-  @spec upsert(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def upsert(conn, params) do
     with {:ok, storage} <- storage_ref(params),
          {:ok, context} <- authorize_storage_request(conn, params, storage, "write"),
@@ -140,7 +138,6 @@ defmodule RefMDWeb.PluginStorageController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, params) do
     with {:ok, storage} <- storage_ref(params),
          {:ok, context} <- authorize_storage_request(conn, params, storage, "write"),
@@ -172,7 +169,6 @@ defmodule RefMDWeb.PluginStorageController do
     ]
   )
 
-  @spec create_record(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_record(conn, params) do
     with {:ok, storage} <- record_storage_ref(params),
          {:ok, context} <- authorize_storage_request(conn, params, storage, "write"),
@@ -229,7 +225,6 @@ defmodule RefMDWeb.PluginStorageController do
     ]
   )
 
-  @spec show_record(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_record(conn, params) do
     with {:ok, storage} <- record_storage_ref(params),
          {:ok, context} <- authorize_storage_request(conn, params, storage, "read"),
@@ -257,7 +252,6 @@ defmodule RefMDWeb.PluginStorageController do
     ]
   )
 
-  @spec delete_record(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete_record(conn, params) do
     with {:ok, storage} <- record_storage_ref(params),
          {:ok, context} <- authorize_storage_request(conn, params, storage, "write"),

@@ -20,7 +20,6 @@ defmodule RefMD.Crypto.Suite do
                      ])
   @required_components Enum.sort(["ed25519", "mldsa65", "mlkem768", "x25519"])
 
-  @spec current_suite_policy() :: map()
   def current_suite_policy do
     policy = %{
       "suite_policy_version" => @suite_policy_version,
@@ -32,20 +31,15 @@ defmodule RefMD.Crypto.Suite do
     Map.put(policy, "allowed_suite_ids_hash", canonical_allowed_suite_ids_hash(policy))
   end
 
-  @spec assert_protocol_version!(integer()) :: :ok
   def assert_protocol_version!(@protocol_version), do: :ok
   def assert_protocol_version!(_), do: raise(ArgumentError, "protocol_version_not_allowed")
 
-  @spec initial_ake_suite_id() :: binary()
   def initial_ake_suite_id, do: @initial_ake
 
-  @spec initial_delivery_suite_id() :: binary()
   def initial_delivery_suite_id, do: @initial_delivery
 
-  @spec current_suite_rank() :: integer()
   def current_suite_rank, do: @suite_rank
 
-  @spec assert_known_suite_id!(binary(), map()) :: :ok
   def assert_known_suite_id!(suite_id, policy \\ current_suite_policy()) do
     assert_suite_policy_shape!(policy)
 
@@ -56,7 +50,6 @@ defmodule RefMD.Crypto.Suite do
     end
   end
 
-  @spec assert_suite_rank_allowed!(binary(), integer(), map()) :: :ok
   def assert_suite_rank_allowed!(suite_id, suite_rank, policy \\ current_suite_policy()) do
     assert_known_suite_id!(suite_id, policy)
 
@@ -67,7 +60,6 @@ defmodule RefMD.Crypto.Suite do
     :ok
   end
 
-  @spec assert_required_components!(map()) :: :ok
   def assert_required_components!(%{"required_components" => components}) do
     assert_canonical_sorted_unique!(components, "required_components")
 
@@ -78,13 +70,11 @@ defmodule RefMD.Crypto.Suite do
     end
   end
 
-  @spec canonical_allowed_suite_ids_hash(map()) :: binary()
   def canonical_allowed_suite_ids_hash(%{"allowed_suite_ids" => allowed_suite_ids}) do
     assert_canonical_sorted_unique!(allowed_suite_ids, "allowed_suite_ids")
     Hash.blake3_base64url(JCS.canonical_bytes!(%{"allowed_suite_ids" => allowed_suite_ids}))
   end
 
-  @spec assert_pinned_suite_policy!(map(), map()) :: :ok
   def assert_pinned_suite_policy!(policy, pinned_policy) do
     assert_suite_policy_shape!(policy)
 

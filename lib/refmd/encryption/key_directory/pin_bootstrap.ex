@@ -38,7 +38,6 @@ defmodule RefMD.Encryption.KeyDirectory.PinBootstrap do
                ])
   @signature_envelope_keys Enum.sort(["signature", "signer"])
 
-  @spec hash!(Ecto.UUID.t(), map()) :: binary()
   def hash!(workspace_id, %{"payload" => payload, "signatures" => signatures} = bootstrap)
       when is_binary(workspace_id) and is_map(payload) and is_list(signatures) do
     assert_exact_keys!(bootstrap, @envelope_keys, "workspace_pin_bootstrap_invalid")
@@ -49,7 +48,6 @@ defmodule RefMD.Encryption.KeyDirectory.PinBootstrap do
 
   def hash!(_, _), do: raise(ArgumentError, "workspace_pin_bootstrap_invalid")
 
-  @spec validate!(Ecto.UUID.t(), map(), map() | struct(), pos_integer()) :: :ok
   def validate!(
         workspace_id,
         %{"payload" => payload, "signatures" => signatures} = bootstrap,

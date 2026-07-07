@@ -3,7 +3,6 @@ defmodule RefMD.Encryption.KeyDirectory.Envelope do
 
   alias RefMD.Encryption.KeyDirectory.{Assertions, Event, Payload}
 
-  @spec payload!(map(), :event | :checkpoint) :: map()
   def payload!(%{"payload" => payload}, kind) when is_map(payload) do
     case kind do
       :event -> Payload.assert_event_payload!(payload)
@@ -18,7 +17,6 @@ defmodule RefMD.Encryption.KeyDirectory.Envelope do
   def payload!(_, :checkpoint),
     do: raise(ArgumentError, "checkpoint_envelope_payload_invalid")
 
-  @spec signatures!(map()) :: [map()]
   def signatures!(%{"signatures" => signatures})
       when is_list(signatures) and signatures != [] do
     signatures
@@ -26,7 +24,6 @@ defmodule RefMD.Encryption.KeyDirectory.Envelope do
 
   def signatures!(_), do: raise(ArgumentError, "key_directory_signatures_required")
 
-  @spec event_head!([Event.t()]) :: map()
   def event_head!([%Event{} | _] = events) do
     head = List.last(events)
 
@@ -38,7 +35,6 @@ defmodule RefMD.Encryption.KeyDirectory.Envelope do
 
   def event_head!(_), do: raise(ArgumentError, "initial_event_head_required")
 
-  @spec verified_event_head!([map()]) :: map()
   def verified_event_head!([%{} | _] = events) do
     head = List.last(events)
 
@@ -50,7 +46,6 @@ defmodule RefMD.Encryption.KeyDirectory.Envelope do
 
   def verified_event_head!(_), do: raise(ArgumentError, "event_replay_required")
 
-  @spec assert_event_chain_link!(map(), String.t() | nil) :: :ok
   def assert_event_chain_link!(%{"sequence" => 1}, nil), do: :ok
 
   def assert_event_chain_link!(

@@ -13,9 +13,6 @@ defmodule RefMD.Sharing.ShareParticipantPrincipal do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: :updated_at)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(principal, attrs) do
     principal
     |> cast(attrs, [:id, :share_id, :display_name])

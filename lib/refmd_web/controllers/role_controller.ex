@@ -36,7 +36,6 @@ defmodule RefMDWeb.RoleController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     roles = Workspaces.list_workspace_roles(conn.assigns.workspace_id)
     json(conn, %{roles: Enum.map(roles, &serialize_role/1)})
@@ -56,7 +55,6 @@ defmodule RefMDWeb.RoleController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"name" => name, "base_role" => base_role} = params) do
     workspace_id = conn.assigns.workspace_id
     permissions = params["permissions"]
@@ -86,7 +84,6 @@ defmodule RefMDWeb.RoleController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, %{"role_id" => role_id} = params) do
     workspace_id = conn.assigns.workspace_id
 
@@ -115,7 +112,6 @@ defmodule RefMDWeb.RoleController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"role_id" => role_id}) do
     workspace_id = conn.assigns.workspace_id
 

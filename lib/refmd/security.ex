@@ -12,15 +12,11 @@ defmodule RefMD.Security do
   alias RefMD.Security.{AuditEvent, Notification}
   alias RefMD.Workspaces
 
-  @type notification_attrs :: map()
   @plugin_runtime_action_keys ~w(operation result reason_code)
   @plugin_runtime_network_action_keys @plugin_runtime_action_keys ++
                                         ~w(endpoint_id route method target_origin target_path request_bytes response_bytes credential_handle_used proxy_id fallback_reason)
   @plugin_runtime_network_event_types ~w(plugin.network.requested plugin.network.blocked)
 
-  @spec record_audit_event(map(), [notification_attrs()]) ::
-          {:ok, %{audit_event: AuditEvent.t(), notifications: [Notification.t()]}}
-          | {:error, Ecto.Changeset.t()}
   def record_audit_event(attrs, notifications \\ [])
       when is_map(attrs) and is_list(notifications) do
     case Repo.transaction(fn -> insert_audit_event_with_notifications(attrs, notifications) end) do
@@ -33,7 +29,6 @@ defmodule RefMD.Security do
     end
   end
 
-  @spec list_notifications(String.t(), Ecto.UUID.t() | String.t()) :: [Notification.t()]
   def list_notifications(recipient_kind, recipient_id) do
     Repo.all(
       from(n in Notification,
@@ -43,33 +38,24 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec mark_notification_read(Ecto.UUID.t(), String.t(), Ecto.UUID.t() | String.t()) ::
-          {:ok, Notification.t()} | {:error, :not_found}
   def mark_notification_read(notification_id, recipient_kind, recipient_id) do
     update_notification_state(notification_id, recipient_kind, recipient_id, :read_at)
   end
 
-  @spec dismiss_notification(Ecto.UUID.t(), String.t(), Ecto.UUID.t() | String.t()) ::
-          {:ok, Notification.t()} | {:error, :not_found}
   def dismiss_notification(notification_id, recipient_kind, recipient_id) do
     update_notification_state(notification_id, recipient_kind, recipient_id, :dismissed_at)
   end
 
-  @spec subscribe_user(Ecto.UUID.t()) :: :ok | {:error, term()}
   def subscribe_user(user_id), do: PubSub.subscribe(RefMD.PubSub, user_topic(user_id))
 
-  @spec subscribe_pending_registration(Ecto.UUID.t()) :: :ok | {:error, term()}
   def subscribe_pending_registration(registration_id),
     do: PubSub.subscribe(RefMD.PubSub, pending_registration_topic(registration_id))
 
-  @spec subscribe_device(Ecto.UUID.t()) :: :ok | {:error, term()}
   def subscribe_device(device_id), do: PubSub.subscribe(RefMD.PubSub, device_topic(device_id))
 
-  @spec subscribe_workspace(Ecto.UUID.t()) :: :ok | {:error, term()}
   def subscribe_workspace(workspace_id),
     do: PubSub.subscribe(RefMD.PubSub, workspace_topic(workspace_id))
 
-  @spec broadcast_notification(Notification.t()) :: :ok | {:error, term()}
   def broadcast_notification(%Notification{} = notification) do
     PubSub.broadcast(
       RefMD.PubSub,
@@ -111,8 +97,6 @@ defmodule RefMD.Security do
     end
   end
 
-  @spec record_device_registration_created(Ecto.UUID.t(), RefMD.Devices.DeviceRegistration.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_device_registration_created(user_id, registration) do
     record_audit_event(
       authority_event(%{
@@ -143,8 +127,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_device_registration_removed(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_device_registration_removed(user_id, registration_id) do
     result =
       record_audit_event(
@@ -174,26 +156,18 @@ defmodule RefMD.Security do
     result
   end
 
-  @spec record_registration_approved(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_registration_approved(user_id, registration_id) do
     record_registration_terminal(user_id, registration_id, "approved", "completed", nil)
   end
 
-  @spec record_registration_rejected(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_registration_rejected(user_id, registration_id) do
     record_registration_terminal(user_id, registration_id, "rejected", "denied", "user_rejected")
   end
 
-  @spec record_registration_expired(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_registration_expired(user_id, registration_id) do
     record_registration_terminal(user_id, registration_id, "expired", "failed", "expired")
   end
 
-  @spec record_kek_rotation_needed(Ecto.UUID.t(), Ecto.UUID.t(), non_neg_integer()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_kek_rotation_needed(user_id, workspace_id, current_kek_version) do
     record_audit_event(
       security_runtime_event(%{
@@ -222,16 +196,12 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_candidate_created(RefMD.Plugins.PluginBundleCandidate.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_candidate_created(candidate) do
     record_audit_event(
       plugin_artifact_event(candidate, "plugin.bundle.candidate_created", "completed", nil)
     )
   end
 
-  @spec record_plugin_artifact_validation_failed(map(), atom() | String.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_artifact_validation_failed(attrs, reason) do
     record_audit_event(
       plugin_artifact_event(
@@ -243,30 +213,24 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_fetch_requested(map()) :: {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_fetch_requested(attrs) do
     record_audit_event(
       plugin_artifact_event(attrs, "plugin.artifact.fetch_requested", "completed", nil)
     )
   end
 
-  @spec record_plugin_fetch_completed(map()) :: {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_fetch_completed(attrs) do
     record_audit_event(
       plugin_artifact_event(attrs, "plugin.artifact.fetch_completed", "completed", nil)
     )
   end
 
-  @spec record_plugin_fetch_failed(map(), atom() | String.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_fetch_failed(attrs, reason) do
     record_audit_event(
       plugin_artifact_event(attrs, "plugin.artifact.fetch_failed", "failed", to_string(reason))
     )
   end
 
-  @spec record_plugin_bundle_approved(RefMD.Plugins.PluginBundle.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_bundle_approved(bundle) do
     attrs = Map.from_struct(bundle)
 
@@ -283,8 +247,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_bundle_rejected(map() | struct(), map(), atom() | String.t() | term()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_bundle_rejected(subject, approval_attrs, reason) do
     attrs = Map.merge(attrs_to_map(subject), approval_attrs)
 
@@ -300,8 +262,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_bundle_promoted(RefMD.Plugins.PluginBundle.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_bundle_promoted(bundle) do
     attrs = Map.from_struct(bundle)
 
@@ -327,16 +287,12 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_bundle_update_available(RefMD.Plugins.PluginBundleCandidate.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_bundle_update_available(candidate) do
     record_audit_event(
       plugin_artifact_event(candidate, "plugin.bundle.update_available", "completed", nil)
     )
   end
 
-  @spec record_plugin_application_disabled(RefMD.Plugins.PluginApplication.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_application_disabled(application) do
     record_plugin_application_runtime_invalidation(
       application,
@@ -345,8 +301,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_application_updated(RefMD.Plugins.PluginApplication.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_application_updated(application) do
     application = Repo.preload(application, :current_bundle)
     bundle = application.current_bundle
@@ -360,11 +314,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_application_uninstalled(
-          RefMD.Plugins.PluginApplication.t(),
-          [PluginActivation.t()]
-        ) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_application_uninstalled(application, activations \\ []) do
     record_plugin_application_runtime_invalidation(
       application,
@@ -374,8 +323,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_activation_disabled(PluginActivation.t(), Ecto.UUID.t() | nil) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_activation_disabled(activation, actor_device_id \\ nil) do
     activation = Repo.preload(activation, application: :current_bundle)
     application = activation.application
@@ -405,8 +352,6 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec record_plugin_activation_deleted(PluginActivation.t(), Ecto.UUID.t() | nil) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_activation_deleted(activation, actor_device_id \\ nil) do
     activation = Repo.preload(activation, application: :current_bundle)
     application = activation.application
@@ -648,8 +593,6 @@ defmodule RefMD.Security do
     Devices.get_user_devices(user_id)
   end
 
-  @spec record_plugin_consent_event(RefMD.Plugins.PluginConsentEvent.t()) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_consent_event(event) do
     type =
       case event.decision do
@@ -707,8 +650,6 @@ defmodule RefMD.Security do
     result
   end
 
-  @spec record_plugin_runtime_event(map(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          {:ok, map()} | {:error, Ecto.Changeset.t()}
   def record_plugin_runtime_event(attrs, user_id, device_id) when is_map(attrs) do
     record_audit_event(
       security_runtime_event(%{
@@ -726,13 +667,10 @@ defmodule RefMD.Security do
     )
   end
 
-  @spec security_runtime_event(map()) :: map()
   def security_runtime_event(attrs), do: event("security_runtime", attrs)
 
-  @spec authority_event(map()) :: map()
   def authority_event(attrs), do: event("authority", attrs)
 
-  @spec empty_sensitivity() :: map()
   def empty_sensitivity do
     %{
       "plaintext_scope_kind" => "none",

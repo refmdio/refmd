@@ -974,7 +974,6 @@ defmodule RefMD.Crypto.Signature.Core do
     }
   }
 
-  @spec transcript_base(String.t(), map(), String.t(), String.t()) :: map()
   def transcript_base(signing_purpose, surface, owner_kind, owner_id) do
     %{
       "protocol" => @transcript_protocol,
@@ -991,7 +990,6 @@ defmodule RefMD.Crypto.Signature.Core do
     }
   end
 
-  @spec assert_transcript!(map(), String.t(), String.t(), String.t()) :: :ok
   def assert_transcript!(transcript, signing_purpose, owner_kind, owner_id)
       when is_map(transcript) do
     assert_literal!(transcript["protocol"], @transcript_protocol, "transcript_protocol_invalid")
@@ -1029,7 +1027,6 @@ defmodule RefMD.Crypto.Signature.Core do
     :ok
   end
 
-  @spec assert_positive_integer!(term(), String.t()) :: :ok
   def assert_positive_integer!(value, error) do
     unless is_integer(value) and value >= 1 do
       raise ArgumentError, error
@@ -1038,13 +1035,11 @@ defmodule RefMD.Crypto.Signature.Core do
     :ok
   end
 
-  @spec assert_non_empty_string!(term(), String.t()) :: :ok
   def assert_non_empty_string!(value, _error) when is_binary(value) and byte_size(value) > 0,
     do: :ok
 
   def assert_non_empty_string!(_, error), do: raise(ArgumentError, error)
 
-  @spec assert_map!(term(), String.t()) :: :ok
   def assert_map!(value, _error) when is_map(value), do: :ok
   def assert_map!(_, error), do: raise(ArgumentError, error)
 

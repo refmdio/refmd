@@ -47,10 +47,8 @@ defmodule RefMDWeb.Plugs.RateLimit do
     "/api/auth/ws-token"
   ]
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     if e2e_rate_limit_bypass?(conn) do
       conn

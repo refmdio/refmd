@@ -8,8 +8,6 @@ defmodule RefMD.Sharing.KeyDirectory do
   alias RefMD.Repo
   alias RefMD.Sharing.{Capability, Input}
 
-  @spec validate_workspace_pin_bootstrap_hash(Ecto.UUID.t(), map(), String.t(), pos_integer()) ::
-          :ok | {:error, term()}
   def validate_workspace_pin_bootstrap_hash(
         workspace_id,
         bootstrap,
@@ -30,7 +28,6 @@ defmodule RefMD.Sharing.KeyDirectory do
     ArgumentError -> {:error, :workspace_pin_bootstrap_invalid}
   end
 
-  @spec fetch_append(map()) :: {:ok, [map()], map()} | {:error, term()}
   def fetch_append(attrs) do
     events = dual_key_get(attrs, :workspace_key_directory_events)
     checkpoint = dual_key_get(attrs, :workspace_key_directory_checkpoint)
@@ -47,8 +44,6 @@ defmodule RefMD.Sharing.KeyDirectory do
     end
   end
 
-  @spec share_created_event_ref(term()) ::
-          {:ok, %{hash: String.t(), sequence: pos_integer()}} | {:error, term()}
   def share_created_event_ref(events) when is_list(events) do
     %{"payload" => %{"event_type" => "share_created", "sequence" => sequence} = payload} =
       Enum.find(events, &(get_in(&1, ["payload", "event_type"]) == "share_created"))
@@ -64,14 +59,12 @@ defmodule RefMD.Sharing.KeyDirectory do
 
   def share_created_event_ref(_), do: {:error, :invalid_key_directory}
 
-  @spec share_created_event_hash(term()) :: {:ok, String.t()} | {:error, term()}
   def share_created_event_hash(events) when is_list(events) do
     with {:ok, ref} <- share_created_event_ref(events), do: {:ok, ref.hash}
   end
 
   def share_created_event_hash(_), do: {:error, :invalid_key_directory}
 
-  @spec share_created_capability_context_hash(term()) :: {:ok, String.t()} | {:error, term()}
   def share_created_capability_context_hash(events) when is_list(events) do
     %{"payload" => %{"event_type" => "share_created", "body" => body}} =
       Enum.find(events, &(get_in(&1, ["payload", "event_type"]) == "share_created"))
@@ -83,7 +76,6 @@ defmodule RefMD.Sharing.KeyDirectory do
 
   def share_created_capability_context_hash(_), do: {:error, :invalid_key_directory}
 
-  @spec append!(Document.t(), map()) :: :ok | no_return()
   def append!(%Document{} = document, attrs) do
     :ok = validate_body!(document, attrs)
 

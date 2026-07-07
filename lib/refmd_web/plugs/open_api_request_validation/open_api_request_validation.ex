@@ -8,10 +8,8 @@ defmodule RefMDWeb.Plugs.OpenApiRequestValidation do
 
   @cast_opts [replace_params: false]
 
-  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(
         %{private: %{open_api_spex: _, phoenix_controller: controller, phoenix_action: action}} =
           conn,

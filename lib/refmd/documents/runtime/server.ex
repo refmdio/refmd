@@ -19,18 +19,6 @@ defmodule RefMD.Documents.Runtime.Server do
     connections: MapSet.new()
   ]
 
-  @type t :: %__MODULE__{
-          document_id: String.t(),
-          active_snapshot_id: String.t() | nil,
-          clocks: map(),
-          idle_timer_ref: reference() | nil,
-          write_sessions: map(),
-          connections: MapSet.t(pid())
-        }
-
-  # ── Public API ──────────────────────────────────
-
-  @spec get_or_start(String.t()) :: {:ok, pid()} | {:error, term()}
   def get_or_start(document_id) do
     case Registry.lookup(RefMD.Documents.Runtime.Registry, document_id) do
       [{pid, _}] ->
@@ -48,32 +36,26 @@ defmodule RefMD.Documents.Runtime.Server do
     end
   end
 
-  @spec register_connection(String.t(), pid()) :: :ok
   def register_connection(document_id, channel_pid) do
     GenServer.call(via(document_id), {:register_connection, channel_pid})
   end
 
-  @spec unregister_connection(String.t(), pid()) :: :ok
   def unregister_connection(document_id, channel_pid) do
     GenServer.cast(via(document_id), {:unregister_connection, channel_pid})
   end
 
-  @spec record_write_session(String.t(), map(), integer()) :: :ok
   def record_write_session(document_id, payload, expires_at_ms) do
     GenServer.call(via(document_id), {:record_write_session, payload, expires_at_ms})
   end
 
-  @spec active_write_sessions(String.t()) :: [map()]
   def active_write_sessions(document_id) do
     GenServer.call(via(document_id), :active_write_sessions)
   end
 
-  @spec get_state(String.t()) :: {String.t() | nil, map()}
   def get_state(document_id) do
     GenServer.call(via(document_id), :get_state)
   end
 
-  @spec update_clocks(String.t(), String.t(), String.t(), integer()) :: :ok
   def update_clocks(document_id, authority_context_key, signing_key_id, clock) do
     GenServer.cast(
       via(document_id),
@@ -81,14 +63,10 @@ defmodule RefMD.Documents.Runtime.Server do
     )
   end
 
-  @spec set_active_snapshot(String.t(), String.t(), map()) :: :ok
   def set_active_snapshot(document_id, snapshot_id, clocks) do
     GenServer.cast(via(document_id), {:set_active_snapshot, snapshot_id, clocks})
   end
 
-  # ── GenServer Callbacks ─────────────────────────
-
-  @spec start_link(String.t()) :: GenServer.on_start()
   def start_link(document_id) do
     GenServer.start_link(__MODULE__, document_id, name: via(document_id))
   end

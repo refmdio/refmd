@@ -15,7 +15,6 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
     WorkspaceRole
   }
 
-  @spec completion_manifest_materials(map(), integer()) :: map() | no_return()
   def completion_manifest_materials(workspace, new_kek_version)
       when is_integer(new_kek_version) do
     old_kek_version = workspace.current_kek_version
@@ -54,7 +53,6 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
     }
   end
 
-  @spec append_start!(map(), [map()], map()) :: term() | no_return()
   def append_start!(workspace, events, checkpoint)
       when is_list(events) and is_map(checkpoint) do
     old_kek_version = workspace.current_kek_version
@@ -86,8 +84,6 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
 
   def append_start!(_, _, _), do: Repo.rollback(:invalid_key_directory)
 
-  @spec append_completion!(map(), integer(), [map()], map(), [map()], [Ecto.UUID.t()]) ::
-          term() | no_return()
   def append_completion!(
         workspace,
         new_kek_version,

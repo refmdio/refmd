@@ -21,20 +21,6 @@ defmodule RefMD.Plugins.Consent do
 
   @genesis_event_hash "GENESIS"
 
-  @type plugin_error ::
-          :bundle_application_mismatch
-          | :application_not_found
-          | :plugin_bundle_not_pinned
-          | :plugin_consent_event_hash_mismatch
-          | :plugin_consent_event_signature_invalid
-          | :plugin_consent_head_pin_required
-          | :plugin_consent_not_allowed
-          | :plugin_consent_rollback
-          | :plugin_activation_disabled
-          | :stale_consent_head
-          | :invalid_consent_genesis
-
-  @spec subject(map() | PluginConsentEvent.t()) :: map()
   def subject(%PluginConsentEvent{} = event), do: subject(Map.from_struct(event))
 
   def subject(attrs) when is_map(attrs) do
@@ -65,7 +51,6 @@ defmodule RefMD.Plugins.Consent do
     }
   end
 
-  @spec subject_hash(map() | PluginConsentEvent.t()) :: String.t()
   def subject_hash(attrs) do
     attrs
     |> subject()
@@ -73,8 +58,6 @@ defmodule RefMD.Plugins.Consent do
     |> Hash.blake3_base64url()
   end
 
-  @spec append_event(map()) ::
-          {:ok, PluginConsentEvent.t()} | {:error, Ecto.Changeset.t() | plugin_error()}
   def append_event(attrs) when is_map(attrs) do
     attrs = put_runtime_identity_attrs(attrs)
 
@@ -172,21 +155,12 @@ defmodule RefMD.Plugins.Consent do
     )
   end
 
-  @spec latest_event(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: PluginConsentEvent.t() | nil
   def latest_event(application_id, user_id, device_id) do
     application_id
     |> latest_event_query(user_id, device_id)
     |> Repo.one()
   end
 
-  @spec allowed_with_pin(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), String.t() | nil) ::
-          {:ok, PluginConsentEvent.t()}
-          | {:error,
-             :not_found
-             | :plugin_consent_head_pin_required
-             | :plugin_consent_rollback
-             | :plugin_consent_not_allowed
-             | :plugin_activation_disabled}
   def allowed_with_pin(_application_id, _user_id, _device_id, nil),
     do: {:error, :plugin_consent_head_pin_required}
 
@@ -228,8 +202,6 @@ defmodule RefMD.Plugins.Consent do
     end
   end
 
-  @spec validate_bundle_binding(PluginBundle.t(), PluginConsentEvent.t()) ::
-          :ok | {:error, :plugin_consent_rollback}
   def validate_bundle_binding(%PluginBundle{} = bundle, %PluginConsentEvent{} = consent) do
     if matches_bundle?(bundle, consent) do
       :ok
@@ -238,7 +210,6 @@ defmodule RefMD.Plugins.Consent do
     end
   end
 
-  @spec matches_bundle?(PluginBundle.t(), PluginConsentEvent.t() | nil) :: boolean()
   def matches_bundle?(%PluginBundle{} = bundle, %PluginConsentEvent{} = consent) do
     identity_matches?(consent, bundle) and
       semantics_match?(consent, bundle) and
@@ -247,8 +218,6 @@ defmodule RefMD.Plugins.Consent do
 
   def matches_bundle?(_bundle, _consent), do: false
 
-  @spec proof(PluginConsentEvent.t()) ::
-          {:ok, map()} | {:error, :plugin_consent_event_signature_invalid}
   def proof(%PluginConsentEvent{} = consent) do
     case Signing.fetch_active_device(consent.user_id, consent.device_id) do
       {:ok, device} ->

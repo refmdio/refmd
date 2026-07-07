@@ -134,7 +134,6 @@ defmodule RefMDWeb.PluginNetworkExecutorController do
   """
   @script_hash :crypto.hash(:sha256, @executor_script) |> Base.encode64()
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"session_token" => session_token}) do
     with {:ok, policy} <- verify_session_token(session_token),
          {:ok, policy} <- canonical_session_policy(policy) do
@@ -152,7 +151,6 @@ defmodule RefMDWeb.PluginNetworkExecutorController do
 
   def show(conn, _params), do: send_resp(conn, 400, "Bad Request")
 
-  @spec create_session(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_session(conn, params) do
     user_id = conn.assigns.current_user_id
     device_id = conn.assigns.current_session.device_id

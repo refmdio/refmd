@@ -19,7 +19,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec share_mounts_for_share(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def share_mounts_for_share(conn, %{"share_slug" => share_slug}) do
     case Sharing.list_share_mounts_for_share(conn.assigns.current_user_id, share_slug) do
       {:ok, response} ->
@@ -43,7 +42,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     attrs =
       Map.take(params, [
@@ -81,7 +79,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, %{"workspace_id" => workspace_id}) do
     case validate_uuid_param(workspace_id, :workspace_id) do
       :ok ->
@@ -112,7 +109,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, %{"mount_id" => mount_id}) do
     case validate_uuid_param(mount_id, :mount_id) do
       :ok ->
@@ -146,7 +142,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec document_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def document_bootstrap(
         conn,
         %{"mount_id" => mount_id, "document_token" => document_token} = params
@@ -190,7 +185,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def challenge(conn, %{"mount_id" => mount_id}) do
     case validate_uuid_param(mount_id, :mount_id) do
       :ok ->
@@ -228,7 +222,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec respond_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def respond_challenge(conn, %{"mount_id" => mount_id, "response" => response} = params) do
     with :ok <- validate_uuid_param(mount_id, :mount_id),
          {:ok, challenge_hash} <-
@@ -285,7 +278,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec folder_bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def folder_bootstrap(conn, %{"mount_id" => mount_id, "folder_token" => folder_token} = params) do
     with :ok <- validate_uuid_param(mount_id, :mount_id),
          {:ok, mount_trust_anchor} <- validate_mount_trust_anchor(params) do
@@ -329,7 +321,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, %{"mount_id" => mount_id} = params) do
     case validate_uuid_param(mount_id, :mount_id) do
       :ok ->
@@ -362,7 +353,6 @@ defmodule RefMDWeb.ShareMountController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, %{"mount_id" => mount_id}) do
     case validate_uuid_param(mount_id, :mount_id) do
       :ok ->

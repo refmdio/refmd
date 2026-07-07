@@ -3,17 +3,13 @@ defmodule RefMD.Crypto.JCS do
 
   @max_safe_json_integer 9_007_199_254_740_991
 
-  @spec canonicalize!(map()) :: binary()
   def canonicalize!(value) when is_map(value), do: encode_value(value, true)
   def canonicalize!(_), do: raise(ArgumentError, "jcs_root_must_be_object")
 
-  @spec canonical_bytes!(map()) :: binary()
   def canonical_bytes!(value), do: canonicalize!(value)
 
-  @spec canonical_value_bytes!(term()) :: binary()
   def canonical_value_bytes!(value), do: encode_value(value, false)
 
-  @spec parse_json_strict!(binary()) :: map()
   def parse_json_strict!(raw) when is_binary(raw) do
     reject_negative_number_tokens!(raw, 0, byte_size(raw))
 

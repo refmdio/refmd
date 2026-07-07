@@ -4,14 +4,10 @@ defmodule RefMDWeb.Channels.TokenBucket do
   State is stored in socket assigns and updated on each check.
   """
 
-  @type t :: %{tokens: float(), last_time: integer()}
-
-  @spec new(float()) :: t()
   def new(burst) do
     %{tokens: burst, last_time: System.monotonic_time(:millisecond)}
   end
 
-  @spec check(t(), float(), float()) :: {:ok, t()} | {:drop, t()}
   def check(bucket, rate_per_sec, burst) do
     now = System.monotonic_time(:millisecond)
     elapsed_sec = (now - bucket.last_time) / 1000.0

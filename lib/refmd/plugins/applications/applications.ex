@@ -18,7 +18,6 @@ defmodule RefMD.Plugins.Applications do
   alias RefMD.Security
   alias RefMD.Workspaces.Workspace
 
-  @spec create(map()) :: {:ok, PluginApplication.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) when is_map(attrs) do
     attrs =
       attrs
@@ -33,7 +32,6 @@ defmodule RefMD.Plugins.Applications do
     |> Repo.insert()
   end
 
-  @spec list(Ecto.UUID.t()) :: [PluginApplication.t()]
   def list(workspace_id) do
     Repo.all(
       from(i in PluginApplication,
@@ -43,9 +41,6 @@ defmodule RefMD.Plugins.Applications do
     )
   end
 
-  @spec apply_package(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          {:ok, %{application: PluginApplication.t(), activation: PluginActivation.t()}}
-          | {:error, Ecto.Changeset.t() | atom()}
   def apply_package(workspace_id, package_id, user_id, device_id) do
     with %PluginPackage{} = package <- Packages.get(package_id),
          :ok <- validate_applicable_package(package, workspace_id, user_id),
@@ -62,14 +57,6 @@ defmodule RefMD.Plugins.Applications do
     end
   end
 
-  @spec ensure_personal_package_runtime(
-          Ecto.UUID.t(),
-          PluginPackage.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil
-        ) ::
-          {:ok, %{application: PluginApplication.t(), activation: PluginActivation.t()}}
-          | {:error, Ecto.Changeset.t() | atom()}
   def ensure_personal_package_runtime(
         workspace_id,
         %PluginPackage{} = package,
@@ -90,14 +77,6 @@ defmodule RefMD.Plugins.Applications do
     end
   end
 
-  @spec ensure_existing_personal_package_runtime(
-          Ecto.UUID.t(),
-          PluginPackage.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil
-        ) ::
-          {:ok, %{application: PluginApplication.t(), activation: PluginActivation.t()}}
-          | {:error, Ecto.Changeset.t() | atom()}
   def ensure_existing_personal_package_runtime(
         workspace_id,
         %PluginPackage{} = package,
@@ -120,11 +99,6 @@ defmodule RefMD.Plugins.Applications do
     end
   end
 
-  @spec ensure_personal_workspace_applications(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          Ecto.UUID.t() | nil
-        ) :: :ok
   def ensure_personal_workspace_applications(workspace_id, user_id, device_id) do
     user_id
     |> Packages.list_for_user()
@@ -137,7 +111,6 @@ defmodule RefMD.Plugins.Applications do
     end)
   end
 
-  @spec recompute_workspace_user_policy(Ecto.UUID.t()) :: :ok | {:error, term()}
   def recompute_workspace_user_policy(workspace_id) do
     Repo.all(
       from(a in PluginApplication,
@@ -151,11 +124,8 @@ defmodule RefMD.Plugins.Applications do
     |> Enum.reduce_while(:ok, &recompute_workspace_user_policy_application(&1, &2, workspace_id))
   end
 
-  @spec get(Ecto.UUID.t()) :: PluginApplication.t() | nil
   def get(id), do: Repo.get(PluginApplication, id)
 
-  @spec update(PluginApplication.t(), map()) ::
-          {:ok, PluginApplication.t()} | {:error, Ecto.Changeset.t()}
   def update(%PluginApplication{} = application, attrs) when is_map(attrs) do
     was_runtime_allowed? = runtime_enabled?(application)
 
@@ -173,8 +143,6 @@ defmodule RefMD.Plugins.Applications do
     end
   end
 
-  @spec delete(PluginApplication.t()) ::
-          {:ok, PluginApplication.t()} | {:error, Ecto.Changeset.t()}
   def delete(%PluginApplication{deleted_at: nil} = application) do
     application = preload_current_bundle(application)
     activations = Activations.list_for_application(application.id)
@@ -204,8 +172,6 @@ defmodule RefMD.Plugins.Applications do
 
   def delete(%PluginApplication{}), do: {:error, :not_found}
 
-  @spec validate_owner(map(), PluginApplication.t()) ::
-          :ok | {:error, :bundle_application_mismatch}
   def validate_owner(attrs, %PluginApplication{} = application) do
     workspace_id = Map.get(attrs, :workspace_id)
     plugin_id = Map.get(attrs, :plugin_id)
@@ -352,12 +318,9 @@ defmodule RefMD.Plugins.Applications do
     end
   end
 
-  @spec runtime_allowed?(PluginApplication.t()) :: boolean()
   def runtime_allowed?(%PluginApplication{workspace_policy_result: "allowed"}), do: true
   def runtime_allowed?(%PluginApplication{}), do: false
 
-  @spec validate_runtime_policy(PluginApplication.t()) ::
-          :ok | {:error, :plugin_workspace_policy_denied}
   def validate_runtime_policy(%PluginApplication{} = application) do
     if runtime_allowed?(application) do
       :ok
@@ -366,25 +329,20 @@ defmodule RefMD.Plugins.Applications do
     end
   end
 
-  @spec workspace_policy_result(PluginPackage.t()) :: String.t()
   def workspace_policy_result(%PluginPackage{} = package) do
     workspace_policy_result(package, current_package_bundle(package))
   end
 
-  @spec workspace_policy_result(PluginPackage.t(), PluginBundle.t() | nil) :: String.t()
   def workspace_policy_result(%PluginPackage{owner_scope_kind: "user"} = package, bundle) do
     default_workspace_policy_result(package, bundle)
   end
 
   def workspace_policy_result(%PluginPackage{}, _bundle), do: "allowed"
 
-  @spec workspace_policy_result(Ecto.UUID.t(), PluginPackage.t()) :: String.t()
   def workspace_policy_result(workspace_id, %PluginPackage{} = package) do
     workspace_policy_result(workspace_id, package, current_package_bundle(package))
   end
 
-  @spec workspace_policy_result(Ecto.UUID.t(), PluginPackage.t(), PluginBundle.t() | nil) ::
-          String.t()
   def workspace_policy_result(
         workspace_id,
         %PluginPackage{owner_scope_kind: "user"} = package,

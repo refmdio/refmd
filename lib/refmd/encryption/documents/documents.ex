@@ -6,14 +6,12 @@ defmodule RefMD.Encryption.Documents do
   alias RefMD.Encryption.DocumentEncryptedKey
   alias RefMD.Repo
 
-  @spec create(map()) :: {:ok, DocumentEncryptedKey.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) do
     %DocumentEncryptedKey{created_at: DateTime.utc_now()}
     |> DocumentEncryptedKey.changeset(attrs)
     |> Repo.insert()
   end
 
-  @spec get_active(Ecto.UUID.t()) :: DocumentEncryptedKey.t() | nil
   def get_active(document_id) do
     from(k in DocumentEncryptedKey,
       where: k.document_id == ^document_id and k.is_active == true
@@ -21,7 +19,6 @@ defmodule RefMD.Encryption.Documents do
     |> Repo.one()
   end
 
-  @spec list(Ecto.UUID.t()) :: [DocumentEncryptedKey.t()]
   def list(document_id) do
     from(k in DocumentEncryptedKey,
       where: k.document_id == ^document_id,
@@ -30,7 +27,6 @@ defmodule RefMD.Encryption.Documents do
     |> Repo.all()
   end
 
-  @spec create_with_rotation(map()) :: {:ok, DocumentEncryptedKey.t()} | {:error, term()}
   def create_with_rotation(attrs) do
     document_id = dual_key_get(attrs, :document_id)
     key_version = dual_key_get(attrs, :key_version)

@@ -1,7 +1,6 @@
 defmodule RefMD.Sharing.Mounts.Params do
   @moduledoc false
 
-  @spec fetch_mount_target_token(map()) :: {:ok, String.t()} | {:error, term()}
   def fetch_mount_target_token(attrs) do
     case dual_key_get(attrs, :target_token) do
       value when is_binary(value) and byte_size(value) > 0 -> {:ok, value}
@@ -9,7 +8,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_mount_position(map()) :: {:ok, non_neg_integer()} | {:error, term()}
   def fetch_mount_position(attrs) do
     case dual_key_get(attrs, :position) do
       value when is_integer(value) and value >= 0 ->
@@ -29,7 +27,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_uuid(map(), atom()) :: {:ok, Ecto.UUID.t()} | {:error, term()}
   def fetch_uuid(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) ->
@@ -40,7 +37,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_optional_uuid(map(), atom()) :: {:ok, Ecto.UUID.t() | nil} | {:error, term()}
   def fetch_optional_uuid(attrs, key) do
     case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
@@ -48,7 +44,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_optional_binary(map(), atom()) :: {:ok, binary() | nil} | {:error, term()}
   def fetch_optional_binary(attrs, key) do
     case dual_key_get(attrs, key) do
       nil -> {:ok, nil}
@@ -57,7 +52,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_required_binary(map(), atom()) :: {:ok, binary()} | {:error, term()}
   def fetch_required_binary(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) and byte_size(value) > 0 -> {:ok, value}
@@ -65,7 +59,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_enum(map(), atom(), [String.t()]) :: {:ok, String.t()} | {:error, term()}
   def fetch_enum(attrs, key, allowed) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) ->
@@ -79,7 +72,6 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_blake3_hash(map(), atom()) :: {:ok, String.t()} | {:error, term()}
   def fetch_blake3_hash(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) ->
@@ -95,14 +87,12 @@ defmodule RefMD.Sharing.Mounts.Params do
     end
   end
 
-  @spec fetch_url_token(map(), atom()) :: {:ok, String.t(), binary()} | {:error, term()}
   def fetch_url_token(attrs, key) do
     attrs
     |> dual_key_get(key)
     |> validate_url_token()
   end
 
-  @spec validate_url_token(term()) :: {:ok, String.t(), binary()} | {:error, :invalid_token}
   def validate_url_token(token) when is_binary(token) do
     case Base.url_decode64(token, padding: false) do
       {:ok, bytes} when byte_size(bytes) == 16 -> {:ok, token, bytes}

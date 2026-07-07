@@ -5,7 +5,6 @@ defmodule RefMDWeb.Http.PopTranscript do
   alias RefMD.Encryption
   alias RefMD.Workspaces
 
-  @spec user_actor!(map(), Ecto.UUID.t()) :: map()
   def user_actor!(device, user_id) when is_map(device) do
     if Workspaces.guest_user?(user_id) do
       case Workspaces.active_guest_device_workspace_id(user_id, Map.fetch!(device, :id)) do
@@ -51,7 +50,6 @@ defmodule RefMDWeb.Http.PopTranscript do
     }
   end
 
-  @spec share_participant_actor!(map(), Ecto.UUID.t(), Ecto.UUID.t()) :: map()
   def share_participant_actor!(device, share_id, workspace_id) when is_map(device) do
     device_id = Map.fetch!(device, :id)
     principal_id = Map.fetch!(device, :principal_id)
@@ -72,7 +70,6 @@ defmodule RefMDWeb.Http.PopTranscript do
     }
   end
 
-  @spec assert_user_actor_active!(map(), Ecto.UUID.t()) :: struct()
   def assert_user_actor_active!(device, user_id) when is_map(device) do
     device_id = Map.fetch!(device, :id)
     signing_key_id = Map.fetch!(device, :signing_key_id)
@@ -94,7 +91,6 @@ defmodule RefMDWeb.Http.PopTranscript do
     end
   end
 
-  @spec assert_guest_user_actor_active!(map(), Ecto.UUID.t()) :: struct()
   def assert_guest_user_actor_active!(device, workspace_id) when is_map(device) do
     device_id = Map.fetch!(device, :id)
     signing_key_id = Map.fetch!(device, :signing_key_id)
@@ -116,7 +112,6 @@ defmodule RefMDWeb.Http.PopTranscript do
     end
   end
 
-  @spec assert_share_participant_actor_active!(map(), Ecto.UUID.t(), struct() | nil) :: :ok
   def assert_share_participant_actor_active!(device, workspace_id, checkpoint)
       when is_map(device) do
     device_id = Map.fetch!(device, :id)

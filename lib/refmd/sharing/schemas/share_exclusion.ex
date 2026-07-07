@@ -12,9 +12,6 @@ defmodule RefMD.Sharing.ShareExclusion do
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
 
-  @type t :: %__MODULE__{}
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(exclusion, attrs) do
     exclusion
     |> cast(attrs, [:share_id, :document_id])

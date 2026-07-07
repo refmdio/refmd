@@ -31,23 +31,18 @@ defmodule RefMD.Crypto do
       0xFF, 0xFF>>
   ]
 
-  @spec valid_x25519_public_key?(binary()) :: boolean()
   def valid_x25519_public_key?(key) when byte_size(key) == 32 do
     key not in @x25519_low_order_points
   end
 
   def valid_x25519_public_key?(_), do: false
 
-  # ── Update Hash ──────────────────────────────
-
-  @spec compute_update_hash(map()) :: String.t()
   def compute_update_hash(params) do
     params
     |> JCS.canonical_bytes!()
     |> Blake3.hash_base64url()
   end
 
-  @spec verify_update_hash(String.t(), map()) :: boolean()
   def verify_update_hash(claimed_hash, params) when is_binary(claimed_hash) do
     computed = compute_update_hash(params)
     Plug.Crypto.secure_compare(claimed_hash, computed)

@@ -28,7 +28,6 @@ defmodule RefMDWeb.WorkspaceController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"name" => name} = params) do
     user_id = conn.assigns.current_user_id
 
@@ -76,7 +75,6 @@ defmodule RefMDWeb.WorkspaceController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     user_id = conn.assigns.current_user_id
     results = Workspaces.list_discoverable_workspaces(user_id)
@@ -111,7 +109,6 @@ defmodule RefMDWeb.WorkspaceController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, _params) do
     workspace = Workspaces.get_workspace(conn.assigns.workspace_id)
     role = conn.assigns.workspace_role
@@ -138,7 +135,6 @@ defmodule RefMDWeb.WorkspaceController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, params) do
     workspace = Workspaces.get_workspace(conn.assigns.workspace_id)
 
@@ -172,7 +168,6 @@ defmodule RefMDWeb.WorkspaceController do
     ]
   )
 
-  @spec update_features(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update_features(conn, params) do
     workspace = Workspaces.get_workspace(conn.assigns.workspace_id)
 
@@ -207,7 +202,6 @@ defmodule RefMDWeb.WorkspaceController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, _params) do
     workspace = Workspaces.get_workspace(conn.assigns.workspace_id)
 

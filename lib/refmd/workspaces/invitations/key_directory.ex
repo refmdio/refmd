@@ -7,7 +7,6 @@ defmodule RefMD.Workspaces.Invitations.KeyDirectory do
   alias RefMD.Repo
   alias RefMD.Workspaces.{GuestInvitation, WorkspaceInvitation}
 
-  @spec append_if_present(nil | map(), map()) :: :ok | no_return()
   def append_if_present(nil, _operation), do: Repo.rollback(:missing_key_directory)
 
   def append_if_present(%{events: events, checkpoint: checkpoint}, operation)

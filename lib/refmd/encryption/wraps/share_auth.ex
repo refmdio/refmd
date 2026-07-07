@@ -6,16 +6,12 @@ defmodule RefMD.Encryption.Wraps.ShareAuth do
   @aad_protocol %{"protocol" => "refmd", "version" => 1}
   @share_auth_purpose "server_auth_key_wrap"
 
-  @spec encrypt(binary(), Ecto.UUID.t()) ::
-          {:ok, %{ciphertext: binary(), nonce: binary(), key_id: String.t()}} | {:error, term()}
   def encrypt(auth_key, share_id) when is_binary(auth_key) and byte_size(auth_key) == 32 do
     encrypt_with_current_key(auth_key, build_aad(@share_auth_purpose, share_id))
   end
 
   def encrypt(_auth_key, _share_id), do: {:error, :invalid_auth_key}
 
-  @spec decrypt(binary(), binary(), String.t(), Ecto.UUID.t()) ::
-          {:ok, binary()} | {:error, term()}
   def decrypt(ciphertext_and_tag, nonce, key_id, share_id)
       when is_binary(ciphertext_and_tag) and is_binary(nonce) and is_binary(key_id) do
     decrypt_with_key(ciphertext_and_tag, nonce, key_id, build_aad(@share_auth_purpose, share_id))

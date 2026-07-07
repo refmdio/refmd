@@ -18,8 +18,6 @@ defmodule RefMD.Encryption.Members do
   alias RefMD.Repo
   alias RefMD.Workspaces, as: WorkspaceContext
 
-  @spec save_with_key_directory(Ecto.UUID.t(), [map()], [map()], map()) ::
-          {:ok, any()} | {:error, any()}
   def save_with_key_directory(workspace_id, envelopes, workspace_events, workspace_checkpoint)
       when is_list(envelopes) and is_list(workspace_events) and is_map(workspace_checkpoint) do
     Repo.transaction(fn ->
@@ -61,8 +59,6 @@ defmodule RefMD.Encryption.Members do
 
   def save_with_key_directory(_, _, _, _), do: {:error, :missing_key_directory}
 
-  @spec prepare_client_envelope(map(), map(), map(), map(), map()) ::
-          {:ok, map()} | {:error, :invalid_workspace_member_kek_wrap}
   def prepare_client_envelope(
         container,
         metadata,
@@ -87,8 +83,6 @@ defmodule RefMD.Encryption.Members do
     _ -> {:error, :invalid_workspace_member_kek_wrap}
   end
 
-  @spec validate_invitation_member_envelope(map(), map()) ::
-          {:ok, %{member_envelope_hash: String.t()}} | {:error, :invalid_member_envelope}
   def validate_invitation_member_envelope(member_envelope, context)
       when is_map(member_envelope) and is_map(context) do
     attrs = SignedPQ.attrs_from_container_params!(member_envelope)
@@ -173,15 +167,12 @@ defmodule RefMD.Encryption.Members do
     _ -> Repo.rollback(:invalid_workspace_member_kek_wrap)
   end
 
-  @spec build_member_envelope_attrs!(map(), map()) :: map()
   def build_member_envelope_attrs!(container, metadata) do
     container
     |> SignedPQ.attrs_from_container_params!()
     |> Map.merge(metadata)
   end
 
-  @spec validate_member_envelope_wrap(map(), map(), map(), map(), [map()]) ::
-          :ok | {:error, :invalid_workspace_member_kek_wrap}
   def validate_member_envelope_wrap(
         attrs,
         context,
@@ -430,7 +421,6 @@ defmodule RefMD.Encryption.Members do
   defp envelope_payload!(%{payload: payload}) when is_map(payload), do: payload
   defp envelope_payload!(_), do: throw(:invalid_invitation_member_envelope)
 
-  @spec operation_checkpoint_envelope(WorkspaceMemberEnvelope.t()) :: map() | nil
   def operation_checkpoint_envelope(%{operation_checkpoint_sequence: sequence} = envelope)
       when is_integer(sequence) do
     expected_hash = Base.url_encode64(envelope.operation_checkpoint_hash, padding: false)
@@ -451,7 +441,6 @@ defmodule RefMD.Encryption.Members do
 
   def operation_checkpoint_envelope(_), do: nil
 
-  @spec save(Ecto.UUID.t(), [map()]) :: {:ok, any()} | {:error, any()}
   def save(workspace_id, envelopes) do
     now = DateTime.utc_now()
 
@@ -482,7 +471,6 @@ defmodule RefMD.Encryption.Members do
     end
   end
 
-  @spec get(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceMemberEnvelope.t() | nil
   def get(workspace_id, user_id) do
     from(e in WorkspaceMemberEnvelope,
       where: e.workspace_id == ^workspace_id and e.target_user_id == ^user_id,
@@ -492,7 +480,6 @@ defmodule RefMD.Encryption.Members do
     |> Repo.one()
   end
 
-  @spec member_has_envelope?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
   def member_has_envelope?(workspace_id, user_id, key_version) do
     from(e in WorkspaceMemberEnvelope,
       where:
@@ -504,7 +491,6 @@ defmodule RefMD.Encryption.Members do
     |> Repo.exists?()
   end
 
-  @spec all_user_devices_have_key?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
   def all_user_devices_have_key?(workspace_id, user_id, key_version) do
     active_device_ids =
       from(d in RefMD.Devices.Device,
@@ -529,7 +515,6 @@ defmodule RefMD.Encryption.Members do
     MapSet.subset?(active_device_ids, covered_device_ids)
   end
 
-  @spec all_workspace_member_devices_have_key?(Ecto.UUID.t(), integer()) :: boolean()
   def all_workspace_member_devices_have_key?(workspace_id, key_version) do
     active_devices =
       active_workspace_kek_recipient_devices_query(workspace_id)
@@ -559,7 +544,6 @@ defmodule RefMD.Encryption.Members do
     MapSet.subset?(active_devices, covered_devices)
   end
 
-  @spec all_members_have_envelope?(Ecto.UUID.t(), integer()) :: boolean()
   def all_members_have_envelope?(workspace_id, key_version) do
     member_ids =
       from(wm in RefMD.Workspaces.WorkspaceMember,

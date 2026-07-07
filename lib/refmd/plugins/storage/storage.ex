@@ -25,36 +25,6 @@ defmodule RefMD.Plugins.Storage do
   alias RefMD.Repo
   alias RefMD.Security
 
-  @type storage_scope :: :document | :workspace | String.t()
-  @type authorization_attrs :: %{
-          optional(:application_id) => Ecto.UUID.t() | String.t() | nil,
-          optional(:plugin_id) => String.t() | nil,
-          optional(:workspace_id) => Ecto.UUID.t() | String.t(),
-          optional(:surface) => String.t(),
-          optional(:scope_id) => String.t(),
-          optional(:operation) => String.t(),
-          optional(:user_id) => Ecto.UUID.t() | String.t(),
-          optional(:device_id) => Ecto.UUID.t() | String.t() | nil,
-          optional(:state_head_hash) => String.t() | nil,
-          optional(:consent_head_hash) => String.t() | nil,
-          optional(:capability_grant_id) => String.t() | nil,
-          optional(:consent_epoch) => integer() | String.t() | nil,
-          optional(:frame_generation) => integer() | String.t() | nil
-        }
-  @type authorization_context :: %{
-          application: PluginApplication.t(),
-          activation: PluginActivation.t(),
-          bundle: PluginBundle.t(),
-          consent: PluginConsentEvent.t(),
-          state_head_hash: String.t(),
-          consent_head_hash: String.t(),
-          capability_grant_id: String.t(),
-          consent_epoch: pos_integer(),
-          frame_generation: pos_integer()
-        }
-
-  @spec authorize_context(authorization_attrs()) ::
-          {:ok, authorization_context()} | {:error, atom(), String.t()}
   def authorize_context(attrs) when is_map(attrs) do
     with {:ok, application} <- fetch_authorization_application(attrs),
          :ok <- validate_authorization_document_scope(attrs),
@@ -103,7 +73,6 @@ defmodule RefMD.Plugins.Storage do
     end
   end
 
-  @spec record_mutation_audit(map()) :: :ok | {:error, :forbidden, String.t()}
   def record_mutation_audit(attrs) when is_map(attrs) do
     storage = Map.fetch!(attrs, :storage)
     application = Map.fetch!(attrs, :application)
@@ -189,10 +158,8 @@ defmodule RefMD.Plugins.Storage do
 
   defp parse_positive_integer(_value), do: nil
 
-  @spec put_kv(map()) :: {:ok, PluginKV.t()} | {:error, Ecto.Changeset.t()}
   def put_kv(attrs) when is_map(attrs), do: upsert_storage_entry(PluginKV, attrs)
 
-  @spec put_record(map()) :: {:ok, PluginRecord.t()} | {:error, Ecto.Changeset.t()}
   def put_record(attrs) when is_map(attrs) do
     attrs = normalize_storage_attrs(attrs)
 
@@ -204,26 +171,18 @@ defmodule RefMD.Plugins.Storage do
     end
   end
 
-  @spec get_kv(Ecto.UUID.t(), storage_scope(), String.t(), String.t()) ::
-          PluginKV.t() | nil
   def get_kv(application_id, scope, scope_id, key) do
     get_storage_entry(PluginKV, application_id, scope, scope_id, key)
   end
 
-  @spec get_record(Ecto.UUID.t(), Ecto.UUID.t(), storage_scope(), String.t()) ::
-          PluginRecord.t() | nil
   def get_record(record_id, application_id, scope, scope_id) do
     get_record_entry(record_id, application_id, scope, scope_id)
   end
 
-  @spec delete_kv(Ecto.UUID.t(), storage_scope(), String.t(), String.t()) ::
-          {:ok, PluginKV.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def delete_kv(application_id, scope, scope_id, key) do
     delete_storage_entry(PluginKV, application_id, scope, scope_id, key)
   end
 
-  @spec delete_record(Ecto.UUID.t(), Ecto.UUID.t(), storage_scope(), String.t()) ::
-          {:ok, PluginRecord.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def delete_record(record_id, application_id, scope, scope_id) do
     case get_record_entry(record_id, application_id, scope, scope_id) do
       nil -> {:error, :not_found}
@@ -231,14 +190,12 @@ defmodule RefMD.Plugins.Storage do
     end
   end
 
-  @spec delete_application_storage(Ecto.UUID.t()) :: :ok
   def delete_application_storage(application_id) do
     Repo.delete_all(from(e in PluginKV, where: e.application_id == ^application_id))
     Repo.delete_all(from(r in PluginRecord, where: r.application_id == ^application_id))
     :ok
   end
 
-  @spec aad(map()) :: map()
   def aad(attrs) when is_map(attrs) do
     %{
       "protocol" => "refmd",

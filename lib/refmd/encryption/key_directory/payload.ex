@@ -82,10 +82,8 @@ defmodule RefMD.Encryption.KeyDirectory.Payload do
                                            | @checkpoint_payload_keys
                                          ])
 
-  @spec event_types() :: [binary()]
   def event_types, do: @event_types
 
-  @spec key_id!(map()) :: binary()
   def key_id!(%{"protocol" => "refmd.hybrid-signing-key-material"} = material),
     do: Signature.compute_signing_key_id!(material)
 
@@ -94,7 +92,6 @@ defmodule RefMD.Encryption.KeyDirectory.Payload do
 
   def key_id!(_), do: raise(ArgumentError, "key_material_protocol_invalid")
 
-  @spec key_entry!(map(), map(), map() | nil) :: map()
   def key_entry!(key_material, valid_from, revoked_at \\ nil) do
     key_id = key_id!(key_material)
 
@@ -113,7 +110,6 @@ defmodule RefMD.Encryption.KeyDirectory.Payload do
     entry
   end
 
-  @spec assert_event_payload!(map()) :: :ok
   def assert_event_payload!(payload) when is_map(payload) do
     expected_keys =
       if payload["sequence"] == 1,
@@ -140,7 +136,6 @@ defmodule RefMD.Encryption.KeyDirectory.Payload do
 
   def assert_event_payload!(_), do: raise(ArgumentError, "event_payload_invalid")
 
-  @spec assert_checkpoint_payload!(map()) :: :ok
   def assert_checkpoint_payload!(payload) when is_map(payload) do
     expected_keys =
       if payload["sequence"] == 1,

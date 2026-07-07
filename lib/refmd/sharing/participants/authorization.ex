@@ -4,7 +4,6 @@ defmodule RefMD.Sharing.Participants.Authorization do
   alias RefMD.Crypto.{HybridEncryptionMaterial, Signature}
   alias RefMD.Sharing.Share
 
-  @spec attach_verified(Share.t(), map()) :: {:ok, map()} | {:error, term()}
   def attach_verified(%Share{} = share, authorization) when is_map(authorization) do
     with {:ok, principal_id} <- fetch_uuid(authorization, :share_participant_principal_id),
          {:ok, session_id} <- fetch_uuid(authorization, :share_participant_session_id),

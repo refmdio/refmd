@@ -3,31 +3,22 @@ defmodule RefMD.Storage do
   Configured immutable blob storage used by server-side domains.
   """
 
-  @type storage_path :: String.t()
-  @type cursor :: term()
+  @callback put(String.t(), binary(), keyword()) :: :ok | {:error, atom()}
+  @callback get(String.t()) :: {:ok, binary()} | {:error, atom()}
+  @callback delete(String.t()) :: :ok | {:error, atom()}
+  @callback exists?(String.t()) :: {:ok, boolean()} | {:error, atom()}
+  @callback list(String.t(), term()) ::
+              {:ok, %{entries: [String.t()], cursor: term() | nil}} | {:error, atom()}
 
-  @callback put(storage_path(), binary(), keyword()) :: :ok | {:error, atom()}
-  @callback get(storage_path()) :: {:ok, binary()} | {:error, atom()}
-  @callback delete(storage_path()) :: :ok | {:error, atom()}
-  @callback exists?(storage_path()) :: {:ok, boolean()} | {:error, atom()}
-  @callback list(String.t(), cursor()) ::
-              {:ok, %{entries: [storage_path()], cursor: cursor() | nil}} | {:error, atom()}
-
-  @spec put(storage_path(), binary(), keyword()) :: :ok | {:error, atom()}
   def put(path, bytes, opts \\ []) when is_binary(path) and is_binary(bytes) and is_list(opts),
     do: backend().put(path, bytes, opts)
 
-  @spec get(storage_path()) :: {:ok, binary()} | {:error, atom()}
   def get(path) when is_binary(path), do: backend().get(path)
 
-  @spec delete(storage_path()) :: :ok | {:error, atom()}
   def delete(path) when is_binary(path), do: backend().delete(path)
 
-  @spec exists?(storage_path()) :: {:ok, boolean()} | {:error, atom()}
   def exists?(path) when is_binary(path), do: backend().exists?(path)
 
-  @spec list(String.t(), cursor()) ::
-          {:ok, %{entries: [storage_path()], cursor: cursor() | nil}} | {:error, atom()}
   def list(prefix, cursor \\ nil) when is_binary(prefix), do: backend().list(prefix, cursor)
 
   defp backend do

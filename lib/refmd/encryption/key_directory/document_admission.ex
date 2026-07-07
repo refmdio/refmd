@@ -6,7 +6,6 @@ defmodule RefMD.Encryption.KeyDirectory.DocumentAdmission do
 
   @max_write_session_lifetime_ms 60_000
 
-  @spec assert!(binary(), map()) :: :ok
   def assert!(type, body)
       when type in ["document_update_accepted", "document_snapshot_accepted"] do
     base_keys = [

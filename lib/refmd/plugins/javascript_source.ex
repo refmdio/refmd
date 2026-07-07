@@ -12,24 +12,20 @@ defmodule RefMD.Plugins.JavaScriptSource do
   @regex_tokens ["\\", "[", "]", "/"]
   @non_code_escape_tokens ["<", "-"]
 
-  @spec unsafe_control_character?(String.t()) :: boolean()
   def unsafe_control_character?(source) do
     unsafe_control_character_binary?(source)
   end
 
-  @spec mask_non_code(String.t()) :: String.t()
   def mask_non_code(source) when is_binary(source) do
     source
     |> scan(:mask)
     |> elem(1)
   end
 
-  @spec escape_inline_script(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def escape_inline_script(source) when is_binary(source) do
     scan(source, :escape)
   end
 
-  @spec escape_inline_script(String.t(), String.t()) :: {:ok, String.t()} | {:error, atom()}
   def escape_inline_script(source, normalized_source)
       when is_binary(source) and is_binary(normalized_source) do
     if executable_parser_breakout?(normalized_source) do

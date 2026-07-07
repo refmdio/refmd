@@ -50,7 +50,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     workspace_id = conn.assigns.workspace_id
 
@@ -78,7 +77,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"workspace_id" => workspace_id, "doc_type" => _doc_type} = params) do
     attrs =
       params
@@ -141,7 +139,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, _params) do
     json(conn, serialize_document(conn, conn.assigns.document))
   end
@@ -162,7 +159,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def update(conn, params) do
     document = conn.assigns.document
 
@@ -225,7 +221,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, _params) do
     document = conn.assigns.document
 
@@ -262,7 +257,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec archive(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def archive(conn, params) do
     document = conn.assigns.document
 
@@ -303,7 +297,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec unarchive(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def unarchive(conn, params) do
     document = conn.assigns.document
 
@@ -349,7 +342,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec enable_read_only(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def enable_read_only(conn, params) do
     handle_write_state_transition(conn, params, &Documents.enable_document_read_only/2)
   end
@@ -372,7 +364,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec disable_read_only(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def disable_read_only(conn, params) do
     handle_write_state_transition(conn, params, &Documents.disable_document_read_only/2)
   end
@@ -395,7 +386,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec disable_writes_by_policy(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def disable_writes_by_policy(conn, params) do
     handle_write_state_transition(conn, params, &Documents.disable_document_writes_by_policy/2)
   end
@@ -412,7 +402,6 @@ defmodule RefMDWeb.DocumentController do
     ]
   )
 
-  @spec reorder(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def reorder(conn, params) do
     with {:ok, workspace_id} <- fetch_required_uuid(params, "workspace_id"),
          {:ok, document_id} <- fetch_required_uuid(params, "document_id"),

@@ -8,8 +8,6 @@ defmodule RefMDWeb.Channels.Document.Pop do
   alias RefMDWeb.Http.PopSessionBinding
   alias RefMDWeb.Http.PopTranscript
 
-  @spec verify(map(), Ecto.UUID.t(), Phoenix.Socket.t(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          {:ok, map()} | {:error, %{reason: String.t()}}
   def verify(params, user_id, socket, document_id, mounted_share_id \\ nil) do
     if socket.assigns[:session_kind] == :share_participant do
       verify_share_pop(params, socket, document_id, mounted_share_id)
