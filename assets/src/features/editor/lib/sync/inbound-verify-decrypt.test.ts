@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { DocumentState } from "../../model/document-state/types";
 import type { UpdatePayload } from "@/shared/lib/ws/document-payloads";
 import {

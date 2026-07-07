@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import {
   canonicalMarkdownText,
   encodeCanonicalDiffAsUpdate,

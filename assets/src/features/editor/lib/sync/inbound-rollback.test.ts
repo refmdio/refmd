@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { DocumentStatePin } from "@/shared/lib/anti-rollback/document-state-pins";
 import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "@/shared/lib/crypto/suite";
 import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";

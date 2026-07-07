@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Command, WorkspaceSurfaceOwner } from "@/shared/lib/workspace/app";
 import { CommandsState } from "./commands";
 

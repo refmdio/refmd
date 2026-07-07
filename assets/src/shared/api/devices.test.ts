@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const postMock = vi.fn();
 const withUserPopParamsMock = vi.fn((params: Record<string, unknown> = {}) => ({

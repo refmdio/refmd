@@ -2,7 +2,7 @@ import { EditorState as CMEditorState } from "@codemirror/state";
 import { EditorView as CMEditorView } from "@codemirror/view";
 import { EditorState as PMEditorState } from "prosemirror-state";
 import { EditorView as PMEditorView } from "prosemirror-view";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { EditorApi, pluginEditorDecorationsExtension } from "./codemirror-api";
 import { ProseMirrorEditorApi, pluginEditorDecorationsPlugin } from "./prosemirror-api";
 import { markdownSchema } from "../prosemirror/schema";

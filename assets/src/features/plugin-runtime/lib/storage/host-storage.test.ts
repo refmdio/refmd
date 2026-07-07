@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { runBeforeSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import { deletePluginRuntimePins } from "@/shared/lib/crypto/trust-store";
 import {

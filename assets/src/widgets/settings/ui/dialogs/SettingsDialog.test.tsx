@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const securityNotificationsApiMock = vi.hoisted(() => ({
   list: vi.fn(),

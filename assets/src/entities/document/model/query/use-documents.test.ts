@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { documentWriteStateForOfflineIndex, offlineDocumentWriteState } from "./use-documents";
 
 describe("offline document index write state", () => {

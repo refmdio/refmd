@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { DocumentState } from "../../model/document-state/types";
 
 const mocks = vi.hoisted(() => {

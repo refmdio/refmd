@@ -231,7 +231,7 @@ export function SlashMenu(props: SlashMenuProps) {
       elementResize: true,
     });
     onCleanup(cleanup);
-    void updatePosition();
+    updatePosition();
   });
 
   createEffect(() => {

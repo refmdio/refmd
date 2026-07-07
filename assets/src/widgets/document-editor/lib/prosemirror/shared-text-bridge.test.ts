@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { ORIGIN_INIT } from "@pm-cm/yjs";

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { assertBase64Url, decodeBase64UrlStrict, encodeBase64Url } from "./encoding";
 
 describe("strict base64url encoding", () => {

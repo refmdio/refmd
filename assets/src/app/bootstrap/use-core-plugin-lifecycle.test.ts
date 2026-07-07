@@ -1,5 +1,5 @@
 import { createRoot } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { workspaceManager } from "@/features/panel";
 import type { App } from "@/shared/lib/workspace/app";

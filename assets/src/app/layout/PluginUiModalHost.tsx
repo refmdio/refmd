@@ -145,18 +145,12 @@ function PluginUiModalIframe(props: {
   title: string;
 }) {
   const [container, setContainer] = createSignal<HTMLDivElement | null>(null);
-  const mountId = () =>
-    props.iframePanelId ? pluginUiOwnerSurfaceId(props.entry.owner, props.iframePanelId) : null;
-
-  const surface = () => getPluginUiModalIframeSurface(props.entry.owner);
-  onCleanup(() => {
-    const id = mountId();
-    if (id) surface()?.unmount(id);
-  });
 
   createEffect(() => {
-    const id = mountId();
-    const iframeSurface = surface();
+    const id = props.iframePanelId
+      ? pluginUiOwnerSurfaceId(props.entry.owner, props.iframePanelId)
+      : null;
+    const iframeSurface = getPluginUiModalIframeSurface(props.entry.owner);
     const containerEl = container();
     if (!id || !iframeSurface || !containerEl) return;
     iframeSurface.mount({
@@ -165,6 +159,7 @@ function PluginUiModalIframe(props: {
       title: props.title,
       container: containerEl,
     });
+    onCleanup(() => iframeSurface.unmount(id));
   });
 
   return (

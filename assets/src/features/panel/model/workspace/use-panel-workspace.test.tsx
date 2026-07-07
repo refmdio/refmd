@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { workspaceManager } from "../../lib/manager/workspace-manager";
 import { decodePanelId, decodeWorkspacePluginTileId } from "../../lib/workspace/panel-utils";
 import { closeWorkspaceTiles } from "../../lib/workspace/close-document-panels";

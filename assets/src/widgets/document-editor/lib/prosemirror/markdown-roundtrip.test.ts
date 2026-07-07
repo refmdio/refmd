@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { baseKeymap } from "prosemirror-commands";
 import { EditorState, TextSelection } from "prosemirror-state";
 import { markdownSchema } from "./schema";

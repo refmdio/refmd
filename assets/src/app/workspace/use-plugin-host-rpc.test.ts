@@ -1,5 +1,5 @@
 import { createRoot, createSignal, type Setter } from "solid-js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { workspaceManager } from "@/features/panel";
 import { runBeforeSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import type {

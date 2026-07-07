@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { markdownSchema } from "../../lib/prosemirror/schema";

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { PluginNetworkEndpointPolicy } from "../network/host-network";
 import { createPluginRuntimeNetworkServices } from "./runtime-network";
 

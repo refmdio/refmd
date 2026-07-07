@@ -1,4 +1,4 @@
-import { defineConfig } from "vite-plus";
+import { defineConfig, lazyPlugins } from "vite-plus";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { sri } from "vite-plugin-sri3";
@@ -74,14 +74,20 @@ function noSelfAliasImportOverrides() {
 }
 
 export default defineConfig({
+  staged: {
+    "*": "vp check --fix",
+  },
   lint: {
     plugins: ["oxc", "typescript", "unicorn"],
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     categories: {
       correctness: "error",
     },
+    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     ignorePatterns: ["src/shared/api/schema.d.ts"],
     settings: {
       "boundaries/include": ["src/**"],
+      "boundaries/dependency-nodes": ["require", "import", "export"],
       "boundaries/elements": [
         { type: "shared", pattern: "src/shared/*", mode: "folder" },
         { type: "shared", pattern: "src/shared/*", mode: "file" },
@@ -246,7 +252,7 @@ export default defineConfig({
   define: {
     "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(appBuildId),
   },
-  plugins: [solid(), tailwindcss(), sri()],
+  plugins: lazyPlugins(() => [solid(), tailwindcss(), sri()]),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

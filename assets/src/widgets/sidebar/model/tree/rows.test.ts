@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { DocumentResponse } from "@/entities/document";
 import type { MountedShareTreeEntry, ShareMount } from "@/entities/mount";
 import { buildMountChildRows, buildSidebarRows } from "./rows";

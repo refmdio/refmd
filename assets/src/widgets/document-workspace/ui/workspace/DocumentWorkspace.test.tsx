@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { Mosaic } from "solid-mosaic-component";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { disposePanelWorkspace, workspaceManager, type usePanelWorkspace } from "@/features/panel";
 import type { AuxiliaryPaneConfig } from "@/shared/lib/workspace/app";
 import { PluginWorkspaceTile } from "../tile/PluginWorkspaceTile";
@@ -351,16 +351,41 @@ describe("DocumentWorkspace plugin workspace tile chrome", () => {
 });
 
 async function openPluginTileMenu(root: HTMLElement): Promise<HTMLElement[]> {
+  const currentContent = openDropdownMenuContent();
+  if (currentContent) {
+    return Array.from(
+      currentContent.querySelectorAll<HTMLElement>("[data-slot='dropdown-menu-item']"),
+    );
+  }
+
   const trigger = root.querySelector<HTMLElement>("[data-slot='dropdown-menu-trigger']");
   trigger?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
   trigger?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
   trigger?.click();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  return Array.from(
-    document.body.querySelectorAll<HTMLElement>("[data-slot='dropdown-menu-item']"),
-  );
+  const content = await waitForOpenDropdownMenuContent();
+  return Array.from(content.querySelectorAll<HTMLElement>("[data-slot='dropdown-menu-item']"));
 }
 
 async function waitForMenuAction(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitForOpenDropdownMenuContent(): Promise<HTMLElement> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const content = openDropdownMenuContent();
+    if (content) return content;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Dropdown menu content did not open");
+}
+
+function openDropdownMenuContent(): HTMLElement | null {
+  const contents = Array.from(
+    document.body.querySelectorAll<HTMLElement>("[data-slot='dropdown-menu-content']"),
+  );
+  for (let index = contents.length - 1; index >= 0; index -= 1) {
+    const content = contents[index];
+    if (content?.hasAttribute("data-expanded")) return content;
+  }
+  return null;
 }

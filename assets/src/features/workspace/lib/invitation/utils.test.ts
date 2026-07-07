@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { buildInvitationExpiryIso, buildInvitationLink } from "@/shared/lib/invite/link";
 
 describe("invitation-utils", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { openIdb } from "@/shared/lib/storage/idb";
 import {
   DOCUMENT_STATE_PIN_STORE_NAME,

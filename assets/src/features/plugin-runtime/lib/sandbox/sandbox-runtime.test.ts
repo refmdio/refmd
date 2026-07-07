@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import {
   canonicalizeStrictBytes,

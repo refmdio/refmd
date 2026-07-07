@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { eventHash } from "@/shared/lib/anti-rollback/key-directory-pin/primitives";
 import type { SignedKeyDirectoryEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/types";
 import type { StrictJsonValue } from "@/shared/lib/crypto/jcs";

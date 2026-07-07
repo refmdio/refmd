@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { DeviceInfo } from "@/shared/api/devices";
 import type { components } from "@/shared/api/schema";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";

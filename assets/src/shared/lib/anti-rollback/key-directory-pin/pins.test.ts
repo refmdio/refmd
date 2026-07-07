@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import { currentSuitePolicy } from "@/shared/lib/crypto/suite";

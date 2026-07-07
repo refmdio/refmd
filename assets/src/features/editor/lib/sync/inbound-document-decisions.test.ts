@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { hasCanonicalLocalChanges } from "./inbound-document-decisions";
 
 describe("inbound document decisions", () => {

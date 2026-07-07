@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { EditorState } from "prosemirror-state";

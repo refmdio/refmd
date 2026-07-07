@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { assertBlake3Base64Url, blake3Base64Url } from "./hash";
 
 const enc = new TextEncoder();

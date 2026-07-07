@@ -314,10 +314,6 @@ function uiRegistrationHandler(
       }
       throw error;
     }
-    if (!contribution || !id) {
-      throw new PluginHostRpcError("ui_registration_failed", "UI contribution was not registered");
-    }
-    return { id };
   };
 }
 

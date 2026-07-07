@@ -1,7 +1,6 @@
 import { For, type JSX } from "solid-js";
 import type {
   BlockContent,
-  Content,
   DefinitionContent,
   Delete,
   Emphasis,
@@ -106,7 +105,7 @@ function renderInlineChildren(children: PhrasingContent[]) {
   return <For each={children}>{(child, index) => renderInline(child, index)}</For>;
 }
 
-function renderBlock(node: RootContent | Content | DefinitionContent, index: () => number) {
+function renderBlock(node: RootContent | DefinitionContent, index: () => number) {
   switch (node.type) {
     case "paragraph": {
       const paragraph = node as Paragraph;
@@ -213,7 +212,7 @@ function renderTable(node: Table) {
   );
 }
 
-function renderBlockChildren(children: Array<RootContent | Content | DefinitionContent>) {
+function renderBlockChildren(children: Array<RootContent | DefinitionContent>) {
   return <For each={children}>{(child, index) => renderBlock(child, index)}</For>;
 }
 

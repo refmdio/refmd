@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { disposePanelWorkspace, workspaceManager } from "@/features/panel";
 import { View, type WorkspaceLeaf } from "@/shared/lib/workspace/view";
 import { Sidebar } from "./Sidebar";

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   PLUGIN_HOST_RPC_PROTOCOL,
   PLUGIN_HOST_RPC_VERSION,

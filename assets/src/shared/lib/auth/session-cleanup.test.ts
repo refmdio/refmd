@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { registerBeforeSessionCleanup, runBeforeSessionCleanup } from "./session-cleanup";
 
 describe("session cleanup", () => {

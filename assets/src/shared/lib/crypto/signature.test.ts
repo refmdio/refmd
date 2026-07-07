@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { decodeBase64UrlStrict, encodeBase64Url } from "./encoding";
 import { blake3Base64Url } from "./hash";
 import {

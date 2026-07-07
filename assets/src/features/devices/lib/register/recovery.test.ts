@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { buildRecoveryApproveDeviceRequest, type RecoveryApproveDeviceRequest } from "./recovery";
 import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
 

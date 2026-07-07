@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { clearAllPersistedKeys } from "./key-persistence";
 
 describe("key persistence secure cleanup", () => {

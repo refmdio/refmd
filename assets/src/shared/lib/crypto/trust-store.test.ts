@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { importTofuEntries, saveTofuEntry, type TofuEntry } from "./trust-store";
 import type { HybridSigningPublicKeyMaterial } from "./signature-types";
 

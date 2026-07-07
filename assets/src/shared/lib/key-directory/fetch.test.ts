@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
 
 const mocks = vi.hoisted(() => ({

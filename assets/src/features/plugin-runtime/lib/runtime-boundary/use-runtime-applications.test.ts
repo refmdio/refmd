@@ -1,5 +1,5 @@
 import { createRoot, createSignal, type Accessor } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { purgePluginApplicationLocalData } from "../storage/host-storage";
 import { runBeforeSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import {

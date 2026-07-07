@@ -1,5 +1,5 @@
 import { createRoot, createSignal, type Setter } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { PluginHostRuntimeController } from "../runtime-path/controller";
 import type { PluginRuntimePath } from "../runtime-path/runtime-path";
 import { getPluginHostMessageRouter } from "../host-rpc/host-rpc";
@@ -89,8 +89,8 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("loads pinned bundle metadata before creating a sandbox runtime path", async () => {
-    const firstDestroy = vi.fn((_: string | undefined = undefined) => undefined);
-    const secondDestroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const firstDestroy = vi.fn((_?: string | undefined) => undefined);
+    const secondDestroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValueOnce(createRuntimePathStub(firstDestroy))
@@ -293,7 +293,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("destroys active sandbox boundaries immediately through runtime invalidation", async () => {
-    const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const destroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockImplementation(async (options) =>
@@ -372,8 +372,8 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("does not restart a revoked application from a stale descriptor", async () => {
-    const firstDestroy = vi.fn((_: string | undefined = undefined) => undefined);
-    const secondDestroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const firstDestroy = vi.fn((_?: string | undefined) => undefined);
+    const secondDestroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValueOnce(createRuntimePathStub(firstDestroy))
@@ -467,8 +467,8 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("starts a same-application replacement after bundle update changes bundle authority", async () => {
-    const firstDestroy = vi.fn((_: string | undefined = undefined) => undefined);
-    const secondDestroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const firstDestroy = vi.fn((_?: string | undefined) => undefined);
+    const secondDestroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValueOnce(createRuntimePathStub(firstDestroy))
@@ -583,8 +583,8 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("removes a closed runtime session from the active boundary and restarts the descriptor", async () => {
-    const firstDestroy = vi.fn((_: string | undefined = undefined) => undefined);
-    const secondDestroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const firstDestroy = vi.fn((_?: string | undefined) => undefined);
+    const secondDestroy = vi.fn((_?: string | undefined) => undefined);
     const firstCloseCallbacks = new Set<(reason: string) => void>();
     const firstPath = createRuntimePathStub(firstDestroy, {
       onClose(callback: (reason: string) => void) {
@@ -678,7 +678,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("starts a new descriptor after an unmatched application close", async () => {
-    const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const destroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValue(createRuntimePathStub(destroy));
@@ -754,8 +754,8 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("does not revoke a replacement activation when an old activation close arrives late", async () => {
-    const firstDestroy = vi.fn((_: string | undefined = undefined) => undefined);
-    const secondDestroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const firstDestroy = vi.fn((_?: string | undefined) => undefined);
+    const secondDestroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValueOnce(
@@ -991,7 +991,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   it("retries transient runtime bundle load failures before logging boundary errors", async () => {
     vi.useFakeTimers();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const destroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValue(createRuntimePathStub(destroy));
@@ -1088,7 +1088,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("deduplicates duplicate in-flight runtime starts for the same descriptor", async () => {
-    const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const destroy = vi.fn((_?: string | undefined) => undefined);
     let resolveRuntimePath!: () => void;
     const runtimePathPromise = new Promise<PluginRuntimePath>((resolve) => {
       resolveRuntimePath = () => resolve(createRuntimePathStub(destroy));
@@ -1201,7 +1201,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
     ];
 
     for (const testCase of cases) {
-      const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+      const destroy = vi.fn((_?: string | undefined) => undefined);
       let resolveRuntimePath!: () => void;
       const runtimePathPromise = new Promise<PluginRuntimePath>((resolve) => {
         resolveRuntimePath = () =>
@@ -1304,7 +1304,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("uses verified bundle authority instead of descriptor authority when creating runtime paths", async () => {
-    const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const destroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValue(createRuntimePathStub(destroy));
@@ -1399,7 +1399,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
   });
 
   it("fails active runtime session validation when descriptor authority changes", async () => {
-    const destroy = vi.fn((_: string | undefined = undefined) => undefined);
+    const destroy = vi.fn((_?: string | undefined) => undefined);
     const createRuntimePath = vi
       .fn<PluginHostRuntimeController["createRuntimePath"]>()
       .mockResolvedValue(createRuntimePathStub(destroy));
