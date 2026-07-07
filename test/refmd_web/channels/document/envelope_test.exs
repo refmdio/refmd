@@ -102,12 +102,15 @@ defmodule RefMDWeb.Channels.Document.EnvelopeTest do
       timestamp: System.system_time(:millisecond)
     }
 
+    # Keep this intentional invalid-input call from becoming an Elixir 1.20 type warning.
+    format_update = Map.fetch!(%{format_update: &Envelope.format_update/1}, :format_update)
+
     assert_raise ArgumentError, "hybrid_signature_required", fn ->
-      Envelope.format_update(update)
+      format_update.(update)
     end
 
     assert_raise ArgumentError, "document_required", fn ->
-      Envelope.format_update(%{
+      format_update.(%{
         update
         | hybrid_signature: %{"protocol" => "refmd.hybrid-signature"}
       })

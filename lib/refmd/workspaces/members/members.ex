@@ -221,7 +221,6 @@ defmodule RefMD.Workspaces.Members do
 
   # ── Private Helpers ─────────────────────────────
 
-  defp validate_role_change(%{actor_role: nil}, _workspace_id), do: {:error, :actor_not_member}
   defp validate_role_change(%{target_role: nil}, _workspace_id), do: {:error, :target_not_member}
   defp validate_role_change(%{new_role: nil}, _workspace_id), do: {:error, :invalid_role}
 

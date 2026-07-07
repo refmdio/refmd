@@ -452,15 +452,16 @@ defmodule RefMDWeb.KekRotationController do
 
   defp fetch_active_device(_user_id, _device_id), do: {:error, :forbidden, "invalid_device"}
 
-  defp fetch_target_identity(user_id) when is_binary(user_id) do
-    case Encryption.get_user_identity_public_key(user_id) do
-      nil -> {:error, :unprocessable_entity, "target_identity_key_missing"}
-      identity -> {:ok, identity}
+  defp fetch_target_identity(user_id) do
+    if is_binary(user_id) do
+      case Encryption.get_user_identity_public_key(user_id) do
+        nil -> {:error, :unprocessable_entity, "target_identity_key_missing"}
+        identity -> {:ok, identity}
+      end
+    else
+      {:error, :unprocessable_entity, "target_identity_key_missing"}
     end
   end
-
-  defp fetch_target_identity(_),
-    do: {:error, :unprocessable_entity, "target_identity_key_missing"}
 
   defp prepare_workspace_member_envelope(env, metadata, validation_context, event, checkpoint) do
     case Encryption.prepare_workspace_member_envelope_from_client(

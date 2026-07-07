@@ -242,14 +242,16 @@ defmodule RefMD.Plugins.RuntimeDescriptors do
 
   defp runtime_manifest(_bundle), do: %{}
 
-  defp manifest_title(manifest, fallback) when is_map(manifest) do
-    case Map.get(manifest, "name") do
-      value when is_binary(value) and value != "" -> value
-      _ -> fallback
+  defp manifest_title(manifest, fallback) do
+    if is_map(manifest) do
+      case Map.get(manifest, "name") do
+        value when is_binary(value) and value != "" -> value
+        _ -> fallback
+      end
+    else
+      fallback
     end
   end
-
-  defp manifest_title(_manifest, fallback), do: fallback
 
   defp manifest_author(%{"author" => value}) when is_binary(value) and value != "",
     do: value
@@ -426,24 +428,56 @@ defmodule RefMD.Plugins.RuntimeDescriptors do
     end
   end
 
-  defp inferred_high_risk_consents(manifest) when is_map(manifest) do
-    permissions = manifest_permissions(manifest)
-    plaintext_read? = Enum.any?(permissions, &plaintext_read_permission?/1)
-    network_fetch? = "network:fetch" in permissions
-    cache_storage_write? = "storage:write:cache" in permissions
-    workspace_read? = "document:read:workspace" in permissions
-    document_write? = "document:write" in permissions
-
-    [
-      if(plaintext_read? and document_write?, do: "plaintext_document_write"),
-      if(plaintext_read? and network_fetch?, do: "plaintext_network_egress"),
-      if(plaintext_read? and cache_storage_write?, do: "plaintext_cache_storage"),
-      if(workspace_read? and network_fetch?, do: "workspace_network_egress")
-    ]
-    |> Enum.reject(&is_nil/1)
+  defp inferred_high_risk_consents(manifest) do
+    if is_map(manifest) do
+      manifest
+      |> high_risk_consent_context()
+      |> high_risk_consent_reasons()
+    else
+      []
+    end
   end
 
-  defp inferred_high_risk_consents(_manifest), do: []
+  defp high_risk_consent_context(manifest) do
+    permissions = manifest_permissions(manifest)
+
+    %{
+      plaintext_read?: Enum.any?(permissions, &plaintext_read_permission?/1),
+      network_fetch?: "network:fetch" in permissions,
+      cache_storage_write?: "storage:write:cache" in permissions,
+      workspace_read?: "document:read:workspace" in permissions,
+      document_write?: "document:write" in permissions
+    }
+  end
+
+  defp high_risk_consent_reasons(context) do
+    [
+      high_risk_consent_reason(
+        context.plaintext_read?,
+        context.document_write?,
+        "plaintext_document_write"
+      ),
+      high_risk_consent_reason(
+        context.plaintext_read?,
+        context.network_fetch?,
+        "plaintext_network_egress"
+      ),
+      high_risk_consent_reason(
+        context.plaintext_read?,
+        context.cache_storage_write?,
+        "plaintext_cache_storage"
+      ),
+      high_risk_consent_reason(
+        context.workspace_read?,
+        context.network_fetch?,
+        "workspace_network_egress"
+      )
+    ]
+    |> List.flatten()
+  end
+
+  defp high_risk_consent_reason(true, true, reason), do: [reason]
+  defp high_risk_consent_reason(_primary, _secondary, _reason), do: []
 
   defp plaintext_read_permission?("document:read:" <> scope)
        when scope in ["active", "selected", "workspace"],

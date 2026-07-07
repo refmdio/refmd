@@ -45,7 +45,7 @@ defmodule RefMD.Encryption.Wraps.ShareAuth do
        when byte_size(ciphertext_and_tag) >= 16 and byte_size(nonce) == 12 do
     with {:ok, key} <- fetch_key(key_id) do
       ciphertext_size = byte_size(ciphertext_and_tag) - 16
-      <<ciphertext::binary-size(ciphertext_size), tag::binary-size(16)>> = ciphertext_and_tag
+      <<ciphertext::binary-size(^ciphertext_size), tag::binary-size(16)>> = ciphertext_and_tag
 
       case :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, ciphertext, aad, tag, false) do
         plaintext when is_binary(plaintext) -> {:ok, plaintext}

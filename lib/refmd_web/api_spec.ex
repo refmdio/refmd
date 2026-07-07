@@ -385,13 +385,12 @@ defmodule RefMDWeb.ApiSpec do
 
   defp share_participant_pop_security?(_), do: false
 
-  defp strict_pop_security?(security) when is_list(security) and security != [] do
-    Enum.all?(security, fn requirement ->
-      is_map(requirement) and Map.has_key?(requirement, "proof_of_possession_actor_variant")
-    end)
+  defp strict_pop_security?(security) do
+    is_list(security) and security != [] and
+      Enum.all?(security, fn requirement ->
+        is_map(requirement) and Map.has_key?(requirement, "proof_of_possession_actor_variant")
+      end)
   end
-
-  defp strict_pop_security?(_), do: false
 
   defp reject_parameter(parameters, name, location) do
     Enum.reject(parameters, fn

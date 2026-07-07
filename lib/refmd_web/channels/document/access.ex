@@ -397,22 +397,6 @@ defmodule RefMDWeb.Channels.Document.Access do
     )
   end
 
-  defp share_participant_device_active?(%{
-         assigns: %{
-           session_kind: :share_participant,
-           share_participant_principal_id: principal_id,
-           device_id: device_id,
-           current_session: %{share_id: share_id}
-         }
-       })
-       when is_binary(share_id) and is_binary(principal_id) and is_binary(device_id) and
-              is_binary(share_id) do
-    match?(
-      %{principal_id: ^principal_id},
-      Sharing.get_participant_device(share_id, principal_id, device_id)
-    )
-  end
-
   defp share_participant_device_active?(_socket), do: false
 
   defp mount_trust_anchor_params(params) do

@@ -1170,14 +1170,12 @@ defmodule RefMD.Crypto.Signature.Core do
   defp assert_nested_owner_exact_fields!(transcript, signing_purpose, variant) do
     nested = nested_owner_exact_fields(signing_purpose, variant)
 
-    if nested do
-      Enum.each(nested, fn {field, keys} ->
-        value = transcript[field]
-        assert_map!(value, field <> "_invalid")
-        assert_exact_keys!(value, Enum.sort(nested_expected_keys(transcript, field, value, keys)))
-        assert_nested_field_values!(field, value)
-      end)
-    end
+    Enum.each(nested, fn {field, keys} ->
+      value = transcript[field]
+      assert_map!(value, field <> "_invalid")
+      assert_exact_keys!(value, Enum.sort(nested_expected_keys(transcript, field, value, keys)))
+      assert_nested_field_values!(field, value)
+    end)
 
     :ok
   end
