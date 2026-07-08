@@ -37,17 +37,6 @@ async function typeInVisibleEditor(page: Page, text: string): Promise<void> {
   await page.keyboard.insertText(text);
 }
 
-async function typeLineBurst(page: Page, prefix: string, count: number): Promise<void> {
-  await focusVisibleEditor(page);
-  await page.keyboard.press("Control+End");
-
-  for (let i = 0; i < count; i += 1) {
-    await page.keyboard.press("Enter");
-    await page.keyboard.insertText(`${prefix}-${i}`);
-    await page.waitForTimeout(E2E_DELAYS.inputPropagation);
-  }
-}
-
 async function readMarkdownEditorText(page: Page, documentId: string): Promise<string> {
   const documentText = await page.evaluate((id) => {
     const target = window as Window & {
@@ -62,6 +51,35 @@ async function readMarkdownEditorText(page: Page, documentId: string): Promise<s
   return readEditorText(page);
 }
 
+async function appendDocumentTextViaSyncHook(
+  page: Page,
+  documentId: string,
+  text: string,
+): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ([id, value]) => window.__refmdAppendDocumentText?.(id, value) === true,
+          [documentId, text] as const,
+        ),
+      {
+        timeout: 10_000,
+        message: "document append test hook did not accept text",
+      },
+    )
+    .toBe(true);
+}
+
+async function typeMarkdownMarkerAtDocumentEnd(page: Page, marker: string): Promise<void> {
+  const editor = page.locator(".cm-content").first();
+  await expect(editor).toBeVisible({ timeout: 30_000 });
+  await editor.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.insertText(marker);
+}
+
 async function expectDocumentTextContains(
   page: Page,
   documentId: string,
@@ -74,6 +92,20 @@ async function expectDocumentTextContains(
       message: `document text never contained expected text: ${snippet}`,
     })
     .toContain(snippet);
+}
+
+async function expectDocumentTextContainsWithDiagnostics(
+  page: Page,
+  documentId: string,
+  snippet: string,
+  timeout: number,
+  label: string,
+  pages: { name: string; page: Page }[],
+): Promise<void> {
+  await expectDocumentTextContains(page, documentId, snippet, timeout).catch(async (error) => {
+    const state = await collectDivergenceDiagnostics(label, documentId, pages);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; ${state}`);
+  });
 }
 
 async function expectMarkdownEditorsConverged(
@@ -452,22 +484,75 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
       await expectEditorTextContains(pageB, "From device B.", 15_000);
     });
 
-    await test.step("same-user approved device burst edits remain synchronized", async () => {
+    await test.step("same-user approved device concurrent edits survive snapshot rotation", async () => {
       const diagnostics = collectSyncDiagnostics([pageA, pageB]);
       try {
         await ensureEditorReady(pageA, "Multi Device Doc");
         await ensureEditorReady(pageB, "Multi Device Doc");
 
-        await typeLineBurst(pageB, "device-b-burst", 80);
-        await expectDocumentTextContains(pageA, documentId, "device-b-burst-79", 90_000);
-        await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
+        for (let i = 0; i < 40; i += 1) {
+          await waitForWritableDocumentSync(pageA, documentId, 90_000);
+          await waitForWritableDocumentSync(pageB, documentId, 90_000);
+          await Promise.all([
+            appendDocumentTextViaSyncHook(pageA, documentId, `threshold-a-${i}\n`),
+            appendDocumentTextViaSyncHook(pageB, documentId, `threshold-b-${i}\n`),
+          ]);
+          await expectDocumentTextContains(pageA, documentId, `threshold-b-${i}`, 90_000);
+          await expectDocumentTextContains(pageB, documentId, `threshold-a-${i}`, 90_000);
+          await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
+        }
 
+        for (let i = 0; i < 12; i += 1) {
+          await waitForWritableDocumentSync(pageA, documentId, 90_000);
+          await waitForWritableDocumentSync(pageB, documentId, 90_000);
+          const markerA = `keyboard-a-${i}-${crypto.randomUUID()}`;
+          const markerB = `keyboard-b-${i}-${crypto.randomUUID()}`;
+          await Promise.all([
+            typeMarkdownMarkerAtDocumentEnd(pageA, markerA),
+            typeMarkdownMarkerAtDocumentEnd(pageB, markerB),
+          ]);
+          await expectDocumentTextContainsWithDiagnostics(
+            pageA,
+            documentId,
+            markerB,
+            90_000,
+            `device A did not receive ${markerB}`,
+            [
+              { name: "deviceA", page: pageA },
+              { name: "deviceB", page: pageB },
+            ],
+          );
+          await expectDocumentTextContainsWithDiagnostics(
+            pageB,
+            documentId,
+            markerA,
+            90_000,
+            `device B did not receive ${markerA}`,
+            [
+              { name: "deviceA", page: pageA },
+              { name: "deviceB", page: pageB },
+            ],
+          );
+          await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
+        }
+
+        await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
+        await waitForWritableDocumentSync(pageA, documentId, 90_000);
+        await waitForWritableDocumentSync(pageB, documentId, 90_000);
+
+        const convergedTextBeforeReload = await readMarkdownEditorText(pageA, documentId);
         await pageB.reload({ waitUntil: "domcontentloaded" });
         await ensureEditorReady(pageB, "Multi Device Doc");
-        await expectDocumentTextContains(pageB, documentId, "device-b-burst-79", 60_000);
+        await expectDocumentTextContains(pageB, documentId, "keyboard-a-11", 60_000);
         await waitForWritableDocumentSync(pageB, documentId, 90_000);
         await waitForWritableDocumentSync(pageA, documentId, 90_000);
         await expectMarkdownEditorsConverged(pageA, pageB, documentId, 30_000);
+        await expect
+          .poll(() => readMarkdownEditorText(pageB, documentId), {
+            timeout: 60_000,
+            message: "reloaded device did not preserve the converged document text",
+          })
+          .toBe(convergedTextBeforeReload);
 
         await typeInVisibleEditor(pageA, "owner-after-device-burst");
         await expectDocumentTextContains(pageA, documentId, "owner-after-device-burst", 10_000).catch(

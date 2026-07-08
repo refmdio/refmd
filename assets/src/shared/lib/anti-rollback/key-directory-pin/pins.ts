@@ -242,7 +242,11 @@ export async function advanceKeyDirectoryPinWithProof(params: {
     events,
     evidences: params.rotationDeletionEvidences ?? [],
   });
-  assertShareParticipantCheckpointAdvance(candidate, events, checkpoints[0]!.payload);
+  assertShareParticipantCheckpointAdvance(
+    candidate,
+    events,
+    checkpoints[checkpoints.length - 1]!.payload,
+  );
 
   const db = await openSecurityDb();
   const wrote = await idbConditionalPut<KeyDirectoryPin>(
@@ -350,7 +354,11 @@ export async function verifyAndRememberKeyDirectoryLineageFromTrustedAnchor(para
     events,
     evidences: params.rotationDeletionEvidences ?? [],
   });
-  assertShareParticipantCheckpointAdvance(candidate, events, trustedAnchor.payload);
+  assertShareParticipantCheckpointAdvance(
+    candidate,
+    events,
+    checkpoints[checkpoints.length - 1]?.payload ?? trustedAnchor.payload,
+  );
   rememberVerifiedKeyDirectoryLineage({
     scopeKind: params.scopeKind,
     scopeId: params.scopeId,

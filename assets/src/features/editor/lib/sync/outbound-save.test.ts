@@ -128,6 +128,10 @@ describe("handleSnapshotSaved", () => {
 
     const update = encodeCanonicalDiffAsUpdate(state.yDoc, state.lastSavedState);
 
+    expect(state.snapshotBaseClocks).toEqual({ "device:key": 1 });
+    expect(state.knownClocks).toEqual({});
+    expect(state.confirmedClocks).toEqual({});
+    expect(state.localClock).toBe(0);
     expect(update).not.toBeNull();
     expect(update!.length).toBeGreaterThan(2);
     expect(applyUpdateToSavedBaseline(state.lastSavedState!, update!)).toBe(

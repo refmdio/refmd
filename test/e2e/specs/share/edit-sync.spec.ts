@@ -811,7 +811,7 @@ function collectSyncDiagnostics(pages: Page[]): {
 } {
   const messages: string[] = [];
   const handlers = pages.map((page) => {
-    const handler = (msg: { type: () => string; text: () => string }) => {
+    const consoleHandler = (msg: { type: () => string; text: () => string }) => {
       const text = msg.text();
       if (
         msg.type() === "error" ||
@@ -822,15 +822,23 @@ function collectSyncDiagnostics(pages: Page[]): {
         messages.push(text);
       }
     };
-    page.on("console", handler);
-    return { page, handler };
+    const responseHandler = (response: { status: () => number; url: () => string }) => {
+      const status = response.status();
+      if (status >= 400) {
+        messages.push(`response ${status} ${response.url()}`);
+      }
+    };
+    page.on("console", consoleHandler);
+    page.on("response", responseHandler);
+    return { page, consoleHandler, responseHandler };
   });
 
   return {
     messages,
     stop: () => {
-      for (const { page, handler } of handlers) {
-        page.off("console", handler);
+      for (const { page, consoleHandler, responseHandler } of handlers) {
+        page.off("console", consoleHandler);
+        page.off("response", responseHandler);
       }
     },
   };
@@ -1103,6 +1111,22 @@ async function waitForEditor(page: Page): Promise<void> {
   const snapshot = await page
     .evaluate(() => ({
       bodyText: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 2000),
+      cookie: document.cookie,
+      syncPerf: (
+        (window as Window & { __refmdE2ESyncPerf?: Array<{ event?: unknown; detail?: unknown }> })
+          .__refmdE2ESyncPerf ?? []
+      )
+        .filter((entry) => {
+          const event = typeof entry.event === "string" ? entry.event : "";
+          return (
+            event.startsWith("share_document_") ||
+            event.startsWith("share_session_") ||
+            event.startsWith("share_workspace_") ||
+            event.startsWith("workspace_pin_") ||
+            event === "document_sync_fail_closed"
+          );
+        })
+        .slice(-60),
       url: window.location.href,
     }))
     .catch((snapshotError) => ({ diagnosticError: String(snapshotError) }));

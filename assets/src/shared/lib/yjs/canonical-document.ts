@@ -15,24 +15,6 @@ function encodeEmptyUpdate(): Uint8Array {
   }
 }
 
-function createCanonicalDoc(doc: Y.Doc): Y.Doc {
-  const canonicalDoc = new Y.Doc();
-  const text = canonicalMarkdownText(doc);
-  if (text.length > 0) {
-    canonicalDoc.getText(CANONICAL_TEXT_FIELD).insert(0, text);
-  }
-  return canonicalDoc;
-}
-
-function withCanonicalDoc<T>(doc: Y.Doc, fn: (canonicalDoc: Y.Doc) => T): T {
-  const canonicalDoc = createCanonicalDoc(doc);
-  try {
-    return fn(canonicalDoc);
-  } finally {
-    canonicalDoc.destroy();
-  }
-}
-
 export function replaceYTextWithMinimalDiff(text: Y.Text, next: string): void {
   const current = text.toJSON();
   if (current === next) return;
@@ -79,16 +61,27 @@ export function encodeCanonicalSyncedStateAsUpdate(doc: Y.Doc): Uint8Array {
   }
 }
 
+function withCanonicalSyncedDoc<T>(doc: Y.Doc, fn: (canonicalDoc: Y.Doc) => T): T {
+  const syncedDoc = new Y.Doc();
+  try {
+    Y.applyUpdate(syncedDoc, Y.encodeStateAsUpdate(doc), "remote");
+    clearProseMirrorXml(syncedDoc, "canonical-synced-state");
+    return fn(syncedDoc);
+  } finally {
+    syncedDoc.destroy();
+  }
+}
+
 export function encodeCanonicalStateAsUpdate(doc: Y.Doc): Uint8Array {
-  return withCanonicalDoc(doc, (canonicalDoc) => Y.encodeStateAsUpdate(canonicalDoc));
+  return withCanonicalSyncedDoc(doc, (canonicalDoc) => Y.encodeStateAsUpdate(canonicalDoc));
 }
 
 export function encodeCanonicalStateAsUpdateV2(doc: Y.Doc): Uint8Array {
-  return withCanonicalDoc(doc, (canonicalDoc) => Y.encodeStateAsUpdateV2(canonicalDoc));
+  return withCanonicalSyncedDoc(doc, (canonicalDoc) => Y.encodeStateAsUpdateV2(canonicalDoc));
 }
 
 export function encodeCanonicalStateVector(doc: Y.Doc): Uint8Array {
-  return withCanonicalDoc(doc, (canonicalDoc) => Y.encodeStateVector(canonicalDoc));
+  return withCanonicalSyncedDoc(doc, (canonicalDoc) => Y.encodeStateVector(canonicalDoc));
 }
 
 function tryEncodeLiveCanonicalDiff(

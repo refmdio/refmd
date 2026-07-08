@@ -1,11 +1,8 @@
 import * as Y from "yjs";
 import {
-  canonicalMarkdownText,
   clearProseMirrorXml,
   encodeCanonicalSyncedStateAsUpdate,
-  replaceDocWithCanonicalText,
 } from "@/shared/lib/yjs/canonical-document";
-import { getNextClockForDevice } from "@/shared/lib/anti-rollback/clock-observations";
 import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import { cacheDocumentState } from "@/shared/lib/offline/cache/manager/write";
@@ -41,6 +38,7 @@ import { hasUnsavedCanonicalText } from "./outbound-canonical";
 import { queuePublicationSaveSync } from "./outbound-publication";
 import { clearSaveAckWatchdog } from "./outbound-save-watchdog";
 import { recordSyncPerf } from "./perf";
+import { nextLocalClockForDevice } from "./local-clock";
 
 function getPinKey(state: DocumentState, documentId: string): string {
   return state.access.kind === "share"
@@ -48,25 +46,9 @@ function getPinKey(state: DocumentState, documentId: string): string {
     : buildDocumentStatePinKey(documentId);
 }
 
-function rebaseLiveDocOntoAcceptedSnapshot(
-  state: DocumentState,
-  snapshotState: Uint8Array,
-  savedSnapshotState: Uint8Array,
-): void {
-  const liveText = canonicalMarkdownText(state.yDoc);
-  const snapshotDoc = new Y.Doc();
-  try {
-    Y.applyUpdateV2(snapshotDoc, snapshotState, "snapshot-ack");
-    const snapshotText = canonicalMarkdownText(snapshotDoc);
-    replaceDocWithCanonicalText(state.yDoc, "", "snapshot-ack-rebase");
-    Y.applyUpdate(state.yDoc, savedSnapshotState, "snapshot-ack-rebase");
-    clearProseMirrorXml(state.yDoc, "snapshot-ack-rebase");
-    if (liveText !== snapshotText) {
-      replaceDocWithCanonicalText(state.yDoc, liveText, "snapshot-ack-local-text");
-    }
-  } finally {
-    snapshotDoc.destroy();
-  }
+function rebaseLiveDocOntoAcceptedSnapshot(state: DocumentState, snapshotState: Uint8Array): void {
+  Y.applyUpdateV2(state.yDoc, snapshotState, "snapshot-ack");
+  clearProseMirrorXml(state.yDoc, "snapshot-ack");
 }
 
 function getOfflineCacheOptions(state: DocumentState, documentId: string) {
@@ -440,7 +422,7 @@ export async function handleSnapshotSaved(
   Y.applyUpdateV2(serverDoc, pendingSnapshot.snapshotYjsState, "remote");
   state.lastSavedState = encodeCanonicalSyncedStateAsUpdate(serverDoc);
   serverDoc.destroy();
-  rebaseLiveDocOntoAcceptedSnapshot(state, pendingSnapshot.snapshotYjsState, state.lastSavedState);
+  rebaseLiveDocOntoAcceptedSnapshot(state, pendingSnapshot.snapshotYjsState);
   state.snapshotUpdatesCount = 0;
   state.snapshotBaseClocks = { ...pendingSnapshot.knownClocksAtSend };
   if (typeof payload.latestVersion === "number") {
@@ -458,10 +440,10 @@ export async function handleSnapshotSaved(
   }
   state.pendingRotationSnapshot = false;
   const signingKeyId = getLocalSigningKeyId(state) ?? deviceState()?.deviceSigningKeyId;
-  state.knownClocks = { ...pendingSnapshot.knownClocksAtSend };
-  state.confirmedClocks = { ...pendingSnapshot.knownClocksAtSend };
+  state.knownClocks = {};
+  state.confirmedClocks = {};
   resetWriteSessionCountersForSnapshotBaseline(state);
-  state.localClock = getNextClockForDevice(state.knownClocks, signingKeyId ?? undefined);
+  state.localClock = nextLocalClockForDevice(state.confirmedClocks, state, signingKeyId);
 
   if (documentId && state.workspaceId && state.keyVersion > 0) {
     cacheDocumentState(

@@ -133,30 +133,6 @@ function applyServerCanonicalDocAndLocalDiff(
   }
 }
 
-function applyReencodedServerDocAndLocalText(
-  documentId: string,
-  state: DocumentState,
-  serverDoc: Y.Doc,
-  serverText: string,
-  liveText: string,
-  origin: unknown,
-): boolean {
-  replaceDocWithCanonicalText(state.yDoc, "", origin);
-  Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
-  clearProseMirrorXml(state.yDoc, origin);
-  if (canonicalMarkdownText(state.yDoc) !== serverText) {
-    recordSyncPerf("canonical_rebaseline_local_text_failed", {
-      documentId,
-      expectedServerTextLength: serverText.length,
-      actualServerTextLength: canonicalMarkdownText(state.yDoc).length,
-      liveTextLength: liveText.length,
-    });
-    return false;
-  }
-  replaceDocWithCanonicalText(state.yDoc, liveText, origin);
-  return canonicalMarkdownText(state.yDoc) === liveText;
-}
-
 function canonicalLocalDiffAfterApplyingServerDoc(
   liveDoc: Y.Doc,
   serverDoc: Y.Doc,
@@ -208,34 +184,19 @@ function applyCanonicalServerDocToLive(
           )
         : null;
     if (structuralMerge === null) {
-      if (
-        savedText !== null &&
-        serverText === savedText &&
-        applyReencodedServerDocAndLocalText(
-          documentId,
-          state,
-          serverDoc,
-          serverText,
-          liveText,
-          origin,
-        )
-      ) {
-        applyMode = "server-structs-with-local-text";
-      } else {
-        recordSyncPerf("canonical_server_doc_apply", {
-          documentId,
-          mode: "sync-gap",
-          savedTextLength: savedText?.length ?? null,
-          liveTextBeforeLength: liveText.length,
-          serverTextLength: serverText.length,
-          liveTextAfterLength: liveText.length,
-          simulatedTextLength: simulatedText.length,
-          liveMatchesSavedBefore: savedText !== null && liveText === savedText,
-          serverMatchesSavedBefore: savedText !== null && serverText === savedText,
-          hasMergedLocalChanges: false,
-        });
-        throw createSyncGapError("canonical_structural_merge_unavailable");
-      }
+      recordSyncPerf("canonical_server_doc_apply", {
+        documentId,
+        mode: "sync-gap",
+        savedTextLength: savedText?.length ?? null,
+        liveTextBeforeLength: liveText.length,
+        serverTextLength: serverText.length,
+        liveTextAfterLength: liveText.length,
+        simulatedTextLength: simulatedText.length,
+        liveMatchesSavedBefore: savedText !== null && liveText === savedText,
+        serverMatchesSavedBefore: savedText !== null && serverText === savedText,
+        hasMergedLocalChanges: false,
+      });
+      throw createSyncGapError("canonical_structural_merge_unavailable");
     } else if (simulatedText === structuralMerge.mergedText) {
       Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
       clearProseMirrorXml(state.yDoc, origin);
@@ -292,32 +253,17 @@ function applyCanonicalSnapshotDocToLive(
           )
         : null;
     if (structuralMerge === null) {
-      if (
-        savedText !== null &&
-        serverText === savedText &&
-        applyReencodedServerDocAndLocalText(
-          documentId,
-          state,
-          serverDoc,
-          serverText,
-          liveText,
-          origin,
-        )
-      ) {
-        applyMode = "server-structs-with-local-text";
-      } else {
-        recordSyncPerf("canonical_snapshot_doc_apply", {
-          documentId,
-          mode: "sync-gap",
-          savedTextLength: savedText?.length ?? null,
-          liveTextBeforeLength: liveText.length,
-          serverTextLength: serverText.length,
-          liveTextAfterLength: liveText.length,
-          simulatedTextLength: simulatedText.length,
-          hasMergedLocalChanges: false,
-        });
-        throw createSyncGapError("canonical_structural_snapshot_merge_unavailable");
-      }
+      recordSyncPerf("canonical_snapshot_doc_apply", {
+        documentId,
+        mode: "sync-gap",
+        savedTextLength: savedText?.length ?? null,
+        liveTextBeforeLength: liveText.length,
+        serverTextLength: serverText.length,
+        liveTextAfterLength: liveText.length,
+        simulatedTextLength: simulatedText.length,
+        hasMergedLocalChanges: false,
+      });
+      throw createSyncGapError("canonical_structural_snapshot_merge_unavailable");
     } else if (simulatedText === structuralMerge.mergedText) {
       Y.applyUpdate(state.yDoc, encodeCanonicalSyncedStateAsUpdate(serverDoc), origin);
       clearProseMirrorXml(state.yDoc, origin);
@@ -592,8 +538,8 @@ export async function handleDocumentMessage(
   if (snapshotMeta) {
     state.activeSnapshotId = snapshotMeta.snapshotId;
     state.snapshotBaseClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
-    state.knownClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
-    state.confirmedClocks = { ...snapshotMeta.parentSnapshotUpdateClocks };
+    state.knownClocks = {};
+    state.confirmedClocks = {};
     resetWriteSessionCountersForSnapshotBaseline(state);
     state._pendingOutOfOrderUpdates = [];
     clearOutOfOrderGapTimeout(state);
@@ -1269,8 +1215,8 @@ export async function handleRemoteSnapshot(
   state.snapshotProofHash = payload.proofChainHash;
 
   state.snapshotBaseClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
-  state.knownClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
-  state.confirmedClocks = { ...snap.publicData.parentSnapshotUpdateClocks };
+  state.knownClocks = {};
+  state.confirmedClocks = {};
   resetWriteSessionCountersForSnapshotBaseline(state);
   state._pendingOutOfOrderUpdates = retainedQueuedUpdates;
   state.snapshotUpdatesCount = 0;

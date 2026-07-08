@@ -186,42 +186,54 @@ export function assertShareParticipantCheckpointAdvance(
   )?.signer;
   if (!checkpointSigner) return;
 
-  if (events.length === 0) {
+  const candidateHead = candidate.payload.covered_event_head as Record<string, unknown> | undefined;
+  const previousHead = previousPayload.covered_event_head as Record<string, unknown> | undefined;
+  if (!candidateHead || !previousHead)
+    throw new Error("share_participant_checkpoint_scope_invalid");
+
+  const previousHeadSequence = numberField(
+    previousHead.head_sequence,
+    "event_head_sequence_invalid",
+  );
+  const candidateHeadSequence = numberField(
+    candidateHead.head_sequence,
+    "event_head_sequence_invalid",
+  );
+  if (candidateHeadSequence !== previousHeadSequence + 1) {
     throw new Error("share_participant_checkpoint_scope_invalid");
   }
 
-  for (const event of events) {
-    if (
-      event.payload.event_type !== "document_update_accepted" &&
-      event.payload.event_type !== "document_write_session_admitted" &&
-      event.payload.event_type !== "document_snapshot_accepted"
-    ) {
-      const deviceSigned = event.signatures.some(
-        (signatureEnvelope) => signatureEnvelope.signer.signer_kind === "device",
-      );
-      const shareParticipantSigned = event.signatures.some(
-        (signatureEnvelope) => signatureEnvelope.signer.signer_kind === "share_participant_device",
-      );
-      if (!deviceSigned || shareParticipantSigned) {
-        throw new Error("share_participant_checkpoint_event_invalid");
-      }
-      continue;
-    }
+  const coveredEvent = events.find(
+    (event) =>
+      numberField(event.payload.sequence, "event_sequence_invalid") === candidateHeadSequence &&
+      eventHash(event) === candidateHead.head_hash,
+  );
+  if (!coveredEvent) throw new Error("share_participant_checkpoint_scope_invalid");
+  if (coveredEvent.payload.previous_event_hash !== previousHead.head_hash) {
+    throw new Error("share_participant_checkpoint_scope_invalid");
+  }
 
-    const eventSigner = event.signatures.find(
-      (signatureEnvelope) => signatureEnvelope.signer.signer_kind === "share_participant_device",
-    )?.signer;
-    if (!eventSigner) throw new Error("share_participant_checkpoint_signer_missing");
+  if (
+    coveredEvent.payload.event_type !== "document_update_accepted" &&
+    coveredEvent.payload.event_type !== "document_write_session_admitted" &&
+    coveredEvent.payload.event_type !== "document_snapshot_accepted"
+  ) {
+    throw new Error("share_participant_checkpoint_event_invalid");
+  }
 
-    for (const key of [
-      "share_id",
-      "share_participant_principal_id",
-      "share_participant_device_id",
-      "signing_key_id",
-    ]) {
-      if (eventSigner[key] !== checkpointSigner[key]) {
-        throw new Error("share_participant_checkpoint_signer_mismatch");
-      }
+  const eventSigner = coveredEvent.signatures.find(
+    (signatureEnvelope) => signatureEnvelope.signer.signer_kind === "share_participant_device",
+  )?.signer;
+  if (!eventSigner) throw new Error("share_participant_checkpoint_signer_missing");
+
+  for (const key of [
+    "share_id",
+    "share_participant_principal_id",
+    "share_participant_device_id",
+    "signing_key_id",
+  ]) {
+    if (eventSigner[key] !== checkpointSigner[key]) {
+      throw new Error("share_participant_checkpoint_signer_mismatch");
     }
   }
 

@@ -53,6 +53,35 @@ describe("canonical-document", () => {
     decoded.destroy();
   });
 
+  test("encodes snapshots without rewriting canonical text structs", () => {
+    const baseline = new Y.Doc();
+    baseline.getText("content").insert(0, "base");
+    const baselineUpdate = encodeCanonicalStateAsUpdate(baseline);
+
+    const snapshotSource = applyV1(baselineUpdate);
+    snapshotSource.getText("content").insert(snapshotSource.getText("content").length, " remote");
+    snapshotSource.getXmlFragment("prosemirror").insert(0, [new Y.XmlElement("paragraph")]);
+    const snapshotDoc = applyV2(encodeCanonicalStateAsUpdateV2(snapshotSource));
+    const snapshotBaseline = encodeCanonicalSyncedStateAsUpdate(snapshotDoc);
+
+    const local = applyV1(baselineUpdate);
+    local.getText("content").insert(0, "local ");
+    const localUpdate = encodeCanonicalDiffAsUpdate(local, baselineUpdate);
+    expect(localUpdate).not.toBeNull();
+
+    const merged = applyV1(snapshotBaseline);
+    Y.applyUpdate(merged, localUpdate!, "remote");
+
+    expect(merged.getText("content").toJSON()).toBe("local base remote");
+    expect(merged.getXmlFragment("prosemirror").length).toBe(0);
+
+    baseline.destroy();
+    snapshotSource.destroy();
+    snapshotDoc.destroy();
+    local.destroy();
+    merged.destroy();
+  });
+
   test("computes content-only diffs from a canonical baseline", () => {
     const baseline = new Y.Doc();
     baseline.getText("content").insert(0, "alpha");
