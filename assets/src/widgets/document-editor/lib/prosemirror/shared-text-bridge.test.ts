@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
+import { EditorState } from "prosemirror-state";
+import { EditorView } from "prosemirror-view";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import { ORIGIN_INIT } from "@pm-cm/yjs";
+import { ORIGIN_INIT, syncCmCursor } from "@pm-cm/yjs";
 import { markdownToProseMirrorDoc } from "./markdown-from";
 import { markdownSchema } from "./schema";
 import { setupCollabPlugins } from "./plugin-collab";
@@ -9,8 +11,18 @@ import { createLocalProseMirrorBridgeDoc } from "./shared-text-bridge";
 
 const cleanupFns: (() => void)[] = [];
 
+function flushTimers(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function flushAwarenessDecorations(): Promise<void> {
+  await flushTimers();
+  await flushTimers();
+}
+
 afterEach(() => {
   for (const cleanup of cleanupFns.splice(0).reverse()) cleanup();
+  document.body.replaceChildren();
 });
 
 describe("createLocalProseMirrorBridgeDoc", () => {
@@ -76,5 +88,45 @@ describe("createLocalProseMirrorBridgeDoc", () => {
     }, "remote");
 
     expect(localBridgeDoc.yText.toJSON()).toBe("Remote update");
+  });
+
+  it("does not render the local awareness client as a remote WYSIWYG cursor", async () => {
+    const sharedDoc = new Y.Doc();
+    cleanupFns.push(() => sharedDoc.destroy());
+    sharedDoc.getText("content").insert(0, "Local cursor text");
+
+    const localBridgeDoc = createLocalProseMirrorBridgeDoc(sharedDoc);
+    cleanupFns.push(localBridgeDoc.dispose);
+    const awareness = new Awareness(sharedDoc);
+    cleanupFns.push(() => awareness.destroy());
+    awareness.setLocalStateField("user", {
+      name: "Local User",
+      color: "#5b8def",
+    });
+    const collab = setupCollabPlugins({
+      yDoc: localBridgeDoc.yDoc,
+      schema: markdownSchema,
+      awareness,
+    });
+    cleanupFns.push(collab.destroy);
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const view = new EditorView(container, {
+      state: EditorState.create({
+        schema: markdownSchema,
+        doc: collab.doc,
+        plugins: collab.plugins,
+      }),
+    });
+
+    syncCmCursor(view, 1);
+    await flushAwarenessDecorations();
+
+    expect(awareness.clientID).not.toBe(localBridgeDoc.yDoc.clientID);
+    expect(container.querySelector(".ProseMirror-yjs-cursor")).toBeNull();
+
+    awareness.setLocalStateField("pmCursor", null);
+    await flushAwarenessDecorations();
   });
 });

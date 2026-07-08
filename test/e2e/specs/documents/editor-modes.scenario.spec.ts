@@ -128,8 +128,14 @@ async function expectNoCodeMirrorHorizontalOverflow(locator: Locator): Promise<v
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
 
+async function expectNoWysiwygAwareness(page: Page): Promise<void> {
+  await page.waitForTimeout(E2E_DELAYS.shortPoll);
+  await expect(page.locator(".ProseMirror-yjs-cursor")).toHaveCount(0, { timeout: 1_000 });
+}
+
 async function switchCurrentPaneToWysiwyg(page: Page): Promise<void> {
   if (await page.locator('.ProseMirror[contenteditable="true"]').isVisible().catch(() => false)) {
+    await expectNoWysiwygAwareness(page);
     return;
   }
 
@@ -151,6 +157,7 @@ async function switchCurrentPaneToWysiwyg(page: Page): Promise<void> {
   await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({
     timeout: 10_000,
   });
+  await expectNoWysiwygAwareness(page);
 }
 
 async function readSurfacePadding(locator: Locator): Promise<SurfacePadding> {
@@ -419,6 +426,7 @@ test.describe.serial("Editor Modes", () => {
       wysiwygCodeBlockStyle = await readCodeBlockVisualStyle(wysiwygCodeBlock);
       wysiwygSurfacePadding = await readSurfacePadding(wysiwyg);
       await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
+      await expectNoWysiwygAwareness(sharedPage);
     });
 
     await test.step("switch to Split mode", async () => {
@@ -530,6 +538,7 @@ test.describe.serial("Editor Modes", () => {
         timeout: 5_000,
       });
       await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
+      await expectNoWysiwygAwareness(sharedPage);
     });
 
     await test.step("collapse to WYSIWYG only from Split markdown menu after Markdown cursor activity", async () => {
@@ -569,12 +578,14 @@ test.describe.serial("Editor Modes", () => {
         timeout: 5_000,
       });
       await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
+      await expectNoWysiwygAwareness(sharedPage);
     });
 
     await test.step("content preserved through all mode switches", async () => {
       await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
       await openDocument(sharedPage, "Mode Test Doc");
       await expectEditorTextContains(sharedPage, "Hello from Markdown", 10_000);
+      await expectNoWysiwygAwareness(sharedPage);
     });
   });
 

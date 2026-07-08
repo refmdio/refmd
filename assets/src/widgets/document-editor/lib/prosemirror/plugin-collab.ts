@@ -47,6 +47,8 @@ export function setupCollabPlugins(opts: {
     parse,
     normalize: normalizeMarkdown,
   });
+  const shouldRenderRemoteAwareness = (_currentClientId: number, userClientId: number): boolean =>
+    userClientId !== awareness.clientID;
   const { plugins, doc } = createCollabPlugins(schema, {
     sharedProseMirror,
     awareness,
@@ -54,6 +56,10 @@ export function setupCollabPlugins(opts: {
     sharedText,
     cursorSync: true,
     serialize,
+    yCursorPluginOpts: {
+      // ProseMirror runs against a local bridge doc, but awareness belongs to the shared doc.
+      awarenessStateFilter: shouldRenderRemoteAwareness,
+    },
   });
   return {
     plugins,
