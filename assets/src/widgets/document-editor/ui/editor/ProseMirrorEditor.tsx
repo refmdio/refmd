@@ -273,6 +273,7 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
       yDoc: localBridgeDoc.yDoc,
       schema: markdownSchema,
       awareness,
+      cursorText: sharedYDoc.getText("content"),
     });
 
     destroyCollab = collab.destroy;

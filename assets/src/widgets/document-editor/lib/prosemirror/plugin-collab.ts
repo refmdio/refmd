@@ -6,6 +6,7 @@ import type { Plugin } from "prosemirror-state";
 import { normalizeMarkdown } from "@/shared/lib/markdown/normalize";
 import { markdownToProseMirrorDoc } from "./markdown-from";
 import { proseMirrorDocToMarkdown } from "./markdown-to";
+import { textAwarenessCursorPlugin } from "./plugin-text-awareness-cursor";
 
 function createSerialize(_schema: Schema) {
   return (doc: Node): string => {
@@ -30,11 +31,20 @@ export function setupCollabPlugins(opts: {
   yDoc: Y.Doc;
   schema: Schema;
   awareness: Awareness;
+  cursorText?: Y.Text;
   textFieldName?: string;
   xmlFieldName?: string;
 }): CollabSetup {
-  const { yDoc, schema, awareness, textFieldName = "content", xmlFieldName = "prosemirror" } = opts;
+  const {
+    yDoc,
+    schema,
+    awareness,
+    cursorText,
+    textFieldName = "content",
+    xmlFieldName = "prosemirror",
+  } = opts;
   const sharedText = yDoc.getText(textFieldName);
+  const cursorSharedText = cursorText ?? sharedText;
   const sharedProseMirror = yDoc.getXmlFragment(xmlFieldName);
   const serialize = createSerialize(schema);
   const parse = createParse(schema);
@@ -47,22 +57,29 @@ export function setupCollabPlugins(opts: {
     parse,
     normalize: normalizeMarkdown,
   });
-  const shouldRenderRemoteAwareness = (_currentClientId: number, userClientId: number): boolean =>
-    userClientId !== awareness.clientID;
+  const disableYProseMirrorCursorDecorations = (): boolean => false;
   const { plugins, doc } = createCollabPlugins(schema, {
     sharedProseMirror,
     awareness,
     bridge,
-    sharedText,
+    sharedText: cursorSharedText,
     cursorSync: true,
     serialize,
     yCursorPluginOpts: {
-      // ProseMirror runs against a local bridge doc, but awareness belongs to the shared doc.
-      awarenessStateFilter: shouldRenderRemoteAwareness,
+      // Remote WYSIWYG cursors are relative to per-device local bridge docs.
+      // Render the shared Markdown Y.Text cursor instead.
+      awarenessStateFilter: disableYProseMirrorCursorDecorations,
     },
   });
   return {
-    plugins,
+    plugins: [
+      ...plugins,
+      textAwarenessCursorPlugin({
+        awareness,
+        serialize,
+        sharedText: cursorSharedText,
+      }),
+    ],
     doc,
     bridge,
     destroy: () => {

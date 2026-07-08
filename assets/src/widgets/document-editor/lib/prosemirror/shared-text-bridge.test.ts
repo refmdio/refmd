@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { ORIGIN_INIT, syncCmCursor } from "@pm-cm/yjs";
 import { markdownToProseMirrorDoc } from "./markdown-from";
 import { markdownSchema } from "./schema";
@@ -20,7 +20,39 @@ async function flushAwarenessDecorations(): Promise<void> {
   await flushTimers();
 }
 
-afterEach(() => {
+function cleanupEditorView(view: EditorView): void {
+  view.destroy();
+  // y-prosemirror batches plugin meta updates with setTimeout and does not
+  // cancel already queued callbacks when a test destroys the view.
+  (view as unknown as { dispatch: (_tr: unknown) => void }).dispatch = () => {};
+}
+
+function createWysiwygView(sharedDoc: Y.Doc, awareness: Awareness): EditorView {
+  const localBridgeDoc = createLocalProseMirrorBridgeDoc(sharedDoc);
+  cleanupFns.push(localBridgeDoc.dispose);
+  const collab = setupCollabPlugins({
+    yDoc: localBridgeDoc.yDoc,
+    schema: markdownSchema,
+    awareness,
+    cursorText: sharedDoc.getText("content"),
+  });
+  cleanupFns.push(collab.destroy);
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  const view = new EditorView(container, {
+    state: EditorState.create({
+      schema: markdownSchema,
+      doc: collab.doc,
+      plugins: collab.plugins,
+    }),
+  });
+  cleanupFns.push(() => cleanupEditorView(view));
+  return view;
+}
+
+afterEach(async () => {
+  await flushAwarenessDecorations();
   for (const cleanup of cleanupFns.splice(0).reverse()) cleanup();
   document.body.replaceChildren();
 });
@@ -39,6 +71,7 @@ describe("createLocalProseMirrorBridgeDoc", () => {
       yDoc: localBridgeDoc.yDoc,
       schema: markdownSchema,
       awareness,
+      cursorText: sharedDoc.getText("content"),
     });
     cleanupFns.push(collab.destroy);
 
@@ -119,6 +152,7 @@ describe("createLocalProseMirrorBridgeDoc", () => {
         plugins: collab.plugins,
       }),
     });
+    cleanupFns.push(() => cleanupEditorView(view));
 
     syncCmCursor(view, 1);
     await flushAwarenessDecorations();
@@ -128,5 +162,112 @@ describe("createLocalProseMirrorBridgeDoc", () => {
 
     awareness.setLocalStateField("pmCursor", null);
     await flushAwarenessDecorations();
+  });
+
+  it("renders same-user remote WYSIWYG cursor from another device", async () => {
+    const sharedDoc = new Y.Doc();
+    cleanupFns.push(() => sharedDoc.destroy());
+    sharedDoc.getText("content").insert(0, "Cross-mode cursor text");
+
+    const receiverAwareness = new Awareness(sharedDoc);
+    cleanupFns.push(() => receiverAwareness.destroy());
+    receiverAwareness.setLocalStateField("user", {
+      userId: "same-user",
+      name: "Same User",
+      color: "#5b8def",
+    });
+    const receiverView = createWysiwygView(sharedDoc, receiverAwareness);
+
+    const senderSharedDoc = new Y.Doc();
+    cleanupFns.push(() => senderSharedDoc.destroy());
+    Y.applyUpdate(senderSharedDoc, Y.encodeStateAsUpdate(sharedDoc));
+    const senderAwareness = new Awareness(senderSharedDoc);
+    cleanupFns.push(() => senderAwareness.destroy());
+    senderAwareness.setLocalStateField("user", {
+      userId: "same-user",
+      name: "Same User",
+      color: "#5b8def",
+    });
+    const senderView = createWysiwygView(senderSharedDoc, senderAwareness);
+
+    syncCmCursor(senderView, 1);
+    await flushAwarenessDecorations();
+
+    const update = encodeAwarenessUpdate(senderAwareness, [senderAwareness.clientID]);
+    applyAwarenessUpdate(receiverAwareness, update, "remote");
+    await flushAwarenessDecorations();
+
+    expect(senderAwareness.clientID).not.toBe(receiverAwareness.clientID);
+    expect(receiverView.dom.querySelector(".ProseMirror-yjs-cursor")).not.toBeNull();
+  });
+
+  it("renders same-user remote Markdown cursor in WYSIWYG", async () => {
+    const sharedDoc = new Y.Doc();
+    cleanupFns.push(() => sharedDoc.destroy());
+    const sharedText = sharedDoc.getText("content");
+    sharedText.insert(0, "Cross-mode cursor text");
+
+    const receiverAwareness = new Awareness(sharedDoc);
+    cleanupFns.push(() => receiverAwareness.destroy());
+    receiverAwareness.setLocalStateField("user", {
+      userId: "same-user",
+      name: "Same User",
+      color: "#5b8def",
+    });
+    const receiverView = createWysiwygView(sharedDoc, receiverAwareness);
+
+    const senderSharedDoc = new Y.Doc();
+    cleanupFns.push(() => senderSharedDoc.destroy());
+    Y.applyUpdate(senderSharedDoc, Y.encodeStateAsUpdate(sharedDoc));
+    const senderSharedText = senderSharedDoc.getText("content");
+    const senderAwareness = new Awareness(senderSharedDoc);
+    cleanupFns.push(() => senderAwareness.destroy());
+    senderAwareness.setLocalStateField("user", {
+      userId: "same-user",
+      name: "Same User",
+      color: "#5b8def",
+    });
+    senderAwareness.setLocalStateField("cursor", {
+      anchor: Y.createRelativePositionFromTypeIndex(senderSharedText, 1),
+      head: Y.createRelativePositionFromTypeIndex(senderSharedText, 1),
+    });
+
+    const update = encodeAwarenessUpdate(senderAwareness, [senderAwareness.clientID]);
+    applyAwarenessUpdate(receiverAwareness, update, "remote");
+    await flushAwarenessDecorations();
+
+    expect(senderAwareness.clientID).not.toBe(receiverAwareness.clientID);
+    expect(receiverView.dom.querySelector(".ProseMirror-yjs-cursor")).not.toBeNull();
+  });
+
+  it("ignores malformed remote Markdown cursor payloads in WYSIWYG", async () => {
+    const sharedDoc = new Y.Doc();
+    cleanupFns.push(() => sharedDoc.destroy());
+    sharedDoc.getText("content").insert(0, "Cross-mode cursor text");
+
+    const receiverAwareness = new Awareness(sharedDoc);
+    cleanupFns.push(() => receiverAwareness.destroy());
+    const receiverView = createWysiwygView(sharedDoc, receiverAwareness);
+
+    const senderSharedDoc = new Y.Doc();
+    cleanupFns.push(() => senderSharedDoc.destroy());
+    Y.applyUpdate(senderSharedDoc, Y.encodeStateAsUpdate(sharedDoc));
+    const senderAwareness = new Awareness(senderSharedDoc);
+    cleanupFns.push(() => senderAwareness.destroy());
+    senderAwareness.setLocalStateField("user", {
+      userId: "same-user",
+      name: "Same User",
+      color: "#5b8def",
+    });
+    senderAwareness.setLocalStateField("cursor", {
+      anchor: {},
+      head: {},
+    });
+
+    const update = encodeAwarenessUpdate(senderAwareness, [senderAwareness.clientID]);
+    applyAwarenessUpdate(receiverAwareness, update, "remote");
+    await flushAwarenessDecorations();
+
+    expect(receiverView.dom.querySelector(".ProseMirror-yjs-cursor")).toBeNull();
   });
 });

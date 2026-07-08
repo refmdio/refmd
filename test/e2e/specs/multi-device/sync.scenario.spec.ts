@@ -297,6 +297,71 @@ async function focusVisibleEditor(page: Page): Promise<void> {
   await proseMirror.click();
 }
 
+async function switchCurrentPaneToWysiwyg(page: Page): Promise<void> {
+  if (await page.locator('.ProseMirror[contenteditable="true"]').isVisible().catch(() => false)) {
+    return;
+  }
+
+  const trigger = page.locator('[data-slot="dropdown-menu-trigger"]').last();
+  await expect(trigger).toBeVisible({ timeout: 10_000 });
+  await trigger.click();
+  const menuContent = page.locator('[data-slot="dropdown-menu-content"]');
+  await expect(menuContent).toBeVisible({ timeout: 5_000 });
+  await menuContent.locator('[data-slot="dropdown-menu-item"]', { hasText: "WYSIWYG" }).last().click();
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
+async function switchCurrentPaneToMarkdown(page: Page): Promise<void> {
+  if (
+    (await page.locator(".cm-content").isVisible().catch(() => false)) &&
+    !(await page.locator('.ProseMirror[contenteditable="true"]').isVisible().catch(() => false))
+  ) {
+    return;
+  }
+
+  const trigger = page.locator('[data-slot="dropdown-menu-trigger"]').last();
+  await expect(trigger).toBeVisible({ timeout: 10_000 });
+  await trigger.click();
+  const menuContent = page.locator('[data-slot="dropdown-menu-content"]');
+  await expect(menuContent).toBeVisible({ timeout: 5_000 });
+  const markdownOnly = menuContent.getByRole("menuitem", { name: "Markdown only" });
+  if (await markdownOnly.isVisible({ timeout: 500 }).catch(() => false)) {
+    await markdownOnly.click();
+  } else {
+    await menuContent
+      .locator('[data-slot="dropdown-menu-item"]', { hasText: "Switch to Markdown" })
+      .click();
+  }
+  await expect(page.locator(".cm-content")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).not.toBeVisible({
+    timeout: 5_000,
+  });
+}
+
+async function expectRemoteCursorVisible(
+  page: Page,
+  selector: string,
+  label: string,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => ({
+        count: await page.locator(selector).count(),
+        url: page.url(),
+      }),
+      {
+        timeout: 15_000,
+        message: `${label} remote cursor did not render`,
+      },
+    )
+    .toMatchObject({ count: 1 });
+  await expect(page.locator(selector).first(), `${label} remote cursor is hidden`).toBeVisible({
+    timeout: 5_000,
+  });
+}
+
 async function ensureEditorReady(page: Page, title: string): Promise<void> {
   const hasEditor = await page
     .locator(".cm-content, .ProseMirror")
@@ -426,7 +491,7 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
   });
 
   test("approved second device stays synchronized through burst edits", async () => {
-    test.setTimeout(E2E_TIMEOUTS.multiDevice);
+    test.setTimeout(E2E_TIMEOUTS.pluginInstall);
 
     await test.step("register on device A, create document, and type content", async () => {
       email = await registerAccount(pageA);
@@ -482,6 +547,32 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
       await ensureEditorReady(pageB, "Multi Device Doc");
       await expectEditorTextContains(pageA, "From device B.", 15_000);
       await expectEditorTextContains(pageB, "From device B.", 15_000);
+    });
+
+    await test.step("same-user awareness cursors cross Markdown and WYSIWYG modes", async () => {
+      await ensureEditorReady(pageA, "Multi Device Doc");
+      await ensureEditorReady(pageB, "Multi Device Doc");
+      await switchCurrentPaneToMarkdown(pageA);
+      await switchCurrentPaneToWysiwyg(pageB);
+      await waitForWritableDocumentSync(pageA, documentId, 60_000);
+      await waitForWritableDocumentSync(pageB, documentId, 60_000);
+
+      const markdown = pageA.locator(".cm-content").first();
+      await expect(markdown).toBeVisible({ timeout: 10_000 });
+      await markdown.click();
+      await pageA.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+      await pageA.keyboard.press("ArrowLeft");
+      await pageA.keyboard.press("ArrowRight");
+      await expectRemoteCursorVisible(pageB, ".ProseMirror-yjs-cursor", "Markdown to WYSIWYG");
+
+      const wysiwyg = pageB.locator('.ProseMirror[contenteditable="true"]').first();
+      await expect(wysiwyg).toBeVisible({ timeout: 10_000 });
+      await wysiwyg.click();
+      await pageB.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+      await pageB.keyboard.press("ArrowLeft");
+      await pageB.keyboard.press("ArrowRight");
+      await expectRemoteCursorVisible(pageA, ".cm-ySelectionCaret", "WYSIWYG to Markdown");
+      await switchCurrentPaneToMarkdown(pageB);
     });
 
     await test.step("same-user approved device concurrent edits survive snapshot rotation", async () => {
