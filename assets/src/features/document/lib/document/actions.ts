@@ -61,7 +61,7 @@ async function buildWriteStateAppend(
   const directory = await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: workspaceId,
-    popDeviceId: currentDevice.deviceId,
+    rrpDeviceId: currentDevice.deviceId,
   });
 
   const append = await buildDocumentWriteStateKeyDirectoryAppend({

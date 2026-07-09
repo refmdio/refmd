@@ -28,7 +28,7 @@ export type SemanticValidator =
   | "plugin_bundle_approval"
   | "plugin_consent_event"
   | "plugin_network_proxy_request"
-  | "pop_request"
+  | "rrp_request"
   | "pq_wrap"
   | "recipient_bound_authorization"
   | "recovery_authorization_proof"
@@ -155,30 +155,30 @@ const ACTIVE_SIGNING_SURFACES = [
     OWNER_SHARE_PARTICIPANT_DEVICE,
   ),
   surface(
-    "pop_request",
-    "pop_request",
-    "refmd.pop.request.http_user_device",
+    "rrp_request",
+    "rrp_request",
+    "refmd.rrp.request.http_user_device",
     "http_user_device",
     OWNER_DEVICE,
   ),
   surface(
-    "pop_request",
-    "pop_request",
-    "refmd.pop.request.http_share_participant_device",
+    "rrp_request",
+    "rrp_request",
+    "refmd.rrp.request.http_share_participant_device",
     "http_share_participant_device",
     OWNER_SHARE_PARTICIPANT_DEVICE,
   ),
   surface(
-    "pop_request",
-    "pop_request",
-    "refmd.pop.request.channel_user_device",
+    "rrp_request",
+    "rrp_request",
+    "refmd.rrp.request.channel_user_device",
     "channel_user_device",
     OWNER_DEVICE,
   ),
   surface(
-    "pop_request",
-    "pop_request",
-    "refmd.pop.request.channel_share_participant_device",
+    "rrp_request",
+    "rrp_request",
+    "refmd.rrp.request.channel_share_participant_device",
     "channel_share_participant_device",
     OWNER_SHARE_PARTICIPANT_DEVICE,
   ),
@@ -396,7 +396,7 @@ function semanticValidatorName(entry: ActiveSigningSurface): SemanticValidator {
     return "share_capability_authorization";
   if (entry.signing_purpose === "share_participant_device_authorization")
     return "share_participant_device_authorization";
-  if (entry.signing_purpose === "pop_request") return "pop_request";
+  if (entry.signing_purpose === "rrp_request") return "rrp_request";
   if (entry.signing_purpose === "genesis_device_bootstrap") return "genesis_device_bootstrap";
   if (entry.signing_purpose === "device_approval") return "device_approval";
   if (entry.signing_purpose === "plugin_bundle_approval") return "plugin_bundle_approval";

@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { resolvePostAuthRedirect } from "@/shared/lib/invite/redirect";
 import {
@@ -9,6 +9,11 @@ import {
   setCryptoWorkerReady,
 } from "@/entities/session";
 import { login } from "../../lib/login/login";
+import {
+  loadOAuthProviders,
+  startOAuthAuthorization,
+  type OAuthProvider,
+} from "../../lib/oauth/oauth";
 import { AuthError } from "../../lib/session/error";
 
 export function useLoginPage() {
@@ -18,6 +23,18 @@ export function useLoginPage() {
   const [rememberMe, setRememberMe] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  const [oauthLoading, setOauthLoading] = createSignal<OAuthProvider | null>(null);
+  const [oauthProviders, setOauthProviders] = createSignal<OAuthProvider[]>([]);
+
+  onMount(() => {
+    void (async () => {
+      try {
+        setOauthProviders(await loadOAuthProviders());
+      } catch {
+        setOauthProviders([]);
+      }
+    })();
+  });
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -79,6 +96,18 @@ export function useLoginPage() {
     }
   };
 
+  const handleOAuthStart = async (provider: OAuthProvider) => {
+    setError(null);
+    setOauthLoading(provider);
+
+    try {
+      await startOAuthAuthorization(provider, resolvePostAuthRedirect("/dashboard"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OAuth sign in failed");
+      setOauthLoading(null);
+    }
+  };
+
   return {
     email,
     setEmail,
@@ -88,6 +117,9 @@ export function useLoginPage() {
     setRememberMe,
     error,
     loading,
+    oauthLoading,
+    oauthProviders,
     handleSubmit,
+    handleOAuthStart,
   };
 }

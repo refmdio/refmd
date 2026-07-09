@@ -1,11 +1,11 @@
 defmodule RefMDWeb.EndpointHeaderSizeTest do
   use ExUnit.Case, async: false
 
-  @pop_signature_transport_size 6 * 1024
+  @rrp_signature_transport_size 6 * 1024
   @cookie_size 10 * 1024
   @max_update_payload_raw_bytes 1_048_576
 
-  test "Bandit endpoint accepts phase6-sized PoP header transport with total headers over 16KB" do
+  test "Bandit endpoint accepts phase6-sized RRP header transport with total headers over 16KB" do
     {:ok, _} = Application.ensure_all_started(:inets)
 
     server = start_supervised!({Bandit, bandit_options()})
@@ -15,9 +15,9 @@ defmodule RefMDWeb.EndpointHeaderSizeTest do
 
     headers = [
       {~c"x-refmd-e2e-rate-limit-bypass", ~c"1"},
-      {~c"x-pop-signature-transport",
-       String.duplicate("A", @pop_signature_transport_size) |> String.to_charlist()},
-      {~c"cookie", String.to_charlist("_refmd_key=" <> String.duplicate("c", @cookie_size))}
+      {~c"x-refmd-rrp-signature-transport",
+       String.duplicate("A", @rrp_signature_transport_size) |> String.to_charlist()},
+      {~c"cookie", String.to_charlist("__Host-refmd-key=" <> String.duplicate("c", @cookie_size))}
     ]
 
     assert {:ok, {{_, 200, _}, _headers, body}} =

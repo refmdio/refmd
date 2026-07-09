@@ -144,7 +144,7 @@ async function recoverFromMemberEnvelope(
   auth: AuthState,
   device: Pick<DeviceState, "deviceId" | "deviceEcdhPublic">,
 ): Promise<void> {
-  const envelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
+  const envelope = await encryptionApi.getMemberEnvelopeWithRrp(workspaceId);
   if (!envelope) throw new Error("member_envelope_missing");
   const worker = getCryptoWorker();
   const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(

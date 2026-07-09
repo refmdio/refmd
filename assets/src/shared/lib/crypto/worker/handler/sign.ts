@@ -24,7 +24,7 @@ import {
   buildPluginNetworkProxyRequestTranscript,
   buildWorkspacePinBootstrapTranscript,
   buildPendingRegistrationBindingHash,
-  buildPopTranscript,
+  buildRrpTranscript,
   buildRecoveryDeviceApprovalTranscript,
   buildRecoveryAuthorizationProofTranscript,
   buildRecoverySessionTranscript,
@@ -34,7 +34,7 @@ import {
   computeSigningKeyId,
   createDeviceApprovalSignature,
   createDeviceRevocationSignature,
-  createPopRequestSignature,
+  createRrpRequestSignature,
   generateHybridSigningPrivateKeyMaterial,
   publicKeyMaterialFromPrivate,
   shareCapabilityPublicKeyMaterialFromPrivate,
@@ -263,7 +263,7 @@ export function handleComputeUpdateHash(p: HandlerPayload): unknown {
   return { hash: base64UrlEncode(hash) };
 }
 
-export function handleCreatePopSignature(state: WorkerKeyState, p: HandlerPayload): unknown {
+export function handleCreateRrpSignature(state: WorkerKeyState, p: HandlerPayload): unknown {
   const requestedDeviceId = (p.deviceId as string | undefined) ?? requireDeviceId(state);
   const scope = p.scope === "share" ? "share" : "user";
   const transport = p.transport === "phoenix_channel" ? "phoenix_channel" : "http";
@@ -273,7 +273,7 @@ export function handleCreatePopSignature(state: WorkerKeyState, p: HandlerPayloa
     actorKind === "share_participant_device" ? "share_participant_device" : "device",
   );
   if (privateMaterial.owner_id !== requestedDeviceId) {
-    throw new Error("pop_device_owner_mismatch");
+    throw new Error("rrp_device_owner_mismatch");
   }
   const variant =
     transport === "phoenix_channel"
@@ -284,7 +284,7 @@ export function handleCreatePopSignature(state: WorkerKeyState, p: HandlerPayloa
         ? "http_share_participant_device"
         : "http_user_device";
 
-  const transcript = buildPopTranscript({
+  const transcript = buildRrpTranscript({
     variant,
     ownerKind: privateMaterial.owner_kind,
     ownerId: privateMaterial.owner_id,
@@ -293,7 +293,7 @@ export function handleCreatePopSignature(state: WorkerKeyState, p: HandlerPayloa
     session: p.session as Record<string, StrictJsonValue>,
     resource: p.resource as never,
   });
-  const signature = createPopRequestSignature({
+  const signature = createRrpRequestSignature({
     privateKeyMaterial: privateMaterial,
     transcript,
   });

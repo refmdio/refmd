@@ -208,7 +208,7 @@ defmodule RefMD.Repo.Migrations.CreateShares do
     create index(:share_participant_sessions, [:share_id])
     create index(:share_participant_sessions, [:expires_at])
 
-    create table(:share_participant_pop_challenges, primary_key: false) do
+    create table(:share_participant_rrp_challenges, primary_key: false) do
       add :id, :binary_id, primary_key: true
 
       add :share_id,
@@ -229,13 +229,13 @@ defmodule RefMD.Repo.Migrations.CreateShares do
       add :created_at, :utc_datetime_usec, null: false
     end
 
-    create index(:share_participant_pop_challenges, [:share_id, :device_id])
-    create index(:share_participant_pop_challenges, [:share_participant_principal_id])
-    create index(:share_participant_pop_challenges, [:share_participant_device_id])
-    create index(:share_participant_pop_challenges, [:session_id_hash])
+    create index(:share_participant_rrp_challenges, [:share_id, :device_id])
+    create index(:share_participant_rrp_challenges, [:share_participant_principal_id])
+    create index(:share_participant_rrp_challenges, [:share_participant_device_id])
+    create index(:share_participant_rrp_challenges, [:session_id_hash])
 
     create index(
-             :share_participant_pop_challenges,
+             :share_participant_rrp_challenges,
              [
                :challenge_hash,
                :session_kind,
@@ -248,11 +248,11 @@ defmodule RefMD.Repo.Migrations.CreateShares do
            )
 
     execute(
-      "ALTER TABLE share_participant_pop_challenges ADD CONSTRAINT share_participant_pop_challenges_session_kind_check CHECK (session_kind = 'share_participant')",
-      "ALTER TABLE share_participant_pop_challenges DROP CONSTRAINT share_participant_pop_challenges_session_kind_check"
+      "ALTER TABLE share_participant_rrp_challenges ADD CONSTRAINT share_participant_rrp_challenges_session_kind_check CHECK (session_kind = 'share_participant')",
+      "ALTER TABLE share_participant_rrp_challenges DROP CONSTRAINT share_participant_rrp_challenges_session_kind_check"
     )
 
-    create index(:share_participant_pop_challenges, [:expires_at])
+    create index(:share_participant_rrp_challenges, [:expires_at])
 
     create table(:share_link_secret_backup_wraps, primary_key: false) do
       add :id, :uuid, primary_key: true
@@ -301,7 +301,7 @@ defmodule RefMD.Repo.Migrations.CreateShares do
   def down do
     drop table(:share_open_consumptions)
     drop table(:share_link_secret_backup_wraps)
-    drop table(:share_participant_pop_challenges)
+    drop table(:share_participant_rrp_challenges)
     drop table(:share_participant_sessions)
     drop table(:share_participant_devices)
     drop table(:share_participant_principals)

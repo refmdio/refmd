@@ -11,7 +11,7 @@ defmodule RefMDWeb.Plugs.RequireRBAC do
     - `permission` (required): permission string or `:membership`
     - `not_member_status`: `:forbidden` (default) or `:not_found`
 
-  Requires RequireAuth (and typically RequirePoP) to run first.
+  Requires RequireAuth (and typically RequireRrp) to run first.
   Resolves workspace_id from path params, fetches membership and role,
   then checks the requested permission against the role's effective permissions.
 

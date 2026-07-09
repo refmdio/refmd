@@ -20,12 +20,12 @@ defmodule RefMDWeb.EncryptionController do
 
   def create_workspace_key(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
-    sender_device_id = pop_device_id || params["sender_device_id"]
+    rrp_device_id = conn.assigns[:rrp_device_id]
+    sender_device_id = rrp_device_id || params["sender_device_id"]
     target_user_id = params["target_user_id"]
     target_device_id = params["device_id"]
 
-    with :ok <- validate_sender_device_match(pop_device_id, params["sender_device_id"]),
+    with :ok <- validate_sender_device_match(rrp_device_id, params["sender_device_id"]),
          {:ok, workspace} <- fetch_workspace(workspace_id),
          {:ok, sender_role} <- fetch_membership(workspace_id, user_id),
          :ok <- require_workspace_member(workspace_id, target_user_id),
@@ -94,10 +94,10 @@ defmodule RefMDWeb.EncryptionController do
   def get_workspace_keys(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     device_id = params["device_id"]
-    pop_device_id = conn.assigns[:pop_device_id]
+    rrp_device_id = conn.assigns[:rrp_device_id]
 
     with :ok <- require_device_id(device_id),
-         :ok <- validate_pop_device_match(pop_device_id, device_id),
+         :ok <- validate_rrp_device_match(rrp_device_id, device_id),
          :ok <- validate_device_owned(user_id, device_id),
          :ok <- require_membership(workspace_id, user_id),
          :ok <- require_no_workspace_wipe_requirement(workspace_id, device_id) do
@@ -252,8 +252,8 @@ defmodule RefMDWeb.EncryptionController do
   defp require_workspace_key_delivery_authority(_, _, _, _),
     do: {:error, :forbidden, "forbidden"}
 
-  defp validate_sender_device_match(pop_device_id, sender_device_id) do
-    if pop_device_id != nil and sender_device_id != nil and sender_device_id != pop_device_id do
+  defp validate_sender_device_match(rrp_device_id, sender_device_id) do
+    if rrp_device_id != nil and sender_device_id != nil and sender_device_id != rrp_device_id do
       {:error, :forbidden, "sender_device_id_mismatch"}
     else
       :ok
@@ -321,10 +321,10 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp validate_pop_device_match(nil, _device_id), do: :ok
+  defp validate_rrp_device_match(nil, _device_id), do: :ok
 
-  defp validate_pop_device_match(pop_device_id, device_id) do
-    if pop_device_id != device_id do
+  defp validate_rrp_device_match(rrp_device_id, device_id) do
+    if rrp_device_id != device_id do
       {:error, :forbidden, "device_mismatch"}
     else
       :ok

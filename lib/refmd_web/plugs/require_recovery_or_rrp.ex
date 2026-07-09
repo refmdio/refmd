@@ -1,15 +1,15 @@
-defmodule RefMDWeb.Plugs.RequireRecoveryOrPoP do
+defmodule RefMDWeb.Plugs.RequireRecoveryOrRrp do
   @moduledoc """
-  Plug that exempts recovery sessions from PoP verification.
+  Plug that exempts recovery sessions from RRP verification.
 
-  Recovery sessions (is_recovery=true) bypass PoP because the device
+  Recovery sessions (is_recovery=true) bypass RRP because the device
   is not yet registered in the devices table (chicken-and-egg problem).
   Security is maintained via double Identity signature verification.
 
-  Non-recovery sessions delegate to RequirePoP.
+  Non-recovery sessions delegate to RequireRrp.
   """
 
-  alias RefMDWeb.Plugs.RequirePoP
+  alias RefMDWeb.Plugs.RequireRrp
 
   def init(opts), do: opts
 
@@ -19,7 +19,7 @@ defmodule RefMDWeb.Plugs.RequireRecoveryOrPoP do
     if session.is_recovery do
       conn
     else
-      RequirePoP.call(conn, opts)
+      RequireRrp.call(conn, opts)
     end
   end
 end

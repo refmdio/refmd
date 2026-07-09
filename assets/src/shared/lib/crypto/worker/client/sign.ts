@@ -56,7 +56,7 @@ interface KeyDirectoryCheckpointSignParams {
 }
 
 export interface SignWorkerClientMethods {
-  createPopSignature(params: {
+  createRrpSignature(params: {
     challenge: string;
     deviceId: string;
     scope?: "user" | "share";
@@ -369,8 +369,8 @@ export interface SignWorkerClientMethods {
 
 export const signWorkerClientMethods: SignWorkerClientMethods &
   ThisType<CryptoWorkerClientMethodContext> = {
-  async createPopSignature(params) {
-    return (await this[workerSend]("create-pop-signature", params)) as SignedSurfaceArtifact;
+  async createRrpSignature(params) {
+    return (await this[workerSend]("create-rrp-signature", params)) as SignedSurfaceArtifact;
   },
 
   async signDocumentUpdate(params) {

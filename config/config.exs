@@ -7,7 +7,7 @@
 # General application configuration
 import Config
 
-pop_http_header_options = [
+rrp_http_header_options = [
   http_1_options: [max_header_length: 16_384],
   http_2_options: [max_header_block_size: 16_384]
 ]
@@ -22,7 +22,7 @@ config :refmd,
 config :refmd, RefMDWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
-  http: pop_http_header_options,
+  http: rrp_http_header_options,
   render_errors: [
     formats: [json: RefMDWeb.ErrorJSON],
     layout: false
@@ -43,7 +43,7 @@ config :refmd, Oban,
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24},
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/5 * * * *", RefMD.Workers.CleanupPopChallenges},
+       {"*/5 * * * *", RefMD.Workers.CleanupRrpChallenges},
        {"*/15 * * * *", RefMD.Workers.CleanupSessions},
        {"*/30 * * * *", RefMD.Workers.CleanupPluginPackageStorage},
        {"0 * * * *", RefMD.Workers.KekRotationReminder},

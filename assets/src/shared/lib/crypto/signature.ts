@@ -91,7 +91,7 @@ export {
   buildDeviceApprovalTranscript,
   buildDeviceRevocationTranscript,
   buildGenesisDeviceBootstrapTranscript,
-  buildPopTranscript,
+  buildRrpTranscript,
 } from "./signature-device-transcripts";
 export {
   buildInitialKeyDeliveryTranscript,
@@ -456,12 +456,12 @@ async function verifySurfaceEd25519SignatureAsync(
   }
 }
 
-export function createPopRequestSignature(params: SignSurfaceSignatureParams): HybridSignature {
-  return signSurfaceSignature("pop_request", params);
+export function createRrpRequestSignature(params: SignSurfaceSignatureParams): HybridSignature {
+  return signSurfaceSignature("rrp_request", params);
 }
 
-export function verifyPopRequestSignature(params: VerifySurfaceSignatureParams): boolean {
-  return verifySurfaceSignature("pop_request", params);
+export function verifyRrpRequestSignature(params: VerifySurfaceSignatureParams): boolean {
+  return verifySurfaceSignature("rrp_request", params);
 }
 
 export function signDocumentUpdateSignature(params: SignSurfaceSignatureParams): HybridSignature {
@@ -1071,14 +1071,14 @@ function assertOwnerExactTranscriptPayload(
     );
     assertPluginNetworkProxyRequestSubject(subject, "plugin_network_proxy_request_subject_invalid");
   }
-  if (signingPurpose === "pop_request") {
+  if (signingPurpose === "rrp_request") {
     assertNonEmptyString(transcript.challenge, "challenge_invalid");
-    if (transcript.pop_variant !== variant) {
-      throw new Error("pop_variant_mismatch");
+    if (transcript.rrp_variant !== variant) {
+      throw new Error("rrp_variant_mismatch");
     }
     const expectedTransport = variant.startsWith("channel_") ? "phoenix_channel" : "http";
     if (transcript.transport !== expectedTransport) {
-      throw new Error("pop_transport_mismatch");
+      throw new Error("rrp_transport_mismatch");
     }
   }
   assertNestedOwnerExactFields(transcript, signingPurpose, variant);

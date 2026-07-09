@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/auth/oauth/{provider}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start OAuth authorization code flow */
+        post: operations["post_api_auth_oauth_by_provider_start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mounts/{mount_id}/documents/{document_token}/bootstrap": {
         parameters: {
             query?: never;
@@ -484,23 +501,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/pop-challenge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Request a PoP challenge nonce */
-        post: operations["post_api_auth_pop_challenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/plugin-candidates/{candidate_id}/approval": {
         parameters: {
             query?: never;
@@ -512,6 +512,23 @@ export interface paths {
         put?: never;
         /** Promote an approved plugin bundle candidate */
         post: operations["post_api_plugin_candidates_by_candidate_id_approval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth/crypto-setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Initialize OAuth account encryption material */
+        post: operations["post_api_auth_oauth_crypto_setup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -760,6 +777,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/dbsc/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh a user Device Bound Session Credentials cookie */
+        post: operations["post_api_auth_dbsc_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password-reset/verify": {
         parameters: {
             query?: never;
@@ -890,6 +924,57 @@ export interface paths {
         };
         /** Get the latest pinned workspace key-directory checkpoint and ancestry */
         get: operations["get_api_workspaces_by_workspace_id_key_directory_latest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/dbsc/mount/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh a mount Device Bound Session Credentials cookie */
+        post: operations["post_api_auth_dbsc_mount_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/rrp-challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a RefMD Request Proof challenge nonce */
+        post: operations["post_api_auth_rrp_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/device-bound-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Device Bound Session Credentials policy */
+        get: operations["get_well_known_device_bound_sessions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1060,7 +1145,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Regenerate recovery key (PoP required) */
+        /** Regenerate recovery key (RRP required) */
         put: operations["put_api_auth_recovery_key"];
         post?: never;
         delete?: never;
@@ -1082,8 +1167,25 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Change password (PoP required) */
+        /** Change password (RRP required) */
         patch: operations["patch_api_auth_password"];
+        trace?: never;
+    };
+    "/api/auth/oauth/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Complete OAuth authorization code flow */
+        get: operations["get_api_auth_oauth_by_provider_callback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/shares/f/{folder_token}": {
@@ -1273,6 +1375,23 @@ export interface paths {
         put?: never;
         /** Create a workspace encryption key */
         post: operations["post_api_encryption_workspaces_by_workspace_id_keys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/dbsc/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a user Device Bound Session Credentials binding */
+        post: operations["post_api_auth_dbsc_register"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1524,6 +1643,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/dbsc/share/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a share participant Device Bound Session Credentials binding */
+        post: operations["post_api_auth_dbsc_share_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/{user_id}/key-directory/latest": {
         parameters: {
             query?: never;
@@ -1587,6 +1723,23 @@ export interface paths {
         put?: never;
         /** Mark a document read-only */
         post: operations["post_api_documents_by_document_id_read_only_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/dbsc/mount/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a mount Device Bound Session Credentials binding */
+        post: operations["post_api_auth_dbsc_mount_register"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1767,6 +1920,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/dbsc/share/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh a share participant Device Bound Session Credentials cookie */
+        post: operations["post_api_auth_dbsc_share_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/shares/{share_id}/exclusions": {
         parameters: {
             query?: never;
@@ -1865,6 +2035,23 @@ export interface paths {
         put?: never;
         /** Create encrypted plugin record storage */
         post: operations["post_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List enabled OAuth providers */
+        get: operations["get_api_auth_oauth_providers"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2085,6 +2272,54 @@ export interface components {
         /** GuestInvitationsListResponse */
         GuestInvitationsListResponse: {
             invitations: components["schemas"]["GuestInvitationResponse"][];
+        };
+        /** RrpChallengeResponse */
+        RrpChallengeResponse: {
+            actor: {
+                /** Format: uuid */
+                device_id: string;
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user" | "workspace";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                user_id: string;
+            } | {
+                key_checkpoint_hash: string;
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "workspace";
+                /** Format: uuid */
+                share_id: string;
+                /** Format: uuid */
+                share_participant_device_id: string;
+                /** Format: uuid */
+                share_participant_principal_id: string;
+                /** @enum {string} */
+                signer_kind: "share_participant_device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+            };
+            challenge: string;
+            session: {
+                is_recovery: boolean;
+                session_id_hash: string;
+                /** @enum {string} */
+                session_kind: "user";
+            } | {
+                is_recovery: boolean;
+                session_id_hash: string;
+                /** @enum {string} */
+                session_kind: "share_participant";
+                /** Format: uuid */
+                share_id: string;
+            };
         };
         /** CreateDocumentRequest */
         CreateDocumentRequest: {
@@ -2828,6 +3063,15 @@ export interface components {
             nonce: string;
             plugin_id: string;
         };
+        /** DbscSessionInstructions */
+        DbscSessionInstructions: {
+            allowed_refresh_initiators?: string[];
+            continue?: boolean;
+            credentials: components["schemas"]["DbscSessionCredential"][];
+            refresh_url: string;
+            scope: components["schemas"]["DbscSessionScope"];
+            session_identifier: string;
+        };
         /** RotationDeletionEvidence */
         RotationDeletionEvidence: {
             deletion_manifest: components["schemas"]["OldKeyDeletionManifest"];
@@ -3035,6 +3279,13 @@ export interface components {
             token_prefix: string;
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** DbscSessionCredential */
+        DbscSessionCredential: {
+            attributes?: string;
+            name: string;
+            /** @enum {string} */
+            type: "cookie";
         };
         /** PublicDocumentResponse */
         PublicDocumentResponse: {
@@ -8857,6 +9108,9 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_latest_checkpoint: components["schemas"]["KeyDirectoryEnvelope"] | null;
             workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"] | null;
         };
         /** InitialAkeUmkTranscript */
@@ -9466,6 +9720,10 @@ export interface components {
             max_views: number;
             view_count: number;
         };
+        /** OAuthProvidersResponse */
+        OAuthProvidersResponse: {
+            providers: ("google" | "github")[];
+        };
         /** SettingsResponse */
         SettingsResponse: {
             /** @enum {string} */
@@ -9478,6 +9736,11 @@ export interface components {
             plugin_network_proxy?: components["schemas"]["PluginNetworkProxyRegistration"];
             /** @enum {string} */
             theme: "light" | "dark" | "system";
+        };
+        /** OAuthStartResponse */
+        OAuthStartResponse: {
+            /** Format: uri */
+            authorization_url: string;
         };
         /** ShareDocumentRouteMetadataResponse */
         ShareDocumentRouteMetadataResponse: {
@@ -9947,54 +10210,6 @@ export interface components {
             email: string;
             remember_me?: boolean;
         };
-        /** PopChallengeResponse */
-        PopChallengeResponse: {
-            actor: {
-                /** Format: uuid */
-                device_id: string;
-                key_checkpoint_hash: string;
-                key_checkpoint_sequence: number;
-                /** Format: uuid */
-                key_scope_id: string;
-                /** @enum {string} */
-                key_scope_kind: "user" | "workspace";
-                /** @enum {string} */
-                signer_kind: "device";
-                signing_key_id: components["schemas"]["Blake3Base64Url"];
-                /** Format: uuid */
-                user_id: string;
-            } | {
-                key_checkpoint_hash: string;
-                key_checkpoint_sequence: number;
-                /** Format: uuid */
-                key_scope_id: string;
-                /** @enum {string} */
-                key_scope_kind: "workspace";
-                /** Format: uuid */
-                share_id: string;
-                /** Format: uuid */
-                share_participant_device_id: string;
-                /** Format: uuid */
-                share_participant_principal_id: string;
-                /** @enum {string} */
-                signer_kind: "share_participant_device";
-                signing_key_id: components["schemas"]["Blake3Base64Url"];
-            };
-            challenge: string;
-            session: {
-                is_recovery: boolean;
-                session_id_hash: string;
-                /** @enum {string} */
-                session_kind: "user";
-            } | {
-                is_recovery: boolean;
-                session_id_hash: string;
-                /** @enum {string} */
-                session_kind: "share_participant";
-                /** Format: uuid */
-                share_id: string;
-            };
-        };
         /** ApprovalDeliveryArtifacts */
         ApprovalDeliveryArtifacts: {
             device_approval_kek_initial_deliveries: {
@@ -10184,6 +10399,13 @@ export interface components {
             /** @enum {integer} */
             version: 1;
             x25519_public: string;
+        };
+        /** DbscSessionScope */
+        DbscSessionScope: {
+            include_site: boolean;
+            /** Format: uri */
+            origin?: string;
+            scope_specification?: components["schemas"]["DbscSessionScopeRule"][];
         };
         /** InitialAkeApprovalDirectory */
         InitialAkeApprovalDirectory: {
@@ -10401,6 +10623,13 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /** DbscSessionScopeRule */
+        DbscSessionScopeRule: {
+            domain?: string;
+            path?: string;
+            /** @enum {string} */
+            type: "include" | "exclude";
+        };
         /** RegistrationChallengeResponse */
         RegistrationChallengeResponse: {
             expires_in_seconds: number;
@@ -10504,6 +10733,16 @@ export interface components {
             /** @enum {string} */
             variant: "umk_distribution";
         };
+        /** OAuthCryptoSetupResponse */
+        OAuthCryptoSetupResponse: {
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
+            /** Format: uuid */
+            workspace_id: string;
+            /** Format: uuid */
+            workspace_owner_role_id: string;
+        };
         /** DocumentKeyResponse */
         DocumentKeyResponse: {
             /** Format: date-time */
@@ -10585,6 +10824,10 @@ export interface components {
             suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
             /** @enum {integer} */
             suite_rank: 1000;
+        };
+        /** OAuthStartRequest */
+        OAuthStartRequest: {
+            return_to?: string;
         };
         /** Blake3Base64Url */
         Blake3Base64Url: string;
@@ -11200,6 +11443,19 @@ export interface components {
             user_checkpoint_hash: string;
             user_event_head_hash: string;
         };
+        /** OAuthCryptoSetupRequest */
+        OAuthCryptoSetupRequest: {
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
+            hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            recovery_authorization_key_id: string;
+            recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            recovery_encrypted_umk: string;
+            recovery_nonce: string;
+        };
         /** PublicationContentResponse */
         PublicationContentResponse: {
             /** Format: date-time */
@@ -11345,18 +11601,54 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    post_api_auth_oauth_by_provider_start: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "google" | "github";
+            };
+            cookie?: never;
+        };
+        /** @description OAuth start params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OAuthStartRequest"];
+            };
+        };
+        responses: {
+            /** @description OAuth authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthStartResponse"];
+                };
+            };
+            /** @description OAuth start failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_mounts_by_mount_id_documents_by_document_token_bootstrap: {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;
@@ -11518,14 +11810,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -11629,14 +11921,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 device_id: string;
@@ -11678,14 +11970,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 device_id: string;
@@ -11779,14 +12071,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -11899,14 +12191,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -11958,14 +12250,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12056,14 +12348,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12110,14 +12402,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12182,14 +12474,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12213,14 +12505,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12276,14 +12568,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12349,14 +12641,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -12421,14 +12713,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12461,14 +12753,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12542,14 +12834,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12651,14 +12943,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12740,14 +13032,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -12780,14 +13072,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -12909,52 +13201,18 @@ export interface operations {
             };
         };
     };
-    post_api_auth_pop_challenge: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Set to share to select the share participant session cookie on dual-session routes. */
-                "x-refmd-session-scope"?: "share";
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Challenge response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PopChallengeResponse"];
-                };
-            };
-            /** @description Invalid device */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     post_api_plugin_candidates_by_candidate_id_approval: {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 candidate_id: string;
@@ -12992,18 +13250,70 @@ export interface operations {
             };
         };
     };
+    post_api_auth_oauth_crypto_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description OAuth crypto setup params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OAuthCryptoSetupRequest"];
+            };
+        };
+        responses: {
+            /** @description OAuth crypto setup response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthCryptoSetupResponse"];
+                };
+            };
+            /** @description OAuth crypto setup forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description OAuth crypto setup conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces_by_workspace_id_guest_invitations: {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13036,14 +13346,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13117,14 +13427,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13194,14 +13504,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13320,14 +13630,14 @@ export interface operations {
                 workspace_id: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -13358,14 +13668,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -13419,14 +13729,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 notification_id: string;
@@ -13459,14 +13769,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13513,14 +13823,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13593,14 +13903,14 @@ export interface operations {
                 document_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13653,14 +13963,14 @@ export interface operations {
                 document_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13727,14 +14037,14 @@ export interface operations {
                 document_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13839,6 +14149,38 @@ export interface operations {
             };
         };
     };
+    post_api_auth_dbsc_refresh: {
+        parameters: {
+            query?: never;
+            header: {
+                "sec-secure-session-id": string;
+                "secure-session-response": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC session instructions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbscSessionInstructions"];
+                };
+            };
+            /** @description DBSC refresh failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_auth_password_reset_verify: {
         parameters: {
             query?: never;
@@ -13877,14 +14219,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 notification_id: string;
@@ -13917,14 +14259,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13957,14 +14299,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -13997,14 +14339,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -14053,14 +14395,14 @@ export interface operations {
                 include_revoked?: boolean;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -14094,14 +14436,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -14157,14 +14499,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -14222,14 +14564,14 @@ export interface operations {
                 event_head_hash: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device" | "share_participant_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device" | "share_participant_device";
                 /** @description Set to share to select the share participant session cookie on dual-session routes. */
                 "x-refmd-session-scope"?: "share";
             };
@@ -14283,6 +14625,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_dbsc_mount_refresh: {
+        parameters: {
+            query?: never;
+            header: {
+                "sec-secure-session-id": string;
+                "secure-session-response": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC session instructions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbscSessionInstructions"];
+                };
+            };
+            /** @description DBSC refresh failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_rrp_challenge: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Set to share to select the share participant session cookie on dual-session routes. */
+                "x-refmd-session-scope"?: "share";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Challenge response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RrpChallengeResponse"];
+                };
+            };
+            /** @description Invalid device */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_well_known_device_bound_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC well-known policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
         };
@@ -14368,14 +14796,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -14432,14 +14860,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 candidate_id: string;
@@ -14559,14 +14987,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -14666,14 +15094,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -14707,14 +15135,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -14753,14 +15181,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -14796,14 +15224,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -14835,6 +15263,48 @@ export interface operations {
             };
             /** @description Update failed */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_auth_oauth_by_provider_callback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                scope?: string;
+                authuser?: string;
+                prompt?: string;
+                iss?: string;
+                hd?: string;
+                error?: string;
+                error_description?: string;
+                error_uri?: string;
+            };
+            header?: never;
+            path: {
+                provider: "google" | "github";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth callback redirect */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description OAuth callback failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14942,14 +15412,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -15045,14 +15515,14 @@ export interface operations {
                 workspace_id: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -15171,14 +15641,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -15220,14 +15690,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -15278,14 +15748,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -15341,14 +15811,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -15405,14 +15875,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -15469,14 +15939,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -15509,14 +15979,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -15565,14 +16035,14 @@ export interface operations {
                 device_id: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -15623,14 +16093,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -15664,18 +16134,49 @@ export interface operations {
             };
         };
     };
+    post_api_auth_dbsc_register: {
+        parameters: {
+            query?: never;
+            header: {
+                "secure-session-response": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC session instructions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbscSessionInstructions"];
+                };
+            };
+            /** @description DBSC registration failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_mounts_by_mount_id_folders_by_folder_token_bootstrap: {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;
@@ -15741,14 +16242,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -15837,14 +16338,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;
@@ -15904,14 +16405,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;
@@ -15971,14 +16472,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;
@@ -16052,14 +16553,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -16104,14 +16605,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -16133,14 +16634,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -16171,14 +16672,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -16234,14 +16735,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -16274,14 +16775,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -16346,14 +16847,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -16409,14 +16910,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -16528,14 +17029,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -16591,14 +17092,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -16646,14 +17147,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -16701,14 +17202,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -16760,6 +17261,37 @@ export interface operations {
             };
         };
     };
+    post_api_auth_dbsc_share_register: {
+        parameters: {
+            query?: never;
+            header: {
+                "secure-session-response": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC session instructions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbscSessionInstructions"];
+                };
+            };
+            /** @description DBSC registration failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_users_by_user_id_key_directory_latest: {
         parameters: {
             query: {
@@ -16769,14 +17301,14 @@ export interface operations {
                 event_head_hash: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device" | "share_participant_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device" | "share_participant_device";
                 /** @description Set to share to select the share participant session cookie on dual-session routes. */
                 "x-refmd-session-scope"?: "share";
             };
@@ -16838,14 +17370,14 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id"?: string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge"?: string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport"?: string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant"?: "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id"?: string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge"?: string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport"?: string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant"?: "user_device";
             };
             path: {
                 device_id: string;
@@ -16901,14 +17433,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -16941,14 +17473,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -16990,14 +17522,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -17049,6 +17581,37 @@ export interface operations {
             };
         };
     };
+    post_api_auth_dbsc_mount_register: {
+        parameters: {
+            query?: never;
+            header: {
+                "secure-session-response": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC session instructions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbscSessionInstructions"];
+                };
+            };
+            /** @description DBSC registration failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_auth_recovery: {
         parameters: {
             query?: never;
@@ -17082,14 +17645,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -17140,14 +17703,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -17192,14 +17755,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 device_id: string;
@@ -17264,14 +17827,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 device_id: string;
@@ -17326,14 +17889,14 @@ export interface operations {
                 document_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -17386,14 +17949,14 @@ export interface operations {
                 document_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -17438,14 +18001,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -17494,14 +18057,14 @@ export interface operations {
                 new_kek_version: number;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -17543,14 +18106,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -17590,14 +18153,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -17639,14 +18202,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -17714,14 +18277,14 @@ export interface operations {
                 recipient_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path?: never;
             cookie?: never;
@@ -17739,18 +18302,50 @@ export interface operations {
             };
         };
     };
+    post_api_auth_dbsc_share_refresh: {
+        parameters: {
+            query?: never;
+            header: {
+                "sec-secure-session-id": string;
+                "secure-session-response": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DBSC session instructions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbscSessionInstructions"];
+                };
+            };
+            /** @description DBSC refresh failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     patch_api_documents_by_document_id_shares_by_share_id_exclusions: {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -17807,14 +18402,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 activation_id: string;
@@ -17865,14 +18460,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 activation_id: string;
@@ -18011,14 +18606,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -18083,14 +18678,14 @@ export interface operations {
                 document_id?: string;
             };
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 workspace_id: string;
@@ -18144,18 +18739,38 @@ export interface operations {
             };
         };
     };
+    get_api_auth_oauth_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Enabled OAuth providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthProvidersResponse"];
+                };
+            };
+        };
+    };
     get_api_documents_by_document_id_publication: {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -18197,14 +18812,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -18278,14 +18893,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -18327,14 +18942,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 document_id: string;
@@ -18399,14 +19014,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;
@@ -18466,14 +19081,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description PoP signing device id. */
-                "x-pop-device-id": string;
-                /** @description Strict base64url PoP challenge. */
-                "x-pop-challenge": string;
-                /** @description Base64url encoded canonical PoP signature transport. */
-                "x-pop-signature-transport": string;
-                /** @description PoP actor variant. */
-                "x-pop-actor-variant": "user_device";
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
             };
             path: {
                 mount_id: string;

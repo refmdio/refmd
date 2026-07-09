@@ -78,11 +78,14 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
-  defp with_pop_headers(
+  defp with_rrp_headers(
          conn,
          user_id,
          device,
@@ -92,7 +95,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
          body,
          query
        ) do
-    put_test_pop_headers(conn, user_id, device, signing_private_key, method, path, body, query)
+    put_test_rrp_headers(conn, user_id, device, signing_private_key, method, path, body, query)
   end
 
   setup do
@@ -146,7 +149,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     put_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -186,7 +189,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     get_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -205,7 +208,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     delete_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -221,7 +224,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     missing_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -256,7 +259,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     write_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -278,7 +281,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     read_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -297,7 +300,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     delete_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -313,7 +316,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     missing_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -348,7 +351,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -384,7 +387,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -410,7 +413,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     limited_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -458,7 +461,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
       conn =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(owner_id, owner_device.device)
-        |> with_pop_headers(
+        |> with_rrp_headers(
           owner_id,
           owner_device.device,
           owner_device.signing_private_key,
@@ -478,7 +481,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     stale_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -521,7 +524,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -563,7 +566,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -598,7 +601,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -635,7 +638,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     create_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -664,7 +667,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     missing_id_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -682,7 +685,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     invalid_id_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -701,7 +704,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     get_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -724,7 +727,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     delete_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -740,7 +743,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     missing_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -777,7 +780,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     create_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -807,7 +810,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     read_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -852,7 +855,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -904,7 +907,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
       conn =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(owner_id, owner_device.device)
-        |> with_pop_headers(
+        |> with_rrp_headers(
           owner_id,
           owner_device.device,
           owner_device.signing_private_key,
@@ -924,7 +927,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     stale_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -982,7 +985,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     valid_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -1005,7 +1008,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     invalid_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -1075,7 +1078,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     denied_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -1097,7 +1100,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     allowed_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -1171,7 +1174,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     denied_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -1192,7 +1195,7 @@ defmodule RefMDWeb.PluginStorageControllerTest do
     allowed_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,

@@ -450,6 +450,7 @@ defmodule RefMDWeb.ShareController do
   defp render_bootstrap_result(conn, {:ok, result}) do
     conn
     |> set_share_session_cookie(result.session_token, false)
+    |> put_registration_header(:share_participant, result.session)
     |> json(%{
       root: result.root,
       share_id: result.share_id,
@@ -565,7 +566,7 @@ defmodule RefMDWeb.ShareController do
     |> String.split(";")
     |> Enum.find_value(fn part ->
       case String.trim(part) |> String.split("=", parts: 2) do
-        ["_refmd_share_session", value] -> value
+        ["__Host-refmd-share-session", value] -> value
         _ -> nil
       end
     end)

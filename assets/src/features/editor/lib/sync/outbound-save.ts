@@ -165,7 +165,7 @@ async function recoverAdmissionAdvanceRace(
     const directory = await fetchVerifiedKeyDirectory({
       scopeKind: advance.scopeKind,
       scopeId: advance.scopeId,
-      popDeviceId: deviceId,
+      rrpDeviceId: deviceId,
       popScope: state.access.kind === "share" ? "share" : "user",
       popWorker: state.access.kind === "share" ? getDocumentCryptoWorker(state) : undefined,
     });

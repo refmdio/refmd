@@ -99,7 +99,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       sandbox_session_conn
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body)
       |> post(path, body)
       |> json_response(200)
 
@@ -127,7 +127,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, forged_body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, forged_body)
       |> post(path, forged_body)
 
     assert json_response(forged_conn, 403) == %{
@@ -216,7 +216,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body)
       |> post(path, body)
       |> json_response(200)
 
@@ -264,7 +264,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, stale_body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, stale_body)
       |> post(path, stale_body)
 
     assert json_response(stale_conn, 409) == %{"error" => "plugin_state_rollback"}
@@ -278,7 +278,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body)
       |> post(path, body)
 
     assert json_response(disabled_conn, 403) == %{"error" => "plugin_activation_disabled"}
@@ -318,7 +318,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     no_gate_conn =
       sandbox_session_conn
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body)
       |> post(path, body)
 
     assert json_response(no_gate_conn, 409) == %{"error" => "plugin_wasm_runtime_disabled"}
@@ -335,7 +335,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -366,7 +366,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       accepted_session_conn
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, accepted_body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, accepted_body)
       |> post(path, accepted_body)
       |> json_response(200)
 
@@ -403,7 +403,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       conn
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "PATCH", path, disable_body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "PATCH", path, disable_body)
       |> patch(path, disable_body)
       |> json_response(200)
 
@@ -441,7 +441,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -459,7 +459,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "PATCH", path, enable_body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "PATCH", path, enable_body)
       |> patch(path, enable_body)
       |> json_response(200)
 
@@ -469,7 +469,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -504,7 +504,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       conn
       |> authed_conn(requester.user_id, requester.device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         requester.user_id,
         requester.device,
         requester.signing_private_key,
@@ -533,7 +533,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     delete_response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "DELETE", path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "DELETE", path, "", "")
       |> delete(path)
       |> json_response(200)
 
@@ -578,7 +578,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -595,7 +595,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     list_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", list_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", list_path, "", "")
       |> get(list_path)
       |> json_response(200)
 
@@ -647,7 +647,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       sandbox_session_conn
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body)
       |> post(path, body)
       |> json_response(200)
 
@@ -697,7 +697,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       sandbox_session_conn
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body)
       |> post(path, body)
       |> json_response(200)
 
@@ -758,7 +758,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", path, "", "")
       |> get(path)
       |> json_response(200)
 
@@ -783,7 +783,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
   test "applies a user-owned package to workspace runtime through management API", %{conn: conn} do
     account = create_runtime_account()
     %{user_id: user_id, device: device, signing_private_key: signing_private_key} = account
-    device = TestCrypto.ensure_test_user_pop_key_directory!(user_id, device)
+    device = TestCrypto.ensure_test_user_rrp_key_directory!(user_id, device)
 
     {:ok, workspace} = Workspaces.create_default_workspace(user_id, "User Plugin Runtime")
     insert_runtime_workspace_key_directory!(workspace.id, user_id, account)
@@ -819,7 +819,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       conn
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -840,7 +840,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     activations_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -881,7 +881,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     runtime_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", runtime_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", runtime_path, "", "")
       |> get(runtime_path)
       |> json_response(200)
 
@@ -948,7 +948,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     runtime_response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", runtime_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", runtime_path, "", "")
       |> get(runtime_path)
       |> json_response(200)
 
@@ -957,7 +957,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     consent_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", consent_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", consent_path, "", "")
       |> get(consent_path)
       |> json_response(200)
 
@@ -1006,7 +1006,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", path, "", "")
       |> get(path)
       |> json_response(200)
 
@@ -1056,7 +1056,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", path, "", "")
       |> get(path)
       |> json_response(200)
 
@@ -1093,7 +1093,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     scoped_user_response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1126,7 +1126,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     unauthorized_workspace_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(other_user_id, other_device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         other_user_id,
         other_device,
         other_signing_private_key,
@@ -1147,7 +1147,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     manifest_routed_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1225,7 +1225,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     user_manifest_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1292,7 +1292,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     user_manifest_promote_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1340,7 +1340,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     dual_manifest_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(member_user_id, member_device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         member_user_id,
         member_device,
         member_signing_private_key,
@@ -1391,7 +1391,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     local_response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1412,7 +1412,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     summary_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", summary_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", summary_path, "", "")
       |> get(summary_path)
       |> json_response(200)
 
@@ -1481,7 +1481,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     promote_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1499,7 +1499,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     package_list_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", local_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", local_path, "", "")
       |> get(local_path)
       |> json_response(200)
 
@@ -1515,7 +1515,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     apply_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1542,7 +1542,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     list_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", list_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", list_path, "", "")
       |> get(list_path)
       |> json_response(200)
 
@@ -1561,7 +1561,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     disable_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1580,7 +1580,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
 
     Phoenix.ConnTest.build_conn()
     |> authed_conn(user_id, device)
-    |> put_test_pop_headers(
+    |> put_test_rrp_headers(
       user_id,
       device,
       signing_private_key,
@@ -1597,7 +1597,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     policy_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1615,7 +1615,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
 
     Phoenix.ConnTest.build_conn()
     |> authed_conn(user_id, device)
-    |> put_test_pop_headers(
+    |> put_test_rrp_headers(
       user_id,
       device,
       signing_private_key,
@@ -1682,7 +1682,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     consent_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1699,7 +1699,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     delete_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "DELETE", update_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "DELETE", update_path, "", "")
       |> delete(update_path)
       |> json_response(200)
 
@@ -1720,7 +1720,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     list_after_delete_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", list_path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", list_path, "", "")
       |> get(list_path)
       |> json_response(200)
 
@@ -1729,7 +1729,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     activations_after_delete_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1760,7 +1760,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
       |> put_req_header("content-type", "application/json")
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1775,7 +1775,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     reapply_response =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1793,11 +1793,11 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     assert get_in(reapply_response, ["activation", "id"]) != activation_id
   end
 
-  test "plugin artifact acquisition and sandbox arming routes reject missing PoP", %{conn: conn} do
+  test "plugin artifact acquisition and sandbox arming routes reject missing RRP", %{conn: conn} do
     account = create_runtime_account()
     %{user_id: user_id, device: device} = account
 
-    {:ok, workspace} = Workspaces.create_default_workspace(user_id, "Plugin Missing PoP")
+    {:ok, workspace} = Workspaces.create_default_workspace(user_id, "Plugin Missing RRP")
     insert_runtime_workspace_key_directory!(workspace.id, user_id, account)
 
     sandbox_path =
@@ -1816,14 +1816,14 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       |> post(sandbox_path, test_json_body(sandbox_body))
       |> json_response(403)
 
-    assert sandbox_response["error"] == "pop_missing_device_id"
+    assert sandbox_response["error"] == "rrp_missing_device_id"
 
     local_body = %{
       "source_kind" => "local_upload",
       "archive_base64" => Base.encode64("not-a-plugin-archive")
     }
 
-    missing_pop_posts = [
+    missing_rrp_posts = [
       {"/api/workspaces/#{workspace.id}/plugin-packages", local_body},
       {"/api/plugin-packages", local_body},
       {"/api/plugin-candidates", Map.put(local_body, "workspace_id", workspace.id)},
@@ -1837,7 +1837,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
        }}
     ]
 
-    for {path, body} <- missing_pop_posts do
+    for {path, body} <- missing_rrp_posts do
       response =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(user_id, device)
@@ -1845,7 +1845,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
         |> post(path, test_json_body(body))
         |> json_response(403)
 
-      assert response["error"] == "pop_missing_device_id"
+      assert response["error"] == "rrp_missing_device_id"
     end
   end
 
@@ -1902,7 +1902,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     conn =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body, "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body, "")
       |> post(path, test_json_body(body))
 
     assert json_response(conn, 200) == %{"ok" => true}
@@ -1935,7 +1935,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     navigation_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1963,7 +1963,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     bundle_import_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -1993,7 +1993,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     document_write_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2030,7 +2030,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     network_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2067,7 +2067,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     blocked_network_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2106,7 +2106,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       pre_target_blocked_conn =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(user_id, device)
-        |> put_test_pop_headers(
+        |> put_test_rrp_headers(
           user_id,
           device,
           signing_private_key,
@@ -2130,7 +2130,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     sensitive_network_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2160,7 +2160,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       plaintext_conn =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(user_id, device)
-        |> put_test_pop_headers(
+        |> put_test_rrp_headers(
           user_id,
           device,
           signing_private_key,
@@ -2192,7 +2192,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     plaintext_denied_without_context_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2270,7 +2270,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     conn =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body, "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body, "")
       |> post(path, test_json_body(body))
 
     assert json_response(conn, 200) == %{"ok" => true}
@@ -2290,7 +2290,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     plaintext_denied_without_context_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2690,7 +2690,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       rejected_conn =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(user_id, device)
-        |> put_test_pop_headers(
+        |> put_test_rrp_headers(
           user_id,
           device,
           signing_private_key,
@@ -2711,7 +2711,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     unsupported_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -2736,7 +2736,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       rejected_conn =
         Phoenix.ConnTest.build_conn()
         |> authed_conn(user_id, device)
-        |> put_test_pop_headers(
+        |> put_test_rrp_headers(
           user_id,
           device,
           signing_private_key,
@@ -2757,7 +2757,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     stale_frame_conn =
       Phoenix.ConnTest.build_conn()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device,
         signing_private_key,
@@ -3447,7 +3447,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
   test "accepts terminal lifecycle audits for user-owned pending secondary frames" do
     account = create_runtime_account()
     %{user_id: user_id, device: device, signing_private_key: signing_private_key} = account
-    device = TestCrypto.ensure_test_user_pop_key_directory!(user_id, device)
+    device = TestCrypto.ensure_test_user_rrp_key_directory!(user_id, device)
 
     {:ok, workspace} =
       Workspaces.create_default_workspace(user_id, "User Plugin Secondary Pending Terminal Audit")
@@ -3620,7 +3620,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       conn
       |> recycle()
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body, "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body, "")
       |> post(path, test_json_body(body))
 
     assert json_response(rejected_conn, 422) == %{
@@ -3631,7 +3631,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
   defp post_runtime_audit(user_id, device, signing_private_key, path, body) do
     Phoenix.ConnTest.build_conn()
     |> authed_conn(user_id, device)
-    |> put_test_pop_headers(user_id, device, signing_private_key, "POST", path, body, "")
+    |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body, "")
     |> post(path, test_json_body(body))
   end
 
@@ -3950,7 +3950,10 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 

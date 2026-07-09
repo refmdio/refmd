@@ -5,7 +5,7 @@ defmodule RefMDWeb.ApiSpecTest do
 
   @root Path.expand("../..", __DIR__)
 
-  test "sandbox document GET is session navigation and POST remains PoP protected" do
+  test "sandbox document GET is session navigation and POST remains RRP protected" do
     spec = ApiSpec.spec()
 
     get_operation =
@@ -21,18 +21,18 @@ defmodule RefMDWeb.ApiSpecTest do
       |> Map.fetch!(:post)
 
     assert get_operation.security == [%{"user_session" => []}]
-    refute header_parameter?(get_operation, "x-pop-device-id")
-    refute header_parameter?(get_operation, "x-pop-challenge")
-    refute header_parameter?(get_operation, "x-pop-signature-transport")
-    refute header_parameter?(get_operation, "x-pop-actor-variant")
+    refute header_parameter?(get_operation, "x-refmd-rrp-device-id")
+    refute header_parameter?(get_operation, "x-refmd-rrp-challenge")
+    refute header_parameter?(get_operation, "x-refmd-rrp-signature-transport")
+    refute header_parameter?(get_operation, "x-refmd-rrp-actor-variant")
 
-    assert header_parameter?(post_operation, "x-pop-device-id")
-    assert header_parameter?(post_operation, "x-pop-challenge")
-    assert header_parameter?(post_operation, "x-pop-signature-transport")
-    assert header_parameter?(post_operation, "x-pop-actor-variant")
+    assert header_parameter?(post_operation, "x-refmd-rrp-device-id")
+    assert header_parameter?(post_operation, "x-refmd-rrp-challenge")
+    assert header_parameter?(post_operation, "x-refmd-rrp-signature-transport")
+    assert header_parameter?(post_operation, "x-refmd-rrp-actor-variant")
   end
 
-  test "generated TypeScript schema keeps sandbox document GET PoP-free" do
+  test "generated TypeScript schema keeps sandbox document GET RRP-free" do
     schema =
       @root
       |> Path.join("assets/src/shared/api/schema.d.ts")
@@ -48,15 +48,15 @@ defmodule RefMDWeb.ApiSpecTest do
       )
 
     assert get_operation =~ "header?: never;"
-    refute get_operation =~ "\"x-pop-device-id\""
-    refute get_operation =~ "\"x-pop-challenge\""
-    refute get_operation =~ "\"x-pop-signature-transport\""
-    refute get_operation =~ "\"x-pop-actor-variant\""
+    refute get_operation =~ "\"x-refmd-rrp-device-id\""
+    refute get_operation =~ "\"x-refmd-rrp-challenge\""
+    refute get_operation =~ "\"x-refmd-rrp-signature-transport\""
+    refute get_operation =~ "\"x-refmd-rrp-actor-variant\""
 
-    assert post_operation =~ "\"x-pop-device-id\": string;"
-    assert post_operation =~ "\"x-pop-challenge\": string;"
-    assert post_operation =~ "\"x-pop-signature-transport\": string;"
-    assert post_operation =~ "\"x-pop-actor-variant\": \"user_device\";"
+    assert post_operation =~ "\"x-refmd-rrp-device-id\": string;"
+    assert post_operation =~ "\"x-refmd-rrp-challenge\": string;"
+    assert post_operation =~ "\"x-refmd-rrp-signature-transport\": string;"
+    assert post_operation =~ "\"x-refmd-rrp-actor-variant\": \"user_device\";"
   end
 
   defp header_parameter?(operation, name) do

@@ -257,34 +257,34 @@ export const OWNER_EXACT_PAYLOAD_KEYS: Record<string, readonly string[]> = {
     "subject_version",
     "user_id",
   ],
-  "pop_request:channel_share_participant_device": [
+  "rrp_request:channel_share_participant_device": [
     "actor",
     "challenge",
-    "pop_variant",
+    "rrp_variant",
     "resource",
     "session",
     "transport",
   ],
-  "pop_request:channel_user_device": [
+  "rrp_request:channel_user_device": [
     "actor",
     "challenge",
-    "pop_variant",
+    "rrp_variant",
     "resource",
     "session",
     "transport",
   ],
-  "pop_request:http_share_participant_device": [
+  "rrp_request:http_share_participant_device": [
     "actor",
     "challenge",
-    "pop_variant",
+    "rrp_variant",
     "request",
     "session",
     "transport",
   ],
-  "pop_request:http_user_device": [
+  "rrp_request:http_user_device": [
     "actor",
     "challenge",
-    "pop_variant",
+    "rrp_variant",
     "request",
     "session",
     "transport",
@@ -496,7 +496,7 @@ export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly str
       "user_identity_public_key_hash",
     ],
   },
-  "pop_request:*": {
+  "rrp_request:*": {
     session: ["is_recovery", "session_id_hash", "session_kind"],
   },
   "plugin_bundle_approval:none": {
@@ -573,7 +573,7 @@ export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly str
       "workspace_id",
     ],
   },
-  "pop_request:channel_share_participant_device": {
+  "rrp_request:channel_share_participant_device": {
     actor: [
       "key_checkpoint_hash",
       "key_checkpoint_sequence",
@@ -597,7 +597,7 @@ export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly str
     ],
     session: ["is_recovery", "session_id_hash", "session_kind", "share_id"],
   },
-  "pop_request:channel_user_device": {
+  "rrp_request:channel_user_device": {
     actor: [
       "device_id",
       "key_checkpoint_hash",
@@ -620,7 +620,7 @@ export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly str
     ],
     session: ["is_recovery", "session_id_hash", "session_kind"],
   },
-  "pop_request:http_share_participant_device": {
+  "rrp_request:http_share_participant_device": {
     actor: [
       "key_checkpoint_hash",
       "key_checkpoint_sequence",
@@ -635,7 +635,7 @@ export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly str
     request: ["body_hash", "canonical_query", "method", "path", "query_hash"],
     session: ["is_recovery", "session_id_hash", "session_kind", "share_id"],
   },
-  "pop_request:http_user_device": {
+  "rrp_request:http_user_device": {
     actor: [
       "device_id",
       "key_checkpoint_hash",

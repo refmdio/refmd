@@ -134,11 +134,11 @@ test("same-account devices survive simultaneous reload of the same document", as
         requestCounts.authMe += 1;
         if (response.status() === 401) requestCounts.authMe401 += 1;
       }
-      if (url.includes("/api/auth/pop-challenge")) {
+      if (url.includes("/api/auth/rrp-challenge")) {
         requestCounts.popChallenge += 1;
         if (response.status() === 401 || response.status() === 403) {
           requestCounts.popChallengeUnauthorized += 1;
-          diagnostics.push(`${label}: pop-challenge ${response.status()}`);
+          diagnostics.push(`${label}: rrp-challenge ${response.status()}`);
         }
       }
       if (url.includes("/api/auth/ws-token")) {
@@ -153,13 +153,13 @@ test("same-account devices survive simultaneous reload of the same document", as
       if (!countRequests) return;
       const url = request.url();
       if (url.includes("/api/auth/me")) requestCounts.authMeRequests += 1;
-      if (url.includes("/api/auth/pop-challenge")) requestCounts.popChallengeRequests += 1;
+      if (url.includes("/api/auth/rrp-challenge")) requestCounts.popChallengeRequests += 1;
       if (url.includes("/api/auth/ws-token")) requestCounts.wsTokenRequests += 1;
     });
     page.on("requestfailed", (request) => {
       if (!countRequests) return;
       const url = request.url();
-      if (url.includes("/api/auth/pop-challenge") || url.includes("/api/auth/ws-token")) {
+      if (url.includes("/api/auth/rrp-challenge") || url.includes("/api/auth/ws-token")) {
         const failureText = request.failure()?.errorText ?? "unknown";
         diagnostics.push(`${label}: ${url} failed: ${failureText}`);
         if (failureText.includes("ERR_ABORTED") || failureText.includes("NS_BINDING_ABORTED")) {
@@ -229,11 +229,11 @@ test("same-account devices survive simultaneous reload of the same document", as
     ).toBe(0);
     expect(
       requestCounts.popChallengeRequests,
-      `pop-challenge requests were not bounded after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
+      `rrp-challenge requests were not bounded after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
     ).toBeLessThanOrEqual(60);
     expect(
       requestCounts.popChallengeUnauthorized,
-      `pop-challenge unauthorized after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
+      `rrp-challenge unauthorized after simultaneous reload: ${JSON.stringify(requestCounts)}\n${diagnostics.join("\n")}`,
     ).toBe(0);
     expect(
       requestCounts.transportFailures,

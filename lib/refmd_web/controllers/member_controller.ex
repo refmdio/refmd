@@ -163,7 +163,7 @@ defmodule RefMDWeb.MemberController do
     actor_user_id = conn.assigns.current_user_id
 
     cond do
-      # Self-removal: PoP required, RBAC bypassed
+      # Self-removal: RRP required, RBAC bypassed
       target_user_id == actor_user_id ->
         do_remove(conn, workspace_id, target_user_id, actor_user_id, params)
 

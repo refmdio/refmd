@@ -1,8 +1,8 @@
-defmodule RefMD.Repo.Migrations.CreatePopChallenges do
+defmodule RefMD.Repo.Migrations.CreateRrpChallenges do
   use Ecto.Migration
 
   def change do
-    create table(:pop_challenges, primary_key: false) do
+    create table(:rrp_challenges, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :device_id, references(:devices, type: :binary_id, on_delete: :delete_all), null: false
       add :challenge_hash, :binary, null: false
@@ -13,11 +13,11 @@ defmodule RefMD.Repo.Migrations.CreatePopChallenges do
       add :created_at, :utc_datetime_usec, null: false
     end
 
-    create unique_index(:pop_challenges, [:challenge_hash])
-    create index(:pop_challenges, [:subject_id])
-    create index(:pop_challenges, [:session_id_hash])
+    create unique_index(:rrp_challenges, [:challenge_hash])
+    create index(:rrp_challenges, [:subject_id])
+    create index(:rrp_challenges, [:session_id_hash])
 
-    create index(:pop_challenges, [
+    create index(:rrp_challenges, [
              :challenge_hash,
              :session_kind,
              :subject_id,
@@ -25,11 +25,11 @@ defmodule RefMD.Repo.Migrations.CreatePopChallenges do
              :session_id_hash
            ])
 
-    create index(:pop_challenges, [:expires_at])
+    create index(:rrp_challenges, [:expires_at])
 
     execute(
-      "ALTER TABLE pop_challenges ADD CONSTRAINT pop_challenges_session_kind_check CHECK (session_kind = 'user')",
-      "ALTER TABLE pop_challenges DROP CONSTRAINT pop_challenges_session_kind_check"
+      "ALTER TABLE rrp_challenges ADD CONSTRAINT rrp_challenges_session_kind_check CHECK (session_kind = 'user')",
+      "ALTER TABLE rrp_challenges DROP CONSTRAINT rrp_challenges_session_kind_check"
     )
   end
 end

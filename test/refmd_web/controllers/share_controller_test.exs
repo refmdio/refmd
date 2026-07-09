@@ -381,7 +381,7 @@ defmodule RefMDWeb.ShareControllerTest do
     refute 1 in ancestry_sequences
     refute candidate_sequence in ancestry_sequences
 
-    assert conn.resp_cookies["_refmd_share_session"].path == "/api"
+    assert conn.resp_cookies["__Host-refmd-share-session"].path == "/"
   end
 
   test "POST /api/shares/:share_slug/bootstrap keeps old snapshot admission bounded", %{
@@ -526,7 +526,7 @@ defmodule RefMDWeb.ShareControllerTest do
     assert %{"root" => %{"kind" => "document"}, "participant" => %{"grant" => "view"}} =
              json_response(respond_conn, 200)
 
-    assert respond_conn.resp_cookies["_refmd_share_session"].path == "/api"
+    assert respond_conn.resp_cookies["__Host-refmd-share-session"].path == "/"
   end
 
   test "password challenge failure returns unified not_found", %{
@@ -604,7 +604,7 @@ defmodule RefMDWeb.ShareControllerTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_share_session=#{Base.url_encode64(bootstrapped.session_token, padding: false)}"
+        "__Host-refmd-share-session=#{Base.url_encode64(bootstrapped.session_token, padding: false)}"
       )
       |> post(
         "/api/shares/d/#{landing.root.document_token}/bootstrap",
@@ -658,7 +658,7 @@ defmodule RefMDWeb.ShareControllerTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_share_session=#{share_session_token}"
+        "__Host-refmd-share-session=#{share_session_token}"
       )
       |> post(
         "/api/shares/f/#{landing.root.folder_token}/bootstrap",
@@ -709,7 +709,7 @@ defmodule RefMDWeb.ShareControllerTest do
 
     nested_conn =
       build_conn()
-      |> put_req_header("cookie", "_refmd_share_session=#{share_session_token}")
+      |> put_req_header("cookie", "__Host-refmd-share-session=#{share_session_token}")
       |> post(
         "/api/shares/f/#{nested_folder_entry["folder_token"]}/bootstrap",
         %{

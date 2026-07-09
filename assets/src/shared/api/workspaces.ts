@@ -1,14 +1,14 @@
-import { client, throwIfError, withUserPopParams } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
 export const workspacesApi = {
   list: async () =>
-    throwIfError(await client.GET("/api/workspaces", { params: withUserPopParams() })),
+    throwIfError(await client.GET("/api/workspaces", { params: withUserRrpParams() })),
 
   get: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -22,7 +22,7 @@ export const workspacesApi = {
   update: async (workspaceId: string, body: components["schemas"]["UpdateWorkspaceRequest"]) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -33,7 +33,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/features", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -41,7 +41,7 @@ export const workspacesApi = {
   delete: async (workspaceId: string) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -49,7 +49,7 @@ export const workspacesApi = {
   listMembers: async (workspaceId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/members", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         ...init,
       }),
     ),
@@ -61,7 +61,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/members/{user_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId, user_id: userId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId, user_id: userId } }),
         body,
       }),
     ),
@@ -73,7 +73,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/members/{user_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId, user_id: userId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId, user_id: userId } }),
         body,
       }),
     ),
@@ -82,7 +82,7 @@ export const workspacesApi = {
   listRoles: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/roles", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -96,7 +96,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/roles", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -112,7 +112,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/roles/{role_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId, role_id: roleId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId, role_id: roleId } }),
         body,
       }),
     ),
@@ -120,7 +120,7 @@ export const workspacesApi = {
   deleteRole: async (workspaceId: string, roleId: string) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/roles/{role_id}", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId, role_id: roleId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId, role_id: roleId } }),
       }),
     ),
 
@@ -128,7 +128,7 @@ export const workspacesApi = {
   listInvitations: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/invitations", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -138,7 +138,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/invitations", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -150,7 +150,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/invitations/{invitation_id}", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { workspace_id: workspaceId, invitation_id: invitationId },
         }),
         body,
@@ -165,7 +165,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/members/{user_id}/devices", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { workspace_id: workspaceId, user_id: userId },
           query: includeRevoked ? { include_revoked: true } : {},
         }),
@@ -179,7 +179,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/invitations/accept", {
-        params: withUserPopParams(),
+        params: withUserRrpParams(),
         body: { token, ...body },
       }),
     ),
@@ -195,7 +195,7 @@ export const workspacesApi = {
   listGuestInvitations: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/guest-invitations", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -208,7 +208,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/guest-invitations", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     ),
@@ -220,7 +220,7 @@ export const workspacesApi = {
   ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/guest-invitations/{invitation_id}", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { workspace_id: workspaceId, invitation_id: invitationId },
         }),
         body,

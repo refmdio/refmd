@@ -133,7 +133,7 @@ defmodule RefMDWeb.DocumentKeyController do
   end
 
   defp require_no_workspace_wipe_requirement(conn, workspace_id) do
-    device_id = conn.assigns[:pop_device_id]
+    device_id = conn.assigns[:rrp_device_id]
 
     if is_binary(device_id) and
          Workspaces.workspace_device_wipe_required?(workspace_id, device_id),

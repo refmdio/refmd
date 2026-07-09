@@ -1,4 +1,4 @@
-import { client, throwIfError, withUserPopParams } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 
 type ApiResult = { data?: unknown; error?: unknown; response: Response };
 const apiGet = client.GET as unknown as (
@@ -44,7 +44,7 @@ export const securityNotificationsApi = {
         : undefined;
     const envelope = throwIfError(
       await apiGet("/api/security/notifications", {
-        params: query ? withUserPopParams({ query }) : withUserPopParams(),
+        params: query ? withUserRrpParams({ query }) : withUserRrpParams(),
       }),
     ) as SecurityNotificationEnvelope;
 
@@ -53,7 +53,7 @@ export const securityNotificationsApi = {
   markRead: async (notificationId: string): Promise<SecurityNotificationInfo> => {
     const envelope = throwIfError(
       await apiPatch("/api/security/notifications/{notification_id}/read", {
-        params: withUserPopParams({ path: { notification_id: notificationId } }),
+        params: withUserRrpParams({ path: { notification_id: notificationId } }),
       }),
     ) as SecurityNotificationEnvelope;
     if (!envelope.notification) throw new Error("security_notification_missing");
@@ -62,7 +62,7 @@ export const securityNotificationsApi = {
   dismiss: async (notificationId: string): Promise<SecurityNotificationInfo> => {
     const envelope = throwIfError(
       await apiPatch("/api/security/notifications/{notification_id}/dismiss", {
-        params: withUserPopParams({ path: { notification_id: notificationId } }),
+        params: withUserRrpParams({ path: { notification_id: notificationId } }),
       }),
     ) as SecurityNotificationEnvelope;
     if (!envelope.notification) throw new Error("security_notification_missing");

@@ -102,7 +102,7 @@ defmodule RefMD.Encryption do
                 checkpoint,
                 workspace_id,
                 actor_user_id,
-                pop_device_id
+                rrp_device_id
               ),
               to: KeyDirectory.AppendPolicy,
               as: :validate

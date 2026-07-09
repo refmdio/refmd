@@ -1,11 +1,11 @@
-defmodule RefMD.Sharing.ShareParticipantPopChallenge do
+defmodule RefMD.Sharing.ShareParticipantRrpChallenge do
   use Ecto.Schema
   import Ecto.Changeset
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  schema "share_participant_pop_challenges" do
+  schema "share_participant_rrp_challenges" do
     belongs_to :share, RefMD.Sharing.Share
     belongs_to :device, RefMD.Sharing.ShareParticipantDevice
 

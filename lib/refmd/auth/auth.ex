@@ -5,7 +5,7 @@ defmodule RefMD.Auth do
 
   import Ecto.Query
 
-  alias RefMD.Auth.{PopChallenge, RecoveryChallenge, Session}
+  alias RefMD.Auth.{RecoveryChallenge, RrpChallenge, Session}
   alias RefMD.Crypto.{Hash, JCS, Signature, TokenSigning}
   alias RefMD.Devices.DeviceRegistration
   alias RefMD.Encryption
@@ -145,23 +145,23 @@ defmodule RefMD.Auth do
     |> Repo.update_all(set: [device_id: device_id, is_recovery: false])
   end
 
-  # ── PoP Challenges ────────────────────────────
+  # ── RRP Challenges ────────────────────────────
 
-  @pop_challenge_ttl 5 * 60
+  @rrp_challenge_ttl 5 * 60
 
-  def create_pop_challenge(user_id, device_id, session_id) do
+  def create_rrp_challenge(user_id, device_id, session_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
     now = DateTime.utc_now()
 
-    case %PopChallenge{created_at: now}
-         |> PopChallenge.changeset(%{
+    case %RrpChallenge{created_at: now}
+         |> RrpChallenge.changeset(%{
            device_id: device_id,
            challenge_hash: challenge_hash,
            session_id_hash: Hash.blake3_base64url(session_id),
            session_kind: "user",
            subject_id: user_id,
-           expires_at: DateTime.add(now, @pop_challenge_ttl, :second)
+           expires_at: DateTime.add(now, @rrp_challenge_ttl, :second)
          })
          |> Repo.insert() do
       {:ok, _} -> {:ok, challenge}
@@ -169,13 +169,13 @@ defmodule RefMD.Auth do
     end
   end
 
-  def consume_pop_challenge(challenge, user_id, device_id, session_id) do
+  def consume_rrp_challenge(challenge, user_id, device_id, session_id) do
     challenge_hash = :crypto.hash(:sha256, challenge)
     session_id_hash = Hash.blake3_base64url(session_id)
     now = DateTime.utc_now()
 
     query =
-      from(pc in PopChallenge,
+      from(pc in RrpChallenge,
         where:
           pc.challenge_hash == ^challenge_hash and
             pc.session_kind == "user" and
@@ -456,10 +456,10 @@ defmodule RefMD.Auth do
     end
   end
 
-  def delete_expired_pop_challenges do
+  def delete_expired_rrp_challenges do
     now = DateTime.utc_now()
 
-    from(c in PopChallenge, where: c.expires_at < ^now)
+    from(c in RrpChallenge, where: c.expires_at < ^now)
     |> Repo.delete_all()
   end
 
@@ -484,8 +484,8 @@ defmodule RefMD.Auth do
     |> Repo.exists?()
   end
 
-  def delete_device_pop_challenges(device_id) do
-    from(c in PopChallenge, where: c.device_id == ^device_id)
+  def delete_device_rrp_challenges(device_id) do
+    from(c in RrpChallenge, where: c.device_id == ^device_id)
     |> Repo.delete_all()
   end
 

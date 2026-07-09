@@ -119,7 +119,7 @@ defmodule RefMDWeb.UmkControllerTest do
     response =
       conn
       |> Plug.Conn.assign(:current_user_id, user_id)
-      |> Plug.Conn.assign(:pop_device_id, sender.id)
+      |> Plug.Conn.assign(:rrp_device_id, sender.id)
       |> UmkController.distribute_umk(%{
         "device_id" => target.id,
         "sender_device_id" => sender.id,

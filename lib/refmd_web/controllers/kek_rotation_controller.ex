@@ -138,12 +138,12 @@ defmodule RefMDWeb.KekRotationController do
 
   def save_member_envelopes(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
+    rrp_device_id = conn.assigns[:rrp_device_id]
 
     with {:ok, workspace} <- fetch_workspace(workspace_id),
          {:ok, role} <- fetch_membership(workspace_id, user_id),
          :ok <- require_member_envelope_authority(workspace, user_id, role),
-         :ok <- reject_wipe_required_device(workspace_id, pop_device_id),
+         :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
          {:ok, envelopes} <- require_envelopes(params["envelopes"]),
          {:ok, events} <- require_key_directory_events(params["workspace_key_directory_events"]),
          :ok <- validate_envelope_event_count(envelopes, events),
@@ -155,7 +155,7 @@ defmodule RefMDWeb.KekRotationController do
              workspace,
              workspace_id,
              user_id,
-             pop_device_id
+             rrp_device_id
            ) do
       case Encryption.save_member_envelopes_with_key_directory(
              workspace_id,
@@ -198,9 +198,9 @@ defmodule RefMDWeb.KekRotationController do
 
   def get_member_envelope(conn, %{"workspace_id" => workspace_id}) do
     user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
+    rrp_device_id = conn.assigns[:rrp_device_id]
 
-    with :ok <- reject_wipe_required_device(workspace_id, pop_device_id),
+    with :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
          {:ok, role} <- fetch_membership(workspace_id, user_id) do
       send_member_envelope(conn, workspace_id, user_id, role)
     else
@@ -320,7 +320,7 @@ defmodule RefMDWeb.KekRotationController do
          workspace,
          workspace_id,
          user_id,
-         pop_device_id
+         rrp_device_id
        ) do
     envelopes
     |> Enum.zip(events)
@@ -332,7 +332,7 @@ defmodule RefMDWeb.KekRotationController do
              workspace,
              workspace_id,
              user_id,
-             pop_device_id
+             rrp_device_id
            ) do
         {:ok, attrs} -> {:cont, {:ok, [attrs | acc]}}
         {:error, status, error} -> {:halt, {:error, status, error}}
@@ -351,13 +351,13 @@ defmodule RefMDWeb.KekRotationController do
          workspace,
          workspace_id,
          user_id,
-         pop_device_id
+         rrp_device_id
        ) do
     sender_device_id = env["sender_device_id"]
     target_user_id = env["target_user_id"]
     key_version = env["key_version"]
 
-    with :ok <- validate_sender_device_match(pop_device_id, sender_device_id),
+    with :ok <- validate_sender_device_match(rrp_device_id, sender_device_id),
          :ok <- require_target_non_guest_member(workspace_id, target_user_id),
          :ok <- validate_key_version_range(key_version, workspace, user_id),
          {:ok, sender_device} <- fetch_active_device(user_id, sender_device_id),
@@ -384,8 +384,8 @@ defmodule RefMDWeb.KekRotationController do
 
   defp validate_sender_device_match(nil, _sender_device_id), do: :ok
 
-  defp validate_sender_device_match(pop_device_id, sender_device_id) do
-    if pop_device_id == sender_device_id do
+  defp validate_sender_device_match(rrp_device_id, sender_device_id) do
+    if rrp_device_id == sender_device_id do
       :ok
     else
       {:error, :forbidden, "sender_device_id_mismatch"}

@@ -1,4 +1,4 @@
-defmodule RefMDWeb.Schemas.PopChallengeResponse do
+defmodule RefMDWeb.Schemas.RrpChallengeResponse do
   alias OpenApiSpex.Schema
   require OpenApiSpex
 
@@ -81,7 +81,7 @@ defmodule RefMDWeb.Schemas.PopChallengeResponse do
   }
 
   OpenApiSpex.schema(%{
-    title: "PopChallengeResponse",
+    title: "RrpChallengeResponse",
     type: :object,
     additionalProperties: false,
     properties: %{

@@ -47,34 +47,34 @@ test.describe.serial("Document Initial Load Failure Handling", () => {
     testInfo.setTimeout(E2E_TIMEOUTS.extendedScenario);
 
     await registerAccount(sharedPage);
-    await createDocument(sharedPage, "PoP Failure Recovery Doc");
-    await createDocument(sharedPage, "PoP Rate Limit Recovery Doc");
+    await createDocument(sharedPage, "RRP Failure Recovery Doc");
+    await createDocument(sharedPage, "RRP Rate Limit Recovery Doc");
   });
 
   test("recovers from transient initial-load failures", async () => {
     test.setTimeout(E2E_TIMEOUTS.extendedScenario);
 
-    await test.step("recover from a transient PoP challenge network failure", async () => {
+    await test.step("recover from a transient RRP challenge network failure", async () => {
       await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
       const didInjectFailure = await failNextMatchingRequest(
         sharedPage,
-        (url) => url.pathname === "/api/auth/pop-challenge",
+        (url) => url.pathname === "/api/auth/rrp-challenge",
         (route) => route.abort("failed"),
       );
 
       const errors = await collectErrors(sharedPage, async () => {
-        await openDocument(sharedPage, "PoP Failure Recovery Doc");
+        await openDocument(sharedPage, "RRP Failure Recovery Doc");
       });
 
       expect(didInjectFailure()).toBe(true);
       expect(hasInitialLoadFailure(errors)).toBe(false);
     });
 
-    await test.step("recover from a transient PoP challenge rate limit", async () => {
+    await test.step("recover from a transient RRP challenge rate limit", async () => {
       await sharedPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
       const didInjectRateLimit = await failNextMatchingRequest(
         sharedPage,
-        (url) => url.pathname === "/api/auth/pop-challenge",
+        (url) => url.pathname === "/api/auth/rrp-challenge",
         (route) =>
           route.fulfill({
             status: 429,
@@ -90,7 +90,7 @@ test.describe.serial("Document Initial Load Failure Handling", () => {
       );
 
       const errors = await collectErrors(sharedPage, async () => {
-        await openDocument(sharedPage, "PoP Rate Limit Recovery Doc");
+        await openDocument(sharedPage, "RRP Rate Limit Recovery Doc");
       });
 
       expect(didInjectRateLimit()).toBe(true);

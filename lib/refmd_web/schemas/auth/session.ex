@@ -5,6 +5,7 @@ defmodule RefMDWeb.Schemas.LoginRequest do
   OpenApiSpex.schema(%{
     title: "LoginRequest",
     type: :object,
+    additionalProperties: false,
     properties: %{
       email: %Schema{type: :string, format: :email},
       auth_key: %Schema{type: :string},
@@ -63,6 +64,127 @@ defmodule RefMDWeb.Schemas.LoginResponse do
       target_kdf_params: RefMDWeb.Schemas.KdfParams
     },
     required: [:user, :session_id, :device_verified]
+  })
+end
+
+defmodule RefMDWeb.Schemas.OAuthStartRequest do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "OAuthStartRequest",
+    type: :object,
+    properties: %{
+      return_to: %Schema{type: :string}
+    },
+    additionalProperties: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.OAuthStartResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "OAuthStartResponse",
+    type: :object,
+    properties: %{
+      authorization_url: %Schema{type: :string, format: :uri}
+    },
+    required: [:authorization_url],
+    additionalProperties: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.OAuthProvidersResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "OAuthProvidersResponse",
+    type: :object,
+    properties: %{
+      providers: %Schema{
+        type: :array,
+        items: %Schema{type: :string, enum: ["google", "github"]},
+        uniqueItems: true
+      }
+    },
+    required: [:providers],
+    additionalProperties: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.DbscSessionScopeRule do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "DbscSessionScopeRule",
+    type: :object,
+    properties: %{
+      type: %Schema{type: :string, enum: ["include", "exclude"]},
+      domain: %Schema{type: :string},
+      path: %Schema{type: :string}
+    },
+    required: [:type]
+  })
+end
+
+defmodule RefMDWeb.Schemas.DbscSessionScope do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "DbscSessionScope",
+    type: :object,
+    properties: %{
+      origin: %Schema{type: :string, format: :uri},
+      include_site: %Schema{type: :boolean},
+      scope_specification: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.DbscSessionScopeRule
+      }
+    },
+    required: [:include_site]
+  })
+end
+
+defmodule RefMDWeb.Schemas.DbscSessionCredential do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "DbscSessionCredential",
+    type: :object,
+    properties: %{
+      type: %Schema{type: :string, enum: ["cookie"]},
+      name: %Schema{type: :string},
+      attributes: %Schema{type: :string}
+    },
+    required: [:type, :name]
+  })
+end
+
+defmodule RefMDWeb.Schemas.DbscSessionInstructions do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "DbscSessionInstructions",
+    type: :object,
+    properties: %{
+      session_identifier: %Schema{type: :string},
+      refresh_url: %Schema{type: :string},
+      continue: %Schema{type: :boolean},
+      scope: RefMDWeb.Schemas.DbscSessionScope,
+      credentials: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.DbscSessionCredential
+      },
+      allowed_refresh_initiators: %Schema{type: :array, items: %Schema{type: :string}}
+    },
+    required: [:session_identifier, :refresh_url, :scope, :credentials]
   })
 end
 

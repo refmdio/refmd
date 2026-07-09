@@ -5,20 +5,38 @@ defmodule RefMDWeb.Plugs.RequireAuth do
 
   import Plug.Conn
   alias RefMD.Auth
+  alias RefMD.Auth.DBSC
   alias RefMD.Devices
   alias RefMD.Sharing
 
-  @user_session_cookie "_refmd_session"
-  @share_session_cookie "_refmd_share_session"
+  @user_session_cookie "__Host-refmd-session"
+  @share_session_cookie "__Host-refmd-share-session"
+  @mount_session_cookie "__Host-refmd-mount-session"
   @share_session_scope_header "x-refmd-session-scope"
+  @dbsc_exempt_paths MapSet.new([
+                       "/api/auth/dbsc/register",
+                       "/api/auth/dbsc/refresh",
+                       "/api/auth/dbsc/share/register",
+                       "/api/auth/dbsc/share/refresh"
+                     ])
 
   def init(opts), do: opts
 
   def call(conn, opts) do
-    with token when is_binary(token) <- get_session_token(conn, opts),
-         {:ok, auth_assigns} <- resolve_session_assigns(token, opts) do
+    cookies = parse_session_cookies(conn)
+
+    with token when is_binary(token) <- select_session_token(cookies, conn, opts),
+         {:ok, auth_assigns} <- resolve_session_assigns(token, opts),
+         :ok <- require_dbsc_bound_cookie(conn, cookies, Map.new(auth_assigns)) do
       Enum.reduce(auth_assigns, conn, fn {key, value}, acc -> assign(acc, key, value) end)
     else
+      {:error, {:dbsc_required, binding}} ->
+        conn
+        |> RefMDWeb.Http.DBSC.put_challenge_header(binding)
+        |> put_status(:unauthorized)
+        |> Phoenix.Controller.json(%{error: "dbsc_required"})
+        |> halt()
+
       _ ->
         conn
         |> put_status(:unauthorized)
@@ -27,11 +45,58 @@ defmodule RefMDWeb.Plugs.RequireAuth do
     end
   end
 
-  defp get_session_token(conn, opts) do
+  defp parse_session_cookies(conn) do
     conn
     |> get_req_header("cookie")
     |> parse_session_cookie()
-    |> select_session_token(conn, opts)
+  end
+
+  defp require_dbsc_bound_cookie(%{request_path: path}, cookies, auth_assigns)
+       when is_binary(path) do
+    if MapSet.member?(@dbsc_exempt_paths, path) do
+      :ok
+    else
+      do_require_dbsc_bound_cookie(cookies, auth_assigns)
+    end
+  end
+
+  defp do_require_dbsc_bound_cookie(cookies, %{
+         current_session: %{id: session_id},
+         session_kind: session_kind
+       }) do
+    session_kind = dbsc_session_kind(session_kind)
+
+    case DBSC.bound_cookie_status(
+           session_kind,
+           session_id,
+           Map.get(cookies, dbsc_cookie(session_kind))
+         ) do
+      :not_registered -> :ok
+      {:ok, _binding} -> :ok
+      {:error, binding} -> {:error, {:dbsc_required, binding}}
+    end
+  end
+
+  defp do_require_dbsc_bound_cookie(_cookies, _auth_assigns), do: :ok
+
+  defp dbsc_session_kind(:share_participant), do: "share_participant"
+  defp dbsc_session_kind(_), do: "user"
+
+  defp dbsc_cookie("share_participant"), do: @share_session_cookie
+  defp dbsc_cookie("mount"), do: @mount_session_cookie
+  defp dbsc_cookie(_), do: @user_session_cookie
+
+  defp select_session_token(cookies, conn, opts) do
+    cond do
+      Keyword.get(opts, :prefer_share_participant, false) ->
+        Map.get(cookies, @share_session_cookie)
+
+      prefer_share_session?(conn, opts) ->
+        Map.get(cookies, @share_session_cookie)
+
+      true ->
+        Map.get(cookies, @user_session_cookie)
+    end
   end
 
   defp parse_session_cookie([cookie_header | _]) do
@@ -47,14 +112,6 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   end
 
   defp parse_session_cookie(_), do: %{}
-
-  defp select_session_token(cookies, conn, opts) do
-    if prefer_share_session?(conn, opts) do
-      Map.get(cookies, @share_session_cookie)
-    else
-      Map.get(cookies, @user_session_cookie)
-    end
-  end
 
   defp prefer_share_session?(conn, opts) do
     Keyword.get(opts, :allow_share_participant, false) and

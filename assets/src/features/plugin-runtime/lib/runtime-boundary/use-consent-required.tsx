@@ -9,7 +9,7 @@ import {
   type JSX,
 } from "solid-js";
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
-import { client, throwIfError, withUserPopParams } from "@/shared/api/core";
+import { client, throwIfError, withUserRrpParams } from "@/shared/api/core";
 import type { components } from "@/shared/api/schema";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
@@ -553,7 +553,7 @@ async function listServerPluginConsentRequired(
 ): Promise<readonly PluginConsentRequiredDescriptor[]> {
   const result = await guardedPluginRuntimeWorkspaceRequest(workspaceId, () =>
     client.GET("/api/workspaces/{workspace_id}/plugin-runtime/consent-required", {
-      params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+      params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
     }),
   );
   if (!result) return [];
@@ -568,7 +568,7 @@ async function listPluginRuntimeConsentCandidates(
 ): Promise<readonly PluginConsentRequiredDescriptor[]> {
   const result = await guardedPluginRuntimeWorkspaceRequest(workspaceId, () =>
     client.GET("/api/workspaces/{workspace_id}/plugin-runtime", {
-      params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+      params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
     }),
   );
   if (!result) return [];
@@ -861,7 +861,7 @@ async function appendPluginConsentEvent(
     await client.POST(
       "/api/workspaces/{workspace_id}/plugin-applications/{application_id}/consent-events",
       {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: {
             workspace_id: descriptor.workspaceId,
             application_id: descriptor.applicationId,

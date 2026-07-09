@@ -11,6 +11,18 @@ defmodule RefMDWeb.Plugs.OpenApiRequestValidation do
   def init(opts), do: opts
 
   def call(
+        %{
+          private: %{
+            phoenix_controller: RefMDWeb.AuthController,
+            phoenix_action: :oauth_callback
+          }
+        } = conn,
+        _opts
+      ) do
+    conn
+  end
+
+  def call(
         %{private: %{open_api_spex: _, phoenix_controller: controller, phoenix_action: action}} =
           conn,
         _opts

@@ -14,8 +14,8 @@ defmodule RefMDWeb.DocumentChannelShareTest do
   alias RefMD.Sharing
   alias RefMD.Users.User
   alias RefMD.Workspaces
-  alias RefMDWeb.Http.PopSessionBinding
-  alias RefMDWeb.Http.PopTranscript
+  alias RefMDWeb.Http.RrpSessionBinding
+  alias RefMDWeb.Http.RrpTranscript
 
   @endpoint RefMDWeb.Endpoint
 
@@ -225,7 +225,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
          signing_private_material,
          session
        ) do
-    {:ok, challenge} = Sharing.create_pop_challenge(share_id, principal_id, device_id, session.id)
+    {:ok, challenge} = Sharing.create_rrp_challenge(share_id, principal_id, device_id, session.id)
     challenge_b64 = Base.url_encode64(challenge, padding: false)
     device = Sharing.get_participant_device(share_id, principal_id, device_id)
     workspace_id = Sharing.share_workspace_id!(share_id)
@@ -238,16 +238,16 @@ defmodule RefMDWeb.DocumentChannelShareTest do
     }
 
     strict_channel_payload(%{
-      "pop_device_id" => device_id,
-      "pop_actor_variant" => "share_participant_device",
-      "pop_challenge" => challenge_b64,
-      "pop_signature" =>
+      "rrp_device_id" => device_id,
+      "rrp_actor_variant" => "share_participant_device",
+      "rrp_challenge" => challenge_b64,
+      "rrp_signature" =>
         signing_private_material
-        |> signed_pop_signature_for_actor(
+        |> signed_rrp_signature_for_actor(
           "channel_share_participant_device",
-          PopTranscript.share_participant_actor!(device, share_id, workspace_id),
+          RrpTranscript.share_participant_actor!(device, share_id, workspace_id),
           challenge_b64,
-          PopSessionBinding.for_share_session(session),
+          RrpSessionBinding.for_share_session(session),
           %{
             "channel_event" => "phx_join",
             "document_id" => document_id,
@@ -513,7 +513,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
          session,
          opts \\ []
        ) do
-    {:ok, challenge} = Auth.create_pop_challenge(user_id, device.id, session.id)
+    {:ok, challenge} = Auth.create_rrp_challenge(user_id, device.id, session.id)
     challenge_b64 = Base.url_encode64(challenge, padding: false)
     document = Repo.get!(Document, document_id)
 
@@ -530,16 +530,16 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       }
 
     strict_channel_payload(%{
-      "pop_device_id" => device.id,
-      "pop_actor_variant" => "user_device",
-      "pop_challenge" => challenge_b64,
-      "pop_signature" =>
+      "rrp_device_id" => device.id,
+      "rrp_actor_variant" => "user_device",
+      "rrp_challenge" => challenge_b64,
+      "rrp_signature" =>
         signing_private_material
-        |> signed_pop_signature_for_actor(
+        |> signed_rrp_signature_for_actor(
           "channel_user_device",
-          PopTranscript.user_actor!(device, user_id),
+          RrpTranscript.user_actor!(device, user_id),
           challenge_b64,
-          PopSessionBinding.for_user_session(session),
+          RrpSessionBinding.for_user_session(session),
           %{
             "channel_event" => "phx_join",
             "document_id" => document_id,
@@ -1346,7 +1346,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
     snapshot_id = create_active_snapshot(document.id, owner_id)
     signer = Process.get({:test_workspace_signer_material, workspace.id})
     ensure_workspace_signer_device!(workspace.id, owner_id, signer)
-    device = ensure_test_user_pop_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
+    device = ensure_test_user_rrp_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
 
     {:ok, session, _token} = Auth.create_session(owner_id, %{device_id: device.id})
 
@@ -1517,7 +1517,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
 
     signer = Process.get({:test_workspace_signer_material, workspace.id})
     ensure_workspace_signer_device!(workspace.id, owner_id, signer)
-    device = ensure_test_user_pop_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
+    device = ensure_test_user_rrp_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
     {:ok, session, _token} = Auth.create_session(owner_id, %{device_id: device.id})
 
     assert {:ok, _reply, _socket} =

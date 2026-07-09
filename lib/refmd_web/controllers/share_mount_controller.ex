@@ -2,9 +2,11 @@ defmodule RefMDWeb.ShareMountController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Auth.DBSC, as: AuthDBSC
   alias RefMD.Crypto.Encoding
   alias RefMD.Sharing
 
+  alias RefMDWeb.Http.DBSC, as: HttpDBSC
   alias RefMDWeb.Schemas
 
   operation(:share_mounts_for_share,
@@ -147,15 +149,16 @@ defmodule RefMDWeb.ShareMountController do
         %{"mount_id" => mount_id, "document_token" => document_token} = params
       ) do
     with :ok <- validate_uuid_param(mount_id, :mount_id),
+         {:ok, mount_password_session} <- get_mount_password_session(conn, mount_id),
          {:ok, mount_trust_anchor} <- validate_mount_trust_anchor(params) do
       case Sharing.get_share_mount_document_by_token(
              conn.assigns.current_user_id,
              mount_id,
              document_token,
-             conn.assigns.pop_device_id,
+             conn.assigns.rrp_device_id,
              mount_trust_anchor,
              get_share_session_token(conn),
-             get_mount_password_session(conn, mount_id)
+             mount_password_session
            ) do
         {:ok, response} ->
           conn
@@ -230,7 +233,7 @@ defmodule RefMDWeb.ShareMountController do
       case Sharing.respond_share_mount_challenge(
              conn.assigns.current_user_id,
              mount_id,
-             conn.assigns.pop_device_id,
+             conn.assigns.rrp_device_id,
              decoded,
              nil,
              challenge_hash,
@@ -252,6 +255,16 @@ defmodule RefMDWeb.ShareMountController do
       {:error, reason} ->
         handle_error(conn, reason)
     end
+  end
+
+  defp maybe_set_mount_share_session_cookie(conn, %{
+         session_token: token,
+         share_participant_session: session
+       })
+       when is_binary(token) and is_map(session) do
+    conn
+    |> set_share_session_cookie(token, false)
+    |> put_registration_header(:share_participant, session)
   end
 
   defp maybe_set_mount_share_session_cookie(conn, %{session_token: token})
@@ -280,15 +293,16 @@ defmodule RefMDWeb.ShareMountController do
 
   def folder_bootstrap(conn, %{"mount_id" => mount_id, "folder_token" => folder_token} = params) do
     with :ok <- validate_uuid_param(mount_id, :mount_id),
+         {:ok, mount_password_session} <- get_mount_password_session(conn, mount_id),
          {:ok, mount_trust_anchor} <- validate_mount_trust_anchor(params) do
       case Sharing.get_share_mount_folder(
              conn.assigns.current_user_id,
              mount_id,
              folder_token,
-             conn.assigns.pop_device_id,
+             conn.assigns.rrp_device_id,
              mount_trust_anchor,
              get_share_session_token(conn),
-             get_mount_password_session(conn, mount_id)
+             mount_password_session
            ) do
         {:ok, response} ->
           conn
@@ -411,14 +425,16 @@ defmodule RefMDWeb.ShareMountController do
         }
       )
 
-    set_mount_session_cookie(conn, token, false)
+    conn
+    |> set_mount_session_cookie(token, false)
+    |> put_registration_header(:mount, %{id: session.mount_id})
   end
 
   defp maybe_set_mount_password_session_cookie(conn, _payload), do: conn
 
   defp encode_mount_document_response(%{mount: _mount, document: _document} = response) do
     response
-    |> Map.drop([:session_token])
+    |> Map.drop([:session_token, :share_participant_session])
     |> Map.update!(:mount, &encode_mount_bootstrap_summary/1)
     |> Map.update!(:document, fn document ->
       document
@@ -511,24 +527,39 @@ defmodule RefMDWeb.ShareMountController do
     |> String.split(";")
     |> Enum.find_value(fn part ->
       case String.trim(part) |> String.split("=", parts: 2) do
-        ["_refmd_share_session", value] -> value
+        ["__Host-refmd-share-session", value] -> value
         _ -> nil
       end
     end)
   end
 
   defp get_mount_password_session(conn, mount_id) do
+    cookie = mount_session_cookie(conn)
+
+    with :ok <- require_mount_dbsc_bound_cookie(mount_id, cookie) do
+      {:ok, verify_mount_password_session_token(cookie, mount_id)}
+    end
+  end
+
+  defp mount_session_cookie(conn) do
     conn
     |> get_req_header("cookie")
     |> List.first("")
     |> String.split(";")
     |> Enum.find_value(fn part ->
       case String.trim(part) |> String.split("=", parts: 2) do
-        ["_refmd_mount_session", value] -> value
+        ["__Host-refmd-mount-session", value] -> value
         _ -> nil
       end
     end)
-    |> verify_mount_password_session_token(mount_id)
+  end
+
+  defp require_mount_dbsc_bound_cookie(mount_id, cookie) do
+    case AuthDBSC.bound_cookie_status("mount", mount_id, cookie) do
+      :not_registered -> :ok
+      {:ok, _binding} -> :ok
+      {:error, binding} -> {:error, {:dbsc_required, binding}}
+    end
   end
 
   defp verify_mount_password_session_token(nil, _mount_id), do: nil
@@ -570,6 +601,13 @@ defmodule RefMDWeb.ShareMountController do
     conn
     |> put_status(:conflict)
     |> json(%{error: "fresh_share_participant_device_required"})
+  end
+
+  defp handle_error(conn, {:dbsc_required, binding}) do
+    conn
+    |> HttpDBSC.put_challenge_header(binding)
+    |> put_status(:unauthorized)
+    |> json(%{error: "dbsc_required"})
   end
 
   defp handle_error(conn, %Ecto.Changeset{} = changeset) do

@@ -19,7 +19,7 @@ interface PersistWorkspaceKekForDeviceParams extends ConflictHandlingOptions {
   targetDeviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
   keyVersion: number;
   isActive?: boolean;
-  popDeviceId?: string;
+  rrpDeviceId?: string;
   keyDirectoryCheckpoint?: KeyDirectoryEnvelope;
 }
 interface PersistWorkspaceKekLocallyParams extends ConflictHandlingOptions {
@@ -38,7 +38,7 @@ interface PersistWorkspaceKekForMemberParams extends ConflictHandlingOptions {
   targetUserId: string;
   targetIdentityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
   keyVersion: number;
-  popDeviceId?: string;
+  rrpDeviceId?: string;
   keyDirectoryCheckpoint?: KeyDirectoryEnvelope;
 }
 function shouldIgnoreConflict(error: unknown, ignoreConflict: boolean): boolean {
@@ -53,7 +53,7 @@ export async function persistWorkspaceKekForDevice({
   targetDeviceHybridEncryptionPublicKeyMaterial,
   keyVersion,
   isActive,
-  popDeviceId,
+  rrpDeviceId,
   keyDirectoryCheckpoint,
   ignoreConflict = false,
 }: PersistWorkspaceKekForDeviceParams): Promise<void> {
@@ -65,7 +65,7 @@ export async function persistWorkspaceKekForDevice({
       await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: popDeviceId ?? senderDeviceId,
+        rrpDeviceId: rrpDeviceId ?? senderDeviceId,
       })
     ).checkpoint;
   const operationCheckpoint = operationCheckpointFromEnvelope(checkpointEnvelope);
@@ -99,7 +99,7 @@ export async function persistWorkspaceKekForDevice({
     operationCheckpoint: operationCheckpointFromEnvelope(keyDirectoryAppend.checkpoint),
   });
   try {
-    await encryptionApi.createWorkspaceKeyWithPop(
+    await encryptionApi.createWorkspaceKeyWithRrp(
       workspaceId,
       signedWrapWorkspaceKeyRequest({
         wrap,
@@ -112,7 +112,7 @@ export async function persistWorkspaceKekForDevice({
         workspace_key_directory_checkpoint: keyDirectoryAppend.checkpoint,
       }),
       {
-        popDeviceId,
+        rrpDeviceId,
       },
     );
   } catch (error) {
@@ -142,7 +142,7 @@ export async function persistWorkspaceKekLocally({
     targetDeviceHybridEncryptionPublicKeyMaterial: deviceHybridEncryptionPublicKeyMaterial,
     keyVersion,
     isActive,
-    popDeviceId: deviceId,
+    rrpDeviceId: deviceId,
     keyDirectoryCheckpoint,
     ignoreConflict,
   });
@@ -155,7 +155,7 @@ export async function persistWorkspaceKekForMember({
   targetUserId,
   targetIdentityHybridEncryptionPublicKeyMaterial,
   keyVersion,
-  popDeviceId,
+  rrpDeviceId,
   keyDirectoryCheckpoint,
   ignoreConflict = false,
 }: PersistWorkspaceKekForMemberParams): Promise<void> {
@@ -166,7 +166,7 @@ export async function persistWorkspaceKekForMember({
       await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: popDeviceId ?? senderDeviceId,
+        rrpDeviceId: rrpDeviceId ?? senderDeviceId,
       })
     ).checkpoint;
   const operationCheckpoint = operationCheckpointFromEnvelope(checkpointEnvelope);
@@ -199,18 +199,24 @@ export async function persistWorkspaceKekForMember({
     operationCheckpoint: operationCheckpointFromEnvelope(keyDirectoryAppend.checkpoint),
   });
   try {
-    await encryptionApi.saveMemberEnvelopes(workspaceId, {
-      envelopes: [
-        {
-          target_user_id: targetUserId,
-          sender_device_id: senderDeviceId,
-          key_version: keyVersion,
-          ...wrap,
-        } as never,
-      ],
-      workspace_key_directory_events: keyDirectoryAppend.events,
-      workspace_key_directory_checkpoint: keyDirectoryAppend.checkpoint,
-    });
+    await encryptionApi.saveMemberEnvelopes(
+      workspaceId,
+      {
+        envelopes: [
+          {
+            target_user_id: targetUserId,
+            sender_device_id: senderDeviceId,
+            key_version: keyVersion,
+            ...wrap,
+          } as never,
+        ],
+        workspace_key_directory_events: keyDirectoryAppend.events,
+        workspace_key_directory_checkpoint: keyDirectoryAppend.checkpoint,
+      },
+      {
+        rrpDeviceId,
+      },
+    );
   } catch (error) {
     if (!shouldIgnoreConflict(error, ignoreConflict)) {
       throw error;

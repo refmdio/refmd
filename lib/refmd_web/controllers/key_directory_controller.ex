@@ -25,11 +25,11 @@ defmodule RefMDWeb.KeyDirectoryController do
 
   def append(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
+    rrp_device_id = conn.assigns[:rrp_device_id]
 
     with {:ok, role} <- fetch_workspace_role(workspace_id, user_id),
          :ok <- require_workspace_key_authority(role),
-         :ok <- reject_wipe_required_device(workspace_id, pop_device_id),
+         :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
          {:ok, events} <- require_append_events(params["events"]),
          {:ok, checkpoint} <- require_append_checkpoint(params["checkpoint"]),
          {:ok, checkpoint_signer_kind} <-
@@ -38,7 +38,7 @@ defmodule RefMDWeb.KeyDirectoryController do
              checkpoint,
              workspace_id,
              user_id,
-             pop_device_id
+             rrp_device_id
            ) do
       case Encryption.append_workspace_key_directory(workspace_id, events, checkpoint,
              checkpoint_signer_kind: checkpoint_signer_kind

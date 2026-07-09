@@ -5,6 +5,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
   import Ecto.Query
 
   alias RefMD.Auth
+  alias RefMD.Auth.DBSC
   alias RefMD.Crypto.Blake3
   alias RefMD.Documents
   alias RefMD.Documents.Ordering
@@ -21,6 +22,12 @@ defmodule RefMDWeb.ShareMountControllerTest do
     do: Process.get(:workspace_pin_bootstrap_hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
   defp mount_password_challenge_hash(mount_id), do: Blake3.hash_base64url("mount:" <> mount_id)
+
+  defp share_password_challenge_hash(share_slug) do
+    share_slug
+    |> Base.url_decode64!(padding: false)
+    |> Blake3.hash_base64url()
+  end
 
   defp create_user(email) do
     user_id = Ecto.UUID.generate()
@@ -106,7 +113,10 @@ defmodule RefMDWeb.ShareMountControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
@@ -116,7 +126,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn
     |> put_req_header(
       "cookie",
-      "_refmd_session=#{Base.url_encode64(token, padding: false)}; _refmd_share_session=#{Base.url_encode64(share_session_token, padding: false)}"
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}; __Host-refmd-share-session=#{Base.url_encode64(share_session_token, padding: false)}"
     )
     |> put_private(:test_session, session)
   end
@@ -127,24 +137,53 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn
     |> put_req_header(
       "cookie",
-      "_refmd_session=#{Base.url_encode64(token, padding: false)}; _refmd_mount_session=#{mount_session_cookie}"
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}; __Host-refmd-mount-session=#{mount_session_cookie}"
     )
     |> put_private(:test_session, session)
   end
 
   defp mount_session_cookie(conn) do
-    conn.resp_cookies["_refmd_mount_session"].value
+    conn.resp_cookies["__Host-refmd-mount-session"].value
   end
 
-  defp with_pop_headers(conn, user_id, device, signing_private_key) do
-    put_private(conn, :test_pop_args, {user_id, device, signing_private_key})
+  defp share_session_cookie(conn) do
+    conn.resp_cookies["__Host-refmd-share-session"].value
+  end
+
+  defp dbsc_registration_proof(registration_header) do
+    challenge = registration_param!(registration_header, "challenge")
+    authorization = registration_param!(registration_header, "authorization")
+    {_public_key, private_key, jwk} = dbsc_key_pair()
+
+    proof =
+      dbsc_proof(
+        private_key,
+        %{"alg" => "ES256", "typ" => "dbsc+jwt", "jwk" => jwk},
+        %{"jti" => challenge, "authorization" => authorization}
+      )
+
+    {proof, private_key}
+  end
+
+  defp dbsc_registration_header_for(conn, path) do
+    conn
+    |> get_resp_header("secure-session-registration")
+    |> Enum.find(&String.contains?(&1, "path=\"#{path}\""))
+    |> case do
+      nil -> flunk("missing DBSC registration header for #{path}")
+      header -> header
+    end
+  end
+
+  defp with_rrp_headers(conn, user_id, device, signing_private_key) do
+    put_private(conn, :test_rrp_args, {user_id, device, signing_private_key})
   end
 
   defp post(conn, path, body) do
     {request_path, query} = split_request_path(path)
 
     conn
-    |> maybe_put_deferred_pop("POST", request_path, body, query)
+    |> maybe_put_deferred_rrp("POST", request_path, body, query)
     |> put_json_content_type()
     |> Phoenix.ConnTest.dispatch(@endpoint, :post, path, test_json_body(body))
   end
@@ -153,7 +192,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     {request_path, query} = split_request_path(path)
 
     conn
-    |> maybe_put_deferred_pop("PATCH", request_path, body, query)
+    |> maybe_put_deferred_rrp("PATCH", request_path, body, query)
     |> put_json_content_type()
     |> Phoenix.ConnTest.dispatch(@endpoint, :patch, path, test_json_body(body))
   end
@@ -162,7 +201,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     {request_path, query} = split_request_path(path)
 
     conn
-    |> maybe_put_deferred_pop("DELETE", request_path, "", query)
+    |> maybe_put_deferred_rrp("DELETE", request_path, "", query)
     |> Phoenix.ConnTest.dispatch(@endpoint, :delete, path, nil)
   end
 
@@ -170,14 +209,14 @@ defmodule RefMDWeb.ShareMountControllerTest do
     {request_path, query} = split_request_path(path)
 
     conn
-    |> maybe_put_deferred_pop("GET", request_path, "", query)
+    |> maybe_put_deferred_rrp("GET", request_path, "", query)
     |> Phoenix.ConnTest.dispatch(@endpoint, :get, path, nil)
   end
 
-  defp maybe_put_deferred_pop(conn, method, path, body, query) do
-    case conn.private[:test_pop_args] do
+  defp maybe_put_deferred_rrp(conn, method, path, body, query) do
+    case conn.private[:test_rrp_args] do
       {user_id, device, signing_private_key} ->
-        put_test_pop_headers(
+        put_test_rrp_headers(
           conn,
           user_id,
           device,
@@ -205,6 +244,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
   defp create_document_share(document, owner_id, opts \\ []) do
     share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     password_protected = Keyword.get(opts, :password_protected, false)
+    authorization_secret = Keyword.get(opts, :authorization_secret, open_admission_key())
 
     attrs =
       %{
@@ -215,7 +255,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
         "permission" => "view",
         "password_protected" => password_protected,
         "authorization_public_key_material" =>
-          share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+          share_capability_public_key_material_for_slug(authorization_secret, share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
         "encrypted_dek" => :crypto.strong_rand_bytes(48),
@@ -414,7 +454,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     detail_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -699,7 +739,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     reopen_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -796,7 +836,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     reopen_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -820,7 +860,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     assert is_list(event_ancestry)
 
     refute get_resp_header(reopen_conn, "set-cookie")
-           |> Enum.any?(&String.contains?(&1, "_refmd_share_session"))
+           |> Enum.any?(&String.contains?(&1, "__Host-refmd-share-session"))
 
     assert Repo.get!(Share, created.share.id).view_count == 1
   end
@@ -891,7 +931,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -934,7 +974,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1001,7 +1041,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1030,7 +1070,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     nested_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1093,7 +1133,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     detail_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1146,7 +1186,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1210,7 +1250,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1264,7 +1304,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1305,7 +1345,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1351,7 +1391,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     show_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1366,7 +1406,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     challenge_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1384,7 +1424,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     missing_anchor_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1396,7 +1436,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     wrong_anchor_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1411,7 +1451,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     respond_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1433,7 +1473,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
         mount_user_device.device,
         mount_session_cookie
       )
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1457,7 +1497,278 @@ defmodule RefMDWeb.ShareMountControllerTest do
     assert Repo.get!(Share, created.share.id).view_count == 1
   end
 
-  test "password-protected mount challenge rejects a PoP device outside the mount user", %{
+  test "registered DBSC mount binding rejects stale mount password session cookie", %{
+    conn: conn,
+    owner_id: owner_id,
+    mount_user_id: mount_user_id,
+    document: document,
+    mount_workspace: mount_workspace,
+    mount_user_device: mount_user_device
+  } do
+    auth_key = :crypto.strong_rand_bytes(32)
+
+    {created, _auth_key} =
+      create_document_share(document, owner_id,
+        password_protected: true,
+        auth_key: auth_key
+      )
+
+    {:ok, landing} = Sharing.get_share_landing(created.share_slug)
+
+    create_conn =
+      conn
+      |> authed_conn(mount_user_id, mount_user_device.device)
+      |> post("/api/mounts", %{
+        "workspace_id" => mount_workspace.id,
+        "share_slug" => created.share_slug,
+        "target_kind" => "document",
+        "target_token" => landing.root.document_token,
+        "authenticated_workspace_pin_bootstrap_hash" =>
+          created.share.authenticated_workspace_pin_bootstrap_hash
+      })
+
+    %{"id" => mount_id} = json_response(create_conn, 201)
+
+    challenge_conn =
+      build_conn()
+      |> authed_conn(mount_user_id, mount_user_device.device)
+      |> with_rrp_headers(
+        mount_user_id,
+        mount_user_device.device,
+        mount_user_device.signing_private_key
+      )
+      |> get("/api/mounts/#{mount_id}/challenge")
+
+    assert %{"challenge" => challenge} = json_response(challenge_conn, 200)
+
+    response =
+      challenge
+      |> Base.url_decode64!(padding: false)
+      |> then(&:crypto.mac(:hmac, :sha256, auth_key, &1))
+      |> Base.url_encode64(padding: false)
+
+    respond_conn =
+      build_conn()
+      |> authed_conn(mount_user_id, mount_user_device.device)
+      |> with_rrp_headers(
+        mount_user_id,
+        mount_user_device.device,
+        mount_user_device.signing_private_key
+      )
+      |> post("/api/mounts/#{mount_id}/challenge", %{
+        "response" => response,
+        "password_challenge_hash" => mount_password_challenge_hash(mount_id)
+      })
+
+    assert %{"mount_id" => ^mount_id, "bootstrap_required" => true} =
+             json_response(respond_conn, 200)
+
+    stale_mount_cookie = mount_session_cookie(respond_conn)
+
+    registration_header =
+      get_resp_header(respond_conn, "secure-session-registration") |> List.first()
+
+    assert is_binary(registration_header)
+    {registration_proof, _private_key} = dbsc_registration_proof(registration_header)
+
+    register_conn =
+      build_conn()
+      |> authed_conn_with_mount_session(
+        mount_user_id,
+        mount_user_device.device,
+        stale_mount_cookie
+      )
+      |> put_req_header("secure-session-response", registration_proof)
+      |> post("/api/auth/dbsc/mount/register", %{})
+
+    registration = json_response(register_conn, 200)
+    assert registration["refresh_url"] == DBSC.refresh_path("mount")
+    dbsc_mount_cookie = mount_session_cookie(register_conn)
+    assert dbsc_mount_cookie != stale_mount_cookie
+
+    stale_conn =
+      build_conn()
+      |> authed_conn_with_mount_session(
+        mount_user_id,
+        mount_user_device.device,
+        stale_mount_cookie
+      )
+      |> with_rrp_headers(
+        mount_user_id,
+        mount_user_device.device,
+        mount_user_device.signing_private_key
+      )
+      |> post("/api/mounts/#{mount_id}/documents/#{landing.root.document_token}/bootstrap", %{
+        "authenticated_workspace_pin_bootstrap_hash" =>
+          created.share.authenticated_workspace_pin_bootstrap_hash
+      })
+
+    assert %{"error" => "dbsc_required"} = json_response(stale_conn, 401)
+    assert get_resp_header(stale_conn, "secure-session-challenge") != []
+
+    dbsc_conn =
+      build_conn()
+      |> authed_conn_with_mount_session(
+        mount_user_id,
+        mount_user_device.device,
+        dbsc_mount_cookie
+      )
+      |> with_rrp_headers(
+        mount_user_id,
+        mount_user_device.device,
+        mount_user_device.signing_private_key
+      )
+      |> post("/api/mounts/#{mount_id}/documents/#{landing.root.document_token}/bootstrap", %{
+        "authenticated_workspace_pin_bootstrap_hash" =>
+          created.share.authenticated_workspace_pin_bootstrap_hash
+      })
+
+    assert %{
+             "document" => %{"document_id" => document_id},
+             "mount" => %{"id" => ^mount_id}
+           } = json_response(dbsc_conn, 200)
+
+    assert document_id == document.id
+  end
+
+  test "mount challenge offers DBSC registration for refreshed share and mount sessions", %{
+    conn: conn,
+    owner_id: owner_id,
+    mount_user_id: mount_user_id,
+    document: document,
+    mount_workspace: mount_workspace,
+    mount_user_device: mount_user_device
+  } do
+    auth_key = :crypto.strong_rand_bytes(32)
+
+    {created, _auth_key} =
+      create_document_share(document, owner_id,
+        password_protected: true,
+        auth_key: auth_key,
+        authorization_secret: auth_key
+      )
+
+    {:ok, landing} = Sharing.get_share_landing(created.share_slug)
+
+    share_challenge_conn = build_conn() |> get("/api/shares/#{created.share_slug}/challenge")
+    assert %{"challenge" => share_challenge} = json_response(share_challenge_conn, 200)
+
+    share_response =
+      share_challenge
+      |> Base.url_decode64!(padding: false)
+      |> then(&:crypto.mac(:hmac, :sha256, auth_key, &1))
+      |> Base.url_encode64(padding: false)
+
+    share_respond_conn =
+      build_conn()
+      |> post(
+        "/api/shares/#{created.share_slug}/challenge",
+        share_participant_request_attrs("Mount Guest", created, auth_key)
+        |> Map.put("response", share_response)
+        |> Map.put("password_challenge_hash", share_password_challenge_hash(created.share_slug))
+      )
+
+    assert %{"participant" => %{"grant" => "view"}} = json_response(share_respond_conn, 200)
+
+    {:ok, participant_session_token} =
+      share_respond_conn
+      |> share_session_cookie()
+      |> Base.url_decode64(padding: false)
+
+    create_conn =
+      conn
+      |> authed_conn(mount_user_id, mount_user_device.device)
+      |> post("/api/mounts", %{
+        "workspace_id" => mount_workspace.id,
+        "share_slug" => created.share_slug,
+        "target_kind" => "document",
+        "target_token" => landing.root.document_token,
+        "authenticated_workspace_pin_bootstrap_hash" =>
+          created.share.authenticated_workspace_pin_bootstrap_hash
+      })
+
+    %{"id" => mount_id} = json_response(create_conn, 201)
+
+    challenge_conn =
+      build_conn()
+      |> authed_conn(mount_user_id, mount_user_device.device)
+      |> with_rrp_headers(
+        mount_user_id,
+        mount_user_device.device,
+        mount_user_device.signing_private_key
+      )
+      |> get("/api/mounts/#{mount_id}/challenge")
+
+    assert %{"challenge" => challenge} = json_response(challenge_conn, 200)
+
+    response =
+      challenge
+      |> Base.url_decode64!(padding: false)
+      |> then(&:crypto.mac(:hmac, :sha256, auth_key, &1))
+      |> Base.url_encode64(padding: false)
+
+    respond_conn =
+      build_conn()
+      |> authed_conn_with_share_session(
+        mount_user_id,
+        mount_user_device.device,
+        participant_session_token
+      )
+      |> with_rrp_headers(
+        mount_user_id,
+        mount_user_device.device,
+        mount_user_device.signing_private_key
+      )
+      |> post("/api/mounts/#{mount_id}/challenge", %{
+        "response" => response,
+        "password_challenge_hash" => mount_password_challenge_hash(mount_id)
+      })
+
+    response_body = json_response(respond_conn, 200)
+    assert %{"mount_id" => ^mount_id, "bootstrap_required" => true} = response_body
+    refute Map.has_key?(response_body, "share_participant_session")
+
+    share_registration_header =
+      dbsc_registration_header_for(respond_conn, "/api/auth/dbsc/share/register")
+
+    mount_registration_header =
+      dbsc_registration_header_for(respond_conn, "/api/auth/dbsc/mount/register")
+
+    share_cookie = share_session_cookie(respond_conn)
+    mount_cookie = mount_session_cookie(respond_conn)
+
+    {share_registration_proof, _share_private_key} =
+      dbsc_registration_proof(share_registration_header)
+
+    share_register_conn =
+      build_conn()
+      |> put_req_header("cookie", "__Host-refmd-share-session=#{share_cookie}")
+      |> put_req_header("secure-session-response", share_registration_proof)
+      |> post("/api/auth/dbsc/share/register", %{})
+
+    share_registration = json_response(share_register_conn, 200)
+    assert share_registration["refresh_url"] == DBSC.refresh_path("share_participant")
+    assert share_session_cookie(share_register_conn) != share_cookie
+
+    {mount_registration_proof, _mount_private_key} =
+      dbsc_registration_proof(mount_registration_header)
+
+    mount_register_conn =
+      build_conn()
+      |> authed_conn_with_mount_session(
+        mount_user_id,
+        mount_user_device.device,
+        mount_cookie
+      )
+      |> put_req_header("secure-session-response", mount_registration_proof)
+      |> post("/api/auth/dbsc/mount/register", %{})
+
+    mount_registration = json_response(mount_register_conn, 200)
+    assert mount_registration["refresh_url"] == DBSC.refresh_path("mount")
+    assert mount_session_cookie(mount_register_conn) != mount_cookie
+  end
+
+  test "password-protected mount challenge rejects a RRP device outside the mount user", %{
     conn: conn,
     owner_id: owner_id,
     mount_user_id: mount_user_id,
@@ -1548,7 +1859,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     show_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1563,7 +1874,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     root_folder_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1578,7 +1889,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     challenge_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1596,7 +1907,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     root_respond_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1618,7 +1929,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
         mount_user_device.device,
         mount_session_cookie
       )
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1650,7 +1961,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
         mount_user_device.device,
         mount_session_cookie
       )
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1675,7 +1986,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     challenge_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1693,7 +2004,7 @@ defmodule RefMDWeb.ShareMountControllerTest do
     respond_conn =
       build_conn()
       |> authed_conn(mount_user_id, mount_user_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         mount_user_id,
         mount_user_device.device,
         mount_user_device.signing_private_key
@@ -1705,5 +2016,55 @@ defmodule RefMDWeb.ShareMountControllerTest do
 
     assert %{"mount_id" => ^mount_id, "bootstrap_required" => true} =
              json_response(respond_conn, 200)
+  end
+
+  defp registration_param!(header, key) do
+    [_, value] = Regex.run(~r/#{key}="([^"]+)"/, header)
+    value
+  end
+
+  defp dbsc_key_pair do
+    {public_key, private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+    <<4, x::binary-size(32), y::binary-size(32)>> = public_key
+
+    jwk = %{
+      "kty" => "EC",
+      "crv" => "P-256",
+      "x" => Base.url_encode64(x, padding: false),
+      "y" => Base.url_encode64(y, padding: false)
+    }
+
+    {public_key, private_key, jwk}
+  end
+
+  defp dbsc_proof(private_key, header, payload) do
+    signing_input = base64url_json(header) <> "." <> base64url_json(payload)
+
+    signature =
+      :ecdsa
+      |> :crypto.sign(:sha256, signing_input, [private_key, :prime256v1])
+      |> der_ecdsa_to_raw()
+      |> Base.url_encode64(padding: false)
+
+    signing_input <> "." <> signature
+  end
+
+  defp base64url_json(value), do: value |> Jason.encode!() |> Base.url_encode64(padding: false)
+
+  defp der_ecdsa_to_raw(<<0x30, _len, 0x02, r_len, rest::binary>>) do
+    r = binary_part(rest, 0, r_len)
+    rest = binary_part(rest, r_len, byte_size(rest) - r_len)
+    <<0x02, s_len, s::binary-size(s_len)>> = rest
+    pad_ecdsa_integer(r) <> pad_ecdsa_integer(s)
+  end
+
+  defp pad_ecdsa_integer(value) do
+    value = value |> :binary.bin_to_list() |> Enum.drop_while(&(&1 == 0)) |> :binary.list_to_bin()
+
+    cond do
+      byte_size(value) > 32 -> binary_part(value, byte_size(value) - 32, 32)
+      byte_size(value) < 32 -> :binary.copy(<<0>>, 32 - byte_size(value)) <> value
+      true -> value
+    end
   end
 end

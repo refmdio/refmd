@@ -1,12 +1,12 @@
-import { client, POP_DEVICE_OVERRIDE_HEADER, throwIfError, withUserPopParams } from "./core";
+import { client, RRP_DEVICE_OVERRIDE_HEADER, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
-type PopOverrideOptions = {
-  popDeviceId?: string;
+type RrpOverrideOptions = {
+  rrpDeviceId?: string;
 };
 
-function popOverrideHeaders(options?: PopOverrideOptions): Record<string, string> | undefined {
-  return options?.popDeviceId ? { [POP_DEVICE_OVERRIDE_HEADER]: options.popDeviceId } : undefined;
+function rrpOverrideHeaders(options?: RrpOverrideOptions): Record<string, string> | undefined {
+  return options?.rrpDeviceId ? { [RRP_DEVICE_OVERRIDE_HEADER]: options.rrpDeviceId } : undefined;
 }
 
 export const encryptionApi = {
@@ -15,26 +15,26 @@ export const encryptionApi = {
   appendWorkspaceKeyDirectory: async (
     workspaceId: string,
     body: components["schemas"]["KeyDirectoryAppendRequest"],
-    options?: PopOverrideOptions & { ignoreConflict?: boolean },
+    options?: RrpOverrideOptions & { ignoreConflict?: boolean },
   ) => {
     const result = await client.POST("/api/workspaces/{workspace_id}/key-directory/append", {
-      params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+      params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       body,
-      headers: popOverrideHeaders(options),
+      headers: rrpOverrideHeaders(options),
     });
 
     if (options?.ignoreConflict && result.response.status === 409) return undefined;
     return throwIfError(result);
   },
 
-  getWorkspaceKeysWithPop: async (
+  getWorkspaceKeysWithRrp: async (
     workspaceId: string,
     deviceId: string,
     init?: Pick<RequestInit, "signal">,
   ) =>
     throwIfError(
       await client.GET("/api/encryption/workspaces/{workspace_id}/keys", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { workspace_id: workspaceId },
           query: { device_id: deviceId },
         }),
@@ -42,16 +42,16 @@ export const encryptionApi = {
       }),
     ),
 
-  createWorkspaceKeyWithPop: async (
+  createWorkspaceKeyWithRrp: async (
     workspaceId: string,
     body: components["schemas"]["CreateWorkspaceKeyRequest"],
-    options?: PopOverrideOptions,
+    options?: RrpOverrideOptions,
   ) => {
     throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/keys", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
-        headers: popOverrideHeaders(options),
+        headers: rrpOverrideHeaders(options),
       }),
     );
   },
@@ -59,11 +59,13 @@ export const encryptionApi = {
   saveMemberEnvelopes: async (
     workspaceId: string,
     body: components["schemas"]["SaveMemberEnvelopesRequest"],
+    options?: RrpOverrideOptions,
   ) => {
     throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/member-envelopes", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
+        headers: rrpOverrideHeaders(options),
       }),
     );
   },
@@ -73,7 +75,7 @@ export const encryptionApi = {
       await client.GET(
         "/api/encryption/workspaces/{workspace_id}/kek-rotation/completion-manifest",
         {
-          params: withUserPopParams({
+          params: withUserRrpParams({
             path: { workspace_id: workspaceId },
             query: { new_kek_version: newKekVersion },
           }),
@@ -87,7 +89,7 @@ export const encryptionApi = {
   ) => {
     throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation/complete", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     );
@@ -99,15 +101,15 @@ export const encryptionApi = {
   ) => {
     return throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     );
   },
 
-  getMemberEnvelopeWithPop: async (workspaceId: string) => {
+  getMemberEnvelopeWithRrp: async (workspaceId: string) => {
     const result = await client.GET("/api/encryption/workspaces/{workspace_id}/member-envelope", {
-      params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+      params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
     });
     if (result.response.status === 404) return null;
     return throwIfError(result);
@@ -116,7 +118,7 @@ export const encryptionApi = {
   getWorkspaceMemberKeys: async (workspaceId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/member-keys", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         ...init,
       }),
     ),
@@ -126,7 +128,7 @@ export const encryptionApi = {
   getDocumentKeys: async (documentId: string, init?: Pick<RequestInit, "signal">) =>
     throwIfError(
       await client.GET("/api/encryption/documents/{document_id}/keys", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
         ...init,
       }),
     ),
@@ -137,7 +139,7 @@ export const encryptionApi = {
   ) =>
     throwIfError(
       await client.POST("/api/encryption/documents/{document_id}/keys", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
         body,
       }),
     ),

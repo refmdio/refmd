@@ -5,6 +5,9 @@ import { SHARE_SESSION_SCOPE_HEADER } from "@/shared/lib/auth/session-scope";
 type RegisterRequest = components["schemas"]["RegisterRequest"];
 type LoginRequest = components["schemas"]["LoginRequest"];
 type RecoverySessionRequest = components["schemas"]["RecoverySessionRequest"];
+type OAuthStartRequest = components["schemas"]["OAuthStartRequest"];
+type OAuthCryptoSetupRequest = components["schemas"]["OAuthCryptoSetupRequest"];
+export type OAuthProvider = "google" | "github";
 
 export const authApi = {
   getSalt: async (email: string) =>
@@ -18,6 +21,19 @@ export const authApi = {
     throwIfError(await client.POST("/api/auth/register", { body })),
 
   login: async (body: LoginRequest) => throwIfError(await client.POST("/api/auth/login", { body })),
+
+  oauthProviders: async () => throwIfError(await client.GET("/api/auth/oauth/providers")),
+
+  oauthStart: async (provider: OAuthProvider, body: OAuthStartRequest) =>
+    throwIfError(
+      await client.POST("/api/auth/oauth/{provider}/start", {
+        params: { path: { provider } },
+        body,
+      }),
+    ),
+
+  oauthCryptoSetup: async (body: OAuthCryptoSetupRequest) =>
+    throwIfError(await client.POST("/api/auth/oauth/crypto-setup", { body })),
 
   me: async () => throwIfError(await client.GET("/api/auth/me")),
 

@@ -160,7 +160,7 @@ async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Prom
       targetUserId: member.user_id,
       targetIdentityHybridEncryptionPublicKeyMaterial: material,
       keyVersion: kekVersion,
-      popDeviceId: device.deviceId,
+      rrpDeviceId: device.deviceId,
       keyDirectoryCheckpoint: directory.checkpoint,
       ignoreConflict: true,
     });
@@ -179,7 +179,7 @@ async function ensureWorkspaceIdentityKey(params: {
   let directory = await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: params.workspaceId,
-    popDeviceId: params.ownerDeviceId,
+    rrpDeviceId: params.ownerDeviceId,
   });
   const targetKeyId = computeHybridEncryptionKeyId(
     params.targetIdentityHybridEncryptionPublicKeyMaterial,
@@ -206,7 +206,7 @@ async function ensureWorkspaceIdentityKey(params: {
   });
   await appendWorkspaceKeyDirectory({
     workspaceId: params.workspaceId,
-    popDeviceId: params.ownerDeviceId,
+    rrpDeviceId: params.ownerDeviceId,
     events: append.events,
     checkpoint: append.checkpoint,
   });
@@ -228,7 +228,7 @@ async function persistWorkspaceDeviceKek(params: {
   let directory = await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: params.workspaceId,
-    popDeviceId: params.ownerDeviceId,
+    rrpDeviceId: params.ownerDeviceId,
   });
   let deviceAppend: KeyDirectoryAppendArtifacts | null = null;
 
@@ -247,7 +247,7 @@ async function persistWorkspaceDeviceKek(params: {
     });
     await appendWorkspaceKeyDirectory({
       workspaceId: params.workspaceId,
-      popDeviceId: params.ownerDeviceId,
+      rrpDeviceId: params.ownerDeviceId,
       events: deviceAppend.events,
       checkpoint: deviceAppend.checkpoint,
     });
@@ -264,7 +264,7 @@ async function persistWorkspaceDeviceKek(params: {
       params.targetDeviceHybridEncryptionPublicKeyMaterial,
     keyVersion: params.keyVersion,
     isActive: true,
-    popDeviceId: params.ownerDeviceId,
+    rrpDeviceId: params.ownerDeviceId,
     keyDirectoryCheckpoint: directory.checkpoint,
     ignoreConflict: true,
   });
@@ -272,14 +272,14 @@ async function persistWorkspaceDeviceKek(params: {
 
 async function appendWorkspaceKeyDirectory(params: {
   workspaceId: string;
-  popDeviceId: string;
+  rrpDeviceId: string;
   events: KeyDirectoryEnvelope[];
   checkpoint: KeyDirectoryEnvelope;
 }): Promise<void> {
   await encryptionApi.appendWorkspaceKeyDirectory(
     params.workspaceId,
     { events: params.events, checkpoint: params.checkpoint },
-    { popDeviceId: params.popDeviceId, ignoreConflict: true },
+    { rrpDeviceId: params.rrpDeviceId, ignoreConflict: true },
   );
 }
 

@@ -61,6 +61,7 @@ defmodule RefMDWeb.PasswordController do
 
           conn
           |> set_session_cookie(token, false)
+          |> put_registration_header(:user, new_session)
           |> json(%{ok: true, session_id: new_session.id})
 
         {:error, _} ->
@@ -75,7 +76,7 @@ defmodule RefMDWeb.PasswordController do
   end
 
   operation(:change_password,
-    summary: "Change password (PoP required)",
+    summary: "Change password (RRP required)",
     request_body: {"Password change params", "application/json", Schemas.ChangePasswordRequest},
     responses: [
       ok: {"Password changed", "application/json", Schemas.OkResponse},
@@ -115,7 +116,7 @@ defmodule RefMDWeb.PasswordController do
   end
 
   operation(:regenerate_recovery_key,
-    summary: "Regenerate recovery key (PoP required)",
+    summary: "Regenerate recovery key (RRP required)",
     request_body:
       {"Recovery key params", "application/json", Schemas.RegenerateRecoveryKeyRequest},
     responses: [
@@ -191,6 +192,7 @@ defmodule RefMDWeb.PasswordController do
 
       conn
       |> set_session_cookie(token, false)
+      |> put_registration_header(:user, session)
       |> json(%{
         user: %{id: user.id, email: user.email, name: user.name},
         session_id: session.id

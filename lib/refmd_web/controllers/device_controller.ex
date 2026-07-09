@@ -455,14 +455,14 @@ defmodule RefMDWeb.DeviceController do
 
   def revoke(conn, %{"device_id" => device_id} = params) do
     user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
+    rrp_device_id = conn.assigns[:rrp_device_id]
     revocation_mode = params["revocation_mode"] || "security"
 
     cond do
       revocation_mode not in ~w(security retire) ->
         conn |> put_status(:bad_request) |> json(%{error: "invalid_revocation_mode"})
 
-      device_id == pop_device_id ->
+      device_id == rrp_device_id ->
         conn |> put_status(:forbidden) |> json(%{error: "cannot_revoke_current_device"})
 
       not Devices.user_owns_active_device?(user_id, device_id) ->
@@ -475,7 +475,7 @@ defmodule RefMDWeb.DeviceController do
         do_revoke_device(
           conn,
           user_id,
-          pop_device_id,
+          rrp_device_id,
           device_id,
           revocation_mode,
           params["revocation_signature"],
@@ -491,7 +491,7 @@ defmodule RefMDWeb.DeviceController do
   defp do_revoke_device(
          conn,
          user_id,
-         pop_device_id,
+         rrp_device_id,
          device_id,
          revocation_mode,
          revocation_signature,
@@ -501,7 +501,7 @@ defmodule RefMDWeb.DeviceController do
     case Devices.revoke_device(
            user_id,
            device_id,
-           pop_device_id,
+           rrp_device_id,
            revocation_mode,
            revocation_signature,
            revoked_at_ms,
@@ -679,13 +679,13 @@ defmodule RefMDWeb.DeviceController do
            Devices.prepare_device_approval_inputs(
              params,
              session.is_recovery,
-             conn.assigns[:pop_device],
+             conn.assigns[:rrp_device],
              device_registration
            ),
          result <-
            Devices.approve_device_registration(device_registration, approval_signature,
              is_recovery: session.is_recovery,
-             approver_device_id: conn.assigns[:pop_device_id],
+             approver_device_id: conn.assigns[:rrp_device_id],
              recovery_session_id: session.id,
              recovery_context: %{
                recovery_session_transcript_hash: session.recovery_session_transcript_hash,

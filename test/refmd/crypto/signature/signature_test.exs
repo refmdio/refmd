@@ -19,7 +19,7 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
   test "verifies a TS-generated Ed25519 and ML-DSA-65 hybrid signature vector" do
     assert :ok ==
              Signature.assert_hybrid_signature!(
-               "pop_request",
+               "rrp_request",
                transcript(),
                signature(),
                public_key_material()
@@ -31,42 +31,42 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
 
   test "requires both signature components and exact suite binding" do
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              Map.delete(signature(), "mldsa65"),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              Map.delete(signature(), "ed25519"),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              Map.put(signature(), "suite_rank", 1),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              Map.put(transcript(), "challenge", "different"),
              signature(),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              Map.put(transcript(), "generic_authority_boundary", %{"role" => "admin"}),
              signature(),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              Map.put(transcript(), "owner_id", @other_device_id),
              signature(),
              public_key_material()
@@ -76,28 +76,28 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
   test "classifies cryptographic failures before external semantic failures" do
     assert {:error, :invalid_signature} =
              Signature.verify_hybrid_signature_result(
-               "pop_request",
+               "rrp_request",
                Map.put(transcript(), "owner_id", @other_device_id),
                signature(),
                public_key_material()
              )
 
-    assert {:error, :pop_challenge_mismatch} =
+    assert {:error, :rrp_challenge_mismatch} =
              Signature.verify_hybrid_signature_result(
-               "pop_request",
+               "rrp_request",
                transcript(),
                signature(),
                public_key_material(),
-               Map.put(pop_semantic_context(), :challenge, "different")
+               Map.put(rrp_semantic_context(), :challenge, "different")
              )
 
     assert {:error, :invalid_signature} =
              Signature.verify_hybrid_signature_result(
-               "pop_request",
+               "rrp_request",
                transcript(),
                Map.put(signature(), "ed25519", flip_base64url_byte(signature()["ed25519"])),
                public_key_material(),
-               Map.put(pop_semantic_context(), :challenge, "different")
+               Map.put(rrp_semantic_context(), :challenge, "different")
              )
   end
 
@@ -124,21 +124,21 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
 
   test "rejects component-specific corruption" do
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              Map.put(signature(), "ed25519", flip_base64url_byte(signature()["ed25519"])),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              Map.put(signature(), "mldsa65", flip_base64url_byte(signature()["mldsa65"])),
              public_key_material()
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              Map.put(
                signature(),
@@ -149,7 +149,7 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              signature(),
              Map.put(
@@ -160,7 +160,7 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
            )
 
     refute Signature.verify_hybrid_signature(
-             "pop_response",
+             "rrp_response",
              transcript(),
              signature(),
              public_key_material()
@@ -169,7 +169,7 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
 
   test "rejects forbidden owner kinds and surface-owner combinations" do
     refute Signature.verify_hybrid_signature(
-             "pop_request",
+             "rrp_request",
              transcript(),
              signature(),
              Map.put(public_key_material(), "owner_kind", "plugin_publisher")
@@ -389,16 +389,16 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
       "protocol" => "refmd.hybrid-signature-transcript",
       "label" => "RefMD hybrid signature transcript v1",
       "version" => 1,
-      "transcript_owner" => "refmd.pop.request.http_user_device",
-      "surface_id" => "pop_request",
+      "transcript_owner" => "refmd.rrp.request.http_user_device",
+      "surface_id" => "rrp_request",
       "surface_variant" => "http_user_device",
-      "signing_purpose" => "pop_request",
+      "signing_purpose" => "rrp_request",
       "owner_kind" => "device",
       "owner_id" => @device_id,
       "signature_suite_id" => @suite_id,
       "signature_suite_rank" => 1000,
       "challenge" => "TjFQ5y_BaUt2XlscmYxEEw",
-      "pop_variant" => "http_user_device",
+      "rrp_variant" => "http_user_device",
       "transport" => "http",
       "actor" => %{
         "signer_kind" => "device",
@@ -427,14 +427,14 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
 
   defp signature do
     Signature.__test_sign_hybrid_signature__(
-      "pop_request",
+      "rrp_request",
       transcript(),
       private_key_material(),
       public_key_material()
     )
   end
 
-  defp pop_semantic_context do
+  defp rrp_semantic_context do
     %{
       device: %{
         id: @device_id,

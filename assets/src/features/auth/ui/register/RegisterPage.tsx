@@ -1,13 +1,15 @@
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { AlertTriangleIcon } from "lucide-solid";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
+import { RecoveryKeySavePanel } from "@/shared/lib/recovery/recovery-key-save-panel";
 import { useRegisterPage } from "../../model/register/use-register-page";
+import { OAuthProviderButtons } from "../oauth/OAuthProviderButtons";
 
 export function RegisterPage() {
   const state = useRegisterPage();
@@ -26,60 +28,16 @@ export function RegisterPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div class="space-y-4">
-                <div class="p-4 border rounded">
-                  <div class="flex items-center justify-between mb-3">
-                    <span class="text-sm text-muted-foreground">24 words</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => state.setShowMnemonic(!state.showMnemonic())}
-                    >
-                      {state.showMnemonic() ? "Hide" : "Show"}
-                    </Button>
-                  </div>
-                  <div class="grid grid-cols-3 gap-2 text-sm">
-                    <For each={state.recoveryMnemonic()!.split(" ")}>
-                      {(word, index) => (
-                        <div class="flex items-center gap-2">
-                          <span class="text-muted-foreground w-5 text-right">{index() + 1}.</span>
-                          <span>{state.showMnemonic() ? word : "------"}</span>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </div>
-
-                <div class="flex gap-2">
-                  <Button onClick={state.handleCopyRecoveryKey} variant="outline" class="flex-1">
-                    Copy
-                  </Button>
-                  <Button
-                    onClick={state.handleDownloadRecoveryKey}
-                    variant="outline"
-                    class="flex-1"
-                  >
-                    Download
-                  </Button>
-                </div>
-
-                <Alert variant="destructive">
-                  <AlertTriangleIcon />
-                  <AlertTitle>Warning</AlertTitle>
-                  <AlertDescription>
-                    If you lose this recovery key and forget your password, you will permanently
-                    lose access to your encrypted data.
-                  </AlertDescription>
-                </Alert>
-
-                <Button
-                  onClick={state.handleConfirmMnemonic}
-                  class="w-full"
-                  disabled={!state.mnemonicConfirmed()}
-                >
-                  Continue
-                </Button>
-              </div>
+              <RecoveryKeySavePanel
+                mnemonic={() => state.recoveryMnemonic()!}
+                confirmed={state.mnemonicConfirmed}
+                visible={state.showMnemonic}
+                onToggleVisible={() => state.setShowMnemonic(!state.showMnemonic())}
+                onCopy={state.handleCopyRecoveryKey}
+                onDownload={state.handleDownloadRecoveryKey}
+                onContinue={state.handleConfirmMnemonic}
+                warningDescription="If you lose this recovery key and forget your password, you will permanently lose access to your encrypted data."
+              />
             </CardContent>
           </Card>
         }
@@ -165,6 +123,23 @@ export function RegisterPage() {
                   "Create Account"
                 )}
               </Button>
+
+              <Show when={state.oauthProviders().length > 0}>
+                <>
+                  <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                    <div class="h-px flex-1 bg-border" />
+                    <span>or</span>
+                    <div class="h-px flex-1 bg-border" />
+                  </div>
+
+                  <OAuthProviderButtons
+                    providers={state.oauthProviders()}
+                    loadingProvider={state.oauthLoading()}
+                    disabled={state.loading()}
+                    onStart={state.handleOAuthStart}
+                  />
+                </>
+              </Show>
 
               <p class="text-center text-sm text-muted-foreground">
                 Already have an account?{" "}

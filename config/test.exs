@@ -34,6 +34,20 @@ config :refmd,
     "test-share-key" => Base.url_encode64(:binary.copy(<<1>>, 32), padding: false)
   }
 
+config :refmd, :oauth,
+  google: [
+    enabled: true,
+    client_id: "test-google-client",
+    client_secret: "test-google-secret"
+  ],
+  github: [
+    enabled: true,
+    client_id: "test-github-client",
+    client_secret: "test-github-secret"
+  ]
+
+config :refmd, oauth_error_details: true
+
 # Use Swoosh test adapter for in-process assertions
 config :refmd, RefMD.Mailer, adapter: Swoosh.Adapters.Test
 

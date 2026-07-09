@@ -24,7 +24,7 @@ export interface ShareCanonicalBootstrapFields {
   password_capability_secret_commitment: string;
 }
 
-type BootstrapAuthScope = "share" | "user-pop";
+type BootstrapAuthScope = "share" | "user-rrp";
 type PluginSyncedStorageSurface = "workspace" | "document";
 
 export interface DekWorkerClientMethods {
@@ -442,7 +442,7 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
     };
     return (await this[workerSend]("fetch-mounted-share-document-bootstrap", {
       ...params,
-      authHeaders: await bootstrapAuthHeaders(path, body, "user-pop"),
+      authHeaders: await bootstrapAuthHeaders(path, body, "user-rrp"),
     })) as Record<string, unknown>;
   },
 
@@ -455,7 +455,7 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
     };
     return (await this[workerSend]("fetch-mounted-share-folder-bootstrap", {
       ...params,
-      authHeaders: await bootstrapAuthHeaders(path, body, "user-pop"),
+      authHeaders: await bootstrapAuthHeaders(path, body, "user-rrp"),
     })) as Record<string, unknown>;
   },
 
@@ -595,10 +595,10 @@ async function bootstrapAuthHeaders(
     return { [SHARE_SESSION_SCOPE_HEADER]: "share" };
   }
 
-  const { getPopHeaders } = await import("@/shared/lib/auth/pop");
+  const { getRrpHeaders } = await import("@/shared/lib/auth/rrp");
   const canonicalQuery = canonicalQueryString("");
   const bodyHash = blake3Base64Url(new TextEncoder().encode(JSON.stringify(body)));
-  const headers = await getPopHeaders(undefined, undefined, "user", undefined, {
+  const headers = await getRrpHeaders(undefined, undefined, "user", undefined, {
     body_hash: bodyHash,
     canonical_query: canonicalQuery,
     method: "POST",

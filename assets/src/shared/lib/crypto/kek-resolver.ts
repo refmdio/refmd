@@ -82,10 +82,10 @@ async function doResolveActiveKek(
 }> {
   const userId = auth.user.id;
   const deviceId = device.deviceId;
-  let keys: Awaited<ReturnType<typeof encryptionApi.getWorkspaceKeysWithPop>>["keys"] = [];
+  let keys: Awaited<ReturnType<typeof encryptionApi.getWorkspaceKeysWithRrp>>["keys"] = [];
   let currentKekVersion = 0;
   try {
-    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId, {
+    const keysResponse = await encryptionApi.getWorkspaceKeysWithRrp(workspaceId, deviceId, {
       signal,
     });
     keys = keysResponse.keys;
@@ -189,7 +189,7 @@ async function tryDecryptKekViaDeviceEnvelope(
 ): Promise<boolean> {
   let envelopeFound = false;
   try {
-    const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId, {
+    const keysResponse = await encryptionApi.getWorkspaceKeysWithRrp(workspaceId, deviceId, {
       signal,
     });
     const matchingKey = keysResponse.keys.find((k) => k.key_version === keyVersion);

@@ -27,7 +27,7 @@ import {
   handleSignShareParticipantDeviceKeyDirectoryCheckpoint,
   handleSignShareParticipantDeviceKeyDirectoryEvent,
   handleSignWorkspacePinBootstrap,
-  handleCreatePopSignature,
+  handleCreateRrpSignature,
   handleSignRecoverySession,
   handleSignShareCapabilityAuthorization,
   handleCreateEditorEphemeralSessionProof,
@@ -126,8 +126,8 @@ export const signingRequestHandlers = {
     withCryptoOperationError("signature_failed", () =>
       handleSignRecipientBoundAuthorization(state, payload),
     ),
-  "create-pop-signature": (state, payload) =>
-    withCryptoOperationError("signature_failed", () => handleCreatePopSignature(state, payload)),
+  "create-rrp-signature": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleCreateRrpSignature(state, payload)),
   "sign-recovery-session": (state, payload) =>
     withCryptoOperationError("signature_failed", () => handleSignRecoverySession(state, payload)),
   "sign-share-capability-authorization": (state, payload) =>

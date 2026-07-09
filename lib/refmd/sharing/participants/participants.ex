@@ -1,6 +1,6 @@
 defmodule RefMD.Sharing.Participants do
   @moduledoc """
-  Participant sessions, devices, PoP challenges, and websocket tokens.
+  Participant sessions, devices, RRP challenges, and websocket tokens.
   """
 
   import Ecto.Query
@@ -14,13 +14,13 @@ defmodule RefMD.Sharing.Participants do
     SharedDocumentToken,
     SharedFolderToken,
     ShareParticipantDevice,
-    ShareParticipantPopChallenge,
     ShareParticipantPrincipal,
+    ShareParticipantRrpChallenge,
     ShareParticipantSession
   }
 
   @share_session_ttl 24 * 60 * 60
-  @share_pop_challenge_ttl 5 * 60
+  @share_rrp_challenge_ttl 5 * 60
   @ws_token_salt "share_ws_auth_token"
   @ws_token_max_age 300
   @max_safe_integer 9_007_199_254_740_991
@@ -275,13 +275,13 @@ defmodule RefMD.Sharing.Participants do
   def validate_share_participant_writer_admission(_),
     do: {:error, :invalid_share_participant_writer}
 
-  def create_pop_challenge(share_id, principal_id, device_id, session_id) do
+  def create_rrp_challenge(share_id, principal_id, device_id, session_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
     now = DateTime.utc_now()
 
-    case %ShareParticipantPopChallenge{created_at: now}
-         |> ShareParticipantPopChallenge.changeset(%{
+    case %ShareParticipantRrpChallenge{created_at: now}
+         |> ShareParticipantRrpChallenge.changeset(%{
            share_id: share_id,
            device_id: device_id,
            challenge_hash: challenge_hash,
@@ -290,7 +290,7 @@ defmodule RefMD.Sharing.Participants do
            subject_id: principal_id,
            share_participant_principal_id: principal_id,
            share_participant_device_id: device_id,
-           expires_at: DateTime.add(now, @share_pop_challenge_ttl, :second)
+           expires_at: DateTime.add(now, @share_rrp_challenge_ttl, :second)
          })
          |> Repo.insert() do
       {:ok, _challenge} -> {:ok, challenge}
@@ -298,12 +298,12 @@ defmodule RefMD.Sharing.Participants do
     end
   end
 
-  def consume_pop_challenge(challenge, share_id, principal_id, device_id, session_id) do
+  def consume_rrp_challenge(challenge, share_id, principal_id, device_id, session_id) do
     challenge_hash = :crypto.hash(:sha256, challenge)
     session_id_hash = Hash.blake3_base64url(session_id)
 
     case Repo.delete_all(
-           pop_challenge_consumption_query(
+           rrp_challenge_consumption_query(
              challenge_hash,
              share_id,
              principal_id,
@@ -316,7 +316,7 @@ defmodule RefMD.Sharing.Participants do
     end
   end
 
-  defp pop_challenge_consumption_query(
+  defp rrp_challenge_consumption_query(
          challenge_hash,
          share_id,
          principal_id,
@@ -325,7 +325,7 @@ defmodule RefMD.Sharing.Participants do
        ) do
     now = DateTime.utc_now()
 
-    from(pc in ShareParticipantPopChallenge,
+    from(pc in ShareParticipantRrpChallenge,
       where: pc.challenge_hash == ^challenge_hash,
       where: pc.session_kind == "share_participant",
       where: pc.subject_id == ^principal_id,

@@ -84,48 +84,51 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
-  defp with_pop_headers(conn, user_id, device, signing_private_key, method, path, body) do
-    put_test_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
+  defp with_rrp_headers(conn, user_id, device, signing_private_key, method, path, body) do
+    put_test_rrp_headers(conn, user_id, device, signing_private_key, method, path, body)
   end
 
-  defp pop_conn(conn, user_id, user_device) do
+  defp rrp_conn(conn, user_id, user_device) do
     conn
     |> authed_conn(user_id, user_device.device)
-    |> put_private(:test_pop_args, {user_id, user_device.device, user_device.signing_private_key})
+    |> put_private(:test_rrp_args, {user_id, user_device.device, user_device.signing_private_key})
   end
 
   defp post(conn, path, body) do
     conn
-    |> maybe_put_deferred_pop("POST", path, body)
+    |> maybe_put_deferred_rrp("POST", path, body)
     |> Phoenix.ConnTest.dispatch(@endpoint, :post, path, test_json_body(body))
   end
 
   defp patch(conn, path, body) do
     conn
-    |> maybe_put_deferred_pop("PATCH", path, body)
+    |> maybe_put_deferred_rrp("PATCH", path, body)
     |> Phoenix.ConnTest.dispatch(@endpoint, :patch, path, test_json_body(body))
   end
 
   defp put(conn, path, body) do
     conn
-    |> maybe_put_deferred_pop("PUT", path, body)
+    |> maybe_put_deferred_rrp("PUT", path, body)
     |> Phoenix.ConnTest.dispatch(@endpoint, :put, path, test_json_body(body))
   end
 
   defp delete(conn, path) do
     conn
-    |> maybe_put_deferred_pop("DELETE", path, "")
+    |> maybe_put_deferred_rrp("DELETE", path, "")
     |> Phoenix.ConnTest.dispatch(@endpoint, :delete, path, "")
   end
 
-  defp maybe_put_deferred_pop(conn, method, path, body) do
-    case conn.private[:test_pop_args] do
+  defp maybe_put_deferred_rrp(conn, method, path, body) do
+    case conn.private[:test_rrp_args] do
       {user_id, device, signing_private_key} ->
-        with_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
+        with_rrp_headers(conn, user_id, device, signing_private_key, method, path, body)
 
       _ ->
         conn
@@ -175,7 +178,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     %{
       conn: conn,
-      authed: pop_conn(conn, owner_id, owner_device),
+      authed: rrp_conn(conn, owner_id, owner_device),
       owner_id: owner_id,
       owner_role: owner_role,
       owner_device: owner_device,
@@ -223,14 +226,14 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{first.id}/publication", publication_body("same-slug")),
              201
            )
 
     duplicate_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> post("/api/documents/#{second.id}/publication", publication_body("same-slug"))
 
     assert %{"error" => "slug_conflict", "suggested_slug" => "same-slug-2"} =
@@ -246,7 +249,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
   } do
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", publication_body("sync-doc")),
              201
            )
@@ -256,7 +259,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     update_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> put("/api/documents/#{document.id}/publication/content", %{
         "title" => title,
         "content" => content,
@@ -284,7 +287,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
        } do
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", publication_body("editor-sync")),
              201
            )
@@ -297,7 +300,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     sync_conn =
       build_conn()
-      |> pop_conn(editor_id, editor_device)
+      |> rrp_conn(editor_id, editor_device)
       |> put("/api/documents/#{document.id}/publication/content", %{
         "title" => title,
         "content" => content,
@@ -319,7 +322,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", body),
              201
            )
@@ -329,7 +332,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     sync_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> put("/api/documents/#{document.id}/publication/content", %{
         "title" => body["title"],
         "content" => body["content"],
@@ -348,14 +351,14 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
   } do
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", publication_body("old-slug")),
              201
            )
 
     update_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> patch("/api/documents/#{document.id}/publication", %{
         "slug" => "new-slug",
         "noindex" => true
@@ -379,14 +382,14 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
   } do
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", publication_body("gone-slug")),
              201
            )
 
     delete_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> delete("/api/documents/#{document.id}/publication")
 
     assert response(delete_conn, 204) == ""
@@ -436,21 +439,21 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
   } do
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", publication_body("reuse-slug")),
              201
            )
 
     assert response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> delete("/api/documents/#{document.id}/publication"),
              204
            ) == ""
 
     republish_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> post("/api/documents/#{document.id}/publication", publication_body("reuse-slug"))
 
     assert %{"slug" => "reuse-slug"} = json_response(republish_conn, 201)
@@ -464,7 +467,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
   } do
     assert json_response(
              conn
-             |> pop_conn(owner_id, owner_device)
+             |> rrp_conn(owner_id, owner_device)
              |> post("/api/documents/#{document.id}/publication", publication_body("deleted-doc")),
              201
            )
@@ -473,7 +476,7 @@ defmodule RefMDWeb.PublicDocumentControllerTest do
 
     delete_document_conn =
       conn
-      |> pop_conn(owner_id, owner_device)
+      |> rrp_conn(owner_id, owner_device)
       |> delete("/api/documents/#{document.id}")
 
     assert json_response(delete_document_conn, 200) == %{"ok" => true}

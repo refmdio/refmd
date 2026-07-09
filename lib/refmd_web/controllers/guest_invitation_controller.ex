@@ -40,7 +40,7 @@ defmodule RefMDWeb.GuestInvitationController do
          validated =
            validated
            |> Map.put(:actor_role, actor_role)
-           |> Map.put(:actor_device_id, conn.assigns[:pop_device_id]),
+           |> Map.put(:actor_device_id, conn.assigns[:rrp_device_id]),
          {:ok, invitation} <- Workspaces.create_guest_invitation(validated) do
       conn
       |> put_status(:created)
@@ -95,7 +95,7 @@ defmodule RefMDWeb.GuestInvitationController do
   end
 
   defp do_delete(conn, invitation_id, key_directory) do
-    key_directory = put_actor_device_id(key_directory, conn.assigns[:pop_device_id])
+    key_directory = put_actor_device_id(key_directory, conn.assigns[:rrp_device_id])
 
     case Workspaces.revoke_guest_invitation(
            conn.assigns.workspace_id,
@@ -154,6 +154,7 @@ defmodule RefMDWeb.GuestInvitationController do
            ) do
       conn
       |> set_session_cookie(result.session_token, false)
+      |> put_registration_header(:user, result.session)
       |> json(serialize_redeem_result(result))
     else
       {:error, reason} -> handle_redeem_error(conn, reason)

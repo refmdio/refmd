@@ -4,7 +4,7 @@ import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/typ
 const mocks = vi.hoisted(() => ({
   advanceKeyDirectoryPinWithProof: vi.fn(),
   getKeyDirectoryPin: vi.fn(),
-  getPopHeaders: vi.fn(),
+  getRrpHeaders: vi.fn(),
   getPreferredSessionScope: vi.fn(),
   hashKeyDirectoryCheckpointEnvelope: vi.fn(),
   lookupVerifiedKeyDirectoryEventBodies: vi.fn(),
@@ -20,8 +20,8 @@ vi.mock("@/shared/lib/anti-rollback/key-directory-pin/pins", () => ({
     mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 }));
 
-vi.mock("@/shared/lib/auth/pop", () => ({
-  getPopHeaders: mocks.getPopHeaders,
+vi.mock("@/shared/lib/auth/rrp", () => ({
+  getRrpHeaders: mocks.getRrpHeaders,
 }));
 
 vi.mock("@/shared/lib/auth/session-scope", () => ({
@@ -36,13 +36,13 @@ describe("fetchVerifiedKeyDirectory", () => {
     vi.restoreAllMocks();
     mocks.advanceKeyDirectoryPinWithProof.mockReset();
     mocks.getKeyDirectoryPin.mockReset();
-    mocks.getPopHeaders.mockReset();
+    mocks.getRrpHeaders.mockReset();
     mocks.getPreferredSessionScope.mockReset();
     mocks.hashKeyDirectoryCheckpointEnvelope.mockReset();
     mocks.lookupVerifiedKeyDirectoryEventBodies.mockReset();
     mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor.mockReset();
 
-    mocks.getPopHeaders.mockResolvedValue({ "X-Refmd-PoP": "proof" });
+    mocks.getRrpHeaders.mockResolvedValue({ "X-Refmd-RRP": "proof" });
     mocks.getPreferredSessionScope.mockReturnValue("user");
     mocks.lookupVerifiedKeyDirectoryEventBodies.mockReturnValue([]);
   });
@@ -93,7 +93,7 @@ describe("fetchVerifiedKeyDirectory", () => {
       fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId,
-        popDeviceId: "22222222-2222-4222-8222-222222222222",
+        rrpDeviceId: "22222222-2222-4222-8222-222222222222",
       }),
     ).resolves.toEqual({ checkpoint });
 
@@ -180,7 +180,7 @@ describe("fetchVerifiedKeyDirectory", () => {
       fetchVerifiedKeyDirectoryFromTrustedCheckpoint({
         scopeKind: "workspace",
         scopeId,
-        popDeviceId: "22222222-2222-4222-8222-222222222222",
+        rrpDeviceId: "22222222-2222-4222-8222-222222222222",
         trustedCheckpointEnvelope: trustedCheckpoint,
       }),
     ).resolves.toEqual({ checkpoint: currentCheckpoint });
@@ -292,7 +292,7 @@ describe("fetchVerifiedKeyDirectory", () => {
       fetchVerifiedKeyDirectoryFromTrustedCheckpoint({
         scopeKind: "workspace",
         scopeId,
-        popDeviceId: "22222222-2222-4222-8222-222222222222",
+        rrpDeviceId: "22222222-2222-4222-8222-222222222222",
         trustedCheckpointEnvelope: trustedCheckpoint,
       }),
     ).resolves.toEqual({ checkpoint: latestCheckpoint });
@@ -418,7 +418,7 @@ describe("fetchVerifiedKeyDirectory", () => {
       fetchVerifiedKeyDirectoryFromTrustedCheckpoint({
         scopeKind: "workspace",
         scopeId,
-        popDeviceId: "22222222-2222-4222-8222-222222222222",
+        rrpDeviceId: "22222222-2222-4222-8222-222222222222",
         trustedCheckpointEnvelope: trustedCheckpoint,
       }),
     ).resolves.toEqual({ checkpoint: latestCheckpoint });
@@ -511,7 +511,7 @@ describe("fetchVerifiedKeyDirectory", () => {
       fetchVerifiedKeyDirectoryFromTrustedCheckpoint({
         scopeKind: "workspace",
         scopeId,
-        popDeviceId: "22222222-2222-4222-8222-222222222222",
+        rrpDeviceId: "22222222-2222-4222-8222-222222222222",
         trustedCheckpointEnvelope: trustedCheckpoint,
       }),
     ).rejects.toThrow("key_directory_checkpoint_anchor_mismatch");

@@ -220,7 +220,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
         const directory = await fetchVerifiedKeyDirectory({
           scopeKind: "workspace",
           scopeId: id,
-          popDeviceId: device.deviceId,
+          rrpDeviceId: device.deviceId,
         });
         const workspacePinBootstrap = await createWorkspacePinBootstrap({
           workspaceId: id,
@@ -370,7 +370,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
         const directory = await fetchVerifiedKeyDirectory({
           scopeKind: "workspace",
           scopeId: id,
-          popDeviceId: device.deviceId,
+          rrpDeviceId: device.deviceId,
         });
         return {
           previousCheckpoint: directory.checkpoint,

@@ -1,4 +1,4 @@
-defmodule RefMDWeb.Http.PopTranscript do
+defmodule RefMDWeb.Http.RrpTranscript do
   @moduledoc false
 
   alias RefMD.Crypto.Signature
@@ -87,7 +87,7 @@ defmodule RefMDWeb.Http.PopTranscript do
          true <- key_material["owner_id"] == device_id do
       checkpoint
     else
-      _ -> raise(ArgumentError, "pop_actor_key_directory_inactive")
+      _ -> raise(ArgumentError, "rrp_actor_key_directory_inactive")
     end
   end
 
@@ -108,7 +108,7 @@ defmodule RefMDWeb.Http.PopTranscript do
          true <- key_material["owner_id"] == device_id do
       checkpoint
     else
-      _ -> raise(ArgumentError, "pop_actor_key_directory_inactive")
+      _ -> raise(ArgumentError, "rrp_actor_key_directory_inactive")
     end
   end
 
@@ -129,13 +129,13 @@ defmodule RefMDWeb.Http.PopTranscript do
          true <- is_binary(workspace_id) do
       :ok
     else
-      _ -> raise(ArgumentError, "pop_actor_key_directory_inactive")
+      _ -> raise(ArgumentError, "rrp_actor_key_directory_inactive")
     end
   end
 
   defp required_integer!(value) when is_integer(value) and value > 0, do: value
-  defp required_integer!(_), do: raise(ArgumentError, "pop_actor_checkpoint_sequence_invalid")
+  defp required_integer!(_), do: raise(ArgumentError, "rrp_actor_checkpoint_sequence_invalid")
 
   defp required_string!(value) when is_binary(value) and value != "", do: value
-  defp required_string!(_), do: raise(ArgumentError, "pop_actor_checkpoint_hash_invalid")
+  defp required_string!(_), do: raise(ArgumentError, "rrp_actor_checkpoint_hash_invalid")
 end

@@ -529,7 +529,11 @@ defmodule RefMDWeb.PluginNetworkExecutorControllerTest do
   defp authed_conn(conn, user_id, device_id) do
     {:ok, _session, token} = Auth.create_session(user_id, %{device_id: device_id})
 
-    put_req_header(conn, "cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    put_req_header(
+      conn,
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
   end
 
   defp insert_device!(user_id, device_id) do

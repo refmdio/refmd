@@ -45,7 +45,7 @@ import {
   buildPluginBundleApprovalTranscript,
   buildPluginConsentEventTranscript,
   buildPluginNetworkProxyRequestTranscript,
-  buildPopTranscript,
+  buildRrpTranscript,
   buildPqWrapTranscript,
   buildRecipientBoundAuthorizationTranscript,
   buildRecoveryAuthorizationProofTranscript,
@@ -53,7 +53,7 @@ import {
   buildRecoverySessionTranscript,
   buildResponderPrekeyTranscript,
   buildWorkspacePinBootstrapTranscript,
-  createPopRequestSignature,
+  createRrpRequestSignature,
   signDeviceKeyDeletionProofSignature,
   signDocumentSnapshotSignature,
   signDocumentUpdateSignature,
@@ -92,7 +92,7 @@ import {
   verifyPluginBundleApprovalSignature,
   verifyPluginConsentEventSignature,
   verifyPluginNetworkProxyRequestSignature,
-  verifyPopRequestSignature,
+  verifyRrpRequestSignature,
   verifyPqWrapSignature,
   verifyRecipientBoundAuthorizationSignature,
   verifyRecoveryAuthorizationProofSignature,
@@ -191,7 +191,7 @@ function expectedActiveSigningSurfacePairs(): string[][] {
       "http_share_participant_device",
       "channel_user_device",
       "channel_share_participant_device",
-    ].map((variant) => ["pop_request", variant]),
+    ].map((variant) => ["rrp_request", variant]),
     ...["umk_distribution", "device_approval_kek_initial", "trust_transfer"].map((variant) => [
       "initial_key_delivery",
       variant,
@@ -224,13 +224,13 @@ describe("hybrid signature primitive", () => {
     const privateKeyMaterial = testPrivateKeyMaterial();
     const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
     const transcript = testTranscript();
-    const signature = createPopRequestSignature({
+    const signature = createRrpRequestSignature({
       transcript,
       privateKeyMaterial,
     });
 
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature,
         publicKeyMaterial,
@@ -247,14 +247,14 @@ describe("hybrid signature primitive", () => {
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript: { ...(transcript as Record<string, StrictJsonValue>), challenge: "different" },
         signature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript: {
           ...(transcript as Record<string, StrictJsonValue>),
           generic_authority_boundary: { role: "admin" },
@@ -264,7 +264,7 @@ describe("hybrid signature primitive", () => {
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript: {
           ...(transcript as Record<string, StrictJsonValue>),
           owner_id: TEST_OTHER_DEVICE_ID,
@@ -274,17 +274,17 @@ describe("hybrid signature primitive", () => {
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript: {
           ...(transcript as Record<string, StrictJsonValue>),
-          transcript_owner: "refmd.pop.other",
+          transcript_owner: "refmd.rrp.other",
         },
         signature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript: {
           ...(transcript as Record<string, StrictJsonValue>),
           surface_id: "device_approval",
@@ -294,21 +294,21 @@ describe("hybrid signature primitive", () => {
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript: { ...(transcript as Record<string, StrictJsonValue>), surface_variant: "none" },
         signature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, ed25519: flipBase64UrlByte(signature.ed25519) },
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, mldsa65: flipBase64UrlByte(signature.mldsa65) },
         publicKeyMaterial,
@@ -431,34 +431,34 @@ describe("hybrid signature primitive", () => {
     const privateKeyMaterial = testPrivateKeyMaterial();
     const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
     const transcript = testTranscript();
-    const signature = createPopRequestSignature({
+    const signature = createRrpRequestSignature({
       transcript,
       privateKeyMaterial,
     });
 
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, mldsa65: undefined } as unknown as HybridSignature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, ed25519: undefined } as unknown as HybridSignature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, suite_rank: 1 } as unknown as HybridSignature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: {
           ...signature,
@@ -468,21 +468,21 @@ describe("hybrid signature primitive", () => {
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, signing_key_id: flipBase64UrlByte(signature.signing_key_id) },
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: { ...signature, extra: "field" } as unknown as HybridSignature,
         publicKeyMaterial,
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature,
         publicKeyMaterial: {
@@ -492,7 +492,7 @@ describe("hybrid signature primitive", () => {
       }),
     ).toBe(false);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature,
         publicKeyMaterial: {
@@ -507,14 +507,14 @@ describe("hybrid signature primitive", () => {
     const privateKeyMaterial = testPrivateKeyMaterial();
     const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
     const transcript = testTranscript();
-    const signature = createPopRequestSignature({
+    const signature = createRrpRequestSignature({
       transcript,
       privateKeyMaterial,
     });
 
     const encoded = encodeHybridSignatureForTransport(signature);
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature: decodeHybridSignatureFromTransport(encoded),
         publicKeyMaterial,
@@ -574,7 +574,7 @@ describe("active signing surface inventory", () => {
     expect(() => getActiveSigningSurface("snapshot_proof", "workspace_device")).toThrow(
       "signing_surface_not_active",
     );
-    expect(() => getActiveSigningSurface("pop_request", "none")).toThrow(
+    expect(() => getActiveSigningSurface("rrp_request", "none")).toThrow(
       "signing_surface_not_active",
     );
   });
@@ -836,13 +836,13 @@ describe("active signing surface inventory", () => {
     const privateKeyMaterial = testPrivateKeyMaterial();
     const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
     const transcript = testTranscript();
-    const signature = createPopRequestSignature({
+    const signature = createRrpRequestSignature({
       transcript,
       privateKeyMaterial,
     });
 
     expect(
-      verifyPopRequestSignature({
+      verifyRrpRequestSignature({
         transcript,
         signature,
         publicKeyMaterial: {
@@ -980,9 +980,9 @@ function buildSurfaceTranscript(
         scopeId: testUuid(433),
         permission: "edit",
       });
-    case "pop_request":
-      return buildPopTranscript({
-        variant: surface.variant as Parameters<typeof buildPopTranscript>[0]["variant"],
+    case "rrp_request":
+      return buildRrpTranscript({
+        variant: surface.variant as Parameters<typeof buildRrpTranscript>[0]["variant"],
         ownerKind: publicKeyMaterial.owner_kind,
         ownerId: publicKeyMaterial.owner_id,
         actor: popActorFixture(surface.variant, publicKeyMaterial),
@@ -1247,8 +1247,8 @@ function signerForPurpose(signingPurpose: string): (params: SurfaceSignParams) =
       return signShareCapabilityAuthorizationSignature;
     case "share_participant_device_authorization":
       return signShareParticipantDeviceAuthorizationSignature;
-    case "pop_request":
-      return createPopRequestSignature;
+    case "rrp_request":
+      return createRrpRequestSignature;
     case "genesis_device_bootstrap":
       return signGenesisDeviceBootstrapSignature;
     case "device_approval":
@@ -1306,8 +1306,8 @@ function verifierForPurpose(signingPurpose: string): (params: SurfaceVerifyParam
       return verifyShareCapabilityAuthorizationSignature;
     case "share_participant_device_authorization":
       return verifyShareParticipantDeviceAuthorizationSignature;
-    case "pop_request":
-      return verifyPopRequestSignature;
+    case "rrp_request":
+      return verifyRrpRequestSignature;
     case "genesis_device_bootstrap":
       return verifyGenesisDeviceBootstrapSignature;
     case "device_approval":
@@ -1732,7 +1732,7 @@ function popActorFixture(
       key_scope_kind: "workspace",
       key_scope_id: testUuid(421),
       key_checkpoint_sequence: 1,
-      key_checkpoint_hash: hash("pop-workspace-checkpoint"),
+      key_checkpoint_hash: hash("rrp-workspace-checkpoint"),
     };
   }
   return {
@@ -1743,7 +1743,7 @@ function popActorFixture(
     key_scope_kind: "user",
     key_scope_id: testUuid(410),
     key_checkpoint_sequence: 1,
-    key_checkpoint_hash: hash("pop-user-checkpoint"),
+    key_checkpoint_hash: hash("rrp-user-checkpoint"),
   };
 }
 
@@ -2009,16 +2009,16 @@ function testTranscript(): StrictJsonValue {
     protocol: SIGNATURE_TRANSCRIPT_PROTOCOL,
     label: SIGNATURE_TRANSCRIPT_LABEL,
     version: CURRENT_PROTOCOL_VERSION,
-    transcript_owner: "refmd.pop.request.http_user_device",
-    surface_id: "pop_request",
+    transcript_owner: "refmd.rrp.request.http_user_device",
+    surface_id: "rrp_request",
     surface_variant: "http_user_device",
-    signing_purpose: "pop_request",
+    signing_purpose: "rrp_request",
     owner_kind: "device",
     owner_id: TEST_DEVICE_ID,
     signature_suite_id: SUITE_IDS.HYBRID_SIGNATURE,
     signature_suite_rank: CURRENT_SUITE_RANK,
     challenge: "TjFQ5y_BaUt2XlscmYxEEw",
-    pop_variant: "http_user_device",
+    rrp_variant: "http_user_device",
     transport: "http",
     actor: {
       signer_kind: "device",

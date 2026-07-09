@@ -76,7 +76,7 @@ async function resolveWorkspacePinBootstrap(params: { workspaceId: string }): Pr
   const directory = await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: params.workspaceId,
-    popDeviceId: device.deviceId,
+    rrpDeviceId: device.deviceId,
   });
   const bootstrap = await createWorkspacePinBootstrap({
     workspaceId: params.workspaceId,

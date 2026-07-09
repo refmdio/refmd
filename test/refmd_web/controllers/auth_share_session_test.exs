@@ -98,7 +98,7 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
       |> post("/api/auth/ws-token")
 
@@ -116,7 +116,7 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
       |> put_req_header("x-refmd-session-scope", "share")
       |> post("/api/auth/ws-token")
@@ -126,7 +126,7 @@ defmodule RefMDWeb.AuthShareSessionTest do
     assert {:error, _reason} = Auth.verify_ws_token(token)
   end
 
-  test "POST /api/auth/pop-challenge selects the share participant session when the share scope header is set",
+  test "POST /api/auth/rrp-challenge selects the share participant session when the share scope header is set",
        %{
          conn: conn,
          user_cookie: user_cookie,
@@ -137,18 +137,18 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
       |> put_req_header("x-refmd-session-scope", "share")
-      |> put_req_header("x-pop-device-id", share_device_id)
-      |> post("/api/auth/pop-challenge")
+      |> put_req_header("x-refmd-rrp-device-id", share_device_id)
+      |> post("/api/auth/rrp-challenge")
 
     assert %{"challenge" => challenge} = json_response(conn, 200)
     assert is_binary(challenge)
     assert byte_size(challenge) > 0
   end
 
-  test "POST /api/auth/pop-challenge keeps using the user session by default", %{
+  test "POST /api/auth/rrp-challenge keeps using the user session by default", %{
     conn: conn,
     user_cookie: user_cookie,
     share_cookie: share_cookie,
@@ -158,10 +158,10 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
-      |> put_req_header("x-pop-device-id", share_device_id)
-      |> post("/api/auth/pop-challenge")
+      |> put_req_header("x-refmd-rrp-device-id", share_device_id)
+      |> post("/api/auth/rrp-challenge")
 
     assert json_response(conn, 403) == %{"error" => "invalid_device"}
   end
@@ -181,13 +181,13 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
       |> put_req_header("x-refmd-session-scope", "share")
       |> post("/api/auth/logout")
 
     assert json_response(conn, 200) == %{"ok" => true}
-    assert conn.resp_cookies["_refmd_share_session"].max_age == 0
+    assert conn.resp_cookies["__Host-refmd-share-session"].max_age == 0
     assert {:ok, %{id: user_session_id}} = Auth.get_valid_session_by_token_base64(user_cookie)
     assert user_session_id == user_session.id
     assert {:error, _reason} = Sharing.get_valid_participant_session_by_token_base64(share_cookie)
@@ -205,13 +205,13 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
       |> post("/api/auth/logout")
 
     assert json_response(conn, 200) == %{"ok" => true}
-    assert conn.resp_cookies["_refmd_session"].max_age == 0
-    refute Map.has_key?(conn.resp_cookies, "_refmd_share_session")
+    assert conn.resp_cookies["__Host-refmd-session"].max_age == 0
+    refute Map.has_key?(conn.resp_cookies, "__Host-refmd-share-session")
     assert {:error, _reason} = Auth.get_valid_session_by_token_base64(user_cookie)
 
     assert {:ok, _share_session} =
@@ -227,13 +227,13 @@ defmodule RefMDWeb.AuthShareSessionTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}; _refmd_mount_session=mount-session"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}; __Host-refmd-mount-session=mount-session"
       )
       |> post("/api/auth/logout", %{"clear_mount_session" => true})
 
     assert json_response(conn, 200) == %{"ok" => true}
-    assert conn.resp_cookies["_refmd_session"].max_age == 0
-    assert conn.resp_cookies["_refmd_mount_session"].max_age == 0
-    refute Map.has_key?(conn.resp_cookies, "_refmd_share_session")
+    assert conn.resp_cookies["__Host-refmd-session"].max_age == 0
+    assert conn.resp_cookies["__Host-refmd-mount-session"].max_age == 0
+    refute Map.has_key?(conn.resp_cookies, "__Host-refmd-share-session")
   end
 end

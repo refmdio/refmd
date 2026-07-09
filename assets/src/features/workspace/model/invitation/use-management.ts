@@ -116,7 +116,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
       const directory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: id,
-        popDeviceId: device.deviceId,
+        rrpDeviceId: device.deviceId,
       });
       const roleId = selectedRoleId();
       const selectedRole = roleId ? assignableRoles().find((role) => role.id === roleId) : null;
@@ -274,7 +274,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
       const directory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: id,
-        popDeviceId: device.deviceId,
+        rrpDeviceId: device.deviceId,
       });
       const keyDirectoryAppend = await buildWorkspaceInvitationRevokedKeyDirectoryAppend({
         workspaceId: id,

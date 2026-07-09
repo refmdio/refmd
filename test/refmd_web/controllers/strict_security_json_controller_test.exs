@@ -61,13 +61,16 @@ defmodule RefMDWeb.StrictSecurityJsonControllerTest do
     %{device: device, signing_private_key: keys.private}
   end
 
-  defp authed_pop_conn(conn, user_id, device, method, path, body) do
+  defp authed_rrp_conn(conn, user_id, device, method, path, body) do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
-    |> put_test_pop_headers(
+    |> put_test_rrp_headers(
       user_id,
       device.device,
       device.signing_private_key,
@@ -95,7 +98,7 @@ defmodule RefMDWeb.StrictSecurityJsonControllerTest do
 
     conn =
       conn
-      |> authed_pop_conn(user_id, device, "PUT", path, body)
+      |> authed_rrp_conn(user_id, device, "PUT", path, body)
       |> put(path, body)
 
     assert json_response(conn, 422) == %{"error" => "invalid_strict_json"}
@@ -119,7 +122,7 @@ defmodule RefMDWeb.StrictSecurityJsonControllerTest do
 
     conn =
       conn
-      |> authed_pop_conn(user_id, device, "DELETE", path, body)
+      |> authed_rrp_conn(user_id, device, "DELETE", path, body)
       |> delete(path, body)
 
     assert json_response(conn, 422) == %{"error" => "invalid_strict_json"}

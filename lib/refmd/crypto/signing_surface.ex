@@ -49,7 +49,7 @@ defmodule RefMD.Crypto.SigningSurface do
     "document_write_state_changed",
     "document_snapshot_accepted"
   ]
-  @pop_request_variants [
+  @rrp_request_variants [
     "http_user_device",
     "http_share_participant_device",
     "channel_user_device",
@@ -178,30 +178,30 @@ defmodule RefMD.Crypto.SigningSurface do
         @owner_share_participant_device
       ),
       surface(
-        "pop_request",
-        "pop_request",
-        "refmd.pop.request.http_user_device",
+        "rrp_request",
+        "rrp_request",
+        "refmd.rrp.request.http_user_device",
         "http_user_device",
         @owner_device
       ),
       surface(
-        "pop_request",
-        "pop_request",
-        "refmd.pop.request.http_share_participant_device",
+        "rrp_request",
+        "rrp_request",
+        "refmd.rrp.request.http_share_participant_device",
         "http_share_participant_device",
         @owner_share_participant_device
       ),
       surface(
-        "pop_request",
-        "pop_request",
-        "refmd.pop.request.channel_user_device",
+        "rrp_request",
+        "rrp_request",
+        "refmd.rrp.request.channel_user_device",
         "channel_user_device",
         @owner_device
       ),
       surface(
-        "pop_request",
-        "pop_request",
-        "refmd.pop.request.channel_share_participant_device",
+        "rrp_request",
+        "rrp_request",
+        "refmd.rrp.request.channel_share_participant_device",
         "channel_share_participant_device",
         @owner_share_participant_device
       ),
@@ -460,9 +460,9 @@ defmodule RefMD.Crypto.SigningSurface do
   defp semantic_validator_for!("share_participant_device_authorization:none:semantic"),
     do: {:validate_share_participant_device_authorization!, 5}
 
-  defp semantic_validator_for!("pop_request:" <> rest) do
-    if exact_variant_semantic?(rest, @pop_request_variants),
-      do: {:validate_pop!, 5},
+  defp semantic_validator_for!("rrp_request:" <> rest) do
+    if exact_variant_semantic?(rest, @rrp_request_variants),
+      do: {:validate_rrp!, 5},
       else: raise(ArgumentError, "semantic_validator_missing")
   end
 
@@ -702,14 +702,14 @@ defmodule RefMD.Crypto.SigningSurface do
     do:
       {RefMD.Crypto.Signature.Share, :build_share_participant_device_authorization_transcript!, 1}
 
-  defp transcript_builder_for!("pop_request", variant)
+  defp transcript_builder_for!("rrp_request", variant)
        when variant in [
               "http_user_device",
               "http_share_participant_device",
               "channel_user_device",
               "channel_share_participant_device"
             ],
-       do: {RefMD.Crypto.Signature.Device, :build_pop_transcript!, 7}
+       do: {RefMD.Crypto.Signature.Device, :build_rrp_transcript!, 7}
 
   defp transcript_builder_for!("genesis_device_bootstrap", "none"),
     do: {RefMD.Crypto.Signature.Device, :build_genesis_device_bootstrap_transcript!, 1}

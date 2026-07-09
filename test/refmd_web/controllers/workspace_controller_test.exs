@@ -64,12 +64,15 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
-  defp with_pop_headers(conn, user_id, device, signing_private_key, method, path, body) do
-    put_test_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
+  defp with_rrp_headers(conn, user_id, device, signing_private_key, method, path, body) do
+    put_test_rrp_headers(conn, user_id, device, signing_private_key, method, path, body)
   end
 
   setup do
@@ -92,7 +95,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -135,7 +138,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -182,7 +185,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -216,7 +219,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -249,7 +252,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,
@@ -287,7 +290,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         owner_device.device,
         owner_device.signing_private_key,

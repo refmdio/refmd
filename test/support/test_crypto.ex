@@ -12,8 +12,8 @@ defmodule RefMD.TestCrypto do
   alias RefMD.Sharing.Capability
   alias RefMD.TestCrypto.Native, as: TestCryptoNative
   alias RefMD.Workspaces.KekRotation.DeletionProofs
-  alias RefMDWeb.Http.PopSessionBinding
-  alias RefMDWeb.Http.PopTranscript
+  alias RefMDWeb.Http.RrpSessionBinding
+  alias RefMDWeb.Http.RrpTranscript
 
   @protocol_version 1
   @suite_rank 1000
@@ -438,7 +438,7 @@ defmodule RefMD.TestCrypto do
 
   defp preserve_authorization_signature_object(attrs), do: attrs
 
-  def signed_pop_header_value(
+  def signed_rrp_header_value(
         private_material,
         variant,
         user_id,
@@ -449,13 +449,13 @@ defmodule RefMD.TestCrypto do
       ) do
     signature =
       private_material
-      |> sign_pop(variant, user_id, device_id, challenge, session_binding, resource)
+      |> sign_rrp(variant, user_id, device_id, challenge, session_binding, resource)
       |> JCS.canonical_bytes!()
 
     Encoding.encode_base64url(signature)
   end
 
-  def signed_pop_header_value_for_actor(
+  def signed_rrp_header_value_for_actor(
         private_material,
         variant,
         actor,
@@ -464,12 +464,12 @@ defmodule RefMD.TestCrypto do
         resource
       ) do
     private_material
-    |> sign_pop_with_actor(variant, actor, challenge, session_binding, resource)
+    |> sign_rrp_with_actor(variant, actor, challenge, session_binding, resource)
     |> JCS.canonical_bytes!()
     |> Encoding.encode_base64url()
   end
 
-  def signed_pop_signature(
+  def signed_rrp_signature(
         private_material,
         variant,
         user_id,
@@ -478,10 +478,10 @@ defmodule RefMD.TestCrypto do
         session_binding \\ nil,
         resource \\ nil
       ) do
-    sign_pop(private_material, variant, user_id, device_id, challenge, session_binding, resource)
+    sign_rrp(private_material, variant, user_id, device_id, challenge, session_binding, resource)
   end
 
-  def signed_pop_signature_for_actor(
+  def signed_rrp_signature_for_actor(
         private_material,
         variant,
         actor,
@@ -489,7 +489,7 @@ defmodule RefMD.TestCrypto do
         session_binding,
         resource
       ) do
-    sign_pop_with_actor(private_material, variant, actor, challenge, session_binding, resource)
+    sign_rrp_with_actor(private_material, variant, actor, challenge, session_binding, resource)
   end
 
   def hybrid_signature_transport(signature) when is_map(signature) do
@@ -498,7 +498,7 @@ defmodule RefMD.TestCrypto do
     |> Encoding.encode_base64url()
   end
 
-  def sign_pop(
+  def sign_rrp(
         private_material,
         variant,
         user_id,
@@ -511,14 +511,14 @@ defmodule RefMD.TestCrypto do
 
     session_binding =
       session_binding ||
-        pop_session_fixture(variant)
+        rrp_session_fixture(variant)
 
     transcript =
-      Signature.build_pop_transcript!(
+      Signature.build_rrp_transcript!(
         variant,
         private_material["owner_kind"],
         private_material["owner_id"],
-        pop_actor_fixture(
+        rrp_actor_fixture(
           variant,
           user_id,
           device_id,
@@ -529,14 +529,14 @@ defmodule RefMD.TestCrypto do
         resource
       )
 
-    sign_pop_transcript(private_material, public_material, transcript)
+    sign_rrp_transcript(private_material, public_material, transcript)
   end
 
-  def sign_pop_with_actor(private_material, variant, actor, challenge, session_binding, resource) do
+  def sign_rrp_with_actor(private_material, variant, actor, challenge, session_binding, resource) do
     public_material = hybrid_signing_public_key_material(private_material)
 
     transcript =
-      Signature.build_pop_transcript!(
+      Signature.build_rrp_transcript!(
         variant,
         private_material["owner_kind"],
         private_material["owner_id"],
@@ -546,10 +546,10 @@ defmodule RefMD.TestCrypto do
         resource
       )
 
-    sign_pop_transcript(private_material, public_material, transcript)
+    sign_rrp_transcript(private_material, public_material, transcript)
   end
 
-  defp sign_pop_transcript(private_material, public_material, transcript) do
+  defp sign_rrp_transcript(private_material, public_material, transcript) do
     transcript_bytes = JCS.canonical_bytes!(transcript)
 
     %{
@@ -567,30 +567,30 @@ defmodule RefMD.TestCrypto do
       "mldsa65" =>
         mldsa65_sign(
           transcript_bytes,
-          @mldsa_context_prefix <> "pop_request",
+          @mldsa_context_prefix <> "rrp_request",
           Encoding.decode_base64url!(private_material["mldsa65_private"], 4032)
         )
         |> Encoding.encode_base64url()
     }
   end
 
-  defp pop_actor_fixture(
+  defp rrp_actor_fixture(
          "http_share_participant_device",
          principal_id,
          device_id,
          signing_key_id
        ),
-       do: pop_share_actor_fixture(principal_id, device_id, signing_key_id)
+       do: rrp_share_actor_fixture(principal_id, device_id, signing_key_id)
 
-  defp pop_actor_fixture(
+  defp rrp_actor_fixture(
          "channel_share_participant_device",
          principal_id,
          device_id,
          signing_key_id
        ),
-       do: pop_share_actor_fixture(principal_id, device_id, signing_key_id)
+       do: rrp_share_actor_fixture(principal_id, device_id, signing_key_id)
 
-  defp pop_actor_fixture(_variant, user_id, device_id, signing_key_id) do
+  defp rrp_actor_fixture(_variant, user_id, device_id, signing_key_id) do
     %{
       "signer_kind" => "device",
       "user_id" => user_id,
@@ -603,7 +603,7 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  defp pop_share_actor_fixture(principal_id, device_id, signing_key_id) do
+  defp rrp_share_actor_fixture(principal_id, device_id, signing_key_id) do
     %{
       "signer_kind" => "share_participant_device",
       "share_id" => "00000000-0000-4000-8000-000000000501",
@@ -617,10 +617,10 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  defp pop_session_fixture("http_share_participant_device"), do: pop_share_session_fixture()
-  defp pop_session_fixture("channel_share_participant_device"), do: pop_share_session_fixture()
+  defp rrp_session_fixture("http_share_participant_device"), do: rrp_share_session_fixture()
+  defp rrp_session_fixture("channel_share_participant_device"), do: rrp_share_session_fixture()
 
-  defp pop_session_fixture(_variant) do
+  defp rrp_session_fixture(_variant) do
     %{
       "session_id_hash" => Hash.blake3_base64url("test-session"),
       "session_kind" => "user",
@@ -628,7 +628,7 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  defp pop_share_session_fixture do
+  defp rrp_share_session_fixture do
     %{
       "session_id_hash" => Hash.blake3_base64url("test-session"),
       "session_kind" => "share_participant",
@@ -637,11 +637,11 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  def test_pop_resource(method, path, body \\ "", query \\ "") do
+  def test_rrp_resource(method, path, body \\ "", query \\ "") do
     canonical_query = canonical_test_query_string(query)
 
     %{
-      "body_hash" => body |> encode_test_pop_body() |> Hash.blake3_base64url(),
+      "body_hash" => body |> encode_test_rrp_body() |> Hash.blake3_base64url(),
       "canonical_query" => canonical_query,
       "method" => method,
       "path" => path,
@@ -667,7 +667,7 @@ defmodule RefMD.TestCrypto do
 
   def test_json_body(body) when is_binary(body), do: body
 
-  def put_test_pop_headers(
+  def put_test_rrp_headers(
         conn,
         user_id,
         device,
@@ -678,29 +678,29 @@ defmodule RefMD.TestCrypto do
         query \\ ""
       ) do
     session = conn.private.test_session
-    device = ensure_test_user_pop_key_directory!(user_id, device)
-    {:ok, challenge} = RefMD.Auth.create_pop_challenge(user_id, device.id, session.id)
+    device = ensure_test_user_rrp_key_directory!(user_id, device)
+    {:ok, challenge} = RefMD.Auth.create_rrp_challenge(user_id, device.id, session.id)
     challenge = Base.url_encode64(challenge, padding: false)
 
     signature =
-      signed_pop_header_value_for_actor(
+      signed_rrp_header_value_for_actor(
         signing_private_key,
         "http_user_device",
-        PopTranscript.user_actor!(device, user_id),
+        RrpTranscript.user_actor!(device, user_id),
         challenge,
-        PopSessionBinding.for_user_session(session),
-        test_pop_resource(method, path, body, query)
+        RrpSessionBinding.for_user_session(session),
+        test_rrp_resource(method, path, body, query)
       )
 
     conn
     |> Plug.Conn.put_req_header("content-type", "application/json")
-    |> Plug.Conn.put_req_header("x-pop-device-id", device.id)
-    |> Plug.Conn.put_req_header("x-pop-actor-variant", "user_device")
-    |> Plug.Conn.put_req_header("x-pop-challenge", challenge)
-    |> Plug.Conn.put_req_header("x-pop-signature-transport", signature)
+    |> Plug.Conn.put_req_header("x-refmd-rrp-device-id", device.id)
+    |> Plug.Conn.put_req_header("x-refmd-rrp-actor-variant", "user_device")
+    |> Plug.Conn.put_req_header("x-refmd-rrp-challenge", challenge)
+    |> Plug.Conn.put_req_header("x-refmd-rrp-signature-transport", signature)
   end
 
-  def ensure_test_user_pop_key_directory!(user_id, device) do
+  def ensure_test_user_rrp_key_directory!(user_id, device) do
     checkpoint =
       case RefMD.Encryption.current_user_key_directory_checkpoint(user_id) do
         nil -> insert_test_user_key_directory!(user_id, device).checkpoint
@@ -740,10 +740,10 @@ defmodule RefMD.TestCrypto do
     )
   end
 
-  defp encode_test_pop_body(body) when is_binary(body), do: body
-  defp encode_test_pop_body(nil), do: ""
+  defp encode_test_rrp_body(body) when is_binary(body), do: body
+  defp encode_test_rrp_body(nil), do: ""
 
-  defp encode_test_pop_body(body) when is_map(body) or is_list(body) do
+  defp encode_test_rrp_body(body) when is_map(body) or is_list(body) do
     Phoenix.json_library().encode_to_iodata!(body) |> IO.iodata_to_binary()
   end
 

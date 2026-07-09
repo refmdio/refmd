@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   getWorkspaceIds: vi.fn(),
-  getWorkspaceKeysWithPop: vi.fn(),
-  getMemberEnvelopeWithPop: vi.fn(),
+  getWorkspaceKeysWithRrp: vi.fn(),
+  getMemberEnvelopeWithRrp: vi.fn(),
   getCryptoWorker: vi.fn(),
   installWorkspaceOperationCheckpointPin: vi.fn(),
   openSignedPqMemberKekWrap: vi.fn(),
@@ -14,8 +14,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/shared/api", () => ({
   encryptionApi: {
     getWorkspaceIds: mocks.getWorkspaceIds,
-    getWorkspaceKeysWithPop: mocks.getWorkspaceKeysWithPop,
-    getMemberEnvelopeWithPop: mocks.getMemberEnvelopeWithPop,
+    getWorkspaceKeysWithRrp: mocks.getWorkspaceKeysWithRrp,
+    getMemberEnvelopeWithRrp: mocks.getMemberEnvelopeWithRrp,
   },
 }));
 
@@ -55,13 +55,13 @@ describe("recovery workspace KEK restoration", () => {
   });
 
   it("uses the current verified workspace directory when persisting the recovered device KEK", async () => {
-    mocks.getWorkspaceKeysWithPop.mockRejectedValue(
+    mocks.getWorkspaceKeysWithRrp.mockRejectedValue(
       new ApiError(404, {
         error: "not_found",
         details: { current_kek_version: 1 },
       }),
     );
-    mocks.getMemberEnvelopeWithPop.mockResolvedValue({
+    mocks.getMemberEnvelopeWithRrp.mockResolvedValue({
       key_version: 1,
       sender_hybrid_signing_public_key_material: { protocol: "sender-signing-material" },
       workspace_key_directory_checkpoint: { payload: { sequence: 2 }, signatures: [] },

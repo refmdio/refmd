@@ -94,7 +94,7 @@ defmodule RefMDWeb.Plugs.RequireAuthTest do
        } do
     conn =
       conn
-      |> put_req_header("cookie", "_refmd_share_session=#{share_cookie}")
+      |> put_req_header("cookie", "__Host-refmd-share-session=#{share_cookie}")
       |> put_req_header("x-refmd-session-scope", "share")
       |> RequireAuth.call(allow_share_participant: true)
 
@@ -110,7 +110,7 @@ defmodule RefMDWeb.Plugs.RequireAuthTest do
   } do
     conn =
       conn
-      |> put_req_header("cookie", "_refmd_share_session=#{share_cookie}")
+      |> put_req_header("cookie", "__Host-refmd-share-session=#{share_cookie}")
       |> RequireAuth.call(allow_share_participant: true)
 
     assert conn.halted
@@ -127,7 +127,7 @@ defmodule RefMDWeb.Plugs.RequireAuthTest do
       conn
       |> put_req_header(
         "cookie",
-        "_refmd_session=#{user_cookie}; _refmd_share_session=#{share_cookie}"
+        "__Host-refmd-session=#{user_cookie}; __Host-refmd-share-session=#{share_cookie}"
       )
       |> RequireAuth.call(allow_share_participant: true)
 

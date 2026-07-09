@@ -7,7 +7,7 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
-pop_http_header_options = [
+rrp_http_header_options = [
   http_1_options: [max_header_length: 16_384],
   http_2_options: [max_header_block_size: 16_384]
 ]
@@ -26,7 +26,7 @@ if System.get_env("PHX_SERVER") do
 end
 
 config :refmd, RefMDWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))] ++ pop_http_header_options
+  http: [port: String.to_integer(System.get_env("PORT", "4000"))] ++ rrp_http_header_options
 
 require_env = fn name ->
   case System.get_env(name) do
@@ -91,6 +91,31 @@ storage_config =
   end
 
 config :refmd, :storage, storage_config
+
+oauth_bool_env = fn name, default ->
+  case System.get_env(name) do
+    nil -> default
+    value -> String.downcase(value) in ["1", "true", "yes", "on"]
+  end
+end
+
+config :refmd, oauth_error_details: config_env() != :prod
+
+if config_env() != :test do
+  config :refmd, :oauth,
+    google: [
+      enabled: oauth_bool_env.("GOOGLE_OAUTH_ENABLED", true),
+      client_id: System.get_env("GOOGLE_OAUTH_CLIENT_ID"),
+      client_secret: System.get_env("GOOGLE_OAUTH_CLIENT_SECRET"),
+      redirect_uri: System.get_env("GOOGLE_OAUTH_REDIRECT_URI")
+    ],
+    github: [
+      enabled: oauth_bool_env.("GITHUB_OAUTH_ENABLED", true),
+      client_id: System.get_env("GITHUB_OAUTH_CLIENT_ID"),
+      client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET"),
+      redirect_uri: System.get_env("GITHUB_OAUTH_REDIRECT_URI")
+    ]
+end
 
 if config_env() == :prod do
   dummy_salt_secret =
@@ -235,7 +260,7 @@ if config_env() == :prod do
         # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
         # for details about using IPv6 vs IPv4 and loopback vs public addresses.
         ip: {0, 0, 0, 0, 0, 0, 0, 0}
-      ] ++ pop_http_header_options,
+      ] ++ rrp_http_header_options,
     secret_key_base: secret_key_base
 
   if https_key = System.get_env("HTTPS_KEY_PATH") do
@@ -246,7 +271,7 @@ if config_env() == :prod do
           cipher_suite: :compatible,
           keyfile: https_key,
           certfile: System.get_env("HTTPS_CERT_PATH")
-        ] ++ pop_http_header_options
+        ] ++ rrp_http_header_options
   end
 
   # ## SSL Support

@@ -91,12 +91,12 @@ async function recoverDeviceWithMnemonic(
   const errors = await collectErrors(page, async () => {
     await (options.openRecoveredDocument ?? openDocument)(page, documentTitle);
   });
-  expect(errors.join("\n")).not.toContain("pop_device_session_mismatch");
+  expect(errors.join("\n")).not.toContain("rrp_device_session_mismatch");
   expect(errors.join("\n")).not.toContain("Channel join failed");
   await expect(page.locator(".cm-content, .ProseMirror").first()).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByText("pop_device_session_mismatch")).not.toBeVisible({
+  await expect(page.getByText("rrp_device_session_mismatch")).not.toBeVisible({
     timeout: 1_000,
   });
   await expect(page.getByText("Channel join failed")).not.toBeVisible({
@@ -112,7 +112,7 @@ async function recoverDeviceWithMnemonic(
     if (await editor.isVisible({ timeout: 1_000 }).catch(() => false)) return;
     await (options.openRecoveredDocument ?? openDocument)(page, documentTitle);
   });
-  expect(reloadErrors.join("\n")).not.toContain("pop_device_session_mismatch");
+  expect(reloadErrors.join("\n")).not.toContain("rrp_device_session_mismatch");
   expect(reloadErrors.join("\n")).not.toContain("Channel join failed");
   await expect(editor).toBeVisible({ timeout: 60_000 });
 }

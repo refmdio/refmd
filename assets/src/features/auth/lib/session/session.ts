@@ -153,7 +153,7 @@ async function restoreSessionInternal(): Promise<
     let tofuWarnings: string[] = [];
     if (workerReady && me.device_verified && deviceId) {
       try {
-        const { devices } = await devicesApi.list({ popDeviceId: deviceId });
+        const { devices } = await devicesApi.list({ rrpDeviceId: deviceId });
         const tofuResult = await worker.tofuVerifyAllDevices({
           devices: devices.map((d: DeviceInfo) => ({
             name: d.name,

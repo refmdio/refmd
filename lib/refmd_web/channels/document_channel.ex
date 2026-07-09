@@ -1,14 +1,14 @@
 defmodule RefMDWeb.DocumentChannel do
   @moduledoc """
   Phoenix Channel for real-time document collaboration.
-  Handles document:{document_id} topics with PoP verification and RBAC.
+  Handles document:{document_id} topics with RRP verification and RBAC.
   """
 
   use Phoenix.Channel, log_join: false
 
   alias RefMD.Documents
   alias RefMD.Sharing
-  alias RefMDWeb.Channels.Document.{Access, Bootstrap, ConnectionManager, Envelope, Pop}
+  alias RefMDWeb.Channels.Document.{Access, Bootstrap, ConnectionManager, Envelope, Rrp}
   alias RefMDWeb.Channels.TokenBucket
 
   @ephemeral_rate 10.0
@@ -37,7 +37,7 @@ defmodule RefMDWeb.DocumentChannel do
          {:ok, document} <- fetch_document(document_id),
          {:ok, mounted_share_id} <-
            Access.resolve_mounted_share_id(params, user_id, document.id, socket),
-         {:ok, device} <- Pop.verify(params, user_id, socket, document_id, mounted_share_id),
+         {:ok, device} <- Rrp.verify(params, user_id, socket, document_id, mounted_share_id),
          :ok <- Access.subscribe_device_revocation(socket),
          :ok <- Access.check_join(document, user_id, socket, mounted_share_id),
          :ok <-

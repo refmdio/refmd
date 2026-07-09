@@ -5,7 +5,7 @@ import {
   lookupVerifiedKeyDirectoryEventBodies,
   verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
-import { getPopHeaders } from "@/shared/lib/auth/pop";
+import { getRrpHeaders } from "@/shared/lib/auth/rrp";
 import {
   getPreferredSessionScope,
   SHARE_SESSION_SCOPE_HEADER,
@@ -54,7 +54,7 @@ function isRetryablePinRace(error: unknown): boolean {
 interface FetchVerifiedKeyDirectoryParams {
   scopeKind: "user" | "workspace";
   scopeId: string;
-  popDeviceId: string;
+  rrpDeviceId: string;
   popScope?: "user" | "share";
   popWorker?: CryptoWorkerClient;
   signal?: AbortSignal;
@@ -86,8 +86,8 @@ async function fetchLatestBody(
   };
 
   const fetchLatest = async () => {
-    const headers = await getPopHeaders(
-      params.popDeviceId,
+    const headers = await getRrpHeaders(
+      params.rrpDeviceId,
       params.signal,
       popScope,
       params.popWorker,

@@ -36,7 +36,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", path, "", "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", path, "", "")
       |> get(path)
       |> json_response(200)
 
@@ -77,7 +77,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", path, "", query)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", path, "", query)
       |> get(path <> "?" <> query)
       |> json_response(200)
 
@@ -97,7 +97,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "GET", path, "", query)
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "GET", path, "", query)
       |> get(path <> "?" <> query)
       |> json_response(403)
 
@@ -123,7 +123,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "PATCH", path, "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "PATCH", path, "")
       |> patch(path)
       |> json_response(200)
 
@@ -152,7 +152,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "PATCH", path, "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "PATCH", path, "")
       |> patch(path)
       |> json_response(200)
 
@@ -182,7 +182,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     response =
       conn
       |> authed_conn(user_id, device)
-      |> put_test_pop_headers(user_id, device, signing_private_key, "PATCH", path, "")
+      |> put_test_rrp_headers(user_id, device, signing_private_key, "PATCH", path, "")
       |> patch(path)
       |> json_response(404)
 
@@ -248,7 +248,10 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 end

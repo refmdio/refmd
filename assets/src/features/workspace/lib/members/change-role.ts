@@ -21,7 +21,7 @@ export async function changeWorkspaceMemberRoleWithKeyDirectory(input: {
     fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: input.workspaceId,
-      popDeviceId: currentDevice.deviceId,
+      rrpDeviceId: currentDevice.deviceId,
     }),
     workspacesApi.listRoles(input.workspaceId),
   ]);

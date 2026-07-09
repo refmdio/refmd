@@ -1,11 +1,11 @@
-defmodule RefMDWeb.Plugs.RequirePoP do
+defmodule RefMDWeb.Plugs.RequireRrp do
   @moduledoc """
-  Plug that validates Proof-of-Possession (PoP) on every request.
+  Plug that validates RefMD Request Proof (RRP) on every request.
 
   Requires authenticated session (RequireAuth must run first).
-  Validates X-PoP-Challenge, X-PoP-Signature-Transport, X-PoP-Actor-Variant,
-  and X-PoP-Device-Id headers.
-  On first PoP after device approval, auto-binds session to device.
+  Validates X-RefMD-RRP-Challenge, X-RefMD-RRP-Signature-Transport,
+  X-RefMD-RRP-Actor-Variant, and X-RefMD-RRP-Device-Id headers.
+  On first RRP after device approval, auto-binds session to device.
   """
 
   import Plug.Conn
@@ -13,39 +13,39 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
   alias RefMD.Devices
   alias RefMD.Sharing
-  alias RefMDWeb.Http.PopSessionBinding
-  alias RefMDWeb.Http.PopTranscript
+  alias RefMDWeb.Http.RrpSessionBinding
+  alias RefMDWeb.Http.RrpTranscript
 
   @touch_interval_seconds 5 * 60
 
   def init(opts), do: opts
 
   def call(conn, opts) do
-    with {:ok, device_id} <- get_pop_device_id(conn),
+    with {:ok, device_id} <- get_rrp_device_id(conn),
          {:ok, actor_variant} <- get_actor_variant(conn, opts),
-         {:ok, {challenge, challenge_bytes}} <- get_pop_challenge(conn),
-         {:ok, signature} <- get_pop_signature(conn),
+         {:ok, {challenge, challenge_bytes}} <- get_rrp_challenge(conn),
+         {:ok, signature} <- get_rrp_signature(conn),
          {:ok, conn} <-
-           verify_actor_pop(conn, actor_variant, device_id, challenge, challenge_bytes, signature) do
+           verify_actor_rrp(conn, actor_variant, device_id, challenge, challenge_bytes, signature) do
       conn
     else
       {:error, reason} ->
         conn
         |> put_status(:forbidden)
-        |> Phoenix.Controller.json(%{error: pop_error_message(reason)})
+        |> Phoenix.Controller.json(%{error: rrp_error_message(reason)})
         |> halt()
     end
   end
 
-  defp get_pop_device_id(conn) do
-    case get_req_header(conn, "x-pop-device-id") do
+  defp get_rrp_device_id(conn) do
+    case get_req_header(conn, "x-refmd-rrp-device-id") do
       [device_id | _] -> {:ok, device_id}
       [] -> {:error, :missing_device_id}
     end
   end
 
-  defp get_pop_challenge(conn) do
-    case get_req_header(conn, "x-pop-challenge") do
+  defp get_rrp_challenge(conn) do
+    case get_req_header(conn, "x-refmd-rrp-challenge") do
       [challenge_b64 | _] ->
         {:ok, {challenge_b64, Encoding.decode_base64url!(challenge_b64)}}
 
@@ -57,7 +57,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   end
 
   defp get_actor_variant(conn, opts) do
-    case get_req_header(conn, "x-pop-actor-variant") do
+    case get_req_header(conn, "x-refmd-rrp-actor-variant") do
       ["user_device" | _] ->
         {:ok, "user_device"}
 
@@ -74,25 +74,25 @@ defmodule RefMDWeb.Plugs.RequirePoP do
     end
   end
 
-  defp get_pop_signature(conn) do
+  defp get_rrp_signature(conn) do
     cond do
-      get_req_header(conn, "x-pop-signature") != [] ->
+      get_req_header(conn, "x-refmd-rrp-signature") != [] ->
         {:error, :invalid_signature_encoding}
 
-      body_pop_signature?(conn) ->
+      body_rrp_signature?(conn) ->
         {:error, :invalid_signature_encoding}
 
       true ->
-        get_pop_signature_transport(conn)
+        get_rrp_signature_transport(conn)
     end
   end
 
-  defp body_pop_signature?(%{body_params: params}) do
-    Map.has_key?(params, "pop_signature") or Map.has_key?(params, "pop_signature_transport")
+  defp body_rrp_signature?(%{body_params: params}) do
+    Map.has_key?(params, "rrp_signature") or Map.has_key?(params, "rrp_signature_transport")
   end
 
-  defp get_pop_signature_transport(conn) do
-    case get_req_header(conn, "x-pop-signature-transport") do
+  defp get_rrp_signature_transport(conn) do
+    case get_req_header(conn, "x-refmd-rrp-signature-transport") do
       [sig_b64 | _] ->
         signature_bytes = Encoding.decode_base64url!(sig_b64)
         signature = JCS.parse_json_strict!(signature_bytes)
@@ -115,27 +115,27 @@ defmodule RefMDWeb.Plugs.RequirePoP do
     end
   end
 
-  defp verify_pop_signature(conn, challenge, signature, device, user_id) do
+  defp verify_rrp_signature(conn, challenge, signature, device, user_id) do
     transcript =
-      Signature.build_pop_transcript!(
+      Signature.build_rrp_transcript!(
         "http_user_device",
         "device",
         device.id,
-        PopTranscript.user_actor!(device, user_id),
+        RrpTranscript.user_actor!(device, user_id),
         challenge,
-        PopSessionBinding.for_user_session(conn.assigns.current_session),
-        pop_resource(conn)
+        RrpSessionBinding.for_user_session(conn.assigns.current_session),
+        rrp_resource(conn)
       )
 
     case Signature.verify_hybrid_signature_result(
-           "pop_request",
+           "rrp_request",
            transcript,
            signature,
            device.hybrid_signing_public_key_material,
            %{
              challenge: challenge,
              device: device,
-             session: PopSessionBinding.for_user_session(conn.assigns.current_session),
+             session: RrpSessionBinding.for_user_session(conn.assigns.current_session),
              user_id: user_id
            }
          ) do
@@ -146,13 +146,13 @@ defmodule RefMDWeb.Plugs.RequirePoP do
     ArgumentError -> {:error, :invalid_signature}
   end
 
-  defp verify_actor_pop(conn, "user_device", device_id, challenge, challenge_bytes, signature) do
+  defp verify_actor_rrp(conn, "user_device", device_id, challenge, challenge_bytes, signature) do
     user_id = conn.assigns.current_user_id
 
     with {:ok, device} <- verify_device_ownership(user_id, device_id),
-         :ok <- verify_pop_signature(conn, challenge, signature, device, user_id),
+         :ok <- verify_rrp_signature(conn, challenge, signature, device, user_id),
          :ok <-
-           Auth.consume_pop_challenge(
+           Auth.consume_rrp_challenge(
              challenge_bytes,
              user_id,
              device_id,
@@ -163,12 +163,12 @@ defmodule RefMDWeb.Plugs.RequirePoP do
 
       {:ok,
        conn
-       |> assign(:pop_device_id, device_id)
-       |> assign(:pop_device, device)}
+       |> assign(:rrp_device_id, device_id)
+       |> assign(:rrp_device, device)}
     end
   end
 
-  defp verify_actor_pop(
+  defp verify_actor_rrp(
          conn,
          "share_participant_device",
          device_id,
@@ -182,9 +182,9 @@ defmodule RefMDWeb.Plugs.RequirePoP do
 
     with :ok <- verify_share_session_device(session_device_id, device_id),
          {:ok, device} <- verify_share_participant_device(share_id, principal_id, device_id),
-         :ok <- verify_share_pop_signature(conn, challenge, signature, device, share_id),
+         :ok <- verify_share_rrp_signature(conn, challenge, signature, device, share_id),
          :ok <-
-           Sharing.consume_pop_challenge(
+           Sharing.consume_rrp_challenge(
              challenge_bytes,
              share_id,
              principal_id,
@@ -193,8 +193,8 @@ defmodule RefMDWeb.Plugs.RequirePoP do
            ) do
       {:ok,
        conn
-       |> assign(:pop_device_id, device_id)
-       |> assign(:pop_device, device)}
+       |> assign(:rrp_device_id, device_id)
+       |> assign(:rrp_device, device)}
     end
   end
 
@@ -211,22 +211,22 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   defp verify_share_session_device(device_id, device_id) when is_binary(device_id), do: :ok
   defp verify_share_session_device(_, _), do: {:error, :device_session_mismatch}
 
-  defp verify_share_pop_signature(conn, challenge, signature, device, share_id) do
+  defp verify_share_rrp_signature(conn, challenge, signature, device, share_id) do
     workspace_id = Sharing.share_workspace_id!(share_id)
 
     transcript =
-      Signature.build_pop_transcript!(
+      Signature.build_rrp_transcript!(
         "http_share_participant_device",
         "share_participant_device",
         device.id,
-        PopTranscript.share_participant_actor!(device, share_id, workspace_id),
+        RrpTranscript.share_participant_actor!(device, share_id, workspace_id),
         challenge,
-        PopSessionBinding.for_share_session(conn.assigns.current_session),
-        pop_resource(conn)
+        RrpSessionBinding.for_share_session(conn.assigns.current_session),
+        rrp_resource(conn)
       )
 
     case Signature.verify_hybrid_signature_result(
-           "pop_request",
+           "rrp_request",
            transcript,
            signature,
            device.hybrid_signing_public_key_material,
@@ -234,7 +234,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
              challenge: challenge,
              device: device,
              principal_id: conn.assigns[:share_participant_principal_id],
-             session: PopSessionBinding.for_share_session(conn.assigns.current_session),
+             session: RrpSessionBinding.for_share_session(conn.assigns.current_session),
              share_id: share_id
            }
          ) do
@@ -245,11 +245,11 @@ defmodule RefMDWeb.Plugs.RequirePoP do
     ArgumentError -> {:error, :invalid_signature}
   end
 
-  defp pop_resource(conn) do
+  defp rrp_resource(conn) do
     canonical_query = canonical_query_string!(conn.query_string)
 
     %{
-      "body_hash" => pop_body_hash(conn),
+      "body_hash" => rrp_body_hash(conn),
       "canonical_query" => canonical_query,
       "method" => conn.method,
       "path" => conn.request_path,
@@ -291,7 +291,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
 
   defp query_unreserved?(_char), do: false
 
-  defp pop_body_hash(conn) do
+  defp rrp_body_hash(conn) do
     (conn.private[:raw_body] || "")
     |> IO.iodata_to_binary()
     |> Hash.blake3_base64url()
@@ -338,18 +338,18 @@ defmodule RefMDWeb.Plugs.RequirePoP do
     |> assign(:device_verified, true)
   end
 
-  defp pop_error_message(:missing_device_id), do: "pop_missing_device_id"
-  defp pop_error_message(:missing_challenge), do: "pop_missing_challenge"
-  defp pop_error_message(:missing_actor_variant), do: "pop_missing_actor_variant"
-  defp pop_error_message(:invalid_actor_variant), do: "pop_invalid_actor_variant"
-  defp pop_error_message(:missing_signature), do: "pop_missing_signature"
-  defp pop_error_message(:invalid_challenge_encoding), do: "pop_invalid_challenge"
-  defp pop_error_message(:invalid_signature_encoding), do: "pop_invalid_signature"
-  defp pop_error_message(:invalid_device), do: "pop_invalid_device"
-  defp pop_error_message(:invalid_signature), do: "pop_invalid_signature"
-  defp pop_error_message(:invalid_challenge), do: "pop_invalid_or_expired_challenge"
-  defp pop_error_message(:device_session_mismatch), do: "pop_device_session_mismatch"
-  defp pop_error_message(reason) when is_atom(reason), do: "pop_" <> Atom.to_string(reason)
+  defp rrp_error_message(:missing_device_id), do: "rrp_missing_device_id"
+  defp rrp_error_message(:missing_challenge), do: "rrp_missing_challenge"
+  defp rrp_error_message(:missing_actor_variant), do: "rrp_missing_actor_variant"
+  defp rrp_error_message(:invalid_actor_variant), do: "rrp_invalid_actor_variant"
+  defp rrp_error_message(:missing_signature), do: "rrp_missing_signature"
+  defp rrp_error_message(:invalid_challenge_encoding), do: "rrp_invalid_challenge"
+  defp rrp_error_message(:invalid_signature_encoding), do: "rrp_invalid_signature"
+  defp rrp_error_message(:invalid_device), do: "rrp_invalid_device"
+  defp rrp_error_message(:invalid_signature), do: "rrp_invalid_signature"
+  defp rrp_error_message(:invalid_challenge), do: "rrp_invalid_or_expired_challenge"
+  defp rrp_error_message(:device_session_mismatch), do: "rrp_device_session_mismatch"
+  defp rrp_error_message(reason) when is_atom(reason), do: "rrp_" <> Atom.to_string(reason)
 
   defp maybe_touch_device(device) do
     elapsed = DateTime.diff(DateTime.utc_now(), device.last_seen_at, :second)

@@ -43,7 +43,7 @@ export async function verifyPluginRuntimeApprovalAuthorityFromKeyDirectory({
   const directory = await fetchVerifiedKeyDirectory({
     scopeKind,
     scopeId,
-    popDeviceId: device.deviceId,
+    rrpDeviceId: device.deviceId,
   });
 
   const pin = await getKeyDirectoryPin(scopeKind, scopeId);

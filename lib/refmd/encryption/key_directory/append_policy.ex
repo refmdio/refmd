@@ -4,14 +4,14 @@ defmodule RefMD.Encryption.KeyDirectory.AppendPolicy do
   alias RefMD.{Devices, Encryption, Workspaces}
   alias RefMD.Encryption.KeyDirectory.State
 
-  def validate([event], checkpoint, workspace_id, actor_user_id, pop_device_id) do
+  def validate([event], checkpoint, workspace_id, actor_user_id, rrp_device_id) do
     case event do
       %{
         "payload" => %{
           "scope_kind" => "workspace",
           "scope_id" => ^workspace_id,
           "event_type" => "device_key_added",
-          "actor" => %{"user_id" => ^actor_user_id, "device_id" => ^pop_device_id},
+          "actor" => %{"user_id" => ^actor_user_id, "device_id" => ^rrp_device_id},
           "body" => body
         }
       } ->
@@ -38,7 +38,7 @@ defmodule RefMD.Encryption.KeyDirectory.AppendPolicy do
             "scope_kind" => "workspace",
             "scope_id" => ^workspace_id,
             "event_type" => "identity_key_added",
-            "actor" => %{"user_id" => ^actor_user_id, "device_id" => ^pop_device_id},
+            "actor" => %{"user_id" => ^actor_user_id, "device_id" => ^rrp_device_id},
             "body" => body
           } = payload
       } ->

@@ -9,8 +9,8 @@ defmodule RefMDWeb.Plugs.RateLimit.RateLimitTest do
   alias RefMD.Workspaces
   alias RefMDWeb.Plugs.RateLimit
 
-  @user_cookie "_refmd_session"
-  @share_cookie "_refmd_share_session"
+  @user_cookie "__Host-refmd-session"
+  @share_cookie "__Host-refmd-share-session"
 
   setup %{conn: conn} do
     :ets.delete_all_objects(RefMDWeb.Plugs.RateLimit.Storage)
@@ -55,12 +55,12 @@ defmodule RefMDWeb.Plugs.RateLimit.RateLimitTest do
     refute_session_counter_present(user_token)
   end
 
-  test "uses dedicated transport quota for pop challenge", %{conn: conn} do
+  test "uses dedicated transport quota for rrp challenge", %{conn: conn} do
     token = "user-session-token"
 
     conn =
       conn
-      |> Map.put(:request_path, "/api/auth/pop-challenge")
+      |> Map.put(:request_path, "/api/auth/rrp-challenge")
       |> put_req_header("cookie", "#{@user_cookie}=#{token}")
       |> RateLimit.call([])
 
@@ -77,7 +77,7 @@ defmodule RefMDWeb.Plugs.RateLimit.RateLimitTest do
   } do
     conn =
       conn
-      |> Map.put(:request_path, "/api/auth/pop-challenge")
+      |> Map.put(:request_path, "/api/auth/rrp-challenge")
       |> put_req_header("x-refmd-e2e-rate-limit-bypass", "1")
       |> RateLimit.call([])
 

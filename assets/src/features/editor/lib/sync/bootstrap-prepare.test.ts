@@ -32,9 +32,9 @@ vi.mock("@/shared/api/encryption", () => ({
   },
 }));
 
-vi.mock("@/shared/lib/auth/pop", () => ({
-  buildChannelPopResource: vi.fn(),
-  getChannelPopParams: vi.fn(),
+vi.mock("@/shared/lib/auth/rrp", () => ({
+  buildChannelRrpResource: vi.fn(),
+  getChannelRrpParams: vi.fn(),
 }));
 
 vi.mock("@/shared/lib/anti-rollback/document-state-pins", () => ({

@@ -1,5 +1,6 @@
 export { ApiError, getRateLimitRetryMs, initializeApiClient } from "./core";
 export { authApi } from "./auth";
+export type { OAuthProvider } from "./auth";
 export { devicesApi } from "./devices";
 export { documentsApi } from "./documents";
 export { encryptionApi } from "./encryption";

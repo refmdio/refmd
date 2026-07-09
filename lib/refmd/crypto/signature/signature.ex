@@ -193,17 +193,17 @@ defmodule RefMD.Crypto.Signature do
                             :plugin_network_proxy_request_target_invalid,
                             :plugin_network_proxy_request_transcript_invalid,
                             :plugin_transcript_invalid,
-                            :pop_actor_invalid,
-                            :pop_actor_mismatch,
-                            :pop_challenge_mismatch,
-                            :pop_context_missing,
-                            :pop_device_inactive,
-                            :pop_session_invalid,
-                            :pop_session_mismatch,
-                            :pop_signing_key_mismatch,
-                            :pop_transcript_invalid,
-                            :pop_transport_mismatch,
-                            :pop_variant_mismatch,
+                            :rrp_actor_invalid,
+                            :rrp_actor_mismatch,
+                            :rrp_challenge_mismatch,
+                            :rrp_context_missing,
+                            :rrp_device_inactive,
+                            :rrp_session_invalid,
+                            :rrp_session_mismatch,
+                            :rrp_signing_key_mismatch,
+                            :rrp_transcript_invalid,
+                            :rrp_transport_mismatch,
+                            :rrp_variant_mismatch,
                             :pq_wrap_transcript_invalid,
                             :private_key_material_not_object,
                             :private_public_material_mismatch,
@@ -420,7 +420,7 @@ defmodule RefMD.Crypto.Signature do
 
   def key_directory_event_variants, do: @key_directory_event_variants
 
-  defdelegate build_pop_transcript!(
+  defdelegate build_rrp_transcript!(
                 variant,
                 owner_kind,
                 owner_id,
@@ -430,7 +430,7 @@ defmodule RefMD.Crypto.Signature do
               ),
               to: Device
 
-  defdelegate build_pop_transcript!(
+  defdelegate build_rrp_transcript!(
                 variant,
                 owner_kind,
                 owner_id,

@@ -1,4 +1,4 @@
-import { client, throwIfError, withUserPopParams } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
 export const sharesApi = {
@@ -8,7 +8,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/documents/{document_id}/shares", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
         body,
       }),
     ),
@@ -16,14 +16,14 @@ export const sharesApi = {
   listDocumentShares: async (documentId: string) =>
     throwIfError(
       await client.GET("/api/documents/{document_id}/shares", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
       }),
     ),
 
   getDocumentShareVerificationDirectory: async (documentId: string) =>
     throwIfError(
       await client.GET("/api/documents/{document_id}/share-verification-directory", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
       }),
     ),
 
@@ -34,7 +34,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/documents/{document_id}/shares/{share_id}", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { document_id: documentId, share_id: shareId },
         }),
         body,
@@ -48,7 +48,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.DELETE("/api/documents/{document_id}/shares/{share_id}", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { document_id: documentId, share_id: shareId },
         }),
         body,
@@ -62,7 +62,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.DELETE("/api/documents/{document_id}/shares/{share_id}/admin", {
-        params: withUserPopParams({ path: { document_id: documentId, share_id: shareId } }),
+        params: withUserRrpParams({ path: { document_id: documentId, share_id: shareId } }),
         body,
       }),
     ),
@@ -74,7 +74,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/documents/{document_id}/shares/{share_id}/exclusions", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { document_id: documentId, share_id: shareId },
         }),
         body,
@@ -88,7 +88,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/documents/{document_id}/shares/{share_id}/keys", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { document_id: documentId, share_id: shareId },
         }),
         body,
@@ -105,7 +105,7 @@ export const sharesApi = {
   listShareMounts: async (workspaceId: string) =>
     throwIfError(
       await client.GET("/api/mounts", {
-        params: withUserPopParams({ query: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ query: { workspace_id: workspaceId } }),
       }),
     ),
 
@@ -119,14 +119,14 @@ export const sharesApi = {
   getShareMountMetadata: async (mountId: string) =>
     throwIfError(
       await client.GET("/api/mounts/{mount_id}", {
-        params: withUserPopParams({ path: { mount_id: mountId } }),
+        params: withUserRrpParams({ path: { mount_id: mountId } }),
       }),
     ),
 
   getShareMountChallenge: async (mountId: string) =>
     throwIfError(
       await client.GET("/api/mounts/{mount_id}/challenge", {
-        params: withUserPopParams({ path: { mount_id: mountId } }),
+        params: withUserRrpParams({ path: { mount_id: mountId } }),
       }),
     ),
 
@@ -136,7 +136,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.POST("/api/mounts/{mount_id}/challenge", {
-        params: withUserPopParams({ path: { mount_id: mountId } }),
+        params: withUserRrpParams({ path: { mount_id: mountId } }),
         body,
       }),
     ),
@@ -147,7 +147,7 @@ export const sharesApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/mounts/{mount_id}", {
-        params: withUserPopParams({ path: { mount_id: mountId } }),
+        params: withUserRrpParams({ path: { mount_id: mountId } }),
         body,
       }),
     ),
@@ -155,7 +155,7 @@ export const sharesApi = {
   deleteShareMount: async (mountId: string) =>
     throwIfError(
       await client.DELETE("/api/mounts/{mount_id}", {
-        params: withUserPopParams({ path: { mount_id: mountId } }),
+        params: withUserRrpParams({ path: { mount_id: mountId } }),
       }),
     ),
 

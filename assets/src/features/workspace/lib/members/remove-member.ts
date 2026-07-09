@@ -28,7 +28,7 @@ export async function removeWorkspaceMemberWithKeyDirectory(
       fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: currentDevice.deviceId,
+        rrpDeviceId: currentDevice.deviceId,
       }),
       workspacesApi.listMemberDevices(workspaceId, targetUserId, false),
     ]);

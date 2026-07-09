@@ -154,7 +154,7 @@ export class CryptoWorkerClient {
   declare deleteKekForOffline: KekWorkerClientMethods["deleteKekForOffline"];
   declare deleteOrphanedKeksForOffline: KekWorkerClientMethods["deleteOrphanedKeksForOffline"];
 
-  declare createPopSignature: SignWorkerClientMethods["createPopSignature"];
+  declare createRrpSignature: SignWorkerClientMethods["createRrpSignature"];
   declare signDocumentUpdate: SignWorkerClientMethods["signDocumentUpdate"];
   declare signDocumentSnapshot: SignWorkerClientMethods["signDocumentSnapshot"];
   declare signEditorEphemeral: SignWorkerClientMethods["signEditorEphemeral"];

@@ -69,14 +69,14 @@ export async function revokeDevice(
     revocationMode: reason,
     revokedAtMs,
   });
-  const devices = await devicesApi.list({ popDeviceId: deviceSnapshot.deviceId });
+  const devices = await devicesApi.list({ rrpDeviceId: deviceSnapshot.deviceId });
   const targetDevice = devices.devices.find((device) => device.id === deviceId);
   if (!targetDevice) throw new Error("device_revocation_target_not_found");
   const { workspace_ids: workspaceIds } = await encryptionApi.getWorkspaceIds();
   const userDirectory = await fetchVerifiedKeyDirectory({
     scopeKind: "user",
     scopeId: authSnapshot.user.id,
-    popDeviceId: deviceSnapshot.deviceId,
+    rrpDeviceId: deviceSnapshot.deviceId,
   });
   const userAppend = await buildDeviceRevocationKeyDirectoryAppend({
     scopeKind: "user",
@@ -92,7 +92,7 @@ export async function revokeDevice(
       const directory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: deviceSnapshot.deviceId,
+        rrpDeviceId: deviceSnapshot.deviceId,
       });
       const append = await buildDeviceRevocationKeyDirectoryAppend({
         scopeKind: "workspace",

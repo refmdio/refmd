@@ -1,11 +1,11 @@
-defmodule RefMD.Auth.PopChallenge do
+defmodule RefMD.Auth.RrpChallenge do
   use Ecto.Schema
   import Ecto.Changeset
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  schema "pop_challenges" do
+  schema "rrp_challenges" do
     belongs_to :device, RefMD.Devices.Device
     field :challenge_hash, :binary
     field :session_id_hash, :string

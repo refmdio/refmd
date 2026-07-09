@@ -12,13 +12,13 @@ vi.mock("./core", () => ({
     if (result.error) throw new Error("api_error");
     return result.data;
   },
-  withUserPopParams: (params: Record<string, unknown> = {}) => ({
+  withUserRrpParams: (params: Record<string, unknown> = {}) => ({
     ...params,
     header: {
-      "x-pop-actor-variant": "user_device",
-      "x-pop-device-id": "",
-      "x-pop-challenge": "",
-      "x-pop-signature-transport": "",
+      "x-refmd-rrp-actor-variant": "user_device",
+      "x-refmd-rrp-device-id": "",
+      "x-refmd-rrp-challenge": "",
+      "x-refmd-rrp-signature-transport": "",
     },
   }),
 }));

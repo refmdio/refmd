@@ -11,7 +11,7 @@ import { releaseDocumentState } from "../../model/document-state/lifecycle";
 import { ApiError } from "@/shared/api";
 import { documentsApi } from "@/shared/api/documents";
 import { encryptionApi } from "@/shared/api/encryption";
-import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { buildChannelRrpResource, getChannelRrpParams } from "@/shared/lib/auth/rrp";
 import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
@@ -61,7 +61,7 @@ async function workspaceJoinPin(workspaceId: string): Promise<{
     await fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: workspaceId,
-      popDeviceId: device.deviceId,
+      rrpDeviceId: device.deviceId,
     }).catch(() => {});
     pin = (await getKeyDirectoryPin("workspace", workspaceId).catch(() => null)) ?? pin;
   }
@@ -102,7 +102,7 @@ function resolveOfflineCreatedBlockReason(error: unknown): OfflineCreatedSyncBlo
   if (
     error instanceof Error &&
     (error.message === "key_directory_pin_required" ||
-      error.message === "key_directory_pop_device_required")
+      error.message === "key_directory_rrp_device_required")
   ) {
     return "key_directory_unavailable";
   }
@@ -229,17 +229,17 @@ async function syncSingleDocument(entry: OfflineCreatedDocument): Promise<void> 
       workspaceKeyDirectoryPinSequence: workspacePin.checkpointSequence,
       workspaceKeyDirectoryPinHash: workspacePin.checkpointHash,
     };
-    const popParams = await getChannelPopParams(
+    const rrpParams = await getChannelRrpParams(
       undefined,
       undefined,
       "user",
       undefined,
-      buildChannelPopResource(entry.documentId, "user", undefined, joinPayload),
+      buildChannelRrpResource(entry.documentId, "user", undefined, joinPayload),
     );
     const { channel, dispose } = await joinTemporaryDocument(
       entry.documentId,
       {
-        ...popParams,
+        ...rrpParams,
         ...joinPayload,
       },
       makeNoopCallbacks(),

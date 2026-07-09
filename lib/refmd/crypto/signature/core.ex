@@ -178,34 +178,34 @@ defmodule RefMD.Crypto.Signature.Core do
       "subject_version",
       "user_id"
     ],
-    {"pop_request", "channel_share_participant_device"} => [
+    {"rrp_request", "channel_share_participant_device"} => [
       "actor",
       "challenge",
-      "pop_variant",
+      "rrp_variant",
       "resource",
       "session",
       "transport"
     ],
-    {"pop_request", "channel_user_device"} => [
+    {"rrp_request", "channel_user_device"} => [
       "actor",
       "challenge",
-      "pop_variant",
+      "rrp_variant",
       "resource",
       "session",
       "transport"
     ],
-    {"pop_request", "http_share_participant_device"} => [
+    {"rrp_request", "http_share_participant_device"} => [
       "actor",
       "challenge",
-      "pop_variant",
+      "rrp_variant",
       "request",
       "session",
       "transport"
     ],
-    {"pop_request", "http_user_device"} => [
+    {"rrp_request", "http_user_device"} => [
       "actor",
       "challenge",
-      "pop_variant",
+      "rrp_variant",
       "request",
       "session",
       "transport"
@@ -499,10 +499,10 @@ defmodule RefMD.Crypto.Signature.Core do
         "user_identity_public_key_hash"
       ]
     },
-    {"pop_request", "*"} => %{
+    {"rrp_request", "*"} => %{
       "session" => ["is_recovery", "session_id_hash", "session_kind"]
     },
-    {"pop_request", "channel_share_participant_device"} => %{
+    {"rrp_request", "channel_share_participant_device"} => %{
       "actor" => [
         "key_checkpoint_hash",
         "key_checkpoint_sequence",
@@ -526,7 +526,7 @@ defmodule RefMD.Crypto.Signature.Core do
       ],
       "session" => ["is_recovery", "session_id_hash", "session_kind", "share_id"]
     },
-    {"pop_request", "channel_user_device"} => %{
+    {"rrp_request", "channel_user_device"} => %{
       "actor" => [
         "device_id",
         "key_checkpoint_hash",
@@ -549,7 +549,7 @@ defmodule RefMD.Crypto.Signature.Core do
       ],
       "session" => ["is_recovery", "session_id_hash", "session_kind"]
     },
-    {"pop_request", "http_share_participant_device"} => %{
+    {"rrp_request", "http_share_participant_device"} => %{
       "actor" => [
         "key_checkpoint_hash",
         "key_checkpoint_sequence",
@@ -564,7 +564,7 @@ defmodule RefMD.Crypto.Signature.Core do
       "request" => ["body_hash", "canonical_query", "method", "path", "query_hash"],
       "session" => ["is_recovery", "session_id_hash", "session_kind", "share_id"]
     },
-    {"pop_request", "http_user_device"} => %{
+    {"rrp_request", "http_user_device"} => %{
       "actor" => [
         "device_id",
         "key_checkpoint_hash",
@@ -1058,7 +1058,7 @@ defmodule RefMD.Crypto.Signature.Core do
          transcript["subject_version"] != @protocol_version,
        do: raise(ArgumentError, "subject_version_invalid")
 
-    if signing_purpose == "pop_request" do
+    if signing_purpose == "rrp_request" do
       assert_non_empty_string!(transcript["challenge"], "challenge_invalid")
     end
 

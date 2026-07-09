@@ -572,7 +572,7 @@ async function acceptGuestReentryCheckpoint(params: {
   await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: params.workspaceId,
-    popDeviceId: params.guestDeviceId,
+    rrpDeviceId: params.guestDeviceId,
     popWorker: getCryptoWorker(),
   });
   const updated = await getKeyDirectoryPin("workspace", params.workspaceId);

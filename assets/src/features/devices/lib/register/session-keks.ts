@@ -45,7 +45,7 @@ async function restoreKekForWorkspace(
 
   let currentKekVersion = 0;
   try {
-    const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
+    const existing = await encryptionApi.getWorkspaceKeysWithRrp(workspaceId, deviceId);
     if (existing.keys.some((key) => key.is_active)) return "restored";
     currentKekVersion = existing.current_kek_version;
   } catch (error) {
@@ -85,7 +85,7 @@ async function restoreKekFromMemberEnvelope(
   userId: string,
   deviceId: string,
 ): Promise<"restored" | "needs_distribution"> {
-  const envelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
+  const envelope = await encryptionApi.getMemberEnvelopeWithRrp(workspaceId);
   if (!envelope) return "needs_distribution";
 
   const worker = getCryptoWorker();

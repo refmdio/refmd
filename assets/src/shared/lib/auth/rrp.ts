@@ -11,30 +11,30 @@ import {
 import { getPreferredSessionScope, SHARE_SESSION_SCOPE_HEADER } from "./session-scope";
 import { AuthUnauthorizedError } from "./unauthorized";
 
-interface PopHeaders {
-  "X-PoP-Device-Id": string;
-  "X-PoP-Actor-Variant": "user_device" | "share_participant_device";
-  "X-PoP-Challenge": string;
-  "X-PoP-Signature-Transport": string;
+interface RrpHeaders {
+  "X-RefMD-RRP-Device-Id": string;
+  "X-RefMD-RRP-Actor-Variant": "user_device" | "share_participant_device";
+  "X-RefMD-RRP-Challenge": string;
+  "X-RefMD-RRP-Signature-Transport": string;
 }
 
-export interface ChannelPopParams {
-  pop_device_id: string;
-  pop_actor_variant: "user_device" | "share_participant_device";
-  pop_challenge: string;
-  pop_signature: StrictJsonValue;
+export interface ChannelRrpParams {
+  rrp_device_id: string;
+  rrp_actor_variant: "user_device" | "share_participant_device";
+  rrp_challenge: string;
+  rrp_signature: StrictJsonValue;
 }
 
-type PopScope = "user" | "share";
-type PopTransport = "http" | "phoenix_channel";
-interface HttpPopResource extends Record<string, string> {
+type RrpScope = "user" | "share";
+type RrpTransport = "http" | "phoenix_channel";
+interface HttpRrpResource extends Record<string, string> {
   canonical_query: string;
   method: string;
   path: string;
   query_hash: string;
 }
 
-interface ChannelPopResource extends Record<string, string> {
+interface ChannelRrpResource extends Record<string, string> {
   channel_event: "phx_join";
   document_id: string;
   event_name: "phx_join";
@@ -45,18 +45,18 @@ interface ChannelPopResource extends Record<string, string> {
   topic: string;
 }
 
-type PopResource = HttpPopResource | ChannelPopResource;
-type PopTranscriptObject = Record<string, StrictJsonValue>;
+type RrpResource = HttpRrpResource | ChannelRrpResource;
+type RrpTranscriptObject = Record<string, StrictJsonValue>;
 
-let popRateLimitedUntil = 0;
-let popChallengeQueue: Promise<void> = Promise.resolve();
+let rrpRateLimitedUntil = 0;
+let rrpChallengeQueue: Promise<void> = Promise.resolve();
 
-export class PopChallengeRateLimitError extends Error {
+export class RrpChallengeRateLimitError extends Error {
   readonly retryAfterSeconds: number;
 
   constructor(retryAfterSeconds: number) {
-    super("pop-challenge failed: rate limited");
-    this.name = "PopChallengeRateLimitError";
+    super("rrp-challenge failed: rate limited");
+    this.name = "RrpChallengeRateLimitError";
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
@@ -84,26 +84,26 @@ function createAbortError(): Error {
   return error;
 }
 
-async function waitForPopRateLimit(signal?: AbortSignal): Promise<void> {
+async function waitForRrpRateLimit(signal?: AbortSignal): Promise<void> {
   await waitForAuthTransport(signal);
-  const remaining = popRateLimitedUntil - Date.now();
+  const remaining = rrpRateLimitedUntil - Date.now();
   if (remaining > 0) {
     await sleep(remaining + Math.random() * 200, signal);
   }
 }
 
-function setPopRateLimit(retryAfterSeconds: number): void {
+function setRrpRateLimit(retryAfterSeconds: number): void {
   const until = Date.now() + Math.max(1, retryAfterSeconds) * 1000;
-  if (until > popRateLimitedUntil) {
-    popRateLimitedUntil = until;
+  if (until > rrpRateLimitedUntil) {
+    rrpRateLimitedUntil = until;
   }
   recordAuthTransportRateLimit(Math.max(1, retryAfterSeconds) * 1000);
 }
 
-async function enqueuePopChallenge<T>(fn: () => Promise<T>): Promise<T> {
-  const previous = popChallengeQueue;
+async function enqueueRrpChallenge<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = rrpChallengeQueue;
   let releaseQueue: () => void = () => {};
-  popChallengeQueue = new Promise<void>((resolve) => {
+  rrpChallengeQueue = new Promise<void>((resolve) => {
     releaseQueue = resolve;
   });
   await previous.catch(() => {});
@@ -114,20 +114,20 @@ async function enqueuePopChallenge<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function popChallenge(
+async function rrpChallenge(
   deviceId: string,
-  scope: PopScope,
+  scope: RrpScope,
   signal?: AbortSignal,
 ): Promise<{
-  actor: PopTranscriptObject;
+  actor: RrpTranscriptObject;
   challenge: string;
-  session: PopTranscriptObject;
+  session: RrpTranscriptObject;
 }> {
-  const response = await fetch("/api/auth/pop-challenge", {
+  const response = await fetch("/api/auth/rrp-challenge", {
     method: "POST",
     credentials: "include",
     headers: {
-      "X-PoP-Device-Id": deviceId,
+      "X-RefMD-RRP-Device-Id": deviceId,
       ...(scope === "share" ? { [SHARE_SESSION_SCOPE_HEADER]: "share" } : {}),
     },
     signal,
@@ -135,9 +135,9 @@ async function popChallenge(
   if (response.ok) {
     clearAuthTransportNetworkFailure();
     return (await response.json()) as {
-      actor: PopTranscriptObject;
+      actor: RrpTranscriptObject;
       challenge: string;
-      session: PopTranscriptObject;
+      session: RrpTranscriptObject;
     };
   }
   const retryAfterHeader = response.headers.get("retry-after");
@@ -158,22 +158,22 @@ async function popChallenge(
     // Response may not include a JSON body. Fall back to the Retry-After header.
   }
   if (response.status === 429) {
-    throw new PopChallengeRateLimitError(retryAfterSeconds ?? 1);
+    throw new RrpChallengeRateLimitError(retryAfterSeconds ?? 1);
   }
   if (response.status === 401) {
-    throw new AuthUnauthorizedError(scope, `pop-challenge failed: ${response.status}`);
+    throw new AuthUnauthorizedError(scope, `rrp-challenge failed: ${response.status}`);
   }
-  throw new Error(`pop-challenge failed: ${response.status}`);
+  throw new Error(`rrp-challenge failed: ${response.status}`);
 }
 
-export async function getPopHeaders(
+export async function getRrpHeaders(
   deviceIdOverride?: string,
   signal?: AbortSignal,
-  scope: PopScope = getPreferredSessionScope() === "share" ? "share" : "user",
+  scope: RrpScope = getPreferredSessionScope() === "share" ? "share" : "user",
   workerOverride?: CryptoWorkerClient,
-  resource?: HttpPopResource,
-): Promise<PopHeaders> {
-  const proof = await getPopProof(
+  resource?: HttpRrpResource,
+): Promise<RrpHeaders> {
+  const proof = await getRrpProof(
     deviceIdOverride,
     signal,
     scope,
@@ -182,21 +182,21 @@ export async function getPopHeaders(
     resource,
   );
   return {
-    "X-PoP-Device-Id": proof.deviceId,
-    "X-PoP-Actor-Variant": proof.actorVariant,
-    "X-PoP-Challenge": proof.challenge,
-    "X-PoP-Signature-Transport": proof.signatureTransport,
+    "X-RefMD-RRP-Device-Id": proof.deviceId,
+    "X-RefMD-RRP-Actor-Variant": proof.actorVariant,
+    "X-RefMD-RRP-Challenge": proof.challenge,
+    "X-RefMD-RRP-Signature-Transport": proof.signatureTransport,
   };
 }
 
-export async function getChannelPopParams(
+export async function getChannelRrpParams(
   deviceIdOverride?: string,
   signal?: AbortSignal,
-  scope: PopScope = getPreferredSessionScope() === "share" ? "share" : "user",
+  scope: RrpScope = getPreferredSessionScope() === "share" ? "share" : "user",
   workerOverride?: CryptoWorkerClient,
-  resource?: ChannelPopResource,
-): Promise<ChannelPopParams> {
-  const proof = await getPopProof(
+  resource?: ChannelRrpResource,
+): Promise<ChannelRrpParams> {
+  const proof = await getRrpProof(
     deviceIdOverride,
     signal,
     scope,
@@ -205,19 +205,19 @@ export async function getChannelPopParams(
     resource,
   );
   return {
-    pop_device_id: proof.deviceId,
-    pop_actor_variant: proof.actorVariant,
-    pop_challenge: proof.challenge,
-    pop_signature: proof.signature,
+    rrp_device_id: proof.deviceId,
+    rrp_actor_variant: proof.actorVariant,
+    rrp_challenge: proof.challenge,
+    rrp_signature: proof.signature,
   };
 }
 
-export function buildChannelPopResource(
+export function buildChannelRrpResource(
   documentId: string,
-  scope: PopScope,
+  scope: RrpScope,
   shareId?: string | null,
   joinPayload: Record<string, unknown> = {},
-): ChannelPopResource {
+): ChannelRrpResource {
   return {
     channel_event: "phx_join",
     document_id: documentId,
@@ -230,13 +230,13 @@ export function buildChannelPopResource(
   };
 }
 
-async function getPopProof(
+async function getRrpProof(
   deviceIdOverride: string | undefined,
   signal: AbortSignal | undefined,
-  scope: PopScope,
-  transport: PopTransport,
+  scope: RrpScope,
+  transport: RrpTransport,
   workerOverride?: CryptoWorkerClient,
-  resource?: PopResource,
+  resource?: RrpResource,
 ): Promise<{
   actorVariant: "user_device" | "share_participant_device";
   challenge: string;
@@ -244,18 +244,18 @@ async function getPopProof(
   signature: StrictJsonValue;
   signatureTransport: string;
 }> {
-  return enqueuePopChallenge(async () => {
+  return enqueueRrpChallenge(async () => {
     const worker = workerOverride ?? getCryptoWorker();
     const deviceId = deviceIdOverride ?? (await worker.getDeviceId());
-    await waitForPopRateLimit(signal);
+    await waitForRrpRateLimit(signal);
     try {
-      const { actor, challenge, session } = await popChallenge(deviceId, scope, signal);
+      const { actor, challenge, session } = await rrpChallenge(deviceId, scope, signal);
       if (!resource) {
         throw new Error(
-          transport === "http" ? "pop_http_resource_required" : "pop_channel_resource_required",
+          transport === "http" ? "rrp_http_resource_required" : "rrp_channel_resource_required",
         );
       }
-      const { signature } = await worker.createPopSignature({
+      const { signature } = await worker.createRrpSignature({
         challenge,
         deviceId,
         scope,
@@ -274,8 +274,8 @@ async function getPopProof(
     } catch (error) {
       if (error instanceof TypeError) {
         recordAuthTransportNetworkFailure();
-      } else if (error instanceof PopChallengeRateLimitError) {
-        setPopRateLimit(error.retryAfterSeconds);
+      } else if (error instanceof RrpChallengeRateLimitError) {
+        setRrpRateLimit(error.retryAfterSeconds);
       }
       throw error;
     }

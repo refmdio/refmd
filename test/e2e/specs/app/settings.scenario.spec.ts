@@ -231,13 +231,13 @@ test.describe.serial("Settings Dialog", () => {
           () => {
             const matched = forbiddenBodies.filter(
               (body) =>
-                body.includes("pop_missing_device_id") || body.includes("permission_denied"),
+                body.includes("rrp_missing_device_id") || body.includes("permission_denied"),
             );
             return matched.length === 0 ? false : matched.join(" | ");
           },
           {
             timeout: 2_000,
-            message: "guest redemption/open must not hit PoP or member-list permission failures",
+            message: "guest redemption/open must not hit RRP or member-list permission failures",
           },
         )
         .toBe(false);

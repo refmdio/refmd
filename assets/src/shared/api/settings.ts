@@ -1,4 +1,4 @@
-import { client, throwIfError, withUserPopParams } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
 export type SettingsResponse = components["schemas"]["SettingsResponse"];
@@ -8,5 +8,5 @@ export const settingsApi = {
   get: async () => throwIfError(await client.GET("/api/settings")),
 
   update: async (body: UpdateSettingsRequest) =>
-    throwIfError(await client.PATCH("/api/settings", { params: withUserPopParams(), body })),
+    throwIfError(await client.PATCH("/api/settings", { params: withUserRrpParams(), body })),
 };

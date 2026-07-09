@@ -81,7 +81,10 @@ defmodule RefMDWeb.DocumentWriteStateControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
@@ -142,7 +145,7 @@ defmodule RefMDWeb.DocumentWriteStateControllerTest do
     conn =
       conn
       |> authed_conn(user_id, device.device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device.device,
         device.signing_private_key,
@@ -163,7 +166,7 @@ defmodule RefMDWeb.DocumentWriteStateControllerTest do
       build_conn()
       |> put_req_header("x-refmd-e2e-rate-limit-bypass", "1")
       |> authed_conn(user_id, device.device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device.device,
         device.signing_private_key,
@@ -200,7 +203,7 @@ defmodule RefMDWeb.DocumentWriteStateControllerTest do
     conn =
       conn
       |> authed_conn(user_id, device.device)
-      |> put_test_pop_headers(
+      |> put_test_rrp_headers(
         user_id,
         device.device,
         device.signing_private_key,

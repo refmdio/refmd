@@ -312,8 +312,8 @@ test.describe.serial("Share Route Session Coexistence", () => {
       expect(routeScopes).not.toContain(undefined);
 
       const cookies = await sharedContext.cookies();
-      expect(cookies.some((cookie) => cookie.name === "_refmd_session")).toBe(true);
-      expect(cookies.some((cookie) => cookie.name === "_refmd_share_session")).toBe(true);
+      expect(cookies.some((cookie) => cookie.name === "__Host-refmd-session")).toBe(true);
+      expect(cookies.some((cookie) => cookie.name === "__Host-refmd-share-session")).toBe(true);
 
       await dashboardPage.goto("/dashboard", { waitUntil: "domcontentloaded" });
       await waitForWorkspaceReady(dashboardPage);
@@ -378,16 +378,16 @@ test.describe.serial("Share Route Session Coexistence", () => {
     await test.step("logged-in direct share access does not start user session lifecycle", async () => {
       const loggedInSharePage = await sharedContext.newPage();
       const userLifecycleRequests: string[] = [];
-      const userScopedPopChallenges: Array<string | undefined> = [];
+      const userScopedRrpChallenges: Array<string | undefined> = [];
 
       loggedInSharePage.on("request", (request) => {
         const path = new URL(request.url()).pathname;
         if (isUserLifecycleRequestPath(path)) {
           userLifecycleRequests.push(path);
         }
-        if (path === "/api/auth/pop-challenge") {
+        if (path === "/api/auth/rrp-challenge") {
           const scope = request.headers()["x-refmd-session-scope"];
-          if (scope !== "share") userScopedPopChallenges.push(scope);
+          if (scope !== "share") userScopedRrpChallenges.push(scope);
         }
       });
 
@@ -406,7 +406,7 @@ test.describe.serial("Share Route Session Coexistence", () => {
 
         await loggedInSharePage.waitForTimeout(E2E_DELAYS.routeSettle);
         expect(userLifecycleRequests).toEqual([]);
-        expect(userScopedPopChallenges).toEqual([]);
+        expect(userScopedRrpChallenges).toEqual([]);
       } finally {
         await loggedInSharePage.close();
       }
@@ -425,7 +425,7 @@ test.describe.serial("Share Route Session Coexistence", () => {
       anonymousPage.on("request", (request) => {
         const path = new URL(request.url()).pathname;
         if (path === "/api/auth/me") authMeRequests.push(path);
-        if (path === "/api/auth/pop-challenge") {
+        if (path === "/api/auth/rrp-challenge") {
           popChallengeScopes.push(request.headers()["x-refmd-session-scope"]);
         }
         if (path === "/api/auth/ws-token") {

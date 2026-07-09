@@ -10,6 +10,7 @@ import { Field, FieldLabel } from "@/shared/ui/field";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Spinner } from "@/shared/ui/spinner";
 import { useLoginPage } from "../../model/login/use-login-page";
+import { OAuthProviderButtons } from "../oauth/OAuthProviderButtons";
 
 export function LoginPage() {
   const state = useLoginPage();
@@ -81,6 +82,23 @@ export function LoginPage() {
                 "Sign In"
               )}
             </Button>
+
+            <Show when={state.oauthProviders().length > 0}>
+              <>
+                <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div class="h-px flex-1 bg-border" />
+                  <span>or</span>
+                  <div class="h-px flex-1 bg-border" />
+                </div>
+
+                <OAuthProviderButtons
+                  providers={state.oauthProviders()}
+                  loadingProvider={state.oauthLoading()}
+                  disabled={state.loading()}
+                  onStart={state.handleOAuthStart}
+                />
+              </>
+            </Show>
 
             <p class="text-center text-sm text-muted-foreground">
               Don't have an account?{" "}

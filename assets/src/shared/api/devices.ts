@@ -1,4 +1,4 @@
-import { client, throwIfError, POP_DEVICE_OVERRIDE_HEADER, withUserPopParams } from "./core";
+import { client, throwIfError, RRP_DEVICE_OVERRIDE_HEADER, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
 type CreateDeviceRegistrationRequest = components["schemas"]["CreateDeviceRegistrationRequest"];
@@ -33,7 +33,7 @@ export const devicesApi = {
   approve: async (id: string, body: ApproveDeviceRequest) =>
     throwIfError(
       await client.POST("/api/devices/registrations/{device_id}/approve", {
-        params: withUserPopParams({ path: { device_id: id } }),
+        params: withUserRrpParams({ path: { device_id: id } }),
         body,
       }),
     ),
@@ -46,13 +46,13 @@ export const devicesApi = {
       }),
     ),
 
-  list: async (opts?: { popDeviceId?: string }) => {
-    const fetchOpts = opts?.popDeviceId
-      ? { headers: { [POP_DEVICE_OVERRIDE_HEADER]: opts.popDeviceId } }
+  list: async (opts?: { rrpDeviceId?: string }) => {
+    const fetchOpts = opts?.rrpDeviceId
+      ? { headers: { [RRP_DEVICE_OVERRIDE_HEADER]: opts.rrpDeviceId } }
       : undefined;
     return throwIfError(
       await client.GET("/api/devices", {
-        params: withUserPopParams(),
+        params: withUserRrpParams(),
         ...fetchOpts,
       }),
     );
@@ -74,7 +74,7 @@ export const devicesApi = {
   ) =>
     throwIfError(
       await client.DELETE("/api/devices/{device_id}", {
-        params: withUserPopParams({ path: { device_id: deviceId } }),
+        params: withUserRrpParams({ path: { device_id: deviceId } }),
         body: {
           revocation_mode: revocationMode,
           revocation_signature: revocationSignature,
@@ -87,7 +87,7 @@ export const devicesApi = {
   rename: async (deviceId: string, name: string) => {
     throwIfError(
       await client.PATCH("/api/devices/{device_id}", {
-        params: withUserPopParams({ path: { device_id: deviceId } }),
+        params: withUserRrpParams({ path: { device_id: deviceId } }),
         body: { name },
       }),
     );
@@ -115,7 +115,7 @@ export const devicesApi = {
   ) => {
     throwIfError(
       await client.POST("/api/devices/{device_id}/keys/umk", {
-        params: withUserPopParams({ path: { device_id: deviceId } }),
+        params: withUserRrpParams({ path: { device_id: deviceId } }),
         body: {
           sender_device_id: senderDeviceId,
           ...keyDelivery,
@@ -124,13 +124,13 @@ export const devicesApi = {
     );
   },
 
-  getUmk: async (deviceId: string, opts?: { popDeviceId?: string }) => {
-    const headers = opts?.popDeviceId
-      ? { [POP_DEVICE_OVERRIDE_HEADER]: opts.popDeviceId }
+  getUmk: async (deviceId: string, opts?: { rrpDeviceId?: string }) => {
+    const headers = opts?.rrpDeviceId
+      ? { [RRP_DEVICE_OVERRIDE_HEADER]: opts.rrpDeviceId }
       : undefined;
     return throwIfError(
       await client.GET("/api/devices/{device_id}/keys/umk", {
-        params: withUserPopParams({ path: { device_id: deviceId } }),
+        params: withUserRrpParams({ path: { device_id: deviceId } }),
         ...(headers ? { headers } : {}),
       }),
     );

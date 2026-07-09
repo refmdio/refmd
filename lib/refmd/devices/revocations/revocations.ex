@@ -375,7 +375,7 @@ defmodule RefMD.Devices.Revocations do
   end
 
   defp invalidate_transient_state(device_id) do
-    RefMD.Auth.delete_device_pop_challenges(device_id)
+    RefMD.Auth.delete_device_rrp_challenges(device_id)
   end
 
   defp disconnect_ws(user_id, _device_id, "security") do

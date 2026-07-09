@@ -88,7 +88,7 @@ async function resolveWorkspaceDirectoryForAdmission(params: {
     const directory = await fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: params.state.workspaceId,
-      popDeviceId: params.deviceId,
+      rrpDeviceId: params.deviceId,
       popScope: params.shareAccess ? "share" : "user",
       popWorker: params.shareAccess ? getDocumentCryptoWorker(params.state) : undefined,
     });
@@ -121,7 +121,7 @@ async function resolveWorkspaceDirectoryForAdmission(params: {
     return fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: params.state.workspaceId,
-      popDeviceId: params.deviceId,
+      rrpDeviceId: params.deviceId,
       popScope: "share",
       popWorker: getDocumentCryptoWorker(params.state),
     });
@@ -131,7 +131,7 @@ async function resolveWorkspaceDirectoryForAdmission(params: {
     return fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: params.state.workspaceId,
-      popDeviceId: params.deviceId,
+      rrpDeviceId: params.deviceId,
       popScope: "share",
       popWorker: getDocumentCryptoWorker(params.state),
     });
@@ -151,7 +151,7 @@ async function resolveWorkspaceDirectoryForAdmission(params: {
   return fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: params.state.workspaceId,
-    popDeviceId: params.deviceId,
+    rrpDeviceId: params.deviceId,
     popScope: "share",
     popWorker: getDocumentCryptoWorker(params.state),
   });

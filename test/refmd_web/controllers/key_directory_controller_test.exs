@@ -33,7 +33,7 @@ defmodule RefMDWeb.KeyDirectoryControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, device.device)
-      |> with_pop_headers(
+      |> with_rrp_headers(
         owner_id,
         device.device,
         device.signing_private_key,
@@ -205,11 +205,14 @@ defmodule RefMDWeb.KeyDirectoryControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
-  defp with_pop_headers(
+  defp with_rrp_headers(
          conn,
          user_id,
          device,
@@ -219,7 +222,7 @@ defmodule RefMDWeb.KeyDirectoryControllerTest do
          body,
          query
        ) do
-    put_test_pop_headers(conn, user_id, device, signing_private_key, method, path, body, query)
+    put_test_rrp_headers(conn, user_id, device, signing_private_key, method, path, body, query)
   end
 
   defp device_actor(user_id, device_id, signing_key_id) do

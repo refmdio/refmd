@@ -261,7 +261,7 @@ describe("plugin runtime approval authority verification", () => {
     expect(mocks.fetchVerifiedKeyDirectory).toHaveBeenCalledWith({
       scopeKind: "workspace",
       scopeId: workspaceId,
-      popDeviceId: "device-one",
+      rrpDeviceId: "device-one",
     });
   });
 });

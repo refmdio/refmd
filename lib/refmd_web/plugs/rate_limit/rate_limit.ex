@@ -3,7 +3,7 @@ defmodule RefMDWeb.Plugs.RateLimit do
   Multi-layer rate limiting plug using ETS counters.
 
   REST requests use the general IP/session/auth limits. Transport-auth endpoints
-  use a separate quota so reconnect and PoP recovery do not exhaust the general
+  use a separate quota so reconnect and RRP recovery do not exhaust the general
   REST budget during normal multi-tab recovery.
 
   Returns 429 Too Many Requests with JSON body and Retry-After header.
@@ -27,8 +27,8 @@ defmodule RefMDWeb.Plugs.RateLimit do
   @auth_limit 60
   @auth_target_limit 20
   @period_ms 60_000
-  @user_session_cookie "_refmd_session"
-  @share_session_cookie "_refmd_share_session"
+  @user_session_cookie "__Host-refmd-session"
+  @share_session_cookie "__Host-refmd-share-session"
   @share_session_scope_header "x-refmd-session-scope"
   @e2e_rate_limit_bypass_header "x-refmd-e2e-rate-limit-bypass"
 
@@ -43,7 +43,7 @@ defmodule RefMDWeb.Plugs.RateLimit do
   ]
 
   @transport_auth_paths [
-    "/api/auth/pop-challenge",
+    "/api/auth/rrp-challenge",
     "/api/auth/ws-token"
   ]
 

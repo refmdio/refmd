@@ -139,8 +139,8 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
   test "legacy generic signing worker routes are absent" do
     forbidden_literals = [
-      quoted_token(["sign", "-pop"]),
-      quoted_token(["sign", "-pop", "-request"]),
+      quoted_token(["sign", "-rrp"]),
+      quoted_token(["sign", "-rrp", "-request"]),
       quoted_token(["sign", "-device", "-approval"]),
       quoted_token(["sign", "-device", "-registration"]),
       quoted_token(["sign", "-device", "-revocation"]),
@@ -149,7 +149,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       quoted_token(["sign", "-editor", "-ephemeral", "-session", "-proof"]),
       quoted_token(["verify", "-session", "-proof"]),
       quoted_token(["verify", "-device", "-identity", "-signature"]),
-      token(["sign", "Pop"]),
+      token(["sign", "Rrp"]),
       token(["sign", "Device", "Approval"]),
       token(["sign", "Device", "Registration"]),
       token(["sign", "Device", "Revocation"]),
@@ -157,7 +157,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       token(["sign", "Session", "Proof"]),
       token(["verify", "Session", "Proof"]),
       token(["verify", "Device", "Identity", "Signature"]),
-      token(["handle", "Sign", "Pop"]),
+      token(["handle", "Sign", "Rrp"]),
       token(["handle", "Sign", "Device", "Approval"]),
       token(["handle", "Sign", "Device", "Registration"]),
       token(["handle", "Sign", "Device", "Revocation"]),
@@ -463,7 +463,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     assert offenders == []
   end
 
-  test "endpoint config supports hybrid PoP header sizes" do
+  test "endpoint config supports hybrid RRP header sizes" do
     endpoint_config = Application.fetch_env!(:refmd, RefMDWeb.Endpoint)
     http_config = Keyword.fetch!(endpoint_config, :http)
 
@@ -1255,7 +1255,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         "zcLux-hm8EKxKKKtPjvdgABqBjWcsKR1H9NUOxlxWmU",
       {"initiator_ake_commitment", "none"} => "yKREQZiYsh53w3Lhar0x231nXMbJewiFLTx3T29vsYU",
       {"key_directory_event", "old_key_deleted"} => "11BBwHRey50hdyHygrdZ8NkG2tlv4DL5yVhMKAz0F-o",
-      {"pop_request", "http_user_device"} => "FBWSfnTExMamD6CsjYPzZxr5YBYKvtXWSJvbhOG1s9s",
+      {"rrp_request", "http_user_device"} => "sudfSoT4pHWNc23rGL5LRW_LMTP1pmGLgBVOtUWlW2A",
       {"pq_wrap", "none"} => "xB-o8OD3A-OO3yd7nzVoX-FCThLgh5sHgCjbY_bPc-c"
     }
 
@@ -2111,15 +2111,15 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     ]
   end
 
-  defp production_builder_args(%{signing_purpose: "pop_request", variant: variant}, public) do
+  defp production_builder_args(%{signing_purpose: "rrp_request", variant: variant}, public) do
     [
       variant,
       public["owner_kind"],
       public["owner_id"],
-      pop_actor_fixture(variant, public),
+      rrp_actor_fixture(variant, public),
       "challenge",
-      pop_session_fixture(variant),
-      pop_resource_fixture(variant)
+      rrp_session_fixture(variant),
+      rrp_resource_fixture(variant)
     ]
   end
 
@@ -2467,7 +2467,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     }
   end
 
-  defp pop_actor_fixture(variant, public)
+  defp rrp_actor_fixture(variant, public)
        when variant in ["http_share_participant_device", "channel_share_participant_device"] do
     %{
       "signer_kind" => "share_participant_device",
@@ -2478,11 +2478,11 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "key_scope_kind" => "workspace",
       "key_scope_id" => "00000000-0000-4000-8000-000000000421",
       "key_checkpoint_sequence" => 1,
-      "key_checkpoint_hash" => Hash.blake3_base64url("pop-workspace-checkpoint")
+      "key_checkpoint_hash" => Hash.blake3_base64url("rrp-workspace-checkpoint")
     }
   end
 
-  defp pop_actor_fixture(_variant, public) do
+  defp rrp_actor_fixture(_variant, public) do
     %{
       "signer_kind" => "device",
       "user_id" => "00000000-0000-4000-8000-000000000410",
@@ -2491,11 +2491,11 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "key_scope_kind" => "user",
       "key_scope_id" => "00000000-0000-4000-8000-000000000410",
       "key_checkpoint_sequence" => 1,
-      "key_checkpoint_hash" => Hash.blake3_base64url("pop-user-checkpoint")
+      "key_checkpoint_hash" => Hash.blake3_base64url("rrp-user-checkpoint")
     }
   end
 
-  defp pop_session_fixture(variant)
+  defp rrp_session_fixture(variant)
        when variant in ["http_share_participant_device", "channel_share_participant_device"] do
     %{
       "session_id_hash" => Hash.blake3_base64url("session"),
@@ -2505,7 +2505,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     }
   end
 
-  defp pop_session_fixture(_variant) do
+  defp rrp_session_fixture(_variant) do
     %{
       "session_id_hash" => Hash.blake3_base64url("session"),
       "session_kind" => "user",
@@ -2651,7 +2651,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     }
   end
 
-  defp pop_resource_fixture("http_" <> _variant) do
+  defp rrp_resource_fixture("http_" <> _variant) do
     %{
       "body_hash" => Hash.blake3_base64url(""),
       "canonical_query" => "",
@@ -2661,7 +2661,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     }
   end
 
-  defp pop_resource_fixture("channel_share_participant_device") do
+  defp rrp_resource_fixture("channel_share_participant_device") do
     %{
       "channel_event" => "phx_join",
       "document_id" => "00000000-0000-4000-8000-000000000423",
@@ -2674,7 +2674,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     }
   end
 
-  defp pop_resource_fixture("channel_" <> _variant) do
+  defp rrp_resource_fixture("channel_" <> _variant) do
     %{
       "channel_event" => "phx_join",
       "document_id" => "00000000-0000-4000-8000-000000000423",
@@ -3071,7 +3071,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
           "channel_user_device",
           "channel_share_participant_device"
         ],
-        &{"pop_request", &1}
+        &{"rrp_request", &1}
       ) ++
       Enum.map(
         ["umk_distribution", "device_approval_kek_initial", "trust_transfer"],
@@ -3132,7 +3132,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
           "channel_user_device",
           "channel_share_participant_device"
         ],
-        &{"pop_request", &1}
+        &{"rrp_request", &1}
       ) ++
       Enum.map(["workspace_device", "share_participant_device"], &{"document_update", &1}) ++
       Enum.map(["workspace_device", "share_participant_device"], &{"document_snapshot", &1}) ++

@@ -104,7 +104,7 @@ export async function performKekRotation(
       const workspaceDirectory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: currentDeviceId,
+        rrpDeviceId: currentDeviceId,
       });
       const memberDevices = await listWorkspaceActiveDevices(workspaceId);
       const directoryDeviceKeys = activeWorkspaceDeviceEncryptionKeys(
@@ -136,14 +136,14 @@ export async function performKekRotation(
           targetIdentityHybridEncryptionPublicKeyMaterial:
             member.hybrid_encryption_public_key_material as unknown as HybridEncryptionPublicKeyMaterial,
           keyVersion: newVersion,
-          popDeviceId: currentDeviceId,
+          rrpDeviceId: currentDeviceId,
         });
       }
 
       const completionDirectory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: currentDeviceId,
+        rrpDeviceId: currentDeviceId,
       });
       const manifestMaterials = await encryptionApi.prepareKekRotationCompletion(
         workspaceId,
@@ -207,7 +207,7 @@ export async function performKekRotation(
       await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: currentDeviceId,
+        rrpDeviceId: currentDeviceId,
       });
     } catch {
       failedWorkspaces.push(workspaceId);

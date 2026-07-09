@@ -1,4 +1,4 @@
-import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { buildChannelRrpResource, getChannelRrpParams } from "@/shared/lib/auth/rrp";
 import { deviceState } from "@/entities/session";
 import { getRateLimitRetryMs } from "@/shared/api/core";
 import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
@@ -171,7 +171,7 @@ async function attemptReconnect(
 
     let unauthorizedDuringReconnect = false;
     try {
-      // Ensure socket auth exists before consuming a single-use PoP challenge.
+      // Ensure socket auth exists before consuming a single-use RRP challenge.
       const transportScope = state.access.kind === "share" ? "share" : "user";
       await ensurePhoenixWsToken(transportScope);
       const stateKnownSnapshotId = getStateKnownSnapshotId(state);
@@ -196,18 +196,18 @@ async function attemptReconnect(
             await fetchVerifiedKeyDirectory({
               scopeKind: "workspace",
               scopeId: state.workspaceId,
-              popDeviceId: state.access.participantDeviceId,
+              rrpDeviceId: state.access.participantDeviceId,
               popScope: "share",
               popWorker: getShareParticipantCryptoWorker(state.access.shareSlug),
             });
           }
         } else {
           const device = deviceState();
-          if (!device?.deviceId) throw new Error("key_directory_pop_device_required");
+          if (!device?.deviceId) throw new Error("key_directory_rrp_device_required");
           await fetchVerifiedKeyDirectory({
             scopeKind: "workspace",
             scopeId: state.workspaceId,
-            popDeviceId: device.deviceId,
+            rrpDeviceId: device.deviceId,
           });
         }
         workspacePin = await getKeyDirectoryPin("workspace", state.workspaceId);
@@ -252,28 +252,28 @@ async function attemptReconnect(
         joinParams.knownSnapshotUpdateClocks = { ...state.confirmedClocks };
       }
       recordJoinDecision(state, knownSnapshotId, pinSnapshotId, stateKnownSnapshotId, useDelta);
-      const popParams =
+      const rrpParams =
         state.access.kind === "share"
-          ? await getChannelPopParams(
+          ? await getChannelRrpParams(
               state.access.participantDeviceId,
               undefined,
               "share",
               getShareParticipantCryptoWorker(state.access.shareSlug),
-              buildChannelPopResource(
+              buildChannelRrpResource(
                 documentId,
                 "share",
                 state.access.authorizationShareId ?? state.access.shareId,
                 joinParams,
               ),
             )
-          : await getChannelPopParams(
+          : await getChannelRrpParams(
               undefined,
               undefined,
               "user",
               undefined,
-              buildChannelPopResource(documentId, "user", undefined, joinParams),
+              buildChannelRrpResource(documentId, "user", undefined, joinParams),
             );
-      Object.assign(joinParams, popParams);
+      Object.assign(joinParams, rrpParams);
 
       let documentHandled: Promise<void> | null = null;
       let earlyCloseReject: ((err: Error) => void) | null = null;
@@ -461,9 +461,9 @@ async function attemptReconnect(
           .catch(() => {});
         return;
       }
-      if (reason === "pop_verification_failed") {
+      if (reason === "rrp_verification_failed") {
         if (state.access.kind === "share" && attempt < MAX_RECONNECT_ATTEMPTS - 1) {
-          recordSyncPerf("share_reconnect_pop_verification_retry", {
+          recordSyncPerf("share_reconnect_rrp_verification_retry", {
             documentId,
             attempt,
             joinMode: state._lastJoinMode,

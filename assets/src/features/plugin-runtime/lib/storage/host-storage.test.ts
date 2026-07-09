@@ -36,7 +36,7 @@ const apiMocks = vi.hoisted(() => ({
   GET: vi.fn(),
   POST: vi.fn(),
   PUT: vi.fn(),
-  withUserPopParams: vi.fn((params: unknown) => params),
+  withUserRrpParams: vi.fn((params: unknown) => params),
 }));
 
 vi.mock("@/shared/api/core", () => ({
@@ -56,7 +56,7 @@ vi.mock("@/shared/api/core", () => ({
     POST: apiMocks.POST,
     PUT: apiMocks.PUT,
   },
-  withUserPopParams: apiMocks.withUserPopParams,
+  withUserRrpParams: apiMocks.withUserRrpParams,
 }));
 
 const cryptoWorkerMocks = vi.hoisted(() => ({
@@ -281,7 +281,7 @@ afterEach(() => {
   apiMocks.GET.mockReset();
   apiMocks.POST.mockReset();
   apiMocks.PUT.mockReset();
-  apiMocks.withUserPopParams.mockClear();
+  apiMocks.withUserRrpParams.mockClear();
   cryptoWorkerMocks.getCryptoWorker.mockReset();
 });
 

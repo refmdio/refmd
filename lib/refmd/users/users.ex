@@ -58,6 +58,11 @@ defmodule RefMD.Users do
     |> Repo.all()
   end
 
+  def get_user_external_account(provider, provider_user_id)
+      when is_binary(provider) and is_binary(provider_user_id) do
+    Repo.get_by(UserExternalAccount, provider: provider, provider_user_id: provider_user_id)
+  end
+
   def create_user_external_account(attrs) do
     %UserExternalAccount{created_at: DateTime.utc_now()}
     |> UserExternalAccount.changeset(attrs)

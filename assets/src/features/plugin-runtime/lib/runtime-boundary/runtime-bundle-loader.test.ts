@@ -24,7 +24,7 @@ vi.mock("@/shared/lib/key-directory/fetch", () => ({
 }));
 
 beforeEach(() => {
-  mocks.deviceState.mockReturnValue({ deviceId: "pop-device-one" });
+  mocks.deviceState.mockReturnValue({ deviceId: "rrp-device-one" });
   mocks.fetchVerifiedKeyDirectory.mockReset();
 });
 
@@ -53,7 +53,7 @@ describe("default plugin runtime signer key resolver", () => {
     expect(mocks.fetchVerifiedKeyDirectory).toHaveBeenCalledWith({
       scopeKind: "user",
       scopeId: "user-one",
-      popDeviceId: "pop-device-one",
+      rrpDeviceId: "rrp-device-one",
     });
   });
 
@@ -71,7 +71,7 @@ describe("default plugin runtime signer key resolver", () => {
     expect(mocks.fetchVerifiedKeyDirectory).toHaveBeenCalledWith({
       scopeKind: "workspace",
       scopeId: "workspace-one",
-      popDeviceId: "pop-device-one",
+      rrpDeviceId: "rrp-device-one",
     });
   });
 });

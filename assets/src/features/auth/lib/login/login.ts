@@ -230,7 +230,7 @@ export async function login(
     let tofuWarnings: string[] = [];
     let currentDevice: DeviceInfo | null = null;
     try {
-      const { devices } = await devicesApi.list({ popDeviceId: deviceId! });
+      const { devices } = await devicesApi.list({ rrpDeviceId: deviceId! });
       currentDevice = devices.find((d: DeviceInfo) => d.id === deviceId) ?? null;
       const tofuResult = await worker.tofuVerifyAllDevices({
         devices: devices.map((d: DeviceInfo) => ({

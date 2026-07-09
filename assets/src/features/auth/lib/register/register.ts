@@ -185,7 +185,7 @@ export async function register(
       });
     await worker.setUserContext(userId, deviceId);
     await worker.setInitialized();
-    // Step 8: Establish PoP capability
+    // Step 8: Establish RRP capability
     setDeviceState({
       deviceId,
       deviceSigningKeyId: devicePublic.signingKeyId,
@@ -194,7 +194,7 @@ export async function register(
       deviceHybridSigningPublicKeyMaterial: devicePublic.hybridSigningPublicKeyMaterial,
       deviceEcdhPublic: devicePublic.ecdhPublic,
     });
-    // Step 9: Generate KEK and save device envelope (PoP required)
+    // Step 9: Generate KEK and save device envelope (RRP required)
     await worker.generateKek(registerRes.workspace_id);
     await persistWorkspaceKekLocally({
       workspaceId: registerRes.workspace_id,
@@ -213,7 +213,7 @@ export async function register(
       targetIdentityHybridEncryptionPublicKeyMaterial:
         identityPublic.hybridEncryptionPublicKeyMaterial,
       keyVersion: 1,
-      popDeviceId: deviceId,
+      rrpDeviceId: deviceId,
       ignoreConflict: true,
     });
     // Step 10: Mark encryption setup complete

@@ -1,5 +1,5 @@
 import { registerBeforeSessionCleanup } from "@/shared/lib/auth/session-cleanup";
-import { client, ApiError, withUserPopParams } from "@/shared/api/core";
+import { client, ApiError, withUserRrpParams } from "@/shared/api/core";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { deletePluginRuntimePins } from "@/shared/lib/crypto/trust-store";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
@@ -827,7 +827,7 @@ async function requestPluginStorage(
   if (method === "get") {
     try {
       return throwIfPluginStorageError(
-        await client.GET(path, { params: withUserPopParams(requestParams) }),
+        await client.GET(path, { params: withUserRrpParams(requestParams) }),
       );
     } catch (error) {
       if (pluginStorageNotFound(error)) return null;
@@ -837,14 +837,14 @@ async function requestPluginStorage(
 
   if (method === "delete") {
     throwIfPluginMutationError(
-      await client.DELETE(path, { params: withUserPopParams(requestParams) }),
+      await client.DELETE(path, { params: withUserRrpParams(requestParams) }),
     );
     return;
   }
 
   if (!body) throw recordStorageUnavailable();
   return throwIfPluginStorageError(
-    await client.PUT(path, { params: withUserPopParams(requestParams), body }),
+    await client.PUT(path, { params: withUserRrpParams(requestParams), body }),
   );
 }
 
@@ -894,7 +894,7 @@ async function requestPluginRecord(
     if (!body) throw recordStorageUnavailable();
     return throwIfPluginRecordError(
       await client.POST(path, {
-        params: withUserPopParams(
+        params: withUserRrpParams(
           pluginRecordCreateRequestParams(params as PluginSyncedRecordCreateParams),
         ),
         body,
@@ -908,7 +908,7 @@ async function requestPluginRecord(
   if (method === "get") {
     try {
       return throwIfPluginRecordError(
-        await client.GET(recordPath, { params: withUserPopParams(requestParams) }),
+        await client.GET(recordPath, { params: withUserRrpParams(requestParams) }),
       );
     } catch (error) {
       if (pluginStorageNotFound(error)) return null;
@@ -917,7 +917,7 @@ async function requestPluginRecord(
   }
 
   throwIfPluginMutationError(
-    await client.DELETE(recordPath, { params: withUserPopParams(requestParams) }),
+    await client.DELETE(recordPath, { params: withUserRrpParams(requestParams) }),
   );
 }
 

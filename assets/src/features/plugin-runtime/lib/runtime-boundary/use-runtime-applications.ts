@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createResource, onCleanup, type Accessor } from "solid-js";
 import { authState, deviceState } from "@/entities/session";
-import { client, throwIfError, withUserPopParams } from "@/shared/api/core";
+import { client, throwIfError, withUserRrpParams } from "@/shared/api/core";
 import {
   securityNotificationsApi,
   type SecurityNotificationInfo,
@@ -470,7 +470,7 @@ export async function listPluginRuntimeApplications(
 
   const result = await guardedPluginRuntimeWorkspaceRequest(workspaceId, () =>
     client.GET("/api/workspaces/{workspace_id}/plugin-runtime", {
-      params: withUserPopParams({
+      params: withUserRrpParams({
         path: { workspace_id: workspaceId },
       }),
     }),

@@ -100,7 +100,7 @@ export async function approveDeviceRegistration(params: {
   const userDirectory = await fetchVerifiedKeyDirectory({
     scopeKind: "user",
     scopeId: auth.user.id,
-    popDeviceId: currentDevice.deviceId,
+    rrpDeviceId: currentDevice.deviceId,
   });
   const userAppend = await buildDeviceKeyDirectoryAppend({
     scopeKind: "user",
@@ -116,7 +116,7 @@ export async function approveDeviceRegistration(params: {
       const directory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: currentDevice.deviceId,
+        rrpDeviceId: currentDevice.deviceId,
       });
       const append = await buildDeviceKeyDirectoryAppend({
         scopeKind: "workspace",
@@ -536,7 +536,7 @@ async function ensureWorkspaceKekCachedForInitialDelivery(params: {
 }): Promise<number> {
   const worker = getCryptoWorker();
   const { keys, current_kek_version: currentKekVersion } =
-    await encryptionApi.getWorkspaceKeysWithPop(params.workspaceId, params.senderDeviceId);
+    await encryptionApi.getWorkspaceKeysWithRrp(params.workspaceId, params.senderDeviceId);
   const activeKey = keys.find((key) => key.key_version === currentKekVersion);
   if (!activeKey) throw new Error("active_workspace_kek_missing");
   const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(

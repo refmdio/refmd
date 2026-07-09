@@ -1,13 +1,13 @@
 defmodule RefMDWeb.Plugs.VerifyOrigin do
   @moduledoc """
-  CSRF protection via Origin header verification for PoP-exempt mutating endpoints.
+  CSRF protection via Origin header verification for RRP-exempt mutating endpoints.
 
   In SameSite=Lax deployments, the cookie attribute itself prevents CSRF.
   In SameSite=None deployments, this plug enforces Origin verification
   on POST/PATCH/DELETE requests.
 
-  PoP-required endpoints are already protected by device signature verification
-  (PoP acts as a CSRF token equivalent).
+  RRP-required endpoints are already protected by device signature verification
+  (RRP acts as a CSRF token equivalent).
   """
 
   import Plug.Conn

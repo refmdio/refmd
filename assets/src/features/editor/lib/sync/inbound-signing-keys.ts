@@ -272,7 +272,7 @@ async function doBuildWorkspaceDeviceKeyCaches(workspaceId: string): Promise<Dev
   const signingKeyOwners = new Map<string, string>();
   const currentDevice = deviceState();
   if (!currentDevice?.deviceId) {
-    throw new Error("key_directory_pop_device_required");
+    throw new Error("key_directory_rrp_device_required");
   }
   const isGuest = authState()?.user.accountType === "guest";
 
@@ -280,7 +280,7 @@ async function doBuildWorkspaceDeviceKeyCaches(workspaceId: string): Promise<Dev
     fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: workspaceId,
-      popDeviceId: currentDevice.deviceId,
+      rrpDeviceId: currentDevice.deviceId,
     }),
     isGuest ? Promise.resolve(null) : workspacesApi.listMembers(workspaceId),
     fetchWorkspaceMemberNames(workspaceId),

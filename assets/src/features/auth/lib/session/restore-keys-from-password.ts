@@ -111,8 +111,8 @@ async function persistRestoredKeysWithDsk(userId: string, rememberMe: boolean): 
   }
 }
 
-async function listDevicesForTrustVerification(popDeviceId: string): Promise<DeviceInfo[]> {
-  const { devices } = await devicesApi.list({ popDeviceId });
+async function listDevicesForTrustVerification(rrpDeviceId: string): Promise<DeviceInfo[]> {
+  const { devices } = await devicesApi.list({ rrpDeviceId });
   return devices;
 }
 

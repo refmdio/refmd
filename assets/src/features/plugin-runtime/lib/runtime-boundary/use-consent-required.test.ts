@@ -26,7 +26,7 @@ vi.mock("@/shared/api/core", () => ({
     if (result.error) throw result.error;
     return result.data ?? result;
   },
-  withUserPopParams: (params: Record<string, unknown> = {}) => params,
+  withUserRrpParams: (params: Record<string, unknown> = {}) => params,
 }));
 
 vi.mock("@/shared/lib/crypto/trust-store", () => ({

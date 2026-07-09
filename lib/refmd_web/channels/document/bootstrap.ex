@@ -241,10 +241,10 @@ defmodule RefMDWeb.Channels.Document.Bootstrap do
       "authenticated_workspace_pin_bootstrap_hash",
       "workspaceKeyDirectoryPinHash",
       "workspaceKeyDirectoryPinSequence",
-      "pop_actor_variant",
-      "pop_challenge",
-      "pop_device_id",
-      "pop_signature",
+      "rrp_actor_variant",
+      "rrp_challenge",
+      "rrp_device_id",
+      "rrp_signature",
       "share_id",
       "silent"
     ]

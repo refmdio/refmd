@@ -96,7 +96,7 @@ defmodule RefMDWeb.DocumentShareController do
         "workspace_key_directory_checkpoint"
       ])
       |> derive_share_limit_cache_attrs()
-      |> Map.put("actor_device_id", conn.assigns[:pop_device_id])
+      |> Map.put("actor_device_id", conn.assigns[:rrp_device_id])
       |> decode_binary_fields()
 
     case attrs do

@@ -1,4 +1,4 @@
-import { client, throwIfError, withUserPopParams } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
 type ApiResult = { data?: unknown; error?: unknown; response: Response };
@@ -181,7 +181,7 @@ export async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> 
 export const pluginsApi = {
   listUserPackages: async (): Promise<readonly PluginPackageInfo[]> => {
     const envelope = throwIfError(
-      await client.GET("/api/plugin-packages", { params: withUserPopParams() }),
+      await client.GET("/api/plugin-packages", { params: withUserRrpParams() }),
     ) as PackagesEnvelope;
     return envelope.packages ?? [];
   },
@@ -189,7 +189,7 @@ export const pluginsApi = {
   listWorkspacePackages: async (workspaceId: string): Promise<readonly PluginPackageInfo[]> => {
     const envelope = throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/plugin-packages", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ) as PackagesEnvelope;
     return envelope.packages ?? [];
@@ -198,7 +198,7 @@ export const pluginsApi = {
   listApplications: async (workspaceId: string): Promise<readonly PluginApplicationInfo[]> => {
     const envelope = throwIfError(
       await client.GET("/api/workspaces/{workspace_id}/plugin-applications", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
       }),
     ) as ApplicationsEnvelope;
     return envelope.plugins ?? [];
@@ -206,7 +206,7 @@ export const pluginsApi = {
 
   listActivations: async (): Promise<readonly PluginActivationInfo[]> => {
     const envelope = throwIfError(
-      await client.GET("/api/plugin-activations", { params: withUserPopParams() }),
+      await client.GET("/api/plugin-activations", { params: withUserRrpParams() }),
     ) as ActivationsEnvelope;
     return envelope.activations ?? [];
   },
@@ -221,7 +221,7 @@ export const pluginsApi = {
 
       const envelope = throwIfError(
         await apiPost("/api/plugin-candidates", {
-          params: withUserPopParams(),
+          params: withUserRrpParams(),
           body,
         }),
       ) as CandidateEnvelope;
@@ -234,13 +234,13 @@ export const pluginsApi = {
       input.ownerScopeKind === "user"
         ? (throwIfError(
             await apiPost("/api/plugin-packages", {
-              params: withUserPopParams(),
+              params: withUserRrpParams(),
               body,
             }),
           ) as CandidateEnvelope)
         : (throwIfError(
             await apiPost("/api/workspaces/{workspace_id}/plugin-packages", {
-              params: withUserPopParams({
+              params: withUserRrpParams({
                 path: { workspace_id: input.workspaceId ?? "" },
               }),
               body,
@@ -260,7 +260,7 @@ export const pluginsApi = {
     void workspaceId;
     const envelope = throwIfError(
       await client.GET("/api/plugin-candidates/{candidate_id}", {
-        params: withUserPopParams({ path: { candidate_id: candidateId } }),
+        params: withUserRrpParams({ path: { candidate_id: candidateId } }),
       }),
     ) as CandidateEnvelope;
 
@@ -277,7 +277,7 @@ export const pluginsApi = {
     void ownerScopeKind;
     const envelope = throwIfError(
       await apiPost("/api/plugin-candidates/{candidate_id}/approval", {
-        params: withUserPopParams({ path: { candidate_id: candidateId } }),
+        params: withUserRrpParams({ path: { candidate_id: candidateId } }),
         body: {
           ...approval,
           ...(workspaceId ? { workspace_id: workspaceId } : {}),
@@ -299,7 +299,7 @@ export const pluginsApi = {
   ): Promise<{ application: PluginApplicationInfo; activation?: PluginActivationInfo }> => {
     const envelope = throwIfError(
       await client.POST("/api/workspaces/{workspace_id}/plugin-applications", {
-        params: withUserPopParams({ path: { workspace_id: workspaceId } }),
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body: {
           package_id: packageId,
         } satisfies components["schemas"]["PluginApplicationApplyRequest"],
@@ -316,7 +316,7 @@ export const pluginsApi = {
   ): Promise<PluginApplicationInfo> => {
     const envelope = throwIfError(
       await client.PATCH("/api/workspaces/{workspace_id}/plugin-applications/{application_id}", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { workspace_id: workspaceId, application_id: applicationId },
         }),
         body,
@@ -333,7 +333,7 @@ export const pluginsApi = {
   ): Promise<PluginApplicationInfo> => {
     const envelope = throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/plugin-applications/{application_id}", {
-        params: withUserPopParams({
+        params: withUserRrpParams({
           path: { workspace_id: workspaceId, application_id: applicationId },
         }),
       }),
@@ -349,7 +349,7 @@ export const pluginsApi = {
   ): Promise<PluginActivationInfo> => {
     const envelope = throwIfError(
       await client.PATCH("/api/plugin-activations/{activation_id}", {
-        params: withUserPopParams({ path: { activation_id: activationId } }),
+        params: withUserRrpParams({ path: { activation_id: activationId } }),
         body,
       }),
     ) as ApplicationEnvelope;
@@ -360,7 +360,7 @@ export const pluginsApi = {
   deleteActivation: async (activationId: string): Promise<PluginActivationInfo> => {
     const envelope = throwIfError(
       await apiDelete("/api/plugin-activations/{activation_id}", {
-        params: withUserPopParams({ path: { activation_id: activationId } }),
+        params: withUserRrpParams({ path: { activation_id: activationId } }),
       }),
     ) as ApplicationEnvelope;
     if (!envelope.activation) throw new Error("plugin_activation_missing");
@@ -376,7 +376,7 @@ export const pluginsApi = {
       await client.POST(
         "/api/workspaces/{workspace_id}/plugin-applications/{application_id}/consent-events",
         {
-          params: withUserPopParams({
+          params: withUserRrpParams({
             path: { workspace_id: workspaceId, application_id: applicationId },
           }),
           body,

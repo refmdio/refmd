@@ -18,12 +18,12 @@ export async function refreshAdmissionKeyDirectory(
 ): Promise<void> {
   const accessKind = state.access.kind;
   const shareWorker = accessKind === "share" ? getDocumentCryptoWorker(state) : undefined;
-  const popDeviceId =
+  const rrpDeviceId =
     getLocalDeviceId(state) ??
     deviceState()?.deviceId ??
     (shareWorker ? await shareWorker.getDeviceId() : null);
 
-  if (!popDeviceId) {
+  if (!rrpDeviceId) {
     throw new Error("admission_key_directory_refresh_device_unavailable");
   }
 
@@ -35,7 +35,7 @@ export async function refreshAdmissionKeyDirectory(
   const fetchParams = {
     scopeKind: "workspace" as const,
     scopeId: state.workspaceId,
-    popDeviceId,
+    rrpDeviceId,
     popScope: accessKind === "share" ? ("share" as const) : ("user" as const),
     popWorker: shareWorker,
   };

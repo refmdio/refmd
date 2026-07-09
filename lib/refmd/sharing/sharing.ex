@@ -38,7 +38,7 @@ defmodule RefMD.Sharing do
                 user_id,
                 mount_id,
                 document_token,
-                current_pop_device_id,
+                current_rrp_device_id,
                 pin_hash
               ),
               to: Mounts
@@ -47,7 +47,7 @@ defmodule RefMD.Sharing do
                 user_id,
                 mount_id,
                 document_token,
-                current_pop_device_id,
+                current_rrp_device_id,
                 pin_hash,
                 session_token,
                 mount_password_session
@@ -82,7 +82,7 @@ defmodule RefMD.Sharing do
                 user_id,
                 mount_id,
                 folder_token,
-                current_pop_device_id,
+                current_rrp_device_id,
                 pin_hash
               ),
               to: Mounts
@@ -91,7 +91,7 @@ defmodule RefMD.Sharing do
                 user_id,
                 mount_id,
                 folder_token,
-                current_pop_device_id,
+                current_rrp_device_id,
                 pin_hash,
                 session_token,
                 mount_password_session
@@ -103,7 +103,7 @@ defmodule RefMD.Sharing do
   defdelegate respond_share_mount_challenge(
                 user_id,
                 mount_id,
-                current_pop_device_id,
+                current_rrp_device_id,
                 response,
                 target_id,
                 password_challenge_hash,
@@ -182,10 +182,10 @@ defmodule RefMD.Sharing do
 
   defdelegate validate_share_participant_writer_admission(attrs), to: Participants
 
-  defdelegate create_pop_challenge(share_id, principal_id, device_id, session_id),
+  defdelegate create_rrp_challenge(share_id, principal_id, device_id, session_id),
     to: Participants
 
-  defdelegate consume_pop_challenge(challenge, share_id, principal_id, device_id, session_id),
+  defdelegate consume_rrp_challenge(challenge, share_id, principal_id, device_id, session_id),
     to: Participants
 
   defdelegate generate_ws_token(session_id), to: Participants

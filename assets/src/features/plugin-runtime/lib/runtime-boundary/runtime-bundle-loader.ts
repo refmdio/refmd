@@ -1,5 +1,5 @@
 import { deviceState } from "@/entities/session";
-import { client, throwIfError, withUserPopParams } from "@/shared/api/core";
+import { client, throwIfError, withUserRrpParams } from "@/shared/api/core";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import type { StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import {
@@ -80,7 +80,7 @@ async function createPluginSandboxDocumentEnvelope(
       await client.POST(
         "/api/workspaces/{workspace_id}/plugin-runtime/{application_id}/sandbox-documents",
         {
-          params: withUserPopParams({
+          params: withUserRrpParams({
             path: {
               workspace_id: request.workspaceId,
               application_id: request.applicationId,
@@ -133,7 +133,7 @@ export function createDefaultPluginRuntimeSignerKeyResolver(): PluginRuntimeSign
       keyDirectory = fetchVerifiedKeyDirectory({
         scopeKind: scope.scopeKind,
         scopeId: scope.scopeId,
-        popDeviceId: device.deviceId,
+        rrpDeviceId: device.deviceId,
       }).then(({ checkpoint }) => checkpoint.payload as Record<string, unknown>);
       keyDirectories.set(cacheKey, keyDirectory);
     }

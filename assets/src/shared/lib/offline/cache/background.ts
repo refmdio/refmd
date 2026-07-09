@@ -1,5 +1,5 @@
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { buildChannelRrpResource, getChannelRrpParams } from "@/shared/lib/auth/rrp";
 import { clientWarn } from "@/shared/lib/logger";
 import {
   hasTrackedDocumentChannel,
@@ -166,7 +166,7 @@ async function cacheDocumentSilently(
     const fetchParams = {
       scopeKind: "workspace" as const,
       scopeId: workspaceId,
-      popDeviceId: await worker.getDeviceId(),
+      rrpDeviceId: await worker.getDeviceId(),
     };
     if (params?.trustedCheckpointEnvelope) {
       await fetchVerifiedKeyDirectoryFromTrustedCheckpoint({
@@ -210,14 +210,14 @@ async function cacheDocumentSilently(
   if (hasCompleteSnapshotPin(bgPin)) {
     joinParams.knownSnapshotId = bgPin.latestSnapshotId;
   }
-  const popParams = await getChannelPopParams(
+  const rrpParams = await getChannelRrpParams(
     undefined,
     undefined,
     "user",
     undefined,
-    buildChannelPopResource(documentId, "user", undefined, joinParams),
+    buildChannelRrpResource(documentId, "user", undefined, joinParams),
   );
-  Object.assign(joinParams, popParams);
+  Object.assign(joinParams, rrpParams);
   return new Promise<void>((resolve, reject) => {
     let resolved = false;
     let disposeChannel: (() => void) | null = null;

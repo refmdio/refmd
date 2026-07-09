@@ -105,6 +105,18 @@ export function DeviceRegistrationPhaseContent(props: DeviceRegistrationPhaseCon
         </div>
       </Match>
 
+      <Match when={props.phase() === "done" && !props.isRecoveryMode()}>
+        <div class="flex flex-col items-center gap-4 py-8">
+          <div class="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+            <CheckCircleIcon class="size-6 text-green-600" />
+          </div>
+          <p class="text-lg font-medium">Device Ready</p>
+          <p class="text-sm text-muted-foreground">
+            {props.statusMessage() || "Redirecting to your workspace..."}
+          </p>
+        </div>
+      </Match>
+
       <Match when={props.phase() === "needs_password"}>
         <PasswordPromptForm
           description="Your browser storage was cleared. Please re-enter your password to continue."

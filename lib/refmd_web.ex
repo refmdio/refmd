@@ -44,6 +44,7 @@ defmodule RefMDWeb do
       import Plug.Conn
       import RefMDWeb.Http.Encoding
       import RefMDWeb.Http.Errors
+      import RefMDWeb.Http.DBSC
       import RefMDWeb.Http.SessionCookies
 
       plug RefMDWeb.Plugs.OpenApiRequestValidation

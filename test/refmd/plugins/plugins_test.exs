@@ -757,7 +757,7 @@ defmodule RefMD.PluginsTest do
     @tag :bundle_update_candidate
     test "user package update exposes an existing workspace runtime target for state pinning" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       archive_path =
         plugin_archive_path(%{
@@ -1076,7 +1076,7 @@ defmodule RefMD.PluginsTest do
 
     test "approves a user-owned personal package without a separate workspace apply action" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       archive_path =
         plugin_archive_path(%{
@@ -1254,7 +1254,7 @@ defmodule RefMD.PluginsTest do
 
     test "workspace user plugin policy denies personal package application without deleting package" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       {:ok, workspace} =
         Workspaces.update_workspace(workspace, %{
@@ -1296,7 +1296,7 @@ defmodule RefMD.PluginsTest do
 
     test "workspace user plugin policy allow-list permits high-risk personal package" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       {:ok, workspace} =
         Workspaces.update_workspace(workspace, %{
@@ -1363,7 +1363,7 @@ defmodule RefMD.PluginsTest do
 
     test "requires workspace approval before high-risk user-owned package runtime issuance" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       archive_path =
         plugin_archive_path(%{
@@ -1410,7 +1410,7 @@ defmodule RefMD.PluginsTest do
 
     test "preserves workspace approval when reapplying after activation deletion" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       archive_path =
         plugin_archive_path(%{
@@ -1468,7 +1468,7 @@ defmodule RefMD.PluginsTest do
 
     test "requires workspace approval before user-owned Host UI permission runtime issuance" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       archive_path =
         plugin_archive_path(%{
@@ -1515,7 +1515,7 @@ defmodule RefMD.PluginsTest do
 
     test "user-owned package updates recalculate workspace policy for existing applications" do
       %{user: user, workspace: workspace, device: device} = account_context()
-      device = TestCrypto.ensure_test_user_pop_key_directory!(user.id, device)
+      device = TestCrypto.ensure_test_user_rrp_key_directory!(user.id, device)
 
       archive_path =
         plugin_archive_path(%{

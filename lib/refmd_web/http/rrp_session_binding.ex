@@ -1,4 +1,4 @@
-defmodule RefMDWeb.Http.PopSessionBinding do
+defmodule RefMDWeb.Http.RrpSessionBinding do
   @moduledoc false
 
   alias RefMD.Crypto.Hash

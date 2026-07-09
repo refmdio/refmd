@@ -93,7 +93,7 @@ function configureDocumentChannel(
   channel: Channel,
   callbacks: DocumentChannelCallbacks,
 ): void {
-  // Disable Phoenix auto-rejoin BEFORE join(): PoP challenge is consumed on
+  // Disable Phoenix auto-rejoin BEFORE join(): RRP challenge is consumed on
   // first join, so auto-rejoin with stale params always fails.
   disableChannelAutoRejoin(channel);
 

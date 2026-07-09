@@ -78,7 +78,7 @@ export async function createWorkspaceWithInitialKek(
     targetIdentityHybridEncryptionPublicKeyMaterial:
       publicKeys.identityHybridEncryptionPublicKeyMaterial,
     keyVersion,
-    popDeviceId: device.deviceId,
+    rrpDeviceId: device.deviceId,
     ignoreConflict: true,
   });
   return result.id;

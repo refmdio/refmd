@@ -17,23 +17,27 @@ defmodule RefMDWeb.Router do
     plug RefMDWeb.Plugs.RequireAuth, allow_share_participant: true
   end
 
-  pipeline :require_pop do
-    plug RefMDWeb.Plugs.RequireAuth
-    plug RefMDWeb.Plugs.RequirePoP
+  pipeline :share_session_authenticated do
+    plug RefMDWeb.Plugs.RequireAuth, allow_share_participant: true, prefer_share_participant: true
   end
 
-  pipeline :session_require_pop do
+  pipeline :require_rrp do
+    plug RefMDWeb.Plugs.RequireAuth
+    plug RefMDWeb.Plugs.RequireRrp
+  end
+
+  pipeline :session_require_rrp do
     plug RefMDWeb.Plugs.RequireAuth, allow_share_participant: true
-    plug RefMDWeb.Plugs.RequirePoP, allow_share_participant: true
+    plug RefMDWeb.Plugs.RequireRrp, allow_share_participant: true
   end
 
   pipeline :verify_origin do
     plug RefMDWeb.Plugs.VerifyOrigin
   end
 
-  pipeline :require_recovery_or_pop do
+  pipeline :require_recovery_or_rrp do
     plug RefMDWeb.Plugs.RequireAuth
-    plug RefMDWeb.Plugs.RequireRecoveryOrPoP
+    plug RefMDWeb.Plugs.RequireRecoveryOrRrp
   end
 
   pipeline :sandbox_document do
@@ -60,10 +64,55 @@ defmodule RefMDWeb.Router do
     get "/salt", AuthController, :salt
     post "/register", AuthController, :register
     post "/login", AuthController, :login
+    get "/oauth/providers", AuthController, :oauth_providers
+    post "/oauth/:provider/start", AuthController, :oauth_start
     post "/recovery/challenge", AuthController, :recovery_challenge
     post "/recovery/session", AuthController, :recovery_session
     post "/password-reset/request", PasswordController, :password_reset_request
     post "/password-reset/verify", PasswordController, :password_reset_verify
+  end
+
+  scope "/api/auth", RefMDWeb do
+    pipe_through [:api]
+
+    get "/oauth/:provider/callback", AuthController, :oauth_callback
+  end
+
+  scope "/.well-known", RefMDWeb do
+    pipe_through [:api]
+
+    get "/device-bound-sessions", AuthController, :dbsc_well_known
+  end
+
+  scope "/api/auth/dbsc", RefMDWeb do
+    pipe_through [:api, :authenticated]
+
+    post "/register", AuthController, :dbsc_register
+  end
+
+  scope "/api/auth/dbsc", RefMDWeb do
+    pipe_through [:api]
+
+    post "/refresh", AuthController, :dbsc_refresh
+  end
+
+  scope "/api/auth/dbsc/share", RefMDWeb do
+    pipe_through [:api, :share_session_authenticated]
+
+    post "/register", AuthController, :dbsc_share_register
+  end
+
+  scope "/api/auth/dbsc/share", RefMDWeb do
+    pipe_through [:api]
+
+    post "/refresh", AuthController, :dbsc_share_refresh
+  end
+
+  scope "/api/auth/dbsc/mount", RefMDWeb do
+    pipe_through [:api]
+
+    post "/register", AuthController, :dbsc_mount_register
+    post "/refresh", AuthController, :dbsc_mount_refresh
   end
 
   scope "/api/shares", RefMDWeb do
@@ -103,9 +152,9 @@ defmodule RefMDWeb.Router do
     get "/lookup", InvitationController, :lookup
   end
 
-  # Plugin acquisition/update and sandbox arming are user-device PoP protected.
+  # Plugin acquisition/update and sandbox arming are user-device RRP protected.
   scope "/api", RefMDWeb do
-    pipe_through [:api, :require_pop, :verify_origin]
+    pipe_through [:api, :require_rrp, :verify_origin]
 
     post "/workspaces/:workspace_id/plugin-packages",
          PluginManagementController,
@@ -128,13 +177,14 @@ defmodule RefMDWeb.Router do
          :create_sandbox_document
   end
 
-  # Session-only endpoints (no PoP required, Origin-verified for CSRF defense)
+  # Session-only endpoints (no RRP required, Origin-verified for CSRF defense)
   scope "/api", RefMDWeb do
     pipe_through [:api, :authenticated, :verify_origin]
 
     # Auth
     get "/auth/me", AuthController, :me
     get "/auth/key-restore", AuthController, :key_restore
+    post "/auth/oauth/crypto-setup", AuthController, :oauth_crypto_setup
     post "/auth/verify-key", AuthController, :verify_key
     post "/auth/kdf-migration", AuthController, :kdf_migration
     get "/auth/recovery", AuthController, :get_recovery
@@ -150,7 +200,7 @@ defmodule RefMDWeb.Router do
     delete "/devices/registrations/:device_id", DeviceController, :reject_registration
     get "/workspaces/ids", EncryptionController, :workspace_ids
 
-    # Encryption setup (initial, before PoP is possible)
+    # Encryption setup (initial, before RRP is possible)
     post "/encryption/setup-complete", EncryptionController, :setup_complete
 
     # Workspace creation is session-authenticated; the request carries the signed initial directory.
@@ -160,7 +210,7 @@ defmodule RefMDWeb.Router do
     post "/mounts", ShareMountController, :create
     get "/shares/:share_slug/mounts", ShareMountController, :share_mounts_for_share
 
-    # Settings (read: session only, no PoP needed for startup)
+    # Settings (read: session only, no RRP needed for startup)
     get "/settings", SettingsController, :show
   end
 
@@ -168,12 +218,12 @@ defmodule RefMDWeb.Router do
     pipe_through [:api, :session_authenticated, :verify_origin]
 
     post "/auth/logout", AuthController, :logout
-    post "/auth/pop-challenge", AuthController, :pop_challenge
+    post "/auth/rrp-challenge", AuthController, :rrp_challenge
     post "/auth/ws-token", AuthController, :ws_token
   end
 
   scope "/api", RefMDWeb do
-    pipe_through [:api, :session_require_pop, :verify_origin]
+    pipe_through [:api, :session_require_rrp, :verify_origin]
 
     get "/users/:user_id/key-directory/latest", KeyDirectoryController, :latest_user
 
@@ -182,22 +232,22 @@ defmodule RefMDWeb.Router do
         :latest_workspace
   end
 
-  # Recovery-or-PoP endpoints
+  # Recovery-or-RRP endpoints
   scope "/api", RefMDWeb do
-    pipe_through [:api, :require_recovery_or_pop, :verify_origin]
+    pipe_through [:api, :require_recovery_or_rrp, :verify_origin]
 
     post "/devices/registrations/:device_id/approve", DeviceController, :approve
   end
 
-  # PoP-required endpoints
+  # RRP-required endpoints
   scope "/api", RefMDWeb do
-    pipe_through [:api, :require_pop, :verify_origin]
+    pipe_through [:api, :require_rrp, :verify_origin]
 
-    # Auth (PoP required)
+    # Auth (RRP required)
     patch "/auth/password", PasswordController, :change_password
     put "/auth/recovery-key", PasswordController, :regenerate_recovery_key
 
-    # Settings (write: PoP required)
+    # Settings (write: RRP required)
     patch "/settings", SettingsController, :update
 
     # Invitation mutations and member admission require the current device proof.
@@ -381,12 +431,12 @@ defmodule RefMDWeb.Router do
     patch "/workspaces/:workspace_id/roles/:role_id", RoleController, :update
     delete "/workspaces/:workspace_id/roles/:role_id", RoleController, :delete
 
-    # Devices (PoP required)
+    # Devices (RRP required)
     get "/devices", DeviceController, :list
     patch "/devices/:device_id", DeviceController, :rename
     delete "/devices/:device_id", DeviceController, :revoke
 
-    # UMK distribution (PoP required)
+    # UMK distribution (RRP required)
     post "/devices/:device_id/keys/umk", UmkController, :distribute_umk
     get "/devices/:device_id/keys/umk", UmkController, :get_umk
 

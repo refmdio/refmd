@@ -111,17 +111,17 @@ defmodule RefMD.Sharing.Mounts do
         user_id,
         mount_id,
         document_token,
-        current_pop_device_id,
+        current_rrp_device_id,
         mount_trust_anchor,
         session_token_base64 \\ nil,
         mount_password_session \\ nil
       )
       when is_binary(user_id) and is_binary(mount_id) and is_binary(document_token) and
-             is_binary(current_pop_device_id) do
+             is_binary(current_rrp_device_id) do
     Repo.transaction(fn ->
       with {:ok, mount, share, target} <- fetch_owned_mount_payload(user_id, mount_id, true),
            :ok <- validate_mount_password_session(share, mount, user_id, mount_password_session),
-           :ok <- validate_mount_pop_device(mount, user_id, current_pop_device_id),
+           :ok <- validate_mount_rrp_device(mount, user_id, current_rrp_device_id),
            :ok <- validate_mount_trust_anchor(share, mount_trust_anchor),
            :active <- share_status(share),
            %{token: token, share: token_share} <-
@@ -208,16 +208,16 @@ defmodule RefMD.Sharing.Mounts do
         user_id,
         mount_id,
         folder_token,
-        current_pop_device_id,
+        current_rrp_device_id,
         mount_trust_anchor,
         session_token_base64 \\ nil,
         mount_password_session \\ nil
       )
       when is_binary(user_id) and is_binary(mount_id) and is_binary(folder_token) and
-             is_binary(current_pop_device_id) do
+             is_binary(current_rrp_device_id) do
     with {:ok, mount, share, _target} <- fetch_owned_mount_payload(user_id, mount_id, false),
          :ok <- validate_mount_password_session(share, mount, user_id, mount_password_session),
-         :ok <- validate_mount_pop_device(mount, user_id, current_pop_device_id),
+         :ok <- validate_mount_rrp_device(mount, user_id, current_rrp_device_id),
          :ok <- validate_mount_trust_anchor(share, mount_trust_anchor),
          :active <- share_status(share),
          {:ok, folder_payload} <- build_mount_folder_payload(mount, share, folder_token) do
@@ -286,19 +286,19 @@ defmodule RefMD.Sharing.Mounts do
   def respond_share_mount_challenge(
         user_id,
         mount_id,
-        current_pop_device_id,
+        current_rrp_device_id,
         response,
         target_id,
         password_challenge_hash,
         session_token_base64 \\ nil
       )
-      when is_binary(user_id) and is_binary(mount_id) and is_binary(current_pop_device_id) and
+      when is_binary(user_id) and is_binary(mount_id) and is_binary(current_rrp_device_id) and
              is_binary(response) and is_binary(password_challenge_hash) do
     Repo.transaction(fn ->
       respond_share_mount_challenge_tx(
         user_id,
         mount_id,
-        current_pop_device_id,
+        current_rrp_device_id,
         response,
         target_id,
         password_challenge_hash,
@@ -421,14 +421,14 @@ defmodule RefMD.Sharing.Mounts do
   defp respond_share_mount_challenge_tx(
          user_id,
          mount_id,
-         current_pop_device_id,
+         current_rrp_device_id,
          response,
          _target_id,
          password_challenge_hash,
          session_token_base64
        ) do
     with {:ok, mount, share, target} <- fetch_owned_mount_payload(user_id, mount_id, true),
-         :ok <- validate_mount_pop_device(mount, user_id, current_pop_device_id),
+         :ok <- validate_mount_rrp_device(mount, user_id, current_rrp_device_id),
          :active <- share_status(share),
          true <- share.password_protected,
          ^password_challenge_hash <- PasswordChallenges.mount_password_challenge_hash(mount.id),
@@ -466,9 +466,11 @@ defmodule RefMD.Sharing.Mounts do
     with {:ok, %ShareParticipantSession{share_id: share_id} = session} <-
            Participants.get_valid_participant_session_by_token_base64(session_token_base64),
          true <- token_share_belongs_to_mount_share?(share, %Share{id: share_id}),
-         %{session_token: session_token} <-
+         %{session: refreshed_session, session_token: session_token} <-
            Participants.resume_participant_session(share, session, session_token_base64) do
-      Map.put(response, :session_token, session_token)
+      response
+      |> Map.put(:share_participant_session, refreshed_session)
+      |> Map.put(:session_token, session_token)
     else
       _ -> maybe_refresh_mount_share_session(response, share, nil)
     end
@@ -481,18 +483,18 @@ defmodule RefMD.Sharing.Mounts do
        ),
        do: response
 
-  defp validate_mount_pop_device(
+  defp validate_mount_rrp_device(
          %ShareMount{user_id: user_id},
          user_id,
-         current_pop_device_id
+         current_rrp_device_id
        )
-       when is_binary(current_pop_device_id) do
-    if Devices.user_owns_active_device?(user_id, current_pop_device_id),
+       when is_binary(current_rrp_device_id) do
+    if Devices.user_owns_active_device?(user_id, current_rrp_device_id),
       do: :ok,
       else: {:error, :not_found}
   end
 
-  defp validate_mount_pop_device(%ShareMount{}, _user_id, _current_pop_device_id),
+  defp validate_mount_rrp_device(%ShareMount{}, _user_id, _current_rrp_device_id),
     do: {:error, :not_found}
 
   defp token_share_belongs_to_mount_share?(%Share{id: share_id}, %Share{id: share_id}), do: true

@@ -105,53 +105,56 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
     conn
-    |> put_req_header("cookie", "_refmd_session=#{Base.url_encode64(token, padding: false)}")
+    |> put_req_header(
+      "cookie",
+      "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+    )
     |> put_private(:test_session, session)
   end
 
-  defp with_pop_headers(conn, user_id, device, signing_private_key) do
-    put_private(conn, :test_pop_args, {user_id, device, signing_private_key})
+  defp with_rrp_headers(conn, user_id, device, signing_private_key) do
+    put_private(conn, :test_rrp_args, {user_id, device, signing_private_key})
   end
 
-  defp with_pop_headers(conn, user_id, device, signing_private_key, method, path, body) do
-    put_test_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
+  defp with_rrp_headers(conn, user_id, device, signing_private_key, method, path, body) do
+    put_test_rrp_headers(conn, user_id, device, signing_private_key, method, path, body)
   end
 
-  defp recycle_owner_pop_conn(conn, owner_id, owner_device) do
+  defp recycle_owner_rrp_conn(conn, owner_id, owner_device) do
     conn
     |> recycle()
     |> authed_conn(owner_id, owner_device.device)
-    |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+    |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
   end
 
   defp post(conn, path, body) do
     conn
-    |> maybe_put_deferred_pop("POST", path, body)
+    |> maybe_put_deferred_rrp("POST", path, body)
     |> Phoenix.ConnTest.dispatch(@endpoint, :post, path, test_json_body(body))
   end
 
   defp patch(conn, path, body) do
     conn
-    |> maybe_put_deferred_pop("PATCH", path, body)
+    |> maybe_put_deferred_rrp("PATCH", path, body)
     |> Phoenix.ConnTest.dispatch(@endpoint, :patch, path, test_json_body(body))
   end
 
   defp delete(conn, path, body) do
     conn
-    |> maybe_put_deferred_pop("DELETE", path, body)
+    |> maybe_put_deferred_rrp("DELETE", path, body)
     |> Phoenix.ConnTest.dispatch(@endpoint, :delete, path, test_json_body(body))
   end
 
   defp get(conn, path) do
     conn
-    |> maybe_put_deferred_pop("GET", path, "")
+    |> maybe_put_deferred_rrp("GET", path, "")
     |> Phoenix.ConnTest.dispatch(@endpoint, :get, path, "")
   end
 
-  defp maybe_put_deferred_pop(conn, method, path, body) do
-    case conn.private[:test_pop_args] do
+  defp maybe_put_deferred_rrp(conn, method, path, body) do
+    case conn.private[:test_rrp_args] do
       {user_id, device, signing_private_key} ->
-        with_pop_headers(conn, user_id, device, signing_private_key, method, path, body)
+        with_rrp_headers(conn, user_id, device, signing_private_key, method, path, body)
 
       _ ->
         conn
@@ -242,7 +245,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     {conn, json_response(conn, 201), share_slug}
@@ -282,7 +285,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
       conn:
         conn
         |> authed_conn(owner_id, owner_device.device)
-        |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key),
+        |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key),
       owner_id: owner_id,
       document: document,
       owner_device: owner_device
@@ -326,7 +329,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{document.id}/shares", attrs)
 
     assert %{
@@ -366,7 +369,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{document.id}/shares", attrs)
 
     assert %{"error" => "invalid_request_schema"} = json_response(conn, 422)
@@ -398,7 +401,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     list_conn =
       conn
       |> authed_conn(guest_id, guest_device.device)
-      |> with_pop_headers(guest_id, guest_device.device, guest_device.signing_private_key)
+      |> with_rrp_headers(guest_id, guest_device.device, guest_device.signing_private_key)
       |> get("/api/documents/#{document.id}/shares")
 
     assert json_response(list_conn, 403) == %{"error" => "forbidden"}
@@ -424,7 +427,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     create_conn =
       build_conn()
       |> authed_conn(guest_id, guest_device.device)
-      |> with_pop_headers(guest_id, guest_device.device, guest_device.signing_private_key)
+      |> with_rrp_headers(guest_id, guest_device.device, guest_device.signing_private_key)
       |> post("/api/documents/#{document.id}/shares", create_attrs)
 
     assert json_response(create_conn, 403) == %{"error" => "forbidden"}
@@ -474,7 +477,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert %{"id" => share_id, "share_slug" => ^share_slug} = json_response(conn, 201)
@@ -549,7 +552,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert json_response(conn, 422) == %{"error" => "invalid_value", "field" => "share_keys"}
@@ -584,7 +587,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert %{"error" => "invalid_request_schema"} = json_response(conn, 422)
@@ -619,7 +622,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert %{"id" => share_id, "share_slug" => ^share_slug} = json_response(conn, 201)
@@ -676,7 +679,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert %{
@@ -685,7 +688,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{share_id}/exclusions",
         sign_share_exclusion_payload(share_id, %{"add" => [target_document.id]})
@@ -745,7 +748,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert %{
@@ -756,7 +759,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{share_id}/keys",
         sign_share_key_update_payload(share_id, %{
@@ -821,7 +824,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> post("/api/documents/#{folder.id}/shares", attrs)
 
     assert %{
@@ -832,7 +835,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{share_id}/keys",
         sign_share_key_update_payload(share_id, %{
@@ -874,7 +877,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{unknown_share_id}/keys",
         sign_share_key_update_payload(existing_share_id, %{
@@ -900,7 +903,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch("/api/documents/#{folder.id}/shares/#{share_id}/keys", %{
         "add_keys" => [
           %{
@@ -931,7 +934,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch("/api/documents/#{folder.id}/shares/#{share_id}/keys", %{
         "add_keys" => nil
       })
@@ -972,7 +975,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{share_id}/keys",
         sign_share_key_update_payload(share_id, %{
@@ -995,7 +998,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{share_id}/keys",
         sign_share_key_update_payload(share_id, %{
@@ -1026,7 +1029,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
 
     conn =
       conn
-      |> recycle_owner_pop_conn(owner_id, owner_device)
+      |> recycle_owner_rrp_conn(owner_id, owner_device)
       |> patch(
         "/api/documents/#{folder.id}/shares/#{share_id}/keys",
         sign_share_key_update_payload(share_id, %{
@@ -1438,7 +1441,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
-      |> with_pop_headers(owner_id, owner_device.device, owner_device.signing_private_key)
+      |> with_rrp_headers(owner_id, owner_device.device, owner_device.signing_private_key)
       |> delete(
         "/api/documents/#{document.id}/shares/#{created.share.id}/admin",
         sign_share_delete_payload(created.share.id)

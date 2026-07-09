@@ -13,7 +13,7 @@ defmodule RefMDWeb.InvitationController do
        [permission: "member:invite", not_member_status: :not_found]
        when action in [:index, :create, :delete]
 
-  # Accept uses no workspace RBAC (email-bound, PoP required)
+  # Accept uses no workspace RBAC (email-bound, RRP required)
 
   @max_expires_days 30
 
@@ -42,7 +42,7 @@ defmodule RefMDWeb.InvitationController do
          validated =
            validated
            |> Map.put(:actor_role, actor_role)
-           |> Map.put(:actor_device_id, conn.assigns[:pop_device_id]),
+           |> Map.put(:actor_device_id, conn.assigns[:rrp_device_id]),
          {:ok, invitation} <- Workspaces.create_invitation(validated) do
       conn
       |> put_status(:created)
@@ -101,7 +101,7 @@ defmodule RefMDWeb.InvitationController do
   defp do_delete(conn, invitation_id, key_directory) do
     workspace_id = conn.assigns.workspace_id
 
-    key_directory = put_actor_device_id(key_directory, conn.assigns[:pop_device_id])
+    key_directory = put_actor_device_id(key_directory, conn.assigns[:rrp_device_id])
 
     case Workspaces.revoke_invitation(
            workspace_id,
@@ -160,7 +160,7 @@ defmodule RefMDWeb.InvitationController do
   )
 
   def accept(conn, %{"token" => token}) do
-    with {:ok, requester_device_id} <- require_pop_device_id(conn),
+    with {:ok, requester_device_id} <- require_rrp_device_id(conn),
          {:ok, admission} <- require_acceptance_admission(conn.body_params),
          {:ok, token_bytes} <- decode_token(token),
          {:ok, token_hash} <- compute_token_hash(token_bytes) do
@@ -303,10 +303,10 @@ defmodule RefMDWeb.InvitationController do
   defp put_actor_device_id(key_directory, actor_device_id),
     do: Map.put(key_directory, :actor_device_id, actor_device_id)
 
-  defp require_pop_device_id(%{assigns: %{pop_device_id: device_id}}) when is_binary(device_id),
+  defp require_rrp_device_id(%{assigns: %{rrp_device_id: device_id}}) when is_binary(device_id),
     do: {:ok, device_id}
 
-  defp require_pop_device_id(_conn), do: {:error, :missing_device}
+  defp require_rrp_device_id(_conn), do: {:error, :missing_device}
 
   defp validate_token_hash(nil), do: {:error, :invalid_token_hash_format}
 

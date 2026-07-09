@@ -23,7 +23,7 @@ defmodule RefMDWeb.UmkController do
 
   def distribute_umk(conn, %{"device_id" => target_device_id} = params) do
     user_id = conn.assigns.current_user_id
-    sender_device_id = conn.assigns.pop_device_id
+    sender_device_id = conn.assigns.rrp_device_id
 
     with :ok <- validate_sender_device_match(sender_device_id, params["sender_device_id"]),
          :ok <- validate_distribution_target(user_id, target_device_id) do
@@ -51,10 +51,10 @@ defmodule RefMDWeb.UmkController do
 
   def get_umk(conn, %{"device_id" => device_id}) do
     user_id = conn.assigns.current_user_id
-    pop_device_id = conn.assigns[:pop_device_id]
+    rrp_device_id = conn.assigns[:rrp_device_id]
 
     cond do
-      pop_device_id != nil and pop_device_id != device_id ->
+      rrp_device_id != nil and rrp_device_id != device_id ->
         conn |> put_status(:forbidden) |> json(%{error: "device_mismatch"})
 
       not Devices.user_owns_active_device?(user_id, device_id) ->
@@ -67,8 +67,8 @@ defmodule RefMDWeb.UmkController do
 
   # --- Private helpers ---
 
-  defp validate_sender_device_match(pop_device_id, sender_device_id) do
-    if pop_device_id != nil and sender_device_id != nil and sender_device_id != pop_device_id do
+  defp validate_sender_device_match(rrp_device_id, sender_device_id) do
+    if rrp_device_id != nil and sender_device_id != nil and sender_device_id != rrp_device_id do
       {:error, :forbidden, "sender_device_id_mismatch"}
     else
       :ok

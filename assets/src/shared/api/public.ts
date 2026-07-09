@@ -1,4 +1,4 @@
-import { client, throwIfError, withUserPopParams } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
 export const publicApi = {
@@ -22,7 +22,7 @@ export const publicApi = {
   ) =>
     throwIfError(
       await client.POST("/api/documents/{document_id}/publication", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
         body,
       }),
     ),
@@ -30,7 +30,7 @@ export const publicApi = {
   getPublication: async (documentId: string) =>
     throwIfError(
       await client.GET("/api/documents/{document_id}/publication", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
       }),
     ),
 
@@ -40,7 +40,7 @@ export const publicApi = {
   ) =>
     throwIfError(
       await client.PATCH("/api/documents/{document_id}/publication", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
         body,
       }),
     ),
@@ -48,7 +48,7 @@ export const publicApi = {
   unpublishDocument: async (documentId: string) =>
     throwIfError(
       await client.DELETE("/api/documents/{document_id}/publication", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
       }),
     ),
 
@@ -58,7 +58,7 @@ export const publicApi = {
   ) =>
     throwIfError(
       await client.PUT("/api/documents/{document_id}/publication/content", {
-        params: withUserPopParams({ path: { document_id: documentId } }),
+        params: withUserRrpParams({ path: { document_id: documentId } }),
         body,
       }),
     ),

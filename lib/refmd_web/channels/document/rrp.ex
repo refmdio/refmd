@@ -1,31 +1,31 @@
-defmodule RefMDWeb.Channels.Document.Pop do
+defmodule RefMDWeb.Channels.Document.Rrp do
   @moduledoc false
 
   alias RefMD.Auth
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
   alias RefMD.Devices
   alias RefMD.Sharing
-  alias RefMDWeb.Http.PopSessionBinding
-  alias RefMDWeb.Http.PopTranscript
+  alias RefMDWeb.Http.RrpSessionBinding
+  alias RefMDWeb.Http.RrpTranscript
 
   def verify(params, user_id, socket, document_id, mounted_share_id \\ nil) do
     if socket.assigns[:session_kind] == :share_participant do
-      verify_share_pop(params, socket, document_id, mounted_share_id)
+      verify_share_rrp(params, socket, document_id, mounted_share_id)
     else
-      verify_user_pop(params, user_id, socket, document_id)
+      verify_user_rrp(params, user_id, socket, document_id)
     end
   end
 
-  defp verify_user_pop(params, user_id, socket, document_id) do
+  defp verify_user_rrp(params, user_id, socket, document_id) do
     session = socket.assigns.current_session
 
-    with {:ok, device_id, verified_session} <- get_user_pop_device_id(params, session),
+    with {:ok, device_id, verified_session} <- get_user_rrp_device_id(params, session),
          {:ok, "user_device"} <- get_actor_variant(params),
          {:ok, {challenge, challenge_bytes}} <- decode_challenge(params),
          {:ok, signature} <- decode_signature(params),
          {:ok, device} <- get_active_device(user_id, device_id),
          :ok <-
-           verify_user_pop_signature(
+           verify_user_rrp_signature(
              challenge,
              signature,
              device,
@@ -35,29 +35,29 @@ defmodule RefMDWeb.Channels.Document.Pop do
              params
            ),
          :ok <-
-           Auth.consume_pop_challenge(challenge_bytes, user_id, device.id, verified_session.id) do
+           Auth.consume_rrp_challenge(challenge_bytes, user_id, device.id, verified_session.id) do
       {:ok, device}
     else
       {:error, :invalid_signature} ->
-        {:error, %{reason: "pop_verification_failed"}}
+        {:error, %{reason: "rrp_verification_failed"}}
 
       {:error, reason} ->
-        {:error, %{reason: pop_semantic_error(reason)}}
+        {:error, %{reason: rrp_semantic_error(reason)}}
     end
   end
 
-  defp verify_share_pop(params, socket, document_id, _mounted_share_id) do
+  defp verify_share_rrp(params, socket, document_id, _mounted_share_id) do
     share_id = socket.assigns.current_share_id
     principal_id = socket.assigns.share_participant_principal_id
     session = socket.assigns.current_session
 
-    with {:ok, device_id} <- get_share_pop_device_id(params, session),
+    with {:ok, device_id} <- get_share_rrp_device_id(params, session),
          {:ok, "share_participant_device"} <- get_actor_variant(params),
          {:ok, {challenge, challenge_bytes}} <- decode_challenge(params),
          {:ok, signature} <- decode_signature(params),
          {:ok, device} <- get_active_share_device(share_id, principal_id, device_id),
          :ok <-
-           verify_share_pop_signature(
+           verify_share_rrp_signature(
              challenge,
              signature,
              device,
@@ -68,7 +68,7 @@ defmodule RefMDWeb.Channels.Document.Pop do
              params
            ),
          :ok <-
-           Sharing.consume_pop_challenge(
+           Sharing.consume_rrp_challenge(
              challenge_bytes,
              share_id,
              principal_id,
@@ -78,17 +78,17 @@ defmodule RefMDWeb.Channels.Document.Pop do
       {:ok, device}
     else
       {:error, :invalid_signature} ->
-        {:error, %{reason: "pop_verification_failed"}}
+        {:error, %{reason: "rrp_verification_failed"}}
 
       {:error, reason} ->
-        {:error, %{reason: pop_semantic_error(reason)}}
+        {:error, %{reason: rrp_semantic_error(reason)}}
 
       _ ->
-        {:error, %{reason: "pop_verification_failed"}}
+        {:error, %{reason: "rrp_verification_failed"}}
     end
   end
 
-  defp get_user_pop_device_id(params, session) do
+  defp get_user_rrp_device_id(params, session) do
     with {:ok, current_session} <- get_current_session(session),
          {:ok, param_device_id} <- get_param_device_id(params) do
       case current_session.device_id do
@@ -100,7 +100,7 @@ defmodule RefMDWeb.Channels.Document.Pop do
     end
   end
 
-  defp get_share_pop_device_id(params, session) do
+  defp get_share_rrp_device_id(params, session) do
     with device_id when is_binary(device_id) <- session.device_id,
          {:ok, param_device_id} <- get_param_device_id(params),
          true <- param_device_id == device_id do
@@ -118,17 +118,17 @@ defmodule RefMDWeb.Channels.Document.Pop do
   end
 
   defp get_param_device_id(params) do
-    case params["pop_device_id"] do
+    case params["rrp_device_id"] do
       device_id when is_binary(device_id) -> {:ok, device_id}
-      _ -> {:error, :missing_pop_device_id}
+      _ -> {:error, :missing_rrp_device_id}
     end
   end
 
   defp get_actor_variant(params) do
-    case params["pop_actor_variant"] do
+    case params["rrp_actor_variant"] do
       "user_device" -> {:ok, "user_device"}
       "share_participant_device" -> {:ok, "share_participant_device"}
-      _ -> {:error, :invalid_pop_actor_variant}
+      _ -> {:error, :invalid_rrp_actor_variant}
     end
   end
 
@@ -146,7 +146,7 @@ defmodule RefMDWeb.Channels.Document.Pop do
     end
   end
 
-  defp verify_user_pop_signature(
+  defp verify_user_rrp_signature(
          challenge,
          signature,
          device,
@@ -156,25 +156,25 @@ defmodule RefMDWeb.Channels.Document.Pop do
          params
        ) do
     transcript =
-      Signature.build_pop_transcript!(
+      Signature.build_rrp_transcript!(
         "channel_user_device",
         "device",
         device.id,
-        PopTranscript.user_actor!(device, user_id),
+        RrpTranscript.user_actor!(device, user_id),
         challenge,
-        PopSessionBinding.for_user_session(session),
+        RrpSessionBinding.for_user_session(session),
         channel_resource(document_id, "user", nil, params)
       )
 
     case Signature.verify_hybrid_signature_result(
-           "pop_request",
+           "rrp_request",
            transcript,
            signature,
            device.hybrid_signing_public_key_material,
            %{
              challenge: challenge,
              device: device,
-             session: PopSessionBinding.for_user_session(session),
+             session: RrpSessionBinding.for_user_session(session),
              user_id: user_id
            }
          ) do
@@ -185,7 +185,7 @@ defmodule RefMDWeb.Channels.Document.Pop do
     ArgumentError -> {:error, :invalid_signature}
   end
 
-  defp verify_share_pop_signature(
+  defp verify_share_rrp_signature(
          challenge,
          signature,
          device,
@@ -198,18 +198,18 @@ defmodule RefMDWeb.Channels.Document.Pop do
     workspace_id = Sharing.share_workspace_id!(share_id)
 
     transcript =
-      Signature.build_pop_transcript!(
+      Signature.build_rrp_transcript!(
         "channel_share_participant_device",
         "share_participant_device",
         device.id,
-        PopTranscript.share_participant_actor!(device, share_id, workspace_id),
+        RrpTranscript.share_participant_actor!(device, share_id, workspace_id),
         challenge,
-        PopSessionBinding.for_share_session(session),
+        RrpSessionBinding.for_share_session(session),
         channel_resource(document_id, "share", share_id, params)
       )
 
     case Signature.verify_hybrid_signature_result(
-           "pop_request",
+           "rrp_request",
            transcript,
            signature,
            device.hybrid_signing_public_key_material,
@@ -217,7 +217,7 @@ defmodule RefMDWeb.Channels.Document.Pop do
              challenge: challenge,
              device: device,
              principal_id: device.principal_id,
-             session: PopSessionBinding.for_share_session(session),
+             session: RrpSessionBinding.for_share_session(session),
              share_id: share_id
            }
          ) do
@@ -228,7 +228,7 @@ defmodule RefMDWeb.Channels.Document.Pop do
     ArgumentError -> {:error, :invalid_signature}
   end
 
-  defp pop_semantic_error(reason) when is_atom(reason), do: "pop_" <> Atom.to_string(reason)
+  defp rrp_semantic_error(reason) when is_atom(reason), do: "rrp_" <> Atom.to_string(reason)
 
   defp channel_resource(document_id, scope_kind, share_id, params) do
     share_id = if scope_kind == "share", do: share_id, else: "none"
@@ -247,44 +247,44 @@ defmodule RefMDWeb.Channels.Document.Pop do
 
   defp join_payload(params) when is_map(params) do
     Map.drop(params, [
-      "pop_actor_variant",
-      "pop_challenge",
-      "pop_device_id",
-      "pop_signature",
-      "pop_signature_transport"
+      "rrp_actor_variant",
+      "rrp_challenge",
+      "rrp_device_id",
+      "rrp_signature",
+      "rrp_signature_transport"
     ])
   end
 
   defp decode_challenge(params) do
-    case params["pop_challenge"] do
-      nil -> {:error, :missing_pop_challenge}
+    case params["rrp_challenge"] do
+      nil -> {:error, :missing_rrp_challenge}
       value -> {:ok, {value, Encoding.decode_base64url!(value)}}
     end
   rescue
-    ArgumentError -> {:error, :invalid_pop_challenge}
+    ArgumentError -> {:error, :invalid_rrp_challenge}
   end
 
   defp decode_signature(params) do
-    if Map.has_key?(params, "pop_signature_transport") do
-      {:error, :invalid_pop_signature}
+    if Map.has_key?(params, "rrp_signature_transport") do
+      {:error, :invalid_rrp_signature}
     else
-      decode_signature_object(params["pop_signature"])
+      decode_signature_object(params["rrp_signature"])
     end
   end
 
   defp decode_signature_object(signature) do
     case signature do
       nil ->
-        {:error, :missing_pop_signature}
+        {:error, :missing_rrp_signature}
 
       value when is_map(value) ->
         JCS.canonical_bytes!(value)
         {:ok, value}
 
       _value ->
-        {:error, :invalid_pop_signature}
+        {:error, :invalid_rrp_signature}
     end
   rescue
-    ArgumentError -> {:error, :invalid_pop_signature}
+    ArgumentError -> {:error, :invalid_rrp_signature}
   end
 end

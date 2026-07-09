@@ -19,14 +19,20 @@ defmodule RefMDWeb.ApiSpec do
           "user_session" => %SecurityScheme{
             type: "apiKey",
             in: "cookie",
-            name: "_refmd_session",
+            name: "__Host-refmd-session",
             description: "Authenticated user session cookie."
           },
           "share_session" => %SecurityScheme{
             type: "apiKey",
             in: "cookie",
-            name: "_refmd_share_session",
+            name: "__Host-refmd-share-session",
             description: "Share participant session cookie."
+          },
+          "mount_session" => %SecurityScheme{
+            type: "apiKey",
+            in: "cookie",
+            name: "__Host-refmd-mount-session",
+            description: "Mount password session cookie."
           },
           "session_scope" => %SecurityScheme{
             type: "apiKey",
@@ -37,32 +43,32 @@ defmodule RefMDWeb.ApiSpec do
           "recovery_user_session" => %SecurityScheme{
             type: "apiKey",
             in: "cookie",
-            name: "_refmd_session",
+            name: "__Host-refmd-session",
             description: "Authenticated user session cookie with is_recovery=true."
           },
-          "proof_of_possession" => %SecurityScheme{
+          "rrp_signature" => %SecurityScheme{
             type: "apiKey",
             in: "header",
-            name: "x-pop-signature-transport",
-            description: "Proof-of-possession transport signature."
+            name: "x-refmd-rrp-signature-transport",
+            description: "RefMD Request Proof transport signature."
           },
-          "proof_of_possession_device" => %SecurityScheme{
+          "rrp_device" => %SecurityScheme{
             type: "apiKey",
             in: "header",
-            name: "x-pop-device-id",
-            description: "PoP signing device id."
+            name: "x-refmd-rrp-device-id",
+            description: "RRP signing device id."
           },
-          "proof_of_possession_challenge" => %SecurityScheme{
+          "rrp_challenge" => %SecurityScheme{
             type: "apiKey",
             in: "header",
-            name: "x-pop-challenge",
-            description: "Strict base64url PoP challenge."
+            name: "x-refmd-rrp-challenge",
+            description: "Strict base64url RRP challenge."
           },
-          "proof_of_possession_actor_variant" => %SecurityScheme{
+          "rrp_actor_variant" => %SecurityScheme{
             type: "apiKey",
             in: "header",
-            name: "x-pop-actor-variant",
-            description: "PoP actor variant: user_device or share_participant_device.",
+            name: "x-refmd-rrp-actor-variant",
+            description: "RRP actor variant: user_device or share_participant_device.",
             extensions: %{
               "x-schema" => %Schema{
                 type: :string,
@@ -84,6 +90,8 @@ defmodule RefMDWeb.ApiSpec do
   @http_methods [:get, :put, :post, :delete, :options, :head, :patch, :trace]
   @public_route_security []
   @user_session_security [%{"user_session" => []}]
+  @share_session_security [%{"share_session" => []}]
+  @mount_session_security [%{"mount_session" => []}]
   @user_or_share_session_security [%{"user_session" => []}, %{"share_session" => []}]
   @session_scope_header_parameter %Parameter{
     name: :"x-refmd-session-scope",
@@ -93,81 +101,88 @@ defmodule RefMDWeb.ApiSpec do
     required: false,
     schema: %Schema{type: :string, enum: ["share"]}
   }
-  @user_pop_security [
+  @user_rrp_security [
     %{
       "user_session" => [],
-      "proof_of_possession" => [],
-      "proof_of_possession_device" => [],
-      "proof_of_possession_challenge" => [],
-      "proof_of_possession_actor_variant" => []
+      "rrp_signature" => [],
+      "rrp_device" => [],
+      "rrp_challenge" => [],
+      "rrp_actor_variant" => []
     }
   ]
-  @user_or_share_pop_security [
+  @user_or_share_rrp_security [
     %{
       "user_session" => [],
-      "proof_of_possession" => [],
-      "proof_of_possession_device" => [],
-      "proof_of_possession_challenge" => [],
-      "proof_of_possession_actor_variant" => []
+      "rrp_signature" => [],
+      "rrp_device" => [],
+      "rrp_challenge" => [],
+      "rrp_actor_variant" => []
     },
     %{
       "share_session" => [],
-      "proof_of_possession" => [],
-      "proof_of_possession_device" => [],
-      "proof_of_possession_challenge" => [],
-      "proof_of_possession_actor_variant" => []
+      "rrp_signature" => [],
+      "rrp_device" => [],
+      "rrp_challenge" => [],
+      "rrp_actor_variant" => []
     }
   ]
-  @recovery_or_user_pop_security [
+  @recovery_or_user_rrp_security [
     %{"recovery_user_session" => []},
     %{
       "user_session" => [],
-      "proof_of_possession" => [],
-      "proof_of_possession_device" => [],
-      "proof_of_possession_challenge" => [],
-      "proof_of_possession_actor_variant" => []
+      "rrp_signature" => [],
+      "rrp_device" => [],
+      "rrp_challenge" => [],
+      "rrp_actor_variant" => []
     }
   ]
   @recovery_session_security [%{"recovery_user_session" => []}]
-  @pop_header_parameters [
+  @rrp_header_parameters [
     %Parameter{
-      name: :"x-pop-device-id",
+      name: :"x-refmd-rrp-device-id",
       in: :header,
-      description: "PoP signing device id.",
+      description: "RRP signing device id.",
       required: true,
       schema: %Schema{type: :string, format: :uuid}
     },
     %Parameter{
-      name: :"x-pop-challenge",
+      name: :"x-refmd-rrp-challenge",
       in: :header,
-      description: "Strict base64url PoP challenge.",
+      description: "Strict base64url RRP challenge.",
       required: true,
       schema: %Schema{type: :string, pattern: "^[A-Za-z0-9_-]+$"}
     },
     %Parameter{
-      name: :"x-pop-signature-transport",
+      name: :"x-refmd-rrp-signature-transport",
       in: :header,
-      description: "Base64url encoded canonical PoP signature transport.",
+      description: "Base64url encoded canonical RRP signature transport.",
       required: true,
       schema: %Schema{type: :string, pattern: "^[A-Za-z0-9_-]+$"}
     },
     %Parameter{
-      name: :"x-pop-actor-variant",
+      name: :"x-refmd-rrp-actor-variant",
       in: :header,
-      description: "PoP actor variant.",
+      description: "RRP actor variant.",
       required: true,
       schema: %Schema{type: :string, enum: ["user_device", "share_participant_device"]}
     }
   ]
 
   @public_routes %{
+    {"/.well-known/device-bound-sessions", :get} => @public_route_security,
     {"/api/auth/salt", :get} => @public_route_security,
     {"/api/auth/register", :post} => @public_route_security,
     {"/api/auth/login", :post} => @public_route_security,
+    {"/api/auth/oauth/providers", :get} => @public_route_security,
+    {"/api/auth/oauth/{provider}/start", :post} => @public_route_security,
+    {"/api/auth/oauth/{provider}/callback", :get} => @public_route_security,
     {"/api/auth/recovery/challenge", :post} => @public_route_security,
     {"/api/auth/recovery/session", :post} => @public_route_security,
     {"/api/auth/password-reset/request", :post} => @public_route_security,
     {"/api/auth/password-reset/verify", :post} => @public_route_security,
+    {"/api/auth/dbsc/refresh", :post} => @public_route_security,
+    {"/api/auth/dbsc/share/refresh", :post} => @public_route_security,
+    {"/api/auth/dbsc/mount/refresh", :post} => @public_route_security,
     {"/api/shares/{share_slug}", :get} => @public_route_security,
     {"/api/shares/{share_slug}/challenge", :get} => @public_route_security,
     {"/api/shares/d/{document_token}", :get} => @public_route_security,
@@ -186,10 +201,14 @@ defmodule RefMDWeb.ApiSpec do
   @session_only_routes %{
     {"/api/auth/me", :get} => @user_session_security,
     {"/api/auth/key-restore", :get} => @user_session_security,
+    {"/api/auth/oauth/crypto-setup", :post} => @user_session_security,
     {"/api/auth/verify-key", :post} => @user_session_security,
     {"/api/auth/kdf-migration", :post} => @user_session_security,
     {"/api/auth/recovery", :get} => @user_session_security,
     {"/api/auth/password-set", :post} => @recovery_session_security,
+    {"/api/auth/dbsc/register", :post} => @user_session_security,
+    {"/api/auth/dbsc/share/register", :post} => @share_session_security,
+    {"/api/auth/dbsc/mount/register", :post} => @mount_session_security,
     {"/api/devices/bootstrap/challenge", :post} => @user_session_security,
     {"/api/devices/bootstrap", :post} => @user_session_security,
     {"/api/devices/registrations/challenge", :post} => @user_session_security,
@@ -204,18 +223,18 @@ defmodule RefMDWeb.ApiSpec do
     {"/api/shares/{share_slug}/mounts", :get} => @user_session_security,
     {"/api/settings", :get} => @user_session_security,
     {"/api/auth/logout", :post} => @user_or_share_session_security,
-    {"/api/auth/pop-challenge", :post} => @user_or_share_session_security,
+    {"/api/auth/rrp-challenge", :post} => @user_or_share_session_security,
     {"/api/auth/ws-token", :post} => @user_or_share_session_security,
     {"/api/plugin-runtime/sandbox-documents/{session_id}", :get} => @user_session_security
   }
 
-  @user_or_share_pop_routes %{
-    {"/api/users/{user_id}/key-directory/latest", :get} => @user_or_share_pop_security,
-    {"/api/workspaces/{workspace_id}/key-directory/latest", :get} => @user_or_share_pop_security
+  @user_or_share_rrp_routes %{
+    {"/api/users/{user_id}/key-directory/latest", :get} => @user_or_share_rrp_security,
+    {"/api/workspaces/{workspace_id}/key-directory/latest", :get} => @user_or_share_rrp_security
   }
 
-  @recovery_or_user_pop_routes %{
-    {"/api/devices/registrations/{device_id}/approve", :post} => @recovery_or_user_pop_security
+  @recovery_or_user_rrp_routes %{
+    {"/api/devices/registrations/{device_id}/approve", :post} => @recovery_or_user_rrp_security
   }
 
   defp close_object_schemas(%Schema{} = schema) do
@@ -291,8 +310,8 @@ defmodule RefMDWeb.ApiSpec do
     overrides =
       @public_routes
       |> Map.merge(@session_only_routes)
-      |> Map.merge(@user_or_share_pop_routes)
-      |> Map.merge(@recovery_or_user_pop_routes)
+      |> Map.merge(@user_or_share_rrp_routes)
+      |> Map.merge(@recovery_or_user_rrp_routes)
 
     paths =
       Map.new(paths, fn {path, item} ->
@@ -303,13 +322,13 @@ defmodule RefMDWeb.ApiSpec do
                acc
 
              operation ->
-               security = Map.get(overrides, {path, method}, @user_pop_security)
+               security = Map.get(overrides, {path, method}, @user_rrp_security)
 
                operation =
                  operation
                  |> Map.put(:security, security)
                  |> maybe_add_session_scope_header_parameter()
-                 |> maybe_require_pop_header_parameters()
+                 |> maybe_require_rrp_header_parameters()
 
                Map.put(acc, method, operation)
            end
@@ -319,18 +338,18 @@ defmodule RefMDWeb.ApiSpec do
     %{spec | paths: paths}
   end
 
-  defp maybe_require_pop_header_parameters(%{security: security} = operation) do
-    if pop_security?(security) do
-      required? = strict_pop_security?(security)
+  defp maybe_require_rrp_header_parameters(%{security: security} = operation) do
+    if rrp_security?(security) do
+      required? = strict_rrp_security?(security)
 
-      pop_header_parameters = pop_header_parameters(security, required?)
+      rrp_header_parameters = rrp_header_parameters(security, required?)
 
       parameters =
-        Enum.reduce(@pop_header_parameters, List.wrap(operation.parameters), fn parameter, acc ->
+        Enum.reduce(@rrp_header_parameters, List.wrap(operation.parameters), fn parameter, acc ->
           reject_parameter(acc, Atom.to_string(parameter.name), :header)
         end)
 
-      %{operation | parameters: pop_header_parameters ++ parameters}
+      %{operation | parameters: rrp_header_parameters ++ parameters}
     else
       operation
     end
@@ -349,14 +368,14 @@ defmodule RefMDWeb.ApiSpec do
 
   defp maybe_add_session_scope_header_parameter(operation), do: operation
 
-  defp pop_header_parameters(security, required?) do
+  defp rrp_header_parameters(security, required?) do
     actor_variants =
-      if share_participant_pop_security?(security),
+      if share_participant_rrp_security?(security),
         do: ["user_device", "share_participant_device"],
         else: ["user_device"]
 
-    Enum.map(@pop_header_parameters, fn
-      %Parameter{name: :"x-pop-actor-variant"} = parameter ->
+    Enum.map(@rrp_header_parameters, fn
+      %Parameter{name: :"x-refmd-rrp-actor-variant"} = parameter ->
         %{
           parameter
           | required: required?,
@@ -368,27 +387,27 @@ defmodule RefMDWeb.ApiSpec do
     end)
   end
 
-  defp pop_security?(security) when is_list(security) and security != [] do
+  defp rrp_security?(security) when is_list(security) and security != [] do
     Enum.any?(security, fn requirement ->
-      is_map(requirement) and Map.has_key?(requirement, "proof_of_possession_actor_variant")
+      is_map(requirement) and Map.has_key?(requirement, "rrp_actor_variant")
     end)
   end
 
-  defp pop_security?(_), do: false
+  defp rrp_security?(_), do: false
 
-  defp share_participant_pop_security?(security) when is_list(security) do
+  defp share_participant_rrp_security?(security) when is_list(security) do
     Enum.any?(security, fn
-      %{"share_session" => [], "proof_of_possession_actor_variant" => []} -> true
+      %{"share_session" => [], "rrp_actor_variant" => []} -> true
       _requirement -> false
     end)
   end
 
-  defp share_participant_pop_security?(_), do: false
+  defp share_participant_rrp_security?(_), do: false
 
-  defp strict_pop_security?(security) do
+  defp strict_rrp_security?(security) do
     is_list(security) and security != [] and
       Enum.all?(security, fn requirement ->
-        is_map(requirement) and Map.has_key?(requirement, "proof_of_possession_actor_variant")
+        is_map(requirement) and Map.has_key?(requirement, "rrp_actor_variant")
       end)
   end
 

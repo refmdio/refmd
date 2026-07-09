@@ -16,7 +16,7 @@ defmodule RefMD.Crypto.Signature.Device do
   alias RefMD.Crypto.Signature
   alias RefMD.Crypto.SigningSurface
 
-  def build_pop_transcript!(
+  def build_rrp_transcript!(
         variant,
         owner_kind,
         owner_id,
@@ -26,7 +26,7 @@ defmodule RefMD.Crypto.Signature.Device do
         resource \\ nil
       )
 
-  def build_pop_transcript!(
+  def build_rrp_transcript!(
         variant,
         owner_kind,
         owner_id,
@@ -37,7 +37,7 @@ defmodule RefMD.Crypto.Signature.Device do
       )
       when is_binary(variant) and is_binary(owner_kind) and is_binary(owner_id) and
              is_map(actor) and is_binary(challenge) and is_map(session) do
-    surface = SigningSurface.get_active!("pop_request", variant)
+    surface = SigningSurface.get_active!("rrp_request", variant)
     transport = if String.starts_with?(variant, "channel_"), do: "phoenix_channel", else: "http"
 
     payload = %{
@@ -47,39 +47,39 @@ defmodule RefMD.Crypto.Signature.Device do
       "transcript_owner" => surface.transcript_owner,
       "surface_id" => surface.surface_id,
       "surface_variant" => surface.variant,
-      "signing_purpose" => "pop_request",
+      "signing_purpose" => "rrp_request",
       "owner_kind" => owner_kind,
       "owner_id" => owner_id,
       "signature_suite_id" => @suite_id,
       "signature_suite_rank" => @suite_rank,
       "challenge" => challenge,
-      "pop_variant" => variant,
+      "rrp_variant" => variant,
       "transport" => transport,
-      "actor" => normalize_pop_actor!(variant, actor),
-      "session" => normalize_pop_session!(variant, session)
+      "actor" => normalize_rrp_actor!(variant, actor),
+      "session" => normalize_rrp_session!(variant, session)
     }
 
-    transcript = maybe_put_pop_resource!(payload, variant, resource)
+    transcript = maybe_put_rrp_resource!(payload, variant, resource)
 
-    assert_transcript!(transcript, "pop_request", owner_kind, owner_id)
+    assert_transcript!(transcript, "rrp_request", owner_kind, owner_id)
     transcript
   end
 
-  def build_pop_transcript!(_, _, _, _, _, _, _),
-    do: raise(ArgumentError, "pop_transcript_invalid")
+  def build_rrp_transcript!(_, _, _, _, _, _, _),
+    do: raise(ArgumentError, "rrp_transcript_invalid")
 
-  defp normalize_pop_actor!("http_user_device", actor), do: normalize_user_pop_actor!(actor)
-  defp normalize_pop_actor!("channel_user_device", actor), do: normalize_user_pop_actor!(actor)
+  defp normalize_rrp_actor!("http_user_device", actor), do: normalize_user_rrp_actor!(actor)
+  defp normalize_rrp_actor!("channel_user_device", actor), do: normalize_user_rrp_actor!(actor)
 
-  defp normalize_pop_actor!("http_share_participant_device", actor),
-    do: normalize_share_pop_actor!(actor)
+  defp normalize_rrp_actor!("http_share_participant_device", actor),
+    do: normalize_share_rrp_actor!(actor)
 
-  defp normalize_pop_actor!("channel_share_participant_device", actor),
-    do: normalize_share_pop_actor!(actor)
+  defp normalize_rrp_actor!("channel_share_participant_device", actor),
+    do: normalize_share_rrp_actor!(actor)
 
-  defp normalize_pop_actor!(_, _), do: raise(ArgumentError, "pop_actor_invalid")
+  defp normalize_rrp_actor!(_, _), do: raise(ArgumentError, "rrp_actor_invalid")
 
-  defp normalize_user_pop_actor!(actor) when is_map(actor) do
+  defp normalize_user_rrp_actor!(actor) when is_map(actor) do
     exact_map!(actor, [
       "device_id",
       "key_checkpoint_hash",
@@ -92,7 +92,7 @@ defmodule RefMD.Crypto.Signature.Device do
     ])
   end
 
-  defp normalize_share_pop_actor!(actor) when is_map(actor) do
+  defp normalize_share_rrp_actor!(actor) when is_map(actor) do
     exact_map!(actor, [
       "key_checkpoint_hash",
       "key_checkpoint_sequence",
@@ -106,25 +106,25 @@ defmodule RefMD.Crypto.Signature.Device do
     ])
   end
 
-  defp normalize_pop_session!("http_user_device", session),
-    do: normalize_user_pop_session!(session)
+  defp normalize_rrp_session!("http_user_device", session),
+    do: normalize_user_rrp_session!(session)
 
-  defp normalize_pop_session!("channel_user_device", session),
-    do: normalize_user_pop_session!(session)
+  defp normalize_rrp_session!("channel_user_device", session),
+    do: normalize_user_rrp_session!(session)
 
-  defp normalize_pop_session!("http_share_participant_device", session),
-    do: normalize_share_pop_session!(session)
+  defp normalize_rrp_session!("http_share_participant_device", session),
+    do: normalize_share_rrp_session!(session)
 
-  defp normalize_pop_session!("channel_share_participant_device", session),
-    do: normalize_share_pop_session!(session)
+  defp normalize_rrp_session!("channel_share_participant_device", session),
+    do: normalize_share_rrp_session!(session)
 
-  defp normalize_pop_session!(_, _), do: raise(ArgumentError, "pop_session_invalid")
+  defp normalize_rrp_session!(_, _), do: raise(ArgumentError, "rrp_session_invalid")
 
-  defp normalize_user_pop_session!(session) when is_map(session) do
+  defp normalize_user_rrp_session!(session) when is_map(session) do
     exact_map!(session, ["is_recovery", "session_id_hash", "session_kind"])
   end
 
-  defp normalize_share_pop_session!(session) when is_map(session) do
+  defp normalize_share_rrp_session!(session) when is_map(session) do
     exact_map!(session, ["is_recovery", "session_id_hash", "session_kind", "share_id"])
   end
 
@@ -132,19 +132,19 @@ defmodule RefMD.Crypto.Signature.Device do
     if Map.keys(map) |> Enum.sort() == keys do
       map
     else
-      raise ArgumentError, "pop_transcript_invalid"
+      raise ArgumentError, "rrp_transcript_invalid"
     end
   end
 
-  defp maybe_put_pop_resource!(payload, "http_" <> _, resource) when is_map(resource),
+  defp maybe_put_rrp_resource!(payload, "http_" <> _, resource) when is_map(resource),
     do: Map.put(payload, "request", resource)
 
-  defp maybe_put_pop_resource!(payload, "channel_" <> _, resource) when is_map(resource),
+  defp maybe_put_rrp_resource!(payload, "channel_" <> _, resource) when is_map(resource),
     do: Map.put(payload, "resource", resource)
 
-  defp maybe_put_pop_resource!(_payload, "http_" <> _, _resource), do: raise(ArgumentError)
-  defp maybe_put_pop_resource!(_payload, "channel_" <> _, _resource), do: raise(ArgumentError)
-  defp maybe_put_pop_resource!(payload, _variant, _resource), do: payload
+  defp maybe_put_rrp_resource!(_payload, "http_" <> _, _resource), do: raise(ArgumentError)
+  defp maybe_put_rrp_resource!(_payload, "channel_" <> _, _resource), do: raise(ArgumentError)
+  defp maybe_put_rrp_resource!(payload, _variant, _resource), do: payload
 
   def build_genesis_device_bootstrap_transcript!(params) when is_map(params) do
     user_id = fetch_binary!(params, :user_id)

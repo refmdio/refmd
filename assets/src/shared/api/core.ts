@@ -1,7 +1,7 @@
 import createClient from "openapi-fetch";
 import type { paths } from "./schema";
 import { CryptoWorkerError } from "@/shared/lib/crypto/worker/client";
-import { PopChallengeRateLimitError } from "@/shared/lib/auth/pop";
+import { RrpChallengeRateLimitError } from "@/shared/lib/auth/rrp";
 import {
   getPreferredSessionScope,
   SHARE_SESSION_SCOPE_HEADER,
@@ -29,133 +29,135 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
     path === "/api/auth/me" ||
     path === "/api/auth/logout" ||
     path === "/api/auth/verify-key" ||
-    path === "/api/auth/pop-challenge" ||
+    path === "/api/auth/rrp-challenge" ||
     path === "/api/auth/ws-token" ||
     path === "/api/auth/kdf-migration" ||
     path === "/api/auth/recovery" ||
     path === "/api/auth/password-set" ||
+    path === "/api/auth/oauth/crypto-setup" ||
     path === "/api/auth/salt" ||
     path === "/api/auth/login" ||
-    path === "/api/auth/register"
+    path === "/api/auth/register" ||
+    /^\/api\/auth\/oauth\/(google|github)\/start$/.test(path)
   ) {
     return true;
   }
   // Device: bootstrap
   if (path === "/api/devices/bootstrap") return true;
-  // Device: registration endpoints (session-only), EXCEPT POST .../approve (Recovery-or-PoP)
+  // Device: registration endpoints (session-only), EXCEPT POST .../approve (Recovery-or-RRP)
   if (path.startsWith("/api/devices/registrations")) {
     if (method === "POST" && path.endsWith("/approve")) return false;
     return true;
   }
-  // Encryption setup (initial, before PoP is possible)
+  // Encryption setup (initial, before RRP is possible)
   if (path === "/api/encryption/setup-complete") return true;
-  // Share mount creation is user-session scoped; do not issue share-scoped PoP on share routes.
+  // Share mount creation is user-session scoped; do not issue share-scoped RRP on share routes.
   if (path === "/api/mounts" && method === "POST") return true;
-  // Settings read (session-only, no PoP needed for startup)
+  // Settings read (session-only, no RRP needed for startup)
   if (path === "/api/settings" && method === "GET") return true;
   if (path.startsWith("/api/public/")) return true;
   if (path.startsWith("/api/shares/")) return true;
   return false;
 }
-export const POP_DEVICE_OVERRIDE_HEADER = "X-Pop-Override-Device-Id";
-export type PopActorVariant = "user_device" | "share_participant_device";
+export const RRP_DEVICE_OVERRIDE_HEADER = "X-RefMD-RRP-Override-Device-Id";
+export type RrpActorVariant = "user_device" | "share_participant_device";
 
-export function currentPopActorVariant(): PopActorVariant {
+export function currentRrpActorVariant(): RrpActorVariant {
   return getPreferredSessionScope() === "share" ? "share_participant_device" : "user_device";
 }
 
-type PopHeaderParams = {
-  "x-pop-actor-variant": PopActorVariant;
-  "x-pop-device-id": string;
-  "x-pop-challenge": string;
-  "x-pop-signature-transport": string;
+type RrpHeaderParams = {
+  "x-refmd-rrp-actor-variant": RrpActorVariant;
+  "x-refmd-rrp-device-id": string;
+  "x-refmd-rrp-challenge": string;
+  "x-refmd-rrp-signature-transport": string;
 };
 
-type UserPopHeaderParams = Omit<PopHeaderParams, "x-pop-actor-variant"> & {
-  "x-pop-actor-variant": "user_device";
+type UserRrpHeaderParams = Omit<RrpHeaderParams, "x-refmd-rrp-actor-variant"> & {
+  "x-refmd-rrp-actor-variant": "user_device";
 };
 
-function emptyPopHeaderParams(actorVariant: PopActorVariant): PopHeaderParams {
+function emptyRrpHeaderParams(actorVariant: RrpActorVariant): RrpHeaderParams {
   return {
-    "x-pop-actor-variant": actorVariant,
-    "x-pop-device-id": "",
-    "x-pop-challenge": "",
-    "x-pop-signature-transport": "",
+    "x-refmd-rrp-actor-variant": actorVariant,
+    "x-refmd-rrp-device-id": "",
+    "x-refmd-rrp-challenge": "",
+    "x-refmd-rrp-signature-transport": "",
   };
 }
 
-export function withPopParams(): { header: PopHeaderParams };
-export function withPopParams<T extends Record<string, unknown>>(
+export function withRrpParams(): { header: RrpHeaderParams };
+export function withRrpParams<T extends Record<string, unknown>>(
   params: T,
-): T & { header: PopHeaderParams };
-export function withPopParams<T extends Record<string, unknown>>(params?: T) {
+): T & { header: RrpHeaderParams };
+export function withRrpParams<T extends Record<string, unknown>>(params?: T) {
   return {
     ...params,
-    header: emptyPopHeaderParams(currentPopActorVariant()),
+    header: emptyRrpHeaderParams(currentRrpActorVariant()),
   };
 }
 
-export function withUserPopParams(): { header: UserPopHeaderParams };
-export function withUserPopParams<T extends Record<string, unknown>>(
+export function withUserRrpParams(): { header: UserRrpHeaderParams };
+export function withUserRrpParams<T extends Record<string, unknown>>(
   params: T,
-): T & { header: UserPopHeaderParams };
-export function withUserPopParams<T extends Record<string, unknown>>(params?: T) {
+): T & { header: UserRrpHeaderParams };
+export function withUserRrpParams<T extends Record<string, unknown>>(params?: T) {
   return {
     ...params,
-    header: emptyPopHeaderParams("user_device") as UserPopHeaderParams,
+    header: emptyRrpHeaderParams("user_device") as UserRrpHeaderParams,
   };
 }
 
 const MAX_RATE_LIMIT_RETRIES = 3;
-const MAX_CONCURRENT_POP_REQUESTS = 10;
+const MAX_CONCURRENT_RRP_REQUESTS = 10;
 let getDeviceId = (): string | null => null;
-let activePopRequests = 0;
-const popRequestWaiters: Array<() => void> = [];
+let activeRrpRequests = 0;
+const rrpRequestWaiters: Array<() => void> = [];
 function createRequestAbortError(): Error {
   const error = new Error("request_aborted");
   error.name = "AbortError";
   return error;
 }
-async function acquirePopRequestSlot(signal: AbortSignal): Promise<() => void> {
+async function acquireRrpRequestSlot(signal: AbortSignal): Promise<() => void> {
   if (signal.aborted) throw createRequestAbortError();
-  if (activePopRequests < MAX_CONCURRENT_POP_REQUESTS) {
-    activePopRequests++;
-    return releasePopRequestSlot;
+  if (activeRrpRequests < MAX_CONCURRENT_RRP_REQUESTS) {
+    activeRrpRequests++;
+    return releaseRrpRequestSlot;
   }
   await new Promise<void>((resolve, reject) => {
     const grant = () => {
       signal.removeEventListener("abort", onAbort);
-      activePopRequests++;
+      activeRrpRequests++;
       resolve();
     };
     const onAbort = () => {
-      const index = popRequestWaiters.indexOf(grant);
-      if (index >= 0) popRequestWaiters.splice(index, 1);
+      const index = rrpRequestWaiters.indexOf(grant);
+      if (index >= 0) rrpRequestWaiters.splice(index, 1);
       reject(createRequestAbortError());
     };
     signal.addEventListener("abort", onAbort, { once: true });
-    popRequestWaiters.push(grant);
+    rrpRequestWaiters.push(grant);
   });
-  return releasePopRequestSlot;
+  return releaseRrpRequestSlot;
 }
-function releasePopRequestSlot(): void {
-  activePopRequests = Math.max(0, activePopRequests - 1);
-  const next = popRequestWaiters.shift();
+function releaseRrpRequestSlot(): void {
+  activeRrpRequests = Math.max(0, activeRrpRequests - 1);
+  const next = rrpRequestWaiters.shift();
   if (next) next();
 }
-async function applyPopHeaders(request: Request): Promise<void> {
+async function applyRrpHeaders(request: Request): Promise<void> {
   if (isSessionOnlyEndpoint(request.url, request.method)) return;
-  const deviceIdOverride = request.headers.get(POP_DEVICE_OVERRIDE_HEADER) ?? undefined;
+  const deviceIdOverride = request.headers.get(RRP_DEVICE_OVERRIDE_HEADER) ?? undefined;
   if (deviceIdOverride) {
-    request.headers.delete(POP_DEVICE_OVERRIDE_HEADER);
+    request.headers.delete(RRP_DEVICE_OVERRIDE_HEADER);
   }
   const deviceId = deviceIdOverride ?? getDeviceId();
   if (!deviceId) return;
-  const { getPopHeaders } = await import("@/shared/lib/auth/pop");
+  const { getRrpHeaders } = await import("@/shared/lib/auth/rrp");
   const url = new URL(request.url);
   const canonicalQuery = canonicalQueryString(url.search);
   const bodyHash = blake3Base64Url(new Uint8Array(await request.clone().arrayBuffer()));
-  const headers = await getPopHeaders(
+  const headers = await getRrpHeaders(
     deviceIdOverride,
     request.signal,
     getRequestSessionScope(request),
@@ -168,10 +170,13 @@ async function applyPopHeaders(request: Request): Promise<void> {
       query_hash: blake3Base64Url(new TextEncoder().encode(canonicalQuery)),
     },
   );
-  request.headers.set("X-PoP-Device-Id", headers["X-PoP-Device-Id"]);
-  request.headers.set("X-PoP-Actor-Variant", headers["X-PoP-Actor-Variant"]);
-  request.headers.set("X-PoP-Challenge", headers["X-PoP-Challenge"]);
-  request.headers.set("X-PoP-Signature-Transport", headers["X-PoP-Signature-Transport"]);
+  request.headers.set("X-RefMD-RRP-Device-Id", headers["X-RefMD-RRP-Device-Id"]);
+  request.headers.set("X-RefMD-RRP-Actor-Variant", headers["X-RefMD-RRP-Actor-Variant"]);
+  request.headers.set("X-RefMD-RRP-Challenge", headers["X-RefMD-RRP-Challenge"]);
+  request.headers.set(
+    "X-RefMD-RRP-Signature-Transport",
+    headers["X-RefMD-RRP-Signature-Transport"],
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -251,8 +256,8 @@ function createRateLimitedResponse(retryMs: number): Response {
     },
   });
 }
-function getPopChallengeRetryMs(error: unknown): number | null {
-  if (!(error instanceof PopChallengeRateLimitError)) {
+function getRrpChallengeRetryMs(error: unknown): number | null {
+  if (!(error instanceof RrpChallengeRateLimitError)) {
     return null;
   }
   return Math.max(1, error.retryAfterSeconds) * 1000;
@@ -301,14 +306,14 @@ export const client = createClient<paths>({
       await waitForAuthTransport();
       await waitForGlobalRateLimit();
       const request = createRequest();
-      const requiresPop = !isSessionOnlyEndpoint(request.url, request.method);
-      let releasePopSlot: (() => void) | null = null;
+      const requiresRrp = !isSessionOnlyEndpoint(request.url, request.method);
+      let releaseRrpSlot: (() => void) | null = null;
       try {
         applySessionScopeHeader(request);
-        if (requiresPop) {
-          releasePopSlot = await acquirePopRequestSlot(request.signal);
+        if (requiresRrp) {
+          releaseRrpSlot = await acquireRrpRequestSlot(request.signal);
         }
-        await applyPopHeaders(request);
+        await applyRrpHeaders(request);
         let response: Response;
         try {
           response = await fetch(request);
@@ -332,7 +337,7 @@ export const client = createClient<paths>({
         if (e instanceof CryptoWorkerError && e.code === "rate_limited") {
           return createRateLimitedResponse(60000);
         }
-        const retryMs = getPopChallengeRetryMs(e);
+        const retryMs = getRrpChallengeRetryMs(e);
         if (retryMs !== null) {
           setGlobalRateLimit(retryMs);
           const response = createRateLimitedResponse(retryMs);
@@ -352,10 +357,10 @@ export const client = createClient<paths>({
         if (e instanceof TypeError) {
           throw e;
         }
-        clientError("pop_headers_apply_failed", { error: e });
+        clientError("rrp_headers_apply_failed", { error: e });
         throw e;
       } finally {
-        releasePopSlot?.();
+        releaseRrpSlot?.();
       }
     }
     return lastResponse!;

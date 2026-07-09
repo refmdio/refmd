@@ -1,8 +1,13 @@
-import { createSignal } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { resolvePostAuthRedirect } from "@/shared/lib/invite/redirect";
 import { setFullSession, setCryptoWorkerReady } from "@/entities/session";
 import { formatRecoveryKeyFile } from "@/shared/lib/recovery/key-format";
+import {
+  loadOAuthProviders,
+  startOAuthAuthorization,
+  type OAuthProvider,
+} from "../../lib/oauth/oauth";
 import { register } from "../../lib/register/register";
 
 export function useRegisterPage() {
@@ -13,9 +18,21 @@ export function useRegisterPage() {
   const [confirmPassword, setConfirmPassword] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  const [oauthLoading, setOauthLoading] = createSignal<OAuthProvider | null>(null);
+  const [oauthProviders, setOauthProviders] = createSignal<OAuthProvider[]>([]);
   const [recoveryMnemonic, setRecoveryMnemonic] = createSignal<string | null>(null);
   const [mnemonicConfirmed, setMnemonicConfirmed] = createSignal(false);
   const [showMnemonic, setShowMnemonic] = createSignal(false);
+
+  onMount(() => {
+    void (async () => {
+      try {
+        setOauthProviders(await loadOAuthProviders());
+      } catch {
+        setOauthProviders([]);
+      }
+    })();
+  });
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -60,6 +77,18 @@ export function useRegisterPage() {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOAuthStart = async (provider: OAuthProvider) => {
+    setError(null);
+    setOauthLoading(provider);
+
+    try {
+      await startOAuthAuthorization(provider, resolvePostAuthRedirect("/dashboard"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OAuth sign up failed");
+      setOauthLoading(null);
     }
   };
 
@@ -110,11 +139,14 @@ export function useRegisterPage() {
     setConfirmPassword,
     error,
     loading,
+    oauthLoading,
+    oauthProviders,
     recoveryMnemonic,
     mnemonicConfirmed,
     showMnemonic,
     setShowMnemonic,
     handleSubmit,
+    handleOAuthStart,
     handleCopyRecoveryKey,
     handleDownloadRecoveryKey,
     handleConfirmMnemonic,

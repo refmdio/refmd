@@ -73,7 +73,7 @@ describe("createAdmissionKeyDirectoryRefresh", () => {
     expect(mocks.fetchVerifiedKeyDirectoryFromTrustedCheckpoint).toHaveBeenCalledWith({
       scopeKind: "workspace",
       scopeId: "workspace-1",
-      popDeviceId: "device-1",
+      rrpDeviceId: "device-1",
       popScope: "user",
       popWorker: undefined,
       trustedCheckpointEnvelope: trustedCheckpoint,

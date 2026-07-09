@@ -10,7 +10,7 @@ import type { HybridSigningPublicKeyMaterial } from "./signature-types";
 import { computeSigningKeyId } from "./signature";
 import { transcriptBase, type SigningOwnerKind } from "./signature-transcript-core";
 
-export function buildPopTranscript(params: {
+export function buildRrpTranscript(params: {
   variant:
     | "http_user_device"
     | "http_share_participant_device"
@@ -23,22 +23,22 @@ export function buildPopTranscript(params: {
   session: Record<string, StrictJsonValue>;
   resource?: StrictJsonValue;
 }): StrictJsonValue {
-  const surface = getActiveSigningSurface("pop_request", params.variant);
+  const surface = getActiveSigningSurface("rrp_request", params.variant);
   const transport = params.variant.startsWith("channel_") ? "phoenix_channel" : "http";
   const payload: Record<string, StrictJsonValue> = {
     challenge: params.challenge,
-    pop_variant: params.variant,
+    rrp_variant: params.variant,
     transport,
     actor: params.actor,
     session: params.session,
   };
-  if (!params.resource) throw new Error("pop_resource_required");
+  if (!params.resource) throw new Error("rrp_resource_required");
   if (params.variant.startsWith("http_")) {
     payload.request = params.resource;
   } else if (params.variant.startsWith("channel_")) {
     payload.resource = params.resource;
   }
-  return transcriptBase("pop_request", surface, params.ownerKind, params.ownerId, payload);
+  return transcriptBase("rrp_request", surface, params.ownerKind, params.ownerId, payload);
 }
 
 export function buildGenesisDeviceBootstrapTranscript(params: {

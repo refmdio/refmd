@@ -100,7 +100,7 @@ export type CryptoRequestType =
   | "sign-invitation-redeem-key-directory-checkpoint"
   | "sign-invitation-redeem-key-directory-event"
   | "sign-recipient-bound-authorization"
-  | "create-pop-signature"
+  | "create-rrp-signature"
   | "sign-recovery-session"
   | "sign-share-capability-authorization"
   | "sign-share-participant-device-authorization"

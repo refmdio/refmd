@@ -1,5 +1,5 @@
 import type { Accessor } from "solid-js";
-import { client, withUserPopParams } from "@/shared/api/core";
+import { client, withUserRrpParams } from "@/shared/api/core";
 import type { components } from "@/shared/api/schema";
 import type {
   PluginAuditEvent,
@@ -119,7 +119,7 @@ async function waitForRuntimeAuditRetry(ms: number | undefined): Promise<void> {
 }
 
 function runtimeAuditParams(workspaceId: string) {
-  return withUserPopParams({
+  return withUserRrpParams({
     path: { workspace_id: workspaceId },
   });
 }

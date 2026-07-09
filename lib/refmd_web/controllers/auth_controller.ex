@@ -3,10 +3,12 @@ defmodule RefMDWeb.AuthController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Auth, Devices, Encryption, Sharing, Users, Workspaces}
+  alias RefMD.Auth.DBSC, as: AuthDBSC
+  alias RefMD.Auth.OAuth
   alias RefMD.Crypto
   alias RefMD.Crypto.{Hash, HybridEncryptionMaterial, Signature}
-  alias RefMDWeb.Http.PopSessionBinding
-  alias RefMDWeb.Http.PopTranscript
+  alias RefMDWeb.Http.RrpSessionBinding
+  alias RefMDWeb.Http.RrpTranscript
 
   alias RefMDWeb.Schemas
 
@@ -218,6 +220,7 @@ defmodule RefMDWeb.AuthController do
        }} ->
         conn
         |> set_session_cookie(token, session.remember_me)
+        |> put_registration_header(:user, session)
         |> put_status(:created)
         |> json(%{
           user: %{
@@ -269,6 +272,279 @@ defmodule RefMDWeb.AuthController do
         |> json(%{error: "invalid_credentials"})
     end
   end
+
+  operation(:oauth_providers,
+    summary: "List enabled OAuth providers",
+    responses: [
+      ok: {"Enabled OAuth providers", "application/json", Schemas.OAuthProvidersResponse}
+    ]
+  )
+
+  def oauth_providers(conn, _params) do
+    json(conn, %{providers: OAuth.available_providers()})
+  end
+
+  operation(:oauth_start,
+    summary: "Start OAuth authorization code flow",
+    parameters: [
+      provider: [
+        in: :path,
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string, enum: ["google", "github"]}
+      ]
+    ],
+    request_body: {"OAuth start params", "application/json", Schemas.OAuthStartRequest},
+    responses: [
+      ok: {"OAuth authorization URL", "application/json", Schemas.OAuthStartResponse},
+      unprocessable_entity: {"OAuth start failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def oauth_start(conn, %{"provider" => provider} = params) do
+    return_to = safe_return_to(params["return_to"])
+    redirect_uri = oauth_redirect_uri(conn, provider)
+
+    case OAuth.start_authorization(provider, redirect_uri, return_to) do
+      {:ok, authorization_url} ->
+        json(conn, %{authorization_url: authorization_url})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(oauth_error_payload(reason))
+    end
+  end
+
+  operation(:oauth_callback,
+    summary: "Complete OAuth authorization code flow",
+    parameters: [
+      provider: [
+        in: :path,
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string, enum: ["google", "github"]}
+      ],
+      code: [in: :query, type: :string, required: false],
+      state: [in: :query, type: :string, required: false],
+      scope: [in: :query, type: :string, required: false],
+      authuser: [in: :query, type: :string, required: false],
+      prompt: [in: :query, type: :string, required: false],
+      iss: [in: :query, type: :string, required: false],
+      hd: [in: :query, type: :string, required: false],
+      error: [in: :query, type: :string, required: false],
+      error_description: [in: :query, type: :string, required: false],
+      error_uri: [in: :query, type: :string, required: false]
+    ],
+    responses: [
+      found: {"OAuth callback redirect", "text/html", %OpenApiSpex.Schema{type: :string}},
+      unauthorized: {"OAuth callback failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def oauth_callback(conn, %{"provider" => provider, "state" => state, "code" => code}) do
+    redirect_uri = oauth_redirect_uri(conn, provider)
+
+    case OAuth.complete_authorization(provider, state, code, redirect_uri) do
+      {:ok, user, return_to} ->
+        {:ok, session, token} =
+          Auth.create_session(user.id, %{
+            remember_me: false,
+            ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
+            user_agent: get_req_header(conn, "user-agent") |> List.first()
+          })
+
+        conn
+        |> set_session_cookie(token, session.remember_me)
+        |> put_registration_header(:user, session)
+        |> redirect(to: safe_return_to(return_to))
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unauthorized)
+        |> json(oauth_error_payload(reason))
+    end
+  end
+
+  def oauth_callback(conn, _params) do
+    conn |> put_status(:unauthorized) |> json(%{error: "invalid_oauth_callback"})
+  end
+
+  operation(:oauth_crypto_setup,
+    summary: "Initialize OAuth account encryption material",
+    request_body:
+      {"OAuth crypto setup params", "application/json", Schemas.OAuthCryptoSetupRequest},
+    responses: [
+      ok: {"OAuth crypto setup response", "application/json", Schemas.OAuthCryptoSetupResponse},
+      forbidden: {"OAuth crypto setup forbidden", "application/json", Schemas.ErrorResponse},
+      conflict: {"OAuth crypto setup conflict", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def oauth_crypto_setup(conn, params) do
+    user_id = conn.assigns.current_user_id
+    user = Users.get_user(user_id)
+    session = conn.assigns.current_session
+
+    case oauth_crypto_setup_state(user_id) do
+      :ready ->
+        setup_oauth_crypto(conn, params, user, session)
+
+      :already_initialized ->
+        send_oauth_crypto_setup_response(conn, user, session)
+
+      {:error, reason} ->
+        oauth_crypto_setup_error(conn, reason)
+    end
+  rescue
+    ArgumentError ->
+      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
+  end
+
+  operation(:dbsc_well_known,
+    summary: "Get Device Bound Session Credentials policy",
+    responses: [
+      ok: {"DBSC well-known policy", "application/json", %OpenApiSpex.Schema{type: :object}}
+    ]
+  )
+
+  def dbsc_well_known(conn, _params) do
+    origin = origin(conn)
+
+    conn
+    |> put_dbsc_hardening_headers()
+    |> json(%{
+      registering_origins: [origin],
+      relying_origins: [origin],
+      provider_origin: origin
+    })
+  end
+
+  operation(:dbsc_register,
+    summary: "Register a user Device Bound Session Credentials binding",
+    parameters: [
+      secure_session_response: [
+        in: :header,
+        name: :"secure-session-response",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ]
+    ],
+    responses: [
+      ok: {"DBSC session instructions", "application/json", Schemas.DbscSessionInstructions},
+      unauthorized: {"DBSC registration failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def dbsc_register(conn, _params), do: handle_dbsc_register(conn, "user")
+
+  operation(:dbsc_refresh,
+    summary: "Refresh a user Device Bound Session Credentials cookie",
+    parameters: [
+      sec_secure_session_id: [
+        in: :header,
+        name: :"sec-secure-session-id",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ],
+      secure_session_response: [
+        in: :header,
+        name: :"secure-session-response",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ]
+    ],
+    responses: [
+      ok: {"DBSC session instructions", "application/json", Schemas.DbscSessionInstructions},
+      unauthorized: {"DBSC refresh failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def dbsc_refresh(conn, _params), do: handle_dbsc_refresh(conn, "user")
+
+  operation(:dbsc_share_register,
+    summary: "Register a share participant Device Bound Session Credentials binding",
+    parameters: [
+      secure_session_response: [
+        in: :header,
+        name: :"secure-session-response",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ]
+    ],
+    responses: [
+      ok: {"DBSC session instructions", "application/json", Schemas.DbscSessionInstructions},
+      unauthorized: {"DBSC registration failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def dbsc_share_register(conn, _params), do: handle_dbsc_register(conn, "share_participant")
+
+  operation(:dbsc_share_refresh,
+    summary: "Refresh a share participant Device Bound Session Credentials cookie",
+    parameters: [
+      sec_secure_session_id: [
+        in: :header,
+        name: :"sec-secure-session-id",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ],
+      secure_session_response: [
+        in: :header,
+        name: :"secure-session-response",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ]
+    ],
+    responses: [
+      ok: {"DBSC session instructions", "application/json", Schemas.DbscSessionInstructions},
+      unauthorized: {"DBSC refresh failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def dbsc_share_refresh(conn, _params), do: handle_dbsc_refresh(conn, "share_participant")
+
+  operation(:dbsc_mount_register,
+    summary: "Register a mount Device Bound Session Credentials binding",
+    parameters: [
+      secure_session_response: [
+        in: :header,
+        name: :"secure-session-response",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ]
+    ],
+    responses: [
+      ok: {"DBSC session instructions", "application/json", Schemas.DbscSessionInstructions},
+      unauthorized: {"DBSC registration failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def dbsc_mount_register(conn, _params), do: handle_dbsc_mount_register(conn)
+
+  operation(:dbsc_mount_refresh,
+    summary: "Refresh a mount Device Bound Session Credentials cookie",
+    parameters: [
+      sec_secure_session_id: [
+        in: :header,
+        name: :"sec-secure-session-id",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ],
+      secure_session_response: [
+        in: :header,
+        name: :"secure-session-response",
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string}
+      ]
+    ],
+    responses: [
+      ok: {"DBSC session instructions", "application/json", Schemas.DbscSessionInstructions},
+      unauthorized: {"DBSC refresh failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def dbsc_mount_refresh(conn, _params),
+    do: handle_dbsc_refresh(conn, "mount", &mount_dbsc_token/1)
 
   operation(:me,
     summary: "Get current session info",
@@ -426,19 +702,19 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
-  operation(:pop_challenge,
-    summary: "Request a PoP challenge nonce",
+  operation(:rrp_challenge,
+    summary: "Request a RefMD Request Proof challenge nonce",
     parameters: [
-      x_pop_device_id: [
+      x_refmd_rrp_device_id: [
         in: :header,
-        name: :"x-pop-device-id",
-        description: "PoP signing device id.",
+        name: :"x-refmd-rrp-device-id",
+        description: "RRP signing device id.",
         required: true,
         schema: %OpenApiSpex.Schema{type: :string, format: :uuid}
       ]
     ],
     responses: [
-      ok: {"Challenge response", "application/json", Schemas.PopChallengeResponse},
+      ok: {"Challenge response", "application/json", Schemas.RrpChallengeResponse},
       forbidden: {"Invalid device", "application/json", Schemas.ErrorResponse}
     ]
   )
@@ -463,12 +739,12 @@ defmodule RefMDWeb.AuthController do
     json(conn, %{token: token})
   end
 
-  def pop_challenge(conn, _params) do
-    device_id = get_req_header(conn, "x-pop-device-id") |> List.first()
+  def rrp_challenge(conn, _params) do
+    device_id = get_req_header(conn, "x-refmd-rrp-device-id") |> List.first()
 
     case conn.assigns[:session_kind] do
-      :share_participant -> create_share_pop_challenge(conn, device_id)
-      _ -> create_user_pop_challenge(conn, device_id)
+      :share_participant -> create_share_rrp_challenge(conn, device_id)
+      _ -> create_user_rrp_challenge(conn, device_id)
     end
   end
 
@@ -485,6 +761,7 @@ defmodule RefMDWeb.AuthController do
 
     case conn.assigns[:session_kind] do
       :share_participant ->
+        AuthDBSC.delete_binding("share_participant", session.id)
         Sharing.delete_participant_session(session.id)
         RefMDWeb.Endpoint.broadcast("share_socket:#{session.principal_id}", "disconnect", %{})
 
@@ -502,6 +779,7 @@ defmodule RefMDWeb.AuthController do
         |> json(%{ok: true})
 
       _ ->
+        AuthDBSC.delete_binding("user", session.id)
         Auth.delete_session(session.id)
         RefMDWeb.Endpoint.broadcast("user_socket:#{session.user_id}", "disconnect", %{})
 
@@ -633,6 +911,7 @@ defmodule RefMDWeb.AuthController do
 
           conn
           |> set_session_cookie(token, false)
+          |> put_registration_header(:user, session)
           |> json(%{
             user: %{
               id: user.id,
@@ -674,7 +953,167 @@ defmodule RefMDWeb.AuthController do
 
     conn
     |> set_session_cookie(token, remember_me)
+    |> put_registration_header(:user, session)
     |> json(response)
+  end
+
+  defp handle_dbsc_register(conn, session_kind) do
+    session = conn.assigns.current_session
+    proof = get_req_header(conn, "secure-session-response") |> List.first()
+
+    case AuthDBSC.register_session(session_kind, session, proof) do
+      {:ok, binding, token} ->
+        conn
+        |> put_dbsc_hardening_headers()
+        |> put_dbsc_cookie(session_kind, token)
+        |> put_challenge_header(binding)
+        |> json(dbsc_session_instructions(conn, binding, session_kind))
+
+      {:error, _reason} ->
+        conn |> put_status(:unauthorized) |> json(%{error: "invalid_dbsc_proof"})
+    end
+  end
+
+  defp handle_dbsc_mount_register(conn) do
+    proof = get_req_header(conn, "secure-session-response") |> List.first()
+
+    with {:ok, mount_session} <- current_mount_password_session(conn),
+         {:ok, binding, token} <-
+           AuthDBSC.register_session("mount", mount_session, proof, &mount_dbsc_token/1) do
+      conn
+      |> put_dbsc_hardening_headers()
+      |> put_bound_session_cookie("mount", token)
+      |> put_challenge_header(binding)
+      |> json(dbsc_session_instructions(conn, binding, "mount"))
+    else
+      _ ->
+        conn |> put_status(:unauthorized) |> json(%{error: "invalid_dbsc_proof"})
+    end
+  end
+
+  defp handle_dbsc_refresh(conn, session_kind) do
+    handle_dbsc_refresh(conn, session_kind, nil)
+  end
+
+  defp handle_dbsc_refresh(conn, session_kind, token_issuer) do
+    session_identifier = get_req_header(conn, "sec-secure-session-id") |> List.first()
+    proof = get_req_header(conn, "secure-session-response") |> List.first()
+
+    refresh_result =
+      if is_function(token_issuer, 1) do
+        AuthDBSC.refresh_session_by_identifier(
+          session_kind,
+          unwrap_structured_header_string(session_identifier),
+          proof,
+          token_issuer
+        )
+      else
+        AuthDBSC.refresh_session_by_identifier(
+          session_kind,
+          unwrap_structured_header_string(session_identifier),
+          proof
+        )
+      end
+
+    case refresh_result do
+      {:ok, binding, token} ->
+        conn
+        |> put_dbsc_hardening_headers()
+        |> put_bound_session_cookie(session_kind, token)
+        |> put_challenge_header(binding)
+        |> json(dbsc_session_instructions(conn, binding, session_kind))
+
+      {:error, _reason} ->
+        conn |> put_status(:unauthorized) |> json(%{error: "invalid_dbsc_proof"})
+    end
+  end
+
+  defp put_dbsc_cookie(conn, session_kind, token),
+    do: put_bound_session_cookie(conn, session_kind, token)
+
+  defp put_bound_session_cookie(conn, session_kind, token),
+    do: set_bound_session_cookie(conn, session_kind, token)
+
+  defp dbsc_session_instructions(conn, binding, session_kind) do
+    AuthDBSC.session_instructions(binding, origin(conn), dbsc_credential_name(session_kind))
+  end
+
+  defp dbsc_credential_name(session_kind), do: session_cookie_name(session_kind)
+
+  defp current_mount_password_session(conn) do
+    with token when is_binary(token) <- request_cookie(conn, "__Host-refmd-mount-session"),
+         {:ok, signed_token} <- Base.url_decode64(token, padding: false),
+         {:ok, %{"mount_id" => mount_id, "share_id" => share_id, "user_id" => user_id}} <-
+           Phoenix.Token.verify(RefMDWeb.Endpoint, "mount_password_session", signed_token,
+             max_age: 24 * 60 * 60
+           ),
+         true <- is_binary(mount_id) and is_binary(share_id) and is_binary(user_id) do
+      {:ok,
+       %{
+         id: mount_id,
+         share_id: share_id,
+         user_id: user_id,
+         expires_at: DateTime.add(DateTime.utc_now(), 24 * 60 * 60, :second)
+       }}
+    else
+      _ -> {:error, :invalid_mount_session}
+    end
+  end
+
+  defp mount_dbsc_token(%{session_id: mount_id}) when is_binary(mount_id) do
+    case RefMD.Repo.get(RefMD.Sharing.ShareMount, mount_id) do
+      %RefMD.Sharing.ShareMount{} = mount ->
+        {:ok, mount_password_session_token(mount.id, mount.share_id, mount.user_id)}
+
+      _ ->
+        {:error, :invalid_dbsc_session}
+    end
+  end
+
+  defp mount_dbsc_token(_binding), do: {:error, :invalid_dbsc_session}
+
+  defp mount_password_session_token(mount_id, share_id, user_id) do
+    Phoenix.Token.sign(
+      RefMDWeb.Endpoint,
+      "mount_password_session",
+      %{"mount_id" => mount_id, "share_id" => share_id, "user_id" => user_id}
+    )
+  end
+
+  defp request_cookie(conn, name) do
+    conn
+    |> get_req_header("cookie")
+    |> List.first("")
+    |> String.split(";")
+    |> Enum.find_value(fn part ->
+      case String.trim(part) |> String.split("=", parts: 2) do
+        [^name, value] -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp put_dbsc_hardening_headers(conn) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("cross-origin-resource-policy", "same-origin")
+    |> put_resp_header("x-frame-options", "DENY")
+  end
+
+  defp unwrap_structured_header_string(nil), do: nil
+
+  defp unwrap_structured_header_string(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if String.starts_with?(value, "\"") and String.ends_with?(value, "\"") and
+         String.length(value) >= 2 do
+      value
+      |> String.slice(1, String.length(value) - 2)
+      |> String.replace(~s(\\"), ~s("))
+      |> String.replace(~s(\\\\), ~s(\\))
+    else
+      value
+    end
   end
 
   defp check_device_verified(_user_id, nil), do: false
@@ -682,6 +1121,296 @@ defmodule RefMDWeb.AuthController do
   defp check_device_verified(user_id, device_id) do
     match?(%{user_id: ^user_id, revoked_at: nil}, Devices.get_device(device_id))
   end
+
+  defp setup_oauth_crypto(conn, params, user, session) do
+    with {:ok, hybrid_encryption_public_key_material} <-
+           validate_identity_encryption_public_key_material(
+             params["hybrid_encryption_public_key_material"],
+             user.id
+           ),
+         {:ok, x25519_public_key} <-
+           identity_encryption_x25519_public_key(hybrid_encryption_public_key_material),
+         {:ok, hybrid_signing_public_key_material} <-
+           validate_identity_public_key_material(
+             params["hybrid_signing_public_key_material"],
+             user.id
+           ) do
+      cond do
+        byte_size(x25519_public_key) != 32 ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "invalid_hybrid_encryption_public_key_material"})
+
+        not Crypto.valid_x25519_public_key?(x25519_public_key) ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "invalid_hybrid_encryption_public_key_material"})
+
+        true ->
+          create_oauth_crypto_material(
+            conn,
+            params,
+            user,
+            session,
+            hybrid_encryption_public_key_material,
+            hybrid_signing_public_key_material
+          )
+      end
+    else
+      :error ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_required_key"})
+    end
+  end
+
+  defp create_oauth_crypto_material(
+         conn,
+         params,
+         user,
+         session,
+         hybrid_encryption_public_key_material,
+         hybrid_signing_public_key_material
+       ) do
+    RefMD.Repo.transaction(fn ->
+      with nil <- Encryption.get_user_encrypted_master_key(user.id),
+           nil <- Encryption.get_user_identity_public_key(user.id),
+           nil <- Encryption.get_user_encrypted_identity_key(user.id),
+           {:ok, _master_key} <-
+             Encryption.create_user_encrypted_master_key(%{
+               user_id: user.id,
+               auth_type: "oauth",
+               recovery_encrypted_umk: decode_optional_binary(params["recovery_encrypted_umk"]),
+               recovery_nonce: decode_optional_binary(params["recovery_nonce"]),
+               recovery_authorization_public_material:
+                 params["recovery_authorization_public_material"],
+               recovery_authorization_key_id: params["recovery_authorization_key_id"]
+             }),
+           {:ok, identity_pub} <-
+             Encryption.create_user_identity_public_key(%{
+               user_id: user.id,
+               hybrid_encryption_public_key_material: hybrid_encryption_public_key_material,
+               hybrid_signing_public_key_material: hybrid_signing_public_key_material,
+               pending_registration_challenge_hash: unissued_registration_challenge_hash()
+             }),
+           {:ok, _identity_key} <-
+             Encryption.create_user_encrypted_identity_key(%{
+               user_id: user.id,
+               encrypted_identity_hybrid_encryption_private_key_material:
+                 decode_optional_binary(
+                   params["encrypted_identity_hybrid_encryption_private_key_material"]
+                 ),
+               identity_hybrid_encryption_private_key_material_nonce:
+                 decode_optional_binary(
+                   params["identity_hybrid_encryption_private_key_material_nonce"]
+                 ),
+               encryption_key_id: identity_pub.encryption_key_id,
+               encrypted_identity_hybrid_signing_private_key_material:
+                 decode_optional_binary(
+                   params["encrypted_identity_hybrid_signing_private_key_material"]
+                 ),
+               identity_hybrid_signing_private_key_material_nonce:
+                 decode_optional_binary(
+                   params["identity_hybrid_signing_private_key_material_nonce"]
+                 ),
+               signing_key_id: identity_pub.signing_key_id
+             }),
+           {:ok, workspace, owner_role} <- oauth_workspace_owner(user.id) do
+        %{workspace: workspace, owner_role: owner_role}
+      else
+        nil -> RefMD.Repo.rollback(:workspace_owner_role_missing)
+        {:error, reason} -> RefMD.Repo.rollback(reason)
+        _existing -> RefMD.Repo.rollback(:oauth_crypto_already_initialized)
+      end
+    end)
+    |> case do
+      {:ok, %{workspace: workspace, owner_role: owner_role}} ->
+        json(conn, oauth_crypto_setup_response(user, session, workspace, owner_role))
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_oauth_crypto_setup", details: format_errors(changeset)})
+
+      {:error, reason} ->
+        oauth_crypto_setup_error(conn, reason)
+    end
+  end
+
+  defp oauth_crypto_setup_state(user_id) do
+    material_state = %{
+      master_key: Encryption.get_user_encrypted_master_key(user_id),
+      identity_public_key: Encryption.get_user_identity_public_key(user_id),
+      identity_key: Encryption.get_user_encrypted_identity_key(user_id)
+    }
+
+    cond do
+      password_master_key?(material_state.master_key) ->
+        {:error, :not_oauth_user}
+
+      oauth_crypto_material_complete?(material_state) ->
+        :already_initialized
+
+      oauth_crypto_material_started?(material_state) ->
+        {:error, :oauth_crypto_partial_setup}
+
+      Users.get_user_external_accounts(user_id) == [] ->
+        {:error, :not_oauth_user}
+
+      true ->
+        :ready
+    end
+  end
+
+  defp password_master_key?(%{auth_type: "password"}), do: true
+  defp password_master_key?(_), do: false
+
+  defp oauth_crypto_material_complete?(%{
+         master_key: master_key,
+         identity_public_key: identity_public_key,
+         identity_key: identity_key
+       }) do
+    master_key != nil and identity_public_key != nil and identity_key != nil
+  end
+
+  defp oauth_crypto_material_started?(%{
+         master_key: master_key,
+         identity_public_key: identity_public_key,
+         identity_key: identity_key
+       }) do
+    master_key != nil or identity_public_key != nil or identity_key != nil
+  end
+
+  defp send_oauth_crypto_setup_response(conn, user, session) do
+    case oauth_workspace_owner(user.id) do
+      {:ok, workspace, owner_role} ->
+        json(conn, oauth_crypto_setup_response(user, session, workspace, owner_role))
+
+      {:error, reason} ->
+        oauth_crypto_setup_error(conn, reason)
+    end
+  end
+
+  defp oauth_workspace_owner(user_id) do
+    case Workspaces.get_user_default_workspace(user_id) do
+      nil ->
+        {:error, :workspace_missing}
+
+      workspace ->
+        case Workspaces.get_member_with_role(workspace.id, user_id) do
+          {_, owner_role} when not is_nil(owner_role) -> {:ok, workspace, owner_role}
+          _ -> {:error, :workspace_owner_role_missing}
+        end
+    end
+  end
+
+  defp oauth_crypto_setup_response(user, session, workspace, owner_role) do
+    %{
+      user: %{
+        id: user.id,
+        email: user.email,
+        name: user.name
+      },
+      workspace_id: workspace.id,
+      workspace_owner_role_id: owner_role.id,
+      session_id: session.id
+    }
+  end
+
+  defp oauth_crypto_setup_error(conn, :not_oauth_user) do
+    conn |> put_status(:forbidden) |> json(%{error: "not_oauth_user"})
+  end
+
+  defp oauth_crypto_setup_error(conn, :oauth_crypto_already_initialized) do
+    conn |> put_status(:conflict) |> json(%{error: "oauth_crypto_already_initialized"})
+  end
+
+  defp oauth_crypto_setup_error(conn, :oauth_crypto_partial_setup) do
+    conn |> put_status(:conflict) |> json(%{error: "oauth_crypto_partial_setup"})
+  end
+
+  defp oauth_crypto_setup_error(conn, :workspace_missing) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "workspace_missing"})
+  end
+
+  defp oauth_crypto_setup_error(conn, :workspace_owner_role_missing) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "workspace_owner_role_missing"})
+  end
+
+  defp oauth_crypto_setup_error(conn, _reason) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "oauth_crypto_setup_failed"})
+  end
+
+  defp oauth_redirect_uri(conn, provider) do
+    configured_redirect_uri = oauth_configured_redirect_uri(provider)
+
+    if is_binary(configured_redirect_uri) and String.trim(configured_redirect_uri) != "" do
+      configured_redirect_uri
+    else
+      request_oauth_redirect_uri(conn, provider)
+    end
+  end
+
+  defp request_oauth_redirect_uri(conn, provider) do
+    port =
+      case {conn.scheme, conn.port} do
+        {:http, 80} -> ""
+        {:https, 443} -> ""
+        {_scheme, port} -> ":#{port}"
+      end
+
+    "#{conn.scheme}://#{conn.host}#{port}/api/auth/oauth/#{provider}/callback"
+  end
+
+  defp oauth_configured_redirect_uri("google") do
+    :refmd |> Application.get_env(:oauth, []) |> get_in([:google, :redirect_uri])
+  end
+
+  defp oauth_configured_redirect_uri("github") do
+    :refmd |> Application.get_env(:oauth, []) |> get_in([:github, :redirect_uri])
+  end
+
+  defp oauth_configured_redirect_uri(_provider), do: nil
+
+  defp safe_return_to(path) when is_binary(path) do
+    uri = URI.parse(path)
+
+    cond do
+      uri.scheme != nil -> "/"
+      uri.host != nil -> "/"
+      not String.starts_with?(path, "/") -> "/"
+      String.starts_with?(path, "//") -> "/"
+      true -> path
+    end
+  end
+
+  defp safe_return_to(_), do: "/"
+
+  defp oauth_error_payload(reason) do
+    payload = %{error: oauth_error(reason)}
+
+    case oauth_error_details(reason) do
+      nil -> payload
+      details -> Map.put(payload, :details, details)
+    end
+  end
+
+  defp oauth_error({reason, _details}), do: oauth_error(reason)
+  defp oauth_error(:invalid_provider), do: "invalid_oauth_provider"
+  defp oauth_error(:oauth_provider_disabled), do: "oauth_provider_disabled"
+  defp oauth_error(:oauth_provider_not_configured), do: "oauth_provider_not_configured"
+  defp oauth_error(:invalid_oauth_state), do: "invalid_oauth_state"
+  defp oauth_error(:oauth_token_exchange_failed), do: "oauth_token_exchange_failed"
+  defp oauth_error(:oauth_userinfo_failed), do: "oauth_userinfo_failed"
+  defp oauth_error(:oauth_email_unverified), do: "oauth_email_unverified"
+  defp oauth_error(:oauth_provider_unavailable), do: "oauth_provider_unavailable"
+  defp oauth_error(:oauth_account_link_required), do: "oauth_account_link_required"
+  defp oauth_error(:oauth_external_account_conflict), do: "oauth_external_account_conflict"
+  defp oauth_error(_), do: "oauth_failed"
+
+  defp oauth_error_details({_reason, details}) when is_map(details) do
+    if Application.get_env(:refmd, :oauth_error_details, false), do: details
+  end
+
+  defp oauth_error_details(_reason), do: nil
 
   defp build_login_response(user, session, device_id, device_verified) do
     master_key = Encryption.get_user_encrypted_master_key(user.id)
@@ -893,16 +1622,16 @@ defmodule RefMDWeb.AuthController do
   defp encode_struct_binary(nil, _field), do: nil
   defp encode_struct_binary(struct, field), do: encode_binary(Map.get(struct, field))
 
-  defp create_user_pop_challenge(conn, nil),
+  defp create_user_rrp_challenge(conn, nil),
     do: conn |> put_status(:forbidden) |> json(%{error: "missing_device_id"})
 
-  defp create_user_pop_challenge(conn, device_id) do
+  defp create_user_rrp_challenge(conn, device_id) do
     user_id = conn.assigns.current_user_id
 
-    with {:ok, device} <- get_user_pop_device(user_id, device_id),
+    with {:ok, device} <- get_user_rrp_device(user_id, device_id),
          {:ok, challenge} <-
-           Auth.create_pop_challenge(user_id, device_id, conn.assigns.current_session.id) do
-      user_pop_challenge_response(conn, device, user_id, challenge)
+           Auth.create_rrp_challenge(user_id, device_id, conn.assigns.current_session.id) do
+      user_rrp_challenge_response(conn, device, user_id, challenge)
     else
       {:error, :invalid_device} ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
@@ -914,23 +1643,23 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
-  defp create_share_pop_challenge(conn, nil),
+  defp create_share_rrp_challenge(conn, nil),
     do: conn |> put_status(:forbidden) |> json(%{error: "missing_device_id"})
 
-  defp create_share_pop_challenge(conn, device_id) do
+  defp create_share_rrp_challenge(conn, device_id) do
     principal_id = conn.assigns.share_participant_principal_id
     share_id = conn.assigns.current_share_id
 
-    with :ok <- verify_share_pop_session_device(conn.assigns.current_session.device_id, device_id),
-         {:ok, device} <- get_share_pop_device(share_id, principal_id, device_id),
+    with :ok <- verify_share_rrp_session_device(conn.assigns.current_session.device_id, device_id),
+         {:ok, device} <- get_share_rrp_device(share_id, principal_id, device_id),
          {:ok, challenge} <-
-           Sharing.create_pop_challenge(
+           Sharing.create_rrp_challenge(
              share_id,
              principal_id,
              device_id,
              conn.assigns.current_session.id
            ) do
-      share_pop_challenge_response(conn, device, share_id, challenge)
+      share_rrp_challenge_response(conn, device, share_id, challenge)
     else
       {:error, :device_session_mismatch} ->
         conn |> put_status(:forbidden) |> json(%{error: "device_session_mismatch"})
@@ -945,38 +1674,38 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
-  defp get_user_pop_device(user_id, device_id) do
+  defp get_user_rrp_device(user_id, device_id) do
     case Devices.get_device(device_id) do
       %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
       _ -> {:error, :invalid_device}
     end
   end
 
-  defp get_share_pop_device(share_id, principal_id, device_id) do
+  defp get_share_rrp_device(share_id, principal_id, device_id) do
     case Sharing.get_participant_device(share_id, principal_id, device_id) do
       %{principal_id: ^principal_id} = device -> {:ok, device}
       _ -> {:error, :invalid_device}
     end
   end
 
-  defp verify_share_pop_session_device(device_id, device_id) when is_binary(device_id), do: :ok
-  defp verify_share_pop_session_device(_, _), do: {:error, :device_session_mismatch}
+  defp verify_share_rrp_session_device(device_id, device_id) when is_binary(device_id), do: :ok
+  defp verify_share_rrp_session_device(_, _), do: {:error, :device_session_mismatch}
 
-  defp user_pop_challenge_response(conn, device, user_id, challenge) do
+  defp user_rrp_challenge_response(conn, device, user_id, challenge) do
     json(conn, %{
-      actor: PopTranscript.user_actor!(device, user_id),
+      actor: RrpTranscript.user_actor!(device, user_id),
       challenge: Base.url_encode64(challenge, padding: false),
-      session: PopSessionBinding.for_user_session(conn.assigns.current_session)
+      session: RrpSessionBinding.for_user_session(conn.assigns.current_session)
     })
   end
 
-  defp share_pop_challenge_response(conn, device, share_id, challenge) do
+  defp share_rrp_challenge_response(conn, device, share_id, challenge) do
     workspace_id = Sharing.share_workspace_id!(share_id)
 
     json(conn, %{
-      actor: PopTranscript.share_participant_actor!(device, share_id, workspace_id),
+      actor: RrpTranscript.share_participant_actor!(device, share_id, workspace_id),
       challenge: Base.url_encode64(challenge, padding: false),
-      session: PopSessionBinding.for_share_session(conn.assigns.current_session)
+      session: RrpSessionBinding.for_share_session(conn.assigns.current_session)
     })
   end
 end

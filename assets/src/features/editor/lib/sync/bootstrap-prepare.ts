@@ -1,6 +1,6 @@
 import { deviceState, getKekResolverSession } from "@/entities/session";
 import { encryptionApi } from "@/shared/api/encryption";
-import { buildChannelPopResource, getChannelPopParams } from "@/shared/lib/auth/pop";
+import { buildChannelRrpResource, getChannelRrpParams } from "@/shared/lib/auth/rrp";
 import {
   buildDocumentStatePinKey,
   getDocumentStatePin,
@@ -77,18 +77,18 @@ export async function refreshWorkspaceKeyDirectoryForDocumentJoin(
     await fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: workspaceId,
-      popDeviceId: state.access.participantDeviceId,
+      rrpDeviceId: state.access.participantDeviceId,
       popScope: "share",
       popWorker: getShareParticipantCryptoWorker(state.access.shareSlug),
       signal,
     });
   } else {
     const device = deviceState();
-    if (!device?.deviceId) throw new Error("key_directory_pop_device_required");
+    if (!device?.deviceId) throw new Error("key_directory_rrp_device_required");
     await fetchVerifiedKeyDirectory({
       scopeKind: "workspace",
       scopeId: workspaceId,
-      popDeviceId: device.deviceId,
+      rrpDeviceId: device.deviceId,
       signal,
     });
   }
@@ -230,7 +230,7 @@ export async function prepareInitializationSession(
         directory = await fetchVerifiedKeyDirectory({
           scopeKind: "workspace",
           scopeId: workspaceId,
-          popDeviceId: state.access.participantDeviceId,
+          rrpDeviceId: state.access.participantDeviceId,
           popScope: "share",
           popWorker: activeShareWorker,
           signal,
@@ -262,7 +262,7 @@ export async function prepareInitializationSession(
         await fetchVerifiedKeyDirectory({
           scopeKind: "workspace",
           scopeId: workspaceId,
-          popDeviceId: access.participantDeviceId,
+          rrpDeviceId: access.participantDeviceId,
           popScope: "share",
           popWorker:
             access.shareSlug === initialShareSlug
@@ -326,19 +326,19 @@ export async function prepareInitializationSession(
         access.shareSlug === initialShareSlug
           ? activeShareWorker
           : getShareParticipantCryptoWorker(access.shareSlug);
-      const popParams = await getChannelPopParams(
+      const rrpParams = await getChannelRrpParams(
         access.participantDeviceId,
         signal,
         "share",
         popWorker,
-        buildChannelPopResource(documentId, "share", channelShareId, joinPayload),
+        buildChannelRrpResource(documentId, "share", channelShareId, joinPayload),
       );
-      recordSyncPerf("initial_prepare_join_pop_ready", {
+      recordSyncPerf("initial_prepare_join_rrp_ready", {
         documentId,
         elapsedMs: performance.now() - startedAt,
       });
       return {
-        ...popParams,
+        ...rrpParams,
         ...joinPayload,
       };
     };
@@ -419,11 +419,11 @@ export async function prepareInitializationSession(
     if ("error" in cacheOutcome) throw cacheOutcome.error;
     let workspacePin = await getKeyDirectoryPin("workspace", workspaceId).catch(() => null);
     if (!workspacePin) {
-      if (!device?.deviceId) throw new Error("key_directory_pop_device_required");
+      if (!device?.deviceId) throw new Error("key_directory_rrp_device_required");
       await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
-        popDeviceId: device.deviceId,
+        rrpDeviceId: device.deviceId,
         signal,
       });
       workspacePin = await getKeyDirectoryPin("workspace", workspaceId);
@@ -468,15 +468,15 @@ export async function prepareInitializationSession(
       useDelta,
     };
 
-    const popParams = await getChannelPopParams(
+    const rrpParams = await getChannelRrpParams(
       undefined,
       signal,
       "user",
       undefined,
-      buildChannelPopResource(documentId, "user", undefined, joinParams),
+      buildChannelRrpResource(documentId, "user", undefined, joinParams),
     );
 
-    return { ...popParams, ...joinParams };
+    return { ...rrpParams, ...joinParams };
   };
 
   return {

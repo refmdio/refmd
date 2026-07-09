@@ -778,43 +778,43 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
   end
 
-  def validate_pop!(transcript, signing_purpose, owner_kind, owner_id) do
+  def validate_rrp!(transcript, signing_purpose, owner_kind, owner_id) do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     variant = transcript["surface_variant"]
 
-    unless transcript["pop_variant"] == variant,
-      do: raise(ArgumentError, "pop_variant_mismatch")
+    unless transcript["rrp_variant"] == variant,
+      do: raise(ArgumentError, "rrp_variant_mismatch")
 
     expected_transport =
       if String.starts_with?(variant, "channel_"), do: "phoenix_channel", else: "http"
 
     unless transcript["transport"] == expected_transport,
-      do: raise(ArgumentError, "pop_transport_mismatch")
+      do: raise(ArgumentError, "rrp_transport_mismatch")
 
     :ok
   end
 
-  def validate_pop!(transcript, signing_purpose, owner_kind, owner_id, semantic_context) do
-    :ok = validate_pop!(transcript, signing_purpose, owner_kind, owner_id)
+  def validate_rrp!(transcript, signing_purpose, owner_kind, owner_id, semantic_context) do
+    :ok = validate_rrp!(transcript, signing_purpose, owner_kind, owner_id)
 
-    device = required_context_map!(semantic_context, :device, "pop_context_missing")
-    session = required_context_map!(semantic_context, :session, "pop_context_missing")
+    device = required_context_map!(semantic_context, :device, "rrp_context_missing")
+    session = required_context_map!(semantic_context, :session, "rrp_context_missing")
 
-    assert_nil!(context_value(device, :revoked_at), "pop_device_inactive")
+    assert_nil!(context_value(device, :revoked_at), "rrp_device_inactive")
 
     assert_literal!(
       transcript["challenge"],
       context_value(semantic_context, :challenge),
-      "pop_challenge_mismatch"
+      "rrp_challenge_mismatch"
     )
 
     assert_literal!(
       transcript["session"]["session_id_hash"],
       context_value(session, :session_id_hash),
-      "pop_session_mismatch"
+      "rrp_session_mismatch"
     )
 
-    assert_pop_actor_matches_context!(transcript, device, semantic_context)
+    assert_rrp_actor_matches_context!(transcript, device, semantic_context)
   end
 
   def validate_ake_prekey!(transcript, signing_purpose, owner_kind, owner_id) do
@@ -1295,24 +1295,24 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
   defp assert_nil!(nil, _message), do: :ok
   defp assert_nil!(_value, message), do: raise(ArgumentError, message)
 
-  defp assert_pop_actor_matches_context!(
+  defp assert_rrp_actor_matches_context!(
          %{"owner_kind" => "device"} = transcript,
          device,
          context
        ) do
     actor = transcript["actor"]
 
-    assert_literal!(actor["device_id"], context_value(device, :id), "pop_actor_mismatch")
-    assert_literal!(actor["user_id"], context_value(context, :user_id), "pop_actor_mismatch")
+    assert_literal!(actor["device_id"], context_value(device, :id), "rrp_actor_mismatch")
+    assert_literal!(actor["user_id"], context_value(context, :user_id), "rrp_actor_mismatch")
 
     assert_literal!(
       actor["signing_key_id"],
       context_value(device, :signing_key_id),
-      "pop_signing_key_mismatch"
+      "rrp_signing_key_mismatch"
     )
   end
 
-  defp assert_pop_actor_matches_context!(
+  defp assert_rrp_actor_matches_context!(
          %{"owner_kind" => "share_participant_device"} = transcript,
          device,
          context
@@ -1322,21 +1322,21 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     assert_literal!(
       actor["share_participant_device_id"],
       context_value(device, :id),
-      "pop_actor_mismatch"
+      "rrp_actor_mismatch"
     )
 
     assert_literal!(
       actor["share_participant_principal_id"],
       context_value(context, :principal_id),
-      "pop_actor_mismatch"
+      "rrp_actor_mismatch"
     )
 
-    assert_literal!(actor["share_id"], context_value(context, :share_id), "pop_actor_mismatch")
+    assert_literal!(actor["share_id"], context_value(context, :share_id), "rrp_actor_mismatch")
 
     assert_literal!(
       actor["signing_key_id"],
       context_value(device, :signing_key_id),
-      "pop_signing_key_mismatch"
+      "rrp_signing_key_mismatch"
     )
   end
 

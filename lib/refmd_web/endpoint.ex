@@ -6,8 +6,11 @@ defmodule RefMDWeb.Endpoint do
   # Set :encryption_salt if you would also like to encrypt it.
   @session_options [
     store: :cookie,
-    key: "_refmd_key",
+    key: "__Host-refmd-key",
     signing_salt: "nTggeYX9",
+    path: "/",
+    secure: true,
+    http_only: true,
     same_site: "Lax"
   ]
 
