@@ -6,6 +6,7 @@ defmodule RefMD.Workspaces.Roles do
   alias RefMD.Repo
 
   alias RefMD.Workspaces.{
+    WorkspaceInvitation,
     WorkspaceRole,
     WorkspaceRolePermission
   }
@@ -23,10 +24,12 @@ defmodule RefMD.Workspaces.Roles do
     |> Repo.all()
   end
 
-  def create_custom_role(workspace_id, name, base_role, permissions \\ nil) do
+  def create_custom_role(workspace_id, name, base_role, permissions \\ nil, opts \\ []) do
+    opts = preload_actor_role(opts)
+
     with :ok <- validate_custom_base_role(base_role),
          {:ok, resolved_permissions} <-
-           Authorization.validate_create_permissions(permissions, base_role) do
+           Authorization.validate_create_permissions(permissions, base_role, opts) do
       Repo.transaction(fn ->
         create_custom_role_transaction(workspace_id, name, base_role, resolved_permissions)
       end)
@@ -34,12 +37,14 @@ defmodule RefMD.Workspaces.Roles do
   end
 
   def update_role(role, attrs, opts \\ []) do
+    role = Repo.preload(role, :permissions)
+    opts = preload_actor_role(opts)
     permissions = Keyword.get(opts, :permissions)
 
-    with {:ok, {resolved_permissions, submitted_keys}} <-
-           Authorization.validate_update_permissions(permissions, role) do
+    with {:ok, resolved_permissions} <-
+           Authorization.validate_update_permissions(permissions, role, opts) do
       Repo.transaction(fn ->
-        update_role_transaction(role, attrs, resolved_permissions, submitted_keys)
+        update_role_transaction(role, attrs, resolved_permissions)
       end)
     end
   end
@@ -110,6 +115,16 @@ defmodule RefMD.Workspaces.Roles do
 
   # ── Private Helpers ─────────────────────────────
 
+  defp preload_actor_role(opts) do
+    case Keyword.fetch(opts, :actor_role) do
+      {:ok, %WorkspaceRole{} = role} ->
+        Keyword.put(opts, :actor_role, Repo.preload(role, :permissions))
+
+      _ ->
+        opts
+    end
+  end
+
   defp create_custom_role_transaction(workspace_id, name, base_role, resolved_permissions) do
     role =
       %WorkspaceRole{created_at: DateTime.utc_now()}
@@ -132,10 +147,10 @@ defmodule RefMD.Workspaces.Roles do
     end
   end
 
-  defp update_role_transaction(role, attrs, resolved_permissions, submitted_keys) do
+  defp update_role_transaction(role, attrs, resolved_permissions) do
     role_attrs = Map.reject(attrs, fn {_k, v} -> is_nil(v) end)
     updated = apply_role_attrs(role, role_attrs)
-    merge_permissions_if_present(role.id, resolved_permissions, submitted_keys)
+    replace_permissions_if_present(role.id, resolved_permissions)
     Repo.preload(updated, :permissions, force: true)
   end
 
@@ -188,27 +203,13 @@ defmodule RefMD.Workspaces.Roles do
       else: base
   end
 
-  defp merge_permissions_if_present(_role_id, nil, _submitted_keys), do: :ok
-  defp merge_permissions_if_present(_role_id, _permissions, []), do: :ok
+  defp replace_permissions_if_present(_role_id, nil), do: :ok
 
-  defp merge_permissions_if_present(role_id, permissions, submitted_keys) do
-    keys_to_delete = submitted_keys || Enum.map(permissions, fn %{"permission" => p} -> p end)
-
-    from(p in WorkspaceRolePermission,
-      where: p.role_id == ^role_id and p.permission in ^keys_to_delete
-    )
+  defp replace_permissions_if_present(role_id, permissions) do
+    from(p in WorkspaceRolePermission, where: p.role_id == ^role_id)
     |> Repo.delete_all()
 
-    submitted_set = if submitted_keys, do: MapSet.new(submitted_keys), else: nil
-
-    permissions_to_save =
-      if submitted_set do
-        Enum.filter(permissions, fn %{"permission" => p} -> MapSet.member?(submitted_set, p) end)
-      else
-        permissions
-      end
-
-    save_permission_overrides(role_id, permissions_to_save)
+    save_permission_overrides(role_id, permissions)
   end
 
   defp save_permission_overrides(_role_id, []), do: :ok
@@ -228,7 +229,17 @@ defmodule RefMD.Workspaces.Roles do
     end)
   end
 
-  defp count_role_invitations(_role_id), do: 0
+  defp count_role_invitations(role_id) do
+    now = DateTime.utc_now()
+
+    from(i in WorkspaceInvitation,
+      where:
+        i.role_id == ^role_id and i.is_used == false and is_nil(i.revoked_at) and
+          i.expires_at > ^now,
+      select: count(i.id)
+    )
+    |> Repo.one()
+  end
 
   defp validate_custom_base_role("owner"), do: {:error, :owner_role_not_allowed}
   defp validate_custom_base_role(base_role) when base_role in ~w(admin editor viewer), do: :ok

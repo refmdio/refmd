@@ -146,7 +146,9 @@ defmodule RefMDWeb.RoleController do
   # ── Helpers ───────────────────────────────────────────
 
   defp create_role_with_permissions(conn, workspace_id, name, base_role, permissions) do
-    case Workspaces.create_custom_role(workspace_id, name, base_role, permissions) do
+    case Workspaces.create_custom_role(workspace_id, name, base_role, permissions,
+           actor_role: conn.assigns.workspace_role
+         ) do
       {:ok, role} ->
         conn |> put_status(:created) |> json(serialize_role(role))
 
@@ -187,7 +189,8 @@ defmodule RefMDWeb.RoleController do
     is_default = params["is_default"]
 
     case Workspaces.update_role(role, %{name: name, is_default: is_default},
-           permissions: permissions
+           permissions: permissions,
+           actor_role: conn.assigns.workspace_role
          ) do
       {:ok, updated_role} ->
         json(conn, serialize_role(updated_role))
@@ -215,6 +218,18 @@ defmodule RefMDWeb.RoleController do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: "permission_exceeds_base_role", permission: perm})
+  end
+
+  defp handle_role_error(conn, {:permission_exceeds_actor, perm}) do
+    conn
+    |> put_status(:forbidden)
+    |> json(%{error: "permission_exceeds_actor", permission: perm})
+  end
+
+  defp handle_role_error(conn, :actor_not_member) do
+    conn
+    |> put_status(:forbidden)
+    |> json(%{error: "actor_not_member"})
   end
 
   defp handle_role_error(conn, {:invalid_permission_dependency, perm}) do

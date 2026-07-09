@@ -84,6 +84,18 @@ defmodule RefMD.Workspaces.Guests.Invitations do
     |> Repo.all()
   end
 
+  def delete_expired_guest_invitations(now \\ DateTime.utc_now()) do
+    {count, _} =
+      from(i in GuestInvitation,
+        where:
+          i.expires_at <= ^now and
+            i.redemption_count == 0
+      )
+      |> Repo.delete_all()
+
+    count
+  end
+
   def revoke_guest_invitation(workspace_id, invitation_id, actor_user_id) do
     revoke_guest_invitation(workspace_id, invitation_id, actor_user_id, nil)
   end

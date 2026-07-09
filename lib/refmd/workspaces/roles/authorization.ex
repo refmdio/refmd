@@ -48,45 +48,59 @@ defmodule RefMD.Workspaces.Roles.Authorization do
     {"document:read", "member:list"}
   ]
 
-  def validate_create_permissions(nil, _base_role), do: {:ok, nil}
+  def validate_create_permissions(permissions, base_role, opts \\ [])
 
-  def validate_create_permissions(permissions, base_role) when is_list(permissions) do
+  def validate_create_permissions(nil, base_role, opts) do
+    with :ok <- validate_actor_permission_ceiling([], base_role, nil, opts) do
+      {:ok, nil}
+    end
+  end
+
+  def validate_create_permissions(permissions, base_role, opts) when is_list(permissions) do
     role_power_val = @role_power[base_role]
 
     with :ok <- validate_permission_keys(permissions),
-         :ok <- validate_permission_ceilings(permissions, role_power_val) do
-      case validate_permission_dependencies(permissions, base_role, nil) do
-        :ok -> {:ok, filter_default_matching_overrides(permissions, base_role, nil)}
-        error -> error
-      end
+         :ok <- validate_permission_ceilings(permissions, role_power_val),
+         :ok <- validate_permission_dependencies(permissions, base_role, nil) do
+      resolve_permissions_with_actor_ceiling(permissions, base_role, nil, opts)
     end
   end
 
-  def validate_create_permissions(_permissions, _base_role),
+  def validate_create_permissions(_permissions, _base_role, _opts),
     do: {:error, {:invalid_permission, nil}}
 
-  def validate_update_permissions(nil, _role), do: {:ok, {nil, nil}}
+  def validate_update_permissions(permissions, role, opts \\ [])
 
-  def validate_update_permissions(permissions, role) when is_list(permissions) do
+  def validate_update_permissions(nil, role, opts) do
+    with :ok <-
+           validate_actor_permission_ceiling(
+             permission_params_from_role(role),
+             role.base_role,
+             role.catalog_version,
+             opts
+           ) do
+      {:ok, nil}
+    end
+  end
+
+  def validate_update_permissions(permissions, role, opts) when is_list(permissions) do
     role_power_val = @role_power[role.base_role]
 
     with :ok <- validate_permission_keys(permissions),
-         :ok <- validate_permission_ceilings(permissions, role_power_val) do
-      merged = merge_with_existing_overrides(permissions, role)
-
-      case validate_permission_dependencies(merged, role.base_role, role.catalog_version) do
-        :ok ->
-          {:ok,
-           {filter_default_matching_overrides(merged, role.base_role, role.catalog_version),
-            Enum.map(permissions, & &1["permission"])}}
-
-        error ->
-          error
-      end
+         :ok <- validate_permission_ceilings(permissions, role_power_val),
+         :ok <-
+           validate_permission_dependencies(permissions, role.base_role, role.catalog_version) do
+      resolve_permissions_with_actor_ceiling(
+        permissions,
+        role.base_role,
+        role.catalog_version,
+        opts
+      )
     end
   end
 
-  def validate_update_permissions(_permissions, _role), do: {:error, {:invalid_permission, nil}}
+  def validate_update_permissions(_permissions, _role, _opts),
+    do: {:error, {:invalid_permission, nil}}
 
   def validate_role_assignment(actor_role, target_role) do
     actor_power = @role_power[actor_role.base_role]
@@ -160,22 +174,6 @@ defmodule RefMD.Workspaces.Roles.Authorization do
     end
   end
 
-  defp merge_with_existing_overrides(submitted, role) do
-    existing_map =
-      Map.new(role.permissions, fn p ->
-        {p.permission, %{"permission" => p.permission, "granted" => p.granted}}
-      end)
-
-    submitted_map =
-      Map.new(submitted, fn %{"permission" => p, "granted" => g} ->
-        {p, %{"permission" => p, "granted" => g}}
-      end)
-
-    submitted_map
-    |> Map.merge(existing_map, fn _key, submitted_value, _existing_value -> submitted_value end)
-    |> Map.values()
-  end
-
   defp validate_permission_keys(permissions) do
     invalid =
       Enum.find(permissions, fn entry ->
@@ -227,6 +225,63 @@ defmodule RefMD.Workspaces.Roles.Authorization do
   defp filter_default_matching_overrides(permissions, base_role, catalog_version) do
     Enum.filter(permissions, fn %{"permission" => perm, "granted" => granted} ->
       granted != effective_default?(perm, base_role, catalog_version)
+    end)
+  end
+
+  defp resolve_permissions_with_actor_ceiling(permissions, base_role, catalog_version, opts) do
+    resolved_permissions =
+      filter_default_matching_overrides(permissions, base_role, catalog_version)
+
+    with :ok <-
+           validate_actor_permission_ceiling(
+             resolved_permissions,
+             base_role,
+             catalog_version,
+             opts
+           ) do
+      {:ok, resolved_permissions}
+    end
+  end
+
+  defp validate_actor_permission_ceiling(permissions, base_role, catalog_version, opts) do
+    case Keyword.fetch(opts, :actor_role) do
+      :error ->
+        :ok
+
+      {:ok, nil} ->
+        {:error, :actor_not_member}
+
+      {:ok, actor_role} ->
+        target_permissions =
+          %{
+            base_role: base_role,
+            catalog_version: catalog_version,
+            permissions: to_role_permissions(permissions)
+          }
+          |> effective_permissions()
+
+        denied_permission =
+          target_permissions
+          |> MapSet.difference(effective_permissions(actor_role))
+          |> MapSet.to_list()
+          |> Enum.sort()
+          |> List.first()
+
+        if denied_permission,
+          do: {:error, {:permission_exceeds_actor, denied_permission}},
+          else: :ok
+    end
+  end
+
+  defp permission_params_from_role(role) do
+    role
+    |> Map.get(:permissions, [])
+    |> Enum.map(fn p -> %{"permission" => p.permission, "granted" => p.granted} end)
+  end
+
+  defp to_role_permissions(permissions) do
+    Enum.map(permissions, fn %{"permission" => permission, "granted" => granted} ->
+      %{permission: permission, granted: granted}
     end)
   end
 

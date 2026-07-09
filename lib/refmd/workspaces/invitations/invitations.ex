@@ -171,6 +171,16 @@ defmodule RefMD.Workspaces.Invitations do
     |> Repo.all()
   end
 
+  def delete_expired_invitations(now \\ DateTime.utc_now()) do
+    {count, _} =
+      from(i in WorkspaceInvitation,
+        where: i.expires_at <= ^now
+      )
+      |> Repo.delete_all()
+
+    count
+  end
+
   def revoke_invitation(workspace_id, invitation_id) do
     revoke_invitation(workspace_id, invitation_id, nil, nil)
   end

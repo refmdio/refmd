@@ -1,12 +1,11 @@
 defmodule RefMD.Workspaces.Members do
   @moduledoc false
 
-  require Logger
-
   import Ecto.Query
 
   alias RefMD.{Devices, Encryption}
   alias RefMD.Repo
+  alias RefMD.Workspaces.KekRotation
 
   alias RefMD.Workspaces.{
     Workspace,
@@ -165,47 +164,36 @@ defmodule RefMD.Workspaces.Members do
   end
 
   def remove_member(workspace_id, target_user_id, actor_user_id, key_directory) do
-    result =
-      Repo.transaction(fn ->
-        lock_workspace_row(workspace_id)
-        owner_rows = lock_owner_rows(workspace_id)
-        target_role = fetch_role_for_user(workspace_id, target_user_id)
+    Repo.transaction(fn ->
+      lock_workspace_row(workspace_id)
+      owner_rows = lock_owner_rows(workspace_id)
+      target_role = fetch_role_for_user(workspace_id, target_user_id)
 
-        case validate_removal(
-               workspace_id,
-               target_user_id,
-               actor_user_id,
-               target_role,
-               owner_rows
-             ) do
-          :ok ->
-            append_member_removal_key_directory!(workspace_id, target_user_id, key_directory)
+      case validate_removal(
+             workspace_id,
+             target_user_id,
+             actor_user_id,
+             target_role,
+             owner_rows
+           ) do
+        :ok ->
+          append_member_removal_key_directory!(workspace_id, target_user_id, key_directory)
 
-            member = do_remove_member(workspace_id, target_user_id)
-            revoke_removed_member_invitations(workspace_id, target_user_id)
-            member
+          member = do_remove_member(workspace_id, target_user_id)
+          revoke_removed_member_invitations(workspace_id, target_user_id)
 
-          {:error, reason} ->
-            Repo.rollback(reason)
-        end
-      end)
-      |> normalize_transaction_result()
+          mark_rotation_needed!(
+            workspace_id,
+            rotation_initiator(workspace_id, target_user_id, actor_user_id)
+          )
 
-    case result do
-      {:ok, member} ->
-        initiator =
-          if target_user_id == actor_user_id do
-            find_rotation_initiator(workspace_id)
-          else
-            actor_user_id
-          end
+          member
 
-        best_effort_flag_kek_rotation(workspace_id, initiator)
-        {:ok, member}
-
-      error ->
-        error
-    end
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+    |> normalize_transaction_result()
   end
 
   # ── Private Helpers ─────────────────────────────
@@ -299,35 +287,20 @@ defmodule RefMD.Workspaces.Members do
     end
   end
 
-  defp best_effort_flag_kek_rotation(workspace_id, initiator_user_id) do
-    from(w in Workspace,
-      where: w.id == ^workspace_id and w.needs_kek_rotation == false
-    )
-    |> Repo.update_all(
-      set: [
-        needs_kek_rotation: true,
-        kek_rotation_initiator_user_id: initiator_user_id
-      ]
-    )
+  defp rotation_initiator(workspace_id, target_user_id, actor_user_id) do
+    if target_user_id == actor_user_id do
+      find_rotation_initiator(workspace_id)
+    else
+      actor_user_id
+    end
+  end
 
-    RefMD.Workspaces.mark_dek_rotation_needed([workspace_id])
+  defp mark_rotation_needed!(workspace_id, initiator_user_id) do
+    KekRotation.mark_kek_rotation_needed([workspace_id], initiator_user_id)
+    KekRotation.mark_dek_rotation_needed([workspace_id])
+    :ok
   rescue
-    e ->
-      Logger.error("Failed to flag rotation for workspace #{workspace_id}: #{inspect(e)}")
-
-      alias RefMD.Workers.RetryRotationMarking
-
-      case %{workspace_id: workspace_id, initiator_user_id: initiator_user_id}
-           |> RetryRotationMarking.new()
-           |> Oban.insert() do
-        {:ok, _job} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.error(
-            "Failed to enqueue rotation retry for workspace #{workspace_id}: #{inspect(reason)}"
-          )
-      end
+    _ -> Repo.rollback(:rotation_mark_failed)
   end
 
   defp check_rbac_permission(nil, _permission), do: {:error, :actor_not_member}

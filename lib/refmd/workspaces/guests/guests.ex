@@ -40,6 +40,8 @@ defmodule RefMD.Workspaces.Guests do
 
   defdelegate list_guest_invitations(workspace_id), to: RefMD.Workspaces.Guests.Invitations
 
+  defdelegate delete_expired_guest_invitations(now), to: RefMD.Workspaces.Guests.Invitations
+
   defdelegate revoke_guest_invitation(workspace_id, invitation_id, actor_user_id),
     to: RefMD.Workspaces.Guests.Invitations
 

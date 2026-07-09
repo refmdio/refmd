@@ -17,6 +17,8 @@ defmodule RefMD.Workspaces do
     WorkspaceRole
   }
 
+  alias RefMD.Workspaces.Guests
+  alias RefMD.Workspaces.Invitations
   alias RefMD.Workspaces.Roles, as: WRoles
 
   # ── Members (delegated to RefMD.Workspaces.Members) ──
@@ -74,8 +76,8 @@ defmodule RefMD.Workspaces do
 
   defdelegate list_workspace_roles(workspace_id), to: RefMD.Workspaces.Roles
 
-  def create_custom_role(workspace_id, name, base_role, permissions \\ nil),
-    do: WRoles.create_custom_role(workspace_id, name, base_role, permissions)
+  def create_custom_role(workspace_id, name, base_role, permissions \\ nil, opts \\ []),
+    do: WRoles.create_custom_role(workspace_id, name, base_role, permissions, opts)
 
   def update_role(role, attrs, opts \\ []),
     do: WRoles.update_role(role, attrs, opts)
@@ -120,6 +122,13 @@ defmodule RefMD.Workspaces do
 
   defdelegate revoke_invitations_for_email(workspace_id, email),
     to: RefMD.Workspaces.Invitations
+
+  def cleanup_expired_invitations(now \\ DateTime.utc_now()) do
+    %{
+      workspace_invitations: Invitations.delete_expired_invitations(now),
+      guest_invitations: Guests.delete_expired_guest_invitations(now)
+    }
+  end
 
   defdelegate revoke_all_active_invitations(workspace_ids), to: RefMD.Workspaces.Invitations
   defdelegate revoke_all_active_guest_invitations(workspace_ids), to: RefMD.Workspaces.Guests
