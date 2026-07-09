@@ -135,6 +135,7 @@ export function useSessionBootstrap() {
     if (canRenderBeforeSessionRestore()) {
       setReady(true);
       prewarmShareLandingPath();
+      void attemptRestore();
       return;
     }
     void attemptRestore();

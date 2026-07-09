@@ -7,10 +7,10 @@ export type DescendantRow = { document: DocumentResponse; depth: number };
 export const SHARE_EXPIRY_UPDATE_OPTIONS: SelectOption[] = [
   { value: "", label: "Keep expiry" },
   { value: "0", label: "No expiry" },
-  { value: "1", label: "Expire in 1 day" },
-  { value: "7", label: "Expire in 7 days" },
-  { value: "14", label: "Expire in 14 days" },
-  { value: "30", label: "Expire in 30 days" },
+  { value: "1", label: "Expire at event 1" },
+  { value: "7", label: "Expire at event 7" },
+  { value: "14", label: "Expire at event 14" },
+  { value: "30", label: "Expire at event 30" },
 ];
 
 export const SHARE_PERMISSION_OPTIONS: SelectOption[] = [
@@ -20,10 +20,10 @@ export const SHARE_PERMISSION_OPTIONS: SelectOption[] = [
 
 export const SHARE_EXPIRY_CREATE_OPTIONS: SelectOption[] = [
   { value: "", label: "No expiry" },
-  { value: "1", label: "1 day" },
-  { value: "7", label: "7 days" },
-  { value: "14", label: "14 days" },
-  { value: "30", label: "30 days" },
+  { value: "1", label: "Event 1" },
+  { value: "7", label: "Event 7" },
+  { value: "14", label: "Event 14" },
+  { value: "30", label: "Event 30" },
 ];
 
 function optionLabel(options: SelectOption[], value: string): string {

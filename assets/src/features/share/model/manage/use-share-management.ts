@@ -49,7 +49,7 @@ export function useShareManagement(options: UseShareManagementOptions) {
   const [permission, setPermission] = createSignal<"view" | "edit">("view");
   const [passwordEnabled, setPasswordEnabled] = createSignal(false);
   const [password, setPassword] = createSignal("");
-  const [expiryDays, setExpiryDays] = createSignal<number | null>(7);
+  const [expiryDays, setExpiryDays] = createSignal<number | null>(null);
   const [accessLimit, setAccessLimit] = createSignal("");
   const [excludedDocumentIds, setExcludedDocumentIds] = createSignal<string[]>([]);
   const [creating, setCreating] = createSignal(false);
@@ -78,7 +78,7 @@ export function useShareManagement(options: UseShareManagementOptions) {
     setPermission("view");
     setPasswordEnabled(false);
     setPassword("");
-    setExpiryDays(7);
+    setExpiryDays(null);
     setAccessLimit("");
     setExcludedDocumentIds([]);
     setCreatedLink(null);
@@ -105,7 +105,7 @@ export function useShareManagement(options: UseShareManagementOptions) {
         documents: options.documents(),
         permission: permission(),
         password: passwordEnabled() ? password() : "",
-        expiresEventSequence: Number.MAX_SAFE_INTEGER,
+        expiresEventSequence: shareExpiresEventSequence(expiryDays()),
         accessLimit: parsedAccessLimit,
         exclusions: excludedDocumentIds(),
       });
@@ -194,7 +194,7 @@ export function useShareManagement(options: UseShareManagementOptions) {
       const nextExpiresEventSequence =
         values.expiryDays === undefined
           ? values.currentExpiresEventSequence
-          : shareExpiresEventSequence(null);
+          : shareExpiresEventSequence(values.expiryDays);
       const nextMaxViews =
         parsedAccessLimit === undefined
           ? values.currentMaxViews

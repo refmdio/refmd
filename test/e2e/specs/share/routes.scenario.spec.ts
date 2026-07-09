@@ -375,7 +375,7 @@ test.describe.serial("Share Route Session Coexistence", () => {
       expect(canonicalHeaders).toContain("share");
     });
 
-    await test.step("logged-in direct share access does not start user session lifecycle", async () => {
+    await test.step("logged-in direct share access restores user session without leaking user scope", async () => {
       const loggedInSharePage = await sharedContext.newPage();
       const userLifecycleRequests: string[] = [];
       const userScopedRrpChallenges: Array<string | undefined> = [];
@@ -405,7 +405,10 @@ test.describe.serial("Share Route Session Coexistence", () => {
         );
 
         await loggedInSharePage.waitForTimeout(E2E_DELAYS.routeSettle);
-        expect(userLifecycleRequests).toEqual([]);
+        expect(userLifecycleRequests).toContain("/api/auth/me");
+        expect(
+          userLifecycleRequests.filter((path) => path !== "/api/auth/me" && path !== "/api/devices"),
+        ).toEqual([]);
         expect(userScopedRrpChallenges).toEqual([]);
       } finally {
         await loggedInSharePage.close();
