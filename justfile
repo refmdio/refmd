@@ -33,7 +33,7 @@ web-clean:
 
 # ── Services ──────────────────────────────────────
 
-# Start infra (PostgreSQL)
+# Start infra (PostgreSQL + Garage)
 services-up:
     docker compose up -d
 
