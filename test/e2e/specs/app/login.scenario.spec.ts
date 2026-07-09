@@ -1,11 +1,22 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  chromium,
+  firefox,
+  type BrowserContext,
+  type BrowserType,
+  type Page,
+} from "@playwright/test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   registerAccount,
   login,
   logout,
   TEST_PASSWORD,
 } from "../../support/auth";
-import { newE2EContext } from "../../support/context";
+import { launchPersistentE2EContext, newE2EContext } from "../../support/context";
 import { waitForWorkspaceReady } from "../../support/workspace";
 import { E2E_DELAYS, E2E_TIMEOUTS } from "../../support/timeouts";
 
@@ -131,4 +142,71 @@ test.describe.serial("Login, Logout & Session", () => {
       }
     });
   });
+});
+
+async function launchRestartContext(
+  browserType: BrowserType,
+  userDataDir: string,
+): Promise<BrowserContext> {
+  return launchPersistentE2EContext(browserType, userDataDir, {
+    acceptDownloads: true,
+    headless: true,
+    ...(browserType === chromium ? { args: ["--disable-web-security"] } : {}),
+  });
+}
+
+async function firstPage(context: BrowserContext): Promise<Page> {
+  return context.pages()[0] ?? context.newPage();
+}
+
+test("keep-me-signed-in controls encrypted key restoration across browser restart", async ({
+  browserName,
+}) => {
+  test.setTimeout(E2E_TIMEOUTS.extendedScenario);
+
+  const browserType: BrowserType = browserName === "firefox" ? firefox : chromium;
+  const enabledUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "refmd-kmsi-on-e2e-"));
+  const disabledUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "refmd-kmsi-off-e2e-"));
+  let context: BrowserContext | null = null;
+
+  try {
+    context = await launchRestartContext(browserType, enabledUserDataDir);
+    let page = await firstPage(context);
+    const enabledEmail = await registerAccount(page);
+    await logout(page);
+    await login(page, enabledEmail, { rememberMe: true });
+    await waitForWorkspaceReady(page);
+
+    await context.close();
+    context = await launchRestartContext(browserType, enabledUserDataDir);
+    page = await firstPage(context);
+    await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+
+    await expect(page).toHaveURL(/dashboard/, { timeout: 120_000 });
+    await expect(page.getByText("Password Required")).not.toBeVisible({ timeout: 5_000 });
+    await waitForWorkspaceReady(page);
+
+    await context.close();
+    context = await launchRestartContext(browserType, disabledUserDataDir);
+    page = await firstPage(context);
+    const disabledEmail = await registerAccount(page);
+    await logout(page);
+    await login(page, disabledEmail, { rememberMe: false });
+    await waitForWorkspaceReady(page);
+
+    await context.close();
+    context = await launchRestartContext(browserType, disabledUserDataDir);
+    page = await firstPage(context);
+    await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+
+    await expect(page).toHaveURL(/dashboard/, { timeout: 120_000 });
+    await expect(page.getByText("Password Required")).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByRole("button", { name: "Unlock" })).toBeVisible({ timeout: 5_000 });
+  } finally {
+    if (context) {
+      await context.close().catch(() => undefined);
+    }
+    fs.rmSync(enabledUserDataDir, { recursive: true, force: true });
+    fs.rmSync(disabledUserDataDir, { recursive: true, force: true });
+  }
 });

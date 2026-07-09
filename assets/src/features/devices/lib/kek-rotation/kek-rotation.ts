@@ -1,4 +1,4 @@
-import { devicesApi, encryptionApi, workspacesApi } from "@/shared/api";
+import { ApiError, devicesApi, encryptionApi, workspacesApi } from "@/shared/api";
 import type { WorkspaceRotationInfo } from "@/shared/api/devices";
 import type { components } from "@/shared/api/schema";
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
@@ -16,8 +16,10 @@ import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import {
   buildKekOldKeyDeletionManifestHash,
   buildKekRotationCompletionKeyDirectoryAppend,
+  buildKekRotationStartKeyDirectoryAppend,
   kekRotationCompletedEventHash,
 } from "@/shared/lib/crypto/key-directory/rotation-events";
+import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 
 type TriggerKekRotationFn = (rotationList: WorkspaceRotationInfo[]) => Promise<void>;
 type DeviceKeyDeletionProof =
@@ -98,6 +100,42 @@ export async function performKekRotation(
     const workspaceId = workspace.workspace_id;
     try {
       const newVersion = workspace.current_kek_version + 1;
+
+      const startDirectory = await fetchVerifiedKeyDirectory({
+        scopeKind: "workspace",
+        scopeId: workspaceId,
+        rrpDeviceId: currentDeviceId,
+      });
+      const startAppend = await buildKekRotationStartKeyDirectoryAppend({
+        workspaceId,
+        actorUserId: userId,
+        actorDeviceId: currentDeviceId,
+        checkpointEnvelope: startDirectory.checkpoint,
+        oldKeyVersion: workspace.current_kek_version,
+        newKeyVersion: newVersion,
+        reason: "security",
+      });
+      try {
+        await encryptionApi.startKekRotation(workspaceId, {
+          workspace_key_directory_events: startAppend.events,
+          workspace_key_directory_checkpoint: startAppend.checkpoint,
+        });
+        await advanceKeyDirectoryPinWithProof({
+          scopeKind: "workspace",
+          scopeId: workspaceId,
+          checkpointEnvelope: startAppend.checkpoint,
+          checkpointAncestry: [startDirectory.checkpoint],
+          eventAncestry: startAppend.events,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof ApiError) ||
+          error.status !== 409 ||
+          error.code !== "kek_rotation_already_in_progress"
+        ) {
+          throw error;
+        }
+      }
 
       await worker.generateKek(workspaceId, newVersion);
 

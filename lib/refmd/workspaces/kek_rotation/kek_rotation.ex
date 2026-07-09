@@ -43,7 +43,8 @@ defmodule RefMD.Workspaces.KekRotation do
         workspace == nil ->
           Repo.rollback(:not_found)
 
-        workspace.needs_kek_rotation ->
+        workspace.needs_kek_rotation and
+            Directory.rotation_started?(workspace, workspace.current_kek_version + 1) ->
           Repo.rollback(:kek_rotation_already_in_progress)
 
         true ->

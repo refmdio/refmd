@@ -872,6 +872,8 @@ export async function handlePersistCurrentKeysWithDsk(
     const wrappedUmk = await handleWrapUmkWithDsk(state, { userId });
     await storeDskStoreValueInWorker(WRAPPED_UMK_KEY, wrappedUmk);
     storedUmk = true;
+  } else {
+    await deleteDskStoreValueInWorker(WRAPPED_UMK_KEY);
   }
 
   if (

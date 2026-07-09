@@ -1,28 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   handleClearPluginApplicationDataWithDsk,
+  handlePersistCurrentKeysWithDsk,
   pluginApplicationStorageKeyPrefixes,
   pluginCredentialStorageKey,
 } from "./dsk";
+import { createInitialState } from "../../state";
 
 const dskIdb = vi.hoisted(() => ({
   deleteByPrefix: vi.fn(),
+  deleteValue: vi.fn(),
+  storeValue: vi.fn(),
 }));
 
 vi.mock("../dsk-idb", () => ({
   SHARE_PARTICIPANT_DEVICE_KEY_PREFIX: "wrapped-share-participant-device",
   deleteDskStoreValuesByPrefixInWorker: dskIdb.deleteByPrefix,
-  deleteDskStoreValueInWorker: vi.fn(),
+  deleteDskStoreValueInWorker: dskIdb.deleteValue,
   loadDskStoreValueInWorker: vi.fn(),
   loadShareParticipantDeviceKeysInWorker: vi.fn(),
   storeDskInWorker: vi.fn(),
-  storeDskStoreValueInWorker: vi.fn(),
+  storeDskStoreValueInWorker: dskIdb.storeValue,
   storeShareParticipantDeviceKeysInWorker: vi.fn(),
 }));
 
 describe("DSK plugin credential storage", () => {
   beforeEach(() => {
     dskIdb.deleteByPrefix.mockReset();
+    dskIdb.deleteValue.mockReset();
+    dskIdb.storeValue.mockReset();
   });
 
   it("uses the Host credential namespace required for persisted credentials", () => {
@@ -80,5 +86,23 @@ describe("DSK plugin credential storage", () => {
         "refmd-plugin-user-local:package-one:application-one:activation-one:workspace-one:user-one:device-one:",
       ].sort(),
     );
+  });
+});
+
+describe("DSK KMSI persistence", () => {
+  beforeEach(() => {
+    dskIdb.deleteByPrefix.mockReset();
+    dskIdb.deleteValue.mockReset();
+    dskIdb.storeValue.mockReset();
+  });
+
+  it("removes an existing wrapped UMK when KMSI persistence is disabled", async () => {
+    await handlePersistCurrentKeysWithDsk(createInitialState(), {
+      userId: "user-one",
+      persistUmk: false,
+    });
+
+    expect(dskIdb.deleteValue).toHaveBeenCalledWith("wrapped-umk");
+    expect(dskIdb.storeValue).not.toHaveBeenCalledWith("wrapped-umk", expect.anything());
   });
 });

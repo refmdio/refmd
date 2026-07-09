@@ -211,10 +211,7 @@ defmodule RefMD.Devices.Revocations do
   @serializable_max_retries 3
 
   defp with_serializable_retry(fun, attempt \\ 1) do
-    Repo.transaction(fn ->
-      Repo.query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-      fun.()
-    end)
+    Repo.transaction(fn -> fun.() end, isolation: :serializable)
   rescue
     e in Postgrex.Error ->
       serializable_error? =

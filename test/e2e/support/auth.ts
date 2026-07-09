@@ -187,9 +187,7 @@ export async function login(
     await emailInput.fill(email);
     await page.locator("#password").fill(TEST_PASSWORD);
     if (options?.rememberMe === true) {
-      await page.locator("#remember").check();
-    } else {
-      await page.locator("#remember").uncheck();
+      await page.getByText("Keep me signed in", { exact: true }).click({ timeout: 5_000 });
     }
     await page.locator('button[type="submit"]').click();
 

@@ -15,6 +15,10 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
     WorkspaceRole
   }
 
+  def rotation_started?(workspace, new_kek_version) when is_integer(new_kek_version) do
+    rotation_started_event(workspace.id, workspace.current_kek_version, new_kek_version) != nil
+  end
+
   def completion_manifest_materials(workspace, new_kek_version)
       when is_integer(new_kek_version) do
     old_kek_version = workspace.current_kek_version
@@ -345,6 +349,14 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
   end
 
   defp latest_rotation_started_event!(workspace_id, old_kek_version, new_kek_version) do
+    rotation_started_event(workspace_id, old_kek_version, new_kek_version)
+    |> case do
+      nil -> Repo.rollback(:invalid_key_directory)
+      event -> event
+    end
+  end
+
+  defp rotation_started_event(workspace_id, old_kek_version, new_kek_version) do
     Encryption.workspace_key_directory_events_up_to(
       workspace_id,
       current_workspace_event_sequence!(workspace_id)
@@ -358,10 +370,6 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
         body["scope_id"] == workspace_id and body["old_key_version"] == old_kek_version and
         body["new_key_version"] == new_kek_version
     end)
-    |> case do
-      nil -> Repo.rollback(:invalid_key_directory)
-      event -> event
-    end
   end
 
   defp current_workspace_event_sequence!(workspace_id) do
