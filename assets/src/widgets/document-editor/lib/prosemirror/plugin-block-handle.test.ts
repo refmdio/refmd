@@ -196,6 +196,46 @@ describe("block handle ProseMirror plugin", () => {
     expect(view.state.doc.childCount).toBe(2);
   });
 
+  it("updates the active block from pointer position while the handle is frozen", () => {
+    const openBlockMenuBelow = vi.fn(() => true);
+    const { container, view } = createView(createBlockHandlePlugin({ openBlockMenuBelow }));
+
+    view.posAtCoords = ({ top }) =>
+      ({
+        inside: -1,
+        pos: top < 44 ? 1 : view.state.doc.content.size - 1,
+      }) as ReturnType<EditorView["posAtCoords"]>;
+    view.focus();
+    view.dispatch(
+      view.state.tr.setSelection(
+        TextSelection.create(view.state.doc, view.state.doc.content.size - 1),
+      ),
+    );
+
+    const handle = container.querySelector<HTMLElement>(".pm-block-handle");
+    const addButton = container.querySelector<HTMLButtonElement>(".pm-block-handle-add");
+    expect(handle).not.toBeNull();
+    expect(addButton).not.toBeNull();
+
+    handle?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true, cancelable: true }));
+    view.dom.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 104,
+        clientY: 30,
+      }),
+    );
+    view.dispatch(
+      view.state.tr.setSelection(
+        TextSelection.create(view.state.doc, view.state.doc.content.size - 1),
+      ),
+    );
+    addButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(openBlockMenuBelow).toHaveBeenCalledWith(view, 0);
+  });
+
   it("keeps the handle touchable when the pointer moves from the editor to the handle", () => {
     vi.useFakeTimers();
     const { container, view } = createView();
@@ -263,12 +303,14 @@ describe("block handle ProseMirror plugin", () => {
 
     expect(handle?.classList.contains("visible")).toBe(true);
     expect(handle?.classList.contains("dragging")).toBe(true);
+    expect(view.dom.classList.contains("refmd-wysiwyg-block-dragging")).toBe(true);
     expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "First");
     expect(dataTransfer.setDragImage).toHaveBeenCalled();
 
     dragButton?.dispatchEvent(new Event("dragend", { bubbles: true, cancelable: true }));
 
     expect(handle?.classList.contains("dragging")).toBe(false);
+    expect(view.dom.classList.contains("refmd-wysiwyg-block-dragging")).toBe(false);
     expect(document.querySelector(".pm-block-drag-preview")).toBeNull();
   });
 
@@ -292,9 +334,11 @@ describe("block handle ProseMirror plugin", () => {
       }),
     );
     expect(document.body.style.cursor).toBe("grabbing");
+    expect(view.dom.classList.contains("refmd-wysiwyg-block-dragging")).toBe(true);
 
     view.destroy();
     expect(document.body.style.cursor).toBe("crosshair");
+    expect(view.dom.classList.contains("refmd-wysiwyg-block-dragging")).toBe(false);
     document.body.style.cursor = "";
   });
 

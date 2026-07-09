@@ -839,12 +839,16 @@
             "type": "string"
           },
           "encrypted_title": {
+            "minLength": 1,
             "type": "string"
           },
           "encrypted_title_key_version": {
+            "minimum": 1,
             "type": "integer"
           },
           "encrypted_title_nonce": {
+            "maxLength": 32,
+            "minLength": 32,
             "type": "string"
           },
           "id": {
@@ -856,9 +860,6 @@
             "nullable": true,
             "type": "string"
           },
-          "title": {
-            "type": "string"
-          },
           "workspace_id": {
             "format": "uuid",
             "type": "string"
@@ -866,7 +867,10 @@
         },
         "required": [
           "workspace_id",
-          "doc_type"
+          "doc_type",
+          "encrypted_title",
+          "encrypted_title_nonce",
+          "encrypted_title_key_version"
         ],
         "title": "CreateDocumentRequest",
         "type": "object"
@@ -31719,20 +31723,21 @@
         "additionalProperties": false,
         "properties": {
           "encrypted_title": {
+            "minLength": 1,
             "type": "string"
           },
           "encrypted_title_key_version": {
+            "minimum": 1,
             "type": "integer"
           },
           "encrypted_title_nonce": {
+            "maxLength": 32,
+            "minLength": 32,
             "type": "string"
           },
           "parent_id": {
             "format": "uuid",
             "nullable": true,
-            "type": "string"
-          },
-          "title": {
             "type": "string"
           }
         },

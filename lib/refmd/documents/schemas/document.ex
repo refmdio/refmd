@@ -2,6 +2,8 @@ defmodule RefMD.Documents.Document do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @encrypted_title_nonce_bytes 24
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
@@ -54,6 +56,7 @@ defmodule RefMD.Documents.Document do
     |> validate_inclusion(:write_state, ~w(writable read_only archived write_disabled))
     |> validate_number(:position, greater_than_or_equal_to: 0)
     |> validate_title_encryption()
+    |> validate_encrypted_title_metadata_shape()
     |> validate_encrypted_title_update_consistency()
     |> unique_constraint(:id, name: :documents_pkey)
     |> unique_constraint([:workspace_id, :parent_id, :position],
@@ -83,32 +86,55 @@ defmodule RefMD.Documents.Document do
     end
   end
 
-  # On update: if encrypted_title is changed, nonce and key_version must also be provided
   defp validate_encrypted_title_update_consistency(changeset) do
-    if get_change(changeset, :encrypted_title) do
-      changeset
-      |> validate_required([:encrypted_title_nonce, :encrypted_title_key_version])
-      |> validate_change_present(:encrypted_title_nonce)
-      |> validate_change_present(:encrypted_title_key_version)
-    else
-      changeset
+    supplied_fields =
+      [:encrypted_title, :encrypted_title_nonce, :encrypted_title_key_version]
+      |> Enum.filter(&metadata_field_supplied?(changeset, &1))
+
+    case supplied_fields do
+      [] ->
+        changeset
+
+      [:encrypted_title, :encrypted_title_nonce, :encrypted_title_key_version] ->
+        changeset
+
+      _partial ->
+        changeset
+        |> validate_change_present(:encrypted_title)
+        |> validate_change_present(:encrypted_title_nonce)
+        |> validate_change_present(:encrypted_title_key_version)
     end
   end
 
-  defp validate_change_present(changeset, field) do
-    case fetch_change(changeset, field) do
-      {:ok, _value} ->
-        changeset
+  defp validate_encrypted_title_metadata_shape(changeset) do
+    changeset
+    |> validate_change(:encrypted_title, fn :encrypted_title, value ->
+      if is_binary(value) and byte_size(value) > 0 do
+        []
+      else
+        [encrypted_title: "must be non-empty encrypted title ciphertext"]
+      end
+    end)
+    |> validate_change(:encrypted_title_nonce, fn :encrypted_title_nonce, value ->
+      if is_binary(value) and byte_size(value) == @encrypted_title_nonce_bytes do
+        []
+      else
+        [encrypted_title_nonce: "must be 24 bytes"]
+      end
+    end)
+    |> validate_number(:encrypted_title_key_version, greater_than: 0)
+  end
 
-      :error ->
-        # Field was not in the changeset params at all.
-        # If the field already has the correct value in the data, accept it
-        # (e.g. re-encrypting title with same key_version).
-        if get_field(changeset, field) do
-          changeset
-        else
-          add_error(changeset, field, "must be provided when encrypted_title is updated")
-        end
+  defp metadata_field_supplied?(changeset, field) do
+    params = changeset.params || %{}
+    Map.has_key?(params, Atom.to_string(field)) || Map.has_key?(params, field)
+  end
+
+  defp validate_change_present(changeset, field) do
+    if metadata_field_supplied?(changeset, field) do
+      changeset
+    else
+      add_error(changeset, field, "must be provided with encrypted title metadata updates")
     end
   end
 

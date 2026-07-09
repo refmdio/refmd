@@ -2393,14 +2393,13 @@ export interface components {
         CreateDocumentRequest: {
             /** @enum {string} */
             doc_type: "document" | "folder";
-            encrypted_title?: string;
-            encrypted_title_key_version?: number;
-            encrypted_title_nonce?: string;
+            encrypted_title: string;
+            encrypted_title_key_version: number;
+            encrypted_title_nonce: string;
             /** Format: uuid */
             id?: string;
             /** Format: uuid */
             parent_id?: string | null;
-            title?: string;
             /** Format: uuid */
             workspace_id: string;
         };
@@ -9421,7 +9420,6 @@ export interface components {
             encrypted_title_nonce?: string;
             /** Format: uuid */
             parent_id?: string | null;
-            title?: string;
         };
         /** UpdateWorkspaceRequest */
         UpdateWorkspaceRequest: {

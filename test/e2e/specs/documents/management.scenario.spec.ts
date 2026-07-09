@@ -11,6 +11,101 @@ import { E2E_TIMEOUTS } from "../../support/timeouts";
 let sharedPage: Page;
 const sidebarMutationTimeout = 60_000;
 
+async function readAppDocument(
+  page: Page,
+  title: string,
+): Promise<{ id: string; parentId: string | null; title: string } | null> {
+  return page.evaluate((targetTitle) => {
+    const win = window as Window & {
+      __REFMD_APP_INSTANCE__?: {
+        documents?: {
+          getDocumentList?: () => Array<{
+            id: string;
+            parentId: string | null;
+            title: string;
+          }>;
+        };
+      };
+    };
+    return (
+      win.__REFMD_APP_INSTANCE__?.documents
+        ?.getDocumentList?.()
+        .find((doc) => doc.title === targetTitle) ?? null
+    );
+  }, title);
+}
+
+async function expectDocumentInsideFolder(
+  page: Page,
+  documentTitle: string,
+  folderTitle: string,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const [document, folder] = await Promise.all([
+          readAppDocument(page, documentTitle),
+          readAppDocument(page, folderTitle),
+        ]);
+        return Boolean(document && folder && document.parentId === folder.id);
+      },
+      {
+        timeout: sidebarMutationTimeout,
+        message: `${documentTitle} was not moved inside ${folderTitle}`,
+      },
+    )
+    .toBe(true);
+}
+
+async function dragSidebarItemInsideFolder(
+  page: Page,
+  documentTitle: string,
+  folderTitle: string,
+): Promise<void> {
+  const sidebar = page.locator("aside");
+  const source = sidebar.getByRole("button", { name: documentTitle }).first();
+  const target = sidebar.getByRole("button", { name: folderTitle }).first();
+  await expect(source).toBeVisible({ timeout: sidebarMutationTimeout });
+  await expect(target).toBeVisible({ timeout: sidebarMutationTimeout });
+
+  const targetBox = await target.boundingBox();
+  expect(targetBox).toBeTruthy();
+
+  await source.dragTo(target, {
+    targetPosition: {
+      x: Math.max(8, Math.min(targetBox!.width - 8, targetBox!.width / 2)),
+      y: Math.max(4, Math.min(targetBox!.height - 4, targetBox!.height / 2)),
+    },
+  });
+}
+
+async function expectSidebarIndentGreater(
+  page: Page,
+  childTitle: string,
+  parentTitle: string,
+): Promise<void> {
+  const sidebar = page.locator("aside");
+  const child = sidebar.getByRole("button", { name: childTitle }).first();
+  const parent = sidebar.getByRole("button", { name: parentTitle }).first();
+  await expect(child).toBeVisible({ timeout: sidebarMutationTimeout });
+  await expect(parent).toBeVisible({ timeout: sidebarMutationTimeout });
+
+  const [childPadding, parentPadding] = await Promise.all([
+    child.evaluate((el) => Number.parseFloat(getComputedStyle(el).paddingLeft)),
+    parent.evaluate((el) => Number.parseFloat(getComputedStyle(el).paddingLeft)),
+  ]);
+  expect(childPadding).toBeGreaterThan(parentPadding);
+}
+
+async function reloadAndExpectSidebarItems(page: Page, titles: string[]): Promise<void> {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  for (const title of titles) {
+    await expect(page.locator("aside").getByRole("button", { name: title }).first()).toBeVisible({
+      timeout: sidebarMutationTimeout,
+    });
+  }
+}
+
 test.describe.serial("Document & Folder Management", () => {
   test.beforeAll(async ({ browser }) => {
     sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
@@ -151,6 +246,30 @@ test.describe.serial("Document & Folder Management", () => {
       await expect(
         sharedPage.locator("aside").getByText("Empty Folder"),
       ).not.toBeVisible({ timeout: sidebarMutationTimeout });
+    });
+
+    await test.step("drag and drop moves a document into a folder hierarchy", async () => {
+      await createFolder(sharedPage, "Dnd Folder");
+      await createDocument(sharedPage, "Dnd Document");
+      await createFolder(sharedPage, "Nested Dnd Folder");
+
+      await dragSidebarItemInsideFolder(sharedPage, "Dnd Document", "Dnd Folder");
+      await expectDocumentInsideFolder(sharedPage, "Dnd Document", "Dnd Folder");
+      await expectSidebarIndentGreater(sharedPage, "Dnd Document", "Dnd Folder");
+
+      await dragSidebarItemInsideFolder(sharedPage, "Nested Dnd Folder", "Dnd Folder");
+      await expectDocumentInsideFolder(sharedPage, "Nested Dnd Folder", "Dnd Folder");
+      await expectSidebarIndentGreater(sharedPage, "Nested Dnd Folder", "Dnd Folder");
+
+      await reloadAndExpectSidebarItems(sharedPage, [
+        "Dnd Folder",
+        "Dnd Document",
+        "Nested Dnd Folder",
+      ]);
+      await expectDocumentInsideFolder(sharedPage, "Dnd Document", "Dnd Folder");
+      await expectDocumentInsideFolder(sharedPage, "Nested Dnd Folder", "Dnd Folder");
+      await expectSidebarIndentGreater(sharedPage, "Dnd Document", "Dnd Folder");
+      await expectSidebarIndentGreater(sharedPage, "Nested Dnd Folder", "Dnd Folder");
     });
   });
 });

@@ -6,6 +6,9 @@ defmodule RefMDWeb.DocumentController do
   alias RefMD.Documents
   alias RefMDWeb.Schemas
 
+  @create_encrypted_title_fields ~w(encrypted_title encrypted_title_nonce encrypted_title_key_version)
+  @encrypted_title_nonce_bytes 24
+
   plug RefMDWeb.Plugs.RequireRBAC, [permission: "document:read"] when action in [:index]
 
   plug RefMDWeb.Plugs.RequireRBAC,
@@ -84,7 +87,6 @@ defmodule RefMDWeb.DocumentController do
         "id",
         "doc_type",
         "parent_id",
-        "title",
         "encrypted_title",
         "encrypted_title_nonce",
         "encrypted_title_key_version"
@@ -92,9 +94,20 @@ defmodule RefMDWeb.DocumentController do
       |> Map.put("workspace_id", workspace_id)
       |> Map.put("created_by", conn.assigns.current_user_id)
 
-    case decode_binary_fields(attrs) do
-      {:ok, decoded_attrs} ->
-        handle_create_result(conn, Documents.create_document(decoded_attrs))
+    with :ok <- reject_plaintext_title_field(params),
+         :ok <- require_create_encrypted_title_fields(attrs),
+         {:ok, decoded_attrs} <- decode_binary_fields(attrs) do
+      handle_create_result(conn, Documents.create_document(decoded_attrs))
+    else
+      {:error, :plaintext_title_not_allowed} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "validation_error", details: %{"title" => ["must not be provided"]}})
+
+      {:error, {:missing_required_fields, fields}} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "validation_error", details: required_field_errors(fields)})
 
       {:error, field} ->
         conn
@@ -165,13 +178,29 @@ defmodule RefMDWeb.DocumentController do
     raw_attrs =
       params
       |> Map.take([
-        "title",
         "parent_id",
         "encrypted_title",
         "encrypted_title_nonce",
         "encrypted_title_key_version"
       ])
 
+    with :ok <- reject_plaintext_title_field(params),
+         :ok <- require_update_encrypted_title_tuple(raw_attrs) do
+      handle_update_attrs(conn, document, raw_attrs)
+    else
+      {:error, :plaintext_title_not_allowed} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "validation_error", details: %{"title" => ["must not be provided"]}})
+
+      {:error, {:missing_required_fields, fields}} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "validation_error", details: required_field_errors(fields)})
+    end
+  end
+
+  defp handle_update_attrs(conn, document, raw_attrs) do
     case decode_binary_fields(raw_attrs) do
       {:ok, attrs} ->
         case Documents.update_document(document, attrs) do
@@ -406,7 +435,7 @@ defmodule RefMDWeb.DocumentController do
     with {:ok, workspace_id} <- fetch_required_uuid(params, "workspace_id"),
          {:ok, document_id} <- fetch_required_uuid(params, "document_id"),
          {:ok, position} <- fetch_required_non_neg_integer(params, "position"),
-         {:ok, new_parent_id} <- fetch_nullable_uuid(params, "parent_id") do
+         {:ok, new_parent_id} <- fetch_optional_nullable_uuid(params, "parent_id") do
       case Documents.reorder_document(workspace_id, document_id, new_parent_id, position) do
         {:ok, updated} ->
           json(conn, serialize_document(conn, updated))
@@ -492,17 +521,64 @@ defmodule RefMDWeb.DocumentController do
 
   defp decode_binary_fields(attrs) do
     with {:ok, attrs} <- decode_binary_field(attrs, "encrypted_title") do
-      decode_binary_field(attrs, "encrypted_title_nonce")
+      decode_binary_field(attrs, "encrypted_title_nonce", @encrypted_title_nonce_bytes)
     end
   end
 
-  defp decode_binary_field(attrs, key) do
+  defp require_create_encrypted_title_fields(attrs) do
+    missing_fields =
+      Enum.filter(@create_encrypted_title_fields, fn field ->
+        case Map.get(attrs, field) do
+          nil -> true
+          "" -> true
+          _value -> false
+        end
+      end)
+
+    case missing_fields do
+      [] -> :ok
+      fields -> {:error, {:missing_required_fields, fields}}
+    end
+  end
+
+  defp required_field_errors(fields) do
+    Map.new(fields, &{&1, ["is required"]})
+  end
+
+  defp require_update_encrypted_title_tuple(attrs) do
+    supplied_fields =
+      Enum.filter(@create_encrypted_title_fields, fn field ->
+        Map.has_key?(attrs, field)
+      end)
+
+    case supplied_fields do
+      [] ->
+        :ok
+
+      @create_encrypted_title_fields ->
+        :ok
+
+      fields ->
+        missing_fields = @create_encrypted_title_fields -- fields
+        {:error, {:missing_required_fields, missing_fields}}
+    end
+  end
+
+  defp reject_plaintext_title_field(params) do
+    if Map.has_key?(params, "title") do
+      {:error, :plaintext_title_not_allowed}
+    else
+      :ok
+    end
+  end
+
+  defp decode_binary_field(attrs, key, expected_bytes \\ nil) do
     case Map.get(attrs, key) do
       nil ->
         {:ok, attrs}
 
       value when is_binary(value) ->
-        {:ok, Map.put(attrs, key, Encoding.decode_base64url!(value))}
+        {:ok, Map.put(attrs, key, Encoding.decode_base64url!(value, expected_bytes))}
     end
   rescue
     ArgumentError -> {:error, key}
@@ -542,6 +618,14 @@ defmodule RefMDWeb.DocumentController do
     end
   catch
     {:missing, field} -> {:error, field}
+  end
+
+  defp fetch_optional_nullable_uuid(params, key) do
+    if Map.has_key?(params, key) do
+      fetch_nullable_uuid(params, key)
+    else
+      {:ok, nil}
+    end
   end
 
   defp fetch_required_non_neg_integer(params, key) do

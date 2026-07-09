@@ -145,6 +145,7 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
   let activeAwareness: Awareness | undefined;
   let previewFrame: number | null = null;
   let renderRefreshFrame: number | null = null;
+  let cursorAwarenessFrame: number | null = null;
   let remoteContentReconcileTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressScroll = false;
 
@@ -180,6 +181,12 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
     if (renderRefreshFrame === null) return;
     cancelAnimationFrame(renderRefreshFrame);
     renderRefreshFrame = null;
+  }
+
+  function clearCursorAwarenessFrame() {
+    if (cursorAwarenessFrame === null) return;
+    cancelAnimationFrame(cursorAwarenessFrame);
+    cursorAwarenessFrame = null;
   }
 
   function clearRemoteContentReconcileTimer() {
@@ -225,6 +232,7 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
     cleanupRemoteContentReady = undefined;
     clearPreviewFrame();
     clearRenderRefreshFrame();
+    clearCursorAwarenessFrame();
     cleanupYTextRenderRefresh?.();
     cleanupYTextRenderRefresh = undefined;
     cleanupViewListeners?.();
@@ -285,6 +293,12 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
 
     const openBlockMenuBelow = (editorView: EditorView, blockPos: number): boolean => {
       editorView.focus();
+      recordEditorPerf("prosemirror_block_menu_open", {
+        blockPos,
+        blockText: editorView.state.doc.nodeAt(blockPos)?.textContent ?? null,
+        documentId: props.documentId,
+        stateKey,
+      });
       return openSlashCommandMenuBelow(editorView, blockPos);
     };
 
@@ -368,6 +382,26 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
         if (hasSel) setSelectionVersion((v) => v + 1);
       },
     });
+
+    const scheduleCursorAwarenessRefresh = () => {
+      clearCursorAwarenessFrame();
+      cursorAwarenessFrame = requestAnimationFrame(() => {
+        cursorAwarenessFrame = null;
+        if (destroyed || view !== editorView || !editorView.hasFocus()) return;
+        const currentSlashState = sp.getState(editorView.state) as SlashMenuState | undefined;
+        if (currentSlashState?.active) return;
+        const selection = editorView.state.selection;
+        try {
+          editorView.dispatch(
+            editorView.state.tr.setSelection(
+              TextSelection.create(editorView.state.doc, selection.anchor, selection.head),
+            ),
+          );
+        } catch {
+          // Non-text selections do not need Markdown text-cursor awareness refresh.
+        }
+      });
+    };
 
     view = editorView;
     recordEditorPerf("prosemirror_editor_created", {
@@ -503,13 +537,17 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
       hasFocusedEditorInput = true;
       clearPreviewText("editor-interaction");
     };
+    const handleCursorAwarenessIntent = () => scheduleCursorAwarenessRefresh();
 
     editorView.dom.addEventListener("paste", handlePaste);
     editorView.dom.addEventListener("drop", handleDrop);
     editorView.dom.addEventListener("beforeinput", handleEditorInputIntent, true);
     editorView.dom.addEventListener("pointerdown", handleEditorInteraction, true);
+    editorView.dom.addEventListener("pointerup", handleCursorAwarenessIntent, true);
     editorView.dom.addEventListener("focusin", handleEditorInteraction, true);
+    editorView.dom.addEventListener("focusin", handleCursorAwarenessIntent, true);
     editorView.dom.addEventListener("keydown", handleEditorInputIntent, true);
+    editorView.dom.addEventListener("keyup", handleCursorAwarenessIntent, true);
 
     const groupId = props.scrollGroupId;
     const handleScroll = () => {
@@ -539,8 +577,11 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
       editorView.dom.removeEventListener("drop", handleDrop);
       editorView.dom.removeEventListener("beforeinput", handleEditorInputIntent, true);
       editorView.dom.removeEventListener("pointerdown", handleEditorInteraction, true);
+      editorView.dom.removeEventListener("pointerup", handleCursorAwarenessIntent, true);
       editorView.dom.removeEventListener("focusin", handleEditorInteraction, true);
+      editorView.dom.removeEventListener("focusin", handleCursorAwarenessIntent, true);
       editorView.dom.removeEventListener("keydown", handleEditorInputIntent, true);
+      editorView.dom.removeEventListener("keyup", handleCursorAwarenessIntent, true);
       rootEl.removeEventListener("scroll", handleScroll);
     };
   }
@@ -567,6 +608,16 @@ function ProseMirrorEditorInner(props: ProseMirrorEditorProps) {
 
     const ss = slashPlugin.getState(view.state) as SlashMenuState | undefined;
     if (!ss?.active) return;
+    recordEditorPerf("prosemirror_slash_select", {
+      documentId: props.documentId,
+      insertAfterBlockPos: ss.insertAfterBlockPos ?? null,
+      insertAfterBlockText:
+        typeof ss.insertAfterBlockPos === "number"
+          ? (view.state.doc.nodeAt(ss.insertAfterBlockPos)?.textContent ?? null)
+          : null,
+      mode: ss.mode,
+      stateKey: props.stateKey,
+    });
 
     const nextState = {
       ...ss,

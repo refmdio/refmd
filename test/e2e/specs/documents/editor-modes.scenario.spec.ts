@@ -368,7 +368,11 @@ async function expectNoDocumentFailure(page: Page): Promise<void> {
 
 test.describe.serial("Editor Modes", () => {
   test.beforeAll(async ({ browser }) => {
-    sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
+    const context = await newE2EContext(browser, { bypassCSP: true });
+    await context.addInitScript(() => {
+      window.__REFMD_E2E__ = true;
+    });
+    sharedPage = await context.newPage();
   });
 
   test.afterAll(async () => {
@@ -673,8 +677,36 @@ test.describe.serial("Editor Modes", () => {
 
     const firstLine = await readWysiwygTextRect(sharedPage, "First block");
     const firstBlock = await readWysiwygBlockRect(sharedPage, "First block");
+    const hoverFirstBlockHandle = async () => {
+      const currentFirstLine = await readWysiwygTextRect(sharedPage, "First block");
+      await sharedPage.mouse.move(currentFirstLine.left + 4, Math.max(0, currentFirstLine.top - 24));
+      await sharedPage.mouse.move(
+        currentFirstLine.left + 4,
+        currentFirstLine.top + currentFirstLine.height / 2,
+        { steps: 4 },
+      );
+      await expect
+        .poll(
+          async () => {
+            const line = await readWysiwygTextRect(sharedPage, "First block");
+            const handle = await readBlockHandleGeometry(sharedPage);
+            return {
+              aligned:
+                handle.right <= line.left &&
+                Math.abs(handle.top + handle.height / 2 - (line.top + line.height / 2)) <= 8,
+              opacity: handle.opacity,
+              pointerEvents: handle.pointerEvents,
+            };
+          },
+          {
+            timeout: 5_000,
+            message: "WYSIWYG block handle did not return beside the first block",
+          },
+        )
+        .toMatchObject({ aligned: true, opacity: 1, pointerEvents: "auto" });
+    };
     expect(firstBlock.height).toBeGreaterThan(firstLine.height + 8);
-    await sharedPage.mouse.move(firstLine.left + 4, firstLine.top + firstLine.height / 2);
+    await hoverFirstBlockHandle();
 
     await expect
       .poll(() => readBlockHandleGeometry(sharedPage), {
@@ -725,7 +757,7 @@ test.describe.serial("Editor Modes", () => {
       })
       .toEqual([wrappedFirstBlock, "Second block"]);
 
-    await sharedPage.mouse.move(firstLine.left + 4, firstLine.top + firstLine.height / 2);
+    await hoverFirstBlockHandle();
     await sharedPage.locator(".pm-block-handle-add").click();
     await expect(slashMenu).toBeVisible({ timeout: 5_000 });
     await slashMenu.getByRole("option", { name: /Heading 2/ }).focus();
@@ -738,7 +770,7 @@ test.describe.serial("Editor Modes", () => {
       })
       .not.toContain("/");
 
-    await sharedPage.mouse.move(firstLine.left + 4, firstLine.top + firstLine.height / 2);
+    await hoverFirstBlockHandle();
     await sharedPage.locator(".pm-block-handle-add").click();
     await expect(slashMenu).toBeVisible({ timeout: 5_000 });
     const headingOption = slashMenu.getByRole("option", { name: /Heading 2/ });
@@ -749,12 +781,34 @@ test.describe.serial("Editor Modes", () => {
     await expect(editor.locator("h2", { hasText: "Inserted heading" })).toBeVisible({
       timeout: 5_000,
     });
-    await expect
-      .poll(() => readWysiwygBlockTexts(sharedPage), {
-        timeout: 5_000,
-        message: "block-handle menu did not preserve block order",
-      })
-      .toEqual([wrappedFirstBlock, "Inserted heading", "Second block"]);
+    try {
+      await expect
+        .poll(() => readWysiwygBlockTexts(sharedPage), {
+          timeout: 5_000,
+          message: "block-handle menu did not preserve block order",
+        })
+        .toEqual([wrappedFirstBlock, "Inserted heading", "Second block"]);
+    } catch (error) {
+      const editorPerf = await sharedPage
+        .evaluate(() => {
+          const perf =
+            (window as Window & { __refmdE2ESyncPerf?: Array<{ event?: unknown }> })
+              .__refmdE2ESyncPerf ?? [];
+          return perf
+            .filter(
+              (item) =>
+                item.event === "prosemirror_block_menu_open" ||
+                item.event === "prosemirror_slash_select",
+            )
+            .slice(-12);
+        })
+        .catch(() => []);
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; editorPerf=${JSON.stringify(
+          editorPerf,
+        )}`,
+      );
+    }
     await expectNoDocumentFailure(sharedPage);
   });
 
@@ -827,11 +881,24 @@ test.describe.serial("Editor Modes", () => {
     const firstText = await readWysiwygTextRect(sharedPage, "First draggable");
     await sharedPage.mouse.move(firstText.left + 4, firstText.top + firstText.height / 2);
     await expect
-      .poll(() => readBlockHandleGeometry(sharedPage), {
-        timeout: 5_000,
-        message: "drag handle did not appear before starting a real drag",
-      })
-      .toMatchObject({ opacity: 1, pointerEvents: "auto" });
+      .poll(
+        async () => {
+          const text = await readWysiwygTextRect(sharedPage, "First draggable");
+          const handle = await readBlockHandleGeometry(sharedPage);
+          return {
+            aligned:
+              handle.right <= text.left &&
+              Math.abs(handle.top + handle.height / 2 - (text.top + text.height / 2)) <= 8,
+            opacity: handle.opacity,
+            pointerEvents: handle.pointerEvents,
+          };
+        },
+        {
+          timeout: 5_000,
+          message: "drag handle did not appear beside the first block before starting a real drag",
+        },
+      )
+      .toMatchObject({ aligned: true, opacity: 1, pointerEvents: "auto" });
 
     const dragButton = sharedPage.locator(".pm-block-handle-drag");
     const dragRect = await readElementRect(dragButton);

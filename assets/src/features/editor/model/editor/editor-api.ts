@@ -73,6 +73,7 @@ let onEditorRegistered: (() => void) | null = null;
 declare global {
   interface Window {
     __REFMD_E2E__?: boolean;
+    __refmdGetAwarenessDiagnostics?: (documentId: string) => unknown;
     __refmdSetEditorValueForDocument?: (documentId: string, value: string) => boolean;
     __refmdGetDocumentSyncState?: (documentId: string) => {
       accessKind: "workspace" | "share";
@@ -272,6 +273,85 @@ function installE2EEditorHook(): void {
           writeSessionPreparing: item.writeSessionPromise !== null,
           writeSessionReady: isWriteSessionReady(item),
           writeSessionReadyAt: item.writeSessionReadyAt,
+        };
+      });
+  const readAwarenessCursor = (
+    cursor: unknown,
+    text: Y.Text,
+  ): {
+    anchorIndex: number | null;
+    anchorResolvesToContent: boolean;
+    hasAnchor: boolean;
+    hasHead: boolean;
+    headIndex: number | null;
+    headResolvesToContent: boolean;
+  } => {
+    const payload =
+      cursor && typeof cursor === "object" ? (cursor as { anchor?: unknown; head?: unknown }) : {};
+    const resolve = (position: unknown) => {
+      if (!position || typeof position !== "object" || !text.doc) return null;
+      try {
+        return Y.createAbsolutePositionFromRelativePosition(
+          position as Y.RelativePosition,
+          text.doc,
+        );
+      } catch {
+        try {
+          return Y.createAbsolutePositionFromRelativePosition(
+            Y.createRelativePositionFromJSON(position),
+            text.doc,
+          );
+        } catch {
+          return null;
+        }
+      }
+    };
+    const anchor = resolve(payload.anchor);
+    const head = resolve(payload.head);
+    return {
+      anchorIndex: anchor?.type === text ? anchor.index : null,
+      anchorResolvesToContent: anchor?.type === text,
+      hasAnchor: !!payload.anchor,
+      hasHead: !!payload.head,
+      headIndex: head?.type === text ? head.index : null,
+      headResolvesToContent: head?.type === text,
+    };
+  };
+  window.__refmdGetAwarenessDiagnostics = (documentId: string) =>
+    [...getAllActiveDocumentStates().values()]
+      .filter((state) => state.documentId === documentId)
+      .map((state) => {
+        const text = state.yDoc.getText("content");
+        return {
+          awarenessClientId: state.awareness.clientID,
+          documentId: state.documentId,
+          local: (() => {
+            const localState = state.awareness.getLocalState();
+            return {
+              hasCursor: !!localState?.cursor,
+              hasPmCursor: !!localState?.pmCursor,
+              hasUser: !!localState?.user,
+              cursor: readAwarenessCursor(localState?.cursor, text),
+              pmCursor: readAwarenessCursor(localState?.pmCursor, text),
+            };
+          })(),
+          remote: [...state.awareness.getStates().entries()]
+            .filter(([clientId]) => clientId !== state.awareness.clientID)
+            .map(([clientId, awarenessState]) => ({
+              clientId,
+              hasCursor: !!awarenessState.cursor,
+              hasPmCursor: !!awarenessState.pmCursor,
+              hasUser: !!awarenessState.user,
+              cursor: readAwarenessCursor(awarenessState.cursor, text),
+              pmCursor: readAwarenessCursor(awarenessState.pmCursor, text),
+              userId:
+                awarenessState.user && typeof awarenessState.user === "object"
+                  ? (awarenessState.user as { userId?: unknown }).userId
+                  : null,
+            })),
+          stateKey: state.stateKey,
+          textLength: text.length,
+          yDocClientId: state.yDoc.clientID,
         };
       });
   window.__refmdGetDocumentSyncState = (documentId: string) => {

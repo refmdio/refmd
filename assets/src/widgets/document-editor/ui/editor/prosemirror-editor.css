@@ -83,7 +83,14 @@
 }
 
 .ProseMirror :where(p, h1, h2, h3, h4, h5, h6, pre, blockquote).ProseMirror-selectednode {
-  outline: none;
+  outline-style: none;
+  outline-width: 0;
+}
+
+.ProseMirror.refmd-wysiwyg-block-dragging .ProseMirror-selectednode,
+.ProseMirror.refmd-wysiwyg-block-dragging.ProseMirror-selectednode {
+  outline-style: none;
+  outline-width: 0;
 }
 
 /* ---- Block Handle ---- */

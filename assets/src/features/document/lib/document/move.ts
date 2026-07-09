@@ -9,7 +9,7 @@ export async function moveDocument(
   await documentsApi.reorder({
     document_id: documentId,
     workspace_id: workspaceId,
-    ...(parentId ? { parent_id: parentId } : {}),
+    parent_id: parentId,
     position,
   });
 }

@@ -81,12 +81,17 @@ defmodule RefMDWeb.Schemas.CreateDocumentRequest do
       id: %Schema{type: :string, format: :uuid},
       doc_type: %Schema{type: :string, enum: ["document", "folder"]},
       parent_id: %Schema{type: :string, format: :uuid, nullable: true},
-      title: %Schema{type: :string},
-      encrypted_title: %Schema{type: :string},
-      encrypted_title_nonce: %Schema{type: :string},
-      encrypted_title_key_version: %Schema{type: :integer}
+      encrypted_title: %Schema{type: :string, minLength: 1},
+      encrypted_title_nonce: %Schema{type: :string, minLength: 32, maxLength: 32},
+      encrypted_title_key_version: %Schema{type: :integer, minimum: 1}
     },
-    required: [:workspace_id, :doc_type]
+    required: [
+      :workspace_id,
+      :doc_type,
+      :encrypted_title,
+      :encrypted_title_nonce,
+      :encrypted_title_key_version
+    ]
   })
 end
 
@@ -98,11 +103,10 @@ defmodule RefMDWeb.Schemas.UpdateDocumentRequest do
     title: "UpdateDocumentRequest",
     type: :object,
     properties: %{
-      title: %Schema{type: :string},
       parent_id: %Schema{type: :string, format: :uuid, nullable: true},
-      encrypted_title: %Schema{type: :string},
-      encrypted_title_nonce: %Schema{type: :string},
-      encrypted_title_key_version: %Schema{type: :integer}
+      encrypted_title: %Schema{type: :string, minLength: 1},
+      encrypted_title_nonce: %Schema{type: :string, minLength: 32, maxLength: 32},
+      encrypted_title_key_version: %Schema{type: :integer, minimum: 1}
     }
   })
 end

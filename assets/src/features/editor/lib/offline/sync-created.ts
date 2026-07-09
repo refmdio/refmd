@@ -462,7 +462,6 @@ async function createDocumentRecordIfMissing(entry: OfflineCreatedDocument): Pro
       workspace_id: entry.workspaceId,
       doc_type: "document",
       id: entry.documentId,
-      title: "Untitled",
       ...(entry.parentId ? { parent_id: entry.parentId } : {}),
       encrypted_title: base64UrlEncode(entry.encryptedTitle),
       encrypted_title_nonce: base64UrlEncode(entry.encryptedTitleNonce),

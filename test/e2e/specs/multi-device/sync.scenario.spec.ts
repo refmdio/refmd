@@ -344,19 +344,31 @@ async function expectRemoteCursorVisible(
   page: Page,
   selector: string,
   label: string,
+  docId: string,
 ): Promise<void> {
-  await expect
-    .poll(
-      async () => ({
-        count: await page.locator(selector).count(),
-        url: page.url(),
-      }),
-      {
-        timeout: 15_000,
-        message: `${label} remote cursor did not render`,
-      },
-    )
-    .toMatchObject({ count: 1 });
+  try {
+    await expect
+      .poll(
+        async () => ({
+          count: await page.locator(selector).count(),
+          url: page.url(),
+        }),
+        {
+          timeout: 15_000,
+          message: `${label} remote cursor did not render`,
+        },
+      )
+      .toMatchObject({ count: 1 });
+  } catch (error) {
+    const diagnostics = await page
+      .evaluate((id) => window.__refmdGetAwarenessDiagnostics?.(id) ?? null, docId)
+      .catch(() => null);
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}; awareness=${JSON.stringify(
+        diagnostics,
+      )}`,
+    );
+  }
   await expect(page.locator(selector).first(), `${label} remote cursor is hidden`).toBeVisible({
     timeout: 5_000,
   });
@@ -563,7 +575,12 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
       await pageA.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
       await pageA.keyboard.press("ArrowLeft");
       await pageA.keyboard.press("ArrowRight");
-      await expectRemoteCursorVisible(pageB, ".ProseMirror-yjs-cursor", "Markdown to WYSIWYG");
+      await expectRemoteCursorVisible(
+        pageB,
+        ".ProseMirror-yjs-cursor",
+        "Markdown to WYSIWYG",
+        documentId,
+      );
 
       const wysiwyg = pageB.locator('.ProseMirror[contenteditable="true"]').first();
       await expect(wysiwyg).toBeVisible({ timeout: 10_000 });
@@ -571,7 +588,12 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
       await pageB.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
       await pageB.keyboard.press("ArrowLeft");
       await pageB.keyboard.press("ArrowRight");
-      await expectRemoteCursorVisible(pageA, ".cm-ySelectionCaret", "WYSIWYG to Markdown");
+      await expectRemoteCursorVisible(
+        pageA,
+        ".cm-ySelectionCaret",
+        "WYSIWYG to Markdown",
+        documentId,
+      );
       await switchCurrentPaneToMarkdown(pageB);
     });
 

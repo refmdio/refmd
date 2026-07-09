@@ -199,6 +199,40 @@ async function waitForDocumentSyncReady(page: Page, documentId: string): Promise
   }
 }
 
+async function expectRemoteCursorVisible(
+  page: Page,
+  selector: string,
+  label: string,
+  documentId: string,
+): Promise<void> {
+  try {
+    await expect
+      .poll(
+        async () => ({
+          count: await page.locator(selector).count(),
+          url: page.url(),
+        }),
+        {
+          timeout: 15_000,
+          message: `${label} remote cursor did not render`,
+        },
+      )
+      .toMatchObject({ count: 1 });
+    await expect(page.locator(selector).first(), `${label} remote cursor is hidden`).toBeVisible({
+      timeout: 5_000,
+    });
+  } catch (error) {
+    const awareness = await page
+      .evaluate((id) => window.__refmdGetAwarenessDiagnostics?.(id) ?? null, documentId)
+      .catch(() => null);
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}; awareness=${JSON.stringify(
+        awareness,
+      )}`,
+    );
+  }
+}
+
 async function expectTextWithRecovery(page: Page, title: string, text: string): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -580,6 +614,18 @@ test.describe("Multi-User Awareness & Presence (4-23)", () => {
       await expectEditorTextContains(pageB, "Bob split awareness.", 15_000);
       await pageA.locator('[data-testid="markdown-preview"]').click();
       await pageB.locator(".cm-content").click();
+
+      await test.step("cross-user Markdown cursor is visible to the collaborator", async () => {
+        const docId = await currentDocumentId(pageA);
+        await pageA.bringToFront();
+        await pageA.locator(".cm-content").click();
+        await pageA.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+        await pageA.keyboard.press("ArrowLeft");
+        await pageA.keyboard.press("ArrowRight");
+        await pageB.bringToFront();
+        await pageB.locator(".cm-content").click();
+        await expectRemoteCursorVisible(pageB, ".cm-ySelectionCaret", "Alice to Bob", docId);
+      });
 
       const recursiveFailures = capture.errors.filter(
         (error) =>

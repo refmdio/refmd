@@ -56,7 +56,6 @@ export async function createDocument(
     id: documentId,
     workspace_id: workspaceId,
     doc_type: "document",
-    title: "Untitled",
     encrypted_title: base64UrlEncode(encryptedTitleBytes),
     encrypted_title_nonce: base64UrlEncode(titleNonce),
     encrypted_title_key_version: 1,

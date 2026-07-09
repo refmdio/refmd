@@ -8,6 +8,7 @@ const HANDLE_BRIDGE_WIDTH = 10;
 const HIDE_HANDLE_DELAY_MS = 140;
 const POINTER_DRAG_THRESHOLD_PX = 4;
 const TRANSIENT_EMPTY_SYNC_GRACE_MS = 250;
+const BLOCK_DRAGGING_CLASS = "refmd-wysiwyg-block-dragging";
 const DRAGGABLE_TOP_LEVEL_BLOCK_TYPES = new Set([
   "paragraph",
   "heading",
@@ -130,6 +131,7 @@ export function blockHandlePlugin(options: BlockHandlePluginOptions): Plugin {
 
   function setDragHandleActive(active: boolean) {
     if (active) clearHideTimer();
+    activeView?.dom.classList.toggle(BLOCK_DRAGGING_CLASS, active);
     setViewState({ dragging: active, visible: active ? true : viewState.visible });
   }
 
@@ -630,7 +632,7 @@ export function blockHandlePlugin(options: BlockHandlePluginOptions): Plugin {
   }
 
   function updateHandleFromPointer(view: EditorView, event: MouseEvent): boolean {
-    if (menuFrozen || !handleEl) return false;
+    if (!handleEl) return false;
 
     const editorRect = view.dom.getBoundingClientRect();
     const clampedX = Math.min(Math.max(event.clientX, editorRect.left + 1), editorRect.right - 1);
@@ -640,20 +642,20 @@ export function blockHandlePlugin(options: BlockHandlePluginOptions): Plugin {
       top: event.clientY,
     });
     if (!pos) {
-      hideHandle();
+      if (!menuFrozen) hideHandle();
       return false;
     }
 
     const $pos = view.state.doc.resolve(pos.pos);
     const depth = $pos.depth;
     if (depth === 0) {
-      hideHandle();
+      if (!menuFrozen) hideHandle();
       return false;
     }
 
     const blockPos = blockPosFromDocPos(view, pos.pos);
     if (blockPos < 0) {
-      hideHandle();
+      if (!menuFrozen) hideHandle();
       return false;
     }
     if (blockPos === activeBlockPos && viewState.visible) {
@@ -806,8 +808,13 @@ export function blockHandlePlugin(options: BlockHandlePluginOptions): Plugin {
       return {
         update(nextView, prevState) {
           activeView = nextView;
+          nextView.dom.classList.toggle(BLOCK_DRAGGING_CLASS, viewState.dragging);
           handleView?.update?.(nextView, prevState);
           if (!refreshPointerDragStateForCurrentDoc(nextView)) return;
+          if (menuFrozen && viewState.visible) {
+            refreshVisibleHandle();
+            return;
+          }
           if (!showHandleForSelection(nextView)) refreshVisibleHandle();
         },
         destroy() {
@@ -828,6 +835,7 @@ export function blockHandlePlugin(options: BlockHandlePluginOptions): Plugin {
           clearTransientEmptyDragTimer();
           pointerDragState = null;
           activeBlockNode = null;
+          editorView.dom.classList.remove(BLOCK_DRAGGING_CLASS);
           handleEl = null;
           activeView = null;
           subscribers.clear();

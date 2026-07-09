@@ -160,7 +160,12 @@ defmodule RefMDWeb.DocumentWriteStateControllerTest do
     assert Documents.get_document(document.id).write_state == "read_only"
 
     patch_path = "/api/documents/#{document.id}"
-    patch_body = %{"title" => "Blocked"}
+
+    patch_body = %{
+      "encrypted_title" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
+      "encrypted_title_nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
+      "encrypted_title_key_version" => 1
+    }
 
     conn =
       build_conn()

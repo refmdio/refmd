@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { EditorState } from "prosemirror-state";
+import { EditorState, TextSelection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
@@ -199,6 +199,48 @@ describe("createLocalProseMirrorBridgeDoc", () => {
 
     expect(senderAwareness.clientID).not.toBe(receiverAwareness.clientID);
     expect(receiverView.dom.querySelector(".ProseMirror-yjs-cursor")).not.toBeNull();
+  });
+
+  it("broadcasts WYSIWYG selection as a shared Markdown cursor", async () => {
+    const sharedDoc = new Y.Doc();
+    cleanupFns.push(() => sharedDoc.destroy());
+    const sharedText = sharedDoc.getText("content");
+    sharedText.insert(0, "Cross-mode cursor text");
+
+    const awareness = new Awareness(sharedDoc);
+    cleanupFns.push(() => awareness.destroy());
+    awareness.setLocalStateField("user", {
+      userId: "same-user",
+      name: "Same User",
+      color: "#5b8def",
+    });
+    const view = createWysiwygView(sharedDoc, awareness);
+
+    view.focus();
+    const targetPos = Math.max(1, view.state.doc.content.size - 1);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, targetPos)));
+    await flushAwarenessDecorations();
+
+    const cursor = awareness.getLocalState()?.cursor as
+      | {
+          anchor?: Y.RelativePosition;
+          head?: Y.RelativePosition;
+        }
+      | undefined;
+    expect(cursor?.anchor).toBeDefined();
+    expect(cursor?.head).toBeDefined();
+
+    const anchor = cursor?.anchor
+      ? Y.createAbsolutePositionFromRelativePosition(cursor.anchor, sharedDoc)
+      : null;
+    const head = cursor?.head
+      ? Y.createAbsolutePositionFromRelativePosition(cursor.head, sharedDoc)
+      : null;
+
+    expect(anchor?.type).toBe(sharedText);
+    expect(head?.type).toBe(sharedText);
+    expect(anchor?.index).toBeGreaterThan(0);
+    expect(head?.index).toBeGreaterThan(0);
   });
 
   it("renders same-user remote Markdown cursor in WYSIWYG", async () => {
