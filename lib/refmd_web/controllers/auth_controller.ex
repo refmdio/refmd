@@ -9,6 +9,7 @@ defmodule RefMDWeb.AuthController do
   alias RefMD.Crypto.{Hash, HybridEncryptionMaterial, Signature}
   alias RefMDWeb.Http.RrpSessionBinding
   alias RefMDWeb.Http.RrpTranscript
+  alias RefMDWeb.Http.SessionCookies
 
   alias RefMDWeb.Schemas
 
@@ -315,6 +316,44 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
+  operation(:oauth_link_start,
+    summary: "Start OAuth provider account linking",
+    parameters: [
+      provider: [
+        in: :path,
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string, enum: ["google", "github"]}
+      ]
+    ],
+    request_body: {"OAuth link start params", "application/json", Schemas.OAuthStartRequest},
+    responses: [
+      ok: {"OAuth authorization URL", "application/json", Schemas.OAuthStartResponse},
+      unprocessable_entity: {"OAuth link start failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def oauth_link_start(conn, %{"provider" => provider} = params) do
+    return_to = safe_return_to(params["return_to"])
+    redirect_uri = oauth_redirect_uri(conn, provider)
+    session = conn.assigns.current_session
+
+    case OAuth.start_account_link(
+           provider,
+           redirect_uri,
+           return_to,
+           conn.assigns.current_user_id,
+           session.id
+         ) do
+      {:ok, authorization_url} ->
+        json(conn, %{authorization_url: authorization_url})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(oauth_error_payload(reason))
+    end
+  end
+
   operation(:oauth_callback,
     summary: "Complete OAuth authorization code flow",
     parameters: [
@@ -343,8 +382,10 @@ defmodule RefMDWeb.AuthController do
   def oauth_callback(conn, %{"provider" => provider, "state" => state, "code" => code}) do
     redirect_uri = oauth_redirect_uri(conn, provider)
 
-    case OAuth.complete_authorization(provider, state, code, redirect_uri) do
-      {:ok, user, return_to} ->
+    case OAuth.complete_callback(provider, state, code, redirect_uri,
+           session_context: oauth_callback_session_context(conn)
+         ) do
+      {:ok, %{purpose: "login", user: user, return_to: return_to}} ->
         {:ok, session, token} =
           Auth.create_session(user.id, %{
             remember_me: false,
@@ -356,6 +397,9 @@ defmodule RefMDWeb.AuthController do
         |> set_session_cookie(token, session.remember_me)
         |> put_registration_header(:user, session)
         |> redirect(to: safe_return_to(return_to))
+
+      {:ok, %{purpose: "account_link", return_to: return_to}} ->
+        redirect(conn, to: safe_return_to(return_to))
 
       {:error, reason} ->
         conn
@@ -595,6 +639,64 @@ defmodule RefMDWeb.AuthController do
       }
 
       json(conn, response)
+    end
+  end
+
+  operation(:external_accounts,
+    summary: "List external authentication methods for current user",
+    responses: [
+      ok:
+        {"External authentication methods", "application/json", Schemas.ExternalAccountsResponse}
+    ]
+  )
+
+  def external_accounts(conn, _params) do
+    user_id = conn.assigns.current_user_id
+    master_key = Encryption.get_user_encrypted_master_key(user_id)
+
+    json(conn, %{
+      accounts:
+        user_id
+        |> Users.get_user_external_accounts()
+        |> Enum.map(&external_account_response/1),
+      available_providers: OAuth.available_providers(),
+      password_configured: password_master_key?(master_key)
+    })
+  end
+
+  operation(:unlink_external_account,
+    summary: "Unlink an external authentication provider",
+    parameters: [
+      provider: [
+        in: :path,
+        required: true,
+        schema: %OpenApiSpex.Schema{type: :string, enum: ["google", "github"]}
+      ]
+    ],
+    responses: [
+      ok: {"External account unlinked", "application/json", Schemas.OkResponse},
+      not_found: {"External account missing", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Cannot unlink provider", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def unlink_external_account(conn, %{"provider" => provider}) do
+    user_id = conn.assigns.current_user_id
+
+    case Users.unlink_external_account_preserving_login(user_id, provider) do
+      {:ok, :ok} ->
+        json(conn, %{ok: true})
+
+      {:error, :external_account_not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "external_account_not_found"})
+
+      {:error, :last_auth_method_required} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "last_auth_method_required"})
+
+      {:error, _reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "external_account_unlink_failed"})
     end
   end
 
@@ -934,6 +1036,35 @@ defmodule RefMDWeb.AuthController do
   end
 
   # ── Helpers ────────────────────────────────────
+
+  defp oauth_callback_session_context(conn) do
+    conn = fetch_cookies(conn)
+    cookie_name = SessionCookies.session_cookie_name("user")
+
+    with token when is_binary(token) <- Map.get(conn.cookies, cookie_name),
+         {:ok, session} <- Auth.get_valid_session_by_token_base64(token),
+         :ok <- require_oauth_callback_dbsc_bound_cookie(session, token) do
+      %{user_id: session.user_id, session_id: session.id}
+    else
+      _ -> nil
+    end
+  end
+
+  defp require_oauth_callback_dbsc_bound_cookie(session, token) do
+    case AuthDBSC.bound_cookie_status("user", session.id, token) do
+      :not_registered -> :ok
+      {:ok, _binding} -> :ok
+      {:error, _binding} -> {:error, :dbsc_required}
+    end
+  end
+
+  defp external_account_response(account) do
+    %{
+      provider: account.provider,
+      email: account.email,
+      created_at: DateTime.to_iso8601(account.created_at)
+    }
+  end
 
   defp handle_successful_login(conn, user, params) do
     device_id = params["device_id"]

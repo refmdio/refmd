@@ -192,6 +192,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/external-accounts/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Unlink an external authentication provider */
+        delete: operations["delete_api_auth_external_accounts_by_provider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/authors/{author_slug}/documents/{document_slug}": {
         parameters: {
             query?: never;
@@ -259,6 +276,23 @@ export interface paths {
         head?: never;
         /** Update workspace feature settings */
         patch: operations["patch_api_workspaces_by_workspace_id_features"];
+        trace?: never;
+    };
+    "/api/auth/external-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List external authentication methods for current user */
+        get: operations["get_api_auth_external_accounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
@@ -495,6 +529,23 @@ export interface paths {
         put?: never;
         /** Verify auth key without creating a session */
         post: operations["post_api_auth_verify_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth/{provider}/link/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start OAuth provider account linking */
+        post: operations["post_api_auth_oauth_by_provider_link_start"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1551,6 +1602,23 @@ export interface paths {
         put?: never;
         /** Append workspace device or identity key admission events */
         post: operations["post_api_workspaces_by_workspace_id_key_directory_append"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a password for an OAuth-only account (RRP required) */
+        post: operations["post_api_auth_password_setup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9687,6 +9755,12 @@ export interface components {
             new_salt: string;
             new_umk_nonce: string;
         };
+        /** ExternalAccountsResponse */
+        ExternalAccountsResponse: {
+            accounts: components["schemas"]["ExternalAccount"][];
+            available_providers: ("google" | "github")[];
+            password_configured: boolean;
+        };
         /** RedeemGuestInvitationResponse */
         RedeemGuestInvitationResponse: {
             /** Format: uuid */
@@ -11204,6 +11278,15 @@ export interface components {
             /** @enum {string} */
             variant: "trust_transfer";
         };
+        /** ExternalAccount */
+        ExternalAccount: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: email */
+            email?: string | null;
+            /** @enum {string} */
+            provider: "google" | "github";
+        };
         /** RevokeDeviceResponse */
         RevokeDeviceResponse: {
             revocation_mode: string;
@@ -12146,6 +12229,55 @@ export interface operations {
             };
         };
     };
+    delete_api_auth_external_accounts_by_provider: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                provider: "google" | "github";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description External account unlinked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description External account missing */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot unlink provider */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_public_authors_by_author_slug_documents_by_document_slug: {
         parameters: {
             query?: never;
@@ -12394,6 +12526,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_auth_external_accounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description External authentication methods */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalAccountsResponse"];
                 };
             };
         };
@@ -13192,6 +13344,51 @@ export interface operations {
             };
             /** @description Invalid credentials */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_oauth_by_provider_link_start: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                provider: "google" | "github";
+            };
+            cookie?: never;
+        };
+        /** @description OAuth link start params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OAuthStartRequest"];
+            };
+        };
+        responses: {
+            /** @description OAuth authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthStartResponse"];
+                };
+            };
+            /** @description OAuth link start failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16896,6 +17093,58 @@ export interface operations {
                 };
             };
             /** @description Invalid key directory */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_auth_password_setup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Password setup params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Password configured */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Password already configured */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Update failed */
             422: {
                 headers: {
                     [name: string]: unknown;

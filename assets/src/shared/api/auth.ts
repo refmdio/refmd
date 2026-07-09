@@ -1,4 +1,4 @@
-import { client, throwIfError } from "./core";
+import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 import { SHARE_SESSION_SCOPE_HEADER } from "@/shared/lib/auth/session-scope";
 
@@ -7,7 +7,9 @@ type LoginRequest = components["schemas"]["LoginRequest"];
 type RecoverySessionRequest = components["schemas"]["RecoverySessionRequest"];
 type OAuthStartRequest = components["schemas"]["OAuthStartRequest"];
 type OAuthCryptoSetupRequest = components["schemas"]["OAuthCryptoSetupRequest"];
+type PasswordSetRequest = components["schemas"]["PasswordSetRequest"];
 export type OAuthProvider = "google" | "github";
+export type ExternalAccountsResponse = components["schemas"]["ExternalAccountsResponse"];
 
 export const authApi = {
   getSalt: async (email: string) =>
@@ -32,10 +34,28 @@ export const authApi = {
       }),
     ),
 
+  oauthLinkStart: async (provider: OAuthProvider, body: OAuthStartRequest) =>
+    throwIfError(
+      await client.POST("/api/auth/oauth/{provider}/link/start", {
+        params: withUserRrpParams({ path: { provider } }),
+        body,
+      }),
+    ),
+
   oauthCryptoSetup: async (body: OAuthCryptoSetupRequest) =>
     throwIfError(await client.POST("/api/auth/oauth/crypto-setup", { body })),
 
   me: async () => throwIfError(await client.GET("/api/auth/me")),
+
+  externalAccounts: async (): Promise<ExternalAccountsResponse> =>
+    throwIfError(await client.GET("/api/auth/external-accounts")),
+
+  unlinkExternalAccount: async (provider: OAuthProvider) =>
+    throwIfError(
+      await client.DELETE("/api/auth/external-accounts/{provider}", {
+        params: withUserRrpParams({ path: { provider } }),
+      }),
+    ),
 
   logout: async (options?: { clearMountSession?: boolean; sessionScope?: "share" }) =>
     throwIfError(
@@ -71,6 +91,14 @@ export const authApi = {
     new_encrypted_umk: string;
     new_umk_nonce: string;
   }) => throwIfError(await client.POST("/api/auth/password-set", { body })),
+
+  passwordSetup: async (body: PasswordSetRequest) =>
+    throwIfError(
+      await client.POST("/api/auth/password/setup", {
+        params: withUserRrpParams(),
+        body,
+      }),
+    ),
 
   verifyKey: async (authKey: string) => {
     throwIfError(

@@ -7,6 +7,7 @@ type OAuthProviderButtonsProps = {
   providers: OAuthProvider[];
   loadingProvider: OAuthProvider | null;
   disabled?: boolean;
+  actionLabel?: string;
   onStart: (provider: OAuthProvider) => void;
 };
 
@@ -18,6 +19,7 @@ export function OAuthProviderButtons(props: OAuthProviderButtonsProps) {
       <For each={props.providers}>
         {(provider) => {
           const label = providerLabel(provider);
+          const buttonLabel = () => `${props.actionLabel ?? "Continue with"} ${label}`;
           const loading = () => props.loadingProvider === provider;
 
           return (
@@ -26,7 +28,7 @@ export function OAuthProviderButtons(props: OAuthProviderButtonsProps) {
               variant="outline"
               class="relative h-11 w-full justify-center px-4 font-sans text-sm font-medium normal-case tracking-normal"
               disabled={disabled()}
-              aria-label={`Continue with ${label}`}
+              aria-label={buttonLabel()}
               onClick={() => props.onStart(provider)}
             >
               <Show
@@ -34,13 +36,13 @@ export function OAuthProviderButtons(props: OAuthProviderButtonsProps) {
                 fallback={
                   <>
                     <ProviderIcon provider={provider} />
-                    <span class="min-w-0 font-sans tracking-normal">Continue with {label}</span>
+                    <span class="min-w-0 font-sans tracking-normal">{buttonLabel()}</span>
                   </>
                 }
               >
                 <span class="flex min-w-0 items-center justify-center gap-2">
                   <Spinner class="size-3 shrink-0" />
-                  <span class="font-sans tracking-normal">Continue with {label}</span>
+                  <span class="font-sans tracking-normal">{buttonLabel()}</span>
                 </span>
               </Show>
             </Button>
@@ -51,11 +53,11 @@ export function OAuthProviderButtons(props: OAuthProviderButtonsProps) {
   );
 }
 
-function providerLabel(provider: OAuthProvider): string {
+export function providerLabel(provider: OAuthProvider): string {
   return provider === "google" ? "Google" : "GitHub";
 }
 
-function ProviderIcon(props: { provider: OAuthProvider }) {
+export function ProviderIcon(props: { provider: OAuthProvider }) {
   if (props.provider === "google") {
     return (
       <svg

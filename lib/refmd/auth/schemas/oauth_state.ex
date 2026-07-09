@@ -11,6 +11,9 @@ defmodule RefMD.Auth.OAuthState do
     field :code_verifier, :string
     field :redirect_uri, :string
     field :return_to, :string
+    field :purpose, :string
+    field :user_id, :binary_id
+    field :session_id_hash, :string
     field :expires_at, :utc_datetime_usec
     field :consumed_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec
@@ -25,6 +28,9 @@ defmodule RefMD.Auth.OAuthState do
       :code_verifier,
       :redirect_uri,
       :return_to,
+      :purpose,
+      :user_id,
+      :session_id_hash,
       :expires_at,
       :consumed_at
     ])
@@ -35,9 +41,11 @@ defmodule RefMD.Auth.OAuthState do
       :code_verifier,
       :redirect_uri,
       :return_to,
+      :purpose,
       :expires_at
     ])
     |> validate_inclusion(:provider, ["google", "github"])
+    |> validate_inclusion(:purpose, ["login", "account_link"])
     |> unique_constraint(:state_hash)
   end
 end

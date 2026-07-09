@@ -7,6 +7,7 @@ defmodule RefMD.Auth.OAuthTest do
   alias RefMD.Users
 
   @redirect_uri "https://refmd.test/api/auth/oauth/google/callback"
+  @github_redirect_uri "https://refmd.test/api/auth/oauth/github/callback"
 
   setup do
     oauth_config = Application.get_env(:refmd, :oauth)
@@ -120,6 +121,158 @@ defmodule RefMD.Auth.OAuthTest do
 
     refute Users.get_user_external_account("google", "google-existing-email")
     assert Users.get_user_by_email("existing-oauth@example.com").id == existing_user.id
+  end
+
+  test "OAuth account link attaches a new provider to the bound user and session" do
+    {:ok, user} =
+      Users.create_user(%{
+        email: "linked-user@example.com",
+        name: "Linked User",
+        account_type: "registered"
+      })
+
+    {:ok, _google_account} =
+      Users.create_user_external_account(%{
+        user_id: user.id,
+        provider: "google",
+        provider_user_id: "google-linked-user",
+        email: user.email
+      })
+
+    session_id = Ecto.UUID.generate()
+
+    {:ok, authorization_url} =
+      OAuth.start_account_link(
+        "github",
+        @github_redirect_uri,
+        "/dashboard?settings=account",
+        user.id,
+        session_id
+      )
+
+    authorization_params =
+      authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    assert {:ok, %{purpose: "account_link", user: linked_user, return_to: return_to}} =
+             OAuth.complete_callback(
+               "github",
+               authorization_params["state"],
+               "github-code",
+               @github_redirect_uri,
+               request_fun: github_request_fun("github-linked-user", "linked-user@example.com"),
+               session_context: %{user_id: user.id, session_id: session_id}
+             )
+
+    assert linked_user.id == user.id
+    assert return_to == "/dashboard?settings=account"
+
+    github_account = Users.get_user_external_account_for_user(user.id, "github")
+    assert github_account.provider_user_id == "github-linked-user"
+    assert github_account.email == "linked-user@example.com"
+  end
+
+  test "OAuth login completion rejects account link states before side effects" do
+    {:ok, user} =
+      Users.create_user(%{
+        email: "login-api-link-state@example.com",
+        name: "Login API Link State",
+        account_type: "registered"
+      })
+
+    session_id = Ecto.UUID.generate()
+
+    {:ok, authorization_url} =
+      OAuth.start_account_link("github", @github_redirect_uri, "/", user.id, session_id)
+
+    authorization_params =
+      authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    request_fun = fn _method, _url, _headers, _body ->
+      flunk("login completion must reject account_link state before provider requests")
+    end
+
+    assert {:error, :invalid_oauth_state} =
+             OAuth.complete_authorization(
+               "github",
+               authorization_params["state"],
+               "github-code",
+               @github_redirect_uri,
+               request_fun: request_fun,
+               session_context: %{user_id: user.id, session_id: session_id}
+             )
+
+    refute Users.get_user_external_account_for_user(user.id, "github")
+  end
+
+  test "OAuth account link rejects a callback for a different session" do
+    {:ok, user} =
+      Users.create_user(%{
+        email: "session-bound@example.com",
+        name: "Session Bound",
+        account_type: "registered"
+      })
+
+    {:ok, authorization_url} =
+      OAuth.start_account_link("github", @github_redirect_uri, "/", user.id, Ecto.UUID.generate())
+
+    authorization_params =
+      authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    assert {:error, :invalid_oauth_state} =
+             OAuth.complete_callback(
+               "github",
+               authorization_params["state"],
+               "github-code",
+               @github_redirect_uri,
+               request_fun: github_request_fun("github-session-bound", user.email),
+               session_context: %{user_id: user.id, session_id: Ecto.UUID.generate()}
+             )
+
+    refute Users.get_user_external_account_for_user(user.id, "github")
+  end
+
+  test "OAuth account link rejects provider identities linked to another user" do
+    {:ok, user} =
+      Users.create_user(%{
+        email: "link-owner@example.com",
+        name: "Link Owner",
+        account_type: "registered"
+      })
+
+    {:ok, other_user} =
+      Users.create_user(%{
+        email: "provider-owner@example.com",
+        name: "Provider Owner",
+        account_type: "registered"
+      })
+
+    {:ok, _external_account} =
+      Users.create_user_external_account(%{
+        user_id: other_user.id,
+        provider: "github",
+        provider_user_id: "github-conflict",
+        email: other_user.email
+      })
+
+    session_id = Ecto.UUID.generate()
+
+    {:ok, authorization_url} =
+      OAuth.start_account_link("github", @github_redirect_uri, "/", user.id, session_id)
+
+    authorization_params =
+      authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    assert {:error, :oauth_external_account_conflict} =
+             OAuth.complete_callback(
+               "github",
+               authorization_params["state"],
+               "github-code",
+               @github_redirect_uri,
+               request_fun: github_request_fun("github-conflict", "link-owner@example.com"),
+               session_context: %{user_id: user.id, session_id: session_id}
+             )
+
+    refute Users.get_user_external_account_for_user(user.id, "github")
   end
 
   test "Google OAuth can use provider DPoP when explicitly enabled" do
@@ -411,6 +564,22 @@ defmodule RefMD.Auth.OAuthTest do
     |> case do
       value when is_binary(value) -> value
       nil -> flunk("missing #{name} header")
+    end
+  end
+
+  defp github_request_fun(provider_user_id, email) do
+    fn
+      :post, "https://github.com/login/oauth/access_token", _headers, _body ->
+        {:ok, 200, [], Jason.encode!(%{"access_token" => "github-access-token"})}
+
+      :get, "https://api.github.com/user", _headers, "" ->
+        {:ok, 200, [], Jason.encode!(%{"id" => provider_user_id, "login" => "octo"})}
+
+      :get, "https://api.github.com/user/emails", _headers, "" ->
+        {:ok, 200, [],
+         Jason.encode!([
+           %{"email" => email, "primary" => true, "verified" => true}
+         ])}
     end
   end
 

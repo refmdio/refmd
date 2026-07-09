@@ -32972,6 +32972,38 @@
         "title": "PasswordSetRequest",
         "type": "object"
       },
+      "ExternalAccountsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalAccount"
+            },
+            "type": "array"
+          },
+          "available_providers": {
+            "items": {
+              "enum": [
+                "google",
+                "github"
+              ],
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "password_configured": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accounts",
+          "available_providers",
+          "password_configured"
+        ],
+        "title": "ExternalAccountsResponse",
+        "type": "object"
+      },
       "RedeemGuestInvitationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -38960,6 +38992,33 @@
         "title": "TrustTransferDeliveryCommitment",
         "type": "object"
       },
+      "ExternalAccount": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "nullable": true,
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "google",
+              "github"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "created_at"
+        ],
+        "title": "ExternalAccount",
+        "type": "object"
+      },
       "RevokeDeviceResponse": {
         "additionalProperties": false,
         "properties": {
@@ -41384,6 +41443,112 @@
         "tags": []
       }
     },
+    "/api/auth/external-accounts/{provider}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "delete_api_auth_external_accounts_by_provider",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "google",
+                "github"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "External account unlinked"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "External account missing"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot unlink provider"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Unlink an external authentication provider",
+        "tags": []
+      }
+    },
     "/api/public/authors/{author_slug}/documents/{document_slug}": {
       "get": {
         "callbacks": {},
@@ -41849,6 +42014,32 @@
           }
         ],
         "summary": "Update workspace feature settings",
+        "tags": []
+      }
+    },
+    "/api/auth/external-accounts": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_auth_external_accounts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalAccountsResponse"
+                }
+              }
+            },
+            "description": "External authentication methods"
+          }
+        },
+        "security": [
+          {
+            "user_session": []
+          }
+        ],
+        "summary": "List external authentication methods for current user",
         "tags": []
       }
     },
@@ -43349,6 +43540,113 @@
           }
         ],
         "summary": "Verify auth key without creating a session",
+        "tags": []
+      }
+    },
+    "/api/auth/oauth/{provider}/link/start": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_auth_oauth_by_provider_link_start",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "google",
+                "github"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthStartRequest"
+              }
+            }
+          },
+          "description": "OAuth link start params",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthStartResponse"
+                }
+              }
+            },
+            "description": "OAuth authorization URL"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "OAuth link start failed"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Start OAuth provider account linking",
         "tags": []
       }
     },
@@ -50693,6 +50991,110 @@
           }
         ],
         "summary": "Append workspace device or identity key admission events",
+        "tags": []
+      }
+    },
+    "/api/auth/password/setup": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_auth_password_setup",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordSetRequest"
+              }
+            }
+          },
+          "description": "Password setup params",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Password configured"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Password already configured"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Update failed"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Set a password for an OAuth-only account (RRP required)",
         "tags": []
       }
     },

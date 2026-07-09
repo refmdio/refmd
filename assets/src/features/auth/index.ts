@@ -17,3 +17,5 @@ export {
 } from "./lib/session/session";
 export type { SessionRestoreResult, OfflineSessionResult } from "./lib/session/session";
 export { performLogout } from "./lib/session/logout";
+export { setupAccountPassword } from "./lib/account/password-setup";
+export { OAuthProviderButtons, ProviderIcon, providerLabel } from "./ui/oauth/OAuthProviderButtons";

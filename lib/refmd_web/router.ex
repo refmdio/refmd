@@ -183,6 +183,7 @@ defmodule RefMDWeb.Router do
 
     # Auth
     get "/auth/me", AuthController, :me
+    get "/auth/external-accounts", AuthController, :external_accounts
     get "/auth/key-restore", AuthController, :key_restore
     post "/auth/oauth/crypto-setup", AuthController, :oauth_crypto_setup
     post "/auth/verify-key", AuthController, :verify_key
@@ -244,6 +245,9 @@ defmodule RefMDWeb.Router do
     pipe_through [:api, :require_rrp, :verify_origin]
 
     # Auth (RRP required)
+    post "/auth/oauth/:provider/link/start", AuthController, :oauth_link_start
+    delete "/auth/external-accounts/:provider", AuthController, :unlink_external_account
+    post "/auth/password/setup", PasswordController, :password_setup
     patch "/auth/password", PasswordController, :change_password
     put "/auth/recovery-key", PasswordController, :regenerate_recovery_key
 

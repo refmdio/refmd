@@ -200,6 +200,7 @@ defmodule RefMDWeb.ApiSpec do
 
   @session_only_routes %{
     {"/api/auth/me", :get} => @user_session_security,
+    {"/api/auth/external-accounts", :get} => @user_session_security,
     {"/api/auth/key-restore", :get} => @user_session_security,
     {"/api/auth/oauth/crypto-setup", :post} => @user_session_security,
     {"/api/auth/verify-key", :post} => @user_session_security,

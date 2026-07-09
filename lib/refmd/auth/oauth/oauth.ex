@@ -5,9 +5,12 @@ defmodule RefMD.Auth.OAuth do
   require Logger
 
   alias RefMD.Auth.OAuthState
+  alias RefMD.Crypto.Hash
   alias RefMD.Repo
   alias RefMD.Users
 
+  @login_purpose "login"
+  @account_link_purpose "account_link"
   @state_ttl_seconds 10 * 60
   @providers %{
     "google" => %{
@@ -33,22 +36,62 @@ defmodule RefMD.Auth.OAuth do
   def start_authorization(provider, redirect_uri, return_to)
       when is_binary(provider) and is_binary(redirect_uri) and is_binary(return_to) do
     with {:ok, config} <- provider_config(provider),
-         {:ok, state} <- create_state(provider, redirect_uri, return_to) do
+         {:ok, state} <- create_state(provider, redirect_uri, return_to, @login_purpose) do
       {:ok, authorization_url(config, state)}
     end
   end
 
   def start_authorization(_, _, _), do: {:error, :invalid_provider}
 
+  def start_account_link(provider, redirect_uri, return_to, user_id, session_id)
+      when is_binary(provider) and is_binary(redirect_uri) and is_binary(return_to) and
+             is_binary(user_id) and is_binary(session_id) do
+    with {:ok, config} <- provider_config(provider),
+         {:ok, state} <-
+           create_state(provider, redirect_uri, return_to, @account_link_purpose, %{
+             user_id: user_id,
+             session_id: session_id
+           }) do
+      {:ok, authorization_url(config, state)}
+    end
+  end
+
+  def start_account_link(_, _, _, _, _), do: {:error, :invalid_provider}
+
   def complete_authorization(provider, state, code, redirect_uri, opts \\ [])
 
   def complete_authorization(provider, state, code, redirect_uri, opts)
       when is_binary(provider) and is_binary(state) and is_binary(code) and
              is_binary(redirect_uri) do
+    opts = Keyword.put(opts, :expected_purpose, @login_purpose)
+
+    case complete_callback(provider, state, code, redirect_uri, opts) do
+      {:ok, %{purpose: @login_purpose, user: user, return_to: return_to}} ->
+        {:ok, user, return_to}
+
+      {:ok, %{purpose: @account_link_purpose}} ->
+        {:error, :invalid_oauth_state}
+
+      other ->
+        other
+    end
+  end
+
+  def complete_authorization(_, _, _, _, _), do: {:error, :invalid_oauth_callback}
+
+  def complete_callback(provider, state, code, redirect_uri, opts \\ [])
+
+  def complete_callback(provider, state, code, redirect_uri, opts)
+      when is_binary(provider) and is_binary(state) and is_binary(code) and
+             is_binary(redirect_uri) do
     request_fun = Keyword.get(opts, :request_fun, &http_request/4)
+    session_context = Keyword.get(opts, :session_context)
+    expected_purpose = Keyword.get(opts, :expected_purpose)
 
     with {:ok, config} <- provider_config(provider),
          {:ok, oauth_state} <- consume_state(provider, state, redirect_uri),
+         :ok <- verify_expected_purpose(oauth_state, expected_purpose),
+         :ok <- verify_pre_exchange_context(oauth_state, session_context),
          {:ok, token_result} <-
            exchange_code(
              config,
@@ -58,13 +101,12 @@ defmodule RefMD.Auth.OAuth do
              request_fun
            ),
          :ok <- verify_oauth_nonce(config, oauth_state, token_result),
-         {:ok, identity} <- fetch_identity(config, token_result, request_fun),
-         {:ok, user} <- find_or_create_user(identity) do
-      {:ok, user, oauth_state.return_to}
+         {:ok, identity} <- fetch_identity(config, token_result, request_fun) do
+      complete_by_purpose(oauth_state, identity, session_context)
     end
   end
 
-  def complete_authorization(_, _, _, _, _), do: {:error, :invalid_oauth_callback}
+  def complete_callback(_, _, _, _, _), do: {:error, :invalid_oauth_callback}
 
   def delete_expired_states do
     now = DateTime.utc_now()
@@ -121,7 +163,7 @@ defmodule RefMD.Auth.OAuth do
     |> Enum.into(%{})
   end
 
-  defp create_state(provider, redirect_uri, return_to) do
+  defp create_state(provider, redirect_uri, return_to, purpose, context \\ %{}) do
     state = random_base64url(32)
     nonce = random_base64url(32)
     verifier = random_base64url(32)
@@ -134,14 +176,45 @@ defmodule RefMD.Auth.OAuth do
       code_verifier: verifier,
       redirect_uri: redirect_uri,
       return_to: return_to,
+      purpose: purpose,
+      user_id: Map.get(context, :user_id),
+      session_id_hash: context |> Map.get(:session_id) |> session_id_hash(),
       expires_at: DateTime.add(now, @state_ttl_seconds, :second)
     }
 
-    case %OAuthState{created_at: now} |> OAuthState.changeset(attrs) |> Repo.insert() do
-      {:ok, oauth_state} -> {:ok, Map.put(oauth_state, :state, state)}
-      {:error, changeset} -> {:error, changeset}
+    with :ok <- validate_state_context(purpose, context),
+         {:ok, oauth_state} <-
+           %OAuthState{created_at: now} |> OAuthState.changeset(attrs) |> Repo.insert() do
+      {:ok, Map.put(oauth_state, :state, state)}
     end
   end
+
+  defp validate_state_context(@login_purpose, _context), do: :ok
+
+  defp validate_state_context(@account_link_purpose, %{user_id: user_id, session_id: session_id})
+       when is_binary(user_id) and is_binary(session_id),
+       do: :ok
+
+  defp validate_state_context(@account_link_purpose, _context), do: {:error, :invalid_oauth_state}
+  defp validate_state_context(_purpose, _context), do: {:error, :invalid_oauth_state}
+
+  defp verify_expected_purpose(_oauth_state, nil), do: :ok
+  defp verify_expected_purpose(%{purpose: purpose}, purpose), do: :ok
+
+  defp verify_expected_purpose(_oauth_state, _expected_purpose),
+    do: {:error, :invalid_oauth_state}
+
+  defp verify_pre_exchange_context(
+         %{purpose: @account_link_purpose} = oauth_state,
+         session_context
+       ) do
+    case validate_account_link_context(oauth_state, session_context) do
+      {:ok, _user_id} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp verify_pre_exchange_context(_oauth_state, _session_context), do: :ok
 
   defp authorization_url(config, oauth_state) do
     query =
@@ -464,6 +537,41 @@ defmodule RefMD.Auth.OAuth do
     end
   end
 
+  defp complete_by_purpose(%{purpose: @login_purpose} = oauth_state, identity, _session_context) do
+    with {:ok, user} <- find_or_create_user(identity) do
+      {:ok, %{purpose: @login_purpose, user: user, return_to: oauth_state.return_to}}
+    end
+  end
+
+  defp complete_by_purpose(
+         %{purpose: @account_link_purpose} = oauth_state,
+         identity,
+         session_context
+       ) do
+    with {:ok, user_id} <- validate_account_link_context(oauth_state, session_context),
+         {:ok, user} <- link_external_account(user_id, identity) do
+      {:ok, %{purpose: @account_link_purpose, user: user, return_to: oauth_state.return_to}}
+    end
+  end
+
+  defp complete_by_purpose(_oauth_state, _identity, _session_context),
+    do: {:error, :invalid_oauth_state}
+
+  defp validate_account_link_context(
+         %{user_id: user_id, session_id_hash: session_id_hash},
+         %{user_id: user_id, session_id: session_id}
+       )
+       when is_binary(user_id) and is_binary(session_id) and is_binary(session_id_hash) do
+    if session_id_hash(session_id) == session_id_hash do
+      {:ok, user_id}
+    else
+      {:error, :invalid_oauth_state}
+    end
+  end
+
+  defp validate_account_link_context(_oauth_state, _session_context),
+    do: {:error, :invalid_oauth_state}
+
   defp find_or_create_user(identity) do
     Repo.transaction(fn ->
       case Users.get_user_external_account(identity.provider, identity.provider_user_id) do
@@ -474,6 +582,33 @@ defmodule RefMD.Auth.OAuth do
           create_unlinked_oauth_user!(identity)
       end
     end)
+  end
+
+  defp link_external_account(user_id, identity) do
+    Repo.transaction(fn ->
+      cond do
+        Users.get_user(user_id) == nil ->
+          Repo.rollback(:oauth_user_missing)
+
+        Users.get_user_external_account_for_user(user_id, identity.provider) != nil ->
+          Repo.rollback(:oauth_external_account_conflict)
+
+        provider_identity_linked_to_another_user?(user_id, identity) ->
+          Repo.rollback(:oauth_external_account_conflict)
+
+        true ->
+          create_external_account!(user_id, identity)
+          Users.get_user(user_id)
+      end
+    end)
+  end
+
+  defp provider_identity_linked_to_another_user?(user_id, identity) do
+    case Users.get_user_external_account(identity.provider, identity.provider_user_id) do
+      nil -> false
+      %{user_id: ^user_id} -> false
+      %{user_id: _other_user_id} -> true
+    end
   end
 
   defp create_unlinked_oauth_user!(identity) do
@@ -639,6 +774,9 @@ defmodule RefMD.Auth.OAuth do
     do: :sha256 |> :crypto.hash(verifier) |> Base.url_encode64(padding: false)
 
   defp state_hash(state), do: :crypto.hash(:sha256, state)
+
+  defp session_id_hash(nil), do: nil
+  defp session_id_hash(session_id), do: Hash.blake3_base64url(session_id)
 
   defp random_base64url(bytes),
     do: bytes |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)

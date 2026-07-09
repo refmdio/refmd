@@ -115,6 +115,47 @@ defmodule RefMDWeb.Schemas.OAuthProvidersResponse do
   })
 end
 
+defmodule RefMDWeb.Schemas.ExternalAccount do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ExternalAccount",
+    type: :object,
+    properties: %{
+      provider: %Schema{type: :string, enum: ["google", "github"]},
+      email: %Schema{type: :string, format: :email, nullable: true},
+      created_at: %Schema{type: :string, format: :"date-time"}
+    },
+    required: [:provider, :created_at],
+    additionalProperties: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.ExternalAccountsResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ExternalAccountsResponse",
+    type: :object,
+    properties: %{
+      accounts: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.ExternalAccount
+      },
+      available_providers: %Schema{
+        type: :array,
+        items: %Schema{type: :string, enum: ["google", "github"]},
+        uniqueItems: true
+      },
+      password_configured: %Schema{type: :boolean}
+    },
+    required: [:accounts, :available_providers, :password_configured],
+    additionalProperties: false
+  })
+end
+
 defmodule RefMDWeb.Schemas.DbscSessionScopeRule do
   alias OpenApiSpex.Schema
   require OpenApiSpex

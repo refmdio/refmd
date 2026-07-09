@@ -19,5 +19,6 @@ defmodule RefMD.Users.UserExternalAccount do
     |> cast(attrs, [:user_id, :provider, :provider_user_id, :email])
     |> validate_required([:user_id, :provider, :provider_user_id])
     |> unique_constraint([:provider, :provider_user_id])
+    |> unique_constraint([:user_id, :provider])
   end
 end

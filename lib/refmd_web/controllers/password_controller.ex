@@ -75,6 +75,54 @@ defmodule RefMDWeb.PasswordController do
       conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
+  operation(:password_setup,
+    summary: "Set a password for an OAuth-only account (RRP required)",
+    request_body: {"Password setup params", "application/json", Schemas.PasswordSetRequest},
+    responses: [
+      ok: {"Password configured", "application/json", Schemas.OkResponse},
+      conflict: {"Password already configured", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Update failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def password_setup(conn, params) do
+    user_id = conn.assigns.current_user_id
+    session = conn.assigns.current_session
+
+    case Encryption.get_user_encrypted_master_key(user_id) do
+      nil ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "no_master_key"})
+
+      %{auth_type: "password"} ->
+        conn |> put_status(:conflict) |> json(%{error: "password_already_configured"})
+
+      %{auth_type: "oauth"} ->
+        case Encryption.update_master_key_for_password_set(user_id, %{
+               auth_key_hash: Bcrypt.hash_pwd_salt(params["new_auth_key"]),
+               salt: decode_optional_binary(params["new_salt"]),
+               encrypted_umk: decode_optional_binary(params["new_encrypted_umk"]),
+               umk_nonce: decode_optional_binary(params["new_umk_nonce"]),
+               kdf_params: @target_kdf_params
+             }) do
+          {:ok, _} ->
+            Auth.delete_other_sessions(user_id, session.id)
+            Auth.update_session_verified_at(session.id)
+            json(conn, %{ok: true})
+
+          {:error, _} ->
+            conn |> put_status(:unprocessable_entity) |> json(%{error: "password_setup_failed"})
+        end
+
+      _master_key ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "password_setup_not_available"})
+    end
+  rescue
+    ArgumentError ->
+      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
+  end
+
   operation(:change_password,
     summary: "Change password (RRP required)",
     request_body: {"Password change params", "application/json", Schemas.ChangePasswordRequest},

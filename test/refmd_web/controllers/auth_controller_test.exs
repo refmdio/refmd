@@ -1,6 +1,8 @@
 defmodule RefMDWeb.AuthControllerTest do
   use RefMDWeb.ConnCase, async: false
 
+  import Ecto.Query
+
   alias RefMD.Auth
   alias RefMD.Auth.DBSC
   alias RefMD.Auth.OAuth
@@ -62,6 +64,10 @@ defmodule RefMDWeb.AuthControllerTest do
   end
 
   defp create_device(user_id) do
+    create_device_with_signing_key(user_id).device
+  end
+
+  defp create_device_with_signing_key(user_id) do
     device_id = Ecto.UUID.generate()
     keys = hybrid_device_material(device_id)
     {ecdh_public_key, _ecdh_private_key} = :crypto.generate_key(:ecdh, :x25519)
@@ -100,7 +106,7 @@ defmodule RefMDWeb.AuthControllerTest do
         client_nonce: client_nonce
       })
 
-    device
+    %{device: device, signing_private_key: keys.private}
   end
 
   defp create_login_keys(user_id, auth_key \\ nil) do
@@ -135,6 +141,20 @@ defmodule RefMDWeb.AuthControllerTest do
       })
   end
 
+  defp create_oauth_master_key(user_id) do
+    recovery = recovery_authorization_material(user_id)
+
+    {:ok, _master_key} =
+      Encryption.create_user_encrypted_master_key(%{
+        user_id: user_id,
+        auth_type: "oauth",
+        recovery_encrypted_umk: <<4::256>>,
+        recovery_nonce: <<5::192>>,
+        recovery_authorization_public_material: recovery.public,
+        recovery_authorization_key_id: recovery.key_id
+      })
+  end
+
   defp auth_key_hash(nil), do: "auth-key-hash"
   defp auth_key_hash(auth_key), do: Bcrypt.hash_pwd_salt(auth_key)
 
@@ -162,13 +182,14 @@ defmodule RefMDWeb.AuthControllerTest do
   end
 
   defp authed_conn(conn, user_id, device) do
-    {:ok, _session, token} = Auth.create_session(user_id, %{device_id: device.id})
+    {:ok, session, token} = Auth.create_session(user_id, %{device_id: device.id})
 
-    put_req_header(
-      conn,
+    conn
+    |> put_req_header(
       "cookie",
       "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
     )
+    |> put_private(:test_session, session)
   end
 
   test "OAuth callback accepts provider callback query parameters", %{conn: conn} do
@@ -364,6 +385,309 @@ defmodule RefMDWeb.AuthControllerTest do
       |> json_response(422)
 
     assert response["error"] == "oauth_provider_disabled"
+  end
+
+  test "OAuth link start and callback attach GitHub without creating a new session", %{
+    conn: conn
+  } do
+    provider_server =
+      start_supervised!(
+        {Bandit,
+         plug: {OAuthProviderPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0,
+         startup_log: false}
+      )
+
+    {:ok, {_ip, provider_port}} = ThousandIsland.listener_info(provider_server)
+    provider_base_url = "http://127.0.0.1:#{provider_port}"
+    oauth_config = Application.get_env(:refmd, :oauth)
+    on_exit(fn -> Application.put_env(:refmd, :oauth, oauth_config) end)
+
+    Application.put_env(
+      :refmd,
+      :oauth,
+      Keyword.put(oauth_config, :github,
+        client_id: "controller-github-client",
+        client_secret: "controller-github-secret",
+        authorization_endpoint: "#{provider_base_url}/github/authorize",
+        token_endpoint: "#{provider_base_url}/github/token",
+        userinfo_endpoint: "#{provider_base_url}/github/user",
+        emails_endpoint: "#{provider_base_url}/github/emails"
+      )
+    )
+
+    user_id = create_user("oauth-link@example.com")
+    device = create_device_with_signing_key(user_id)
+
+    {:ok, _google_account} =
+      Users.create_user_external_account(%{
+        user_id: user_id,
+        provider: "google",
+        provider_user_id: "controller-google-link",
+        email: "oauth-link@example.com"
+      })
+
+    path = "/api/auth/oauth/github/link/start"
+    body = %{"return_to" => "/dashboard?settings=account"}
+
+    link_start_conn =
+      conn
+      |> authed_conn(user_id, device.device)
+      |> put_test_rrp_headers(
+        user_id,
+        device.device,
+        device.signing_private_key,
+        "POST",
+        path,
+        body
+      )
+      |> post(path, test_json_body(body))
+
+    authorization_url = json_response(link_start_conn, 200)["authorization_url"]
+
+    authorization_params =
+      authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    session_cookie = get_session_cookie(link_start_conn)
+
+    callback_conn =
+      conn
+      |> recycle_with_rate_limit_bypass()
+      |> put_req_header("cookie", "__Host-refmd-session=#{session_cookie}")
+      |> get("/api/auth/oauth/github/callback", %{
+        "code" => "controller-code",
+        "state" => authorization_params["state"]
+      })
+
+    assert redirected_to(callback_conn, 302) == "/dashboard?settings=account"
+    refute callback_conn.resp_cookies["__Host-refmd-session"]
+
+    external_account = Users.get_user_external_account_for_user(user_id, "github")
+    assert external_account.provider_user_id == "424242"
+    assert external_account.email == "controller-oauth@example.com"
+  end
+
+  test "OAuth account link callback rejects invalid DBSC-bound session cookie", %{
+    conn: conn
+  } do
+    provider_server =
+      start_supervised!(
+        {Bandit,
+         plug: {OAuthProviderPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0,
+         startup_log: false}
+      )
+
+    {:ok, {_ip, provider_port}} = ThousandIsland.listener_info(provider_server)
+    provider_base_url = "http://127.0.0.1:#{provider_port}"
+    oauth_config = Application.get_env(:refmd, :oauth)
+    on_exit(fn -> Application.put_env(:refmd, :oauth, oauth_config) end)
+
+    Application.put_env(
+      :refmd,
+      :oauth,
+      Keyword.put(oauth_config, :github,
+        client_id: "controller-github-client",
+        client_secret: "controller-github-secret",
+        authorization_endpoint: "#{provider_base_url}/github/authorize",
+        token_endpoint: "#{provider_base_url}/github/token",
+        userinfo_endpoint: "#{provider_base_url}/github/user",
+        emails_endpoint: "#{provider_base_url}/github/emails"
+      )
+    )
+
+    user_id = create_user("oauth-link-dbsc@example.com")
+    device = create_device_with_signing_key(user_id)
+
+    {:ok, _google_account} =
+      Users.create_user_external_account(%{
+        user_id: user_id,
+        provider: "google",
+        provider_user_id: "controller-google-link-dbsc",
+        email: "oauth-link-dbsc@example.com"
+      })
+
+    path = "/api/auth/oauth/github/link/start"
+    body = %{"return_to" => "/dashboard?settings=account"}
+
+    link_start_conn =
+      conn
+      |> authed_conn(user_id, device.device)
+      |> put_test_rrp_headers(
+        user_id,
+        device.device,
+        device.signing_private_key,
+        "POST",
+        path,
+        body
+      )
+      |> post(path, test_json_body(body))
+
+    authorization_url = json_response(link_start_conn, 200)["authorization_url"]
+
+    authorization_params =
+      authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    session = link_start_conn.private.test_session
+    session_cookie = get_session_cookie(link_start_conn)
+    {registration_proof, _private_key, _public_key} = dbsc_registration_proof(session)
+
+    register_conn =
+      conn
+      |> recycle_with_rate_limit_bypass()
+      |> put_req_header("cookie", "__Host-refmd-session=#{session_cookie}")
+      |> put_req_header("secure-session-response", registration_proof)
+      |> post("/api/auth/dbsc/register")
+
+    bound_session_cookie = register_conn.resp_cookies["__Host-refmd-session"].value
+
+    from(b in RefMD.Auth.DBSCSessionBinding,
+      where: b.session_kind == "user" and b.session_id == ^session.id
+    )
+    |> Repo.update_all(
+      set: [credential_expires_at: DateTime.add(DateTime.utc_now(), -1, :second)]
+    )
+
+    callback_conn =
+      conn
+      |> recycle_with_rate_limit_bypass()
+      |> put_req_header("cookie", "__Host-refmd-session=#{bound_session_cookie}")
+      |> get("/api/auth/oauth/github/callback", %{
+        "code" => "controller-code",
+        "state" => authorization_params["state"]
+      })
+
+    assert json_response(callback_conn, 401)["error"] == "invalid_oauth_state"
+    refute Users.get_user_external_account_for_user(user_id, "github")
+    refute_received {:github_token_request, _token_form}
+  end
+
+  test "external account unlink rejects removing the last sign-in method", %{conn: conn} do
+    user_id = create_user("last-method@example.com")
+    device = create_device_with_signing_key(user_id)
+    create_oauth_master_key(user_id)
+
+    {:ok, _external_account} =
+      Users.create_user_external_account(%{
+        user_id: user_id,
+        provider: "google",
+        provider_user_id: "last-method-google",
+        email: "last-method@example.com"
+      })
+
+    path = "/api/auth/external-accounts/google"
+
+    response =
+      conn
+      |> authed_conn(user_id, device.device)
+      |> put_test_rrp_headers(
+        user_id,
+        device.device,
+        device.signing_private_key,
+        "DELETE",
+        path,
+        "",
+        ""
+      )
+      |> delete(path)
+      |> json_response(422)
+
+    assert response["error"] == "last_auth_method_required"
+    assert Users.get_user_external_account_for_user(user_id, "google")
+  end
+
+  test "external account unlink succeeds when password sign-in remains", %{conn: conn} do
+    user_id = create_user("unlink-password@example.com")
+    device = create_device_with_signing_key(user_id)
+    create_login_keys(user_id, "valid-auth-key")
+
+    {:ok, _external_account} =
+      Users.create_user_external_account(%{
+        user_id: user_id,
+        provider: "google",
+        provider_user_id: "unlink-password-google",
+        email: "unlink-password@example.com"
+      })
+
+    path = "/api/auth/external-accounts/google"
+
+    response =
+      conn
+      |> authed_conn(user_id, device.device)
+      |> put_test_rrp_headers(
+        user_id,
+        device.device,
+        device.signing_private_key,
+        "DELETE",
+        path,
+        "",
+        ""
+      )
+      |> delete(path)
+      |> json_response(200)
+
+    assert response == %{"ok" => true}
+    refute Users.get_user_external_account_for_user(user_id, "google")
+  end
+
+  test "password setup enables password login for an OAuth-only account", %{conn: conn} do
+    user_id = create_user("oauth-password-setup@example.com")
+    device = create_device_with_signing_key(user_id)
+    create_oauth_master_key(user_id)
+
+    {:ok, _external_account} =
+      Users.create_user_external_account(%{
+        user_id: user_id,
+        provider: "google",
+        provider_user_id: "oauth-password-google",
+        email: "oauth-password-setup@example.com"
+      })
+
+    {:ok, _other_session, other_token} = Auth.create_session(user_id)
+
+    path = "/api/auth/password/setup"
+
+    body = %{
+      "new_auth_key" => "new-auth-key",
+      "new_salt" => Base.url_encode64(<<3::128>>, padding: false),
+      "new_encrypted_umk" => Base.url_encode64(<<1::256>>, padding: false),
+      "new_umk_nonce" => Base.url_encode64(<<2::192>>, padding: false)
+    }
+
+    conn =
+      conn
+      |> authed_conn(user_id, device.device)
+      |> put_test_rrp_headers(
+        user_id,
+        device.device,
+        device.signing_private_key,
+        "POST",
+        path,
+        body
+      )
+      |> post(path, test_json_body(body))
+
+    assert json_response(conn, 200) == %{"ok" => true}
+
+    master_key = Encryption.get_user_encrypted_master_key(user_id)
+    assert master_key.auth_type == "password"
+    assert master_key.encrypted_umk == <<1::256>>
+    assert master_key.umk_nonce == <<2::192>>
+    assert master_key.salt == <<3::128>>
+
+    assert {:ok, user} =
+             Auth.verify_auth_key("oauth-password-setup@example.com", "new-auth-key")
+
+    assert user.id == user_id
+
+    assert {:error, :invalid_session} =
+             Auth.get_valid_session_by_token_base64(
+               Base.url_encode64(other_token, padding: false)
+             )
   end
 
   test "OAuth crypto setup stores oauth key material for first device bootstrap", %{conn: conn} do

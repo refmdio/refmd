@@ -1,4 +1,4 @@
-import { Show, createSignal, type ParentProps } from "solid-js";
+import { Show, createSignal, onMount, type ParentProps } from "solid-js";
 import { Sidebar } from "@/widgets/sidebar";
 import { SettingsDialog } from "@/widgets/settings";
 import { Toaster } from "@/shared/ui/sonner";
@@ -41,6 +41,20 @@ export function AppLayout(props: AppLayoutProps) {
     setSettingsInitialTab(tab);
     setSettingsOpen(true);
   };
+
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const settingsTab = params.get("settings");
+
+    if (settingsTab === "account" || settingsTab === "security") {
+      openSettings(settingsTab);
+      params.delete("settings");
+
+      const query = params.toString();
+      const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+  });
 
   const notificationSlot = () => (
     <Show when={props.securityNotificationCount > 0}>

@@ -5,6 +5,7 @@ defmodule RefMD.Users do
 
   import Ecto.Query
 
+  alias RefMD.Encryption.UserEncryptedMasterKey
   alias RefMD.Repo
   alias RefMD.Users.{User, UserExternalAccount, UserSettings, UserShortcut}
 
@@ -63,6 +64,11 @@ defmodule RefMD.Users do
     Repo.get_by(UserExternalAccount, provider: provider, provider_user_id: provider_user_id)
   end
 
+  def get_user_external_account_for_user(user_id, provider)
+      when is_binary(user_id) and is_binary(provider) do
+    Repo.get_by(UserExternalAccount, user_id: user_id, provider: provider)
+  end
+
   def create_user_external_account(attrs) do
     %UserExternalAccount{created_at: DateTime.utc_now()}
     |> UserExternalAccount.changeset(attrs)
@@ -73,6 +79,56 @@ defmodule RefMD.Users do
     from(a in UserExternalAccount, where: a.id == ^account_id and a.user_id == ^user_id)
     |> Repo.delete_all()
   end
+
+  def delete_user_external_account_by_provider(user_id, provider)
+      when is_binary(user_id) and is_binary(provider) do
+    from(a in UserExternalAccount, where: a.user_id == ^user_id and a.provider == ^provider)
+    |> Repo.delete_all()
+  end
+
+  def unlink_external_account_preserving_login(user_id, provider)
+      when is_binary(user_id) and is_binary(provider) do
+    Repo.transaction(fn ->
+      accounts =
+        from(a in UserExternalAccount,
+          where: a.user_id == ^user_id,
+          order_by: [asc: :provider],
+          lock: "FOR UPDATE"
+        )
+        |> Repo.all()
+
+      master_key =
+        from(k in UserEncryptedMasterKey,
+          where: k.user_id == ^user_id,
+          lock: "FOR UPDATE"
+        )
+        |> Repo.one()
+
+      account = Enum.find(accounts, &(&1.provider == provider))
+
+      cond do
+        account == nil ->
+          Repo.rollback(:external_account_not_found)
+
+        last_external_auth_method?(accounts, provider, master_key) ->
+          Repo.rollback(:last_auth_method_required)
+
+        true ->
+          Repo.delete!(account)
+          :ok
+      end
+    end)
+  end
+
+  def unlink_external_account_preserving_login(_, _), do: {:error, :invalid_provider}
+
+  defp last_external_auth_method?(accounts, provider, master_key) do
+    not password_configured?(master_key) and
+      not Enum.any?(accounts, &(&1.provider != provider))
+  end
+
+  defp password_configured?(%{auth_type: "password"}), do: true
+  defp password_configured?(_master_key), do: false
 
   def get_user_shortcuts(user_id) do
     from(s in UserShortcut, where: s.user_id == ^user_id, order_by: [asc: :action])
