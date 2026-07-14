@@ -2,6 +2,7 @@ import { createSignal, type Accessor } from "solid-js";
 import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { authState, deviceState } from "@/entities/session";
 import { type components, workspacesApi } from "@/shared/api";
+import type { WorkspaceRotationInfo } from "@/shared/api/devices";
 import { isAtOrAbove, type BaseRole } from "@/entities/workspace";
 import {
   buildRolePermissions,
@@ -9,6 +10,7 @@ import {
   togglePermissionOverride,
   type PermissionOverrideMap,
 } from "../../lib/roles/permission-overrides";
+import { updateWorkspaceRoleWithKeyDirectory } from "../../lib/roles/update-role";
 
 type WorkspaceRole = components["schemas"]["RoleResponse"];
 type RoleDeleteResponse = components["schemas"]["RoleDeleteResponse"];
@@ -17,6 +19,7 @@ interface UseWorkspaceRoleManagementOptions {
   workspaceId: Accessor<string | null | undefined>;
   setError: (value: string | null) => void;
   setInfo: (value: string | null) => void;
+  triggerKekRotation: (rotationList: WorkspaceRotationInfo[]) => Promise<void>;
 }
 
 export function useWorkspaceRoleManagement(options: UseWorkspaceRoleManagementOptions) {
@@ -113,12 +116,19 @@ export function useWorkspaceRoleManagement(options: UseWorkspaceRoleManagementOp
     try {
       const permissions = buildRolePermissions(editPermissions());
 
-      await workspacesApi.updateRole(id, target.id, {
+      const response = await updateWorkspaceRoleWithKeyDirectory({
+        workspaceId: id,
+        role: target,
         name: editRoleName().trim() || undefined,
         permissions,
       });
       setEditRoleTarget(null);
       invalidateRoles();
+      const rotationList = response.workspaces_needing_kek_rotation ?? [];
+      if (rotationList.length > 0) {
+        await options.triggerKekRotation(rotationList);
+        invalidateRoles();
+      }
     } catch (err) {
       options.setError(err instanceof Error ? err.message : "Failed to update role");
     } finally {

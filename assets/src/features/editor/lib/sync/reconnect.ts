@@ -171,6 +171,11 @@ async function attemptReconnect(
 
     let unauthorizedDuringReconnect = false;
     try {
+      if (state.access.kind !== "share") {
+        const { acknowledgeDocumentWipeIfRequired } = await import("./bootstrap-key-rotation");
+        if (await acknowledgeDocumentWipeIfRequired(documentId, workspaceId, state)) return;
+      }
+
       // Ensure socket auth exists before consuming a single-use RRP challenge.
       const transportScope = state.access.kind === "share" ? "share" : "user";
       await ensurePhoenixWsToken(transportScope);

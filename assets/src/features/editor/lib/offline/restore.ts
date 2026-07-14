@@ -130,8 +130,15 @@ function activateOfflineEditingSession(
     setWsConnected(false);
   }
 
+  const cacheOptions =
+    state.access.kind === "share"
+      ? {
+          worker: getDocumentCryptoWorker(state),
+          cacheKey: getDocumentDekCacheKey(state, documentId),
+        }
+      : undefined;
   state.autoSync = startAutoSync(documentId, state);
-  state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state);
+  state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state, cacheOptions);
   const stopOfflineWatch = onOfflineModeChange((isOffline) => {
     if (!isOffline && state.loadedFromOfflineCache) {
       resumeWhenServerReady();

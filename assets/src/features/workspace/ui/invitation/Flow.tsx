@@ -11,6 +11,7 @@ import {
   acceptInvitationWithKekPersistence,
   type AcceptedWorkspaceMembership,
 } from "../../lib/invitation/accept";
+import { InvitationDeliveryPendingError } from "../../lib/invitation/delivery-attempt";
 import { redeemGuestInvitation } from "../../lib/invitation/guest-redeem";
 import { isRetryableInvitationError } from "../../lib/invitation/retry";
 import {
@@ -74,7 +75,10 @@ export function WorkspaceInvitationFlow() {
       setStatus("success");
     } catch (guestError) {
       setError(guestError instanceof Error ? guestError.message : "Failed to join as guest");
-      setRetryable(isRetryableInvitationError(guestError));
+      setRetryable(
+        guestError instanceof InvitationDeliveryPendingError ||
+          isRetryableInvitationError(guestError),
+      );
       setStatus("error");
     }
   };
@@ -105,7 +109,10 @@ export function WorkspaceInvitationFlow() {
       }
     } catch (acceptError) {
       setError(acceptError instanceof Error ? acceptError.message : retryErrorLabel);
-      setRetryable(isRetryableInvitationError(acceptError));
+      setRetryable(
+        acceptError instanceof InvitationDeliveryPendingError ||
+          isRetryableInvitationError(acceptError),
+      );
       setStatus("error");
     }
   };
@@ -123,9 +130,11 @@ export function WorkspaceInvitationFlow() {
     }
 
     let kind: "member" | "guest";
+    let deliveryMode: "unknown_fragment" | "known_recipient" | undefined;
     try {
-      const lookupKind = (await workspacesApi.lookupInvitation(invitationLookupToken(token))).kind;
-      kind = lookupKind === "workspace" ? "member" : "guest";
+      const lookup = await workspacesApi.lookupInvitation(invitationLookupToken(token));
+      kind = lookup.kind === "workspace" ? "member" : "guest";
+      deliveryMode = lookup.delivery_mode;
       setInvitationKind(kind);
     } catch (lookupError) {
       setError(lookupError instanceof Error ? lookupError.message : "Invitation not found.");
@@ -151,6 +160,16 @@ export function WorkspaceInvitationFlow() {
     }
 
     if (kind === "guest") {
+      if (deliveryMode === "known_recipient") {
+        const device = deviceState();
+        if (!device || !cryptoWorkerReady()) {
+          if (auth.needsPasswordReentry) return;
+          navigate("/devices/register");
+          return;
+        }
+        setStatus("guest_confirm");
+        return;
+      }
       setError("Sign out before joining as a guest.");
       setStatus("error");
       return;
@@ -219,9 +238,7 @@ export function WorkspaceInvitationFlow() {
         <Card class="w-full max-w-md">
           <CardHeader class="space-y-1 text-center">
             <CardTitle class="text-2xl font-bold">Join as Guest</CardTitle>
-            <CardDescription>
-              This invitation lets you join the workspace as an account-less guest on this device.
-            </CardDescription>
+            <CardDescription>This invitation grants guest access on this device.</CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
             <Button class="w-full" onClick={() => void runGuestRedeem()}>

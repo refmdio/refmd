@@ -23,6 +23,7 @@ import {
 } from "../../hybrid-encryption";
 import { parseJsonStrictBytes } from "../../jcs";
 import { CryptoOperationError } from "../operation-error";
+import { trustIdentityRotationCheckpoint } from "./keys/material";
 import { clearTransientKeys, clearTransientPuk, cloneTransientPuk } from "./transient";
 import {
   dskEncrypt,
@@ -58,15 +59,22 @@ type KeyRestoreResponse = {
   encrypted_identity_hybrid_signing_private_key_material: string;
   identity_hybrid_signing_private_key_material_nonce: string;
   identity_signing_key_id: string;
+  identity_rotation_due_at: string | null;
+  identity_key_checkpoint: {
+    payload: Record<string, unknown>;
+    signatures: Record<string, unknown>[];
+  };
 };
 
 const keyRestoreEndpointRefs: Record<string, string> = {
   "auth-key-restore-v1": "/api/auth/key-restore",
 };
 
-async function resolveKeyRestorePayload(p: HandlerPayload): Promise<HandlerPayload> {
+async function resolveKeyRestorePayload(
+  p: HandlerPayload,
+): Promise<{ payload: HandlerPayload; serverFetched: boolean }> {
   const endpointRef = p.keyRestoreEndpointRef as string | null | undefined;
-  if (!endpointRef) return p;
+  if (!endpointRef) return { payload: p, serverFetched: false };
 
   const endpoint = keyRestoreEndpointRefs[endpointRef];
   if (!endpoint) throw new Error("unknown_key_restore_endpoint");
@@ -80,25 +88,30 @@ async function resolveKeyRestorePayload(p: HandlerPayload): Promise<HandlerPaylo
 
   const body = (await response.json()) as KeyRestoreResponse;
   return {
-    ...p,
-    serverEncryptedUmk: body.encrypted_umk
-      ? base64UrlDecode(body.encrypted_umk)
-      : p.serverEncryptedUmk,
-    serverUmkNonce: body.umk_nonce ? base64UrlDecode(body.umk_nonce) : p.serverUmkNonce,
-    encryptedIdentityHybridEncryptionPrivateKeyMaterial: base64UrlDecode(
-      body.encrypted_identity_hybrid_encryption_private_key_material,
-    ),
-    identityHybridEncryptionPrivateKeyMaterialNonce: base64UrlDecode(
-      body.identity_hybrid_encryption_private_key_material_nonce,
-    ),
-    identityEncryptionKeyId: body.identity_encryption_key_id,
-    encryptedIdentityHybridSigningPrivateKeyMaterial: base64UrlDecode(
-      body.encrypted_identity_hybrid_signing_private_key_material,
-    ),
-    identityHybridSigningPrivateKeyMaterialNonce: base64UrlDecode(
-      body.identity_hybrid_signing_private_key_material_nonce,
-    ),
-    identitySigningKeyId: body.identity_signing_key_id,
+    serverFetched: true,
+    payload: {
+      ...p,
+      serverEncryptedUmk: body.encrypted_umk
+        ? base64UrlDecode(body.encrypted_umk)
+        : p.serverEncryptedUmk,
+      serverUmkNonce: body.umk_nonce ? base64UrlDecode(body.umk_nonce) : p.serverUmkNonce,
+      encryptedIdentityHybridEncryptionPrivateKeyMaterial: base64UrlDecode(
+        body.encrypted_identity_hybrid_encryption_private_key_material,
+      ),
+      identityHybridEncryptionPrivateKeyMaterialNonce: base64UrlDecode(
+        body.identity_hybrid_encryption_private_key_material_nonce,
+      ),
+      identityEncryptionKeyId: body.identity_encryption_key_id,
+      encryptedIdentityHybridSigningPrivateKeyMaterial: base64UrlDecode(
+        body.encrypted_identity_hybrid_signing_private_key_material,
+      ),
+      identityHybridSigningPrivateKeyMaterialNonce: base64UrlDecode(
+        body.identity_hybrid_signing_private_key_material_nonce,
+      ),
+      identitySigningKeyId: body.identity_signing_key_id,
+      identityRotationDueAt: body.identity_rotation_due_at,
+      identityKeyCheckpointPayload: body.identity_key_checkpoint.payload,
+    },
   };
 }
 
@@ -126,9 +139,10 @@ async function restoreKeysFromBlobs(
     dsk: CryptoKey | null;
     userId: string;
     localPuk: Uint8Array | null;
+    identityCheckpointServerFetched: boolean;
   },
 ): Promise<void> {
-  const { dsk, userId, localPuk } = params;
+  const { dsk, userId, localPuk, identityCheckpointServerFetched } = params;
   if (dsk) {
     state.dsk = dsk;
     const hasWrappedDeviceKeys = Boolean(
@@ -244,6 +258,10 @@ async function restoreKeysFromBlobs(
     p.identityHybridSigningPrivateKeyMaterialNonce &&
     p.identitySigningKeyId
   ) {
+    if (!identityCheckpointServerFetched) {
+      throw new Error("identity_key_lifecycle_untrusted");
+    }
+    setIdentityRotationDueAt(state, p.identityRotationDueAt);
     setIdentityFromDecrypted(
       state,
       decryptIdentityPrivateKeys(
@@ -263,6 +281,7 @@ async function restoreKeysFromBlobs(
         userId,
       ),
     );
+    trustIdentityRotationCheckpoint(state, p.identityKeyCheckpointPayload, true);
   }
   const identityKeysRequested = Boolean(
     p.encryptedIdentityHybridEncryptionPrivateKeyMaterial &&
@@ -285,7 +304,8 @@ export async function handleInit(state: WorkerKeyState, p: HandlerPayload): Prom
   clearTransientPuk();
   try {
     p = await resolveStoredDskPayload(p);
-    p = await resolveKeyRestorePayload(p);
+    const keyRestore = await resolveKeyRestorePayload(p);
+    p = keyRestore.payload;
     const dsk = p.dsk as CryptoKey | null;
     const userId = p.userId as string;
     const deviceId = p.deviceId as string;
@@ -315,6 +335,7 @@ export async function handleInit(state: WorkerKeyState, p: HandlerPayload): Prom
       dsk,
       userId,
       localPuk,
+      identityCheckpointServerFetched: keyRestore.serverFetched,
     });
     return { status: state.initialized ? "initialized" : "partial" };
   } finally {
@@ -331,7 +352,8 @@ export async function handleInitFromPassword(
   clearState(state);
   clearTransientPuk();
   p = await resolveStoredDskPayload(p);
-  p = await resolveKeyRestorePayload(p);
+  const keyRestore = await resolveKeyRestorePayload(p);
+  p = keyRestore.payload;
   const password = p.password as string;
   const salt = p.salt as Uint8Array;
   const kdfParams = p.kdfParams as {
@@ -358,6 +380,7 @@ export async function handleInitFromPassword(
       dsk,
       userId,
       localPuk,
+      identityCheckpointServerFetched: keyRestore.serverFetched,
     });
     return { authKey: base64UrlDecode(derived.authKeyBase64) };
   } finally {
@@ -460,7 +483,10 @@ export async function handleImportIdentityKeysFromKeyRestore(
   state: WorkerKeyState,
   p: HandlerPayload,
 ): Promise<unknown> {
-  const payload = await resolveKeyRestorePayload(p);
+  const keyRestore = await resolveKeyRestorePayload(p);
+  if (!keyRestore.serverFetched) throw new Error("identity_key_lifecycle_untrusted");
+  const payload = keyRestore.payload;
+  setIdentityRotationDueAt(state, payload.identityRotationDueAt);
   setIdentityFromDecrypted(
     state,
     decryptIdentityPrivateKeys(
@@ -480,7 +506,19 @@ export async function handleImportIdentityKeysFromKeyRestore(
       requireUserId(state),
     ),
   );
+  trustIdentityRotationCheckpoint(state, payload.identityKeyCheckpointPayload, true);
   return handleGetPublicKeys(state);
+}
+
+function setIdentityRotationDueAt(state: WorkerKeyState, dueAt: unknown): void {
+  if (dueAt === null) {
+    state.identityRotationDueAtMs = null;
+    return;
+  }
+  if (typeof dueAt !== "string" || !Number.isFinite(Date.parse(dueAt))) {
+    throw new Error("identity_rotation_deadline_invalid");
+  }
+  state.identityRotationDueAtMs = Date.parse(dueAt);
 }
 export function handleIsReady(state: WorkerKeyState): unknown {
   return { ready: state.initialized };

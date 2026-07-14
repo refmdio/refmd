@@ -182,14 +182,18 @@ defmodule RefMD.Crypto.Signature.SignatureTest do
     assert SigningSurface.get_active!("recipient_bound_authorization", "none").owner_kind ==
              "device"
 
-    document_update_surface =
+    assert_raise ArgumentError, "signing_surface_not_active", fn ->
       SigningSurface.get_active!("key_directory_event", "document_update_accepted")
+    end
 
-    assert document_update_surface.owner_kind == "device"
+    document_write_session_surface =
+      SigningSurface.get_active!("key_directory_event", "document_write_session_admitted")
+
+    assert document_write_session_surface.owner_kind == "device"
 
     assert :ok =
              SigningSurface.assert_owner_kind!(
-               document_update_surface,
+               document_write_session_surface,
                "share_participant_device"
              )
 

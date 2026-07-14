@@ -19,7 +19,7 @@ defmodule RefMDWeb.Channels.Document.Envelope do
                                @authority_public_data_keys ++
                                @key_checkpoint_public_data_keys
   @workspace_event_head_public_data_keys ~w(workspaceEventHeadSequence workspaceEventHeadHash)
-  @ephemeral_public_data_keys ~w(docId signingKeyId) ++
+  @ephemeral_public_data_keys ~w(docId signingKeyId keyVersion) ++
                                 @authority_public_data_keys ++
                                 @key_checkpoint_public_data_keys ++
                                 @workspace_event_head_public_data_keys
@@ -131,6 +131,7 @@ defmodule RefMDWeb.Channels.Document.Envelope do
          :ok <- validate_exact_keys(public_data, @ephemeral_public_data_keys),
          :ok <- validate_doc_id(public_data, socket),
          :ok <- validate_signing_key_id(public_data, socket),
+         :ok <- validate_integer_field(public_data, "keyVersion"),
          :ok <- validate_authority_fields(public_data, socket),
          :ok <- validate_key_checkpoint_fields(public_data),
          :ok <- validate_workspace_event_head_fields(public_data),

@@ -20,6 +20,9 @@ import {
   handleLoadShareSessionTrustAnchorWithDsk,
   handleLoadUiStateWithDsk,
   handlePersistCurrentKeysWithDsk,
+  handlePersistGuestPendingKeysWithDsk,
+  handleRestoreGuestPendingKeysWithDsk,
+  handleDeleteGuestPendingKeysWithDsk,
   handleUnwrapDeviceKeysFromDsk,
   handleUnwrapUmkFromDsk,
   handleStoreGuestInvitationMaterialWithDsk,
@@ -39,6 +42,14 @@ import {
   handleGenerateDeviceKeys,
   handleGenerateUmk,
   handleGenerateIdentityKeys,
+  handleGenerateIdentitySuccessor,
+  handleImportIdentitySuccessor,
+  handleRestoreActivatedIdentitySuccessor,
+  handleBeginIdentitySuccessorFinalization,
+  handleActivateIdentitySuccessor,
+  handleDiscardIdentitySuccessor,
+  handleSetIdentityRotationDeadline,
+  handleTrustIdentityRotationCheckpoint,
   handleImportIdentityKeys,
   handleImportUmk,
 } from "../keys/material";
@@ -51,7 +62,11 @@ import {
   handleValidateMnemonic,
   handleWrapUmkWithRuk,
 } from "../keys/recovery";
-import { handleWrapIdentityKeysForServer, handleWrapUmkForServer } from "../keys/server";
+import {
+  handleWrapIdentityKeysForServer,
+  handleWrapIdentitySuccessorForServer,
+  handleWrapUmkForServer,
+} from "../keys/server";
 import { withCryptoOperationError } from "../utils";
 import type { RequestHandlerTable } from "./shared";
 
@@ -63,13 +78,35 @@ export const keyRequestHandlers = {
   "generate-dsk": (state) => handleGenerateDskKey(state),
   "persist-current-keys-with-dsk": (state, payload) =>
     handlePersistCurrentKeysWithDsk(state, payload),
+  "persist-guest-pending-keys-with-dsk": (state, payload) =>
+    handlePersistGuestPendingKeysWithDsk(state, payload),
+  "restore-guest-pending-keys-with-dsk": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleRestoreGuestPendingKeysWithDsk(state, payload),
+    ),
+  "delete-guest-pending-keys-with-dsk": (_state, payload) =>
+    handleDeleteGuestPendingKeysWithDsk(payload),
   "generate-identity-keys": (state) => handleGenerateIdentityKeys(state),
+  "generate-identity-successor": (state) => handleGenerateIdentitySuccessor(state),
+  "import-identity-successor": (state, payload) => handleImportIdentitySuccessor(state, payload),
+  "restore-activated-identity-successor": (state, payload) =>
+    handleRestoreActivatedIdentitySuccessor(state, payload),
+  "begin-identity-successor-finalization": (state) =>
+    handleBeginIdentitySuccessorFinalization(state),
+  "activate-identity-successor": (state) => handleActivateIdentitySuccessor(state),
+  "discard-identity-successor": (state) => handleDiscardIdentitySuccessor(state),
+  "set-identity-rotation-deadline": (state, payload) =>
+    handleSetIdentityRotationDeadline(state, payload),
+  "trust-identity-rotation-checkpoint": (state, payload) =>
+    handleTrustIdentityRotationCheckpoint(state, payload),
   "generate-invitation-token": () => handleGenerateInvitationToken(),
   "generate-recovery-key": (state) => handleGenerateRecoveryKey(state),
   "generate-umk": (state) => handleGenerateUmk(state),
   "import-identity-keys": (state, payload) => handleImportIdentityKeys(state, payload),
   "import-umk": (state, payload) => handleImportUmk(state, payload),
   "sha256-hash": (_, payload) => handleSha256Hash(payload),
+  "wrap-identity-successor-for-server": (state, payload) =>
+    handleWrapIdentitySuccessorForServer(state, payload),
   "unwrap-device-keys-from-dsk": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
       handleUnwrapDeviceKeysFromDsk(state, payload),

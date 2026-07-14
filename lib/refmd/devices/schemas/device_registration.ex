@@ -109,22 +109,25 @@ defmodule RefMD.Devices.DeviceRegistration do
     user_id = get_field(changeset, :user_id)
     signing_key_id = get_field(changeset, :signing_key_id)
     public_material = get_field(changeset, :hybrid_signing_public_key_material)
+    registration_challenge_hash = get_field(changeset, :pending_registration_challenge_hash)
 
     required_keys = ["umk_distribution", "trust_transfer"]
 
     valid_responder_prekey_set_keys?(prekeys) and
       Enum.all?(required_keys, &Map.has_key?(prekeys, &1)) and
+      valid_responder_prekey_operation_ids?(prekeys, device_id) and
       Enum.all?(prekeys, fn
         {"umk_distribution", %{"payload" => payload, "signature" => signature} = record} ->
-          exact_keys?(record, ["payload", "signature"]) and
+          exact_keys?(record, ["payload", "signature"]) and valid_uuid?(payload["operation_id"]) and
             valid_responder_prekey_record?(
               payload,
               signature,
               "umk_distribution",
-              device_id,
+              payload["operation_id"],
               user_id,
               signing_key_id,
-              public_material
+              public_material,
+              registration_challenge_hash
             )
 
         {"trust_transfer", %{"payload" => payload, "signature" => signature} = record} ->
@@ -136,7 +139,8 @@ defmodule RefMD.Devices.DeviceRegistration do
               payload["operation_id"],
               user_id,
               signing_key_id,
-              public_material
+              public_material,
+              registration_challenge_hash
             )
 
         {<<"device_approval_kek_initial:", _workspace_id::binary>>,
@@ -149,7 +153,8 @@ defmodule RefMD.Devices.DeviceRegistration do
               device_id,
               user_id,
               signing_key_id,
-              public_material
+              public_material,
+              registration_challenge_hash
             )
 
         _ ->
@@ -158,6 +163,15 @@ defmodule RefMD.Devices.DeviceRegistration do
   end
 
   defp valid_responder_prekey_set?(_, _), do: false
+
+  defp valid_responder_prekey_operation_ids?(prekeys, registration_id) do
+    umk_operation_id = get_in(prekeys, ["umk_distribution", "payload", "operation_id"])
+    trust_operation_id = get_in(prekeys, ["trust_transfer", "payload", "operation_id"])
+
+    valid_uuid?(umk_operation_id) and valid_uuid?(trust_operation_id) and
+      umk_operation_id != registration_id and trust_operation_id != registration_id and
+      umk_operation_id != trust_operation_id
+  end
 
   defp valid_responder_prekey_set_keys?(prekeys) when is_map(prekeys) do
     Enum.all?(Map.keys(prekeys), fn
@@ -178,11 +192,12 @@ defmodule RefMD.Devices.DeviceRegistration do
          operation_id,
          user_id,
          signing_key_id,
-         public_material
+         public_material,
+         registration_challenge_hash
        )
        when is_map(payload) and is_map(signature) and is_binary(purpose) and
               is_binary(operation_id) and is_binary(user_id) and is_binary(signing_key_id) and
-              is_map(public_material) do
+              is_map(public_material) and is_binary(registration_challenge_hash) do
     with true <-
            exact_keys?(payload, [
              "expires_event_sequence",
@@ -213,7 +228,8 @@ defmodule RefMD.Devices.DeviceRegistration do
          {:ok, mlkem768_public} <- decode_base64url(payload["mlkem768_ephemeral_public"], 1184),
          true <-
            payload["mlkem768_ephemeral_public_hash"] == Hash.blake3_base64url(mlkem768_public),
-         {:ok, _server_challenge} <- decode_base64url(payload["server_challenge"], 32),
+         {:ok, server_challenge} <- decode_base64url(payload["server_challenge"], 32),
+         true <- Hash.blake3_base64url(server_challenge) == registration_challenge_hash,
          true <- byte_size(x25519_public) == 32,
          true <- is_integer(payload["issued_at_event_sequence"]),
          true <- is_integer(payload["expires_event_sequence"]),
@@ -253,7 +269,7 @@ defmodule RefMD.Devices.DeviceRegistration do
     _ -> false
   end
 
-  defp valid_responder_prekey_record?(_, _, _, _, _, _, _), do: false
+  defp valid_responder_prekey_record?(_, _, _, _, _, _, _, _), do: false
 
   defp decode_base64url(value, bytes) when is_binary(value) do
     {:ok, Encoding.decode_base64url!(value, bytes)}

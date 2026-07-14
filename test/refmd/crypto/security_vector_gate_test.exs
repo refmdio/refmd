@@ -6,12 +6,14 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   alias RefMD.Crypto.Signature.SemanticValidator
   alias RefMD.Encryption.KeyDirectory.Signatures
   alias RefMD.Encryption.Wraps.SignedPQ
+  alias RefMD.Sharing.Capability
 
   @root Path.expand("../../..", __DIR__)
 
   test "server native crypto boundary is verify and hash only" do
     elixir_native = File.read!(Path.join(@root, "lib/refmd/crypto/native.ex"))
-    rust_native = File.read!(Path.join(@root, "native/refmd_crypto/src/lib.rs"))
+    rust_native = File.read!(Path.join(@root, "native/refmd_crypto/src/nif.rs"))
+    rust_wasm = File.read!(Path.join(@root, "native/refmd_crypto/src/wasm.rs"))
     rust_manifest = File.read!(Path.join(@root, "native/refmd_crypto/Cargo.toml"))
 
     assert elixir_native =~ "def hash("
@@ -24,6 +26,10 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     assert rust_native =~ "fn mldsa65_verify"
     refute rust_native =~ "fn mldsa65_keypair"
     refute rust_native =~ "fn mldsa65_sign"
+    refute rust_native =~ "refmd_hpke_"
+    assert rust_wasm =~ "refmd_hpke_setup_sender"
+    assert rust_wasm =~ "refmd_hpke_sender_seal"
+    assert rust_wasm =~ "refmd_hpke_open"
     refute rust_manifest =~ "test_signing"
   end
 
@@ -697,64 +703,84 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
   test "every active signing surface has executable hybrid positive and negative vectors" do
     surfaces = active_surfaces_by_owner_kind()
+    registry = semantic_fixture_registry()
+    active_pairs = active_surface_pairs()
 
-    Enum.each(surfaces, fn surface ->
-      private =
-        RefMD.TestCrypto.hybrid_signing_private_key_material(
-          owner_kind(surface),
-          owner_id(surface)
-        )
+    assert :ok = assert_semantic_fixture_registry!(active_pairs, registry)
 
-      public = RefMD.TestCrypto.hybrid_signing_public_key_material(private)
-      transcript = production_transcript(surface, public)
+    executed_pairs =
+      Enum.map(surfaces, fn surface ->
+        private =
+          RefMD.TestCrypto.hybrid_signing_private_key_material(
+            owner_kind(surface),
+            owner_id(surface)
+          )
 
-      signature =
-        Signature.__test_sign_hybrid_signature__(
-          surface.signing_purpose,
-          transcript,
-          private,
-          public
-        )
+        public = RefMD.TestCrypto.hybrid_signing_public_key_material(private)
+        transcript = production_transcript(surface, public)
 
-      assert :ok =
-               Signature.assert_hybrid_signature!(
+        signature =
+          Signature.__test_sign_hybrid_signature__(
+            surface.signing_purpose,
+            transcript,
+            private,
+            public
+          )
+
+        assert :ok =
+                 Signature.assert_hybrid_signature!(
+                   surface.signing_purpose,
+                   transcript,
+                   signature,
+                   public
+                 )
+
+        refute Signature.verify_hybrid_signature(
                  surface.signing_purpose,
                  transcript,
+                 Map.delete(signature, "mldsa65"),
+                 public
+               )
+
+        refute Signature.verify_hybrid_signature(
+                 surface.signing_purpose,
+                 transcript,
+                 Map.delete(signature, "ed25519"),
+                 public
+               )
+
+        refute Signature.verify_hybrid_signature(
+                 surface.signing_purpose,
+                 Map.put(transcript, "transcript_owner", "refmd.invalid.transcript_owner"),
                  signature,
                  public
                )
 
-      refute Signature.verify_hybrid_signature(
-               surface.signing_purpose,
-               transcript,
-               Map.delete(signature, "mldsa65"),
-               public
-             )
+        tampered_public = Map.put(public, "owner_id", tampered_owner_id(surface))
 
-      refute Signature.verify_hybrid_signature(
-               surface.signing_purpose,
-               transcript,
-               Map.delete(signature, "ed25519"),
-               public
-             )
+        assert {:error, :invalid_signature} =
+                 Signature.verify_hybrid_signature_result(
+                   surface.signing_purpose,
+                   transcript,
+                   signature,
+                   tampered_public
+                 )
 
-      refute Signature.verify_hybrid_signature(
-               surface.signing_purpose,
-               Map.put(transcript, "transcript_owner", "refmd.invalid.transcript_owner"),
-               signature,
-               public
-             )
+        assert_semantic_fixture!(surface, transcript, signature, public, registry)
 
-      tampered_public = Map.put(public, "owner_id", tampered_owner_id(surface))
+        {surface.signing_purpose, surface.variant}
+      end)
 
-      assert {:error, :invalid_signature} =
-               Signature.verify_hybrid_signature_result(
-                 surface.signing_purpose,
-                 transcript,
-                 signature,
-                 tampered_public
-               )
-    end)
+    assert MapSet.new(executed_pairs) == MapSet.new(active_pairs)
+  end
+
+  test "semantic fixture registry fails closed when an active surface is missing" do
+    active_pairs = active_surface_pairs()
+    registry = Map.delete(semantic_fixture_registry(), hd(active_pairs))
+
+    assert_raise ArgumentError, "semantic_fixture_registry_mismatch", fn ->
+      assert_semantic_fixture_registry!(active_pairs, registry)
+    end
   end
 
   test "device key deletion proof semantic negatives keep the signature valid" do
@@ -1273,9 +1299,165 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     assert actual_hashes == expected_hashes
   end
 
+  test "canonical unified audit event matches the frontend fixed vector" do
+    event = %{
+      "protocol" => "refmd.security-audit-chain",
+      "version" => 1,
+      "chain_scope" => "user:user-one",
+      "sequence" => 1,
+      "class" => "authority",
+      "type" => "audit.event.1",
+      "actor" => %{"user_id" => "user-one"},
+      "scope" => %{},
+      "resource" => %{"kind" => "user", "id" => "user-one"},
+      "action" => %{"operation" => "audit", "result" => "completed"},
+      "sensitivity" => %{"plaintext_scope_kind" => "none", "plaintext_bytes" => 0},
+      "correlation" => %{}
+    }
+
+    assert Hash.blake3_base64url(JCS.canonical_bytes!(event)) ==
+             "HU1dtcByO0M8vycTqzGI0YKY34i6idnAAtyOIEjiEDg"
+  end
+
+  test "immutable signed PQ wrap registry and golden vector match production validators" do
+    fixture_root = Path.join(@root, "native/refmd_crypto/testdata")
+    registry = fixture_root |> Path.join("registry-v1.json") |> File.read!() |> Jason.decode!()
+
+    assert registry["schema_version"] == 1
+
+    for entry <- registry["fixtures"] do
+      fixture_bytes = File.read!(Path.join(fixture_root, entry["path"]))
+      assert Base.encode16(:crypto.hash(:sha256, fixture_bytes), case: :lower) == entry["sha256"]
+    end
+
+    fixture =
+      fixture_root
+      |> Path.join("refmd-signed-pq-wrap-v1.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert fixture["schema_version"] == 1
+    assert fixture["case_id"] == "signed-pq-wrap-v1"
+
+    for encoded <- Map.values(fixture["canonical"]) do
+      bytes = Base.url_decode64!(encoded, padding: false)
+      assert bytes |> Jason.decode!() |> JCS.canonical_bytes!() == bytes
+    end
+
+    hashes = fixture["hashes"]
+
+    assert fixture["canonical"]["resource_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == hashes["resource_hash"]
+
+    assert fixture["canonical"]["hpke_info_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == hashes["hpke_info_hash"]
+
+    assert fixture["canonical"]["aad_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == hashes["aad_hash"]
+
+    assert fixture["canonical"]["wrap_body_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == hashes["wrap_body_hash"]
+
+    assert fixture["canonical"]["event_body_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == hashes["wrap_event_body_hash"]
+
+    assert fixture["canonical"]["event_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == hashes["wrap_event_hash"]
+
+    assert fixture["canonical"]["signature_transcript_jcs_b64u"]
+           |> Base.url_decode64!(padding: false)
+           |> Hash.blake3_base64url() == fixture["record"]["transcript_hash"]
+
+    attrs = SignedPQ.attrs_from_params!(fixture["record"])
+
+    assert attrs |> SignedPQ.response_fields() |> Jason.encode!() |> Jason.decode!() ==
+             fixture["record"]
+
+    assert :ok =
+             SignedPQ.verify_signature(attrs, fixture["sender_signing_public_key_material"])
+
+    assert Enum.all?(fixture["negative"], fn vector ->
+             vector["base"] in [
+               fixture["case_id"],
+               "recipient-delivery-workspace-v1",
+               "recipient-delivery-guest-v1",
+               "share-capability-context-v1",
+               "workspace-pin-bootstrap-v1",
+               "signed-pq-wrap-aad-v1",
+               "signed-pq-wrap-hpke-info-v1",
+               "signed-pq-wrap-body-v1",
+               "signed-pq-wrap-event-body-v1",
+               "signed-pq-wrap-signature-transcript-v1",
+               "workspace-invitation-bootstrap-v1",
+               "guest-invitation-bootstrap-v1",
+               "share-participant-bootstrap-v1",
+               "workspace-pin-bootstrap-hash-v1"
+             ] and is_binary(vector["mutation"]) and
+               is_list(vector["operations"]) and vector["operations"] != [] and
+               is_binary(vector["expected_error"])
+           end)
+
+    assert Enum.frequencies_by(fixture["negative"], & &1["base"]) == %{
+             "signed-pq-wrap-v1" => 18,
+             "recipient-delivery-workspace-v1" => 6,
+             "recipient-delivery-guest-v1" => 1,
+             "share-capability-context-v1" => 3,
+             "workspace-pin-bootstrap-v1" => 3,
+             "signed-pq-wrap-aad-v1" => 4,
+             "signed-pq-wrap-hpke-info-v1" => 4,
+             "signed-pq-wrap-body-v1" => 4,
+             "signed-pq-wrap-event-body-v1" => 4,
+             "signed-pq-wrap-signature-transcript-v1" => 2,
+             "workspace-invitation-bootstrap-v1" => 2,
+             "guest-invitation-bootstrap-v1" => 2,
+             "share-participant-bootstrap-v1" => 2,
+             "workspace-pin-bootstrap-hash-v1" => 1
+           }
+
+    backend_vectors =
+      Enum.filter(fixture["negative"], fn vector ->
+        Enum.all?(vector["operations"], &String.starts_with?(&1["path"], "/record/"))
+      end)
+
+    assert length(backend_vectors) == 17
+
+    for vector <- backend_vectors do
+      assert {:error, reason} = execute_backend_signed_wrap_mutation(fixture, vector)
+      assert reason not in [nil, "", :ok], "backend accepted #{vector["mutation"]}"
+    end
+
+    capability_vectors =
+      Enum.filter(fixture["negative"], &(&1["base"] == "share-capability-context-v1"))
+
+    assert length(capability_vectors) == 3
+
+    for vector <- capability_vectors do
+      assert {:error, reason} = execute_backend_share_capability_mutation(vector)
+      assert reason == vector["expected_error"]
+    end
+
+    frontend_gate =
+      File.read!(Path.join(@root, "assets/src/shared/lib/crypto/signed-pq-wrap-vector.test.ts"))
+
+    refute frontend_gate =~ "createSignedPqWrap"
+    refute frontend_gate =~ "generateHybrid"
+    refute frontend_gate =~ "getRandomValues"
+    refute frontend_gate =~ "Math.random"
+
+    this_gate = File.read!(__ENV__.file)
+    assert this_gate =~ "random_signed_pq_wrap_property_case"
+    refute this_gate =~ token(["signed_pq_wrap_", "vector("])
+  end
+
   test "non-workspace signed PQ wrap validators bind context, recipient, and wrap event" do
     Enum.each(non_workspace_signed_pq_wrap_purposes(), fn {purpose, validator} ->
-      {attrs, context} = signed_pq_wrap_vector(purpose)
+      {attrs, context} = random_signed_pq_wrap_property_case(purpose)
 
       assert :ok = apply(SignedPQ, validator, [attrs, context])
 
@@ -1284,12 +1466,12 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
       if purpose == "guest_invitation_workspace_kek_wrap" do
         {view_attrs, view_context} =
-          signed_pq_wrap_vector(
+          random_signed_pq_wrap_property_case(
             purpose,
             Map.put(signed_pq_wrap_resource(purpose), "permission", "view")
           )
 
-        assert {:error, :invalid_guest_invitation_workspace_kek_wrap} =
+        assert :ok =
                  SignedPQ.validate_guest_invitation_workspace_kek(view_attrs, view_context)
       end
 
@@ -1320,7 +1502,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   end
 
   test "signed PQ wrap params reject unknown top-level fields before normalization" do
-    {attrs, _context} = signed_pq_wrap_vector("share_link_secret_backup_wrap")
+    {attrs, _context} = random_signed_pq_wrap_property_case("share_link_secret_backup_wrap")
 
     wire_params =
       attrs
@@ -1368,9 +1550,28 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     end
   end
 
+  test "signed PQ wrap params reject removed invitation package purposes" do
+    {attrs, _context} = random_signed_pq_wrap_property_case("share_link_secret_backup_wrap")
+
+    wire_params =
+      attrs
+      |> SignedPQ.response_fields()
+      |> Jason.encode!()
+      |> Jason.decode!()
+
+    for purpose <- [
+          "workspace_invitation_package_key_wrap",
+          "guest_invitation_package_key_wrap"
+        ] do
+      assert_raise KeyError, fn ->
+        SignedPQ.attrs_from_params!(Map.put(wire_params, "purpose", purpose))
+      end
+    end
+  end
+
   test "signed PQ wrap validators reject schema-extra canonical nested objects" do
     Enum.each(non_workspace_signed_pq_wrap_purposes(), fn {purpose, validator} ->
-      {attrs, context} = signed_pq_wrap_vector(purpose)
+      {attrs, context} = random_signed_pq_wrap_property_case(purpose)
 
       assert {:error, _reason} =
                apply(SignedPQ, validator, [
@@ -1393,7 +1594,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   end
 
   test "signed PQ wrap event bodies reject schema-extra signed fields" do
-    {attrs, _context} = signed_pq_wrap_vector("share_link_secret_backup_wrap")
+    {attrs, _context} = random_signed_pq_wrap_property_case("share_link_secret_backup_wrap")
 
     event =
       attrs
@@ -1413,7 +1614,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         {"guest_invitation_share_key_wrap", :validate_guest_invitation_share_key}
       ],
       fn {purpose, validator} ->
-        {attrs, context} = signed_pq_wrap_vector(purpose)
+        {attrs, context} = random_signed_pq_wrap_property_case(purpose)
         attrs = %{attrs | resource: Map.put(attrs.resource, "scope_kind", "workspace")}
         context = %{context | resource: attrs.resource}
 
@@ -1430,7 +1631,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         {"guest_invitation_share_key_wrap", :validate_guest_invitation_share_key}
       ],
       fn {purpose, validator} ->
-        {attrs, context} = signed_pq_wrap_vector(purpose)
+        {attrs, context} = random_signed_pq_wrap_property_case(purpose)
         attrs = %{attrs | resource: Map.put(attrs.resource, "scope_id", "none")}
         context = %{context | resource: attrs.resource}
 
@@ -1447,7 +1648,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         {"guest_invitation_share_key_wrap", :validate_guest_invitation_share_key}
       ],
       fn {purpose, validator} ->
-        {attrs, context} = signed_pq_wrap_vector(purpose)
+        {attrs, context} = random_signed_pq_wrap_property_case(purpose)
         attrs = %{attrs | resource: Map.put(attrs.resource, "document_scope_hash", "not-a-hash")}
         context = %{context | resource: attrs.resource}
 
@@ -1457,7 +1658,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   end
 
   test "share link secret backup allows absent password capability only for unprotected shares" do
-    {attrs, context} = signed_pq_wrap_vector("share_link_secret_backup_wrap")
+    {attrs, context} = random_signed_pq_wrap_property_case("share_link_secret_backup_wrap")
     resource = Map.put(attrs.resource, "password_capability_secret_commitment", "none")
     attrs = %{attrs | resource: resource} |> signed_pq_wrap_with_event_hashes()
 
@@ -1519,6 +1720,80 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     Enum.sort(files ++ metadata)
   end
 
+  defp execute_backend_signed_wrap_mutation(fixture, vector) do
+    mutated = Enum.reduce(vector["operations"], fixture, &apply_fixture_patch/2)
+    attrs = SignedPQ.attrs_from_params!(mutated["record"])
+
+    case SignedPQ.verify_signature(attrs, mutated["sender_signing_public_key_material"]) do
+      :ok -> {:error, :mutation_accepted}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp execute_backend_share_capability_mutation(vector) do
+    attrs = %{
+      "workspace_id" => "00000000-0000-4000-8000-000000000201",
+      "share_id" => "00000000-0000-4000-8000-000000000202",
+      "scope_kind" => "document",
+      "scope_id" => "00000000-0000-4000-8000-000000000203",
+      "token_hash" => Hash.blake3_base64url("share-token"),
+      "permission" => "view",
+      "share_capability_secret_commitment" => Hash.blake3_base64url("share-secret"),
+      "workspace_pin_bootstrap_hash" => Hash.blake3_base64url("workspace-pin-bootstrap"),
+      "authenticated_bootstrap_source" => "url-fragment",
+      "password_protected" => false
+    }
+
+    mutated = Enum.reduce(vector["operations"], attrs, &apply_fixture_patch/2)
+    Capability.context!(mutated)
+    :ok
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp apply_fixture_patch(%{"op" => "replace", "path" => path, "value" => value}, fixture) do
+    put_in_fixture(fixture, fixture_path(path), value)
+  end
+
+  defp apply_fixture_patch(%{"op" => "remove", "path" => path}, fixture) do
+    pop_in_fixture(fixture, fixture_path(path))
+  end
+
+  defp apply_fixture_patch(_, _), do: raise(ArgumentError, "fixture_patch_invalid")
+
+  defp fixture_path(path) when is_binary(path) do
+    case String.split(path, "/", trim: true) do
+      [] -> raise ArgumentError, "fixture_patch_path_invalid"
+      segments -> Enum.map(segments, &String.replace(String.replace(&1, "~1", "/"), "~0", "~"))
+    end
+  end
+
+  defp put_in_fixture(fixture, [field], value) when is_map(fixture) do
+    if Map.has_key?(fixture, field),
+      do: Map.put(fixture, field, value),
+      else: raise(ArgumentError, "fixture_patch_path_invalid")
+  end
+
+  defp put_in_fixture(fixture, [field | rest], value) when is_map(fixture) do
+    Map.put(fixture, field, put_in_fixture(Map.fetch!(fixture, field), rest, value))
+  end
+
+  defp put_in_fixture(_, _, _), do: raise(ArgumentError, "fixture_patch_path_invalid")
+
+  defp pop_in_fixture(fixture, [field]) when is_map(fixture) do
+    if Map.has_key?(fixture, field),
+      do: Map.delete(fixture, field),
+      else: raise(ArgumentError, "fixture_patch_path_invalid")
+  end
+
+  defp pop_in_fixture(fixture, [field | rest]) when is_map(fixture) do
+    Map.put(fixture, field, pop_in_fixture(Map.fetch!(fixture, field), rest))
+  end
+
+  defp pop_in_fixture(_, _), do: raise(ArgumentError, "fixture_patch_path_invalid")
+
   defp token(parts), do: Enum.join(parts)
 
   defp quoted_token(parts), do: ~s("#{token(parts)}")
@@ -1535,7 +1810,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     ]
   end
 
-  defp signed_pq_wrap_vector(purpose, resource_override \\ nil) do
+  defp random_signed_pq_wrap_property_case(purpose, resource_override \\ nil) do
     sender_private =
       RefMD.TestCrypto.hybrid_signing_private_key_material(
         "device",
@@ -1903,6 +2178,341 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     end)
   end
 
+  defp active_surface_pairs do
+    SigningSurface.__test_active_surfaces__()
+    |> Enum.map(&{&1.signing_purpose, &1.variant})
+    |> Enum.sort()
+  end
+
+  defp semantic_fixture_registry do
+    Map.new(expected_active_surface_pairs(), fn pair ->
+      {pair, semantic_fixture_profile(pair)}
+    end)
+  end
+
+  defp semantic_fixture_profile({purpose, _variant})
+       when purpose in [
+              "pq_wrap",
+              "recipient_bound_authorization",
+              "recovery_authorization_proof",
+              "responder_prekey",
+              "initiator_ake_commitment",
+              "pin_gossip_statement"
+            ],
+       do: :owner_exact
+
+  defp semantic_fixture_profile({"key_directory_checkpoint", _}),
+    do: :key_directory_checkpoint
+
+  defp semantic_fixture_profile({"key_directory_event", _}), do: :key_directory_event
+  defp semantic_fixture_profile({"rrp_request", _}), do: :rrp
+  defp semantic_fixture_profile({"initial_key_delivery", _}), do: :initial_key_delivery
+  defp semantic_fixture_profile({"device_key_deletion_proof", _}), do: :key_deletion
+  defp semantic_fixture_profile({"document_update", _}), do: :document_admission
+  defp semantic_fixture_profile({"document_snapshot", _}), do: :document_admission
+  defp semantic_fixture_profile({"editor_ephemeral", _}), do: :ephemeral
+  defp semantic_fixture_profile({"editor_ephemeral_session", _}), do: :ephemeral
+  defp semantic_fixture_profile({"workspace_pin_bootstrap", "none"}), do: :workspace_pin
+  defp semantic_fixture_profile({"share_capability_authorization", "none"}), do: :share_capability
+
+  defp semantic_fixture_profile({"share_participant_device_authorization", "none"}),
+    do: :share_participant
+
+  defp semantic_fixture_profile({"genesis_device_bootstrap", "none"}), do: :genesis
+  defp semantic_fixture_profile({"device_approval", "none"}), do: :device_approval
+  defp semantic_fixture_profile({"plugin_bundle_approval", "none"}), do: :plugin_bundle
+  defp semantic_fixture_profile({"plugin_consent_event", "none"}), do: :plugin_consent
+  defp semantic_fixture_profile({"plugin_network_proxy_request", "none"}), do: :plugin_proxy
+  defp semantic_fixture_profile({"recovery_device_approval", "none"}), do: :recovery_approval
+  defp semantic_fixture_profile({"device_revocation", "none"}), do: :device_revocation
+  defp semantic_fixture_profile({"recovery_session", "none"}), do: :recovery_session
+
+  defp assert_semantic_fixture_registry!(active_pairs, registry) do
+    registered_pairs = registry |> Map.keys() |> Enum.sort()
+
+    if registered_pairs == Enum.sort(active_pairs),
+      do: :ok,
+      else: raise(ArgumentError, "semantic_fixture_registry_mismatch")
+  end
+
+  defp assert_semantic_fixture!(surface, transcript, signature, public, registry) do
+    pair = {surface.signing_purpose, surface.variant}
+    profile = Map.fetch!(registry, pair)
+    validator = SigningSurface.semantic_validator!(surface)
+
+    if validator.arity == 5 do
+      {context, invalid_context, expected_error} =
+        semantic_context_fixture(profile, surface, transcript, public)
+
+      assert :ok =
+               Signature.verify_hybrid_signature_result(
+                 surface.signing_purpose,
+                 transcript,
+                 signature,
+                 public,
+                 context
+               )
+
+      assert {:error, ^expected_error} =
+               Signature.verify_hybrid_signature_result(
+                 surface.signing_purpose,
+                 transcript,
+                 signature,
+                 public,
+                 invalid_context
+               )
+    else
+      assert profile == :owner_exact
+
+      assert :ok =
+               apply(validator.module, validator.function, [
+                 transcript,
+                 surface.signing_purpose,
+                 owner_kind(surface),
+                 owner_id(surface)
+               ])
+
+      assert_raise ArgumentError, "owner_id_mismatch", fn ->
+        apply(validator.module, validator.function, [
+          transcript,
+          surface.signing_purpose,
+          owner_kind(surface),
+          tampered_owner_id(surface)
+        ])
+      end
+    end
+  end
+
+  defp semantic_context_fixture(:workspace_pin, _surface, _transcript, public) do
+    bootstrap = workspace_pin_bootstrap_fixture(public)
+
+    {%{bootstrap: bootstrap}, %{bootstrap: Map.put(bootstrap, "bootstrap_nonce", "invalid")},
+     :workspace_pin_bootstrap_subject_hash_mismatch}
+  end
+
+  defp semantic_context_fixture(:key_directory_checkpoint, _surface, _transcript, public) do
+    payload = checkpoint_payload_fixture(public["owner_id"])
+
+    {%{checkpoint_payload: payload},
+     %{checkpoint_payload: Map.put(payload, "scope_id", "refmd.invalid.scope")},
+     :key_directory_checkpoint_subject_hash_mismatch}
+  end
+
+  defp semantic_context_fixture(:key_directory_event, surface, _transcript, public) do
+    payload = key_directory_event_payload_fixture(surface.variant, public)
+
+    context = %{
+      event_payload: payload,
+      checkpoint_payload: %{},
+      event_semantics_verified: true
+    }
+
+    invalid_context =
+      Map.put(context, :event_payload, Map.put(payload, "sequence", payload["sequence"] + 1))
+
+    {context, invalid_context, :key_directory_event_subject_hash_mismatch}
+  end
+
+  defp semantic_context_fixture(:device_approval, _surface, transcript, _public) do
+    context = %{
+      approver: %{
+        id: transcript["approving_owner_id"],
+        signing_key_id: transcript["approving_signing_key_id"],
+        revoked_at: nil
+      },
+      target_device: %{
+        id: transcript["target_device_id"],
+        signing_key_id: transcript["target_device_signing_key_id"]
+      }
+    }
+
+    {context, put_in(context, [:approver, :revoked_at], DateTime.utc_now()),
+     :device_approval_approver_inactive}
+  end
+
+  defp semantic_context_fixture(:recovery_approval, _surface, transcript, _public) do
+    context = %{
+      recovery_session: %{
+        recovery_session_transcript_hash: transcript["recovery_session_transcript_hash"],
+        recovery_capability_hash: transcript["recovery_capability_hash"],
+        pending_registration_binding_hash: transcript["pending_registration_binding_hash"]
+      },
+      target_device: %{id: transcript["target_device_id"]}
+    }
+
+    invalid_context =
+      put_in(context, [:recovery_session, :recovery_session_transcript_hash], "invalid")
+
+    {context, invalid_context, :recovery_approval_session_mismatch}
+  end
+
+  defp semantic_context_fixture(:plugin_bundle, _surface, transcript, _public) do
+    context = plugin_semantic_context(transcript)
+    invalid_context = put_in(context, [:actor, :signing_key_id], "invalid")
+    {context, invalid_context, :plugin_bundle_approval_signing_key_mismatch}
+  end
+
+  defp semantic_context_fixture(:plugin_consent, _surface, transcript, _public) do
+    context = plugin_semantic_context(transcript)
+    invalid_context = put_in(context, [:actor, :signing_key_id], "invalid")
+    {context, invalid_context, :plugin_consent_event_signing_key_mismatch}
+  end
+
+  defp semantic_context_fixture(:plugin_proxy, _surface, transcript, _public) do
+    context = plugin_semantic_context(transcript)
+    invalid_context = put_in(context, [:proxy_request_subject, "request_id"], "invalid")
+    {context, invalid_context, :plugin_network_proxy_request_subject_hash_mismatch}
+  end
+
+  defp semantic_context_fixture(:genesis, _surface, transcript, _public) do
+    context = %{
+      active_device_records?: false,
+      identity_signing_key_id: transcript["identity_signing_key_id"],
+      target_device: %{id: transcript["device_id"], user_id: transcript["user_id"]}
+    }
+
+    {context, Map.put(context, :active_device_records?, true),
+     :genesis_device_bootstrap_existing_device}
+  end
+
+  defp semantic_context_fixture(:document_admission, _surface, transcript, _public) do
+    context = %{
+      document: %{
+        id: transcript["document_id"],
+        workspace_id: transcript["actor"]["key_scope_id"]
+      },
+      session: %{signing_key_id: transcript["actor"]["signing_key_id"]}
+    }
+
+    {context, put_in(context, [:document, :id], "refmd.invalid.document"),
+     :document_admission_document_mismatch}
+  end
+
+  defp semantic_context_fixture(:share_capability, _surface, transcript, _public) do
+    state = transcript["share_state"]
+    authorization = transcript["authorization"]
+
+    share = %{
+      id: state["share_id"],
+      scope: state["scope_kind"],
+      document_id: state["scope_id"],
+      permission: state["permission"],
+      created_event_hash: state["created_event_hash"],
+      latest_bootstrap_event_hash: state["latest_bootstrap_event_hash"],
+      capability_context_hash: state["capability_context_hash"],
+      token_hash: authorization["token_hash"],
+      authenticated_workspace_pin_bootstrap_hash: authorization["workspace_pin_bootstrap_hash"]
+    }
+
+    context = %{share: share}
+    {context, put_in(context, [:share, :permission], "edit"), :share_capability_state_mismatch}
+  end
+
+  defp semantic_context_fixture(:share_participant, _surface, transcript, _public) do
+    share = %{
+      id: transcript["share_id"],
+      scope: transcript["scope_kind"],
+      document_id: transcript["scope_id"],
+      permission: transcript["permission"],
+      created_event_hash: transcript["share_created_event_hash"],
+      latest_bootstrap_event_hash: transcript["latest_bootstrap_event_hash"],
+      capability_context_hash: transcript["capability_context_hash"]
+    }
+
+    context = %{
+      share: share,
+      participant: %{
+        principal_id: transcript["share_participant_principal_id"],
+        session_id: transcript["share_session_id"]
+      }
+    }
+
+    {context, put_in(context, [:share, :permission], "view"),
+     :share_participant_authorization_state_mismatch}
+  end
+
+  defp semantic_context_fixture(:rrp, _surface, transcript, public) do
+    actor = transcript["actor"]
+
+    context = %{
+      challenge: transcript["challenge"],
+      device: %{
+        id: public["owner_id"],
+        signing_key_id: actor["signing_key_id"],
+        revoked_at: nil
+      },
+      session: %{session_id_hash: transcript["session"]["session_id_hash"]},
+      user_id: actor["user_id"],
+      principal_id: actor["share_participant_principal_id"],
+      share_id: actor["share_id"]
+    }
+
+    {context, put_in(context, [:device, :revoked_at], DateTime.utc_now()), :rrp_device_inactive}
+  end
+
+  defp semantic_context_fixture(:initial_key_delivery, surface, transcript, _public) do
+    signing_body = %{"protocol" => "refmd.initial-key-delivery", "variant" => surface.variant}
+    context = %{delivery_signing_body: signing_body, authority: transcript["authority"]}
+    invalid_context = put_in(context, [:delivery_signing_body, "variant"], "invalid")
+    {context, invalid_context, :initial_key_delivery_subject_hash_mismatch}
+  end
+
+  defp semantic_context_fixture(:recovery_session, _surface, transcript, _public) do
+    context = %{
+      recovery_session: %{server_challenge_hash: transcript["server_challenge_hash"]},
+      candidate_pin: %{
+        checkpoint_sequence: transcript["candidate_user_checkpoint_sequence"],
+        checkpoint_hash: transcript["candidate_user_checkpoint_hash"],
+        event_head_sequence: transcript["candidate_user_event_head_sequence"],
+        event_head_hash: transcript["candidate_user_event_head_hash"]
+      },
+      pending_registration: %{id: transcript["pending_registration_id"]}
+    }
+
+    {context, put_in(context, [:recovery_session, :server_challenge_hash], "invalid"),
+     :recovery_session_challenge_mismatch}
+  end
+
+  defp semantic_context_fixture(:key_deletion, _surface, transcript, public) do
+    context = key_deletion_semantic_context(transcript, public)
+
+    {context, put_in(context, [:signer, :revoked_at], DateTime.utc_now()),
+     :key_deletion_signer_inactive}
+  end
+
+  defp semantic_context_fixture(:device_revocation, _surface, transcript, _public) do
+    context = %{
+      signer: %{
+        id: transcript["actor"]["device_id"],
+        signing_key_id: transcript["actor"]["signing_key_id"],
+        revoked_at: nil
+      },
+      target_device: %{id: transcript["revocation"]["device_id"]}
+    }
+
+    {context, put_in(context, [:signer, :revoked_at], DateTime.utc_now()),
+     :device_revocation_signer_inactive}
+  end
+
+  defp semantic_context_fixture(:ephemeral, _surface, transcript, _public) do
+    boundary = transcript["authority_boundary"]
+
+    context = %{
+      document: %{
+        id: transcript["session"]["document_id"],
+        workspace_id: transcript["session"]["workspace_id"]
+      },
+      session: %{signing_key_id: transcript["actor"]["signing_key_id"]},
+      workspace_event_head: %{
+        sequence: boundary["workspace_event_head_sequence"],
+        hash: boundary["workspace_event_head_hash"]
+      }
+    }
+
+    {context, put_in(context, [:workspace_event_head, :sequence], 99),
+     :ephemeral_workspace_head_mismatch}
+  end
+
   defp owner_id(%{signing_purpose: "share_capability_authorization"}),
     do: Hash.blake3_base64url("share-token")
 
@@ -1973,17 +2583,28 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
   defp key_deletion_semantic_context(transcript, public) do
     authority = transcript["authority_boundary"]
+    actor = transcript["actor"]
 
     %{
       signer: %{
         id: public["owner_id"],
-        signing_key_id: Signature.compute_signing_key_id!(public)
+        signing_key_id: Signature.compute_signing_key_id!(public),
+        revoked_at: nil
       },
       deletion: %{
         scope_id: authority["scope_id"],
         old_key_version: authority["old_key_version"],
         rotation_completed_event_hash: authority["rotation_completed_event_hash"],
-        deleted_secret_ids_hash: authority["deleted_secret_ids_hash"]
+        deleted_secret_ids_hash: authority["deleted_secret_ids_hash"],
+        checkpoint_sequence: actor["key_checkpoint_sequence"],
+        checkpoint_hash: actor["key_checkpoint_hash"],
+        old_identity_signing_key_id: authority["old_identity_signing_key_id"],
+        old_identity_encryption_key_id: authority["old_identity_encryption_key_id"],
+        new_identity_signing_key_id: authority["new_identity_signing_key_id"],
+        new_identity_encryption_key_id: authority["new_identity_encryption_key_id"],
+        old_user_checkpoint_hash: authority["old_user_checkpoint_hash"],
+        new_user_checkpoint_hash: authority["new_user_checkpoint_hash"],
+        deleted_identity_secret_ids_hash: authority["deleted_identity_secret_ids_hash"]
       }
     }
   end
@@ -2291,11 +2912,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
        ) do
     [
       device_key_deletion_payload_fixture(public["owner_id"], variant),
-      %{
-        "device_id" => public["owner_id"],
-        "signing_key_id" => Signature.compute_signing_key_id!(public),
-        "user_id" => "00000000-0000-4000-8000-000000000417"
-      }
+      device_key_deletion_actor_fixture(public, variant)
     ]
   end
 
@@ -2353,6 +2970,8 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         candidate_user_checkpoint_hash: Hash.blake3_base64url("checkpoint"),
         candidate_user_event_head_sequence: 1,
         candidate_user_event_head_hash: Hash.blake3_base64url("event"),
+        candidate_user_audit_sequence: 1,
+        candidate_user_audit_hash: Hash.blake3_base64url("audit"),
         recovery_capability_hash: Hash.blake3_base64url("capability"),
         pending_registration_binding_hash: Hash.blake3_base64url("binding")
       }
@@ -2764,19 +3383,61 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   end
 
   defp device_key_deletion_payload_fixture(device_id, variant) do
-    %{
-      "deleted_secret_ids" => ["dek:1"],
-      "deleted_secret_ids_hash" => Hash.blake3_base64url("deleted-secret-ids"),
-      "deleted_storage_classes" => ["local"],
-      "deletion_proof_kind" => variant,
-      "device_id" => device_id,
-      "old_key_version" => 1,
-      "rotation_completed_event_hash" => Hash.blake3_base64url("rotation-completed"),
-      "rotation_kind" => "workspace_key_rotation",
-      "scope_id" => "00000000-0000-4000-8000-000000000401",
-      "scope_kind" => "workspace",
-      "workspace_id" => "00000000-0000-4000-8000-000000000401"
+    if variant == "identity_key_deletion_proof" do
+      %{
+        "protocol" => "refmd.identity-key-deletion-proof",
+        "version" => 1,
+        "user_id" => "00000000-0000-4000-8000-000000000417",
+        "device_id" => device_id,
+        "rotation_kind" => "identity",
+        "scope_kind" => "user",
+        "scope_id" => "00000000-0000-4000-8000-000000000417",
+        "old_identity_signing_key_id" => Hash.blake3_base64url("old-signing-key"),
+        "old_identity_encryption_key_id" => Hash.blake3_base64url("old-encryption-key"),
+        "new_identity_signing_key_id" => Hash.blake3_base64url("new-signing-key"),
+        "new_identity_encryption_key_id" => Hash.blake3_base64url("new-encryption-key"),
+        "old_user_checkpoint_hash" => Hash.blake3_base64url("old-user-checkpoint"),
+        "new_user_checkpoint_hash" => Hash.blake3_base64url("new-user-checkpoint"),
+        "rotation_completed_event_hash" => Hash.blake3_base64url("rotation-completed"),
+        "deleted_identity_secret_ids_hash" =>
+          Hash.blake3_base64url("deleted-identity-secret-ids"),
+        "deleted_storage_classes" => ["local"],
+        "local_cache_epoch" => 1,
+        "proof_nonce" => Hash.blake3_base64url("nonce")
+      }
+    else
+      %{
+        "deleted_secret_ids" => ["dek:1"],
+        "deleted_secret_ids_hash" => Hash.blake3_base64url("deleted-secret-ids"),
+        "deleted_storage_classes" => ["local"],
+        "device_id" => device_id,
+        "old_key_version" => 1,
+        "rotation_completed_event_hash" => Hash.blake3_base64url("rotation-completed"),
+        "rotation_kind" => "workspace_key_rotation",
+        "scope_id" => "00000000-0000-4000-8000-000000000401",
+        "scope_kind" => "workspace",
+        "workspace_id" => "00000000-0000-4000-8000-000000000401"
+      }
+    end
+  end
+
+  defp device_key_deletion_actor_fixture(public, variant) do
+    actor = %{
+      "device_id" => public["owner_id"],
+      "signing_key_id" => Signature.compute_signing_key_id!(public),
+      "user_id" => "00000000-0000-4000-8000-000000000417"
     }
+
+    if variant == "identity_key_deletion_proof" do
+      Map.merge(actor, %{
+        "key_scope_kind" => "user",
+        "key_scope_id" => "00000000-0000-4000-8000-000000000417",
+        "key_checkpoint_sequence" => 1,
+        "key_checkpoint_hash" => Hash.blake3_base64url("new-user-checkpoint")
+      })
+    else
+      actor
+    end
   end
 
   defp document_operation_params_fixture(purpose, public) do
@@ -3025,7 +3686,6 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "rotation_started",
       "rotation_completed",
       "old_key_deleted",
-      "document_update_accepted",
       "document_write_session_admitted",
       "document_write_state_changed",
       "document_snapshot_accepted"

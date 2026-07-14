@@ -7,7 +7,7 @@ defmodule RefMDWeb.Payloads.DeviceIdentity do
   def sender_fields(nil), do: %{}
 
   def sender_fields(device) do
-    identity = Encryption.get_user_identity_public_key(device.user_id)
+    identity = verification_identity(device)
 
     %{
       sender_user_id: device.user_id,
@@ -30,7 +30,7 @@ defmodule RefMDWeb.Payloads.DeviceIdentity do
   end
 
   def workspace_device_fields(device) do
-    identity = Encryption.get_user_identity_public_key(device.user_id)
+    identity = verification_identity(device)
 
     %{
       identity_hybrid_encryption_public_key_material:
@@ -51,4 +51,17 @@ defmodule RefMDWeb.Payloads.DeviceIdentity do
 
   defp encode_binary(nil), do: nil
   defp encode_binary(binary), do: Base.url_encode64(binary, padding: false)
+
+  defp verification_identity(%{approval_signature_surface: surface} = device)
+       when surface in ["genesis_device_bootstrap", "recovery_device_approval"] do
+    signing_key_id = device.approval_proof && device.approval_proof["approving_signing_key_id"]
+
+    Enum.find(
+      Encryption.list_user_identity_public_keys(device.user_id),
+      &(&1.signing_key_id == signing_key_id)
+    )
+  end
+
+  defp verification_identity(device),
+    do: Encryption.get_user_identity_public_key(device.user_id)
 end

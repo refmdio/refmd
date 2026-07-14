@@ -7,6 +7,8 @@ import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import { hashKeyDirectoryCheckpointEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { buildWrapIssuedKeyDirectoryAppend } from "./key-directory/wrap-events";
 import type { KeyDirectoryEnvelope } from "./key-directory/types";
+import { blake3Base64Url } from "./hash";
+import { canonicalizeStrictBytes, type StrictJsonValue } from "./jcs";
 interface ConflictHandlingOptions {
   ignoreConflict?: boolean;
 }
@@ -40,6 +42,13 @@ interface PersistWorkspaceKekForMemberParams extends ConflictHandlingOptions {
   keyVersion: number;
   rrpDeviceId?: string;
   keyDirectoryCheckpoint?: KeyDirectoryEnvelope;
+}
+export interface IdentityRotationWorkspaceRewrap extends Record<string, StrictJsonValue> {
+  workspace_id: string;
+  workspace_checkpoint_hash: string;
+  member_envelope_manifest_hash: string;
+  affected_member_envelope_ids_hash: string;
+  new_identity_recipient_key_id: string;
 }
 function shouldIgnoreConflict(error: unknown, ignoreConflict: boolean): boolean {
   return ignoreConflict && error instanceof ApiError && error.status === 409;
@@ -158,7 +167,7 @@ export async function persistWorkspaceKekForMember({
   rrpDeviceId,
   keyDirectoryCheckpoint,
   ignoreConflict = false,
-}: PersistWorkspaceKekForMemberParams): Promise<void> {
+}: PersistWorkspaceKekForMemberParams): Promise<IdentityRotationWorkspaceRewrap> {
   const worker = getCryptoWorker();
   const checkpointEnvelope =
     keyDirectoryCheckpoint ??
@@ -222,6 +231,30 @@ export async function persistWorkspaceKekForMember({
       throw error;
     }
   }
+
+  const envelopeId = {
+    workspace_id: workspaceId,
+    target_user_id: targetUserId,
+    key_version: keyVersion,
+  };
+  return {
+    workspace_id: workspaceId,
+    workspace_checkpoint_hash: hashKeyDirectoryCheckpointEnvelope(keyDirectoryAppend.checkpoint),
+    member_envelope_manifest_hash: blake3Base64Url(
+      canonicalizeStrictBytes({
+        member_envelopes: [
+          {
+            ...envelopeId,
+            wrap_event_body_hash: wrap.event.wrap_event_body_hash,
+          },
+        ],
+      }),
+    ),
+    affected_member_envelope_ids_hash: blake3Base64Url(
+      canonicalizeStrictBytes({ member_envelope_ids: [envelopeId] }),
+    ),
+    new_identity_recipient_key_id: wrap.recipient.encryption_key_id,
+  };
 }
 
 function operationCheckpointFromEnvelope(checkpointEnvelope: KeyDirectoryEnvelope) {

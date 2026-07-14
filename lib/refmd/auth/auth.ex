@@ -7,9 +7,11 @@ defmodule RefMD.Auth do
 
   alias RefMD.Auth.{RecoveryChallenge, RrpChallenge, Session}
   alias RefMD.Crypto.{Hash, JCS, Signature, TokenSigning}
+  alias RefMD.Devices
   alias RefMD.Devices.DeviceRegistration
   alias RefMD.Encryption
   alias RefMD.Repo
+  alias RefMD.Security
 
   alias RefMD.Auth.PasswordResets, as: WPasswordResets
   # ── Password Reset (delegated to RefMD.Auth.PasswordResets) ──
@@ -41,6 +43,32 @@ defmodule RefMD.Auth do
     |> Enum.map(&%{payload: &1.payload, signatures: &1.signatures})
   end
 
+  def user_identity_rotation_deletion_evidences(_user_id, nil), do: []
+
+  def user_identity_rotation_deletion_evidences(user_id, user_pin) do
+    event_hashes =
+      Encryption.user_key_directory_events_after_until(user_id, 0, user_pin.event_head_sequence)
+      |> Enum.filter(&(&1.event_type == "old_key_deleted"))
+      |> Enum.map(& &1.event_hash)
+
+    event_hashes
+    |> Encryption.user_identity_rotation_deletion_evidences_by_event_hash()
+    |> Map.values()
+    |> Enum.map(fn evidence ->
+      %{
+        old_key_deleted_event_hash: evidence.old_key_deleted_event_hash,
+        user_id: evidence.user_id,
+        rotation_kind: evidence.rotation_kind,
+        scope_kind: evidence.scope_kind,
+        scope_id: evidence.scope_id,
+        old_key_version: evidence.old_key_version,
+        deletion_manifest: evidence.deletion_manifest,
+        device_key_deletion_proofs: evidence.device_key_deletion_proofs,
+        wipe_required_device_ids: evidence.wipe_required_device_ids
+      }
+    end)
+  end
+
   @session_ttl_default 24 * 60 * 60
   @session_ttl_remember 30 * 24 * 60 * 60
 
@@ -59,6 +87,7 @@ defmodule RefMD.Auth do
       token_hash: token_hash,
       remember_me: remember_me,
       is_recovery: Map.get(attrs, :is_recovery, false),
+      identity_recovery_required: Map.get(attrs, :identity_recovery_required, false),
       recovery_session_transcript_hash: Map.get(attrs, :recovery_session_transcript_hash),
       recovery_capability_hash: Map.get(attrs, :recovery_capability_hash),
       pending_registration_binding_hash: Map.get(attrs, :pending_registration_binding_hash),
@@ -68,6 +97,8 @@ defmodule RefMD.Auth do
       candidate_user_checkpoint_hash: Map.get(attrs, :candidate_user_checkpoint_hash),
       candidate_user_event_head_sequence: Map.get(attrs, :candidate_user_event_head_sequence),
       candidate_user_event_head_hash: Map.get(attrs, :candidate_user_event_head_hash),
+      candidate_user_audit_sequence: Map.get(attrs, :candidate_user_audit_sequence),
+      candidate_user_audit_hash: Map.get(attrs, :candidate_user_audit_hash),
       recovered_identity_signing_key_id: Map.get(attrs, :recovered_identity_signing_key_id),
       ip_address: Map.get(attrs, :ip_address),
       user_agent: Map.get(attrs, :user_agent),
@@ -142,7 +173,9 @@ defmodule RefMD.Auth do
 
   def bind_session_to_device(session_id, device_id) do
     from(s in Session, where: s.id == ^session_id and is_nil(s.device_id))
-    |> Repo.update_all(set: [device_id: device_id, is_recovery: false])
+    |> Repo.update_all(
+      set: [device_id: device_id, is_recovery: false, identity_recovery_required: false]
+    )
   end
 
   # ── RRP Challenges ────────────────────────────
@@ -212,19 +245,63 @@ defmodule RefMD.Auth do
     end
   end
 
-  def verify_recovery_session(user_id, challenge, signature, proof)
-      when is_binary(user_id) and is_binary(challenge) and is_map(signature) and
-             is_map(proof) do
+  def establish_recovery_session(
+        user_id,
+        challenge,
+        signature,
+        proof,
+        registration_attrs,
+        session_attrs
+      )
+      when is_binary(user_id) and is_binary(challenge) and is_map(signature) and is_map(proof) and
+             is_map(registration_attrs) and is_map(session_attrs) do
+    Repo.transaction(fn ->
+      with {:ok, pending_registration} <-
+             Devices.create_device_registration(registration_attrs),
+           {:ok, recovery_context} <-
+             verify_recovery_session_with_registration(
+               user_id,
+               challenge,
+               signature,
+               proof,
+               pending_registration
+             ),
+           {:ok, session, token} <-
+             create_session(
+               user_id,
+               Map.merge(session_attrs, recovery_session_attrs(recovery_context))
+             ) do
+        %{context: recovery_context, session: session, token: token}
+      else
+        _ -> Repo.rollback(:invalid_recovery)
+      end
+    end)
+    |> case do
+      {:ok, result} -> {:ok, result}
+      {:error, _reason} -> {:error, :invalid_recovery}
+    end
+  end
+
+  def establish_recovery_session(_, _, _, _, _, _), do: {:error, :invalid_recovery}
+
+  defp verify_recovery_session_with_registration(
+         user_id,
+         challenge,
+         signature,
+         proof,
+         pending_registration
+       ) do
     with {:ok, signature} <- validate_hybrid_signature_object(signature),
-         %{hybrid_signing_public_key_material: public_material} <-
-           Encryption.get_user_identity_public_key(user_id),
+         {:ok, %{hybrid_signing_public_key_material: public_material}} <-
+           Encryption.user_identity_key_for_new_encryption(user_id),
          %{recovery_authorization_public_material: recovery_public_key} = master_key <-
            Encryption.get_user_encrypted_master_key(user_id),
          true <- is_map(public_material),
          challenge_hash = Hash.blake3_base64url(challenge),
          recovered_identity_key_id = Signature.compute_signing_key_id!(public_material),
-         %DeviceRegistration{} = pending_registration <-
-           Repo.get(DeviceRegistration, proof.pending_registration_id),
+         %DeviceRegistration{} <- pending_registration,
+         true <- pending_registration.id == proof.pending_registration_id,
+         true <- pending_registration.id == proof.recipient_device_id,
          true <- pending_registration.user_id == user_id,
          pin when not is_nil(pin) <- Encryption.current_user_key_directory_pin(user_id),
          :ok <-
@@ -240,6 +317,10 @@ defmodule RefMD.Auth do
          {:ok, recovery_capability_hash} <-
            verify_recovery_authorization_proof(master_key, user_id, proof, challenge_hash),
          true <- recovery_capability_hash == proof.recovery_capability_hash,
+         audit_checkpoint when is_map(audit_checkpoint) <-
+           Security.current_audit_checkpoint!("user:#{user_id}"),
+         true <- audit_checkpoint.sequence == proof.candidate_user_audit_sequence,
+         true <- audit_checkpoint.event_hash == proof.candidate_user_audit_hash,
          transcript <-
            Signature.build_recovery_session_transcript!(%{
              user_id: user_id,
@@ -255,6 +336,8 @@ defmodule RefMD.Auth do
              candidate_user_checkpoint_hash: proof.candidate_user_checkpoint_hash,
              candidate_user_event_head_sequence: proof.candidate_user_event_head_sequence,
              candidate_user_event_head_hash: proof.candidate_user_event_head_hash,
+             candidate_user_audit_sequence: proof.candidate_user_audit_sequence,
+             candidate_user_audit_hash: proof.candidate_user_audit_hash,
              recovery_capability_hash: proof.recovery_capability_hash,
              pending_registration_binding_hash: proof.pending_registration_binding_hash
            }),
@@ -288,6 +371,8 @@ defmodule RefMD.Auth do
          candidate_user_checkpoint_hash: pin.checkpoint_hash,
          candidate_user_event_head_sequence: pin.event_head_sequence,
          candidate_user_event_head_hash: pin.event_head_hash,
+         candidate_user_audit_sequence: proof.candidate_user_audit_sequence,
+         candidate_user_audit_hash: proof.candidate_user_audit_hash,
          recovered_identity_signing_key_id: recovered_identity_key_id,
          recovery_session_id: proof.recovery_session_id
        }}
@@ -295,10 +380,28 @@ defmodule RefMD.Auth do
       _ -> {:error, :invalid_recovery}
     end
   rescue
-    ArgumentError -> {:error, :invalid_recovery}
+    _error in [ArgumentError, MatchError] -> {:error, :invalid_recovery}
   end
 
-  def verify_recovery_session(_, _, _, _), do: {:error, :invalid_recovery}
+  defp recovery_session_attrs(context) do
+    %{
+      id: context.recovery_session_id,
+      is_recovery: true,
+      device_registration_id: context.device_registration_id,
+      recovery_session_transcript_hash: context.recovery_session_transcript_hash,
+      recovery_capability_hash: context.recovery_capability_hash,
+      pending_registration_binding_hash: context.pending_registration_binding_hash,
+      target_key_checkpoint_sequence: context.target_key_checkpoint_sequence,
+      target_key_checkpoint_hash: context.target_key_checkpoint_hash,
+      candidate_user_checkpoint_sequence: context.candidate_user_checkpoint_sequence,
+      candidate_user_checkpoint_hash: context.candidate_user_checkpoint_hash,
+      candidate_user_event_head_sequence: context.candidate_user_event_head_sequence,
+      candidate_user_event_head_hash: context.candidate_user_event_head_hash,
+      candidate_user_audit_sequence: context.candidate_user_audit_sequence,
+      candidate_user_audit_hash: context.candidate_user_audit_hash,
+      recovered_identity_signing_key_id: context.recovered_identity_signing_key_id
+    }
+  end
 
   defp verify_recovery_authorization_proof(
          master_key,
@@ -589,10 +692,16 @@ defmodule RefMD.Auth do
         {:error, :session_not_found}
 
       %{expires_at: exp} = session ->
-        if DateTime.compare(exp, DateTime.utc_now()) == :gt do
-          {:ok, session}
-        else
-          {:error, :session_expired}
+        cond do
+          DateTime.compare(exp, DateTime.utc_now()) != :gt ->
+            {:error, :session_expired}
+
+          is_binary(session.device_id) and
+              not Devices.user_owns_active_device?(session.user_id, session.device_id) ->
+            {:error, :device_inactive}
+
+          true ->
+            {:ok, session}
         end
     end
   end

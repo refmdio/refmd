@@ -18,6 +18,7 @@ import { sendEphemeralEnvelope } from "./ephemeral-send";
 import { assignUserColor } from "../presence/user-colors";
 import { setupAwarenessRelay } from "./ephemeral-awareness-relay";
 import { cacheDocumentState, startPeriodicFlush } from "@/shared/lib/offline/cache/manager/write";
+import { runDocumentOfflineWrite } from "@/shared/lib/crypto/document-key-write-barrier";
 import { cacheDek, cacheKek } from "@/shared/lib/offline/cache/manager/keys";
 import { checkAndEvict } from "@/shared/lib/offline/cache/eviction";
 import { reEncryptTitleIfNeeded } from "./bootstrap-key-rotation";
@@ -87,6 +88,7 @@ export async function runPostInitializationTasks(
 
       if (docMeta.needs_rotation_snapshot) {
         state.pendingRotationSnapshot = true;
+        state.autoSync?.notifyLocalEdit();
       }
       if (
         docMeta.encrypted_title_key_version &&
@@ -100,36 +102,43 @@ export async function runPostInitializationTasks(
   };
 
   const offlineCacheTask = async () => {
-    try {
-      const cacheOptions =
-        state.access.kind === "share"
-          ? {
-              worker: getDocumentCryptoWorker(state),
-              cacheKey: getDocumentDekCacheKey(state, documentId),
-            }
-          : undefined;
-      if (state.access.kind !== "share") {
-        const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
-        await cacheDek(documentId, state.keyVersion).catch(() => {
-          // Offline DEK cache is best-effort; the online editor keeps the active key in memory.
-        });
-        if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
-          await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {
-            // Offline KEK cache is best-effort and will be retried after the next open/sync.
+    await runDocumentOfflineWrite(documentId, async () => {
+      try {
+        const cacheOptions =
+          state.access.kind === "share"
+            ? {
+                worker: getDocumentCryptoWorker(state),
+                cacheKey: getDocumentDekCacheKey(state, documentId),
+              }
+            : undefined;
+        if (state.access.kind !== "share") {
+          const resolvedKek = await getCryptoWorker().resolveKek(workspaceId);
+          await cacheDek(documentId, state.keyVersion).catch(() => {
+            // Offline DEK cache is best-effort; the online editor keeps the active key in memory.
           });
+          if (resolvedKek.found && resolvedKek.keyVersion !== undefined) {
+            await cacheKek(workspaceId, resolvedKek.keyVersion).catch(() => {
+              // Offline KEK cache is best-effort and will be retried after the next open/sync.
+            });
+          }
         }
+        if (!isCurrentState()) return;
+        cacheDocumentState(documentId, workspaceId, state, cacheOptions).catch(() => {
+          // Offline document state cache is rebuilt from the current server/session state.
+        });
+        state.offlineFlushCleanup = startPeriodicFlush(
+          documentId,
+          workspaceId,
+          state,
+          cacheOptions,
+        );
+        checkAndEvict().catch(() => {
+          // Cache eviction is opportunistic; quota pressure triggers another cleanup pass later.
+        });
+      } catch {
+        // Best-effort
       }
-      if (!isCurrentState()) return;
-      cacheDocumentState(documentId, workspaceId, state, cacheOptions).catch(() => {
-        // Offline document state cache is rebuilt from the current server/session state.
-      });
-      state.offlineFlushCleanup = startPeriodicFlush(documentId, workspaceId, state, cacheOptions);
-      checkAndEvict().catch(() => {
-        // Cache eviction is opportunistic; quota pressure triggers another cleanup pass later.
-      });
-    } catch {
-      // Best-effort
-    }
+    });
   };
 
   const awarenessTask = async () => {

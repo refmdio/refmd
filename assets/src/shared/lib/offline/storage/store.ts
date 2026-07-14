@@ -45,6 +45,7 @@ export {
   getAllPendingChanges,
   getPendingChanges,
   putPendingChanges,
+  replacePendingChangesIfUnchanged,
 } from "./pending";
 export async function getTotalCacheSize(): Promise<number> {
   const metas = await getAllOfflineDocumentMetas();

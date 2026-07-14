@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
 import {
+  applyAuthoritativeCanonicalState,
   clearProseMirrorXml,
   encodeCanonicalDiffAsUpdate,
   encodeCanonicalStateAsUpdate,
@@ -392,26 +393,31 @@ describe("canonical-document", () => {
     unrelatedLive.destroy();
   });
 
-  test("documents Yjs delete-then-apply snapshot hazard", () => {
+  test("reconstructs authoritative content after destructive Yjs deletion", () => {
     const live = new Y.Doc();
     live.getText("content").insert(0, "A");
     const server = applyV1(Y.encodeStateAsUpdate(live));
     server.getText("content").insert(server.getText("content").length, "B");
-    const serverUpdate = encodeCanonicalSyncedStateAsUpdate(server);
+    const serverBaseline = encodeCanonicalSyncedStateAsUpdate(server);
 
     const tombstoned = applyV1(Y.encodeStateAsUpdate(live));
+    tombstoned.getText("content").insert(tombstoned.getText("content").length, "wiped-local");
     replaceDocWithCanonicalText(tombstoned, "", "remote");
-    Y.applyUpdate(tombstoned, serverUpdate, "remote");
-    expect(tombstoned.getText("content").toJSON()).toBe("B");
+    applyAuthoritativeCanonicalState(tombstoned, server, "remote");
+    expect(tombstoned.getText("content").toJSON()).toBe("AB");
 
-    const applied = applyV1(Y.encodeStateAsUpdate(live));
-    Y.applyUpdate(applied, serverUpdate, "remote");
-    expect(applied.getText("content").toJSON()).toBe("AB");
+    tombstoned.getText("content").insert(tombstoned.getText("content").length, "C");
+    const subsequentEdit = encodeCanonicalDiffAsUpdate(tombstoned, serverBaseline);
+    expect(subsequentEdit).not.toBeNull();
+
+    const persisted = applyV1(serverBaseline);
+    Y.applyUpdate(persisted, subsequentEdit!, "remote");
+    expect(persisted.getText("content").toJSON()).toBe("ABC");
 
     live.destroy();
     server.destroy();
     tombstoned.destroy();
-    applied.destroy();
+    persisted.destroy();
   });
 
   test("clears ProseMirror XML without rewriting canonical text structs", () => {

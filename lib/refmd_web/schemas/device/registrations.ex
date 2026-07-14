@@ -104,23 +104,12 @@ defmodule RefMDWeb.Schemas.CreateDeviceRegistrationRequest do
     :registration_challenge
   ]
 
-  @normal_registration_schema %Schema{
+  OpenApiSpex.schema(%{
+    title: "CreateDeviceRegistrationRequest",
     type: :object,
     additionalProperties: false,
     properties: Map.put(@base_properties, :ake_responder_prekeys, @ake_responder_prekeys_schema),
     required: @base_required ++ [:ake_responder_prekeys]
-  }
-
-  @recovery_registration_schema %Schema{
-    type: :object,
-    additionalProperties: false,
-    properties: @base_properties,
-    required: @base_required
-  }
-
-  OpenApiSpex.schema(%{
-    title: "CreateDeviceRegistrationRequest",
-    oneOf: [@normal_registration_schema, @recovery_registration_schema]
   })
 end
 
@@ -278,7 +267,10 @@ defmodule RefMDWeb.Schemas.DeviceRegistrationStatusResponse do
     title: "DeviceRegistrationStatusResponse",
     type: :object,
     properties: %{
-      status: %Schema{type: :string, enum: ["pending", "approved", "expired"]}
+      status: %Schema{
+        type: :string,
+        enum: ["pending", "initial_ake_offers_ready", "approved", "expired"]
+      }
     },
     required: [:status]
   })

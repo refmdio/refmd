@@ -108,7 +108,7 @@ export async function buildRecoveryWorkspaceDeviceKeyDirectoryAppend(
   const coveredHead = checkpointPayload.covered_event_head as Record<string, unknown> | undefined;
   if (!coveredHead) throw new Error("key_directory_checkpoint_head_invalid");
   const actor = actorWithCheckpointAuthority(
-    identityActor(input.userId, activeIdentitySigningKeyId(checkpointPayload, input.userId)),
+    identityActor(input.userId, input.actorIdentitySigningKeyId),
     "workspace",
     input.workspaceId,
     checkpointPayload,

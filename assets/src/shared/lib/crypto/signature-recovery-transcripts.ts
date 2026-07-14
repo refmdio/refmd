@@ -133,6 +133,8 @@ export function buildRecoverySessionTranscript(params: {
   candidateUserCheckpointHash: string;
   candidateUserEventHeadSequence: number;
   candidateUserEventHeadHash: string;
+  candidateUserAuditSequence: number;
+  candidateUserAuditHash: string;
   recoveryCapabilityHash: string;
   pendingRegistrationBindingHash: string;
 }): StrictJsonValue {
@@ -152,6 +154,8 @@ export function buildRecoverySessionTranscript(params: {
     candidate_user_checkpoint_sequence: params.candidateUserCheckpointSequence,
     candidate_user_event_head_hash: params.candidateUserEventHeadHash,
     candidate_user_event_head_sequence: params.candidateUserEventHeadSequence,
+    candidate_user_audit_sequence: params.candidateUserAuditSequence,
+    candidate_user_audit_hash: params.candidateUserAuditHash,
     pending_registration_binding_hash: params.pendingRegistrationBindingHash,
     recovery_capability_hash: params.recoveryCapabilityHash,
   });
@@ -180,16 +184,65 @@ export function buildDeviceKeyDeletionProofTranscript(params: {
   payload: Record<string, unknown>;
   actor: Record<string, unknown>;
 }): StrictJsonValue {
-  const proofKind = stringValue(
-    params.payload.deletion_proof_kind,
-    "device_key_deletion_kind_invalid",
-  );
+  const proofKind =
+    params.payload.rotation_kind === "identity"
+      ? "identity_key_deletion_proof"
+      : "device_key_deletion_proof";
   const surface = getActiveSigningSurface("device_key_deletion_proof", proofKind);
   const deviceId = stringValue(params.payload.device_id, "device_key_deletion_device_invalid");
   const payloadBytes = canonicalizeStrictBytes(params.payload as StrictJsonValue);
   const deletedStorageClasses = params.payload.deleted_storage_classes;
   if (!Array.isArray(deletedStorageClasses)) {
     throw new Error("device_key_deletion_storage_classes_invalid");
+  }
+
+  if (proofKind === "identity_key_deletion_proof") {
+    return transcriptBase("device_key_deletion_proof", surface, "device", deviceId, {
+      subject_hash: blake3Base64Url(payloadBytes),
+      subject_protocol: "refmd.identity-key-deletion-proof",
+      subject_version: CURRENT_PROTOCOL_VERSION,
+      actor: params.actor,
+      authority_boundary: {
+        scope_kind: stringValue(params.payload.scope_kind, "device_key_deletion_scope_invalid"),
+        scope_id: stringValue(params.payload.scope_id, "device_key_deletion_scope_invalid"),
+        rotation_kind: stringValue(
+          params.payload.rotation_kind,
+          "device_key_deletion_rotation_invalid",
+        ),
+        old_identity_signing_key_id: stringValue(
+          params.payload.old_identity_signing_key_id,
+          "device_key_deletion_old_signing_key_invalid",
+        ),
+        old_identity_encryption_key_id: stringValue(
+          params.payload.old_identity_encryption_key_id,
+          "device_key_deletion_old_encryption_key_invalid",
+        ),
+        new_identity_signing_key_id: stringValue(
+          params.payload.new_identity_signing_key_id,
+          "device_key_deletion_new_signing_key_invalid",
+        ),
+        new_identity_encryption_key_id: stringValue(
+          params.payload.new_identity_encryption_key_id,
+          "device_key_deletion_new_encryption_key_invalid",
+        ),
+        old_user_checkpoint_hash: stringValue(
+          params.payload.old_user_checkpoint_hash,
+          "device_key_deletion_old_checkpoint_invalid",
+        ),
+        new_user_checkpoint_hash: stringValue(
+          params.payload.new_user_checkpoint_hash,
+          "device_key_deletion_new_checkpoint_invalid",
+        ),
+        rotation_completed_event_hash: stringValue(
+          params.payload.rotation_completed_event_hash,
+          "device_key_deletion_completion_hash_invalid",
+        ),
+        deleted_identity_secret_ids_hash: stringValue(
+          params.payload.deleted_identity_secret_ids_hash,
+          "device_key_deletion_secret_hash_invalid",
+        ),
+      },
+    });
   }
 
   return transcriptBase("device_key_deletion_proof", surface, "device", deviceId, {

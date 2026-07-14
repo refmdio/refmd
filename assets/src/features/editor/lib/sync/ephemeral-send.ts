@@ -11,7 +11,7 @@ import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { pushEphemeral } from "@/shared/lib/ws/phoenix-channel";
 import type { DocumentState } from "../../model/document-state/types";
 import { buildEphemeralAuthorityBoundary } from "./ephemeral-authority";
-import { prepareDocumentOperationAdmissionAuthority } from "./outbound-admission";
+import { prepareDocumentAuthorityContext } from "./outbound-admission";
 
 export async function sendEphemeralEnvelope(
   payload: Uint8Array,
@@ -23,18 +23,18 @@ export async function sendEphemeralEnvelope(
   workerOverride?: CryptoWorkerClient,
 ): Promise<void> {
   const worker = workerOverride ?? getCryptoWorker();
-  const authority = await prepareDocumentOperationAdmissionAuthority(
+  const keyVersion = state.pendingRotationKeyVersion ?? state.keyVersion;
+  const authority = await prepareDocumentAuthorityContext(
     state,
     documentId,
     signingKeyId,
-    "document_update_accepted",
-    state.keyVersion,
+    keyVersion,
   );
 
   const { ciphertext, nonce } = await worker.encryptContent({
     plaintext: payload,
     documentId,
-    keyVersion: state.keyVersion,
+    keyVersion,
     cacheKey,
   });
 
@@ -44,6 +44,7 @@ export async function sendEphemeralEnvelope(
   const publicData: Record<string, unknown> = {
     docId: documentId,
     signingKeyId: signingKeyId,
+    keyVersion,
     ...authority.publicDataFields,
     workspaceEventHeadSequence: authority.authorityBoundary.previous_workspace_event_sequence,
     workspaceEventHeadHash: authority.authorityBoundary.previous_workspace_event_hash,

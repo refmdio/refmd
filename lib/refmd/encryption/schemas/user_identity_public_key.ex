@@ -9,6 +9,12 @@ defmodule RefMD.Encryption.UserIdentityPublicKey do
 
   schema "user_identity_public_keys" do
     belongs_to :user, RefMD.Users.User, primary_key: true
+    field :key_version, :integer, primary_key: true, default: 1
+    field :lifecycle_state, :string, default: "current"
+    field :rotation_due_at, :utc_datetime_usec
+    field :needs_rotation, :boolean, default: false
+    field :superseded_at, :utc_datetime_usec
+    field :private_key_deletion_proof_hash, :string
     field :hybrid_encryption_public_key_material, :map
     field :encryption_key_id, :string
     field :hybrid_signing_public_key_material, :map
@@ -21,6 +27,12 @@ defmodule RefMD.Encryption.UserIdentityPublicKey do
     key
     |> cast(attrs, [
       :user_id,
+      :key_version,
+      :lifecycle_state,
+      :rotation_due_at,
+      :needs_rotation,
+      :superseded_at,
+      :private_key_deletion_proof_hash,
       :hybrid_encryption_public_key_material,
       :encryption_key_id,
       :hybrid_signing_public_key_material,
@@ -29,11 +41,17 @@ defmodule RefMD.Encryption.UserIdentityPublicKey do
     ])
     |> validate_required([
       :user_id,
+      :key_version,
+      :lifecycle_state,
+      :rotation_due_at,
       :hybrid_encryption_public_key_material,
       :hybrid_signing_public_key_material,
       :pending_registration_challenge_hash
     ])
     |> validate_length(:pending_registration_challenge_hash, is: 43)
+    |> validate_number(:key_version, greater_than: 0)
+    |> validate_inclusion(:lifecycle_state, ~w(current pending historical))
+    |> validate_length(:private_key_deletion_proof_hash, is: 43)
     |> validate_format(:pending_registration_challenge_hash, ~r/^[A-Za-z0-9\-_]{43}$/)
     |> validate_hybrid_encryption_material()
     |> validate_hybrid_signing_material()

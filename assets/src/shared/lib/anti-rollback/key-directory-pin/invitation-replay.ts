@@ -164,12 +164,28 @@ export function applyWorkspaceInvitationRedeemedEventToCheckpointPayload(
   replayPayload: Record<string, unknown>,
   event: SignedKeyDirectoryEnvelope,
   candidatePayload: Record<string, unknown>,
+  recipientBound = false,
 ): Record<string, unknown> {
   const body = event.payload.body as Record<string, unknown>;
-  assertInvitationRedeemAuthoritySigner(
-    event,
-    stringField(body.invitation_id, "invitation_id_invalid"),
-  );
+  if (recipientBound) {
+    const actor = event.payload.actor as Record<string, unknown>;
+    const signer = event.signatures.find(
+      (signatureEnvelope) => signatureEnvelope.signer.signer_kind === "device",
+    )?.signer;
+    if (
+      !signer ||
+      signer.user_id !== actor.user_id ||
+      signer.device_id !== actor.device_id ||
+      signer.signing_key_id !== actor.signing_key_id
+    ) {
+      throw new Error("device_signer_actor_mismatch");
+    }
+  } else {
+    assertInvitationRedeemAuthoritySigner(
+      event,
+      stringField(body.invitation_id, "invitation_id_invalid"),
+    );
+  }
   const identityEntry = keyEntryByOwnerProtocol(
     candidatePayload,
     "identity",
@@ -214,12 +230,28 @@ export function applyGuestInvitationRedeemedEventToCheckpointPayload(
   replayPayload: Record<string, unknown>,
   event: SignedKeyDirectoryEnvelope,
   candidatePayload: Record<string, unknown>,
+  recipientBound = false,
 ): Record<string, unknown> {
   const body = event.payload.body as Record<string, unknown>;
-  assertInvitationRedeemAuthoritySigner(
-    event,
-    stringField(body.guest_invitation_id, "guest_invitation_id_invalid"),
-  );
+  if (recipientBound) {
+    const actor = event.payload.actor as Record<string, unknown>;
+    const signer = event.signatures.find(
+      (signatureEnvelope) => signatureEnvelope.signer.signer_kind === "device",
+    )?.signer;
+    if (
+      !signer ||
+      signer.user_id !== actor.user_id ||
+      signer.device_id !== actor.device_id ||
+      signer.signing_key_id !== actor.signing_key_id
+    ) {
+      throw new Error("device_signer_actor_mismatch");
+    }
+  } else {
+    assertInvitationRedeemAuthoritySigner(
+      event,
+      stringField(body.guest_invitation_id, "guest_invitation_id_invalid"),
+    );
+  }
   const signingKeyId = stringField(body.guest_signing_key_id, "guest_signing_key_id_invalid");
   const encryptionKeyId = stringField(
     body.guest_encryption_key_id,

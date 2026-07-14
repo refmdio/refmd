@@ -1,9 +1,70 @@
 import { removeAwarenessStates } from "y-protocols/awareness";
 import { flushDocumentCache } from "@/shared/lib/offline/cache/manager/write";
+import { registerSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import { leaveDocument } from "@/shared/lib/ws/phoenix-channel";
 import { clearDocumentSignals } from "./signals";
 import { documentStateEvictionDelayMs, documentStates } from "./registry";
 import type { DocumentState, TeardownOptions } from "./types";
+
+export async function quiesceDocumentStateForWipe(
+  state: DocumentState,
+  suppressReconnect = false,
+): Promise<void> {
+  state._initAbortController?.abort();
+  state._initAbortController = null;
+  const autoSync = state.autoSync;
+  autoSync?.dispose();
+  state.autoSync = null;
+  await autoSync?.drain();
+  state.offlineFlushCleanup?.();
+  state.offlineFlushCleanup = null;
+  state.offlineResumeCleanup?.();
+  state.offlineResumeCleanup = null;
+  state.writerLockCleanup?.();
+  state.writerLockCleanup = null;
+  state.awarenessRelayCleanup?.();
+  state.awarenessRelayCleanup = null;
+  state.ephemeralSession = null;
+  if (state.pendingSaveTimeout) clearTimeout(state.pendingSaveTimeout);
+  state.pendingSaveTimeout = null;
+  state._pendingSaveWatchdogKind = null;
+  state._pendingSaveWatchdogStartedAt = null;
+  if (state._syncGapTimer) clearTimeout(state._syncGapTimer);
+  state._syncGapTimer = null;
+  if (state._reconnectTimer) clearTimeout(state._reconnectTimer);
+  state._reconnectTimer = null;
+  state._onRecoverableSyncGap = null;
+  state._onDocumentMessage = null;
+  state._retryDekRotation = null;
+  state._cachedConfirmedStateVector = null;
+  state._pendingRemoteEvents = [];
+  state._pendingOutOfOrderUpdates = [];
+  state._drainingOutOfOrderUpdates = false;
+  state._reconnecting = suppressReconnect;
+  state._syncPaused = true;
+  state.writeSession = null;
+  state.writeSessionPromise = null;
+  state.writeSessionReadyAt = null;
+  state.writeSessionError = null;
+  state.verifiedWriteSessions.clear();
+  state.pendingVerifiedWriteSessions.clear();
+  state.sending = false;
+  state.knownClocks = {};
+  state.confirmedClocks = {};
+  state.writeSessionCounters = {};
+  state.snapshotBaseClocks = {};
+  state.localClock = 0;
+  state.preSendLocalClock = 0;
+  state.activeSnapshotId = null;
+  state.snapshotProofHash = "";
+  state.snapshotCiphertextHash = "";
+  state.latestVersion = 0;
+  state.snapshotUpdatesCount = 0;
+  state.dekResolved = false;
+  state.keyVersion = 0;
+  leaveDocument(state.documentId, state.stateKey);
+  state.channel = null;
+}
 
 function teardownState(
   stateKey: string,
@@ -114,3 +175,5 @@ export function acquireYDoc(stateKey: string): {
 export function releaseYDoc(stateKey: string): void {
   releaseDocumentState(stateKey);
 }
+
+registerSessionCleanup(() => clearAllDocumentStates({ flushCache: false }));

@@ -2084,6 +2084,7 @@ describe("useThirdPartyPluginRuntimeBoundary", () => {
       body: {
         user_id: "00000000-0000-4000-8000-000000000002",
         base_role: "viewer",
+        effective_permissions: ["document:read", "member:list"],
       },
     });
     expect(() =>

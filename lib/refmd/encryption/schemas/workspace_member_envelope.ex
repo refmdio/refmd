@@ -121,9 +121,7 @@ defmodule RefMD.Encryption.WorkspaceMemberEnvelope do
     |> unique_constraint([:workspace_id, :target_user_id, :key_version],
       name: :workspace_member_envelopes_pk
     )
-    |> foreign_key_constraint(:target_user_id,
-      name: :workspace_member_envelopes_member_fk
-    )
+    |> foreign_key_constraint(:target_user_id, name: :workspace_member_envelopes_user_fk)
   end
 
   defp validate_byte_size(changeset, field, expected) do

@@ -19,6 +19,7 @@ import {
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { runDocumentOfflineWrite } from "@/shared/lib/crypto/document-key-write-barrier";
 import { clientWarn } from "@/shared/lib/logger";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import {
@@ -394,20 +395,22 @@ async function persistConfirmedOfflineCreatedState(
     });
     const { putDocumentCache: putCache, deletePendingChanges: deletePending } =
       await import("@/shared/lib/offline/storage/store");
-    await putCache({
-      documentId: entry.documentId,
-      workspaceId: entry.workspaceId,
-      encryptedState: cachedCt,
-      stateNonce: cachedNonce,
-      encryptedStateKind: "confirmed",
-      keyVersion: entry.dekKeyVersion,
-      confirmedStateVector: encodeCanonicalStateVector(yDoc),
-      confirmedSnapshotId: snapshotId,
-      confirmedVersion: 0,
-      confirmedClocks: {},
-      cachedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    await runDocumentOfflineWrite(entry.documentId, () =>
+      putCache({
+        documentId: entry.documentId,
+        workspaceId: entry.workspaceId,
+        encryptedState: cachedCt,
+        stateNonce: cachedNonce,
+        encryptedStateKind: "confirmed",
+        keyVersion: entry.dekKeyVersion,
+        confirmedStateVector: encodeCanonicalStateVector(yDoc),
+        confirmedSnapshotId: snapshotId,
+        confirmedVersion: 0,
+        confirmedClocks: {},
+        cachedAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
     await deletePending(entry.documentId).catch(() => {});
 
     const { getDocumentStatePin, putDocumentStatePin, updatePinFromState } =

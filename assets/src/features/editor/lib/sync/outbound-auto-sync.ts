@@ -72,6 +72,12 @@ export function startAutoSync(
   let writeSessionRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let writeSessionExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  const inFlightSends = new Set<Promise<void>>();
+
+  function trackSend(send: Promise<void>): Promise<void> {
+    inFlightSends.add(send);
+    return send.finally(() => inFlightSends.delete(send));
+  }
   let explicitLocalEditPending = false;
 
   void warmDocumentVerificationPath(documentId);
@@ -254,7 +260,7 @@ export function startAutoSync(
     if (state.sending) return;
     dirty = false;
     explicitLocalEditPending = false;
-    await sendPendingChanges(documentId, state, options).catch((err) => {
+    await trackSend(sendPendingChanges(documentId, state, options)).catch((err) => {
       dirty = true;
       scheduleBlockedRetry();
       clientError("auto_sync_send_failed", { documentId, error: err });
@@ -413,6 +419,11 @@ export function startAutoSync(
         timer = null;
       }
     },
+    async drain() {
+      while (inFlightSends.size > 0) {
+        await Promise.allSettled(inFlightSends);
+      }
+    },
     notifyLocalEdit() {
       explicitLocalEditPending = true;
       dirty = true;
@@ -445,7 +456,7 @@ export function startAutoSync(
       if (state.sending) return;
       dirty = false;
       explicitLocalEditPending = false;
-      await sendPendingChanges(documentId, state, options).catch((err) => {
+      await trackSend(sendPendingChanges(documentId, state, options)).catch((err) => {
         dirty = true;
         scheduleBlockedRetry();
         clientError("auto_sync_flush_failed", { documentId, error: err });
@@ -457,10 +468,7 @@ export function startAutoSync(
 async function warmDocumentVerificationPath(documentId: string): Promise<void> {
   const startedAt = performance.now();
   try {
-    await Promise.all([
-      getDocumentVerificationCryptoWorker(documentId).isReady(),
-      getDocumentVerificationCryptoWorker(`document-update-ed25519:${documentId}`).isReady(),
-    ]);
+    await getDocumentVerificationCryptoWorker(documentId).isReady();
     recordSyncPerf("verification_path_warmed", {
       documentId,
       elapsedMs: performance.now() - startedAt,
@@ -844,8 +852,9 @@ async function createAndSendGenesisSnapshot(
     state.sending = false;
     return;
   }
+  const snapshotKeyVersion = state.pendingRotationKeyVersion ?? state.keyVersion;
   if (state.access.kind === "share") {
-    await ensureSharedDekCached(state, documentId, state.keyVersion);
+    await ensureSharedDekCached(state, documentId, snapshotKeyVersion);
   }
 
   // Encode canonical Markdown state only (V2 format).
@@ -859,7 +868,7 @@ async function createAndSendGenesisSnapshot(
   const { ciphertext, nonce } = await worker.encryptSnapshot({
     plaintext: yjsState,
     documentId,
-    keyVersion: state.keyVersion,
+    keyVersion: snapshotKeyVersion,
     cacheKey: getDocumentDekCacheKey(state, documentId),
   });
   const ciphertextB64 = base64UrlEncode(ciphertext);
@@ -875,13 +884,13 @@ async function createAndSendGenesisSnapshot(
     documentId,
     deviceSigningKeyId,
     "document_snapshot_accepted",
-    state.keyVersion,
+    snapshotKeyVersion,
   );
   const publicData: Record<string, unknown> = {
     docId: documentId,
     snapshotId,
     signingKeyId: deviceSigningKeyId,
-    keyVersion: state.keyVersion,
+    keyVersion: snapshotKeyVersion,
     parentSnapshotId: "GENESIS",
     parentProofHash: "GENESIS",
     parentSnapshotUpdateClocks: {},
@@ -902,7 +911,7 @@ async function createAndSendGenesisSnapshot(
     eventType: "document_snapshot_accepted",
     operationHash: hashSnapshotOperation(ciphertext),
     signature,
-    keyVersion: state.keyVersion,
+    keyVersion: snapshotKeyVersion,
     authority: admissionAuthority,
   });
 

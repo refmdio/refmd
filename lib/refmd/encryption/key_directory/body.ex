@@ -45,7 +45,6 @@ defmodule RefMD.Encryption.KeyDirectory.Body do
 
   @rotation_types ["rotation_started", "rotation_completed", "old_key_deleted"]
   @document_admission_types [
-    "document_update_accepted",
     "document_write_session_admitted",
     "document_write_state_changed",
     "document_snapshot_accepted"

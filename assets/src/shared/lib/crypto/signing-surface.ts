@@ -107,7 +107,6 @@ const ACTIVE_SIGNING_SURFACES = [
     "rotation_started",
     "rotation_completed",
     "old_key_deleted",
-    "document_update_accepted",
     "document_write_session_admitted",
     "document_write_state_changed",
     "document_snapshot_accepted",
@@ -117,9 +116,7 @@ const ACTIVE_SIGNING_SURFACES = [
       "key_directory_event",
       `refmd.key_directory.event.${eventType}`,
       eventType,
-      eventType === "document_update_accepted" ||
-        eventType === "document_write_session_admitted" ||
-        eventType === "document_snapshot_accepted"
+      eventType === "document_write_session_admitted" || eventType === "document_snapshot_accepted"
         ? OWNER_KEY_DIRECTORY_DOCUMENT_EVENT
         : eventType === "workspace_invitation_redeemed" || eventType === "guest_invitation_redeemed"
           ? OWNER_KEY_DIRECTORY_INVITATION_REDEEM_EVENT

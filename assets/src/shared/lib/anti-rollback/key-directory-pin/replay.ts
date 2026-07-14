@@ -32,10 +32,48 @@ export type RotationReplayState = Record<
   {
     status: "started" | "completed" | "deleted";
     newKeyVersion?: number;
+    newIdentitySigningKeyId?: string;
     startedEventHash?: string;
     completedEventHash?: string;
   }
 >;
+
+const MEMBER_ROLE_CHANGE_BODY_KEYS = [
+  "base_role",
+  "changed_at_event_sequence",
+  "effective_permissions",
+  "permission_version",
+  "previous_base_role",
+  "previous_effective_permissions",
+  "previous_role_id",
+  "role_id",
+  "user_id",
+  "workspace_id",
+] as const;
+const WORKSPACE_PERMISSIONS = new Set([
+  "document:read",
+  "document:write",
+  "document:manage_share",
+  "document:delete",
+  "document:archive",
+  "workspace:update",
+  "workspace:features",
+  "workspace:admin",
+  "workspace:delete",
+  "member:list",
+  "member:invite",
+  "guest:invite",
+  "member:change_role",
+  "member:remove",
+  "role:manage",
+]);
+
+type ReplayOptions = {
+  allowInactiveWrapPrincipal?: boolean;
+  allowUserScopedWrapRecipient?: boolean;
+  recipientBoundWorkspaceRedeem?: boolean;
+  recipientBoundGuestRedeem?: boolean;
+};
 
 export function eventSignatureAuthorityPayload(
   event: SignedKeyDirectoryEnvelope,
@@ -49,8 +87,7 @@ export function eventSignatureAuthorityPayload(
     assertTemporaryInvitationAuthorityActive(replayPayload, event);
   }
 
-  return event.payload.event_type === "document_update_accepted" ||
-    event.payload.event_type === "document_write_session_admitted" ||
+  return event.payload.event_type === "document_write_session_admitted" ||
     event.payload.event_type === "document_snapshot_accepted"
     ? candidatePayload
     : replayPayload;
@@ -79,7 +116,7 @@ export function applyAuthoritySeedEventsToCheckpointPayload(
 export function verifyEventSemantics(
   event: SignedKeyDirectoryEnvelope,
   checkpointPayload: Record<string, unknown>,
-  options: { allowInactiveWrapPrincipal?: boolean } = {},
+  options: ReplayOptions = {},
 ): void {
   const body = event.payload.body as Record<string, unknown> | undefined;
   if (!body) throw new Error("key_directory_event_body_invalid");
@@ -116,6 +153,7 @@ export function verifyEventSemantics(
       }
       break;
     case "member_role_changed":
+      assertMemberRoleChangeBody(body);
       if (body.workspace_id !== event.payload.scope_id) {
         throw new Error("member_role_changed_scope_mismatch");
       }
@@ -144,15 +182,13 @@ export function verifyEventSemantics(
     case "old_key_deleted":
       if (
         body.event_type !== event.payload.event_type ||
-        body.scope_kind !== event.payload.scope_kind ||
-        body.scope_id !== event.payload.scope_id
+        !rotationScopeBelongsToDirectory(event.payload, body)
       ) {
         throw new Error("rotation_event_scope_mismatch");
       }
       assertRotationSequence(event.payload.event_type, body, event.payload.sequence);
       break;
     case "document_snapshot_accepted":
-    case "document_update_accepted":
     case "document_write_session_admitted":
       assertDocumentAdmissionSemantics(event, checkpointPayload, body);
       break;
@@ -174,14 +210,18 @@ export function verifyEventSemantics(
       const sender = body.sender as Record<string, unknown> | undefined;
       const recipient = body.recipient as Record<string, unknown> | undefined;
       if (!actor || !sender || !recipient) throw new Error("wrap_principal_invalid");
+      const userScopedRecipient =
+        options.allowUserScopedWrapRecipient === true &&
+        isAllowedUserScopedWrapRecipient(body, recipient);
       if (
         actor.user_id !== sender.user_id ||
         actor.device_id !== sender.device_id ||
         actor.signing_key_id !== sender.signing_key_id ||
         sender.key_scope_kind !== event.payload.scope_kind ||
         sender.key_scope_id !== event.payload.scope_id ||
-        recipient.key_scope_kind !== event.payload.scope_kind ||
-        recipient.key_scope_id !== event.payload.scope_id
+        (!userScopedRecipient &&
+          (recipient.key_scope_kind !== event.payload.scope_kind ||
+            recipient.key_scope_id !== event.payload.scope_id))
       ) {
         throw new Error("wrap_principal_mismatch");
       }
@@ -192,11 +232,13 @@ export function verifyEventSemantics(
           stringField(sender.signing_key_id, "signing_key_id_invalid"),
           sequence,
         );
-        assertKeyEntryActiveAtSequence(
-          checkpointPayload,
-          stringField(recipient.encryption_key_id, "encryption_key_id_invalid"),
-          sequence,
-        );
+        if (!userScopedRecipient) {
+          assertKeyEntryActiveAtSequence(
+            checkpointPayload,
+            stringField(recipient.encryption_key_id, "encryption_key_id_invalid"),
+            sequence,
+          );
+        }
       }
       break;
     }
@@ -238,6 +280,45 @@ export function verifyEventSemantics(
         `key_directory_event_semantic_validator_missing:${String(event.payload.event_type)}`,
       );
   }
+}
+
+function assertMemberRoleChangeBody(body: Record<string, unknown>): void {
+  const keys = Object.keys(body).sort();
+  if (keys.join("\u0000") !== [...MEMBER_ROLE_CHANGE_BODY_KEYS].sort().join("\u0000")) {
+    throw new Error("member_role_changed_body_invalid");
+  }
+  if (!Number.isSafeInteger(body.permission_version) || (body.permission_version as number) < 1) {
+    throw new Error("member_role_changed_permission_version_invalid");
+  }
+  assertCanonicalWorkspacePermissions(body.previous_effective_permissions);
+  assertCanonicalWorkspacePermissions(body.effective_permissions);
+}
+
+function assertCanonicalWorkspacePermissions(value: unknown): void {
+  if (!Array.isArray(value) || !value.every((permission) => typeof permission === "string")) {
+    throw new Error("member_role_changed_effective_permissions_invalid");
+  }
+  const canonical = [...new Set(value)].sort();
+  if (
+    canonical.length !== value.length ||
+    canonical.some((permission, index) => permission !== value[index]) ||
+    canonical.some((permission) => !WORKSPACE_PERMISSIONS.has(permission))
+  ) {
+    throw new Error("member_role_changed_effective_permissions_invalid");
+  }
+}
+
+function rotationScopeBelongsToDirectory(
+  payload: Record<string, unknown>,
+  body: Record<string, unknown>,
+): boolean {
+  if (body.scope_kind === payload.scope_kind && body.scope_id === payload.scope_id) return true;
+  return (
+    payload.scope_kind === "workspace" &&
+    body.rotation_kind === "dek" &&
+    body.scope_kind === "document" &&
+    typeof body.scope_id === "string"
+  );
 }
 
 function assertDocumentAdmissionSemantics(
@@ -339,14 +420,14 @@ export function applyEventToCheckpointPayload(
   replayPayload: Record<string, unknown>,
   event: SignedKeyDirectoryEnvelope,
   candidatePayload: Record<string, unknown>,
-  options: { allowInactiveWrapPrincipal?: boolean } = {},
+  options: ReplayOptions = {},
 ): Record<string, unknown> {
   verifyEventSemantics(event, candidatePayload, options);
 
   switch (event.payload.event_type) {
     case "identity_key_added": {
       const entries = arrayField(candidatePayload.identity_keys).filter(
-        (entry) =>
+        (entry): entry is Record<string, unknown> =>
           isRecord(entry) &&
           keyEntryValidFromEvent(entry, event) &&
           isRecord(entry.key_material) &&
@@ -354,7 +435,7 @@ export function applyEventToCheckpointPayload(
       );
       if (entries.length === 0) throw new Error("key_directory_key_entry_missing");
       return entries.reduce<Record<string, unknown>>(
-        (payload, entry) => updateKeyEntries(payload, "identity_keys", entry),
+        (payload, entry) => updateKeyEntries(payload, "identity_keys", keyEntryAtAdmission(entry)),
         replayPayload,
       );
     }
@@ -371,9 +452,9 @@ export function applyEventToCheckpointPayload(
       assertKeyEntryValidFromEvent(signingEntry, event);
       assertKeyEntryValidFromEvent(encryptionEntry, event);
       return updateKeyEntries(
-        updateKeyEntries(replayPayload, "device_keys", signingEntry),
+        updateKeyEntries(replayPayload, "device_keys", keyEntryAtAdmission(signingEntry)),
         "device_keys",
-        encryptionEntry,
+        keyEntryAtAdmission(encryptionEntry),
       );
     }
     case "signing_key_revoked":
@@ -384,7 +465,6 @@ export function applyEventToCheckpointPayload(
         event,
       );
     case "document_snapshot_accepted":
-    case "document_update_accepted":
     case "document_write_session_admitted":
       return applyDocumentAdmissionEventToCheckpointPayload(replayPayload, event, candidatePayload);
     case "document_write_state_changed":
@@ -424,6 +504,7 @@ export function applyEventToCheckpointPayload(
           replayPayload,
           event,
           candidatePayload,
+          options.recipientBoundWorkspaceRedeem === true,
         ),
         event,
       );
@@ -433,6 +514,7 @@ export function applyEventToCheckpointPayload(
           replayPayload,
           event,
           candidatePayload,
+          options.recipientBoundGuestRedeem === true,
         ),
         event,
       );
@@ -441,6 +523,36 @@ export function applyEventToCheckpointPayload(
         `key_directory_event_semantic_validator_missing:${String(event.payload.event_type)}`,
       );
   }
+}
+
+function keyEntryAtAdmission(entry: Record<string, unknown>): Record<string, unknown> {
+  const admitted = { ...entry };
+  delete admitted.revoked_at;
+  return admitted;
+}
+
+function isAllowedUserScopedWrapRecipient(
+  body: Record<string, unknown>,
+  recipient: Record<string, unknown>,
+): boolean {
+  const resource = body.resource as Record<string, unknown> | undefined;
+  if (recipient.key_scope_kind !== "user" || !resource) return false;
+  if (body.purpose === "workspace_member_kek_wrap") {
+    return (
+      recipient.recipient_kind === "user_identity" &&
+      recipient.user_id === resource.target_user_id &&
+      recipient.key_scope_id === resource.target_user_id
+    );
+  }
+  if (body.purpose === "workspace_invitation_kek_wrap") {
+    return (
+      recipient.recipient_kind === "invitee" &&
+      recipient.invitee_user_id === resource.redeemed_user_id &&
+      recipient.invitee_device_id === resource.redeemed_device_id &&
+      recipient.key_scope_id === resource.redeemed_user_id
+    );
+  }
+  return false;
 }
 
 function assertKeyMaterialHash(
@@ -542,14 +654,14 @@ function assertRotationSequence(
     if (body.not_before_event_sequence !== sequence) {
       throw new Error("rotation_started_sequence_mismatch");
     }
-    assertRotationVersionProgression(body);
+    if (body.rotation_kind !== "identity") assertRotationVersionProgression(body);
     return;
   }
   if (eventType === "rotation_completed") {
     if (body.completed_at_event_sequence !== sequence) {
       throw new Error("rotation_completed_sequence_mismatch");
     }
-    assertRotationVersionProgression(body);
+    if (body.rotation_kind !== "identity") assertRotationVersionProgression(body);
     return;
   }
   if (eventType === "old_key_deleted" && body.deleted_at_event_sequence !== sequence) {
@@ -581,7 +693,14 @@ export function assertAndApplyRotationReplayState(
       ...state,
       [key]: {
         status: "started",
-        newKeyVersion: numberField(body.new_key_version, "new_key_version_invalid"),
+        ...(body.rotation_kind === "identity"
+          ? {
+              newIdentitySigningKeyId: stringField(
+                body.new_identity_signing_key_id,
+                "new_identity_signing_key_id_invalid",
+              ),
+            }
+          : { newKeyVersion: numberField(body.new_key_version, "new_key_version_invalid") }),
         startedEventHash: eventHash(event),
       },
     };
@@ -590,9 +709,18 @@ export function assertAndApplyRotationReplayState(
   if (eventType === "rotation_completed") {
     if (!current) throw new Error("rotation_started_event_missing");
     if (current.status !== "started") throw new Error("rotation_not_in_progress");
-    const newKeyVersion = numberField(body.new_key_version, "new_key_version_invalid");
-    if (current.newKeyVersion !== newKeyVersion) {
-      throw new Error("rotation_key_version_mismatch");
+    if (body.rotation_kind === "identity") {
+      if (
+        current.newIdentitySigningKeyId !==
+        stringField(body.new_identity_signing_key_id, "new_identity_signing_key_id_invalid")
+      ) {
+        throw new Error("rotation_identity_key_mismatch");
+      }
+    } else {
+      const newKeyVersion = numberField(body.new_key_version, "new_key_version_invalid");
+      if (current.newKeyVersion !== newKeyVersion) {
+        throw new Error("rotation_key_version_mismatch");
+      }
     }
     return {
       ...state,
@@ -616,12 +744,46 @@ export function assertAndApplyRotationReplayState(
   };
 }
 
+export function rotationReplayStateFromAuthorityEvents(
+  authorityEvents: SignedKeyDirectoryEnvelope[],
+  candidateEvents: SignedKeyDirectoryEnvelope[],
+): RotationReplayState {
+  const requiredRotationKeys = new Set(
+    candidateEvents
+      .filter(
+        (event) =>
+          event.payload.event_type === "rotation_completed" ||
+          event.payload.event_type === "old_key_deleted",
+      )
+      .map((event) => rotationReplayKey(event.payload.body as Record<string, unknown>)),
+  );
+
+  return authorityEvents
+    .filter((event) => {
+      if (
+        event.payload.event_type !== "rotation_started" &&
+        event.payload.event_type !== "rotation_completed"
+      ) {
+        return false;
+      }
+      return requiredRotationKeys.has(
+        rotationReplayKey(event.payload.body as Record<string, unknown>),
+      );
+    })
+    .reduce(
+      (state, event) => assertAndApplyRotationReplayState(state, event),
+      {} as RotationReplayState,
+    );
+}
+
 function rotationReplayKey(body: Record<string, unknown>): string {
   return [
     stringField(body.rotation_kind, "rotation_kind_invalid"),
     stringField(body.scope_kind, "scope_kind_invalid"),
     stringField(body.scope_id, "scope_id_invalid"),
-    String(numberField(body.old_key_version, "old_key_version_invalid")),
+    body.rotation_kind === "identity"
+      ? stringField(body.old_identity_signing_key_id, "old_identity_signing_key_id_invalid")
+      : String(numberField(body.old_key_version, "old_key_version_invalid")),
   ].join(":");
 }
 

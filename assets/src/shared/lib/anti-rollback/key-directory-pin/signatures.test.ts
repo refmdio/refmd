@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { assertShareParticipantCheckpointAdvance } from "./signatures";
+import {
+  assertShareParticipantCheckpointAdvance,
+  isInvitationAdmissionWrapEvent,
+  isRecipientBoundDeliveryWrapEvent,
+  isRecipientBoundGuestRedeemEvent,
+  isRecipientBoundWorkspaceRedeemEvent,
+} from "./signatures";
 import { eventHash } from "./primitives";
 import type { SignedKeyDirectoryEnvelope } from "./types";
 
@@ -90,7 +96,7 @@ describe("assertShareParticipantCheckpointAdvance", () => {
   it("rejects mixed document operation events under one share participant checkpoint", () => {
     const deviceEvent = eventEnvelope("document_write_session_admitted", deviceSigner, 2);
     const shareEvent = eventEnvelope(
-      "document_update_accepted",
+      "document_snapshot_accepted",
       shareSigner,
       3,
       eventHash(deviceEvent),
@@ -107,11 +113,117 @@ describe("assertShareParticipantCheckpointAdvance", () => {
   });
 
   it("rejects document operation events from a different share participant signer", () => {
-    const coveredEvent = eventEnvelope("document_update_accepted", otherShareSigner);
+    const coveredEvent = eventEnvelope("document_write_session_admitted", otherShareSigner);
     const checkpoint = checkpointEnvelope(coveredEvent);
 
     expect(() =>
       assertShareParticipantCheckpointAdvance(checkpoint, [coveredEvent], previousPayload),
     ).toThrow("share_participant_checkpoint_signer_mismatch");
+  });
+});
+
+describe("recipient-bound invitation event classification", () => {
+  const actor = {
+    signer_kind: "device",
+    user_id: "owner-user",
+    device_id: "owner-device",
+    signing_key_id: "owner-signing-key",
+  };
+  const admission = {
+    payload: {
+      event_type: "recipient_bound_delivery_admitted",
+      body: {
+        context_kind: "workspace_invitation",
+        context_id: "invitation-1",
+        recipient_device_id: "recipient-device",
+      },
+    },
+  } as unknown as SignedKeyDirectoryEnvelope;
+  const memberWrap = {
+    payload: {
+      event_type: "wrap_issued",
+      body: {
+        purpose: "workspace_member_kek_wrap",
+        sender: actor,
+        recipient: {
+          recipient_kind: "user_identity",
+          user_id: "recipient-user",
+          key_scope_kind: "user",
+          key_scope_id: "recipient-user",
+        },
+        resource: { workspace_id: "workspace-1", target_user_id: "recipient-user" },
+      },
+    },
+  } as unknown as SignedKeyDirectoryEnvelope;
+  const redeemed = {
+    payload: {
+      event_type: "workspace_invitation_redeemed",
+      scope_id: "workspace-1",
+      actor,
+      body: {
+        invitation_id: "invitation-1",
+        redeemed_user_id: "recipient-user",
+        redeemed_device_id: "recipient-device",
+      },
+    },
+  } as unknown as SignedKeyDirectoryEnvelope;
+  const deliveryWrap = {
+    payload: {
+      event_type: "wrap_issued",
+      body: {
+        purpose: "workspace_invitation_kek_wrap",
+        resource: {
+          invitation_id: "invitation-1",
+          redeemed_user_id: "recipient-user",
+          redeemed_device_id: "recipient-device",
+        },
+        recipient: {
+          recipient_kind: "invitee",
+          invitee_user_id: "recipient-user",
+          invitee_device_id: "recipient-device",
+          key_scope_kind: "user",
+          key_scope_id: "recipient-user",
+        },
+      },
+    },
+  } as unknown as SignedKeyDirectoryEnvelope;
+  const events = [admission, memberWrap, redeemed, deliveryWrap];
+
+  it("recognizes the complete recipient-bound workspace sequence", () => {
+    expect(isInvitationAdmissionWrapEvent(memberWrap, redeemed)).toBe(true);
+    expect(isRecipientBoundWorkspaceRedeemEvent(redeemed, events)).toBe(true);
+    expect(isRecipientBoundDeliveryWrapEvent(deliveryWrap, events)).toBe(true);
+  });
+
+  it("rejects a user-directory scope mismatch", () => {
+    const mismatched = structuredClone(memberWrap);
+    (mismatched.payload.body as Record<string, Record<string, unknown>>).recipient.key_scope_id =
+      "other-user";
+    const tamperedEvents = [admission, mismatched, redeemed, deliveryWrap];
+
+    expect(isInvitationAdmissionWrapEvent(mismatched, redeemed)).toBe(false);
+    expect(isRecipientBoundWorkspaceRedeemEvent(redeemed, tamperedEvents)).toBe(false);
+  });
+
+  it("recognizes a recipient-bound guest redemption", () => {
+    const guestAdmission = structuredClone(admission);
+    (guestAdmission.payload.body as Record<string, unknown>).context_kind = "guest_invitation";
+    (guestAdmission.payload.body as Record<string, unknown>).context_id = "guest-invitation-1";
+    const guestRedeemed = {
+      payload: {
+        event_type: "guest_invitation_redeemed",
+        body: {
+          guest_invitation_id: "guest-invitation-1",
+          guest_user_id: "guest-user",
+          guest_device_id: "recipient-device",
+          recipient_account_user_id: "recipient-user",
+          recipient_account_device_id: "recipient-account-device",
+        },
+      },
+    } as unknown as SignedKeyDirectoryEnvelope;
+
+    expect(isRecipientBoundGuestRedeemEvent(guestRedeemed, [guestAdmission, guestRedeemed])).toBe(
+      true,
+    );
   });
 });

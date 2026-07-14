@@ -1,5 +1,7 @@
 import type { WorkerKeyState } from "./shared";
 import { zeroOut } from "./shared";
+import { destroyHybridEncryptionPrivateKeyMaterial } from "../../hybrid-encryption";
+import { destroyHybridSigningPrivateKeyMaterial } from "../../signature";
 
 export function createInitialState(): WorkerKeyState {
   return {
@@ -13,6 +15,11 @@ export function createInitialState(): WorkerKeyState {
     identityHybridEncryptionPrivateKeyMaterial: null,
     identityHybridEncryptionPublicKeyMaterial: null,
     identityHybridSigningState: null,
+    pendingIdentitySuccessor: null,
+    identityRotationDueAtMs: null,
+    identityRotationActivation: null,
+    identityRotationFinalization: null,
+    identityRotationTrustedCheckpointPayload: null,
     recoveryAuthorizationHybridSigningState: null,
     deviceEcdhPrivate: null,
     deviceEcdhPublic: null,
@@ -21,9 +28,13 @@ export function createInitialState(): WorkerKeyState {
     deviceHybridSigningState: null,
     shareParticipantHybridSigningState: null,
     initialAkeResponderPrekeys: new Map(),
+    initialAkeInitiatorSessions: new Map(),
+    initialAkeResponderSessions: new Map(),
     invitationRedeemAuthorities: new Map(),
     shareSecrets: new Map(),
     shareKeyRefs: new Map(),
+    guestShareKeys: new Map(),
+    pendingGuestInvitationShareKeys: new Map(),
     kekCache: new Map(),
     activeKekVersions: new Map(),
     dekCache: new Map(),
@@ -43,9 +54,29 @@ export function clearState(state: WorkerKeyState): void {
   zeroOut(state.identityEcdhPrivate);
   state.identityEcdhPrivate = null;
   state.identityEcdhPublic = null;
+  if (state.identityHybridEncryptionPrivateKeyMaterial) {
+    destroyHybridEncryptionPrivateKeyMaterial(state.identityHybridEncryptionPrivateKeyMaterial);
+  }
   state.identityHybridEncryptionPrivateKeyMaterial = null;
   state.identityHybridEncryptionPublicKeyMaterial = null;
+  if (state.identityHybridSigningState) {
+    destroyHybridSigningPrivateKeyMaterial(state.identityHybridSigningState.privateKeyMaterial);
+  }
   state.identityHybridSigningState = null;
+  if (state.pendingIdentitySuccessor) {
+    zeroOut(state.pendingIdentitySuccessor.ecdhPrivate);
+    destroyHybridEncryptionPrivateKeyMaterial(
+      state.pendingIdentitySuccessor.hybridEncryptionPrivateKeyMaterial,
+    );
+    destroyHybridSigningPrivateKeyMaterial(
+      state.pendingIdentitySuccessor.hybridSigningPrivateKeyMaterial,
+    );
+  }
+  state.pendingIdentitySuccessor = null;
+  state.identityRotationDueAtMs = null;
+  state.identityRotationActivation = null;
+  state.identityRotationFinalization = null;
+  state.identityRotationTrustedCheckpointPayload = null;
   state.recoveryAuthorizationHybridSigningState = null;
 
   zeroOut(state.deviceEcdhPrivate);
@@ -55,7 +86,15 @@ export function clearState(state: WorkerKeyState): void {
   state.deviceHybridEncryptionPublicKeyMaterial = null;
   state.deviceHybridSigningState = null;
   state.shareParticipantHybridSigningState = null;
+  for (const prekey of state.initialAkeResponderPrekeys.values()) {
+    zeroOut(prekey.x25519_private);
+    zeroOut(prekey.mlkem768_private);
+  }
   state.initialAkeResponderPrekeys.clear();
+  for (const session of state.initialAkeInitiatorSessions.values()) zeroOut(session.secret);
+  state.initialAkeInitiatorSessions.clear();
+  for (const session of state.initialAkeResponderSessions.values()) zeroOut(session.secret);
+  state.initialAkeResponderSessions.clear();
   state.invitationRedeemAuthorities.clear();
   for (const secret of state.shareSecrets.values()) {
     zeroOut(secret.authorizationSecret ?? null);
@@ -70,6 +109,12 @@ export function clearState(state: WorkerKeyState): void {
     zeroOut(keyRef.nonce);
   }
   state.shareKeyRefs.clear();
+  for (const guestShareKey of state.guestShareKeys.values()) {
+    zeroOut(guestShareKey.key);
+  }
+  state.guestShareKeys.clear();
+  for (const key of state.pendingGuestInvitationShareKeys.values()) key.fill(0);
+  state.pendingGuestInvitationShareKeys.clear();
 
   for (const versionMap of state.kekCache.values()) {
     for (const entry of versionMap.values()) {

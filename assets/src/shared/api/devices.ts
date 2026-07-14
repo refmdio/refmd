@@ -108,6 +108,31 @@ export const devicesApi = {
       }),
     ),
 
+  getInitialAkeOffers: async (deviceId: string) =>
+    throwIfError(
+      await client.GET("/api/devices/registrations/{device_id}/initial-ake-offers", {
+        params: { path: { device_id: deviceId } },
+      }),
+    ),
+
+  submitInitialAkeResponses: async (
+    deviceId: string,
+    body: components["schemas"]["InitialAkeResponsesRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/devices/registrations/{device_id}/initial-ake-responses", {
+        params: { path: { device_id: deviceId } },
+        body,
+      }),
+    ),
+
+  getInitialAkeResponses: async (deviceId: string) =>
+    throwIfError(
+      await client.GET("/api/devices/{device_id}/initial-ake-responses", {
+        params: withUserRrpParams({ path: { device_id: deviceId } }),
+      }),
+    ),
+
   distributeUmk: async (
     deviceId: string,
     senderDeviceId: string,

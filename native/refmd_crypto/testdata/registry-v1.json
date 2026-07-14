@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "case_id": "draft-ietf-hpke-pq-04-a5-1",
+      "path": "draft-ietf-hpke-pq-04-a5-1.json",
+      "sha256": "d72c1794d63ee4c553b22f8680d4cc7453dd0fd3eaac1f48923b2b3e9bef3ae2",
+      "provenance": "draft-ietf-hpke-pq-04 Appendix A.5.1",
+      "purpose": "immutable upstream HPKE KAT"
+    },
+    {
+      "case_id": "signed-pq-wrap-v1",
+      "path": "refmd-signed-pq-wrap-v1.json",
+      "sha256": "16fe95b2a9ad3aee9c61981fdf20656548668a86f6fcd2d7da5bcf5ae0b1927b",
+      "provenance": "RefMD approved design version 17 ADR-023",
+      "purpose": "immutable RefMD signed PQ wrap golden vector"
+    }
+  ]
+}

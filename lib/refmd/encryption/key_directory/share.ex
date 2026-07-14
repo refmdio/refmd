@@ -190,12 +190,11 @@ defmodule RefMD.Encryption.KeyDirectory.Share do
       "event_body_type_mismatch"
     )
 
-    A.assert_permission!(body["permission"])
+    assert_recipient_bound_context!(body)
 
     for key <- [
           "authorization_hash",
           "recipient_hash",
-          "share_session_binding_hash",
           "recipient_nonce_state_hash",
           "live_redeem_challenge_hash",
           "redeem_freshness_proof_hash",
@@ -211,4 +210,27 @@ defmodule RefMD.Encryption.KeyDirectory.Share do
 
     Encoding.decode_base64url!(body["admission_nonce"], 32)
   end
+
+  defp assert_recipient_bound_context!(%{
+         "context_kind" => context_kind,
+         "permission" => "NOT_APPLICABLE",
+         "share_session_id" => "NOT_APPLICABLE",
+         "share_session_binding_hash" => "NOT_APPLICABLE"
+       })
+       when context_kind in ["workspace_invitation", "guest_invitation"],
+       do: :ok
+
+  defp assert_recipient_bound_context!(%{
+         "context_kind" => "share",
+         "permission" => permission,
+         "share_session_id" => share_session_id,
+         "share_session_binding_hash" => share_session_binding_hash
+       }) do
+    A.assert_permission!(permission)
+    A.assert_uuid!(share_session_id)
+    Hash.assert_blake3_base64url!(share_session_binding_hash)
+  end
+
+  defp assert_recipient_bound_context!(_),
+    do: raise(ArgumentError, "recipient_bound_context_invalid")
 end

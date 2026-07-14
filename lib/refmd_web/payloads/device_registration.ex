@@ -1,6 +1,29 @@
 defmodule RefMDWeb.Payloads.DeviceRegistration do
   @moduledoc false
 
+  alias RefMD.Crypto.{Encoding, HybridEncryptionMaterial}
+
+  def decode_request_material!(params) when is_map(params) do
+    hybrid_encryption_public_key_material =
+      params["device_hybrid_encryption_public_key_material"]
+
+    %{
+      device_id: params["device_id"],
+      identity_signing_key_id: params["identity_signing_key_id"],
+      identity_hybrid_signing_public_key_material:
+        params["identity_hybrid_signing_public_key_material"],
+      device_signing_key_id: params["device_signing_key_id"],
+      device_encryption_key_id: params["device_encryption_key_id"],
+      x25519_public_key:
+        HybridEncryptionMaterial.x25519_public!(hybrid_encryption_public_key_material),
+      mlkem768_public_key:
+        HybridEncryptionMaterial.mlkem768_public!(hybrid_encryption_public_key_material),
+      hybrid_encryption_public_key_material: hybrid_encryption_public_key_material,
+      hybrid_signing_public_key_material: params["device_hybrid_signing_public_key_material"],
+      client_nonce: Encoding.decode_base64url!(params["client_nonce"], 16)
+    }
+  end
+
   def valid_ake_responder_prekeys?(%{
         "umk_distribution" => umk,
         "trust_transfer" => trust,

@@ -14,6 +14,168 @@ defmodule RefMDWeb.Schemas.InitialAkeArtifact do
   )
 end
 
+defmodule RefMDWeb.Schemas.InitialAkeOffer do
+  require OpenApiSpex
+  alias OpenApiSpex.Schema
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeOffer",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.initial-hybrid-key-agreement"]},
+      version: %Schema{type: :integer, enum: [1]},
+      ake_suite_id: %Schema{type: :string},
+      ake_suite_rank: %Schema{type: :integer},
+      purpose: %Schema{type: :string},
+      transcript: %Schema{
+        oneOf: [
+          RefMDWeb.Schemas.InitialAkeUmkTranscript,
+          RefMDWeb.Schemas.InitialAkeApprovalTranscript,
+          RefMDWeb.Schemas.InitialAkeTrustTransferTranscript
+        ]
+      },
+      transcript_hash: %Schema{type: :string},
+      initiator_commitment: %Schema{
+        allOf: [RefMDWeb.Schemas.InitiatorAkeCommitment]
+      },
+      initiator_commitment_signature: RefMDWeb.Schemas.HybridSignature,
+      initiator_confirmation: %Schema{type: :string},
+      pending_delivery: %Schema{
+        type: :object,
+        additionalProperties: false,
+        properties: %{
+          metadata: %Schema{allOf: [RefMDWeb.Schemas.InitialAkePendingDeliveryMetadata]},
+          aead: %Schema{allOf: [RefMDWeb.Schemas.InitialKeyDeliveryAead]}
+        },
+        required: [:metadata, :aead]
+      }
+    },
+    required: [
+      :protocol,
+      :version,
+      :ake_suite_id,
+      :ake_suite_rank,
+      :purpose,
+      :transcript,
+      :transcript_hash,
+      :initiator_commitment,
+      :initiator_commitment_signature,
+      :initiator_confirmation,
+      :pending_delivery
+    ],
+    struct?: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.InitialAkeResponderConfirmation do
+  require OpenApiSpex
+  alias OpenApiSpex.Schema
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeResponderConfirmation",
+    type: :object,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.initial-ake-responder-confirmation"]},
+      version: %Schema{type: :integer, enum: [1]},
+      purpose: %Schema{type: :string},
+      transcript_hash: %Schema{type: :string},
+      prekey_id: %Schema{type: :string},
+      responder_confirmation: %Schema{type: :string}
+    },
+    required: [
+      :protocol,
+      :version,
+      :purpose,
+      :transcript_hash,
+      :prekey_id,
+      :responder_confirmation
+    ],
+    struct?: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.InitialAkeOfferBundle do
+  require OpenApiSpex
+  alias OpenApiSpex.Schema
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeOfferBundle",
+    type: :object,
+    properties: %{
+      umk_distribution: RefMDWeb.Schemas.InitialAkeOffer,
+      trust_transfer: RefMDWeb.Schemas.InitialAkeOffer,
+      device_approval_kek_initial: %Schema{
+        type: :object,
+        additionalProperties: RefMDWeb.Schemas.InitialAkeOffer
+      }
+    },
+    required: [:umk_distribution, :trust_transfer, :device_approval_kek_initial],
+    struct?: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.InitialAkeResponseBundle do
+  require OpenApiSpex
+  alias OpenApiSpex.Schema
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeResponseBundle",
+    type: :object,
+    properties: %{
+      umk_distribution: RefMDWeb.Schemas.InitialAkeResponderConfirmation,
+      trust_transfer: RefMDWeb.Schemas.InitialAkeResponderConfirmation,
+      device_approval_kek_initial: %Schema{
+        type: :object,
+        additionalProperties: RefMDWeb.Schemas.InitialAkeResponderConfirmation
+      }
+    },
+    required: [:umk_distribution, :trust_transfer, :device_approval_kek_initial],
+    struct?: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.InitialAkeExchangeResponse do
+  require OpenApiSpex
+  alias OpenApiSpex.Schema
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeExchangeResponse",
+    type: :object,
+    properties: %{
+      offers: RefMDWeb.Schemas.InitialAkeOfferBundle,
+      sender_device_id: %Schema{type: :string},
+      sender_hybrid_signing_public_key_material: RefMDWeb.Schemas.HybridSigningPublicKeyMaterial
+    },
+    required: [:offers, :sender_device_id, :sender_hybrid_signing_public_key_material],
+    struct?: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.InitialAkeResponsesRequest do
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeResponsesRequest",
+    type: :object,
+    properties: %{responses: RefMDWeb.Schemas.InitialAkeResponseBundle},
+    required: [:responses],
+    struct?: false
+  })
+end
+
+defmodule RefMDWeb.Schemas.InitialAkeResponsesResponse do
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "InitialAkeResponsesResponse",
+    type: :object,
+    properties: %{responses: RefMDWeb.Schemas.InitialAkeResponseBundle},
+    required: [:responses],
+    struct?: false
+  })
+end
+
 defmodule RefMDWeb.Schemas.InitialAkeRequiredComponents do
   alias OpenApiSpex.Schema
   require OpenApiSpex
@@ -840,6 +1002,31 @@ defmodule RefMDWeb.Schemas.InitialKeyDeliveryMetadata do
       additionalProperties: false,
       properties: @common,
       required: @common_required
+    },
+    struct?: false
+  )
+end
+
+defmodule RefMDWeb.Schemas.InitialAkePendingDeliveryMetadata do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @properties RefMDWeb.Schemas.InitialKeyDeliveryMetadata.schema().properties
+              |> Map.delete(:key_confirmation_hash)
+              |> Map.merge(%{
+                workspace_id: %Schema{type: :string, format: :uuid},
+                document_rollback_pin_set_hash: %Schema{type: :string}
+              })
+  @required RefMDWeb.Schemas.InitialKeyDeliveryMetadata.schema().required --
+              [:key_confirmation_hash]
+
+  OpenApiSpex.schema(
+    %{
+      title: "InitialAkePendingDeliveryMetadata",
+      type: :object,
+      additionalProperties: false,
+      properties: @properties,
+      required: @required
     },
     struct?: false
   )

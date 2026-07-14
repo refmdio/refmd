@@ -110,7 +110,7 @@ defmodule RefMDWeb.MemberController do
     ],
     request_body: {"Role change", "application/json", Schemas.ChangeMemberRoleRequest},
     responses: [
-      ok: {"Updated member", "application/json", Schemas.OkResponse},
+      ok: {"Updated member", "application/json", Schemas.ChangeMemberRoleResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
@@ -131,7 +131,10 @@ defmodule RefMDWeb.MemberController do
            }
          ) do
       {:ok, _member} ->
-        json(conn, %{ok: true})
+        json(conn, %{
+          ok: true,
+          workspaces_needing_kek_rotation: workspace_rotation_info(workspace_id)
+        })
 
       {:error, error} ->
         handle_member_error(conn, error)
@@ -198,7 +201,11 @@ defmodule RefMDWeb.MemberController do
     json(conn, %{
       members:
         Enum.map(members, fn member ->
-          identity = Encryption.get_user_identity_public_key(member.user_id)
+          identity =
+            case Encryption.user_identity_key_for_new_encryption(member.user_id) do
+              {:ok, key} -> key
+              {:error, _reason} -> nil
+            end
 
           %{
             user_id: member.user_id,
@@ -218,16 +225,10 @@ defmodule RefMDWeb.MemberController do
            workspace_checkpoint: params["workspace_key_directory_checkpoint"]
          }) do
       {:ok, _member} ->
-        workspace = Workspaces.get_workspace(workspace_id)
-
-        rotation_info =
-          if workspace && workspace.needs_kek_rotation do
-            [%{workspace_id: workspace_id, current_kek_version: workspace.current_kek_version}]
-          else
-            []
-          end
-
-        json(conn, %{ok: true, workspaces_needing_kek_rotation: rotation_info})
+        json(conn, %{
+          ok: true,
+          workspaces_needing_kek_rotation: workspace_rotation_info(workspace_id)
+        })
 
       {:error, error} ->
         handle_member_error(conn, error)
@@ -237,6 +238,16 @@ defmodule RefMDWeb.MemberController do
   defp has_permission?(role, permission) do
     perms = Workspaces.effective_permissions(role)
     MapSet.member?(perms, permission)
+  end
+
+  defp workspace_rotation_info(workspace_id) do
+    case Workspaces.get_workspace(workspace_id) do
+      %{needs_kek_rotation: true, current_kek_version: version} ->
+        [%{workspace_id: workspace_id, current_kek_version: version}]
+
+      _ ->
+        []
+    end
   end
 
   defp handle_member_error(conn, :cannot_modify_owner) do

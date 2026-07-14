@@ -1,8 +1,6 @@
 import type { AuthState } from "@/entities/session";
-import { authApi, devicesApi } from "@/shared/api";
-import { ApiError } from "@/shared/api/core";
+import { authApi } from "@/shared/api";
 import type { components } from "@/shared/api/schema";
-import { prepareRegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
@@ -12,9 +10,20 @@ import { buildDeviceKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { RECOVERY_PENDING_DEVICE_STORAGE_KEY } from "@/shared/lib/auth/recovery-pending-device";
 import {
+  advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
+  hydrateVerifiedKeyDirectoryLineage,
+  installVerifiedTransferredKeyDirectoryCheckpoint,
+  rememberVerifiedKeyDirectoryLineage,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  pinFromCheckpoint,
+  verifyCheckpointAncestry,
+  verifyInitialReplay,
+} from "@/shared/lib/anti-rollback/key-directory-pin/verification";
+import { verifyRotationDeletionEvidences } from "@/shared/lib/anti-rollback/rotation-deletion-evidence";
+import { verifyAndPinAuditCheckpoint } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import {
   assertKeyDirectoryEnvelope,
   type KeyDirectoryEnvelope,
@@ -42,20 +51,15 @@ type RecoveryAttemptResult =
 type RecoveryDevicePublicKeys = Awaited<
   ReturnType<ReturnType<typeof getCryptoWorker>["generateDeviceKeys"]>
 >;
-type CreateDeviceRegistrationRequest = components["schemas"]["CreateDeviceRegistrationRequest"];
-type RegistrationRequestWithAke = Extract<
-  CreateDeviceRegistrationRequest,
-  { ake_responder_prekeys: unknown }
->;
+type RecoveryTargetDeviceRegistration =
+  components["schemas"]["RecoverySessionRequest"]["target_device_registration"];
 
-export function buildRecoveryDeviceRegistrationRequest(params: {
+export function buildRecoveryTargetDeviceRegistration(params: {
   deviceId: string;
   identitySigningKeyId: string;
   publicKeys: RecoveryDevicePublicKeys;
   clientNonce: Uint8Array;
-  registrationChallenge: string;
-  initialAkeResponderPrekeys: RegistrationRequestWithAke["ake_responder_prekeys"];
-}): CreateDeviceRegistrationRequest {
+}): RecoveryTargetDeviceRegistration {
   return {
     name: getDeviceName(),
     device_type: getDeviceType(),
@@ -67,8 +71,6 @@ export function buildRecoveryDeviceRegistrationRequest(params: {
     device_hybrid_signing_public_key_material: params.publicKeys.hybridSigningPublicKeyMaterial,
     device_signing_key_id: params.publicKeys.signingKeyId,
     client_nonce: base64UrlEncode(params.clientNonce),
-    registration_challenge: params.registrationChallenge,
-    ake_responder_prekeys: params.initialAkeResponderPrekeys,
   };
 }
 
@@ -79,6 +81,11 @@ export async function recoverAccount(
 
   params.setStatusMessage("Fetching recovery data...");
   const recovery = await authApi.getRecovery();
+  const candidate = recoveryCandidateFromServer(recovery);
+  await advanceRecoveryCandidateKeyDirectory(params.auth.user.id, candidate);
+  const recoveryAuditPin = await verifyAndPinAuditCheckpoint(
+    recovery.candidate_user_audit_checkpoint,
+  );
 
   params.setStatusMessage("Deriving recovery key...");
   await worker.deriveRuk(params.mnemonic);
@@ -110,6 +117,7 @@ export async function recoverAccount(
       recovery.identity_hybrid_signing_private_key_material_nonce!,
     ),
     signingKeyId: recovery.identity_signing_key_id!,
+    rotationDueAt: recovery.identity_rotation_due_at,
   });
 
   params.setStatusMessage("Getting recovery challenge...");
@@ -120,24 +128,17 @@ export async function recoverAccount(
   await worker.setUserContext(params.auth.user.id, deviceId);
   const publicKeys = await worker.generateDeviceKeys({ deviceId });
   const clientNonce = await worker.generateClientNonce();
-  const initialAkeResponderPrekeys = await prepareRegistrationInitialAkeResponderPrekeys({
-    userId: params.auth.user.id,
+  const targetDeviceRegistration = buildRecoveryTargetDeviceRegistration({
     deviceId,
+    identitySigningKeyId: recovery.identity_signing_key_id!,
+    publicKeys,
+    clientNonce,
   });
-  const { pendingRegistration, pendingRegistrationChallengeHash } =
-    await createRecoveryDeviceRegistration({
-      deviceId,
-      identitySigningKeyId: recovery.identity_signing_key_id!,
-      publicKeys,
-      clientNonce,
-      initialAkeResponderPrekeys:
-        initialAkeResponderPrekeys as unknown as RegistrationRequestWithAke["ake_responder_prekeys"],
-    });
-  if (pendingRegistration.status !== "pending")
-    throw new Error("recovery_registration_not_pending");
+  const pendingRegistrationChallengeHash = blake3Base64Url(
+    base64UrlDecode(challengeResponse.challenge),
+  );
 
   const recoverySessionId = crypto.randomUUID();
-  const candidate = recoveryCandidateFromServer(recovery);
   await assertRecoveryCandidateMatchesLocalPin(params.auth.user.id, candidate);
   const userKeyDirectory = await buildDeviceKeyDirectoryAppend({
     scopeKind: "user",
@@ -186,6 +187,8 @@ export async function recoverAccount(
     pendingRegistrationId: deviceId,
     pendingRegistrationBindingHash,
     ...candidate,
+    candidateUserAuditSequence: recoveryAuditPin.sequence,
+    candidateUserAuditHash: recoveryAuditPin.eventHash,
   });
 
   params.setStatusMessage("Creating session...");
@@ -209,7 +212,11 @@ export async function recoverAccount(
     candidate_user_event_head_hash: candidate.candidateUserEventHeadHash,
     candidate_user_checkpoint: candidate.candidateUserCheckpoint,
     candidate_user_event_ancestry: candidate.candidateUserEventAncestry,
+    candidate_user_audit_sequence: recoveryAuditPin.sequence,
+    candidate_user_audit_hash: recoveryAuditPin.eventHash,
+    target_device_registration: targetDeviceRegistration,
   });
+  await verifyAndPinAuditCheckpoint(sessionResponse.audit_checkpoint);
   sessionStorage.setItem(
     RECOVERY_PENDING_DEVICE_STORAGE_KEY,
     JSON.stringify({
@@ -251,50 +258,6 @@ export async function recoverAccount(
   };
 }
 
-async function createRecoveryDeviceRegistration(params: {
-  deviceId: string;
-  identitySigningKeyId: string;
-  publicKeys: RecoveryDevicePublicKeys;
-  clientNonce: Uint8Array;
-  initialAkeResponderPrekeys: RegistrationRequestWithAke["ake_responder_prekeys"];
-}): Promise<{
-  pendingRegistration: Awaited<ReturnType<typeof devicesApi.createRegistration>>;
-  pendingRegistrationChallengeHash: string;
-}> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const registrationChallenge = await devicesApi.registrationChallenge();
-    const pendingRegistrationChallengeHash = blake3Base64Url(
-      base64UrlDecode(registrationChallenge.registration_challenge),
-    );
-
-    try {
-      const pendingRegistration = await devicesApi.createRegistration(
-        buildRecoveryDeviceRegistrationRequest({
-          ...params,
-          registrationChallenge: registrationChallenge.registration_challenge,
-        }),
-      );
-      return { pendingRegistration, pendingRegistrationChallengeHash };
-    } catch (error) {
-      if (attempt === 0 && isInvalidRegistrationChallenge(error)) {
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  throw new Error("recovery_registration_challenge_retry_exhausted");
-}
-
-function isInvalidRegistrationChallenge(error: unknown): boolean {
-  if (!(error instanceof ApiError) || error.status !== 422) return false;
-  if (error.code !== "invalid_device") return false;
-  const details = error.body.details;
-  if (!details || typeof details !== "object" || Array.isArray(details)) return false;
-  const base = (details as Record<string, unknown>).base;
-  return Array.isArray(base) && base.includes("invalid_registration_challenge");
-}
-
 async function assertRecoveryCandidateMatchesLocalPin(
   userId: string,
   candidate: ReturnType<typeof recoveryCandidateFromServer>,
@@ -308,6 +271,131 @@ async function assertRecoveryCandidateMatchesLocalPin(
     existing.eventHeadHash !== candidate.candidateUserEventHeadHash
   ) {
     throw new Error("recovery_candidate_key_directory_pin_conflict");
+  }
+}
+
+async function advanceRecoveryCandidateKeyDirectory(
+  userId: string,
+  candidate: ReturnType<typeof recoveryCandidateFromServer>,
+): Promise<void> {
+  await verifyRecoveryCandidateFullLineage(userId, candidate);
+  const existing = await getKeyDirectoryPin("user", userId);
+  if (!existing) {
+    await installVerifiedTransferredKeyDirectoryCheckpoint({
+      scopeKind: "user",
+      scopeId: userId,
+      checkpointEnvelope: candidate.candidateUserCheckpoint,
+    });
+    rememberVerifiedKeyDirectoryLineage({
+      scopeKind: "user",
+      scopeId: userId,
+      checkpointEnvelope: candidate.candidateUserCheckpoint,
+      checkpointAncestry: candidate.candidateUserCheckpointAncestry,
+      eventAncestry: candidate.candidateUserEventAncestry,
+    });
+    return;
+  }
+
+  await hydrateVerifiedKeyDirectoryLineage("user", userId, existing);
+  if (
+    existing.checkpointSequence === candidate.candidateUserCheckpointSequence &&
+    existing.checkpointHash === candidate.candidateUserCheckpointHash &&
+    existing.eventHeadSequence === candidate.candidateUserEventHeadSequence &&
+    existing.eventHeadHash === candidate.candidateUserEventHeadHash
+  ) {
+    return;
+  }
+
+  const checkpointAncestry = candidate.candidateUserCheckpointAncestry.filter(
+    (checkpoint) => Number(checkpoint.payload.sequence) >= existing.checkpointSequence,
+  );
+  const eventAncestry = candidate.candidateUserEventAncestry.filter(
+    (event) => Number(event.payload.sequence) > existing.eventHeadSequence,
+  );
+  await recoveryVerificationStage("recovery_candidate_pin_advance_failed", () =>
+    advanceKeyDirectoryPinWithProof({
+      scopeKind: "user",
+      scopeId: userId,
+      checkpointEnvelope: candidate.candidateUserCheckpoint,
+      checkpointAncestry,
+      eventAncestry,
+      authorityEventAncestry: candidate.candidateUserEventAncestry,
+      rotationDeletionEvidences: candidate.candidateUserRotationDeletionEvidences,
+    }),
+  );
+  rememberVerifiedKeyDirectoryLineage({
+    scopeKind: "user",
+    scopeId: userId,
+    checkpointEnvelope: candidate.candidateUserCheckpoint,
+    checkpointAncestry: candidate.candidateUserCheckpointAncestry,
+    eventAncestry: candidate.candidateUserEventAncestry,
+  });
+}
+
+async function verifyRecoveryCandidateFullLineage(
+  userId: string,
+  candidate: ReturnType<typeof recoveryCandidateFromServer>,
+): Promise<void> {
+  await recoveryVerificationStage("recovery_candidate_replay_failed", () =>
+    verifyInitialReplay(
+      "user",
+      userId,
+      candidate.candidateUserEventAncestry,
+      candidate.candidateUserCheckpoint,
+    ),
+  );
+  recoveryVerificationStageSync("recovery_candidate_deletion_evidence_failed", () =>
+    verifyRotationDeletionEvidences({
+      scopeKind: "user",
+      scopeId: userId,
+      events: candidate.candidateUserEventAncestry,
+      evidences: candidate.candidateUserRotationDeletionEvidences,
+    }),
+  );
+
+  const checkpoints = [
+    ...candidate.candidateUserCheckpointAncestry,
+    candidate.candidateUserCheckpoint,
+  ];
+  for (let index = 1; index < checkpoints.length; index += 1) {
+    const previous = checkpoints[index - 1]!;
+    const next = checkpoints[index]!;
+    const previousPin = pinFromCheckpoint("user", userId, previous);
+    const nextPin = pinFromCheckpoint("user", userId, next);
+    const deltaEvents = candidate.candidateUserEventAncestry.filter((event) => {
+      const sequence = Number(event.payload.sequence);
+      return sequence > previousPin.eventHeadSequence && sequence <= nextPin.eventHeadSequence;
+    });
+    const authorityEvents = candidate.candidateUserEventAncestry.filter(
+      (event) => Number(event.payload.sequence) <= previousPin.eventHeadSequence,
+    );
+    await recoveryVerificationStage("recovery_candidate_checkpoint_ancestry_failed", () =>
+      verifyCheckpointAncestry(
+        "user",
+        userId,
+        previousPin,
+        [previous],
+        next,
+        deltaEvents,
+        authorityEvents,
+      ),
+    );
+  }
+}
+
+async function recoveryVerificationStage<T>(code: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw new Error(`${code}:${error instanceof Error ? error.message : "unknown"}`);
+  }
+}
+
+function recoveryVerificationStageSync<T>(code: string, run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    throw new Error(`${code}:${error instanceof Error ? error.message : "unknown"}`);
   }
 }
 
@@ -339,6 +427,10 @@ function recoveryCandidateFromServer(recovery: Record<string, unknown>) {
     recovery.candidate_user_event_ancestry,
     "candidate_user_event_ancestry_missing",
   );
+  const candidateUserRotationDeletionEvidences = requiredRecords(
+    recovery.candidate_user_rotation_deletion_evidences,
+    "candidate_user_rotation_deletion_evidences_missing",
+  );
   const candidateWorkspaceCheckpoints = requiredWorkspaceCheckpoints(
     recovery.candidate_workspace_checkpoints,
   );
@@ -350,8 +442,17 @@ function recoveryCandidateFromServer(recovery: Record<string, unknown>) {
     candidateUserCheckpoint,
     candidateUserCheckpointAncestry,
     candidateUserEventAncestry,
+    candidateUserRotationDeletionEvidences,
     candidateWorkspaceCheckpoints,
   };
+}
+
+function requiredRecords(value: unknown, code: string): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error(code);
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error(code);
+    return entry as Record<string, unknown>;
+  });
 }
 
 function requiredKeyDirectoryEnvelopes(value: unknown, code: string): KeyDirectoryEnvelope[] {

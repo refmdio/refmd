@@ -11,8 +11,15 @@ defmodule RefMD.Workspaces.GuestInvitation do
     field :token_prefix, :string
     field :scope_kind, :string
     field :scope_id, :binary_id
+    belongs_to :share, RefMD.Sharing.Share
     field :permission, :string
+    field :invited_email, :string
+    field :delivery_mode, :string, default: "unknown_fragment"
+    field :recipient_user_id, :binary_id
+    field :recipient_device_ids, {:array, :binary_id}, default: []
     field :kek_version, :integer
+    field :share_key_version, :integer
+    field :dek_version, :integer
     field :bootstrap_key_commitment, :string
     field :encrypted_bootstrap_package, :map
     field :bootstrap_package_hash, :string
@@ -37,8 +44,15 @@ defmodule RefMD.Workspaces.GuestInvitation do
       :token_prefix,
       :scope_kind,
       :scope_id,
+      :share_id,
       :permission,
+      :invited_email,
+      :delivery_mode,
+      :recipient_user_id,
+      :recipient_device_ids,
       :kek_version,
+      :share_key_version,
+      :dek_version,
       :bootstrap_key_commitment,
       :encrypted_bootstrap_package,
       :bootstrap_package_hash,
@@ -58,7 +72,8 @@ defmodule RefMD.Workspaces.GuestInvitation do
       :token_prefix,
       :scope_kind,
       :permission,
-      :kek_version,
+      :delivery_mode,
+      :recipient_device_ids,
       :bootstrap_key_commitment,
       :encrypted_bootstrap_package,
       :bootstrap_package_hash,
@@ -83,12 +98,30 @@ defmodule RefMD.Workspaces.GuestInvitation do
     |> validate_length(:capability_context_hash, is: 43)
     |> validate_format(:capability_context_hash, ~r/^[A-Za-z0-9\-_]{43}$/)
     |> validate_number(:kek_version, greater_than: 0)
+    |> validate_number(:share_key_version, greater_than: 0)
+    |> validate_number(:dek_version, greater_than: 0)
     |> validate_number(:max_redemptions, greater_than: 0)
     |> validate_number(:redemption_count, greater_than_or_equal_to: 0)
+    |> validate_inclusion(:delivery_mode, ~w(unknown_fragment known_recipient))
+    |> validate_delivery_binding()
     |> validate_target_scope()
+    |> validate_key_context()
     |> unique_constraint(:token_hash)
     |> foreign_key_constraint(:workspace_id)
+    |> foreign_key_constraint(:share_id)
     |> foreign_key_constraint(:invited_by)
+  end
+
+  defp validate_delivery_binding(changeset) do
+    case {
+      get_field(changeset, :delivery_mode),
+      get_field(changeset, :recipient_user_id),
+      get_field(changeset, :recipient_device_ids) || []
+    } do
+      {"unknown_fragment", nil, []} -> changeset
+      {"known_recipient", user_id, [_ | _]} when is_binary(user_id) -> changeset
+      _ -> add_error(changeset, :delivery_mode, "does not match recipient binding")
+    end
   end
 
   defp validate_target_scope(changeset) do
@@ -104,6 +137,27 @@ defmodule RefMD.Workspaces.GuestInvitation do
 
       true ->
         changeset
+    end
+  end
+
+  defp validate_key_context(changeset) do
+    case {
+      get_field(changeset, :scope_kind),
+      get_field(changeset, :share_id),
+      get_field(changeset, :kek_version),
+      get_field(changeset, :share_key_version),
+      get_field(changeset, :dek_version)
+    } do
+      {"workspace", nil, kek_version, nil, nil} when is_integer(kek_version) ->
+        changeset
+
+      {scope_kind, share_id, nil, share_key_version, dek_version}
+      when scope_kind in ["document", "folder", "share"] and is_binary(share_id) and
+             is_integer(share_key_version) and is_integer(dek_version) ->
+        changeset
+
+      _ ->
+        add_error(changeset, :scope_kind, "does not match key version context")
     end
   end
 end

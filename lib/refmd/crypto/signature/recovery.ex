@@ -116,6 +116,8 @@ defmodule RefMD.Crypto.Signature.Recovery do
         "candidate_user_checkpoint_sequence" => params.candidate_user_checkpoint_sequence,
         "candidate_user_event_head_hash" => params.candidate_user_event_head_hash,
         "candidate_user_event_head_sequence" => params.candidate_user_event_head_sequence,
+        "candidate_user_audit_sequence" => params.candidate_user_audit_sequence,
+        "candidate_user_audit_hash" => params.candidate_user_audit_hash,
         "recovery_capability_hash" => params.recovery_capability_hash,
         "pending_registration_binding_hash" => params.pending_registration_binding_hash
       })
@@ -151,27 +153,18 @@ defmodule RefMD.Crypto.Signature.Recovery do
 
   def build_device_key_deletion_proof_transcript!(payload, actor)
       when is_map(payload) and is_map(actor) do
-    variant = Map.get(payload, "deletion_proof_kind", "device_key_deletion_proof")
+    variant =
+      if payload["rotation_kind"] == "identity",
+        do: "identity_key_deletion_proof",
+        else: "device_key_deletion_proof"
+
     surface = SigningSurface.get_active!("device_key_deletion_proof", variant)
 
     subject_hash = Hash.blake3_base64url(JCS.canonical_bytes!(payload))
     device_id = Map.fetch!(payload, "device_id")
 
-    authority_boundary = %{
-      "workspace_id" => Map.fetch!(payload, "workspace_id"),
-      "rotation_kind" => Map.fetch!(payload, "rotation_kind"),
-      "scope_kind" => Map.fetch!(payload, "scope_kind"),
-      "scope_id" => Map.fetch!(payload, "scope_id"),
-      "old_key_version" => Map.fetch!(payload, "old_key_version"),
-      "rotation_completed_event_hash" => Map.fetch!(payload, "rotation_completed_event_hash"),
-      "deleted_secret_ids_hash" => Map.fetch!(payload, "deleted_secret_ids_hash"),
-      "deleted_storage_classes_hash" =>
-        Hash.blake3_base64url(
-          JCS.canonical_bytes!(%{
-            "storage_classes" => Enum.sort(Map.fetch!(payload, "deleted_storage_classes"))
-          })
-        )
-    }
+    {subject_protocol, authority_boundary} =
+      device_key_deletion_authority_boundary!(variant, payload)
 
     transcript =
       transcript_base(
@@ -182,7 +175,7 @@ defmodule RefMD.Crypto.Signature.Recovery do
       )
       |> Map.merge(%{
         "subject_hash" => subject_hash,
-        "subject_protocol" => "refmd.device-key-deletion-proof",
+        "subject_protocol" => subject_protocol,
         "subject_version" => @protocol_version,
         "actor" => actor,
         "authority_boundary" => authority_boundary
@@ -200,6 +193,43 @@ defmodule RefMD.Crypto.Signature.Recovery do
 
   def build_device_key_deletion_proof_transcript!(_, _),
     do: raise(ArgumentError, "device_key_deletion_proof_transcript_invalid")
+
+  defp device_key_deletion_authority_boundary!("identity_key_deletion_proof", payload) do
+    {"refmd.identity-key-deletion-proof",
+     %{
+       "scope_kind" => Map.fetch!(payload, "scope_kind"),
+       "scope_id" => Map.fetch!(payload, "scope_id"),
+       "rotation_kind" => Map.fetch!(payload, "rotation_kind"),
+       "old_identity_signing_key_id" => Map.fetch!(payload, "old_identity_signing_key_id"),
+       "old_identity_encryption_key_id" => Map.fetch!(payload, "old_identity_encryption_key_id"),
+       "new_identity_signing_key_id" => Map.fetch!(payload, "new_identity_signing_key_id"),
+       "new_identity_encryption_key_id" => Map.fetch!(payload, "new_identity_encryption_key_id"),
+       "old_user_checkpoint_hash" => Map.fetch!(payload, "old_user_checkpoint_hash"),
+       "new_user_checkpoint_hash" => Map.fetch!(payload, "new_user_checkpoint_hash"),
+       "rotation_completed_event_hash" => Map.fetch!(payload, "rotation_completed_event_hash"),
+       "deleted_identity_secret_ids_hash" =>
+         Map.fetch!(payload, "deleted_identity_secret_ids_hash")
+     }}
+  end
+
+  defp device_key_deletion_authority_boundary!("device_key_deletion_proof", payload) do
+    {"refmd.device-key-deletion-proof",
+     %{
+       "workspace_id" => Map.fetch!(payload, "workspace_id"),
+       "rotation_kind" => Map.fetch!(payload, "rotation_kind"),
+       "scope_kind" => Map.fetch!(payload, "scope_kind"),
+       "scope_id" => Map.fetch!(payload, "scope_id"),
+       "old_key_version" => Map.fetch!(payload, "old_key_version"),
+       "rotation_completed_event_hash" => Map.fetch!(payload, "rotation_completed_event_hash"),
+       "deleted_secret_ids_hash" => Map.fetch!(payload, "deleted_secret_ids_hash"),
+       "deleted_storage_classes_hash" =>
+         Hash.blake3_base64url(
+           JCS.canonical_bytes!(%{
+             "storage_classes" => Enum.sort(Map.fetch!(payload, "deleted_storage_classes"))
+           })
+         )
+     }}
+  end
 
   defp recovery_device_approval_params!(params) do
     invalid = "recovery_device_approval_transcript_invalid"
@@ -309,6 +339,16 @@ defmodule RefMD.Crypto.Signature.Recovery do
 
     assert_non_empty_string!(
       params[:candidate_user_event_head_hash],
+      "recovery_session_transcript_invalid"
+    )
+
+    assert_positive_integer!(
+      params[:candidate_user_audit_sequence],
+      "recovery_session_transcript_invalid"
+    )
+
+    assert_non_empty_string!(
+      params[:candidate_user_audit_hash],
       "recovery_session_transcript_invalid"
     )
 

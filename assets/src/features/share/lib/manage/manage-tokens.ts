@@ -1,13 +1,15 @@
 import { registerSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
-import { workspacesApi } from "@/shared/api";
-import { installWorkspaceOperationCheckpointPin } from "@/shared/lib/crypto/kek-resolver";
-import type { SignedPqWrapRecord } from "@/shared/lib/crypto/signed-pq-wrap";
+import { sharesApi, workspacesApi } from "@/shared/api";
+import type { components } from "@/shared/api/schema";
+import { verifyWorkspaceSignedPqWrapOperation } from "@/shared/lib/anti-rollback/key-directory-pin/wrap-operation-proof";
+import { signedPqWrapRecordFromEnvelope } from "@/shared/lib/crypto/signed-pq-wrap";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 
 interface ShareAccess {
   url: string;
 }
+type ShareListItem = components["schemas"]["ShareListItem"];
 
 const shareAccessStore = new Map<string, ShareAccess>();
 
@@ -38,15 +40,34 @@ export function readShareUrl(documentId: string, shareId: string): string | unde
   return shareAccessStore.get(key(documentId, shareId))?.url;
 }
 
+export async function prepareShareSecretsForRecipientDelivery(
+  workspaceId: string,
+  documentId: string,
+  shareId: string,
+): Promise<string> {
+  const response = await sharesApi.listDocumentShares(documentId);
+  const share = response.shares.find((candidate) => candidate.id === shareId);
+  if (!share) throw new Error("guest_invitation_share_not_found");
+  await restoreShareAccesses(documentId, [shareId], {
+    workspaceId,
+    shares: [share],
+  });
+  const url = readShareUrl(documentId, shareId);
+  if (!url) throw new Error("guest_invitation_share_key_unavailable");
+  const parsed = new URL(url, window.location.origin);
+  const match = parsed.pathname.match(/^\/share\/([A-Za-z0-9_-]{22})$/);
+  const shareSlug = match?.[1];
+  if (!shareSlug) throw new Error("guest_invitation_share_url_invalid");
+  await getCryptoWorker().prepareManagedShareSecrets({ shareUrl: parsed.toString() });
+  return shareSlug;
+}
+
 export async function restoreShareAccesses(
   documentId: string,
   shareIds: string[],
   options: {
     workspaceId?: string;
-    shares?: Array<{
-      id: string;
-      share_link_secret_backup_wraps?: unknown[] | null;
-    }>;
+    shares?: ShareListItem[];
   } = {},
 ): Promise<void> {
   try {
@@ -80,10 +101,7 @@ export async function restoreShareAccesses(
 async function restoreShareAccessesFromBackupWraps(
   documentId: string,
   workspaceId: string,
-  shares: Array<{
-    id: string;
-    share_link_secret_backup_wraps?: unknown[] | null;
-  }>,
+  shares: ShareListItem[],
 ): Promise<void> {
   const worker = getCryptoWorker();
   const signingMaterialByKey = new Map<string, HybridSigningPublicKeyMaterial>();
@@ -92,8 +110,8 @@ async function restoreShareAccessesFromBackupWraps(
     const cacheKey = key(documentId, share.id);
     if (shareAccessStore.has(cacheKey)) continue;
 
-    for (const rawWrap of share.share_link_secret_backup_wraps ?? []) {
-      const wrap = rawWrap as SignedPqWrapRecord;
+    for (const rawWrap of share.share_link_secret_backup_wraps) {
+      const wrap = signedPqWrapRecordFromEnvelope(rawWrap);
       const sender = wrap.sender as Record<string, unknown>;
       const senderUserId = sender.user_id;
       const senderSigningKeyId = sender.signing_key_id;
@@ -112,15 +130,11 @@ async function restoreShareAccessesFromBackupWraps(
       }
 
       try {
-        const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(
-          workspaceId,
-          wrap as unknown as Record<string, unknown>,
-        );
+        await verifyWorkspaceSignedPqWrapOperation(workspaceId, rawWrap);
         const opened = await worker.openSignedPqShareLinkSecretBackupWrap({
-          record: wrap,
+          operationProof: rawWrap,
           senderSigningPublicKeyMaterial: senderMaterial,
           expectedShareId: share.id,
-          expectedOperationCheckpoint,
         });
         const url = `${window.location.origin}${opened.sharePathWithFragment}`;
         await rememberShareAccess(documentId, share.id, { url });

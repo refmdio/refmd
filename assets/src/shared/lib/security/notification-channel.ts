@@ -12,6 +12,10 @@ import {
   clearAuthTransportNetworkFailure,
   recordAuthTransportNetworkFailure,
 } from "@/shared/lib/ws/transport-coordinator";
+import {
+  verifyAndPinAuditCheckpoint,
+  verifyAuditCheckpointCandidate,
+} from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 
 interface SecurityNotificationChannelHandle {
   channel: Channel;
@@ -37,6 +41,7 @@ export class SecurityNotificationsJoinError extends Error {
 export interface SecurityNotificationPayload extends Record<string, unknown> {
   type: string;
   action_ref?: Record<string, unknown>;
+  audit_checkpoint: Record<string, unknown>;
 }
 
 export interface UserSecurityNotificationCallbacks {
@@ -49,6 +54,7 @@ export interface UserSecurityNotificationCallbacks {
 }
 
 export interface PendingRegistrationSecurityNotificationCallbacks {
+  onInitialAkeOffersReady?: () => void;
   onApproved?: () => void;
   onExpired?: () => void;
   onRejected?: () => void;
@@ -126,9 +132,17 @@ async function getOrJoinSharedUserSecurityNotifications(userId: string): Promise
     .then((channel) => {
       sharedUserSecurityNotifications.channel = channel;
       channel.on<SecurityNotificationPayload>("notification", (payload) => {
-        for (const subscriber of sharedUserSecurityNotifications.subscribers) {
-          dispatchUserNotification(payload, subscriber);
-        }
+        void verifyAndPinAuditCheckpoint(payload.audit_checkpoint)
+          .then(() => {
+            for (const subscriber of sharedUserSecurityNotifications.subscribers) {
+              dispatchUserNotification(payload, subscriber);
+            }
+          })
+          .catch((error) => {
+            for (const subscriber of sharedUserSecurityNotifications.subscribers) {
+              subscriber.onError?.(error);
+            }
+          });
       });
       return channel;
     })
@@ -181,13 +195,19 @@ export async function joinPendingRegistrationSecurityNotifications(
     callbacks,
     (registrationChannel) => {
       registrationChannel.on<SecurityNotificationPayload>("notification", (payload) => {
-        if (payload.type === "device.registration_approved") {
-          callbacks.onApproved?.();
-        } else if (payload.type === "device.registration_expired") {
-          callbacks.onExpired?.();
-        } else if (payload.type === "device.registration_rejected") {
-          callbacks.onRejected?.();
-        }
+        void verifyAuditCheckpointCandidate(payload.audit_checkpoint)
+          .then(() => {
+            if (payload.type === "device.initial_ake_offers_ready") {
+              callbacks.onInitialAkeOffersReady?.();
+            } else if (payload.type === "device.registration_approved") {
+              callbacks.onApproved?.();
+            } else if (payload.type === "device.registration_expired") {
+              callbacks.onExpired?.();
+            } else if (payload.type === "device.registration_rejected") {
+              callbacks.onRejected?.();
+            }
+          })
+          .catch((error) => callbacks.onError?.(error));
       });
     },
   );
@@ -215,7 +235,9 @@ async function joinScopedSecurityNotifications(
 ): Promise<SecurityNotificationChannelHandle> {
   const channel = await joinSecurityNotificationsChannel(topic, callbacks, (scopedChannel) => {
     scopedChannel.on<SecurityNotificationPayload>("notification", (payload) => {
-      callbacks.onNotification?.(payload);
+      void verifyAndPinAuditCheckpoint(payload.audit_checkpoint)
+        .then(() => callbacks.onNotification?.(payload))
+        .catch((error) => callbacks.onError?.(error));
     });
   });
 

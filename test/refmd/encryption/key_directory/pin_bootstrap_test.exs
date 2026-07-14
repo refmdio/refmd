@@ -106,6 +106,33 @@ defmodule RefMD.Encryption.KeyDirectory.PinBootstrapTest do
     end
   end
 
+  test "security-vector mutations reject checkpoint and suite-policy substitution", %{
+    workspace: workspace,
+    checkpoint: checkpoint,
+    bootstrap: bootstrap
+  } do
+    vectors =
+      Path.expand(
+        "../../../../native/refmd_crypto/testdata/refmd-signed-pq-wrap-v1.json",
+        __DIR__
+      )
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("negative")
+      |> Enum.filter(&(&1["base"] == "workspace-pin-bootstrap-v1"))
+
+    assert length(vectors) == 3
+
+    for vector <- vectors do
+      mutated = Enum.reduce(vector["operations"], bootstrap, &apply_vector_patch/2)
+      operation_sequence = get_in(mutated, ["payload", "event_head_sequence"])
+
+      assert_raise ArgumentError, vector["expected_error"], fn ->
+        PinBootstrap.validate!(workspace.id, mutated, checkpoint, operation_sequence)
+      end
+    end
+  end
+
   test "validate!/4 accepts an issuing event covered by the checkpoint head", %{
     workspace: workspace,
     checkpoint: checkpoint,
@@ -177,5 +204,10 @@ defmodule RefMD.Encryption.KeyDirectory.PinBootstrapTest do
         }
       ]
     )
+  end
+
+  defp apply_vector_patch(%{"op" => "replace", "path" => path, "value" => value}, bootstrap) do
+    keys = path |> String.split("/", trim: true) |> Enum.map(&Access.key!/1)
+    put_in(bootstrap, keys, value)
   end
 end

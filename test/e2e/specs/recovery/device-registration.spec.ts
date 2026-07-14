@@ -77,6 +77,14 @@ async function recoverDeviceWithMnemonic(
     openRecoveredDocument?: (page: Page, title: string) => Promise<void>;
   } = {},
 ): Promise<void> {
+  let normalChallengeRequests = 0;
+  let normalRegistrationRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith("/devices/registrations/challenge")) normalChallengeRequests += 1;
+    if (pathname.endsWith("/devices/registrations")) normalRegistrationRequests += 1;
+  });
   await loginForDeviceRegistration(page, email);
 
   await page.getByRole("link", { name: "use your recovery key" }).click();
@@ -86,6 +94,8 @@ async function recoverDeviceWithMnemonic(
 
   await expect(page).toHaveURL(/dashboard/, { timeout: 180_000 });
   await waitForWorkspaceReady(page);
+  expect(normalChallengeRequests).toBe(0);
+  expect(normalRegistrationRequests).toBe(0);
   await options.afterRecovery?.(page);
 
   const errors = await collectErrors(page, async () => {

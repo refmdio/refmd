@@ -42,7 +42,9 @@ defmodule RefMD.Sharing.Verification.Directory do
       join: doc in RefMD.Documents.Document,
       on: doc.workspace_id == wm.workspace_id,
       left_join: ipk in RefMD.Encryption.UserIdentityPublicKey,
-      on: ipk.user_id == d.user_id,
+      on:
+        ipk.user_id == d.user_id and
+          ipk.signing_key_id == fragment("?->>'approving_signing_key_id'", d.approval_proof),
       where: doc.id == ^document_id and is_nil(d.revoked_at),
       select: %{
         device_id: d.id,
@@ -73,7 +75,9 @@ defmodule RefMD.Sharing.Verification.Directory do
       left_join: d in RefMD.Devices.Device,
       on: d.id == type(k.owner_id, Ecto.UUID),
       left_join: ipk in RefMD.Encryption.UserIdentityPublicKey,
-      on: ipk.user_id == d.user_id,
+      on:
+        ipk.user_id == d.user_id and
+          ipk.signing_key_id == fragment("?->>'approving_signing_key_id'", d.approval_proof),
       where:
         k.document_id == ^document_id and
           k.authority_kind == "workspace_device" and

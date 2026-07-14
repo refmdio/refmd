@@ -69,6 +69,7 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     name: WorkspaceMember["name"];
     current_role_id: WorkspaceMember["role_id"];
     current_base_role: WorkspaceMember["base_role"];
+    current_permission_version: WorkspaceMember["permission_version"];
   } | null>(null);
   const [selectedRoleId, setSelectedRoleId] = createSignal("");
   const [changingRole, setChangingRole] = createSignal(false);
@@ -86,7 +87,10 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
   };
 
   const openRoleChangeDialog = (
-    member: Pick<WorkspaceMember, "user_id" | "name" | "role_id" | "base_role">,
+    member: Pick<
+      WorkspaceMember,
+      "user_id" | "name" | "role_id" | "base_role" | "permission_version"
+    >,
   ) => {
     options.setError(null);
     setRoleChangeTarget({
@@ -94,6 +98,7 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
       name: member.name,
       current_role_id: member.role_id,
       current_base_role: member.base_role,
+      current_permission_version: member.permission_version,
     });
     setSelectedRoleId(member.role_id);
   };
@@ -153,15 +158,21 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
     setChangingRole(true);
     options.setError(null);
     try {
-      await changeWorkspaceMemberRoleWithKeyDirectory({
+      const response = await changeWorkspaceMemberRoleWithKeyDirectory({
         workspaceId: id,
         targetUserId: target.user_id,
         previousRoleId: target.current_role_id,
         previousBaseRole: target.current_base_role,
+        permissionVersion: target.current_permission_version,
         roleId,
       });
       setRoleChangeTarget(null);
       invalidateMemberViews();
+      const rotationList = response.workspaces_needing_kek_rotation ?? [];
+      if (rotationList.length > 0) {
+        await options.triggerKekRotation(rotationList);
+        invalidateMemberViews();
+      }
     } catch (err) {
       options.setError(err instanceof Error ? err.message : "Failed to change role");
     } finally {

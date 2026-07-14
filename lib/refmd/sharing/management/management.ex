@@ -9,6 +9,7 @@ defmodule RefMD.Sharing.Management do
   alias RefMD.Documents.Document
   alias RefMD.Repo
   alias RefMD.Sharing.Management.KeyDirectory
+  alias RefMD.Sharing.Shares.LinkSecretBackupWraps
 
   alias RefMD.Sharing.{
     Access,
@@ -50,11 +51,11 @@ defmodule RefMD.Sharing.Management do
       |> Repo.all()
 
     shares
-    |> attach_share_link_secret_backup_wraps(actor_user_id)
+    |> attach_share_link_secret_backup_wraps(actor_user_id, document.workspace_id)
     |> attach_share_management_metadata()
   end
 
-  defp attach_share_link_secret_backup_wraps(shares, user_id) do
+  defp attach_share_link_secret_backup_wraps(shares, user_id, workspace_id) do
     share_ids = Enum.map(shares, & &1.id)
 
     wraps =
@@ -63,7 +64,9 @@ defmodule RefMD.Sharing.Management do
         select: {w.share_id, w.wrap}
       )
       |> Repo.all()
-      |> Enum.group_by(fn {share_id, _wrap} -> share_id end, fn {_share_id, wrap} -> wrap end)
+      |> Enum.group_by(fn {share_id, _wrap} -> share_id end, fn {_share_id, wrap} ->
+        LinkSecretBackupWraps.with_key_directory_proof(wrap, workspace_id)
+      end)
 
     Enum.map(shares, fn share ->
       Map.put(share, :share_link_secret_backup_wraps, Map.get(wraps, share.id, []))
@@ -513,6 +516,7 @@ defmodule RefMD.Sharing.Management do
   defp parse_folder_share_key_update_entry(entry) when is_map(entry) do
     with {:ok, share_id} <- fetch_uuid(entry, :share_id),
          {:ok, document_id} <- fetch_uuid(entry, :document_id),
+         {:ok, key_version} <- fetch_positive_integer(entry, :key_version),
          {:ok, encrypted_dek} <- fetch_binary(entry, :encrypted_dek),
          {:ok, nonce} <- fetch_binary(entry, :nonce),
          :ok <- validate_share_key_nonce(nonce) do
@@ -520,6 +524,7 @@ defmodule RefMD.Sharing.Management do
        %{
          share_id: share_id,
          document_id: document_id,
+         key_version: key_version,
          encrypted_dek: encrypted_dek,
          nonce: nonce
        }}
@@ -589,6 +594,13 @@ defmodule RefMD.Sharing.Management do
   defp fetch_binary(attrs, key) do
     case dual_key_get(attrs, key) do
       value when is_binary(value) -> {:ok, value}
+      _ -> {:error, {:missing_field, key}}
+    end
+  end
+
+  defp fetch_positive_integer(attrs, key) do
+    case dual_key_get(attrs, key) do
+      value when is_integer(value) and value > 0 -> {:ok, value}
       _ -> {:error, {:missing_field, key}}
     end
   end

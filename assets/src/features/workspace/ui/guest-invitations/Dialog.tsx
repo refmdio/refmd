@@ -74,9 +74,7 @@ export function GuestInvitationDialog(props: GuestInvitationDialogProps) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Invite Guest</DialogTitle>
-          <DialogDescription>
-            Create an account-less guest invitation for this workspace.
-          </DialogDescription>
+          <DialogDescription>Create a guest invitation for this workspace.</DialogDescription>
         </DialogHeader>
         <Show
           when={!state().inviteLink()}
@@ -98,6 +96,16 @@ export function GuestInvitationDialog(props: GuestInvitationDialogProps) {
           }
         >
           <div class="grid gap-3 sm:grid-cols-2">
+            <Field class="sm:col-span-2">
+              <FieldLabel for="guest-email">Recipient email</FieldLabel>
+              <Input
+                id="guest-email"
+                type="email"
+                placeholder="name@example.com (optional)"
+                value={state().guestEmail()}
+                onInput={(event) => state().setGuestEmail(event.currentTarget.value)}
+              />
+            </Field>
             <Field>
               <FieldLabel for="guest-permission">Permission</FieldLabel>
               <OptionSelect

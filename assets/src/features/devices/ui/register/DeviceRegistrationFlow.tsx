@@ -71,6 +71,7 @@ export function DeviceRegistrationFlow() {
                 setReauthPassword={flow.setReauthPassword}
                 submitPasswordReentry={flow.submitPasswordReentry}
                 submitReauth={flow.submitReauth}
+                beginApproval={flow.beginApproval}
                 reloadPage={flow.reloadPage}
                 backToLogin={flow.backToLogin}
               />

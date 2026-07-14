@@ -29,6 +29,7 @@ describe("registration initial AKE prekeys", () => {
   });
 
   it("generates the full purpose-scoped prekey set for pending registration", async () => {
+    const operationIds = ["umk-operation", "trust-operation"];
     const generateInitialAkeResponderPrekey = vi
       .fn()
       .mockResolvedValueOnce(prekey("umk"))
@@ -41,9 +42,10 @@ describe("registration initial AKE prekeys", () => {
         userId: "user-1",
         deviceId: "device-1",
         workspaceIds: ["workspace-1", "workspace-2"],
+        serverChallenge: "server-challenge",
         issuedAtEventSequence: 9,
         worker: { generateInitialAkeResponderPrekey },
-        operationIdFactory: () => "trust-operation",
+        operationIdFactory: () => operationIds.shift()!,
       }),
     ).resolves.toEqual({
       umk_distribution: prekey("umk"),
@@ -55,10 +57,11 @@ describe("registration initial AKE prekeys", () => {
     });
 
     expect(generateInitialAkeResponderPrekey).toHaveBeenNthCalledWith(1, {
-      operationId: "device-1",
+      operationId: "umk-operation",
       userId: "user-1",
       deviceId: "device-1",
       purpose: "umk_distribution",
+      serverChallenge: "server-challenge",
       issuedAtEventSequence: 9,
       expiresEventSequence: 10,
     });
@@ -67,6 +70,7 @@ describe("registration initial AKE prekeys", () => {
       userId: "user-1",
       deviceId: "device-1",
       purpose: "trust_transfer",
+      serverChallenge: "server-challenge",
       issuedAtEventSequence: 9,
       expiresEventSequence: 10,
     });
@@ -75,6 +79,7 @@ describe("registration initial AKE prekeys", () => {
       userId: "user-1",
       deviceId: "device-1",
       purpose: "device_approval_kek_initial",
+      serverChallenge: "server-challenge",
       issuedAtEventSequence: 9,
       expiresEventSequence: 10,
     });
@@ -82,7 +87,10 @@ describe("registration initial AKE prekeys", () => {
 
   it("uses crypto.randomUUID without losing its browser method receiver", async () => {
     const originalRandomUUIDDescriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID");
-    const randomUUID = vi.fn(() => "trust-operation");
+    const randomUUID = vi
+      .fn()
+      .mockReturnValueOnce("umk-operation")
+      .mockReturnValueOnce("trust-operation");
     Object.defineProperty(crypto, "randomUUID", {
       configurable: true,
       value: randomUUID,
@@ -95,11 +103,12 @@ describe("registration initial AKE prekeys", () => {
         userId: "user-1",
         deviceId: "device-1",
         workspaceIds: [],
+        serverChallenge: "server-challenge",
         issuedAtEventSequence: 1,
         worker: { generateInitialAkeResponderPrekey },
       });
 
-      expect(randomUUID).toHaveBeenCalledTimes(1);
+      expect(randomUUID).toHaveBeenCalledTimes(2);
       expect(generateInitialAkeResponderPrekey).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ operationId: "trust-operation" }),

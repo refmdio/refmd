@@ -8,12 +8,12 @@ describe("session cleanup", () => {
     const unregisterAlways = registerBeforeSessionCleanup(always);
     const unregisterSecureOnly = registerBeforeSessionCleanup(secureOnly, { scope: "secure" });
 
-    await runBeforeSessionCleanup({ secure: false });
+    await expect(runBeforeSessionCleanup({ secure: false })).resolves.toEqual({ failures: [] });
 
     expect(always).toHaveBeenCalledTimes(1);
     expect(secureOnly).not.toHaveBeenCalled();
 
-    await runBeforeSessionCleanup({ secure: true });
+    await expect(runBeforeSessionCleanup({ secure: true })).resolves.toEqual({ failures: [] });
 
     expect(always).toHaveBeenCalledTimes(2);
     expect(secureOnly).toHaveBeenCalledTimes(1);
@@ -39,7 +39,7 @@ describe("session cleanup", () => {
       { scope: "secure", order: 100 },
     );
 
-    await runBeforeSessionCleanup({ secure: true });
+    await expect(runBeforeSessionCleanup({ secure: true })).resolves.toEqual({ failures: [] });
 
     expect(calls).toEqual(["runtime:start", "runtime:end", "storage"]);
 
@@ -47,13 +47,14 @@ describe("session cleanup", () => {
     unregisterStorage();
   });
 
-  it("does not let a hanging before-cleanup callback block later cleanup orders", async () => {
-    vi.useFakeTimers();
+  it("waits for each cleanup order to settle before starting the next order", async () => {
     const calls: string[] = [];
+    let finishCleanup!: () => void;
     const unregisterHanging = registerBeforeSessionCleanup(
       () =>
-        new Promise<void>(() => {
+        new Promise<void>((resolve) => {
           calls.push("hanging:start");
+          finishCleanup = resolve;
         }),
       { order: -100 },
     );
@@ -65,13 +66,43 @@ describe("session cleanup", () => {
     );
 
     const cleanup = runBeforeSessionCleanup({ secure: true });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await cleanup;
+    await Promise.resolve();
+    expect(calls).toEqual(["hanging:start"]);
+
+    finishCleanup();
+    const result = await cleanup;
 
     expect(calls).toEqual(["hanging:start", "later"]);
+    expect(result.failures).toEqual([]);
 
     unregisterHanging();
     unregisterLater();
-    vi.useRealTimers();
+  });
+
+  it("records rejected callbacks and continues the remaining cleanup order", async () => {
+    const calls: string[] = [];
+    const unregisterRejected = registerBeforeSessionCleanup(
+      () => {
+        calls.push("rejected");
+        throw new Error("cleanup failed");
+      },
+      { order: -100 },
+    );
+    const unregisterLater = registerBeforeSessionCleanup(
+      () => {
+        calls.push("later");
+      },
+      { order: 100 },
+    );
+
+    const result = await runBeforeSessionCleanup({ secure: true });
+
+    expect(calls).toEqual(["rejected", "later"]);
+    expect(result.failures).toEqual([
+      expect.objectContaining({ callbackId: expect.any(Number), reason: "rejected" }),
+    ]);
+
+    unregisterRejected();
+    unregisterLater();
   });
 });

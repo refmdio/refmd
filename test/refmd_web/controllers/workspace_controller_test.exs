@@ -3,6 +3,7 @@ defmodule RefMDWeb.WorkspaceControllerTest do
 
   alias RefMD.Auth
   alias RefMD.Repo
+  alias RefMD.Users
   alias RefMD.Users.User
   alias RefMD.Workspaces
 
@@ -83,6 +84,45 @@ defmodule RefMDWeb.WorkspaceControllerTest do
     %{owner_id: owner_id, workspace: workspace, owner_device: owner_device}
   end
 
+  test "workspace and guest recipient lookup reject registered recipients without active devices",
+       %{
+         conn: conn,
+         owner_id: owner_id,
+         workspace: workspace,
+         owner_device: owner_device
+       } do
+    recipient_email = "revoked-invitation-recipient@example.com"
+    recipient_id = create_user(recipient_email)
+    Users.update_encryption_setup(recipient_id)
+    recipient_device = create_device(recipient_id)
+
+    recipient_device.device
+    |> Ecto.Changeset.change(revoked_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    for recipient_path <- ["invitations/recipient", "guest-invitations/recipient"] do
+      path = "/api/workspaces/#{workspace.id}/#{recipient_path}"
+      query = URI.encode_query(%{"email" => recipient_email})
+
+      response =
+        conn
+        |> recycle()
+        |> authed_conn(owner_id, owner_device.device)
+        |> put_test_rrp_headers(
+          owner_id,
+          owner_device.device,
+          owner_device.signing_private_key,
+          "GET",
+          path,
+          "",
+          query
+        )
+        |> get(path <> "?" <> query)
+
+      assert json_response(response, 409) == %{"error" => "recipient_delivery_unavailable"}
+    end
+  end
+
   test "rejects invalid guest_member_limit type", %{
     conn: conn,
     owner_id: owner_id,
@@ -109,6 +149,43 @@ defmodule RefMDWeb.WorkspaceControllerTest do
              "error" => "invalid_value",
              "field" => "guest_member_limit"
            }
+  end
+
+  test "rejects encrypted workspace metadata under an obsolete KEK", %{
+    conn: conn,
+    owner_id: owner_id,
+    workspace: workspace,
+    owner_device: owner_device
+  } do
+    workspace
+    |> Ecto.Changeset.change(
+      current_kek_version: 2,
+      kek_rotation_due_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+    )
+    |> Repo.update!()
+
+    path = "/api/workspaces/#{workspace.id}"
+
+    body = %{
+      "encrypted_name" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
+      "encrypted_name_nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
+      "encrypted_name_key_version" => 1
+    }
+
+    conn =
+      conn
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_rrp_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "PATCH",
+        path,
+        body
+      )
+      |> patch(path, test_json_body(body))
+
+    assert json_response(conn, 422) == %{"error" => "kek_rotation_required"}
   end
 
   test "updates workspace plugin network proxy setting", %{

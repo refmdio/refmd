@@ -1,9 +1,3 @@
-import { x25519 } from "@noble/curves/ed25519.js";
-import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
-import { hkdf } from "@noble/hashes/hkdf.js";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
-import { HKDF_ZERO_SALT } from "./constants";
 import {
   assertHybridEncryptionPrivateKeyMaterial,
   assertHybridEncryptionPublicKeyMaterial,
@@ -24,13 +18,22 @@ import {
   type HybridSigningPrivateKeyMaterial,
   type HybridSigningPublicKeyMaterial,
 } from "./signature";
+import type { VerifiedSignedPqWrapOperation } from "@/shared/lib/anti-rollback/key-directory-pin/wrap-operation-proof";
 import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "./suite";
-import { decodeBase64UrlStrict, encodeBase64Url, randomBytes } from "./encoding";
+import { decodeBase64UrlStrict, encodeBase64Url } from "./encoding";
+import {
+  discardNativeHpkeSender,
+  nativeHpkeOpen,
+  nativeHpkeSeal,
+  nativeHpkeSetupSender,
+} from "./worker/native-hpke";
 
 const WRAP_PROTOCOL = "refmd.signed-pq-hybrid-wrap";
 const KEM_ID = 0x647a;
 const KDF_ID = 0x0001;
 const AEAD_ID = 0x0003;
+const VERIFIED_OPERATION_PROTOCOL = "refmd.verified-signed-pq-wrap-operation";
+const VERIFIED_OPERATION_VERSION = 1;
 const MLKEM_CIPHERTEXT_BYTES = 1088;
 const X25519_PUBLIC_BYTES = 32;
 const ENCAPSULATED_BYTES = MLKEM_CIPHERTEXT_BYTES + X25519_PUBLIC_BYTES;
@@ -136,7 +139,7 @@ type GuestInvitationWorkspaceKekWrapResource = {
   guest_grant_id: string;
   scope_kind: "workspace";
   scope_id: "none";
-  permission: "edit";
+  permission: "view" | "edit";
   kek_version: number;
   guest_invitation_redeemed_event_hash: string;
 };
@@ -212,16 +215,23 @@ export interface CreateSignedPqWrapParams {
     coveredHeadSequence: number;
     coveredHeadHash: string;
   };
+  eventPrevious?: {
+    sequence: number;
+    hash: string;
+  };
+  recipientKeyCheckpoint?: {
+    scopeKind: "user" | "workspace" | "document" | "folder";
+    scopeId: string;
+    sequence: number;
+    checkpointHash: string;
+  };
 }
 
 export interface OpenSignedPqWrapParams {
   record: SignedPqWrapRecord;
   recipientPrivateKeyMaterial: HybridEncryptionPrivateKeyMaterial;
   senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
-  expectedOperationCheckpoint: {
-    sequence: number;
-    checkpointHash: string;
-  };
+  verifiedOperation: VerifiedSignedPqWrapOperation;
 }
 
 const SIGNED_PQ_WRAP_WIRE_FIELDS = [
@@ -286,21 +296,12 @@ export function createSignedPqWrap(params: CreateSignedPqWrapParams): SignedPqWr
   const senderPublic = publicKeyMaterialFromPrivate(params.senderSigningPrivateKeyMaterial);
   const senderSigningKeyId = computeSigningKeyId(senderPublic);
   const recipientKeyId = computeHybridEncryptionKeyId(params.recipientPublicKeyMaterial);
-  const recipientPublic = decodeBase64UrlStrict(
-    params.recipientPublicKeyMaterial.x25519_public,
-    X25519_PUBLIC_BYTES,
-  );
-  const mlkemPublic = decodeBase64UrlStrict(
-    params.recipientPublicKeyMaterial.mlkem768_public,
-    1184,
-  );
-
-  const mlkem = ml_kem768.encapsulate(mlkemPublic);
-  const ephemeralPrivate = randomBytes(32);
-  const ephemeralPublic = x25519.getPublicKey(ephemeralPrivate);
-  const x25519Shared = x25519.getSharedSecret(ephemeralPrivate, recipientPublic);
-  assertNonZeroSharedSecret(x25519Shared);
-  const hpkeEnc = concatBytes(mlkem.cipherText, ephemeralPublic);
+  const recipientKeyCheckpoint = params.recipientKeyCheckpoint ?? {
+    scopeKind: params.eventScope.scope_kind,
+    scopeId: params.eventScope.scope_id,
+    sequence: params.operationCheckpoint.sequence,
+    checkpointHash: params.operationCheckpoint.checkpointHash,
+  };
   const base = unsignedRecordBase({
     purpose: params.purpose,
     resource,
@@ -318,21 +319,37 @@ export function createSignedPqWrap(params: CreateSignedPqWrapParams): SignedPqWr
       purpose: params.purpose,
       resource,
       encryption_key_id: recipientKeyId,
-      key_scope_kind: params.eventScope.scope_kind,
-      key_scope_id: params.eventScope.scope_id,
+      key_scope_kind: recipientKeyCheckpoint.scopeKind,
+      key_scope_id: recipientKeyCheckpoint.scopeId,
       owner_kind: params.recipientPublicKeyMaterial.owner_kind,
       owner_id: params.recipientPublicKeyMaterial.owner_id,
-      key_checkpoint_sequence: params.operationCheckpoint.sequence,
-      key_checkpoint_hash: params.operationCheckpoint.checkpointHash,
+      key_checkpoint_sequence: recipientKeyCheckpoint.sequence,
+      key_checkpoint_hash: recipientKeyCheckpoint.checkpointHash,
     }),
     eventScope: params.eventScope,
     operationCheckpoint: params.operationCheckpoint,
   });
   const info = hpkeInfo(base);
-  const aad = wrapAad(base, hpkeEnc);
-  const encryptionKey = deriveBytes(mlkem.sharedSecret, x25519Shared, info, "key", 32);
-  const nonce = deriveBytes(mlkem.sharedSecret, x25519Shared, info, "nonce", 12);
-  const ciphertext = chacha20poly1305(encryptionKey, nonce, aad).encrypt(params.plaintext);
+  const sender = nativeHpkeSetupSender({
+    publicKey: decodeBase64UrlStrict(params.recipientPublicKeyMaterial.hybrid_public, 1216),
+    info,
+  });
+  let senderConsumed = false;
+  let hpkeEnc: Uint8Array;
+  let aad: Uint8Array;
+  let ciphertext: Uint8Array;
+  try {
+    hpkeEnc = sender.enc;
+    aad = wrapAad(base, hpkeEnc);
+    ciphertext = nativeHpkeSeal({
+      contextHandle: sender.contextHandle,
+      aad,
+      plaintext: params.plaintext,
+    });
+    senderConsumed = true;
+  } finally {
+    if (!senderConsumed) discardNativeHpkeSender(sender.contextHandle);
+  }
   const wrapBody = wrapBodyForHash(base, hpkeEnc, ciphertext);
   const wrapBodyHash = blake3Base64Url(canonicalizeStrictBytes(wrapBody));
   const wrapEventBody = {
@@ -348,7 +365,14 @@ export function createSignedPqWrap(params: CreateSignedPqWrapParams): SignedPqWr
     wrap_version: CURRENT_PROTOCOL_VERSION,
   };
   const wrapEventBodyHash = blake3Base64Url(canonicalizeStrictBytes(wrapEventBody));
-  const wrapEventSequence = params.operationCheckpoint.coveredHeadSequence + 1;
+  const eventPrevious = params.eventPrevious ?? {
+    sequence: params.operationCheckpoint.coveredHeadSequence,
+    hash: params.operationCheckpoint.coveredHeadHash,
+  };
+  if (!Number.isInteger(eventPrevious.sequence) || eventPrevious.sequence < 0) {
+    throw new Error("signed_pq_wrap_event_previous_invalid");
+  }
+  const wrapEventSequence = eventPrevious.sequence + 1;
   const wrapEvent = {
     protocol: "refmd.key-directory-event",
     version: CURRENT_PROTOCOL_VERSION,
@@ -357,7 +381,7 @@ export function createSignedPqWrap(params: CreateSignedPqWrapParams): SignedPqWr
     sequence: wrapEventSequence,
     event_type: "wrap_issued",
     actor: base.sender,
-    previous_event_hash: params.operationCheckpoint.coveredHeadHash,
+    previous_event_hash: eventPrevious.hash,
     body: wrapEventBody,
   } as StrictJsonValue;
   const wrapEventHash = blake3Base64Url(canonicalizeStrictBytes(wrapEvent));
@@ -468,6 +492,27 @@ export function signedPqWrapAdmissionCommitmentHash(record: SignedPqWrapRecord):
   return blake3Base64Url(canonicalizeStrictBytes(signedPqWrapAdmissionCommitment(record)));
 }
 
+function signedPqWrapVerificationBinding(record: SignedPqWrapRecord) {
+  assertSignedPqWrapRecord(record);
+  const eventBody = signedPqWrapEventBody(record) as Record<string, StrictJsonValue>;
+  return {
+    protocol: VERIFIED_OPERATION_PROTOCOL,
+    version: VERIFIED_OPERATION_VERSION,
+    sequence: record.operation_checkpoint.checkpoint_sequence,
+    checkpointHash: record.operation_checkpoint.checkpoint_hash,
+    coveredHeadSequence: record.operation_checkpoint.covered_event_head_sequence,
+    coveredHeadHash: record.operation_checkpoint.covered_event_head_hash,
+    wrapEventSequence: record.event.wrap_event_sequence,
+    wrapEventHash: record.event.wrap_event_hash,
+    wrapEventBodyHash: record.event.wrap_event_body_hash,
+    wrapBodyHash: stringField(eventBody.wrap_body_hash),
+    transcriptHash: record.transcript_hash,
+    recordCommitmentHash: blake3Base64Url(
+      canonicalizeStrictBytes(record as unknown as StrictJsonValue),
+    ),
+  } as const;
+}
+
 export function signedPqWrapEventBody(record: SignedPqWrapRecord): StrictJsonValue {
   assertSignedPqWrapRecord(record);
   return bodyFromRecord(record, eventBodyBase(record));
@@ -475,15 +520,8 @@ export function signedPqWrapEventBody(record: SignedPqWrapRecord): StrictJsonVal
 
 export function openSignedPqWrap(params: OpenSignedPqWrapParams): Uint8Array {
   assertSignedPqWrapRecord(params.record);
+  assertVerifiedSignedPqWrapOperation(params.verifiedOperation, params.record);
   assertHybridEncryptionPrivateKeyMaterial(params.recipientPrivateKeyMaterial);
-  if (
-    params.record.operation_checkpoint.checkpoint_sequence !==
-      params.expectedOperationCheckpoint.sequence ||
-    params.record.operation_checkpoint.checkpoint_hash !==
-      params.expectedOperationCheckpoint.checkpointHash
-  ) {
-    throw new Error("signed_pq_wrap_operation_checkpoint_mismatch");
-  }
   const recipientKeyId = computeHybridEncryptionKeyId(
     publicHybridEncryptionMaterialFromPrivate(params.recipientPrivateKeyMaterial),
   );
@@ -517,21 +555,35 @@ export function openSignedPqWrap(params: OpenSignedPqWrapParams): Uint8Array {
     throw new Error("signed_pq_wrap_signature_invalid");
   }
 
-  const mlkemCipherText = enc.slice(0, MLKEM_CIPHERTEXT_BYTES);
-  const ephemeralPublic = enc.slice(MLKEM_CIPHERTEXT_BYTES);
-  const mlkemShared = ml_kem768.decapsulate(
-    mlkemCipherText,
-    decodeBase64UrlStrict(params.recipientPrivateKeyMaterial.mlkem768_private, 2400),
-  );
-  const x25519Shared = x25519.getSharedSecret(
-    decodeBase64UrlStrict(params.recipientPrivateKeyMaterial.x25519_private, 32),
-    ephemeralPublic,
-  );
-  assertNonZeroSharedSecret(x25519Shared);
   const info = hpkeInfo(params.record);
-  const key = deriveBytes(mlkemShared, x25519Shared, info, "key", 32);
-  const nonce = deriveBytes(mlkemShared, x25519Shared, info, "nonce", 12);
-  return chacha20poly1305(key, nonce, wrapAad(params.record, enc)).decrypt(ciphertext);
+  return nativeHpkeOpen({
+    privateKey: decodeBase64UrlStrict(
+      params.recipientPrivateKeyMaterial.mlkem768_x25519_private,
+      32,
+    ),
+    enc,
+    info,
+    aad: wrapAad(params.record, enc),
+    ciphertext,
+  });
+}
+
+export function assertVerifiedSignedPqWrapOperation(
+  value: unknown,
+  record: SignedPqWrapRecord,
+): asserts value is VerifiedSignedPqWrapOperation {
+  const operation = asUnknownRecord(value, "signed_pq_wrap_operation_verification_invalid");
+  const expected = signedPqWrapVerificationBinding(record);
+  const actualKeys = Object.keys(operation).sort().join("\n");
+  const expectedKeys = Object.keys(expected).sort().join("\n");
+  if (actualKeys !== expectedKeys) {
+    throw new Error("signed_pq_wrap_operation_verification_invalid");
+  }
+  for (const [field, expectedValue] of Object.entries(expected)) {
+    if (operation[field] !== expectedValue) {
+      throw new Error("signed_pq_wrap_operation_verification_mismatch");
+    }
+  }
 }
 
 function authorityBoundaryForRecord(record: SignedPqWrapRecord): Record<string, unknown> {
@@ -689,7 +741,11 @@ function wrapBodyForHash(
 }
 
 function assertSignedPqWrapRecord(record: SignedPqWrapRecord): void {
-  assertExactKeys(record as unknown as Record<string, unknown>, [...SIGNED_PQ_WRAP_WIRE_FIELDS]);
+  assertExactKeys(
+    record as unknown as Record<string, unknown>,
+    [...SIGNED_PQ_WRAP_WIRE_FIELDS],
+    "signed_pq_wrap_container_keys_invalid",
+  );
   if (record.protocol !== WRAP_PROTOCOL) throw new Error("signed_pq_wrap_protocol_invalid");
   if (record.protocol_version !== CURRENT_PROTOCOL_VERSION)
     throw new Error("signed_pq_wrap_version_invalid");
@@ -724,16 +780,20 @@ function assertSignedPqWrapRecord(record: SignedPqWrapRecord): void {
   ) {
     throw new Error("signed_pq_wrap_hpke_ids_invalid");
   }
-  assertExactKeys(record.signature as unknown as Record<string, unknown>, [
-    "protocol",
-    "version",
-    "suite_id",
-    "suite_rank",
-    "signing_key_id",
-    "transcript_hash",
-    "ed25519",
-    "mldsa65",
-  ]);
+  assertExactKeys(
+    record.signature as unknown as Record<string, unknown>,
+    [
+      "protocol",
+      "version",
+      "suite_id",
+      "suite_rank",
+      "signing_key_id",
+      "transcript_hash",
+      "ed25519",
+      "mldsa65",
+    ],
+    "signed_pq_wrap_container_keys_invalid",
+  );
   if (record.signature.signing_key_id !== record.sender.signing_key_id) {
     throw new Error("signed_pq_wrap_signature_key_mismatch");
   }
@@ -1020,11 +1080,7 @@ function assertResourceSchema(
     assertPasswordCapabilityCommitment(record);
   }
   if (purpose === "guest_invitation_workspace_kek_wrap") {
-    if (
-      record.scope_kind !== "workspace" ||
-      record.scope_id !== "none" ||
-      record.permission !== "edit"
-    ) {
+    if (record.scope_kind !== "workspace" || record.scope_id !== "none") {
       throw new Error("signed_pq_wrap_guest_workspace_resource_invalid");
     }
   }
@@ -1070,10 +1126,14 @@ function asUnknownRecord(value: unknown, error: string): Record<string, unknown>
   return value as Record<string, unknown>;
 }
 
-function assertExactKeys(record: Record<string, unknown>, keys: string[]): void {
+function assertExactKeys(
+  record: Record<string, unknown>,
+  keys: string[],
+  error = "signed_pq_wrap_resource_keys_invalid",
+): void {
   const actual = Object.keys(record).sort().join("\n");
   const expected = [...keys].sort().join("\n");
-  if (actual !== expected) throw new Error("signed_pq_wrap_resource_keys_invalid");
+  if (actual !== expected) throw new Error(error);
 }
 
 function assertAllowedKeys(record: Record<string, unknown>, keys: readonly string[]): void {
@@ -1081,38 +1141,6 @@ function assertAllowedKeys(record: Record<string, unknown>, keys: readonly strin
   if (Object.keys(record).some((key) => !allowed.has(key))) {
     throw new Error("signed_pq_wrap_container_keys_invalid");
   }
-}
-
-function deriveBytes(
-  mlkemShared: Uint8Array,
-  x25519Shared: Uint8Array,
-  info: Uint8Array,
-  label: string,
-  length: number,
-): Uint8Array {
-  return hkdf(
-    sha256,
-    concatBytes(mlkemShared, x25519Shared),
-    HKDF_ZERO_SALT,
-    concatBytes(info, new TextEncoder().encode(label)),
-    length,
-  );
-}
-
-function concatBytes(...parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
-function assertNonZeroSharedSecret(secret: Uint8Array): void {
-  let acc = 0;
-  for (const byte of secret) acc |= byte;
-  if (acc === 0) throw new Error("x25519_shared_secret_invalid");
 }
 
 function stringField(value: unknown): string {

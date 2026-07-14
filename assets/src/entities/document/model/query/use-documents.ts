@@ -121,6 +121,7 @@ async function loadOfflineDocuments(wsId: string) {
       latest_update_at: null,
       min_dek_version: 0,
       needs_dek_rotation: false,
+      dek_rotation_reason: null,
       needs_rotation_snapshot: false,
       slug: "",
     })),

@@ -3,14 +3,16 @@ defmodule RefMD.Workspaces.Roles do
 
   import Ecto.Query
 
-  alias RefMD.Repo
+  alias RefMD.{Encryption, Repo}
 
   alias RefMD.Workspaces.{
     WorkspaceInvitation,
+    WorkspaceMember,
     WorkspaceRole,
     WorkspaceRolePermission
   }
 
+  alias RefMD.Workspaces.{KekRotation, Members}
   alias RefMD.Workspaces.Roles.Authorization
 
   @current_catalog_version 1
@@ -44,8 +46,16 @@ defmodule RefMD.Workspaces.Roles do
     with {:ok, resolved_permissions} <-
            Authorization.validate_update_permissions(permissions, role, opts) do
       Repo.transaction(fn ->
-        update_role_transaction(role, attrs, resolved_permissions)
+        update_role_transaction(role, attrs, resolved_permissions, opts)
       end)
+      |> case do
+        {:ok, %{role: updated_role, disconnected_user_ids: user_ids}} ->
+          Enum.each(user_ids, &Members.disconnect_member_sessions/1)
+          {:ok, updated_role}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -147,11 +157,143 @@ defmodule RefMD.Workspaces.Roles do
     end
   end
 
-  defp update_role_transaction(role, attrs, resolved_permissions) do
+  defp update_role_transaction(role, attrs, resolved_permissions, opts) do
+    role = lock_role!(role.id)
+    previous_permissions = canonical_effective_permissions(role)
+    proposed_permissions = proposed_effective_permissions(role, resolved_permissions)
+    permissions_changed? = previous_permissions != proposed_permissions
+    members = if permissions_changed?, do: lock_role_members(role), else: []
+
+    if permissions_changed? and members != [] do
+      append_role_permission_changes!(
+        role,
+        members,
+        previous_permissions,
+        proposed_permissions,
+        Keyword.get(opts, :key_directory)
+      )
+    end
+
     role_attrs = Map.reject(attrs, fn {_k, v} -> is_nil(v) end)
     updated = apply_role_attrs(role, role_attrs)
     replace_permissions_if_present(role.id, resolved_permissions)
-    Repo.preload(updated, :permissions, force: true)
+    increment_member_permission_versions(members)
+
+    lost_permissions = previous_permissions -- proposed_permissions
+
+    disconnected_user_ids =
+      if lost_permissions == [], do: [], else: Enum.map(members, & &1.user_id)
+
+    if "document:read" in lost_permissions and members != [] do
+      actor_user_id = Keyword.get(opts, :actor_user_id)
+
+      unless is_binary(actor_user_id), do: Repo.rollback(:actor_not_member)
+      KekRotation.mark_membership_rotation_needed!(role.workspace_id, actor_user_id)
+    end
+
+    %{
+      role: Repo.preload(updated, :permissions, force: true),
+      disconnected_user_ids: disconnected_user_ids
+    }
+  end
+
+  defp lock_role!(role_id) do
+    from(r in WorkspaceRole, where: r.id == ^role_id, lock: "FOR UPDATE")
+    |> Repo.one!()
+    |> Repo.preload(:permissions)
+  end
+
+  defp lock_role_members(role) do
+    from(m in WorkspaceMember,
+      where: m.workspace_id == ^role.workspace_id and m.role_id == ^role.id,
+      order_by: [asc: m.user_id],
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+  end
+
+  defp proposed_effective_permissions(role, nil), do: canonical_effective_permissions(role)
+
+  defp proposed_effective_permissions(role, permissions) do
+    proposed = %{
+      base_role: role.base_role,
+      catalog_version: role.catalog_version,
+      permissions:
+        Enum.map(permissions, fn %{"permission" => permission, "granted" => granted} ->
+          %{permission: permission, granted: granted}
+        end)
+    }
+
+    canonical_effective_permissions(proposed)
+  end
+
+  defp canonical_effective_permissions(role) do
+    role |> Authorization.effective_permissions() |> MapSet.to_list() |> Enum.sort()
+  end
+
+  defp append_role_permission_changes!(
+         role,
+         members,
+         previous_permissions,
+         proposed_permissions,
+         %{workspace_events: events, workspace_checkpoint: checkpoint}
+       )
+       when is_list(events) and is_map(checkpoint) do
+    expected =
+      Enum.map(members, fn member ->
+        %{
+          "workspace_id" => role.workspace_id,
+          "user_id" => member.user_id,
+          "previous_role_id" => role.id,
+          "previous_base_role" => role.base_role,
+          "previous_effective_permissions" => previous_permissions,
+          "role_id" => role.id,
+          "base_role" => role.base_role,
+          "effective_permissions" => proposed_permissions,
+          "permission_version" => member.permission_version + 1
+        }
+      end)
+
+    actual =
+      Enum.map(events, fn
+        %{"payload" => %{"event_type" => "member_role_changed", "body" => body}} ->
+          Map.take(body, Map.keys(hd(expected)))
+
+        _ ->
+          :invalid
+      end)
+
+    unless actual == expected,
+      do: raise(ArgumentError, "key_directory_member_role_changed_event_mismatch")
+
+    Encryption.append_workspace_key_directory!(
+      role.workspace_id,
+      events,
+      checkpoint,
+      checkpoint_signer_kind: "device"
+    )
+  rescue
+    _ -> Repo.rollback(:invalid_key_directory)
+  end
+
+  defp append_role_permission_changes!(_, _, _, _, _),
+    do: Repo.rollback(:missing_key_directory)
+
+  defp increment_member_permission_versions([]), do: :ok
+
+  defp increment_member_permission_versions(members) do
+    user_ids = Enum.map(members, & &1.user_id)
+    %{workspace_id: workspace_id, role_id: role_id} = hd(members)
+
+    {count, _} =
+      from(m in WorkspaceMember,
+        where:
+          m.workspace_id == ^workspace_id and m.role_id == ^role_id and
+            m.user_id in ^user_ids
+      )
+      |> Repo.update_all(inc: [permission_version: 1])
+
+    if count == length(user_ids), do: :ok, else: Repo.rollback(:member_update_failed)
   end
 
   defp apply_role_attrs(role, role_attrs) do

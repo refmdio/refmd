@@ -89,6 +89,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/documents/{document_id}/keys/rotation-completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prepare DEK rotation completion manifest hashes */
+        get: operations["get_api_encryption_documents_by_document_id_keys_rotation_completion"];
+        put?: never;
+        /** Complete DEK rotation after snapshot and device deletion coverage */
+        post: operations["post_api_encryption_documents_by_document_id_keys_rotation_completion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/plugin-applications/{application_id}/consent-events": {
         parameters: {
             query?: never;
@@ -100,6 +118,23 @@ export interface paths {
         put?: never;
         /** Append a plugin consent event */
         post: operations["post_api_workspaces_by_workspace_id_plugin_applications_by_application_id_consent_events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/guest/redeem-known": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem a recipient-bound guest invitation */
+        post: operations["post_api_guest_redeem_known"];
         delete?: never;
         options?: never;
         head?: never;
@@ -209,6 +244,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/guest/invitations/delivery-attempts/{attempt_id}/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consume an approved guest invitation delivery attempt */
+        post: operations["post_api_guest_invitations_delivery_attempts_by_attempt_id_consume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/authors/{author_slug}/documents/{document_slug}": {
         parameters: {
             query?: never;
@@ -242,6 +294,23 @@ export interface paths {
         head?: never;
         /** Update a role */
         patch: operations["patch_api_workspaces_by_workspace_id_roles_by_role_id"];
+        trace?: never;
+    };
+    "/api/invitations/delivery-attempts/{attempt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a known-recipient invitation delivery attempt */
+        get: operations["get_api_invitations_delivery_attempts_by_attempt_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/auth/recovery/challenge": {
@@ -467,6 +536,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/documents/{document_id}/keys/kek-rotation-rewrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rewrap an existing DEK during workspace KEK rotation */
+        put: operations["put_api_encryption_documents_by_document_id_keys_kek_rotation_rewrap"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/member-keys": {
         parameters: {
             query?: never;
@@ -495,6 +581,23 @@ export interface paths {
         put?: never;
         /** Archive a document recursively */
         post: operations["post_api_documents_by_document_id_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations/{device_id}/initial-ake-offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get pending Initial AKE offers for the registering device */
+        get: operations["get_api_devices_registrations_by_device_id_initial_ake_offers"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -655,6 +758,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/wipe-requirement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current device KEK wipe requirement */
+        get: operations["get_api_encryption_workspaces_by_workspace_id_kek_rotation_wipe_requirement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password-reset/request": {
         parameters: {
             query?: never;
@@ -666,6 +786,40 @@ export interface paths {
         put?: never;
         /** Request a password reset email */
         post: operations["post_api_auth_password_reset_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/identity-rotation/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Durably activate an identity successor for key restore */
+        post: operations["post_api_encryption_identity_rotation_activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/identity-rotation/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a pending identity successor */
+        post: operations["post_api_encryption_identity_rotation_prepare"];
         delete?: never;
         options?: never;
         head?: never;
@@ -845,6 +999,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/identity-rotation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current user identity rotation state */
+        get: operations["get_api_encryption_identity_rotation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password-reset/verify": {
         parameters: {
             query?: never;
@@ -898,6 +1069,23 @@ export interface paths {
         patch: operations["patch_api_workspaces_by_workspace_id"];
         trace?: never;
     };
+    "/api/workspaces/invitations/delivery-attempts/{attempt_id}/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consume an approved workspace invitation delivery attempt */
+        post: operations["post_api_workspaces_invitations_delivery_attempts_by_attempt_id_consume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/members/{user_id}/devices": {
         parameters: {
             query?: never;
@@ -907,6 +1095,23 @@ export interface paths {
         };
         /** List a member's devices */
         get: operations["get_api_workspaces_by_workspace_id_members_by_user_id_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_id}/initial-ake-responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Initial AKE responder confirmations for finalization */
+        get: operations["get_api_devices_by_device_id_initial_ake_responses"];
         put?: never;
         post?: never;
         delete?: never;
@@ -994,6 +1199,23 @@ export interface paths {
         put?: never;
         /** Refresh a mount Device Bound Session Credentials cookie */
         post: operations["post_api_auth_dbsc_mount_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/invitation-delivery-attempts/{attempt_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a known-recipient invitation delivery attempt */
+        post: operations["post_api_workspaces_by_workspace_id_invitation_delivery_attempts_by_attempt_id_approve"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1324,6 +1546,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/invitations/recipient": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a workspace invitation recipient */
+        get: operations["get_api_workspaces_by_workspace_id_invitations_recipient"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shares/f/{folder_token}/bootstrap": {
         parameters: {
             query?: never;
@@ -1396,6 +1635,23 @@ export interface paths {
         patch: operations["patch_api_documents_by_document_id_shares_by_share_id"];
         trace?: never;
     };
+    "/api/devices/registrations/{device_id}/initial-ake-responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit one-time Initial AKE responder confirmations */
+        post: operations["post_api_devices_registrations_by_device_id_initial_ake_responses"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/plugin-applications": {
         parameters: {
             query?: never;
@@ -1426,6 +1682,23 @@ export interface paths {
         put?: never;
         /** Create a workspace encryption key */
         post: operations["post_api_encryption_workspaces_by_workspace_id_keys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/documents/{document_id}/keys/wipe-requirement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current device DEK wipe requirement */
+        get: operations["get_api_encryption_documents_by_document_id_keys_wipe_requirement"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1477,6 +1750,23 @@ export interface paths {
         get: operations["get_api_devices"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/identity-rotation/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finalize identity rotation after complete envelope rewrap and private-key deletion */
+        post: operations["post_api_encryption_identity_rotation_finalize"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1549,6 +1839,23 @@ export interface paths {
         put?: never;
         /** Create a user-owned plugin package candidate */
         post: operations["post_api_plugin_packages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/guest-invitations/recipient": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a guest invitation recipient */
+        get: operations["get_api_workspaces_by_workspace_id_guest_invitations_recipient"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1722,6 +2029,40 @@ export interface paths {
         put?: never;
         /** Register a share participant Device Bound Session Credentials binding */
         post: operations["post_api_auth_dbsc_share_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/invitation-delivery-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List pending invitation delivery attempts */
+        get: operations["get_api_workspaces_by_workspace_id_invitation_delivery_attempts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/wipe-requirement/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge secure deletion for a KEK wipe requirement */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_kek_rotation_wipe_requirement_acknowledge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1953,6 +2294,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/documents/{document_id}/keys/rotation-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get share-key targets required before DEK rotation */
+        get: operations["get_api_encryption_documents_by_document_id_keys_rotation_targets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/documents/{document_id}/keys": {
         parameters: {
             query?: never;
@@ -1965,6 +2323,23 @@ export interface paths {
         put?: never;
         /** Register a DEK for a document */
         post: operations["post_api_encryption_documents_by_document_id_keys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/delivery-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a known-recipient invitation delivery attempt */
+        post: operations["post_api_invitations_delivery_attempts"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2126,6 +2501,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/documents/{document_id}/keys/wipe-requirement/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge secure deletion for a DEK wipe requirement */
+        post: operations["post_api_encryption_documents_by_document_id_keys_wipe_requirement_acknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/publication": {
         parameters: {
             query?: never;
@@ -2188,6 +2580,8 @@ export interface components {
         PluginActivationUpdateRequest: {
             enabled?: boolean;
         };
+        /** RedeemFreshnessProof */
+        RedeemFreshnessProof: components["schemas"]["AuthoritativeDeviceLiveFreshnessProof"] | components["schemas"]["MemberGossipQuorumFreshnessProof"];
         /** InitialAkeApprovalTranscript */
         InitialAkeApprovalTranscript: {
             /** @enum {string} */
@@ -2206,6 +2600,17 @@ export interface components {
             /** @enum {integer} */
             version: 1;
         };
+        /** InvitationRecipientDevice */
+        InvitationRecipientDevice: {
+            /** Format: uuid */
+            device_id: string;
+            encryption_key_id: string;
+            hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            key_checkpoint_hash: string;
+            key_checkpoint_sequence: number;
+            signing_key_id: string;
+        };
         /** RegisterResponse */
         RegisterResponse: {
             /** Format: uuid */
@@ -2216,6 +2621,8 @@ export interface components {
             /** Format: uuid */
             workspace_owner_role_id: string;
         };
+        /** Base64UrlBytes */
+        Base64UrlBytes: string;
         /** ChangeMemberRoleRequest */
         ChangeMemberRoleRequest: {
             /** Format: uuid */
@@ -2240,6 +2647,14 @@ export interface components {
             document: components["schemas"]["MountedShareDocument"];
             mount: components["schemas"]["ShareMountBootstrapMountSummary"];
         };
+        /** AuditCheckpoint */
+        AuditCheckpoint: {
+            ancestry: Record<string, never>[];
+            authority_checkpoint: Record<string, never> | null;
+            chain_scope: string;
+            event_hash: string;
+            sequence: number;
+        };
         /** ShareCapabilitySigningPublicKeyMaterial */
         ShareCapabilitySigningPublicKeyMaterial: {
             ed25519_public: string;
@@ -2255,6 +2670,18 @@ export interface components {
             suite_rank: 1000;
             /** @enum {integer} */
             version: 1;
+        };
+        /** DocumentShareKeyRotationReplacement */
+        DocumentShareKeyRotationReplacement: {
+            /** Format: uuid */
+            document_id: string;
+            encrypted_dek: string;
+            key_version: number;
+            nonce: string;
+            /** Format: uuid */
+            root_share_id: string;
+            /** Format: uuid */
+            share_id: string;
         };
         /** UpdateSettingsRequest */
         UpdateSettingsRequest: {
@@ -2282,6 +2709,45 @@ export interface components {
             denied_plugin_ids?: string[];
             require_admin_approval?: boolean;
         } | null;
+        /** InitialAkeResponderConfirmation */
+        InitialAkeResponderConfirmation: {
+            prekey_id: string;
+            /** @enum {string} */
+            protocol: "refmd.initial-ake-responder-confirmation";
+            purpose: string;
+            responder_confirmation: string;
+            transcript_hash: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** InitialAkeOffer */
+        InitialAkeOffer: {
+            ake_suite_id: string;
+            ake_suite_rank: number;
+            initiator_commitment: components["schemas"]["InitiatorAkeCommitment"];
+            initiator_commitment_signature: components["schemas"]["HybridSignature"];
+            initiator_confirmation: string;
+            pending_delivery: {
+                aead: components["schemas"]["InitialKeyDeliveryAead"];
+                metadata: components["schemas"]["InitialAkePendingDeliveryMetadata"];
+            };
+            /** @enum {string} */
+            protocol: "refmd.initial-hybrid-key-agreement";
+            purpose: string;
+            transcript: components["schemas"]["InitialAkeUmkTranscript"] | components["schemas"]["InitialAkeApprovalTranscript"] | components["schemas"]["InitialAkeTrustTransferTranscript"];
+            transcript_hash: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** IdentityRotationWorkspaceRewrap */
+        IdentityRotationWorkspaceRewrap: {
+            affected_member_envelope_ids_hash: components["schemas"]["Blake3Base64Url"];
+            member_envelope_manifest_hash: components["schemas"]["Blake3Base64Url"];
+            new_identity_recipient_key_id: components["schemas"]["Blake3Base64Url"];
+            workspace_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** UserInfo */
         UserInfo: {
             /** Format: email */
@@ -2322,6 +2788,7 @@ export interface components {
             /** Format: uuid */
             invitation_id: string;
             kek_version: number;
+            recipient_delivery_artifacts?: components["schemas"]["ApproveInvitationDeliveryAttemptRequest"] | null;
             role_name: string;
             /** @enum {string} */
             status: "accepted";
@@ -2329,6 +2796,13 @@ export interface components {
             workspace_id: string;
             workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
             workspace_name: string;
+        };
+        /** RewrapDocumentKeyForKekRotationRequest */
+        RewrapDocumentKeyForKekRotationRequest: {
+            encrypted_dek: string;
+            key_version: number;
+            new_kek_version: number;
+            nonce: string;
         };
         /** ShareChildListItem */
         ShareChildListItem: {
@@ -2389,6 +2863,18 @@ export interface components {
                 share_id: string;
             };
         };
+        /** DekRotationCompletionManifestResponse */
+        DekRotationCompletionManifestResponse: {
+            completed_at_event_sequence: number;
+            completion_manifest_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_at_event_sequence: number;
+            deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_wrap_ids_hash: components["schemas"]["Blake3Base64Url"];
+            new_key_version: number;
+            old_key_version: number;
+            server_rejects_old_key_uploads_after_sequence: number;
+            started_event_hash: components["schemas"]["Blake3Base64Url"];
+        };
         /** CreateDocumentRequest */
         CreateDocumentRequest: {
             /** @enum {string} */
@@ -2402,6 +2888,20 @@ export interface components {
             parent_id?: string | null;
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** CreateInvitationDeliveryAttemptRequest */
+        CreateInvitationDeliveryAttemptRequest: {
+            live_redeem_challenge_hash: string;
+            recipient_redeem_nonce: string;
+            /** Format: uuid */
+            redeem_attempt_id: string;
+            /** Format: uuid */
+            target_device_id: string;
+            target_registration: components["schemas"]["InvitationDeliveryTargetRegistration"];
+            target_registration_proof?: components["schemas"]["InvitationDeliveryTargetRegistrationProof"];
+            /** Format: uuid */
+            target_user_id: string;
+            token: string;
         };
         /** InitialKeyDeliveryRecord */
         InitialKeyDeliveryRecord: components["schemas"]["InitialKeyDeliveryUmkRecord"] | components["schemas"]["InitialKeyDeliveryApprovalRecord"] | components["schemas"]["InitialKeyDeliveryTrustTransferRecord"];
@@ -2428,7 +2928,106 @@ export interface components {
             sender_identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
             /** Format: uuid */
             sender_user_id: string;
-            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** RecipientBoundAuthorizationTranscript */
+        RecipientBoundAuthorizationTranscript: {
+            actor: {
+                /** Format: uuid */
+                device_id: string;
+                key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "workspace";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                user_id: string;
+            };
+            authority_boundary: {
+                /** Format: uuid */
+                authorization_id: string;
+                /** Format: uuid */
+                context_id: string;
+                /** @enum {string} */
+                context_kind: "workspace_invitation" | "guest_invitation";
+                current_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                current_checkpoint_sequence: number;
+                current_event_head_hash: components["schemas"]["Blake3Base64Url"];
+                current_event_head_sequence: number;
+                /** Format: uuid */
+                redeem_attempt_id: string;
+                resource_hash: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                workspace_id: string;
+                workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
+            };
+            freshness: {
+                live_redeem_challenge_hash: components["schemas"]["Blake3Base64Url"];
+                not_after_event_sequence: number;
+                recipient_nonce_state_hash: components["schemas"]["Blake3Base64Url"];
+                recipient_redeem_nonce: string;
+                redeem_freshness_proof_hash: components["schemas"]["Blake3Base64Url"];
+            };
+            /** @enum {string} */
+            label: "RefMD hybrid signature transcript v1";
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature-transcript";
+            recipient: components["schemas"]["RecipientBoundAuthorizationRecipient"];
+            /** @enum {string} */
+            signature_suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            signature_suite_rank: 1000;
+            /** @enum {string} */
+            signing_purpose: "recipient_bound_authorization";
+            subject_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            subject_protocol: "refmd.recipient-bound-authorization";
+            /** @enum {integer} */
+            subject_version: 1;
+            surface_id: string;
+            /** @enum {string} */
+            surface_variant: "none";
+            transcript_owner: string;
+            /** @enum {integer} */
+            version: 1;
+        };
+        /** WorkspaceWipeRequirementResponse */
+        WorkspaceWipeRequirementResponse: {
+            deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            required_kek_version: number;
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** ApproveInvitationDeliveryAttemptRequest */
+        ApproveInvitationDeliveryAttemptRequest: {
+            authorization: components["schemas"]["RecipientBoundAuthorization"];
+            delivery_wrap: components["schemas"]["HybridKeyWrapFields"];
+            member_envelope?: components["schemas"]["MemberEnvelopeItem"] | null;
+            redeem_freshness_proof: components["schemas"]["RedeemFreshnessProof"];
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_intermediate_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
+            workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"];
+        };
+        /** RecipientBoundAuthorization */
+        RecipientBoundAuthorization: {
+            hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            payload: components["schemas"]["RecipientBoundAuthorizationPayload"];
+            signature: components["schemas"]["HybridSignature"];
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            transcript: components["schemas"]["RecipientBoundAuthorizationTranscript"];
         };
         /** InvitationBootstrapCiphertext */
         InvitationBootstrapCiphertext: {
@@ -2696,6 +3295,7 @@ export interface components {
             /** Format: uuid */
             document_id: string;
             encrypted_dek: string;
+            key_version: number;
             nonce: string;
             /**
              * Format: uuid
@@ -2849,8 +3449,30 @@ export interface components {
             /** Format: uuid */
             sender_user_id: string;
         };
+        /** IdentityRotationDeletionManifest */
+        IdentityRotationDeletionManifest: {
+            active_identity_deletion_proofs_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_identity_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            new_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            old_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            old_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            protocol: "refmd.identity-old-key-deletion-manifest";
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            rotation_kind: "identity";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "user";
+            server_rejects_old_identity_after_sequence: number;
+            /** @enum {integer} */
+            version: 1;
+            wipe_required_device_ids_hash: components["schemas"]["Blake3Base64Url"];
+        };
         /** RecoverySessionResponse */
         RecoverySessionResponse: {
+            audit_checkpoint: components["schemas"]["AuditCheckpoint"];
             is_recovery: boolean;
             /** Format: uuid */
             session_id: string;
@@ -2911,6 +3533,10 @@ export interface components {
             enabled?: boolean;
             /** @enum {string} */
             workspace_policy_result?: "allowed" | "denied" | "needs_admin_review";
+        };
+        /** IdentityRotationActivateRequest */
+        IdentityRotationActivateRequest: {
+            key_version: number;
         };
         /** DeviceApprovalKekInitialDeliveryCommitment */
         DeviceApprovalKekInitialDeliveryCommitment: {
@@ -3001,6 +3627,7 @@ export interface components {
         };
         /** WorkspaceResponse */
         WorkspaceResponse: {
+            audit_checkpoint: components["schemas"]["AuditCheckpoint"];
             /** Format: date-time */
             created_at: string;
             current_kek_version: number;
@@ -3023,6 +3650,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             is_default?: boolean | null;
+            /** Format: date-time */
+            kek_rotation_due_at?: string | null;
             /** Format: uuid */
             kek_rotation_initiator_user_id?: string | null;
             name: string;
@@ -3139,19 +3768,54 @@ export interface components {
             scope: components["schemas"]["DbscSessionScope"];
             session_identifier: string;
         };
-        /** RotationDeletionEvidence */
-        RotationDeletionEvidence: {
-            deletion_manifest: components["schemas"]["OldKeyDeletionManifest"];
-            device_key_deletion_proofs: {
-                proofs: components["schemas"]["DeviceKeyDeletionProof"][];
-            };
-            old_key_deleted_event_hash: components["schemas"]["Blake3Base64Url"];
-            old_key_version: number;
-            rotation_kind: string;
-            scope_id: string;
-            scope_kind: string;
+        /** InvitationPackageKeyRecipientWrap */
+        InvitationPackageKeyRecipientWrap: components["schemas"]["InvitationBootstrapCiphertext"] | components["schemas"]["InvitationKnownRecipientWrap"];
+        /** EncryptionSetupCompleteResponse */
+        EncryptionSetupCompleteResponse: {
+            /** @enum {boolean} */
+            ok: true;
+            user_audit_checkpoint: components["schemas"]["AuditCheckpoint"];
+            workspace_audit_checkpoints: components["schemas"]["WorkspaceAuditCheckpoint"][];
+        };
+        /** InitialAkePendingDeliveryMetadata */
+        InitialAkePendingDeliveryMetadata: {
+            ake_transcript_hash: string;
+            context_hash: string;
             /** Format: uuid */
-            workspace_id: string;
+            delivery_id: string;
+            document_rollback_pin_set_hash?: string;
+            initiator_commitment_hash: string;
+            key_checkpoint_hash: string;
+            key_kind: string;
+            key_version: number;
+            payload_kind: string;
+            recipient_challenge_hash: string;
+            /** Format: uuid */
+            recipient_device_id: string;
+            recipient_encryption_key_id: string;
+            resource_hash: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** Format: uuid */
+            workspace_id?: string;
+        };
+        /** RotationDeletionEvidence */
+        RotationDeletionEvidence: components["schemas"]["WorkspaceRotationDeletionEvidence"] | components["schemas"]["DocumentDekRotationDeletionEvidence"] | components["schemas"]["IdentityRotationDeletionEvidence"];
+        /** IdentityRotationPrepareRequest */
+        IdentityRotationPrepareRequest: {
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"];
+            hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["XChaCha20Poly1305Nonce"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["XChaCha20Poly1305Nonce"];
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** BootstrapDeviceResponse */
         BootstrapDeviceResponse: {
@@ -3243,15 +3907,46 @@ export interface components {
             protocol: "refmd.device-key-deletion-proof";
             rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
             /** @enum {string} */
-            rotation_kind: "kek";
+            rotation_kind: "kek" | "dek";
             /** Format: uuid */
             scope_id: string;
             /** @enum {string} */
-            scope_kind: "workspace";
+            scope_kind: "workspace" | "document";
             /** @enum {integer} */
             version: 1;
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** PinGossipStatementTranscript */
+        PinGossipStatementTranscript: {
+            /** @enum {string} */
+            label: "RefMD hybrid signature transcript v1";
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "device";
+            pin_gossip: {
+                statement: components["schemas"]["MemberGossipPayload"];
+                statement_hash: components["schemas"]["Blake3Base64Url"];
+            };
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature-transcript";
+            signature_suite_id: string;
+            signature_suite_rank: number;
+            /** @enum {string} */
+            signing_purpose: "pin_gossip_statement";
+            subject_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            subject_protocol: "refmd.pin.gossip.statement";
+            /** @enum {integer} */
+            subject_version: 1;
+            /** @enum {string} */
+            surface_id: "pin_gossip_statement";
+            /** @enum {string} */
+            surface_variant: "none";
+            transcript_owner: string;
+            /** @enum {integer} */
+            version: 1;
         };
         /** ShareParticipantInfo */
         ShareParticipantInfo: {
@@ -3290,23 +3985,32 @@ export interface components {
             bootstrap_key_commitment: string;
             bootstrap_package_hash: string;
             bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
-            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationPackageKeyRecipientWrap"];
             /** @enum {string} */
             bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
             capability_context_hash: string;
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
             encrypted_bootstrap_package: components["schemas"]["GuestInvitationBootstrapPackage"];
             /** Format: date-time */
             expires_at?: string | null;
             /** Format: uuid */
             invitation_id: string;
-            kek_version: number;
+            /** Format: email */
+            invited_email?: string | null;
+            key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"];
             max_redemptions?: number | null;
             /** @enum {string} */
             permission: "view" | "edit";
+            recipient_device_ids: string[];
+            /** Format: uuid */
+            recipient_user_id?: string | null;
             /** Format: uuid */
             scope_id?: string | null;
             /** @enum {string} */
             scope_kind: "workspace" | "document" | "folder" | "share";
+            /** Format: uuid */
+            share_id?: string | null;
             token_hash: string;
             token_prefix: string;
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
@@ -3330,6 +4034,7 @@ export interface components {
                 memory: number;
                 parallelism: number;
             };
+            key_version: number;
             max_views: number;
             nonce: string;
             password_capability_secret_commitment: string | "none";
@@ -3354,6 +4059,12 @@ export interface components {
             /** @enum {string} */
             type: "cookie";
         };
+        /** WorkspaceAuditCheckpoint */
+        WorkspaceAuditCheckpoint: {
+            audit_checkpoint: components["schemas"]["AuditCheckpoint"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** PublicDocumentResponse */
         PublicDocumentResponse: {
             author_description: string | null;
@@ -3366,6 +4077,36 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** RecipientBoundAuthorizationPayload */
+        RecipientBoundAuthorizationPayload: {
+            /** Format: uuid */
+            authorization_id: string;
+            /** Format: uuid */
+            context_id: string;
+            /** @enum {string} */
+            context_kind: "workspace_invitation" | "guest_invitation";
+            current_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            current_checkpoint_sequence: number;
+            current_event_head_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_sequence: number;
+            live_redeem_challenge_hash: components["schemas"]["Blake3Base64Url"];
+            not_after_event_sequence: number;
+            /** @enum {string} */
+            protocol: "refmd.recipient-bound-authorization";
+            recipient: components["schemas"]["RecipientBoundAuthorizationRecipient"];
+            recipient_nonce_state_hash: components["schemas"]["Blake3Base64Url"];
+            recipient_redeem_nonce: string;
+            /** Format: uuid */
+            redeem_attempt_id: string;
+            redeem_authority_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            redeem_freshness_proof_hash: components["schemas"]["Blake3Base64Url"];
+            resource_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
         };
         /** RevokeDeviceRequest */
         RevokeDeviceRequest: {
@@ -3470,6 +4211,8 @@ export interface components {
         InvitationListItem: {
             /** Format: date-time */
             created_at: string;
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
             /** Format: date-time */
             expires_at?: string | null;
             /** Format: uuid */
@@ -3480,6 +4223,9 @@ export interface components {
             invited_email: string;
             is_used: boolean;
             kek_version: number;
+            recipient_device_ids: string[];
+            /** Format: uuid */
+            recipient_user_id?: string | null;
             /** Format: uuid */
             role_id?: string | null;
             role_name?: string | null;
@@ -4398,6 +5144,162 @@ export interface components {
                     signing_key_id: string;
                 };
                 body: {
+                    /** @enum {string} */
+                    base_role: "owner" | "admin" | "editor" | "viewer";
+                    changed_at_event_sequence: number;
+                    effective_permissions: string[];
+                    permission_version: number;
+                    /** @enum {string} */
+                    previous_base_role: "owner" | "admin" | "editor" | "viewer";
+                    previous_effective_permissions: string[];
+                    previous_role_id: string;
+                    role_id: string;
+                    user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "member_role_changed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    /** @enum {string} */
+                    base_role: "owner" | "admin" | "editor" | "viewer";
+                    changed_at_event_sequence: number;
+                    effective_permissions: string[];
+                    permission_version: number;
+                    /** @enum {string} */
+                    previous_base_role: "owner" | "admin" | "editor" | "viewer";
+                    previous_effective_permissions: string[];
+                    previous_role_id: string;
+                    role_id: string;
+                    user_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "member_role_changed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
                     removed_at_event_sequence: number;
                     user_id: string;
                     workspace_id: string;
@@ -4575,6 +5477,7 @@ export interface components {
                         recipient_user_id?: string;
                         invitee_user_id?: string;
                         redeemed_user_id?: string;
+                        recipient_account_device_id?: string;
                         owner_kind?: string;
                         recipient_encryption_key_id?: string;
                         role_id?: string;
@@ -4591,6 +5494,7 @@ export interface components {
                         token_hash?: string;
                         redeemed_device_id?: string;
                         share_id?: string;
+                        recipient_account_user_id?: string;
                         bootstrap_version?: number;
                         share_participant_principal_id?: string;
                         key_scope_kind?: string;
@@ -4633,6 +5537,7 @@ export interface components {
                         recipient_user_id?: string;
                         invitee_user_id?: string;
                         redeemed_user_id?: string;
+                        recipient_account_device_id?: string;
                         owner_kind?: string;
                         recipient_encryption_key_id?: string;
                         role_id?: string;
@@ -4649,6 +5554,7 @@ export interface components {
                         token_hash?: string;
                         redeemed_device_id?: string;
                         share_id?: string;
+                        recipient_account_user_id?: string;
                         bootstrap_version?: number;
                         share_participant_principal_id?: string;
                         key_scope_kind?: string;
@@ -4692,6 +5598,7 @@ export interface components {
                         recipient_user_id?: string;
                         invitee_user_id?: string;
                         redeemed_user_id?: string;
+                        recipient_account_device_id?: string;
                         owner_kind?: string;
                         recipient_encryption_key_id?: string;
                         role_id?: string;
@@ -4708,6 +5615,7 @@ export interface components {
                         token_hash?: string;
                         redeemed_device_id?: string;
                         share_id?: string;
+                        recipient_account_user_id?: string;
                         bootstrap_version?: number;
                         share_participant_principal_id?: string;
                         key_scope_kind?: string;
@@ -4822,6 +5730,7 @@ export interface components {
                         recipient_user_id?: string;
                         invitee_user_id?: string;
                         redeemed_user_id?: string;
+                        recipient_account_device_id?: string;
                         owner_kind?: string;
                         recipient_encryption_key_id?: string;
                         role_id?: string;
@@ -4838,6 +5747,7 @@ export interface components {
                         token_hash?: string;
                         redeemed_device_id?: string;
                         share_id?: string;
+                        recipient_account_user_id?: string;
                         bootstrap_version?: number;
                         share_participant_principal_id?: string;
                         key_scope_kind?: string;
@@ -4880,6 +5790,7 @@ export interface components {
                         recipient_user_id?: string;
                         invitee_user_id?: string;
                         redeemed_user_id?: string;
+                        recipient_account_device_id?: string;
                         owner_kind?: string;
                         recipient_encryption_key_id?: string;
                         role_id?: string;
@@ -4896,6 +5807,7 @@ export interface components {
                         token_hash?: string;
                         redeemed_device_id?: string;
                         share_id?: string;
+                        recipient_account_user_id?: string;
                         bootstrap_version?: number;
                         share_participant_principal_id?: string;
                         key_scope_kind?: string;
@@ -4939,6 +5851,7 @@ export interface components {
                         recipient_user_id?: string;
                         invitee_user_id?: string;
                         redeemed_user_id?: string;
+                        recipient_account_device_id?: string;
                         owner_kind?: string;
                         recipient_encryption_key_id?: string;
                         role_id?: string;
@@ -4955,6 +5868,7 @@ export interface components {
                         token_hash?: string;
                         redeemed_device_id?: string;
                         share_id?: string;
+                        recipient_account_user_id?: string;
                         bootstrap_version?: number;
                         share_participant_principal_id?: string;
                         key_scope_kind?: string;
@@ -5035,6 +5949,8 @@ export interface components {
                     bootstrap_package_hash: string;
                     bootstrap_suite_id: string;
                     capability_context_hash: string;
+                    /** @enum {string} */
+                    delivery_mode: "unknown_fragment" | "known_recipient";
                     expires_event_sequence: number;
                     invitation_id: string;
                     invitee_binding: {
@@ -5043,6 +5959,8 @@ export interface components {
                         kind: "email";
                     };
                     kek_version: number;
+                    recipient_device_ids: string[];
+                    recipient_user_id: string | null;
                     redeem_authority: {
                         hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
                         /** @enum {string} */
@@ -5122,6 +6040,8 @@ export interface components {
                     bootstrap_package_hash: string;
                     bootstrap_suite_id: string;
                     capability_context_hash: string;
+                    /** @enum {string} */
+                    delivery_mode: "unknown_fragment" | "known_recipient";
                     expires_event_sequence: number;
                     invitation_id: string;
                     invitee_binding: {
@@ -5130,6 +6050,8 @@ export interface components {
                         kind: "email";
                     };
                     kek_version: number;
+                    recipient_device_ids: string[];
+                    recipient_user_id: string | null;
                     redeem_authority: {
                         hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
                         /** @enum {string} */
@@ -5653,6 +6575,8 @@ export interface components {
                     bootstrap_package_hash: string;
                     bootstrap_suite_id: string;
                     capability_context_hash: string;
+                    /** @enum {string} */
+                    delivery_mode: "unknown_fragment" | "known_recipient";
                     expires_event_sequence: number;
                     guest_grant_template_hash: string;
                     guest_invitation_id: string;
@@ -5662,6 +6586,8 @@ export interface components {
                         workspace_kek_version?: number | string;
                     };
                     permission: string;
+                    recipient_device_ids: string[];
+                    recipient_user_id: string | null;
                     redeem_authority: {
                         hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
                         /** @enum {string} */
@@ -5742,6 +6668,8 @@ export interface components {
                     bootstrap_package_hash: string;
                     bootstrap_suite_id: string;
                     capability_context_hash: string;
+                    /** @enum {string} */
+                    delivery_mode: "unknown_fragment" | "known_recipient";
                     expires_event_sequence: number;
                     guest_grant_template_hash: string;
                     guest_invitation_id: string;
@@ -5751,6 +6679,8 @@ export interface components {
                         workspace_kek_version?: number | string;
                     };
                     permission: string;
+                    recipient_device_ids: string[];
+                    recipient_user_id: string | null;
                     redeem_authority: {
                         hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
                         /** @enum {string} */
@@ -6133,6 +7063,8 @@ export interface components {
                     guest_signing_key_id: string;
                     guest_user_id: string;
                     permission: string;
+                    recipient_account_device_id: string | null;
+                    recipient_account_user_id: string | null;
                     redeemed_at_event_sequence: number;
                     scope_id: string;
                     scope_kind: string;
@@ -6210,6 +7142,8 @@ export interface components {
                     guest_signing_key_id: string;
                     guest_user_id: string;
                     permission: string;
+                    recipient_account_device_id: string | null;
+                    recipient_account_user_id: string | null;
                     redeemed_at_event_sequence: number;
                     scope_id: string;
                     scope_kind: string;
@@ -7932,6 +8866,164 @@ export interface components {
                     signing_key_id: string;
                 };
                 body: {
+                    event_type: string;
+                    new_identity_encryption_key_id: string;
+                    new_identity_signing_key_id: string;
+                    new_key_material_hash: string;
+                    not_before_event_sequence: number;
+                    old_identity_encryption_key_id: string;
+                    old_identity_signing_key_id: string;
+                    old_user_checkpoint_hash: string;
+                    old_user_checkpoint_sequence: number;
+                    reason: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_started";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    event_type: string;
+                    new_identity_encryption_key_id: string;
+                    new_identity_signing_key_id: string;
+                    new_key_material_hash: string;
+                    not_before_event_sequence: number;
+                    old_identity_encryption_key_id: string;
+                    old_identity_signing_key_id: string;
+                    old_user_checkpoint_hash: string;
+                    old_user_checkpoint_sequence: number;
+                    reason: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_started";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
                     completed_at_event_sequence: number;
                     completion_manifest_hash: string;
                     event_type: string;
@@ -8011,6 +9103,158 @@ export interface components {
                     event_type: string;
                     new_key_version: number;
                     old_key_version: number;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_completed";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    completed_at_event_sequence: number;
+                    completion_manifest_hash: string;
+                    event_type: string;
+                    new_identity_signing_key_id: string;
+                    new_user_checkpoint_hash: string;
+                    old_identity_signing_key_id: string;
+                    old_user_checkpoint_hash: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
+                };
+                /** @enum {string} */
+                event_type: "rotation_completed";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    completed_at_event_sequence: number;
+                    completion_manifest_hash: string;
+                    event_type: string;
+                    new_identity_signing_key_id: string;
+                    new_user_checkpoint_hash: string;
+                    old_identity_signing_key_id: string;
+                    old_user_checkpoint_hash: string;
                     rotation_kind: string;
                     scope_id: string;
                     scope_kind: string;
@@ -8226,21 +9470,19 @@ export interface components {
                     signing_key_id: string;
                 };
                 body: {
-                    actor_hash: string;
-                    admission_nonce: string;
-                    dek_version: number;
-                    document_id: string;
-                    document_permission_proof_hash: string;
+                    deleted_at_event_sequence: number;
+                    deletion_manifest_hash: string;
                     event_type: string;
-                    min_dek_version: number;
-                    operation_hash: string;
-                    operation_signature_hash: string;
-                    previous_workspace_event_hash: string;
-                    previous_workspace_event_sequence: number;
-                    workspace_id: string;
+                    new_identity_signing_key_id: string;
+                    old_identity_encryption_key_id: string;
+                    old_identity_signing_key_id: string;
+                    rotation_completed_event_hash: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
                 };
                 /** @enum {string} */
-                event_type: "document_update_accepted";
+                event_type: "old_key_deleted";
                 /** @enum {string} */
                 protocol: "refmd.key-directory-event";
                 scope_id: string;
@@ -8304,21 +9546,19 @@ export interface components {
                     signing_key_id: string;
                 };
                 body: {
-                    actor_hash: string;
-                    admission_nonce: string;
-                    dek_version: number;
-                    document_id: string;
-                    document_permission_proof_hash: string;
+                    deleted_at_event_sequence: number;
+                    deletion_manifest_hash: string;
                     event_type: string;
-                    min_dek_version: number;
-                    operation_hash: string;
-                    operation_signature_hash: string;
-                    previous_workspace_event_hash: string;
-                    previous_workspace_event_sequence: number;
-                    workspace_id: string;
+                    new_identity_signing_key_id: string;
+                    old_identity_encryption_key_id: string;
+                    old_identity_signing_key_id: string;
+                    rotation_completed_event_hash: string;
+                    rotation_kind: string;
+                    scope_id: string;
+                    scope_kind: string;
                 };
                 /** @enum {string} */
-                event_type: "document_update_accepted";
+                event_type: "old_key_deleted";
                 previous_event_hash: string;
                 /** @enum {string} */
                 protocol: "refmd.key-directory-event";
@@ -8475,6 +9715,354 @@ export interface components {
                 };
                 /** @enum {string} */
                 event_type: "document_snapshot_accepted";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    /** @enum {string} */
+                    authority_kind: "workspace_device";
+                    authority_scope_id: string;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    /** @enum {string} */
+                    event_type: "document_write_session_admitted";
+                    expires_at_ms: number;
+                    issued_at_ms: number;
+                    max_ciphertext_bytes: number;
+                    max_update_count: number;
+                    min_dek_version: number;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    session_id: string;
+                    session_nonce: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_write_session_admitted";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    /** @enum {string} */
+                    authority_kind: "workspace_device";
+                    authority_scope_id: string;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    /** @enum {string} */
+                    event_type: "document_write_session_admitted";
+                    expires_at_ms: number;
+                    issued_at_ms: number;
+                    max_ciphertext_bytes: number;
+                    max_update_count: number;
+                    min_dek_version: number;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    session_id: string;
+                    session_nonce: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_write_session_admitted";
+                previous_event_hash: string;
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                sequence: number;
+                /** @enum {integer} */
+                version: 1;
+            }) | ({
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    /** @enum {string} */
+                    authority_kind: "share_participant_device";
+                    authority_scope_id: string;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    /** @enum {string} */
+                    event_type: "document_write_session_admitted";
+                    expires_at_ms: number;
+                    issued_at_ms: number;
+                    max_ciphertext_bytes: number;
+                    max_update_count: number;
+                    min_dek_version: number;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    session_id: string;
+                    session_nonce: string;
+                    /** @enum {string} */
+                    share_authority_kind: "share_participant_device";
+                    share_id: string;
+                    /** @enum {string} */
+                    share_permission: "edit";
+                    share_session_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_write_session_admitted";
+                /** @enum {string} */
+                protocol: "refmd.key-directory-event";
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user" | "workspace";
+                /** @enum {integer} */
+                sequence: 1;
+                /** @enum {integer} */
+                version: 1;
+            } | {
+                actor: {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "identity";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    device_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: string;
+                    user_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    share_id: string;
+                    share_participant_device_id: string;
+                    share_participant_principal_id: string;
+                    /** @enum {string} */
+                    signer_kind: "share_participant_device";
+                    signing_key_id: string;
+                } | {
+                    authorizing_checkpoint_hash?: string;
+                    authorizing_checkpoint_sequence?: number;
+                    invitation_id: string;
+                    key_checkpoint_hash?: string;
+                    key_checkpoint_sequence?: number;
+                    key_scope_id?: string;
+                    key_scope_kind?: string;
+                    role_at_event?: string;
+                    /** @enum {string} */
+                    signer_kind: "invitation_redeem_authority";
+                    signing_key_id: string;
+                };
+                body: {
+                    actor_hash: string;
+                    /** @enum {string} */
+                    authority_kind: "share_participant_device";
+                    authority_scope_id: string;
+                    document_id: string;
+                    document_permission_proof_hash: string;
+                    /** @enum {string} */
+                    event_type: "document_write_session_admitted";
+                    expires_at_ms: number;
+                    issued_at_ms: number;
+                    max_ciphertext_bytes: number;
+                    max_update_count: number;
+                    min_dek_version: number;
+                    previous_workspace_event_hash: string;
+                    previous_workspace_event_sequence: number;
+                    session_id: string;
+                    session_nonce: string;
+                    /** @enum {string} */
+                    share_authority_kind: "share_participant_device";
+                    share_id: string;
+                    /** @enum {string} */
+                    share_permission: "edit";
+                    share_session_id: string;
+                    workspace_id: string;
+                };
+                /** @enum {string} */
+                event_type: "document_write_session_admitted";
                 previous_event_hash: string;
                 /** @enum {string} */
                 protocol: "refmd.key-directory-event";
@@ -8867,6 +10455,20 @@ export interface components {
         ShareLinkMountListResponse: {
             mounts: components["schemas"]["ShareLinkMountListItem"][];
         };
+        /** InvitationKnownRecipientWrap */
+        InvitationKnownRecipientWrap: {
+            /** @enum {string} */
+            delivery_mode: "known_recipient";
+            /** Format: uuid */
+            recipient_user_id: string;
+            sender_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            wraps: components["schemas"]["HybridKeyWrapFields"][];
+        };
+        /** ChangeMemberRoleResponse */
+        ChangeMemberRoleResponse: {
+            ok: boolean;
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
+        };
         /** PluginApplicationApplyRequest */
         PluginApplicationApplyRequest: {
             /** Format: uuid */
@@ -8877,9 +10479,49 @@ export interface components {
             /** Format: uuid */
             document_id: string;
             encrypted_dek: string;
+            key_version: number;
             nonce: string;
             /** Format: uuid */
             share_id: string;
+        };
+        /** InvitationDeliveryAttemptResponse */
+        InvitationDeliveryAttemptResponse: {
+            approved_artifacts?: Record<string, never> | null;
+            /** Format: uuid */
+            authorization_id?: string | null;
+            /** Format: uuid */
+            context_id: string;
+            /** @enum {string} */
+            context_kind: "workspace_invitation" | "guest_invitation";
+            context_snapshot: Record<string, never>;
+            /** Format: date_time */
+            created_at: string;
+            /** Format: date_time */
+            expires_at: string;
+            live_redeem_challenge_hash: string;
+            /** Format: uuid */
+            recipient_device_id: string;
+            recipient_nonce_state_hash: string;
+            recipient_redeem_nonce: string;
+            /** Format: uuid */
+            recipient_user_id: string;
+            /** Format: uuid */
+            redeem_attempt_id: string;
+            request_binding_hash: string;
+            resource_hash: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "consumed" | "expired";
+            /** Format: uuid */
+            target_device_id: string;
+            target_encryption_key_id: string;
+            target_key_checkpoint_hash?: string | null;
+            target_key_checkpoint_sequence?: number | null;
+            target_registration: components["schemas"]["InvitationDeliveryTargetRegistration"];
+            target_registration_proof?: components["schemas"]["InvitationDeliveryTargetRegistrationProof"] | null;
+            /** Format: uuid */
+            target_user_id: string;
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** ShareMountTarget */
         ShareMountTarget: {
@@ -8899,6 +10541,10 @@ export interface components {
             trust_transfer_delivery_commitment: components["schemas"]["TrustTransferDeliveryCommitment"];
             umk_distribution_delivery_commitment: components["schemas"]["UmkDistributionDeliveryCommitment"];
         };
+        /** WorkspaceWipeAcknowledgementRequest */
+        WorkspaceWipeAcknowledgementRequest: {
+            device_key_deletion_proof: components["schemas"]["DeviceKeyDeletionProof"];
+        };
         /** InvitationBootstrapMaintenanceWrap */
         InvitationBootstrapMaintenanceWrap: {
             ciphertext: string;
@@ -8908,6 +10554,10 @@ export interface components {
         /** DocumentKeysResponse */
         DocumentKeysResponse: {
             keys: components["schemas"]["DocumentKeyResponse"][];
+        };
+        /** InitialAkeResponsesRequest */
+        InitialAkeResponsesRequest: {
+            responses: components["schemas"]["InitialAkeResponseBundle"];
         };
         /** PluginRecordWriteRequest */
         PluginRecordWriteRequest: {
@@ -8922,6 +10572,12 @@ export interface components {
         /** ShareMountBootstrapRequest */
         ShareMountBootstrapRequest: {
             authenticated_workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
+        };
+        /** IdentityRotationRequiredWorkspaceTarget */
+        IdentityRotationRequiredWorkspaceTarget: {
+            key_version: number;
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** RenameDeviceRequest */
         RenameDeviceRequest: {
@@ -9024,14 +10680,25 @@ export interface components {
             device_id: string;
             device_name?: string | null;
             device_type?: string | null;
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"];
             /** Format: uuid */
             guest_user_id: string;
-            identity_hybrid_encryption_public_key_material?: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
-            identity_hybrid_signing_public_key_material?: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            identity_hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
             pending_registration_challenge_hash: string;
             token: string;
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** DocumentKeyRotationTargetsResponse */
+        DocumentKeyRotationTargetsResponse: {
+            current_key_version: number;
+            targets: components["schemas"]["DocumentKeyRotationTarget"][];
         };
         /** KekRotationCompletionManifestResponse */
         KekRotationCompletionManifestResponse: {
@@ -9092,12 +10759,50 @@ export interface components {
         };
         /** InitialAkeArtifact */
         InitialAkeArtifact: components["schemas"]["InitialAkeUmkArtifact"] | components["schemas"]["InitialAkeApprovalArtifact"] | components["schemas"]["InitialAkeTrustTransferArtifact"];
+        /** IdentityRotationDeletionProof */
+        IdentityRotationDeletionProof: {
+            completion_manifest: components["schemas"]["IdentityRotationCompletionManifest"];
+            completion_manifest_hash: components["schemas"]["Blake3Base64Url"];
+            deletion_manifest: components["schemas"]["IdentityRotationDeletionManifest"];
+            deletion_manifest_hash: components["schemas"]["Blake3Base64Url"];
+            device_key_deletion_proofs: components["schemas"]["SignedIdentityKeyDeletionProof"][];
+            old_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {boolean} */
+            old_private_key_use_blocked: true;
+            old_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            old_version: number;
+            /** @enum {boolean} */
+            persistent_identity_deletion_authorized: true;
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            successor_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            successor_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            successor_version: number;
+            wipe_required_device_ids: string[];
+        };
         /** RegenerateRecoveryKeyRequest */
         RegenerateRecoveryKeyRequest: {
             new_recovery_authorization_key_id: string;
             new_recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
             new_recovery_encrypted_umk: string;
             new_recovery_nonce: string;
+        };
+        /** DocumentKeyRotationTarget */
+        DocumentKeyRotationTarget: {
+            current_key_version: number;
+            /** Format: uuid */
+            document_id: string;
+            expires_event_sequence: number;
+            max_views: number;
+            password_protected: boolean;
+            /** @enum {string} */
+            permission: "view" | "edit";
+            /** Format: uuid */
+            root_document_id: string;
+            /** Format: uuid */
+            root_share_id: string;
+            share_link_secret_backup_wraps: components["schemas"]["WorkspaceOperationProvenSignedPqWrap"][];
+            /** Format: uuid */
+            target_share_id: string;
         };
         /** ShareFolderRouteMetadataResponse */
         ShareFolderRouteMetadataResponse: {
@@ -9110,6 +10815,13 @@ export interface components {
             /** Format: uuid */
             share_id: string;
             share_token_hash: string;
+        };
+        /** IdentityRotationFinalizeRequest */
+        IdentityRotationFinalizeRequest: {
+            deletion_proof: components["schemas"]["IdentityRotationDeletionProof"];
+            key_version: number;
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** ShareBootstrapResponse */
         ShareBootstrapResponse: {
@@ -9356,7 +11068,7 @@ export interface components {
                 guest_user_id: string;
                 kek_version: number;
                 /** @enum {string} */
-                permission: "edit";
+                permission: "view" | "edit";
                 recipient_encryption_key_id: string;
                 /** @enum {string} */
                 scope_id: "none";
@@ -9406,12 +11118,41 @@ export interface components {
         /** LoginResponse */
         LoginResponse: {
             device_verified: boolean;
+            identity_recovery_required: boolean;
             kdf_migration_required?: boolean;
             keys?: components["schemas"]["LoginKeys"];
             /** Format: uuid */
             session_id: string;
             target_kdf_params?: components["schemas"]["KdfParams"];
             user: components["schemas"]["UserInfo"];
+        };
+        /** IdentityKeyDeletionProofPayload */
+        IdentityKeyDeletionProofPayload: {
+            deleted_identity_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_storage_classes: ("local_encrypted_key_store" | "crypto_worker_state" | "indexeddb_cache" | "pending_queue" | "offline_cache")[];
+            /** Format: uuid */
+            device_id: string;
+            local_cache_epoch: number;
+            new_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            new_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            new_user_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            old_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            old_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            old_user_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            proof_nonce: components["schemas"]["Base64UrlBytes"];
+            /** @enum {string} */
+            protocol: "refmd.identity-key-deletion-proof";
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            rotation_kind: "identity";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "user";
+            /** Format: uuid */
+            user_id: string;
+            /** @enum {integer} */
+            version: 1;
         };
         /** UpdateDocumentRequest */
         UpdateDocumentRequest: {
@@ -9438,6 +11179,10 @@ export interface components {
             icon?: string | null;
             name?: string;
             slug?: string;
+        };
+        /** InitialAkeResponsesResponse */
+        InitialAkeResponsesResponse: {
+            responses: components["schemas"]["InitialAkeResponseBundle"];
         };
         /** CreateDeviceRegistrationRequest */
         CreateDeviceRegistrationRequest: {
@@ -9542,18 +11287,6 @@ export interface components {
             identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
             name?: string;
             registration_challenge: string;
-        } | {
-            client_nonce: string;
-            device_encryption_key_id: string;
-            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
-            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
-            /** Format: uuid */
-            device_id: string;
-            device_signing_key_id: components["schemas"]["Blake3Base64Url"];
-            device_type?: string;
-            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
-            name?: string;
-            registration_challenge: string;
         };
         /** ShareCreateResponse */
         ShareCreateResponse: {
@@ -9572,6 +11305,12 @@ export interface components {
             bootstrap_required: boolean;
             /** Format: uuid */
             mount_id: string;
+        };
+        /** WorkspaceOperationProvenSignedPqWrap */
+        WorkspaceOperationProvenSignedPqWrap: components["schemas"]["HybridKeyWrapFields"] & {
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /**
          * EncryptedIdentityHybridPrivateKeyMaterial
@@ -9635,10 +11374,15 @@ export interface components {
         };
         /** CreateDocumentKeyRequest */
         CreateDocumentKeyRequest: {
+            dek_rotation_start_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            dek_rotation_start_events?: components["schemas"]["KeyDirectoryEnvelope"][];
             encrypted_dek: string;
             kek_version: number;
             key_version: number;
             nonce: string;
+            share_key_replacements?: components["schemas"]["DocumentShareKeyRotationReplacement"][];
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
@@ -9647,6 +11391,14 @@ export interface components {
             new_encrypted_umk: string;
             new_salt: string;
             new_umk_nonce: string;
+        };
+        /** DekRotationCompletionRequest */
+        DekRotationCompletionRequest: {
+            device_key_deletion_proofs: components["schemas"]["DeviceKeyDeletionProof"][];
+            new_key_version: number;
+            wipe_required_device_ids: string[];
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** KekRotationCompleteRequest */
         KekRotationCompleteRequest: {
@@ -9767,13 +11519,22 @@ export interface components {
             guest_user_id: string;
             /** Format: uuid */
             invitation_id: string;
-            kek_version: number;
+            key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"];
             /** @enum {string} */
             permission: "view" | "edit";
+            recipient_delivery_artifacts?: components["schemas"]["ApproveInvitationDeliveryAttemptRequest"] | null;
             /** Format: uuid */
             scope_id?: string | null;
             /** @enum {string} */
             scope_kind: "workspace" | "document" | "folder" | "share";
+            /** Format: uuid */
+            share_id: string | null;
+            /** Format: uuid */
+            share_scope_id: string | null;
+            /** @enum {string|null} */
+            share_scope_kind: "document" | "folder" | null;
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
             /** Format: uuid */
             workspace_id: string;
             workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
@@ -9814,6 +11575,11 @@ export interface components {
             /** Format: uri */
             authorization_url: string;
         };
+        /** UpdateRoleResponse */
+        UpdateRoleResponse: {
+            role: components["schemas"]["RoleResponse"];
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
+        };
         /** ShareDocumentRouteMetadataResponse */
         ShareDocumentRouteMetadataResponse: {
             bootstrap_required: boolean;
@@ -9827,6 +11593,10 @@ export interface components {
             share_token_hash: string;
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** DocumentWipeAcknowledgementRequest */
+        DocumentWipeAcknowledgementRequest: {
+            device_key_deletion_proof: components["schemas"]["DeviceKeyDeletionProof"];
         };
         /** ShareMountResponse */
         ShareMountResponse: {
@@ -9855,6 +11625,7 @@ export interface components {
             /** Format: uuid */
             document_id: string;
             encrypted_dek: string;
+            key_version: number;
             nonce: string;
             /**
              * Format: uuid
@@ -9881,6 +11652,9 @@ export interface components {
             sender_identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
             /** Format: uuid */
             sender_user_id: string;
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** PasswordSetResponse */
         PasswordSetResponse: {
@@ -9931,6 +11705,12 @@ export interface components {
             version: 1;
             x25519_public: string;
         };
+        /** SignedIdentityKeyDeletionProof */
+        SignedIdentityKeyDeletionProof: {
+            payload: components["schemas"]["IdentityKeyDeletionProofPayload"];
+            signature: components["schemas"]["HybridSignature"];
+            transcript: components["schemas"]["IdentityKeyDeletionProofTranscript"];
+        };
         /** ShareMountListResponse */
         ShareMountListResponse: {
             mounts: components["schemas"]["ShareMountListItem"][];
@@ -9940,10 +11720,12 @@ export interface components {
             bootstrap_key_commitment: string;
             bootstrap_package_hash: string;
             bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
-            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationPackageKeyRecipientWrap"];
             /** @enum {string} */
             bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
             capability_context_hash: string;
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
             encrypted_bootstrap_package: components["schemas"]["WorkspaceInvitationBootstrapPackage"];
             /** Format: date-time */
             expires_at?: string | null;
@@ -9952,12 +11734,19 @@ export interface components {
             /** Format: email */
             invited_email: string;
             kek_version: number;
+            recipient_device_ids: string[];
+            /** Format: uuid */
+            recipient_user_id?: string | null;
             /** Format: uuid */
             role_id?: string | null;
             token_hash: string;
             token_prefix: string;
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** ConsumeInvitationDeliveryAttemptRequest */
+        ConsumeInvitationDeliveryAttemptRequest: {
+            token: string;
         };
         /** WorkspaceMemberKeysResponse */
         WorkspaceMemberKeysResponse: {
@@ -9978,6 +11767,7 @@ export interface components {
             /** Format: date-time */
             joined_at: string;
             name: string;
+            permission_version: number;
             /** Format: uuid */
             role_id: string;
             role_name: string;
@@ -10097,7 +11887,7 @@ export interface components {
                 guest_user_id: string;
                 kek_version: number;
                 /** @enum {string} */
-                permission: "edit";
+                permission: "view" | "edit";
                 recipient_encryption_key_id: string;
                 /** @enum {string} */
                 scope_id: "none";
@@ -10146,6 +11936,7 @@ export interface components {
             approval_signature: components["schemas"]["HybridSignature"];
             /** @enum {string} */
             approval_signature_surface: "device_approval";
+            initial_ake_offers: components["schemas"]["InitialAkeOfferBundle"];
             user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
             workspace_key_directory_appends: {
@@ -10194,22 +11985,44 @@ export interface components {
         };
         /** InvitationLookupResponse */
         InvitationLookupResponse: {
-            encrypted_bootstrap_package?: (components["schemas"]["WorkspaceInvitationBootstrapPackage"] | components["schemas"]["GuestInvitationBootstrapPackage"]) | null;
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
+            encrypted_bootstrap_package: components["schemas"]["WorkspaceInvitationBootstrapPackage"] | components["schemas"]["GuestInvitationBootstrapPackage"];
             /** Format: uuid */
-            invitation_id?: string;
-            kek_version?: number | null;
+            invitation_id: string;
+            kek_version: number | null;
+            key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"] | null;
             /** @enum {string} */
             kind: "workspace" | "guest";
             /** @enum {string|null} */
             permission?: "view" | "edit" | null;
+            recipient_device_ids: string[];
+            /** Format: uuid */
+            recipient_user_id: string | null;
             /** Format: uuid */
             scope_id?: string | null;
             /** @enum {string|null} */
-            scope_kind?: "workspace" | "document" | "folder" | null;
+            scope_kind?: "workspace" | "document" | "folder" | "share" | null;
+            /** Format: uuid */
+            share_id: string | null;
             /** Format: uuid */
             workspace_id?: string | null;
-            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
-        };
+            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+            workspace_key_directory_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
+        } & ({
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment";
+            recipient_device_ids: string[];
+            /** @enum {string|null} */
+            recipient_user_id: null;
+        } | {
+            /** @enum {string} */
+            delivery_mode: "known_recipient";
+            recipient_device_ids: string[];
+            /** Format: uuid */
+            recipient_user_id: string;
+        });
         /** DeviceKeyDeletionTranscript */
         DeviceKeyDeletionTranscript: {
             actor: {
@@ -10233,11 +12046,11 @@ export interface components {
                 old_key_version: number;
                 rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
                 /** @enum {string} */
-                rotation_kind: "kek";
+                rotation_kind: "kek" | "dek";
                 /** Format: uuid */
                 scope_id: string;
                 /** @enum {string} */
-                scope_kind: "workspace";
+                scope_kind: "workspace" | "document";
                 /** Format: uuid */
                 workspace_id: string;
             };
@@ -10297,6 +12110,8 @@ export interface components {
             /** Format: email */
             email: string;
         };
+        /** XChaCha20Poly1305Nonce */
+        XChaCha20Poly1305Nonce: string;
         /** InvitationResponse */
         InvitationResponse: components["schemas"]["InvitationListItem"];
         /** ShareMountCreateResponse */
@@ -10327,6 +12142,12 @@ export interface components {
         WorkspacesListResponse: {
             workspaces: components["schemas"]["WorkspaceResponse"][];
         };
+        /** InitialAkeExchangeResponse */
+        InitialAkeExchangeResponse: {
+            offers: components["schemas"]["InitialAkeOfferBundle"];
+            sender_device_id: string;
+            sender_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+        };
         /** InitialKeyDeliveryAuthority */
         InitialKeyDeliveryAuthority: {
             /** @enum {string} */
@@ -10354,18 +12175,39 @@ export interface components {
             salt?: string | null;
             /** @enum {string} */
             scope: "document" | "folder";
-            share_link_secret_backup_wraps: components["schemas"]["HybridKeyWrapFields"][];
+            share_link_secret_backup_wraps: components["schemas"]["WorkspaceOperationProvenSignedPqWrap"][];
             token_prefix: string;
             view_count: number;
         };
+        /** InvitationRecipientResponse */
+        InvitationRecipientResponse: components["schemas"]["UnknownInvitationRecipientResponse"] | components["schemas"]["KnownInvitationRecipientResponse"];
         /** LatestKeyDirectoryResponse */
         LatestKeyDirectoryResponse: {
+            authority_event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
             checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             checkpoint_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
             event_ancestry: components["schemas"]["KeyDirectoryEnvelope"][];
             events: components["schemas"]["KeyDirectoryEnvelope"][];
             pin: components["schemas"]["KeyDirectoryPin"];
             rotation_deletion_evidences: components["schemas"]["RotationDeletionEvidence"][];
+        };
+        /** WorkspaceRotationDeletionEvidence */
+        WorkspaceRotationDeletionEvidence: {
+            deletion_manifest: components["schemas"]["OldKeyDeletionManifest"];
+            device_key_deletion_proofs: {
+                proofs: components["schemas"]["DeviceKeyDeletionProof"][];
+            };
+            old_key_deleted_event_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            /** @enum {string} */
+            rotation_kind: "kek";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "workspace";
+            wipe_required_device_ids: string[];
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** ShareTreeEntry */
         ShareTreeEntry: {
@@ -10407,6 +12249,10 @@ export interface components {
             created_at: string;
             /** Format: uuid */
             created_by?: string | null;
+            /** Format: date-time */
+            dek_rotation_due_at?: string | null;
+            /** @enum {string|null} */
+            dek_rotation_reason: "time_based" | "manual" | "security" | "membership_change" | null;
             /** @enum {string} */
             doc_type: "document" | "folder";
             encrypted_title?: string | null;
@@ -10432,6 +12278,22 @@ export interface components {
             /** @enum {string} */
             write_state: "writable" | "read_only" | "archived" | "write_disabled";
         };
+        /** InitialAkeOfferBundle */
+        InitialAkeOfferBundle: {
+            device_approval_kek_initial: {
+                [key: string]: components["schemas"]["InitialAkeOffer"];
+            };
+            trust_transfer: components["schemas"]["InitialAkeOffer"];
+            umk_distribution: components["schemas"]["InitialAkeOffer"];
+        };
+        /** KnownInvitationRecipientResponse */
+        KnownInvitationRecipientResponse: {
+            /** @enum {string} */
+            delivery_mode: "known_recipient";
+            devices: components["schemas"]["InvitationRecipientDevice"][];
+            /** Format: uuid */
+            recipient_user_id: string;
+        };
         /** DeviceRegistrationsResponse */
         DeviceRegistrationsResponse: {
             devices: components["schemas"]["DeviceRegistrationInfo"][];
@@ -10455,6 +12317,8 @@ export interface components {
             /** @enum {string} */
             kind: "folder";
         };
+        /** InvitationDeliveryTargetRegistration */
+        InvitationDeliveryTargetRegistration: components["schemas"]["WorkspaceInvitationDeliveryTargetRegistration"] | components["schemas"]["GuestInvitationDeliveryTargetRegistration"];
         /** HybridEncryptionPublicKeyMaterial */
         HybridEncryptionPublicKeyMaterial: {
             hybrid_public: string;
@@ -10515,7 +12379,7 @@ export interface components {
             encrypted_payload: components["schemas"]["InvitationBootstrapCiphertext"];
             key_version: number;
             package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
-            package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            package_key_recipient_wrap: components["schemas"]["InvitationPackageKeyRecipientWrap"];
             /** @enum {string} */
             protocol: "refmd.guest-invitation-bootstrap";
             /** @enum {string} */
@@ -10549,6 +12413,9 @@ export interface components {
             identity_encryption_key_id: string;
             identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
             identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            identity_key_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            /** Format: date-time */
+            identity_rotation_due_at: string | null;
             identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
             umk_nonce?: string;
         } | null;
@@ -10577,8 +12444,18 @@ export interface components {
                 response_signing_key?: string;
             };
         } | null;
+        /** InitialAkeResponseBundle */
+        InitialAkeResponseBundle: {
+            device_approval_kek_initial: {
+                [key: string]: components["schemas"]["InitialAkeResponderConfirmation"];
+            };
+            trust_transfer: components["schemas"]["InitialAkeResponderConfirmation"];
+            umk_distribution: components["schemas"]["InitialAkeResponderConfirmation"];
+        };
         /** WorkspaceInvitationBootstrapAad */
         WorkspaceInvitationBootstrapAad: {
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
             /** Format: uuid */
             invitation_id: string;
             /** Format: email */
@@ -10588,6 +12465,8 @@ export interface components {
             };
             /** @enum {string} */
             protocol: "refmd.workspace-invitation-bootstrap";
+            recipient_device_ids: string[];
+            recipient_user_id?: string | "NOT_APPLICABLE";
             /** Format: uuid */
             role_id: string;
             /** @enum {string} */
@@ -10731,6 +12610,12 @@ export interface components {
             is_default?: boolean;
             name?: string;
             permissions?: components["schemas"]["PermissionOverride"][];
+            workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
+            workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+        };
+        /** InvitationDeliveryAttemptListResponse */
+        InvitationDeliveryAttemptListResponse: {
+            attempts: components["schemas"]["InvitationDeliveryAttemptResponse"][];
         };
         /** InitialKeyDeliveryTrustTransferRecord */
         InitialKeyDeliveryTrustTransferRecord: {
@@ -10756,6 +12641,27 @@ export interface components {
             /** Format: uuid */
             parent_id?: string | null;
             position: number;
+        };
+        /** DocumentDekRotationDeletionEvidence */
+        DocumentDekRotationDeletionEvidence: {
+            completion_manifest: components["schemas"]["DocumentDekRotationCompletionManifest"];
+            deletion_manifest: components["schemas"]["DocumentDekRotationDeletionManifest"];
+            device_key_deletion_proofs: {
+                proofs: components["schemas"]["DeviceKeyDeletionProof"][];
+            };
+            /** Format: uuid */
+            document_id: string;
+            old_key_deleted_event_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            /** @enum {string} */
+            rotation_kind: "dek";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document";
+            wipe_required_device_ids: string[];
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** OldKeyDeletionManifest */
         OldKeyDeletionManifest: {
@@ -10905,6 +12811,7 @@ export interface components {
         Blake3Base64Url: string;
         /** RecoveryDataResponse */
         RecoveryDataResponse: {
+            candidate_user_audit_checkpoint?: components["schemas"]["AuditCheckpoint"];
             candidate_user_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
             candidate_user_checkpoint_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
             candidate_user_checkpoint_hash?: string;
@@ -10912,6 +12819,7 @@ export interface components {
             candidate_user_event_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
             candidate_user_event_head_hash?: string;
             candidate_user_event_head_sequence?: number;
+            candidate_user_rotation_deletion_evidences: components["schemas"]["IdentityRotationDeletionEvidence"][];
             candidate_workspace_checkpoints?: {
                 checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
                 checkpoint_ancestry?: components["schemas"]["KeyDirectoryEnvelope"][];
@@ -10926,6 +12834,8 @@ export interface components {
             identity_encryption_key_id?: string;
             identity_hybrid_encryption_private_key_material_nonce?: components["schemas"]["EncryptedMaterialNonce"];
             identity_hybrid_signing_private_key_material_nonce?: components["schemas"]["EncryptedMaterialNonce"];
+            /** Format: date-time */
+            identity_rotation_due_at: string | null;
             identity_signing_key_id?: components["schemas"]["Blake3Base64Url"];
             recovery_encrypted_umk: string;
             recovery_nonce: string;
@@ -10948,6 +12858,8 @@ export interface components {
         };
         /** GuestInvitationBootstrapAad */
         GuestInvitationBootstrapAad: {
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
             /** Format: uuid */
             guest_invitation_id: string;
             key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"];
@@ -10955,6 +12867,8 @@ export interface components {
             permission: "view" | "edit";
             /** @enum {string} */
             protocol: "refmd.guest-invitation-bootstrap";
+            recipient_device_ids: string[];
+            recipient_user_id?: string | "NOT_APPLICABLE";
             scope_id: string;
             /** @enum {string} */
             scope_kind: "workspace" | "document" | "folder" | "share";
@@ -10965,6 +12879,14 @@ export interface components {
             version: 1;
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** MemberGossipStatement */
+        MemberGossipStatement: {
+            hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            payload: components["schemas"]["MemberGossipPayload"];
+            signature: components["schemas"]["HybridSignature"];
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            transcript: components["schemas"]["PinGossipStatementTranscript"];
         };
         /** PasswordResetVerifyResponse */
         PasswordResetVerifyResponse: {
@@ -10978,10 +12900,46 @@ export interface components {
             kdf_params: components["schemas"]["KdfParams"];
             salt: string;
         };
+        /** MemberGossipPayload */
+        MemberGossipPayload: {
+            current_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_sequence: number;
+            /** Format: uuid */
+            device_id: string;
+            live_redeem_challenge_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            protocol: "refmd.pin.gossip.statement";
+            recipient_redeem_nonce: string;
+            /** Format: uuid */
+            user_id: string;
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** PermissionOverride */
         PermissionOverride: {
             granted: boolean;
             permission: string;
+        };
+        /** InvitationDeliveryTargetRegistrationProof */
+        InvitationDeliveryTargetRegistrationProof: {
+            approval_signature: components["schemas"]["HybridSignature"];
+            client_nonce: string;
+            device_name: string;
+            device_type: string;
+            pending_registration_challenge_hash: components["schemas"]["Blake3Base64Url"];
+        };
+        /** RecipientBoundAuthorizationRecipient */
+        RecipientBoundAuthorizationRecipient: {
+            encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            recipient_device_id: string;
+            /** @enum {string} */
+            recipient_kind: "invitee" | "guest";
+            /** Format: uuid */
+            recipient_principal_id: string;
         };
         /** RoleResponse */
         RoleResponse: {
@@ -10997,6 +12955,33 @@ export interface components {
             permissions?: components["schemas"]["PermissionOverride"][];
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** IdentityRotationCompletionManifest */
+        IdentityRotationCompletionManifest: {
+            new_identity_checkpoint_signature_hash: components["schemas"]["Blake3Base64Url"];
+            new_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            new_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            new_user_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            new_user_checkpoint_sequence: number;
+            old_identity_checkpoint_signature_hash: components["schemas"]["Blake3Base64Url"];
+            old_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            old_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            old_user_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            protocol: "refmd.identity-rotation-completion-manifest";
+            revoked_old_identity_public_key_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            rotation_kind: "identity";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "user";
+            semantic_state_proof_hash: components["schemas"]["Blake3Base64Url"];
+            started_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {integer} */
+            version: 1;
+            workspace_rewraps: components["schemas"]["IdentityRotationWorkspaceRewrap"][];
+            workspace_rewraps_hash: components["schemas"]["Blake3Base64Url"];
         };
         /** RolesListResponse */
         RolesListResponse: {
@@ -11125,7 +13110,7 @@ export interface components {
                 guest_user_id: string;
                 kek_version: number;
                 /** @enum {string} */
-                permission: "edit";
+                permission: "view" | "edit";
                 recipient_encryption_key_id: string;
                 /** @enum {string} */
                 scope_id: "none";
@@ -11180,15 +13165,101 @@ export interface components {
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
+        /** MemberGossipQuorumFreshnessProof */
+        MemberGossipQuorumFreshnessProof: {
+            current_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_sequence: number;
+            gossip_statements: components["schemas"]["MemberGossipStatement"][];
+            live_redeem_challenge_hash: components["schemas"]["Blake3Base64Url"];
+            proof_hashes: components["schemas"]["Blake3Base64Url"][];
+            /** @enum {string} */
+            proof_kind: "member_gossip_quorum";
+            /** @enum {string} */
+            protocol: "refmd.redeem-freshness-proof";
+            recipient_redeem_nonce: string;
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** IdentityKeyDeletionProofTranscript */
+        IdentityKeyDeletionProofTranscript: {
+            actor: {
+                /** Format: uuid */
+                device_id: string;
+                key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                key_checkpoint_sequence: number;
+                /** Format: uuid */
+                key_scope_id: string;
+                /** @enum {string} */
+                key_scope_kind: "user";
+                /** @enum {string} */
+                signer_kind: "device";
+                signing_key_id: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                user_id: string;
+            };
+            authority_boundary: {
+                deleted_identity_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+                new_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+                new_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                new_user_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                old_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+                old_identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                old_user_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+                /** @enum {string} */
+                rotation_kind: "identity";
+                /** Format: uuid */
+                scope_id: string;
+                /** @enum {string} */
+                scope_kind: "user";
+            };
+            /** @enum {string} */
+            label: "RefMD hybrid signature transcript v1";
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "device";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signature-transcript";
+            /** @enum {string} */
+            signature_suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            signature_suite_rank: 1000;
+            /** @enum {string} */
+            signing_purpose: "device_key_deletion_proof";
+            subject_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            subject_protocol: "refmd.identity-key-deletion-proof";
+            /** @enum {integer} */
+            subject_version: 1;
+            /** @enum {string} */
+            surface_id: "device_key_deletion_proof";
+            /** @enum {string} */
+            surface_variant: "identity_key_deletion_proof";
+            /** @enum {string} */
+            transcript_owner: "refmd.device.key_deletion.identity_key";
+            /** @enum {integer} */
+            version: 1;
+        };
         /** InitialAkeRequiredComponents */
         InitialAkeRequiredComponents: ("x25519-ephemeral" | "mlkem768-ephemeral" | "hkdf-sha256" | "initiator-ake-commitment" | "responder-prekey-signature")[];
+        /** WorkspaceInvitationDeliveryTargetRegistration */
+        WorkspaceInvitationDeliveryTargetRegistration: {
+            device_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+        };
         /** WorkspaceInvitationBootstrapPackage */
         WorkspaceInvitationBootstrapPackage: {
             aad: components["schemas"]["WorkspaceInvitationBootstrapAad"];
             encrypted_payload: components["schemas"]["InvitationBootstrapCiphertext"];
             key_version: number;
             package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
-            package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            package_key_recipient_wrap: components["schemas"]["InvitationPackageKeyRecipientWrap"];
             /** @enum {string} */
             protocol: "refmd.workspace-invitation-bootstrap";
             /** @enum {string} */
@@ -11198,10 +13269,18 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** UnknownInvitationRecipientResponse */
+        UnknownInvitationRecipientResponse: {
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment";
+            devices: components["schemas"]["InvitationRecipientDevice"][];
+            /** @enum {string|null} */
+            recipient_user_id: null;
+        };
         /** DeviceRegistrationStatusResponse */
         DeviceRegistrationStatusResponse: {
             /** @enum {string} */
-            status: "pending" | "approved" | "expired";
+            status: "pending" | "initial_ake_offers_ready" | "approved" | "expired";
         };
         /** DeviceApprovalProof */
         DeviceApprovalProof: {
@@ -11285,6 +13364,28 @@ export interface components {
             /** @enum {string} */
             provider: "google" | "github";
         };
+        /** AuthoritativeDeviceLiveFreshnessProof */
+        AuthoritativeDeviceLiveFreshnessProof: {
+            authoritative_device: {
+                /** Format: uuid */
+                device_id: string;
+                /** Format: uuid */
+                user_id: string;
+            };
+            current_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_hash: components["schemas"]["Blake3Base64Url"];
+            current_event_head_sequence: number;
+            live_redeem_challenge_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            proof_kind: "authoritative_device_live";
+            /** @enum {string} */
+            protocol: "refmd.redeem-freshness-proof";
+            recipient_redeem_nonce: string;
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** RevokeDeviceResponse */
         RevokeDeviceResponse: {
             revocation_mode: string;
@@ -11303,6 +13404,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             kdf_params?: components["schemas"]["KdfParams"];
+            key_version: number;
             max_views: number;
             nonce: string;
             password_capability_secret_commitment: string | "none";
@@ -11442,6 +13544,15 @@ export interface components {
             folder: components["schemas"]["MountedShareTreeEntry"];
             mount: components["schemas"]["ShareMountFolderMountSummary"];
         };
+        /** DocumentWipeRequirementResponse */
+        DocumentWipeRequirementResponse: {
+            deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            required_dek_version: number;
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** RoleDeleteResponse */
         RoleDeleteResponse: {
             invalidated_invitation_count: number;
@@ -11458,12 +13569,14 @@ export interface components {
             bootstrap_key_commitment: string;
             bootstrap_package_hash: string;
             bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
-            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationBootstrapCiphertext"];
+            bootstrap_package_key_recipient_wrap: components["schemas"]["InvitationPackageKeyRecipientWrap"];
             /** @enum {string} */
             bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305";
             capability_context_hash: string;
             /** Format: date-time */
             created_at: string;
+            /** @enum {string} */
+            delivery_mode: "unknown_fragment" | "known_recipient";
             encrypted_bootstrap_package: components["schemas"]["GuestInvitationBootstrapPackage"];
             /** Format: date-time */
             expires_at?: string | null;
@@ -11471,10 +13584,15 @@ export interface components {
             invitation_id: string;
             /** Format: uuid */
             invited_by: string;
-            kek_version: number;
+            /** Format: email */
+            invited_email?: string | null;
+            key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"];
             max_redemptions?: number | null;
             /** @enum {string} */
             permission: "view" | "edit";
+            recipient_device_ids: string[];
+            /** Format: uuid */
+            recipient_user_id?: string | null;
             redemption_count: number;
             /** Format: date-time */
             revoked_at?: string | null;
@@ -11482,9 +13600,47 @@ export interface components {
             scope_id?: string | null;
             /** @enum {string} */
             scope_kind: "workspace" | "document" | "folder" | "share";
+            /** Format: uuid */
+            share_id?: string | null;
             token_prefix: string;
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** DocumentDekRotationCompletionManifest */
+        DocumentDekRotationCompletionManifest: {
+            deleted_wrap_ids_hash: components["schemas"]["Blake3Base64Url"];
+            new_key_records: {
+                key_version: number;
+                /** Format: uuid */
+                recipient_id: string;
+                /** @enum {string} */
+                recipient_kind: "workspace_device";
+                wrap_hash: components["schemas"]["Blake3Base64Url"];
+                wrap_id: string;
+            }[];
+            new_key_version: number;
+            old_key_version: number;
+            /** @enum {string} */
+            protocol: "refmd.rotation-completion-manifest";
+            rewritten_records: {
+                ciphertext_hash: components["schemas"]["Blake3Base64Url"];
+                covered_update_end_clock: number;
+                covered_update_start_clock: number;
+                new_dek_update_hashes_hash: components["schemas"]["Blake3Base64Url"];
+                old_dek_update_hashes_hash: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                snapshot_id: string;
+            };
+            /** @enum {string} */
+            rotation_kind: "dek";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document";
+            semantic_state_proof_hash: components["schemas"]["Blake3Base64Url"];
+            started_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {integer} */
+            version: 1;
         };
         /** DevicesResponse */
         DevicesResponse: {
@@ -11537,6 +13693,24 @@ export interface components {
             recovery_encrypted_umk: string;
             recovery_nonce: string;
         };
+        /** IdentityRotationDeletionEvidence */
+        IdentityRotationDeletionEvidence: {
+            deletion_manifest: components["schemas"]["IdentityRotationDeletionManifest"];
+            device_key_deletion_proofs: {
+                proofs: components["schemas"]["SignedIdentityKeyDeletionProof"][];
+            };
+            old_key_deleted_event_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            /** @enum {string} */
+            rotation_kind: "identity";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "user";
+            /** Format: uuid */
+            user_id: string;
+            wipe_required_device_ids: string[];
+        };
         /** PublicationContentResponse */
         PublicationContentResponse: {
             /** Format: date-time */
@@ -11568,6 +13742,19 @@ export interface components {
             public_author_slug?: string | null;
             public_publishing_enabled?: boolean;
             share_links_enabled?: boolean;
+        };
+        /** GuestInvitationDeliveryTargetRegistration */
+        GuestInvitationDeliveryTargetRegistration: {
+            device_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"];
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** KdfMigrationRequest */
         KdfMigrationRequest: {
@@ -11623,6 +13810,8 @@ export interface components {
         };
         /** RecoverySessionRequest */
         RecoverySessionRequest: {
+            candidate_user_audit_hash: components["schemas"]["Blake3Base64Url"];
+            candidate_user_audit_sequence: number;
             candidate_user_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             candidate_user_checkpoint_hash: string;
             candidate_user_checkpoint_sequence: number;
@@ -11644,8 +13833,43 @@ export interface components {
             recovery_session_id: string;
             recovery_session_signature: components["schemas"]["HybridSignature"];
             recovery_session_transcript_hash: string;
+            target_device_registration: {
+                client_nonce: string;
+                device_encryption_key_id: string;
+                device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+                device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+                /** Format: uuid */
+                device_id: string;
+                device_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                /** @enum {string} */
+                device_type?: "browser" | "desktop" | "mobile";
+                identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+                name?: string;
+            };
             target_key_checkpoint_hash: string;
             target_key_checkpoint_sequence: number;
+        };
+        /** IdentityRotationStatusResponse */
+        IdentityRotationStatusResponse: {
+            covered_workspace_count: number;
+            current_encryption_key_id: components["schemas"]["Blake3Base64Url"] | null;
+            current_key_version: number | null;
+            current_signing_key_id: components["schemas"]["Blake3Base64Url"] | null;
+            envelopes_complete: boolean;
+            finalization_started: boolean;
+            needs_rotation: boolean | null;
+            pending_encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"] | null;
+            pending_encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"] | null;
+            pending_encryption_key_id: components["schemas"]["Blake3Base64Url"] | null;
+            pending_identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["XChaCha20Poly1305Nonce"] | null;
+            pending_identity_hybrid_signing_private_key_material_nonce: components["schemas"]["XChaCha20Poly1305Nonce"] | null;
+            pending_key_version: number | null;
+            pending_signing_key_id: components["schemas"]["Blake3Base64Url"] | null;
+            required_workspace_count: number;
+            required_workspace_targets: components["schemas"]["IdentityRotationRequiredWorkspaceTarget"][];
+            /** Format: date_time */
+            rotation_due_at: string | null;
+            workspace_rewraps: components["schemas"]["IdentityRotationWorkspaceRewrap"][];
         };
         /** InitialKeyDeliveryTrustTransferMetadata */
         InitialKeyDeliveryTrustTransferMetadata: {
@@ -11672,6 +13896,26 @@ export interface components {
             suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
             /** @enum {integer} */
             suite_rank: 1000;
+        };
+        /** DocumentDekRotationDeletionManifest */
+        DocumentDekRotationDeletionManifest: {
+            active_device_deletion_proofs_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
+            deleted_wrap_ids_hash: components["schemas"]["Blake3Base64Url"];
+            old_key_version: number;
+            /** @enum {string} */
+            protocol: "refmd.old-key-deletion-manifest";
+            rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            rotation_kind: "dek";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            scope_kind: "document";
+            server_rejects_old_key_uploads_after_sequence: number;
+            /** @enum {integer} */
+            version: 1;
+            wipe_required_device_ids_hash: components["schemas"]["Blake3Base64Url"];
         };
     };
     responses: never;
@@ -11887,6 +14131,93 @@ export interface operations {
             };
         };
     };
+    get_api_encryption_documents_by_document_id_keys_rotation_completion: {
+        parameters: {
+            query: {
+                new_key_version: number;
+            };
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completion manifest hashes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DekRotationCompletionManifestResponse"];
+                };
+            };
+            /** @description Preconditions not met */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_documents_by_document_id_keys_rotation_completion: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Completion params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DekRotationCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Rotation completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Preconditions not met */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_workspaces_by_workspace_id_plugin_applications_by_application_id_consent_events: {
         parameters: {
             query?: never;
@@ -11933,6 +14264,85 @@ export interface operations {
             };
             /** @description Pinned state mismatch */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_guest_redeem_known: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Redeem known guest invitation params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemGuestInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Redeemed guest invitation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedeemGuestInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12276,6 +14686,96 @@ export interface operations {
             };
         };
     };
+    post_api_guest_invitations_delivery_attempts_by_attempt_id_consume: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Delivery consume */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsumeInvitationDeliveryAttemptRequest"];
+            };
+        };
+        responses: {
+            /** @description Redeemed guest invitation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedeemGuestInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_public_authors_by_author_slug_documents_by_document_slug: {
         parameters: {
             query?: never;
@@ -12408,7 +14908,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoleResponse"];
+                    "application/json": components["schemas"]["UpdateRoleResponse"];
                 };
             };
             /** @description Invalid permission */
@@ -12440,6 +14940,55 @@ export interface operations {
             };
             /** @description Validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_invitations_delivery_attempts_by_attempt_id: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delivery attempt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationDeliveryAttemptResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13178,6 +15727,51 @@ export interface operations {
             };
         };
     };
+    put_api_encryption_documents_by_document_id_keys_kek_rotation_rewrap: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Rewrap params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RewrapDocumentKeyForKekRotationRequest"];
+            };
+        };
+        responses: {
+            /** @description Key rewrapped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Rewrap rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces_by_workspace_id_member_keys: {
         parameters: {
             query?: never;
@@ -13272,6 +15866,46 @@ export interface operations {
             };
             /** @description Already archived */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_devices_registrations_by_device_id_initial_ake_offers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Initial AKE offers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InitialAkeExchangeResponse"];
+                };
+            };
+            /** @description Invalid pending registration */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Exchange not ready */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13766,6 +16400,55 @@ export interface operations {
             };
         };
     };
+    get_api_encryption_workspaces_by_workspace_id_kek_rotation_wipe_requirement: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Wipe requirement */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceWipeRequirementResponse"];
+                };
+            };
+            /** @description Not a member */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No wipe requirement */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_auth_password_reset_request: {
         parameters: {
             query?: never;
@@ -13787,6 +16470,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_identity_rotation_activate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Identity successor version */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityRotationActivateRequest"];
+            };
+        };
+        responses: {
+            /** @description Identity rotation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityRotationStatusResponse"];
+                };
+            };
+            /** @description Rotation incomplete */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_identity_rotation_prepare: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Identity successor */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityRotationPrepareRequest"];
+            };
+        };
+        responses: {
+            /** @description Identity rotation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityRotationStatusResponse"];
+                };
+            };
+            /** @description Rotation already pending */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid rotation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -14376,6 +17154,35 @@ export interface operations {
             };
         };
     };
+    get_api_encryption_identity_rotation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Identity rotation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityRotationStatusResponse"];
+                };
+            };
+        };
+    };
     post_api_auth_password_reset_verify: {
         parameters: {
             query?: never;
@@ -14584,6 +17391,96 @@ export interface operations {
             };
         };
     };
+    post_api_workspaces_invitations_delivery_attempts_by_attempt_id_consume: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Delivery consume */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsumeInvitationDeliveryAttemptRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces_by_workspace_id_members_by_user_id_devices: {
         parameters: {
             query?: {
@@ -14617,6 +17514,55 @@ export interface operations {
                 };
             };
             /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_devices_by_device_id_initial_ake_responses: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Initial AKE responses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InitialAkeResponsesResponse"];
+                };
+            };
+            /** @description Invalid initiator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Responses not ready */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14847,6 +17793,79 @@ export interface operations {
             };
             /** @description DBSC refresh failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_invitation_delivery_attempts_by_attempt_id_approve: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Delivery approval */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveInvitationDeliveryAttemptRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved delivery attempt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationDeliveryAttemptResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15668,6 +18687,66 @@ export interface operations {
             };
         };
     };
+    get_api_workspaces_by_workspace_id_invitations_recipient: {
+        parameters: {
+            query: {
+                email: string;
+            };
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recipient delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationRecipientResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Recipient unavailable */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_shares_f_by_folder_token_bootstrap: {
         parameters: {
             query?: never;
@@ -16130,6 +19209,51 @@ export interface operations {
             };
         };
     };
+    post_api_devices_registrations_by_device_id_initial_ake_responses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Initial AKE responses */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InitialAkeResponsesRequest"];
+            };
+        };
+        responses: {
+            /** @description Responses accepted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Responses already consumed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid responses */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_workspaces_by_workspace_id_plugin_applications: {
         parameters: {
             query?: never;
@@ -16329,6 +19453,46 @@ export interface operations {
             };
         };
     };
+    get_api_encryption_documents_by_document_id_keys_wipe_requirement: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Wipe requirement */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentWipeRequirementResponse"];
+                };
+            };
+            /** @description No requirement */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_auth_dbsc_register: {
         parameters: {
             query?: never;
@@ -16458,6 +19622,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DevicesResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_identity_rotation_finalize: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Rotation proof */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityRotationFinalizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Identity rotation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityRotationStatusResponse"];
+                };
+            };
+            /** @description Rotation incomplete */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -16854,6 +20061,66 @@ export interface operations {
             };
             /** @description Validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id_guest_invitations_recipient: {
+        parameters: {
+            query: {
+                email: string;
+            };
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recipient delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationRecipientResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Recipient unavailable */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17422,7 +20689,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["ChangeMemberRoleResponse"];
                 };
             };
             /** @description Forbidden */
@@ -17530,6 +20797,100 @@ export interface operations {
             };
             /** @description DBSC registration failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_api_workspaces_by_workspace_id_invitation_delivery_attempts: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending delivery attempts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationDeliveryAttemptListResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_workspaces_by_workspace_id_kek_rotation_wipe_requirement_acknowledge: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Deletion proof */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceWipeAcknowledgementRequest"];
+            };
+        };
+        responses: {
+            /** @description Acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not a member */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid proof */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18396,6 +21757,55 @@ export interface operations {
             };
         };
     };
+    get_api_encryption_documents_by_document_id_keys_rotation_targets: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rotation targets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentKeyRotationTargetsResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_api_encryption_documents_by_document_id_keys: {
         parameters: {
             query?: never;
@@ -18499,6 +21909,85 @@ export interface operations {
             };
             /** @description Version already exists */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_invitations_delivery_attempts: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Delivery attempt */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInvitationDeliveryAttemptRequest"];
+            };
+        };
+        responses: {
+            /** @description Created delivery attempt */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationDeliveryAttemptResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18781,7 +22270,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["EncryptionSetupCompleteResponse"];
                 };
             };
         };
@@ -19002,6 +22491,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OAuthProvidersResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_documents_by_document_id_keys_wipe_requirement_acknowledge: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Deletion proof */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentWipeAcknowledgementRequest"];
+            };
+        };
+        responses: {
+            /** @description Acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Invalid proof */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

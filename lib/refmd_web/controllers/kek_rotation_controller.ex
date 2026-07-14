@@ -3,6 +3,7 @@ defmodule RefMDWeb.KekRotationController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Devices, Encryption, Workspaces}
+  alias RefMD.Encryption.RotationPolicy
   alias RefMDWeb.Payloads.DeviceIdentity
 
   alias RefMDWeb.Schemas
@@ -26,7 +27,7 @@ defmodule RefMDWeb.KekRotationController do
     user_id = conn.assigns.current_user_id
     base_role = Workspaces.get_member_role(workspace_id, user_id)
 
-    if base_role in ~w(owner admin) do
+    if not Workspaces.guest_user?(user_id) and base_role in ~w(owner admin) do
       case Workspaces.start_kek_rotation(workspace_id, user_id,
              workspace_key_directory_events: params["workspace_key_directory_events"],
              workspace_key_directory_checkpoint: params["workspace_key_directory_checkpoint"]
@@ -39,6 +40,9 @@ defmodule RefMDWeb.KekRotationController do
 
         {:error, :kek_rotation_already_in_progress} ->
           conn |> put_status(:conflict) |> json(%{error: "kek_rotation_already_in_progress"})
+
+        {:error, :forbidden} ->
+          conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
 
         {:error, :invalid_key_directory} ->
           conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
@@ -82,8 +86,8 @@ defmodule RefMDWeb.KekRotationController do
     with {:ok, new_kek_version} <- parse_positive_integer(params["new_kek_version"]),
          {:ok, workspace} <- fetch_workspace(workspace_id),
          {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-         :ok <- require_rotation_in_progress(workspace),
-         :ok <- require_rotation_authority(workspace, user_id, base_role) do
+         :ok <- require_rotation_authority(workspace, user_id, base_role),
+         :ok <- require_rotation_in_progress(workspace) do
       envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
 
       Workspaces.prepare_kek_rotation_completion(workspace_id, new_kek_version,
@@ -105,8 +109,8 @@ defmodule RefMDWeb.KekRotationController do
     else
       with {:ok, workspace} <- fetch_workspace(workspace_id),
            {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-           :ok <- require_rotation_in_progress(workspace),
-           :ok <- require_rotation_authority(workspace, user_id, base_role) do
+           :ok <- require_rotation_authority(workspace, user_id, base_role),
+           :ok <- require_rotation_in_progress(workspace) do
         envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
 
         Workspaces.complete_kek_rotation(workspace_id, new_kek_version,
@@ -121,6 +125,67 @@ defmodule RefMDWeb.KekRotationController do
         {:error, status, error} ->
           conn |> put_status(status) |> json(%{error: error})
       end
+    end
+  end
+
+  operation(:get_workspace_wipe_requirement,
+    summary: "Get the current device KEK wipe requirement",
+    parameters: [workspace_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Wipe requirement", "application/json", Schemas.WorkspaceWipeRequirementResponse},
+      not_found: {"No wipe requirement", "application/json", Schemas.ErrorResponse},
+      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def get_workspace_wipe_requirement(conn, %{"workspace_id" => workspace_id}) do
+    user_id = conn.assigns.current_user_id
+    device_id = conn.assigns[:rrp_device_id]
+
+    with true <- is_binary(device_id),
+         :ok <- require_workspace_crypto_access(workspace_id, user_id, device_id),
+         {:ok, requirement} <- Workspaces.workspace_wipe_requirement(workspace_id, device_id) do
+      json(conn, requirement)
+    else
+      {:error, :forbidden, error} -> conn |> put_status(:forbidden) |> json(%{error: error})
+      _ -> conn |> put_status(:not_found) |> json(%{error: "wipe_requirement_not_found"})
+    end
+  end
+
+  operation(:acknowledge_workspace_wipe,
+    summary: "Acknowledge secure deletion for a KEK wipe requirement",
+    parameters: [workspace_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Deletion proof", "application/json", Schemas.WorkspaceWipeAcknowledgementRequest},
+    responses: [
+      ok: {"Acknowledged", "application/json", Schemas.OkResponse},
+      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Invalid proof", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def acknowledge_workspace_wipe(conn, %{"workspace_id" => workspace_id} = params) do
+    user_id = conn.assigns.current_user_id
+    device_id = conn.assigns[:rrp_device_id]
+
+    with true <- is_binary(device_id),
+         :ok <- require_workspace_crypto_access(workspace_id, user_id, device_id),
+         :ok <-
+           Workspaces.acknowledge_workspace_wipe(
+             workspace_id,
+             device_id,
+             params["device_key_deletion_proof"]
+           ) do
+      json(conn, %{ok: true})
+    else
+      {:error, :forbidden, error} ->
+        conn |> put_status(:forbidden) |> json(%{error: error})
+
+      {:error, reason} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: Atom.to_string(reason)})
+
+      _ ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_deletion_proof"})
     end
   end
 
@@ -141,10 +206,10 @@ defmodule RefMDWeb.KekRotationController do
     rrp_device_id = conn.assigns[:rrp_device_id]
 
     with {:ok, workspace} <- fetch_workspace(workspace_id),
-         {:ok, role} <- fetch_membership(workspace_id, user_id),
-         :ok <- require_member_envelope_authority(workspace, user_id, role),
+         :ok <- authorize_member_envelope_write(workspace, user_id, rrp_device_id),
          :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
          {:ok, envelopes} <- require_envelopes(params["envelopes"]),
+         :ok <- validate_guest_self_envelopes(workspace, user_id, rrp_device_id, envelopes),
          {:ok, events} <- require_key_directory_events(params["workspace_key_directory_events"]),
          :ok <- validate_envelope_event_count(envelopes, events),
          {:ok, attrs_list} <-
@@ -200,20 +265,16 @@ defmodule RefMDWeb.KekRotationController do
     user_id = conn.assigns.current_user_id
     rrp_device_id = conn.assigns[:rrp_device_id]
 
-    with :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
-         {:ok, role} <- fetch_membership(workspace_id, user_id) do
-      send_member_envelope(conn, workspace_id, user_id, role)
+    with :ok <- require_workspace_crypto_access(workspace_id, user_id, rrp_device_id),
+         :ok <- reject_wipe_required_device(workspace_id, rrp_device_id) do
+      send_member_envelope(conn, workspace_id, user_id)
     else
       {:error, status, error} ->
         conn |> put_status(status) |> json(%{error: error})
     end
   end
 
-  defp send_member_envelope(conn, _workspace_id, _user_id, "guest") do
-    conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-  end
-
-  defp send_member_envelope(conn, workspace_id, user_id, _role) do
+  defp send_member_envelope(conn, workspace_id, user_id) do
     case Encryption.get_member_envelope(workspace_id, user_id) do
       nil ->
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
@@ -227,7 +288,11 @@ defmodule RefMDWeb.KekRotationController do
           %{
             key_version: envelope.key_version,
             sender_device_id: envelope.sender_device_id,
-            workspace_key_directory_checkpoint: operation_checkpoint_envelope(envelope)
+            workspace_key_directory_checkpoint: operation_checkpoint_envelope(envelope),
+            workspace_key_directory_checkpoint_ancestry:
+              Encryption.workspace_key_operation_checkpoint_ancestry(envelope),
+            workspace_key_directory_event_ancestry:
+              Encryption.workspace_key_operation_event_ancestry(envelope)
           }
           |> Map.merge(Encryption.member_envelope_response_fields(envelope))
           |> Map.merge(DeviceIdentity.sender_fields(sender))
@@ -259,6 +324,32 @@ defmodule RefMDWeb.KekRotationController do
     end
   end
 
+  defp require_workspace_crypto_access(workspace_id, user_id, device_id) do
+    if Workspaces.guest_user?(user_id) do
+      require_active_guest_device_access(workspace_id, user_id, device_id)
+    else
+      case Workspaces.get_member_role(workspace_id, user_id) do
+        role when is_binary(role) and role != "guest" -> :ok
+        _ -> {:error, :forbidden, "not_a_member"}
+      end
+    end
+  end
+
+  defp require_active_guest_device_access(workspace_id, user_id, device_id) do
+    if Devices.user_owns_active_device?(user_id, device_id) and
+         Workspaces.guest_user?(user_id) and
+         Workspaces.authorize_workspace_guest_access(workspace_id, user_id) == :ok and
+         Encryption.active_workspace_scope_guest_device_admitted?(
+           workspace_id,
+           user_id,
+           device_id
+         ) do
+      :ok
+    else
+      {:error, :forbidden, "not_a_member"}
+    end
+  end
+
   defp parse_positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
 
   defp parse_positive_integer(value) when is_binary(value) do
@@ -279,7 +370,8 @@ defmodule RefMDWeb.KekRotationController do
   end
 
   defp require_rotation_authority(workspace, user_id, base_role) do
-    if workspace.kek_rotation_initiator_user_id == user_id or base_role in ~w(owner admin) do
+    if not Workspaces.guest_user?(user_id) and
+         (workspace.kek_rotation_initiator_user_id == user_id or base_role in ~w(owner admin)) do
       :ok
     else
       {:error, :forbidden, "forbidden"}
@@ -291,6 +383,50 @@ defmodule RefMDWeb.KekRotationController do
       :ok
     else
       {:error, :forbidden, "forbidden"}
+    end
+  end
+
+  defp authorize_member_envelope_write(workspace, user_id, device_id) do
+    if Workspaces.guest_user?(user_id) do
+      require_workspace_scope_guest_device(workspace.id, user_id, device_id)
+    else
+      case Workspaces.get_member_role(workspace.id, user_id) do
+        role when is_binary(role) and role != "guest" ->
+          require_member_envelope_authority(workspace, user_id, role)
+
+        _ ->
+          {:error, :forbidden, "not_a_member"}
+      end
+    end
+  end
+
+  defp require_workspace_scope_guest_device(workspace_id, user_id, device_id) do
+    if Devices.user_owns_active_device?(user_id, device_id) and
+         Workspaces.guest_user?(user_id) and
+         Workspaces.authorize_workspace_guest_access(workspace_id, user_id) == :ok and
+         Encryption.active_workspace_scope_guest_device_admitted?(
+           workspace_id,
+           user_id,
+           device_id
+         ) do
+      :ok
+    else
+      {:error, :forbidden, "not_a_member"}
+    end
+  end
+
+  defp validate_guest_self_envelopes(workspace, user_id, device_id, envelopes) do
+    if Workspaces.guest_user?(user_id) do
+      valid? =
+        Enum.all?(envelopes, fn envelope ->
+          envelope["target_user_id"] == user_id and
+            envelope["sender_device_id"] == device_id and
+            envelope["key_version"] == workspace.current_kek_version
+        end)
+
+      if valid?, do: :ok, else: {:error, :forbidden, "forbidden"}
+    else
+      :ok
     end
   end
 
@@ -358,10 +494,17 @@ defmodule RefMDWeb.KekRotationController do
     key_version = env["key_version"]
 
     with :ok <- validate_sender_device_match(rrp_device_id, sender_device_id),
-         :ok <- require_target_non_guest_member(workspace_id, target_user_id),
+         :ok <-
+           require_target_envelope_recipient(
+             workspace_id,
+             user_id,
+             rrp_device_id,
+             target_user_id
+           ),
          :ok <- validate_key_version_range(key_version, workspace, user_id),
          {:ok, sender_device} <- fetch_active_device(user_id, sender_device_id),
-         {:ok, target_identity} <- fetch_target_identity(target_user_id) do
+         {:ok, target_identity} <-
+           fetch_target_identity(target_user_id, get_in(env, ["recipient", "encryption_key_id"])) do
       prepare_workspace_member_envelope(
         env,
         %{
@@ -392,22 +535,36 @@ defmodule RefMDWeb.KekRotationController do
     end
   end
 
-  defp require_target_non_guest_member(workspace_id, user_id) when is_binary(user_id) do
-    case Workspaces.get_member_role(workspace_id, user_id) do
-      nil -> {:error, :forbidden, "target_not_a_member"}
-      "guest" -> {:error, :forbidden, "target_not_a_member"}
-      _role -> :ok
+  defp require_target_envelope_recipient(
+         workspace_id,
+         actor_user_id,
+         actor_device_id,
+         target_user_id
+       )
+       when is_binary(target_user_id) do
+    if Workspaces.guest_user?(target_user_id) do
+      if target_user_id == actor_user_id do
+        require_workspace_scope_guest_device(workspace_id, actor_user_id, actor_device_id)
+      else
+        {:error, :forbidden, "target_not_a_member"}
+      end
+    else
+      case Workspaces.get_member_role(workspace_id, target_user_id) do
+        role when is_binary(role) and role != "guest" -> :ok
+        _ -> {:error, :forbidden, "target_not_a_member"}
+      end
     end
   end
 
-  defp require_target_non_guest_member(_, _),
+  defp require_target_envelope_recipient(_, _, _, _),
     do: {:error, :forbidden, "target_not_a_member"}
 
   defp validate_key_version_range(key_version, workspace, user_id) when is_integer(key_version) do
     max = max_allowed_key_version(workspace, user_id, key_version)
 
     cond do
-      workspace.needs_kek_rotation and key_version != workspace.current_kek_version + 1 ->
+      RotationPolicy.kek_overdue?(workspace) and
+          key_version != workspace.current_kek_version + 1 ->
         {:error, :unprocessable_entity, "kek_rotation_required"}
 
       key_version < 1 ->
@@ -434,29 +591,44 @@ defmodule RefMDWeb.KekRotationController do
   end
 
   defp rotation_initiator_next_version?(workspace, user_id, key_version) do
-    workspace.needs_kek_rotation and workspace.kek_rotation_initiator_user_id == user_id and
+    RotationPolicy.kek_overdue?(workspace) and
+      workspace.kek_rotation_initiator_user_id == user_id and
       key_version == workspace.current_kek_version + 1
   end
 
   defp fetch_active_device(user_id, device_id) when is_binary(device_id) do
     case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
-      _ -> {:error, :forbidden, "invalid_device"}
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: nil} = device ->
+        {:ok, device}
+
+      _ ->
+        {:error, :forbidden, "invalid_device"}
     end
   end
 
   defp fetch_active_device(_user_id, _device_id), do: {:error, :forbidden, "invalid_device"}
 
-  defp fetch_target_identity(user_id) do
-    if is_binary(user_id) do
-      case Encryption.get_user_identity_public_key(user_id) do
-        nil -> {:error, :unprocessable_entity, "target_identity_key_missing"}
-        identity -> {:ok, identity}
+  defp fetch_target_identity(user_id, recipient_key_id)
+       when is_binary(user_id) and is_binary(recipient_key_id) do
+    current =
+      case Encryption.user_identity_key_for_new_encryption(user_id) do
+        {:ok, key} -> key
+        {:error, _reason} -> nil
       end
-    else
-      {:error, :unprocessable_entity, "target_identity_key_missing"}
+
+    pending = Encryption.get_pending_user_identity_public_key(user_id)
+
+    [current, pending]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find(&(&1.encryption_key_id == recipient_key_id))
+    |> case do
+      nil -> {:error, :unprocessable_entity, "target_identity_key_missing"}
+      identity -> {:ok, identity}
     end
   end
+
+  defp fetch_target_identity(_, _),
+    do: {:error, :unprocessable_entity, "target_identity_key_missing"}
 
   defp prepare_workspace_member_envelope(env, metadata, validation_context, event, checkpoint) do
     case Encryption.prepare_workspace_member_envelope_from_client(

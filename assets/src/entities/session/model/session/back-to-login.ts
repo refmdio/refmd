@@ -1,6 +1,8 @@
 import { authApi } from "@/shared/api";
-import { clearPersistedLoginKeyMaterial } from "@/shared/lib/auth/key-persistence";
+import { clearSessionData } from "@/shared/lib/auth/key-persistence";
+import { runBeforeSessionCleanup, runSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import { terminateCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { terminateAllScopedCryptoWorkers } from "@/shared/lib/crypto/worker/scoped";
 import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
 import { authState, clearSession } from "../auth/state";
 
@@ -13,15 +15,13 @@ export async function returnToLogin(): Promise<void> {
     }
   }
 
+  await runBeforeSessionCleanup({ secure: false });
   resetPhoenixConnection();
   terminateCryptoWorker();
+  terminateAllScopedCryptoWorkers();
+  runSessionCleanup();
   clearSession();
-
-  try {
-    await clearPersistedLoginKeyMaterial();
-  } catch {
-    // Login must remain reachable even if best-effort browser cleanup fails.
-  }
+  await clearSessionData({ preserveAuthBootstrap: true });
 
   window.location.replace("/auth/login");
 }

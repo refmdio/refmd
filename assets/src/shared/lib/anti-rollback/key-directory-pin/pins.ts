@@ -174,8 +174,8 @@ export async function advanceKeyDirectoryPinWithProof(params: {
 
   const checkpoints = params.checkpointAncestry.map(assertEnvelope);
   const events = params.eventAncestry.map(assertEnvelope);
-  const authorityEvents = (params.authorityEventAncestry ?? params.eventAncestry).map(
-    assertEnvelope,
+  const authorityEvents = uniqueOrderedEvents(
+    (params.authorityEventAncestry ?? params.eventAncestry).map(assertEnvelope),
   );
   const eventAuthorityEvents = authorityEvents.filter(
     (event) =>
@@ -287,8 +287,8 @@ export async function verifyAndRememberKeyDirectoryLineageFromTrustedAnchor(para
   const candidatePin = pinFromCheckpoint(params.scopeKind, params.scopeId, candidate);
   const checkpoints = params.checkpointAncestry.map(assertEnvelope);
   const events = params.eventAncestry.map(assertEnvelope);
-  const authorityEvents = (params.authorityEventAncestry ?? params.eventAncestry).map(
-    assertEnvelope,
+  const authorityEvents = uniqueOrderedEvents(
+    (params.authorityEventAncestry ?? params.eventAncestry).map(assertEnvelope),
   );
   const eventAuthorityEvents = authorityEvents.filter(
     (event) =>
@@ -368,13 +368,27 @@ export async function verifyAndRememberKeyDirectoryLineageFromTrustedAnchor(para
   });
 }
 
-export function rememberVerifiedKeyDirectoryLineage(params: {
+function uniqueOrderedEvents(events: SignedKeyDirectoryEnvelope[]): SignedKeyDirectoryEnvelope[] {
+  return [...new Map(events.map((event) => [eventHash(event), event])).values()].sort(
+    (left, right) =>
+      numberField(left.payload.sequence, "event_sequence_invalid") -
+      numberField(right.payload.sequence, "event_sequence_invalid"),
+  );
+}
+
+export function rememberVerifiedKeyDirectoryLineage(
+  params: Parameters<typeof rememberVerifiedKeyDirectoryLineageDurably>[0],
+): void {
+  void rememberVerifiedKeyDirectoryLineageDurably(params).catch(() => {});
+}
+
+export async function rememberVerifiedKeyDirectoryLineageDurably(params: {
   scopeKind: "user" | "workspace";
   scopeId: string;
   checkpointEnvelope: SignedKeyDirectoryEnvelope;
   checkpointAncestry: SignedKeyDirectoryEnvelope[];
   eventAncestry: SignedKeyDirectoryEnvelope[];
-}): void {
+}): Promise<void> {
   const checkpoints = sortUniqueCheckpoints([
     ...params.checkpointAncestry,
     params.checkpointEnvelope,
@@ -412,11 +426,12 @@ export function rememberVerifiedKeyDirectoryLineage(params: {
     events: [],
   };
   lineages.set(lineageKey, lineage);
-  void persistVerifiedKeyDirectoryLineage(scopeKey, lineageKey, {
+  verifiedKeyDirectoryLineages.set(scopeKey, lineages);
+  await persistVerifiedKeyDirectoryLineage(scopeKey, lineageKey, {
     ...lineage,
     checkpoints: durableCheckpoints,
     events: durableEvents,
-  }).catch(() => {});
+  });
   const evictedLineageKeys: string[] = [];
   while (lineages.size > MAX_LINEAGES_PER_SCOPE) {
     const oldest = lineages.keys().next().value;
@@ -425,9 +440,8 @@ export function rememberVerifiedKeyDirectoryLineage(params: {
     evictedLineageKeys.push(oldest);
   }
   if (evictedLineageKeys.length > 0) {
-    void deleteStoredVerifiedKeyDirectoryLineages(scopeKey, evictedLineageKeys).catch(() => {});
+    await deleteStoredVerifiedKeyDirectoryLineages(scopeKey, evictedLineageKeys);
   }
-  verifiedKeyDirectoryLineages.set(scopeKey, lineages);
 }
 
 function trimLineageKeySetToNewest(set: Set<string>, limit: number): void {

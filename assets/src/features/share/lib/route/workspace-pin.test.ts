@@ -2,6 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { ensureShareWorkspaceKeyDirectoryPin } from "./workspace-pin";
 import type { KeyDirectoryEnvelope } from "@/shared/lib/crypto/key-directory/types";
 
+const nodeFsPromises = "node:fs/promises";
+const { readFile } = await import(/* @vite-ignore */ nodeFsPromises);
+const securityFixture = JSON.parse(
+  await readFile("../native/refmd_crypto/testdata/refmd-signed-pq-wrap-v1.json", "utf8"),
+) as {
+  negative: Array<{
+    base: string;
+    mutation: string;
+    operations: Array<{ op: "remove"; path: string }>;
+    expected_error: string;
+  }>;
+};
+
 const mocks = vi.hoisted(() => ({
   advanceKeyDirectoryPinWithProof: vi.fn(),
   getKeyDirectoryPin: vi.fn(),
@@ -92,6 +105,30 @@ describe("ensureShareWorkspaceKeyDirectoryPin", () => {
 
     expect(mocks.advanceKeyDirectoryPinWithProof).not.toHaveBeenCalled();
     expect(mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor).not.toHaveBeenCalled();
+  });
+
+  it.each(
+    securityFixture.negative.filter((vector) => vector.base === "share-participant-bootstrap-v1"),
+  )("rejects $mutation", async (vector) => {
+    mocks.getKeyDirectoryPin.mockResolvedValueOnce(null);
+    const input: Record<string, unknown> = {
+      workspaceId: "workspace-1",
+      workspacePinBootstrapHash: "workspace-pin-bootstrap-hash",
+      workspacePinBootstrap: {},
+      workspaceKeyDirectoryCheckpoint: checkpoint(1),
+      mismatchCode: "share_workspace_pin_bootstrap_hash_mismatch",
+    };
+    for (const operation of vector.operations) {
+      const field = operation.path.slice(1);
+      if (!(field in input)) throw new Error("fixture_patch_path_invalid");
+      delete input[field];
+    }
+
+    await expect(
+      ensureShareWorkspaceKeyDirectoryPin(
+        input as Parameters<typeof ensureShareWorkspaceKeyDirectoryPin>[0],
+      ),
+    ).rejects.toThrow(vector.expected_error);
   });
 });
 

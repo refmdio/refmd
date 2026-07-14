@@ -38,7 +38,7 @@ export {
 } from "./lib/mount/share";
 export { enterShareRouteSession, leaveShareRouteSession } from "./lib/route/session";
 export { ShareManagementDialog } from "./ui/manage/ShareManagementDialog";
-export { readShareUrl } from "./lib/manage/manage-tokens";
+export { prepareShareSecretsForRecipientDelivery, readShareUrl } from "./lib/manage/manage-tokens";
 export { listDocumentShares, type ShareListItem } from "./lib/manage/list-shares";
 export { SaveShareMountButton } from "./ui/view/SaveShareMountButton";
 export { ShareLandingPage } from "./ui/view/ShareLandingPage";

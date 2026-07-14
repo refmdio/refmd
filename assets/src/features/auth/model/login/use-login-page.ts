@@ -44,6 +44,20 @@ export function useLoginPage() {
     try {
       const result = await login(email(), password(), rememberMe());
 
+      if (result.type === "identity_recovery_required") {
+        setAuthState({
+          user: { id: result.userId, email: result.email, name: result.name },
+          sessionId: result.sessionId,
+          identityHybridSigningPublicKeyMaterial: null,
+          identityEcdhPublic: null,
+          expiresAt: null,
+        });
+        setDeviceState(null);
+        setCryptoWorkerReady(false);
+        navigate("/auth/recovery");
+        return;
+      }
+
       if (result.type === "device_required") {
         setAuthState({
           user: { id: result.userId, email: result.email, name: result.name },

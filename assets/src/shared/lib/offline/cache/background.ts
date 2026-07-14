@@ -41,6 +41,7 @@ import {
   type DocumentCacheEntry,
 } from "../storage/store";
 import { cacheDek, cacheKek } from "./manager/keys";
+import { runDocumentOfflineWrite } from "../../crypto/document-key-write-barrier";
 import { offlineMode } from "../offline-state";
 import { checkAndEvict } from "./eviction";
 import type { components } from "@/shared/api";
@@ -157,7 +158,7 @@ async function cacheDocumentSilently(
     const ownerId = keyCaches.signingKeyOwners.get(signingKeyId);
     return key && ownerId ? { key, ownerId } : null;
   };
-  // Resolve KEK and cache to offline-kek-cache
+  // Resolve the workspace KEK into worker-owned secure storage.
   const { kekVersion } = await resolveActiveKek(workspaceId, getKekResolverSession());
   await cacheKek(workspaceId, kekVersion).catch(() => {});
   const refreshKeyDirectory = async (params?: {
@@ -381,7 +382,7 @@ async function cacheDocumentSilently(
             cachedAt: Date.now(),
             updatedAt: Date.now(),
           };
-          // Cache DEK first (design: offline-dek-cache before document-cache for crash safety)
+          // Persist the DEK before document content for crash safety.
           await cacheDek(documentId, activeDek.key_version);
           // Validate against anti-rollback pin before caching. Background cache does not advance
           // the durable pin because its signer context is best-effort and must not outrank
@@ -399,7 +400,7 @@ async function cacheDocumentSilently(
               clientWarn("background_cache_rollback_detected", { documentId });
               throw new Error("Rollback detected during background cache");
             }
-            await putDocumentCache(entry);
+            await runDocumentOfflineWrite(documentId, () => putDocumentCache(entry));
           } catch (pinErr) {
             // Pin validation failure in background cache: skip this document
             clientWarn("background_cache_pin_validation_failed", { documentId, error: pinErr });
@@ -433,18 +434,20 @@ async function cacheDocumentSilently(
             }
           }
           const existingMeta = await getOfflineDocumentMeta(documentId).catch(() => null);
-          await putOfflineDocumentMeta({
-            documentId,
-            workspaceId,
-            encryptedTitle:
-              encTitle.length > 0 ? encTitle : (existingMeta?.encryptedTitle ?? encTitle),
-            encryptedTitleNonce:
-              encTitleNonce.length > 0
-                ? encTitleNonce
-                : (existingMeta?.encryptedTitleNonce ?? encTitleNonce),
-            lastAccessedAt: existingMeta?.lastAccessedAt ?? 0,
-            cacheSize: ciphertext.byteLength,
-          });
+          await runDocumentOfflineWrite(documentId, () =>
+            putOfflineDocumentMeta({
+              documentId,
+              workspaceId,
+              encryptedTitle:
+                encTitle.length > 0 ? encTitle : (existingMeta?.encryptedTitle ?? encTitle),
+              encryptedTitleNonce:
+                encTitleNonce.length > 0
+                  ? encTitleNonce
+                  : (existingMeta?.encryptedTitleNonce ?? encTitleNonce),
+              lastAccessedAt: existingMeta?.lastAccessedAt ?? 0,
+              cacheSize: ciphertext.byteLength,
+            }),
+          );
           yDoc.destroy();
           cleanup();
           resolved = true;

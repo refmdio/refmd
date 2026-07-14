@@ -4,6 +4,7 @@ import { workerSend, type CryptoWorkerClientMethodContext } from "./shared";
 import { canonicalQueryString } from "../../canonical-query";
 import { blake3Base64Url } from "../../hash";
 import { SHARE_SESSION_SCOPE_HEADER } from "@/shared/lib/auth/session-scope";
+import { runDocumentOfflineWrite } from "../../document-key-write-barrier";
 
 export interface ShareBootstrapKeyRef {
   encrypted_key_refs: string[];
@@ -37,6 +38,7 @@ export interface DekWorkerClientMethods {
   wrapDek(params: {
     documentId: string;
     workspaceId: string;
+    keyVersion?: number;
   }): Promise<{ encryptedDek: Uint8Array; nonce: Uint8Array }>;
   wrapDekForShare(params: {
     documentId: string;
@@ -285,12 +287,16 @@ export interface DekWorkerClientMethods {
 export const dekWorkerClientMethods: DekWorkerClientMethods &
   ThisType<CryptoWorkerClientMethodContext> = {
   async generateDek(documentId, workspaceId, dekKeyVersion, setActive) {
-    return (await this[workerSend]("generate-dek", {
-      documentId,
-      workspaceId,
-      dekKeyVersion,
-      setActive,
-    })) as {
+    const result = await runDocumentOfflineWrite(documentId, () =>
+      this[workerSend]("generate-dek", {
+        documentId,
+        workspaceId,
+        dekKeyVersion,
+        setActive,
+      }),
+    );
+    if (!result) throw new Error("document_key_write_blocked");
+    return result as {
       encryptedDek: Uint8Array;
       nonce: Uint8Array;
       keyVersion: number;
@@ -312,7 +318,7 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
   },
 
   async unwrapDek(params) {
-    await this[workerSend]("unwrap-dek", params);
+    await runDocumentOfflineWrite(params.documentId, () => this[workerSend]("unwrap-dek", params));
   },
 
   async encryptTitle(params) {
@@ -395,11 +401,13 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
   },
 
   async cacheDek(params) {
-    await this[workerSend]("cache-dek", params);
+    await runDocumentOfflineWrite(params.documentId, () => this[workerSend]("cache-dek", params));
   },
 
   async unwrapShareDek(params) {
-    await this[workerSend]("unwrap-share-dek", params);
+    await runDocumentOfflineWrite(params.documentId, () =>
+      this[workerSend]("unwrap-share-dek", params),
+    );
   },
 
   async fetchShareDocumentBootstrap(params) {
@@ -563,11 +571,17 @@ export const dekWorkerClientMethods: DekWorkerClientMethods &
   },
 
   async storeDekForOffline(params) {
-    await this[workerSend]("store-dek-for-offline", params);
+    await runDocumentOfflineWrite(params.documentId, () =>
+      this[workerSend]("store-dek-for-offline", params),
+    );
   },
 
   async restoreDekFromOffline(params) {
-    return (await this[workerSend]("restore-dek-from-offline", params)) as {
+    const result = await runDocumentOfflineWrite(params.documentId, () =>
+      this[workerSend]("restore-dek-from-offline", params),
+    );
+    if (!result) throw new Error("document_key_write_blocked");
+    return result as {
       restored: boolean;
       keyVersion?: number;
       cachedAt?: number;

@@ -1114,22 +1114,68 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
 
     assert_literal!(
-      authority["old_key_version"],
-      context_value(deletion, :old_key_version),
-      "key_deletion_old_key_version_mismatch"
-    )
-
-    assert_literal!(
       authority["rotation_completed_event_hash"],
       context_value(deletion, :rotation_completed_event_hash),
       "key_deletion_rotation_completed_mismatch"
     )
 
-    assert_literal!(
-      authority["deleted_secret_ids_hash"],
-      context_value(deletion, :deleted_secret_ids_hash),
-      "key_deletion_deleted_secret_ids_mismatch"
-    )
+    if transcript["surface_variant"] == "identity_key_deletion_proof" do
+      assert_literal!(actor["key_scope_kind"], "user", "key_deletion_identity_mismatch")
+
+      assert_literal!(
+        actor["key_scope_id"],
+        context_value(deletion, :scope_id),
+        "key_deletion_identity_mismatch"
+      )
+
+      assert_literal!(
+        actor["key_checkpoint_sequence"],
+        context_value(deletion, :checkpoint_sequence),
+        "key_deletion_identity_mismatch"
+      )
+
+      assert_literal!(
+        actor["key_checkpoint_hash"],
+        context_value(deletion, :checkpoint_hash),
+        "key_deletion_identity_mismatch"
+      )
+
+      validate_identity_key_deletion_authority!(authority, deletion)
+    else
+      assert_literal!(
+        authority["old_key_version"],
+        context_value(deletion, :old_key_version),
+        "key_deletion_old_key_version_mismatch"
+      )
+
+      assert_literal!(
+        authority["deleted_secret_ids_hash"],
+        context_value(deletion, :deleted_secret_ids_hash),
+        "key_deletion_deleted_secret_ids_mismatch"
+      )
+    end
+  end
+
+  defp validate_identity_key_deletion_authority!(authority, deletion) do
+    for field <- [
+          :old_identity_signing_key_id,
+          :old_identity_encryption_key_id,
+          :new_identity_signing_key_id,
+          :new_identity_encryption_key_id,
+          :old_user_checkpoint_hash,
+          :new_user_checkpoint_hash,
+          :deleted_identity_secret_ids_hash
+        ] do
+      key = Atom.to_string(field)
+
+      assert_literal!(
+        authority[key],
+        context_value(deletion, field),
+        "key_deletion_identity_mismatch"
+      )
+    end
+
+    :ok
   end
 
   def validate_device_revocation!(transcript, signing_purpose, owner_kind, owner_id) do
@@ -1238,11 +1284,17 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
 
     assert_literal!(
-      boundary["expires_event_sequence"],
+      ephemeral_expires_event_sequence!(signing_purpose, transcript_session, boundary),
       context_value(workspace_event_head, :sequence) + 1,
       "ephemeral_workspace_head_mismatch"
     )
   end
+
+  defp ephemeral_expires_event_sequence!("editor_ephemeral", _session, boundary),
+    do: boundary["expires_event_sequence"]
+
+  defp ephemeral_expires_event_sequence!("editor_ephemeral_session", session, _boundary),
+    do: session["expires_event_sequence"]
 
   defp assert_binary!(value, _message) when is_binary(value) and byte_size(value) > 0,
     do: :ok

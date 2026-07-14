@@ -108,7 +108,7 @@ export function WorkspaceRoleManagementDialogs(props: WorkspaceRoleManagementDia
           if (!open) props.state.closeEditRoleDialog();
         }}
       >
-        <DialogContent class="max-w-lg">
+        <DialogContent class="max-h-[calc(100vh-2rem)] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Role: {props.state.editRoleTarget()?.name}</DialogTitle>
             <DialogDescription>

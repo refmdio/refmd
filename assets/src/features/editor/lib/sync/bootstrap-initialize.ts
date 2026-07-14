@@ -171,6 +171,7 @@ export async function doInitializeDocumentSync(
   workspaceId: string,
   state: DocumentState,
   signal: AbortSignal,
+  options: { skipDocumentWipeAcknowledgement?: boolean } = {},
 ): Promise<void> {
   const assertActive = () => throwIfInitializationCancelled(state, signal);
   setDocumentSyncPaused(state.stateKey, true);
@@ -202,6 +203,7 @@ export async function doInitializeDocumentSync(
         state,
         signal,
         assertActive,
+        options,
       );
       localDeviceSigningKeyId = prepared.localDeviceSigningKeyId;
       deviceKeyCachePromise = prepared.deviceKeyCachePromise;
@@ -216,8 +218,9 @@ export async function doInitializeDocumentSync(
         return;
       }
 
-      const bootstrapInitialDocument =
-        state.access.kind === "share" && !state.initialized ? state.access.initialDocument : null;
+      const bootstrapInitialDocument = !state.initialized
+        ? prepared.getBootstrapInitialDocument()
+        : null;
       if (bootstrapInitialDocument) {
         const httpInitialStartedAt = performance.now();
         recordSyncPerf("initial_http_document_start", {

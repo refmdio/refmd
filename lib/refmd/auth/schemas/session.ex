@@ -11,6 +11,7 @@ defmodule RefMD.Auth.Session do
     field :token_hash, :string
     field :remember_me, :boolean
     field :is_recovery, :boolean, default: false
+    field :identity_recovery_required, :boolean, default: false
     belongs_to :device_registration, RefMD.Devices.DeviceRegistration
     field :recovery_session_transcript_hash, :string
     field :recovery_capability_hash, :string
@@ -24,6 +25,8 @@ defmodule RefMD.Auth.Session do
     field :candidate_user_checkpoint_hash, :string
     field :candidate_user_event_head_sequence, :integer
     field :candidate_user_event_head_hash, :string
+    field :candidate_user_audit_sequence, :integer
+    field :candidate_user_audit_hash, :string
     field :recovered_identity_signing_key_id, :string
     field :ip_address, :string
     field :user_agent, :string
@@ -42,6 +45,7 @@ defmodule RefMD.Auth.Session do
       :token_hash,
       :remember_me,
       :is_recovery,
+      :identity_recovery_required,
       :device_registration_id,
       :recovery_session_transcript_hash,
       :recovery_capability_hash,
@@ -55,6 +59,8 @@ defmodule RefMD.Auth.Session do
       :candidate_user_checkpoint_hash,
       :candidate_user_event_head_sequence,
       :candidate_user_event_head_hash,
+      :candidate_user_audit_sequence,
+      :candidate_user_audit_hash,
       :recovered_identity_signing_key_id,
       :ip_address,
       :user_agent,

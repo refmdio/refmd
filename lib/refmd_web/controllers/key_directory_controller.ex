@@ -2,6 +2,7 @@ defmodule RefMDWeb.KeyDirectoryController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Documents.DekRotation
   alias RefMD.Encryption
   alias RefMD.Sharing
   alias RefMD.Workspaces
@@ -27,11 +28,10 @@ defmodule RefMDWeb.KeyDirectoryController do
     user_id = conn.assigns.current_user_id
     rrp_device_id = conn.assigns[:rrp_device_id]
 
-    with {:ok, role} <- fetch_workspace_role(workspace_id, user_id),
-         :ok <- require_workspace_key_authority(role),
-         :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
-         {:ok, events} <- require_append_events(params["events"]),
+    with {:ok, events} <- require_append_events(params["events"]),
          {:ok, checkpoint} <- require_append_checkpoint(params["checkpoint"]),
+         :ok <- authorize_workspace_append(workspace_id, user_id, rrp_device_id),
+         :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
          {:ok, checkpoint_signer_kind} <-
            Encryption.validate_workspace_key_directory_append(
              events,
@@ -100,11 +100,16 @@ defmodule RefMDWeb.KeyDirectoryController do
   )
 
   def latest_workspace(conn, %{"workspace_id" => workspace_id}) do
+    user_id = conn.assigns.current_user_id
+    device_id = conn.assigns[:rrp_device_id]
+
     cond do
-      Workspaces.get_workspace_member(workspace_id, conn.assigns.current_user_id) ->
+      Workspaces.guest_user?(user_id) and
+          guest_workspace_access?(workspace_id, user_id, device_id) ->
         send_latest(conn, "workspace", workspace_id, conn.params)
 
-      guest_workspace_access?(workspace_id, conn.assigns.current_user_id) ->
+      not Workspaces.guest_user?(user_id) and
+          Workspaces.get_workspace_member(workspace_id, user_id) ->
         send_latest(conn, "workspace", workspace_id, conn.params)
 
       Workspaces.share_links_enabled?(workspace_id) and
@@ -123,6 +128,21 @@ defmodule RefMDWeb.KeyDirectoryController do
     end
   end
 
+  defp authorize_workspace_append(workspace_id, user_id, device_id) do
+    if Workspaces.guest_user?(user_id) do
+      if guest_workspace_access?(workspace_id, user_id, device_id) do
+        :ok
+      else
+        {:error, :forbidden, "key_directory_scope_forbidden"}
+      end
+    else
+      case fetch_workspace_role(workspace_id, user_id) do
+        {:ok, role} -> require_workspace_key_authority(role)
+        {:error, :forbidden, _error} -> {:error, :forbidden, "key_directory_scope_forbidden"}
+      end
+    end
+  end
+
   defp share_participant_workspace_access?(conn, workspace_id) do
     share_id = conn.assigns[:current_share_id]
 
@@ -131,9 +151,10 @@ defmodule RefMDWeb.KeyDirectoryController do
       Sharing.share_session_workspace_access?(share_id, workspace_id)
   end
 
-  defp guest_workspace_access?(workspace_id, user_id) do
+  defp guest_workspace_access?(workspace_id, user_id, device_id) do
     Workspaces.guest_user?(user_id) and
-      Workspaces.authorize_guest_permission(workspace_id, user_id, "document:read", nil) == :ok
+      Workspaces.authorize_workspace_guest_access(workspace_id, user_id) == :ok and
+      Encryption.active_workspace_scope_guest_device_admitted?(workspace_id, user_id, device_id)
   end
 
   defp require_workspace_key_authority(role) when role in ~w(owner admin), do: :ok
@@ -169,6 +190,15 @@ defmodule RefMDWeb.KeyDirectoryController do
 
       case latest_delta(scope_kind, scope_id, client_anchor) do
         {:ok, %{checkpoint: checkpoint, checkpoints: checkpoints, events: events, pin: pin}} ->
+          authority_events =
+            Encryption.key_directory_authority_events(
+              scope_kind,
+              scope_id,
+              client_event_head_sequence,
+              events,
+              checkpoint
+            )
+
           json(conn, %{
             checkpoint: %{
               payload: checkpoint.payload,
@@ -176,6 +206,7 @@ defmodule RefMDWeb.KeyDirectoryController do
             },
             checkpoint_ancestry: Enum.map(checkpoints, &serialize_checkpoint/1),
             event_ancestry: Enum.map(events, &serialize_event/1),
+            authority_event_ancestry: Enum.map(authority_events, &serialize_event/1),
             events: Enum.map(events, &serialize_event/1),
             rotation_deletion_evidences: rotation_deletion_evidences(scope_kind, events),
             pin: serialize_pin(pin)
@@ -213,7 +244,23 @@ defmodule RefMDWeb.KeyDirectoryController do
       |> Enum.filter(&(&1.event_type == "old_key_deleted"))
       |> Enum.map(& &1.event_hash)
 
-    records = Workspaces.rotation_deletion_evidences_by_event_hash(event_hashes)
+    records =
+      Workspaces.rotation_deletion_evidences_by_event_hash(event_hashes)
+      |> Map.merge(DekRotation.deletion_evidences_by_event_hash(event_hashes))
+
+    event_hashes
+    |> Enum.map(&Map.get(records, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&serialize_rotation_deletion_evidence/1)
+  end
+
+  defp rotation_deletion_evidences("user", events) do
+    event_hashes =
+      events
+      |> Enum.filter(&(&1.event_type == "old_key_deleted"))
+      |> Enum.map(& &1.event_hash)
+
+    records = Encryption.user_identity_rotation_deletion_evidences_by_event_hash(event_hashes)
 
     event_hashes
     |> Enum.map(&Map.get(records, &1))
@@ -232,14 +279,20 @@ defmodule RefMDWeb.KeyDirectoryController do
   defp serialize_rotation_deletion_evidence(evidence) do
     %{
       old_key_deleted_event_hash: evidence.old_key_deleted_event_hash,
-      workspace_id: evidence.workspace_id,
+      workspace_id: Map.get(evidence, :workspace_id),
+      document_id: Map.get(evidence, :document_id),
+      user_id: Map.get(evidence, :user_id),
       rotation_kind: evidence.rotation_kind,
       scope_kind: evidence.scope_kind,
       scope_id: evidence.scope_id,
       old_key_version: evidence.old_key_version,
+      completion_manifest: Map.get(evidence, :completion_manifest),
       deletion_manifest: evidence.deletion_manifest,
-      device_key_deletion_proofs: evidence.device_key_deletion_proofs
+      device_key_deletion_proofs: evidence.device_key_deletion_proofs,
+      wipe_required_device_ids: Map.get(evidence, :wipe_required_device_ids)
     }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp serialize_pin(nil), do: nil

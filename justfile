@@ -30,6 +30,7 @@ api-clean:
 web-clean:
     rm -rf assets/node_modules
     rm -rf priv/static/assets
+    rm -rf assets/src/shared/lib/crypto/worker/native
 
 # ── Services ──────────────────────────────────────
 
@@ -52,6 +53,8 @@ dev:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    just native-crypto-build
+
     mix phx.server &
     api_pid=$!
 
@@ -73,6 +76,7 @@ api-dev:
 
 # Frontend only
 web-dev:
+    just native-crypto-build
     cd assets && vp dev
 
 # ── Build ─────────────────────────────────────────
@@ -88,7 +92,15 @@ api-build:
 
 # Frontend production build
 web-build:
+    just native-crypto-build
     cd assets && vp build
+
+# Browser Crypto Worker Rust/WASM boundary
+native-crypto-build:
+    PATH="$(dirname "$(rustup which rustc --toolchain stable)"):$PATH" wasm-pack build --target web --out-dir ../../assets/src/shared/lib/crypto/worker/native --out-name refmd_crypto --no-pack native/refmd_crypto -- --no-default-features --features wasm
+
+native-crypto-test:
+    cargo test --manifest-path native/refmd_crypto/Cargo.toml
 
 # Production-equivalent local run (vite build + Phoenix prod)
 preview:
@@ -113,6 +125,8 @@ api-check:
 
 # Frontend verification
 web-check:
+    just native-crypto-test
+    just native-crypto-build
     cd assets && vp check
     cd assets && vp exec tsc -p tsconfig.app.json --noEmit
     just web-test
@@ -147,6 +161,7 @@ api-test:
     mix test
 
 web-test:
+    just native-crypto-build
     cd assets && vp test run
 
 test-verbose:

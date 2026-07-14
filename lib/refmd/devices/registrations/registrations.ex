@@ -10,6 +10,8 @@ defmodule RefMD.Devices.Registrations do
   alias RefMD.Repo
   alias RefMD.Security
 
+  alias RefMD.Devices.Registrations.ApprovalDeliveryArtifacts
+
   def user_owns_device_registration?(user_id, device_id) do
     now = DateTime.utc_now()
 
@@ -17,6 +19,71 @@ defmodule RefMD.Devices.Registrations do
       where: dr.id == ^device_id and dr.user_id == ^user_id and dr.expires_at > ^now
     )
     |> Repo.exists?()
+  end
+
+  def get_initial_ake_exchange(user_id, device_id) do
+    case get_valid_device_registration(device_id) do
+      %{user_id: ^user_id, approval_signature: signature, approval_delivery_artifacts: artifacts}
+      when is_map(signature) and is_map(artifacts) ->
+        {:ok,
+         %{
+           offers: artifacts["initial_ake_offers"],
+           responses: artifacts["initial_ake_responses"]
+         }}
+
+      _ ->
+        {:error, :initial_ake_exchange_not_ready}
+    end
+  end
+
+  def submit_initial_ake_responses(user_id, device_id, responses) when is_map(responses) do
+    now = DateTime.utc_now()
+
+    Repo.transaction(fn ->
+      registration = locked_initial_ake_registration(user_id, device_id, now)
+      store_initial_ake_responses(registration, responses)
+    end)
+    |> case do
+      {:ok, registration} -> {:ok, registration}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def submit_initial_ake_responses(_, _, _), do: {:error, :invalid_initial_ake_response}
+
+  defp locked_initial_ake_registration(user_id, device_id, now) do
+    registration =
+      from(dr in DeviceRegistration,
+        where: dr.id == ^device_id and dr.user_id == ^user_id and dr.expires_at > ^now,
+        lock: "FOR UPDATE"
+      )
+      |> Repo.one()
+
+    if registration, do: registration, else: Repo.rollback(:initial_ake_exchange_not_ready)
+  end
+
+  defp store_initial_ake_responses(registration, responses) do
+    artifacts = registration.approval_delivery_artifacts
+    offers = if is_map(artifacts), do: artifacts["initial_ake_offers"]
+
+    validate_initial_ake_response_state!(registration, artifacts, offers, responses)
+
+    registration
+    |> DeviceRegistration.changeset(%{
+      approval_delivery_artifacts: Map.put(artifacts, "initial_ake_responses", responses)
+    })
+    |> Repo.update!()
+  end
+
+  defp validate_initial_ake_response_state!(registration, artifacts, offers, responses) do
+    unless is_map(registration.approval_signature) and is_map(artifacts) and is_map(offers),
+      do: Repo.rollback(:initial_ake_exchange_not_ready)
+
+    if is_map(artifacts["initial_ake_responses"]),
+      do: Repo.rollback(:initial_ake_response_reused)
+
+    unless ApprovalDeliveryArtifacts.responses_match_offers?(responses, offers),
+      do: Repo.rollback(:invalid_initial_ake_response)
   end
 
   def create_device_registration(attrs) do
@@ -88,7 +155,7 @@ defmodule RefMD.Devices.Registrations do
 
       %{user_id: ^user_id} = dr ->
         if DateTime.compare(dr.expires_at, DateTime.utc_now()) == :gt do
-          {:ok, "pending"}
+          {:ok, pending_registration_status(dr)}
         else
           {:ok, "expired"}
         end
@@ -96,6 +163,14 @@ defmodule RefMD.Devices.Registrations do
       _ ->
         {:error, :not_found}
     end
+  end
+
+  defp pending_registration_status(registration) do
+    offers = get_in(registration.approval_delivery_artifacts || %{}, ["initial_ake_offers"])
+
+    if is_map(registration.approval_signature) and is_map(offers),
+      do: "initial_ake_offers_ready",
+      else: "pending"
   end
 
   def delete_device_registration(id) do
@@ -298,7 +373,7 @@ defmodule RefMD.Devices.Registrations do
 
   defp resolve_device_status(user_id, device_id) do
     case RefMD.Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} ->
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: nil} ->
         if RefMD.Devices.get_device_encrypted_umk(user_id, device_id) != nil do
           {:ok, "approved"}
         else
@@ -311,16 +386,24 @@ defmodule RefMD.Devices.Registrations do
   end
 
   defp persist_pending_delivery_approval(device_registration, approval_signature, opts) do
-    device_registration
-    |> DeviceRegistration.changeset(%{
-      approval_signature: approval_signature,
-      approval_signature_surface: approval_signature_surface(opts),
-      approval_proof: approval_proof(device_registration, opts),
-      approval_delivery_commitments: approval_delivery_commitments(opts),
-      approval_delivery_artifacts: approval_delivery_artifacts(opts),
-      approval_key_directory: Keyword.get(opts, :key_directory)
-    })
-    |> Repo.update()
+    Repo.transaction(fn ->
+      registration =
+        device_registration
+        |> DeviceRegistration.changeset(%{
+          approval_signature: approval_signature,
+          approval_signature_surface: approval_signature_surface(opts),
+          approval_proof: approval_proof(device_registration, opts),
+          approval_delivery_commitments: approval_delivery_commitments(opts),
+          approval_delivery_artifacts: approval_delivery_artifacts(opts),
+          approval_key_directory: Keyword.get(opts, :key_directory)
+        })
+        |> Repo.update!()
+
+      case Security.record_initial_ake_offers_ready(registration.user_id, registration.id) do
+        {:ok, _record} -> registration
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   def finalize_pending_delivery(device_registration, umk_attrs, prekey_consumptions)
@@ -328,6 +411,8 @@ defmodule RefMD.Devices.Registrations do
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
+      lock_user!(device_registration.user_id)
+
       locked_registration =
         from(dr in DeviceRegistration,
           where: dr.id == ^device_registration.id and dr.expires_at > ^now,
@@ -549,17 +634,62 @@ defmodule RefMD.Devices.Registrations do
 
   defp insert_approved_device(device_registration, changeset, key_directory) do
     Repo.transaction(fn ->
+      lock_user!(device_registration.user_id)
       Repo.delete!(device_registration)
 
       case Repo.insert(changeset) do
         {:ok, device} ->
           append_approval_key_directory!(device_registration, key_directory)
+          retire_replaced_identity_devices!(device, key_directory, DateTime.utc_now())
           device
 
         {:error, changeset} ->
           Repo.rollback(changeset)
       end
     end)
+  end
+
+  defp retire_replaced_identity_devices!(
+         device,
+         {:recovery_self_approval, _key_directory},
+         now
+       ) do
+    replaced_device_ids =
+      from(d in Device,
+        where:
+          d.user_id == ^device.user_id and d.id != ^device.id and is_nil(d.revoked_at) and
+            not is_nil(d.identity_wipe_required_at),
+        select: d.id
+      )
+      |> Repo.all()
+
+    if replaced_device_ids != [] do
+      from(d in Device, where: d.id in ^replaced_device_ids)
+      |> Repo.update_all(
+        set: [
+          revoked_at: now,
+          identity_wipe_required_at: nil,
+          identity_replaced_by_device_id: device.id
+        ]
+      )
+
+      from(s in Session, where: s.device_id in ^replaced_device_ids)
+      |> Repo.delete_all()
+
+      from(s in Session,
+        where: s.user_id == ^device.user_id and s.identity_recovery_required == true
+      )
+      |> Repo.delete_all()
+    end
+
+    :ok
+  end
+
+  defp retire_replaced_identity_devices!(_device, _key_directory, _now), do: :ok
+
+  defp lock_user!(user_id) do
+    from(u in RefMD.Users.User, where: u.id == ^user_id, lock: "FOR UPDATE")
+    |> Repo.one!()
   end
 
   defp append_approval_key_directory!(
@@ -773,8 +903,12 @@ defmodule RefMD.Devices.Registrations do
     do: raise(ArgumentError, "key_directory_device_event_mismatch")
 
   defp get_identity_public_material(user_id) do
+    now = DateTime.utc_now()
+
     from(k in RefMD.Encryption.UserIdentityPublicKey,
-      where: k.user_id == ^user_id,
+      where:
+        k.user_id == ^user_id and k.lifecycle_state == "current" and
+          k.needs_rotation == false and k.rotation_due_at > ^now,
       select: k.hybrid_signing_public_key_material,
       limit: 1
     )

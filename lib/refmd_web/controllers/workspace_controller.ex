@@ -3,7 +3,8 @@ defmodule RefMDWeb.WorkspaceController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Crypto.Encoding
-  alias RefMD.{Public, Workspaces}
+  alias RefMD.Encryption.RotationPolicy
+  alias RefMD.{Public, Security, Workspaces}
   alias RefMDWeb.Schemas
 
   plug RefMDWeb.Plugs.RequireRBAC, [permission: :membership] when action in [:show]
@@ -143,6 +144,11 @@ defmodule RefMDWeb.WorkspaceController do
         case Workspaces.update_workspace(workspace, attrs) do
           {:ok, updated} ->
             json(conn, serialize_workspace(updated))
+
+          {:error, :kek_rotation_required} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "kek_rotation_required"})
 
           {:error, changeset} ->
             conn
@@ -357,8 +363,10 @@ defmodule RefMDWeb.WorkspaceController do
       plugin_network_proxy: workspace.plugin_network_proxy,
       plugin_user_policy: workspace.plugin_user_policy,
       current_kek_version: workspace.current_kek_version,
-      needs_kek_rotation: workspace.needs_kek_rotation,
+      needs_kek_rotation: RotationPolicy.kek_overdue?(workspace),
+      kek_rotation_due_at: workspace.kek_rotation_due_at,
       kek_rotation_initiator_user_id: workspace.kek_rotation_initiator_user_id,
+      audit_checkpoint: Security.current_audit_checkpoint!("workspace:#{workspace.id}"),
       created_at: workspace.created_at,
       updated_at: workspace.updated_at
     }

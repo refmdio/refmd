@@ -33,6 +33,7 @@ import {
   verifyDocumentWriteSessionAdmission,
 } from "@/shared/lib/document/document-operation-admission";
 import { recordSyncPerf } from "./perf";
+import { runDocumentOfflineWrite } from "@/shared/lib/crypto/document-key-write-barrier";
 import { createAdmissionKeyDirectoryRefresh } from "./admission-key-directory";
 import { computeDocumentUpdateHash } from "./update-hash";
 function createProcessingCancelledError(): Error {
@@ -387,7 +388,6 @@ export async function verifyAndDecryptSingleUpdate(
       `Update: revoked signing key ${update.publicData.signingKeyId}`,
     );
   }
-  // Ed25519 signature verification is mandatory when the signing key is known.
   let signatureValidPromise: Promise<boolean> | null = null;
   let startDeferredSignatureVerification: (() => Promise<void>) | undefined;
   const verifyHybridSignature = () =>
@@ -398,20 +398,7 @@ export async function verifyAndDecryptSingleUpdate(
       state.workspaceId,
     );
   if (keyResult.status === "found") {
-    if (deferHybridSignatureForCachedWriteSession) {
-      const ed25519Valid = await verifyDocumentUpdateEd25519(
-        update,
-        keyResult.key,
-        keyResult.ownerId,
-        state.workspaceId,
-      );
-      if (!ed25519Valid) {
-        throw createVerificationFailedError("Update Ed25519 signature verification failed");
-      }
-      recordVerifyStep("ed25519_signature_verified");
-    } else {
-      signatureValidPromise = verifyHybridSignature();
-    }
+    signatureValidPromise = verifyHybridSignature();
   }
 
   const recomputedHashPromise = Promise.resolve(
@@ -586,30 +573,6 @@ export async function verifyAndDecryptSingleUpdate(
   };
 }
 
-function verifyDocumentUpdateEd25519(
-  update: UpdatePayload,
-  publicKeyMaterial: HybridSigningPublicKeyMaterial,
-  actorUserId: string,
-  workspaceId: string,
-): Promise<boolean> {
-  return getDocumentVerificationCryptoWorker(
-    `document-update-ed25519:${update.publicData.docId}`,
-  ).verifyDocumentUpdateEd25519Signature({
-    publicKeyMaterial,
-    signature: update.signature,
-    actorUserId,
-    workspaceId,
-    publicData: update.publicData,
-    authorityBoundary: documentWriteSessionAuthorityBoundaryForDocument({
-      publicData: update.publicData,
-      workspaceId,
-      documentId: update.publicData.docId,
-    }),
-    ciphertext: update.ciphertext,
-    nonce: update.nonce,
-  });
-}
-
 export async function verifyDocumentUpdateSignature(
   update: UpdatePayload,
   publicKeyMaterial: HybridSigningPublicKeyMaterial,
@@ -709,18 +672,21 @@ export async function ensureDekCached(
   state?: DocumentState,
 ): Promise<void> {
   const currentState = state ?? getDocumentState(documentId);
-  if (
-    currentState?.access.kind !== "share" &&
-    currentState?.dekResolved &&
-    currentState.keyVersion >= keyVersion
-  ) {
-    return;
-  }
   if (currentState?.access.kind === "share") {
     await ensureSharedDekCached(currentState, documentId, keyVersion);
     return;
   }
 
+  await runDocumentOfflineWrite(documentId, () =>
+    ensureWorkspaceDekCached(documentId, workspaceId, keyVersion),
+  );
+}
+
+async function ensureWorkspaceDekCached(
+  documentId: string,
+  workspaceId: string,
+  keyVersion: number,
+): Promise<void> {
   const worker = getCryptoWorker();
   const hasDek = await worker.hasDek(documentId, keyVersion);
   if (hasDek) return;
@@ -753,18 +719,11 @@ export function checkRotationSnapshot(documentId: string, state: DocumentState):
   documentsApi
     .get(documentId)
     .then(async (doc) => {
-      // Retry deferred DEK rotation (KEK rotation may have completed since init)
-      if (doc.needs_dek_rotation && state._retryDekRotation) {
-        try {
-          await state._retryDekRotation();
-        } catch {
-          // Best-effort; will retry on next document open
-        }
+      if (doc.needs_dek_rotation || doc.needs_rotation_snapshot) {
+        await state._retryDekRotation?.();
+        return;
       }
-      if (doc.needs_rotation_snapshot && !state.pendingRotationSnapshot) {
-        state.pendingRotationSnapshot = true;
-        if (state.autoSync) state.autoSync.notifyLocalEdit();
-      } else if (!doc.needs_rotation_snapshot && state.pendingRotationSnapshot) {
+      if (state.pendingRotationSnapshot) {
         state.pendingRotationSnapshot = false;
       }
     })

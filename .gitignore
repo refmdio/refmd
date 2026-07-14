@@ -9,6 +9,7 @@
 /priv/native/
 /target
 /native/*/target/
+/assets/src/shared/lib/crypto/worker/native/
 
 # Local
 /local

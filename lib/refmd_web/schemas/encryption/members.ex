@@ -104,9 +104,14 @@ defmodule RefMDWeb.Schemas.MemberEnvelopeResponse do
             nullable: true
           },
           sender_client_nonce: %Schema{type: :string},
-          workspace_key_directory_checkpoint: %Schema{
-            allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
-            nullable: true
+          workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope,
+          workspace_key_directory_checkpoint_ancestry: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+          },
+          workspace_key_directory_event_ancestry: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.KeyDirectoryEnvelope
           }
         },
         required: [
@@ -122,7 +127,10 @@ defmodule RefMDWeb.Schemas.MemberEnvelopeResponse do
           :sender_approval_proof,
           :sender_approval_delivery_commitments,
           :sender_approval_delivery_artifacts,
-          :sender_client_nonce
+          :sender_client_nonce,
+          :workspace_key_directory_checkpoint,
+          :workspace_key_directory_checkpoint_ancestry,
+          :workspace_key_directory_event_ancestry
         ]
       }
     ]

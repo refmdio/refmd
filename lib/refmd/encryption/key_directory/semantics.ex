@@ -22,8 +22,7 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
              "old_key_deleted"
            ] do
     Assertions.assert_literal!(body["event_type"], type, "event_body_type_mismatch")
-    Assertions.assert_literal!(body["scope_kind"], scope_kind, "event_body_scope_mismatch")
-    Assertions.assert_literal!(body["scope_id"], scope_id, "event_body_scope_mismatch")
+    assert_rotation_scope!(scope_kind, scope_id, body)
     assert_rotation_sequence!(type, body, sequence)
   end
 
@@ -40,7 +39,6 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
         _checkpoint_payload
       )
       when type in [
-             "document_update_accepted",
              "document_write_session_admitted",
              "document_snapshot_accepted"
            ] do
@@ -202,6 +200,11 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
       sequence,
       "member_role_changed_sequence_mismatch"
     )
+
+    Assertions.assert_positive_integer!(
+      body["permission_version"],
+      "member_role_changed_permission_version_invalid"
+    )
   end
 
   def assert_event_semantics_against_checkpoint!(
@@ -357,11 +360,14 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
           payload,
         _checkpoint_payload
       ) do
-    assert_wrap_issued_static_semantics!(payload, scope_kind, scope_id)
+    assert_wrap_issued_static_semantics!(payload, scope_kind, scope_id,
+      allow_user_scoped_recipient: true
+    )
+
     :ok
   end
 
-  defp assert_wrap_issued_static_semantics!(payload, scope_kind, scope_id) do
+  defp assert_wrap_issued_static_semantics!(payload, scope_kind, scope_id, opts \\ []) do
     body = payload["body"]
     resource_hash = Hash.blake3_base64url(JCS.canonical_bytes!(body["resource"]))
 
@@ -392,6 +398,56 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
     Assertions.assert_literal!(sender["key_scope_kind"], scope_kind, "wrap_sender_scope_mismatch")
     Assertions.assert_literal!(sender["key_scope_id"], scope_id, "wrap_sender_scope_mismatch")
 
+    assert_wrap_recipient_scope!(recipient, body, scope_kind, scope_id, opts)
+
+    {sender, recipient}
+  end
+
+  defp assert_wrap_recipient_scope!(
+         %{
+           "recipient_kind" => "user_identity",
+           "user_id" => user_id,
+           "key_scope_kind" => "user",
+           "key_scope_id" => user_id
+         },
+         %{
+           "purpose" => "workspace_member_kek_wrap",
+           "resource" => %{"target_user_id" => user_id}
+         },
+         _scope_kind,
+         _scope_id,
+         opts
+       ) do
+    if Keyword.get(opts, :allow_user_scoped_recipient, false),
+      do: :ok,
+      else: raise(ArgumentError, "wrap_recipient_scope_mismatch")
+  end
+
+  defp assert_wrap_recipient_scope!(
+         %{
+           "recipient_kind" => "invitee",
+           "invitee_user_id" => user_id,
+           "invitee_device_id" => device_id,
+           "key_scope_kind" => "user",
+           "key_scope_id" => user_id
+         },
+         %{
+           "purpose" => "workspace_invitation_kek_wrap",
+           "resource" => %{
+             "redeemed_user_id" => user_id,
+             "redeemed_device_id" => device_id
+           }
+         },
+         _scope_kind,
+         _scope_id,
+         opts
+       ) do
+    if Keyword.get(opts, :allow_user_scoped_recipient, false),
+      do: :ok,
+      else: raise(ArgumentError, "wrap_recipient_scope_mismatch")
+  end
+
+  defp assert_wrap_recipient_scope!(recipient, _body, scope_kind, scope_id, _opts) do
     Assertions.assert_literal!(
       recipient["key_scope_kind"],
       scope_kind,
@@ -403,8 +459,6 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
       scope_id,
       "wrap_recipient_scope_mismatch"
     )
-
-    {sender, recipient}
   end
 
   defp assert_share_event_sequence!("share_revoked", %{"sequence" => sequence, "body" => body}),
@@ -567,6 +621,19 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
 
   defp assert_invitation_event_sequence!(_, _), do: :ok
 
+  defp assert_rotation_scope!("workspace", _workspace_id, %{
+         "rotation_kind" => "dek",
+         "scope_kind" => "document",
+         "scope_id" => document_id
+       })
+       when is_binary(document_id),
+       do: :ok
+
+  defp assert_rotation_scope!(scope_kind, scope_id, body) do
+    Assertions.assert_literal!(body["scope_kind"], scope_kind, "event_body_scope_mismatch")
+    Assertions.assert_literal!(body["scope_id"], scope_id, "event_body_scope_mismatch")
+  end
+
   defp assert_rotation_sequence!("rotation_started", body, sequence) do
     Assertions.assert_literal!(
       body["not_before_event_sequence"],
@@ -574,7 +641,11 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
       "rotation_started_sequence_mismatch"
     )
 
-    assert_rotation_version_progression!(body)
+    unless body["rotation_kind"] == "identity", do: assert_rotation_version_progression!(body)
+
+    if body["rotation_kind"] == "dek" and
+         body["reason"] not in ["time_based", "manual", "security", "membership_change"],
+       do: raise(ArgumentError, "rotation_reason_invalid")
   end
 
   defp assert_rotation_sequence!("rotation_completed", body, sequence) do
@@ -584,7 +655,7 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
       "rotation_completed_sequence_mismatch"
     )
 
-    assert_rotation_version_progression!(body)
+    unless body["rotation_kind"] == "identity", do: assert_rotation_version_progression!(body)
   end
 
   defp assert_rotation_sequence!("old_key_deleted", body, sequence) do

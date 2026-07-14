@@ -76,7 +76,7 @@ defmodule RefMDWeb.RoleController do
     ],
     request_body: {"Update params", "application/json", Schemas.UpdateRoleRequest},
     responses: [
-      ok: {"Updated role", "application/json", Schemas.RoleResponse},
+      ok: {"Updated role", "application/json", Schemas.UpdateRoleResponse},
       bad_request: {"Invalid permission", "application/json", Schemas.ErrorResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
       not_found: {"Not found", "application/json", Schemas.ErrorResponse},
@@ -190,10 +190,18 @@ defmodule RefMDWeb.RoleController do
 
     case Workspaces.update_role(role, %{name: name, is_default: is_default},
            permissions: permissions,
-           actor_role: conn.assigns.workspace_role
+           actor_role: conn.assigns.workspace_role,
+           actor_user_id: conn.assigns.current_user_id,
+           key_directory: %{
+             workspace_events: params["workspace_key_directory_events"],
+             workspace_checkpoint: params["workspace_key_directory_checkpoint"]
+           }
          ) do
       {:ok, updated_role} ->
-        json(conn, serialize_role(updated_role))
+        json(conn, %{
+          role: serialize_role(updated_role),
+          workspaces_needing_kek_rotation: workspace_rotation_info(role.workspace_id)
+        })
 
       {:error, error} ->
         handle_role_error(conn, error)
@@ -273,5 +281,15 @@ defmodule RefMDWeb.RoleController do
       created_at: role.created_at,
       permissions: permissions
     }
+  end
+
+  defp workspace_rotation_info(workspace_id) do
+    case Workspaces.get_workspace(workspace_id) do
+      %{needs_kek_rotation: true, current_kek_version: version} ->
+        [%{workspace_id: workspace_id, current_kek_version: version}]
+
+      _ ->
+        []
+    end
   end
 end

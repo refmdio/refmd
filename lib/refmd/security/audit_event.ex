@@ -22,6 +22,24 @@ defmodule RefMD.Security.AuditEvent do
     password
     recovery_words
   ))
+  @allowed_map_keys %{
+    actor: MapSet.new(~w(user_id device_id session_id principal_kind principal_id kind id)),
+    scope: MapSet.new(~w(workspace_id document_id share_id)),
+    resource:
+      MapSet.new(
+        ~w(kind id version_hash plugin_id package_id application_id activation_id owner_scope_kind capability_grant_id bundle_hash manifest_hash)
+      ),
+    action:
+      MapSet.new(
+        ~w(operation result reason_code endpoint_id route method target_origin target_path request_bytes response_bytes credential_handle_used proxy_id fallback_reason)
+      ),
+    sensitivity:
+      MapSet.new(~w(plaintext_scope_kind plaintext_bytes egress_bytes storage_bytes category)),
+    correlation:
+      MapSet.new(
+        ~w(request_id capability_id execution_context_id authority_event_ref package_id application_id activation_id owner_scope_kind capability_grant_id frame_generation candidate_id source_kind canonical_source_host archive_hash bundle_hash manifest_hash permissions_hash endpoint_hash)
+      )
+  }
 
   schema "security_audit_events" do
     field :class, :string
@@ -32,6 +50,10 @@ defmodule RefMD.Security.AuditEvent do
     field :action, :map
     field :sensitivity, :map
     field :correlation, :map
+    field :chain_scope, :string
+    field :sequence, :integer
+    field :previous_event_hash, :string
+    field :event_hash, :string
 
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
@@ -44,16 +66,24 @@ defmodule RefMD.Security.AuditEvent do
     :resource,
     :action,
     :sensitivity,
-    :correlation
+    :correlation,
+    :chain_scope,
+    :sequence,
+    :event_hash
   ]
+  @optional_fields [:previous_event_hash]
 
   def changeset(event, attrs) do
     event
-    |> cast(attrs, @required_fields)
+    |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_inclusion(:class, @classes)
+    |> validate_number(:sequence, greater_than: 0)
+    |> validate_format(:event_hash, ~r/^[A-Za-z0-9_-]{43}$/)
+    |> validate_format(:previous_event_hash, ~r/^[A-Za-z0-9_-]{43}$/)
     |> validate_action()
     |> validate_map_fields([:actor, :scope, :resource, :action, :sensitivity, :correlation])
+    |> validate_allowed_metadata()
     |> validate_no_sensitive_payload()
   end
 
@@ -106,4 +136,20 @@ defmodule RefMD.Security.AuditEvent do
     do: Enum.any?(value, &contains_sensitive_key?/1)
 
   defp contains_sensitive_key?(_value), do: false
+
+  defp validate_allowed_metadata(changeset) do
+    Enum.reduce(@allowed_map_keys, changeset, fn {field, allowed}, acc ->
+      validate_change(acc, field, &allowed_metadata_errors(&1, &2, allowed))
+    end)
+  end
+
+  defp allowed_metadata_errors(field, value, allowed) do
+    unsupported =
+      value
+      |> Map.keys()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&MapSet.member?(allowed, &1))
+
+    if unsupported == [], do: [], else: [{field, "contains unsupported metadata fields"}]
+  end
 end

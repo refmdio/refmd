@@ -18,6 +18,7 @@ import {
 } from "@/shared/lib/offline/storage/store";
 import { clientWarn } from "@/shared/lib/logger";
 import type { CacheableDocumentState } from "./types";
+import { runDocumentOfflineWrite } from "../../../crypto/document-key-write-barrier";
 
 const periodicFlushIntervalMs = 30000;
 const flushLocks = new Map<string, boolean>();
@@ -43,6 +44,19 @@ export async function cacheDocumentState(
   workspaceId: string,
   state: CacheableDocumentState,
   options: OfflineCacheOptions = {},
+): Promise<boolean> {
+  return (
+    (await runDocumentOfflineWrite(documentId, () =>
+      cacheDocumentStateUnblocked(documentId, workspaceId, state, options),
+    )) ?? false
+  );
+}
+
+async function cacheDocumentStateUnblocked(
+  documentId: string,
+  workspaceId: string,
+  state: CacheableDocumentState,
+  options: OfflineCacheOptions,
 ): Promise<boolean> {
   const lockKey = options.cacheKey ? `${documentId}:${options.cacheKey}` : documentId;
   if (flushLocks.get(lockKey)) return false;
@@ -143,6 +157,16 @@ export async function cachePendingChanges(
   state: CacheableDocumentState,
   options: OfflineCacheOptions = {},
 ): Promise<void> {
+  await runDocumentOfflineWrite(documentId, () =>
+    cachePendingChangesUnblocked(documentId, state, options),
+  );
+}
+
+async function cachePendingChangesUnblocked(
+  documentId: string,
+  state: CacheableDocumentState,
+  options: OfflineCacheOptions,
+): Promise<void> {
   let pendingEntry: PendingChangesEntry | null = null;
   try {
     if (!state.lastSavedState) {
@@ -200,6 +224,7 @@ export async function cachePendingChanges(
       encryptedDiff: ciphertext,
       diffNonce: nonce,
       keyVersion: state.keyVersion,
+      writeId: crypto.randomUUID(),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       syncBlockedReason: existing?.syncBlockedReason ?? null,

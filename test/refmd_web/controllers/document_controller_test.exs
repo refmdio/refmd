@@ -224,6 +224,33 @@ defmodule RefMDWeb.DocumentControllerTest do
            )
   end
 
+  test "POST /api/documents rejects a future initial title DEK version",
+       %{conn: conn, owner_id: owner_id, owner_device: owner_device, workspace: workspace} do
+    body =
+      Map.put(encrypted_create_body(workspace.id, "document"), "encrypted_title_key_version", 2)
+
+    conn = post_document(conn, owner_id, owner_device, body)
+
+    assert json_response(conn, 422) == %{
+             "error" => "validation_error",
+             "details" => %{
+               "encrypted_title_key_version" => ["must be 1 for a new document"]
+             }
+           }
+  end
+
+  test "POST /api/documents rejects encrypted creation while the workspace KEK is overdue",
+       %{conn: conn, owner_id: owner_id, owner_device: owner_device, workspace: workspace} do
+    workspace
+    |> Ecto.Changeset.change(needs_kek_rotation: true)
+    |> Repo.update!()
+
+    conn =
+      post_document(conn, owner_id, owner_device, encrypted_create_body(workspace.id, "document"))
+
+    assert json_response(conn, 422) == %{"error" => "kek_rotation_required"}
+  end
+
   test "PATCH /api/documents/:id rejects plaintext title even with encrypted metadata",
        %{conn: conn, owner_id: owner_id, owner_device: owner_device, workspace: workspace} do
     create_conn =
@@ -282,6 +309,26 @@ defmodule RefMDWeb.DocumentControllerTest do
     assert response["encrypted_title"] == body["encrypted_title"]
     assert response["encrypted_title_nonce"] == body["encrypted_title_nonce"]
     assert response["encrypted_title_key_version"] == body["encrypted_title_key_version"]
+  end
+
+  test "PATCH /api/documents/:id rejects encrypted title under an obsolete DEK",
+       %{conn: conn, owner_id: owner_id, owner_device: owner_device, workspace: workspace} do
+    create_conn =
+      post_document(conn, owner_id, owner_device, encrypted_create_body(workspace.id, "document"))
+
+    document_id = json_response(create_conn, 201)["id"]
+
+    Repo.get!(Document, document_id)
+    |> Ecto.Changeset.change(min_dek_version: 2)
+    |> Repo.update!()
+
+    body =
+      encrypted_create_body(workspace.id, "document")
+      |> Map.take(["encrypted_title", "encrypted_title_nonce", "encrypted_title_key_version"])
+
+    conn = patch_document(build_conn(), owner_id, owner_device, document_id, body)
+
+    assert json_response(conn, 422) == %{"error" => "dek_rotation_required"}
   end
 
   test "PATCH /api/documents/:id rejects malformed encrypted title metadata",

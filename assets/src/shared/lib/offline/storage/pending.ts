@@ -1,11 +1,13 @@
-import { idbGet, idbPut, toArrayBuffer } from "@/shared/lib/storage/idb";
+import { idbConditionalPut, idbGet, toArrayBuffer } from "@/shared/lib/storage/idb";
 import { openOfflineDb, STORE_PENDING_CHANGES } from "./db";
+import { runDocumentOfflineWrite } from "../../crypto/document-key-write-barrier";
 export type PendingSyncBlockReason = "not_a_member" | "permission_denied";
 export interface PendingChangesEntry {
   documentId: string;
   encryptedDiff: Uint8Array;
   diffNonce: Uint8Array;
   keyVersion: number;
+  writeId: string;
   createdAt: number;
   updatedAt: number;
   syncBlockedReason?: PendingSyncBlockReason | null;
@@ -16,6 +18,7 @@ interface PendingChangesIdb {
   encryptedDiff: ArrayBuffer;
   diffNonce: ArrayBuffer;
   keyVersion: number;
+  writeId: string;
   createdAt: number;
   updatedAt: number;
   syncBlockedReason?: PendingSyncBlockReason;
@@ -27,6 +30,7 @@ function serializePendingChanges(entry: PendingChangesEntry): PendingChangesIdb 
     encryptedDiff: toArrayBuffer(entry.encryptedDiff),
     diffNonce: toArrayBuffer(entry.diffNonce),
     keyVersion: entry.keyVersion,
+    writeId: entry.writeId,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     syncBlockedReason: entry.syncBlockedReason ?? undefined,
@@ -39,6 +43,7 @@ function deserializePendingChanges(raw: PendingChangesIdb): PendingChangesEntry 
     encryptedDiff: new Uint8Array(raw.encryptedDiff),
     diffNonce: new Uint8Array(raw.diffNonce),
     keyVersion: raw.keyVersion,
+    writeId: raw.writeId,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     syncBlockedReason: raw.syncBlockedReason ?? null,
@@ -50,9 +55,48 @@ export async function getPendingChanges(documentId: string): Promise<PendingChan
   const raw = await idbGet<PendingChangesIdb>(db, STORE_PENDING_CHANGES, documentId);
   return raw ? deserializePendingChanges(raw) : null;
 }
-export async function putPendingChanges(entry: PendingChangesEntry): Promise<void> {
+export async function putPendingChanges(entry: PendingChangesEntry): Promise<boolean> {
+  return (
+    (await runDocumentOfflineWrite(entry.documentId, () => putPendingChangesUnblocked(entry))) ??
+    false
+  );
+}
+
+async function putPendingChangesUnblocked(entry: PendingChangesEntry): Promise<boolean> {
   const db = await openOfflineDb();
-  await idbPut(db, STORE_PENDING_CHANGES, serializePendingChanges(entry));
+  return idbConditionalPut(
+    db,
+    STORE_PENDING_CHANGES,
+    entry.documentId,
+    serializePendingChanges(entry),
+    (existing: PendingChangesIdb | undefined) =>
+      !existing || existing.keyVersion <= entry.keyVersion,
+  );
+}
+export async function replacePendingChangesIfUnchanged(
+  expected: Pick<PendingChangesEntry, "keyVersion" | "writeId">,
+  replacement: PendingChangesEntry,
+): Promise<boolean> {
+  return (
+    (await runDocumentOfflineWrite(replacement.documentId, () =>
+      replacePendingChangesIfUnchangedUnblocked(expected, replacement),
+    )) ?? false
+  );
+}
+
+async function replacePendingChangesIfUnchangedUnblocked(
+  expected: Pick<PendingChangesEntry, "keyVersion" | "writeId">,
+  replacement: PendingChangesEntry,
+): Promise<boolean> {
+  const db = await openOfflineDb();
+  return idbConditionalPut(
+    db,
+    STORE_PENDING_CHANGES,
+    replacement.documentId,
+    serializePendingChanges(replacement),
+    (existing: PendingChangesIdb | undefined) =>
+      existing?.keyVersion === expected.keyVersion && existing.writeId === expected.writeId,
+  );
 }
 export async function blockPendingChangesSync(
   documentId: string,

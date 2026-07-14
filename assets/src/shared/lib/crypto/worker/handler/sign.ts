@@ -57,7 +57,6 @@ import {
   signShareCapabilityAuthorizationSignature,
   signShareParticipantDeviceAuthorizationSignature,
   verifyDeviceApprovalSignature,
-  verifyDocumentUpdateEd25519SignatureAsync,
   verifyDocumentSnapshotSignature,
   verifyDocumentUpdateSignature,
   verifyEditorEphemeralSessionSignature,
@@ -84,6 +83,7 @@ import {
 } from "./utils";
 import type { HybridSigningState, WorkerKeyState } from "../state";
 import { blake3Base64Url } from "../../hash";
+import { CURRENT_PROTOCOL_VERSION, currentSuitePolicy } from "../../suite";
 
 function invitationRedeemAuthority(state: WorkerKeyState, invitationId: string) {
   const privateMaterial = state.invitationRedeemAuthorities.get(invitationId);
@@ -596,10 +596,18 @@ function signOwnerKeyDirectoryCheckpoint(
   state: WorkerKeyState,
   p: HandlerPayload,
   ownerKind: "identity" | "device" | "share_participant_device",
+  identitySigningState?: HybridSigningState,
 ): unknown {
+  const allowOverdueIdentityRotation =
+    ownerKind === "identity" &&
+    !identitySigningState &&
+    isAuthorizedIdentityRotationCheckpoint(state, p);
   const privateMaterial =
     ownerKind === "identity"
-      ? requireIdentityHybridSigningPrivateKeyMaterial(state)
+      ? (identitySigningState?.privateKeyMaterial ??
+        requireIdentityHybridSigningPrivateKeyMaterial(state, {
+          allowOverdue: allowOverdueIdentityRotation,
+        }))
       : requireSigningPrivateKeyMaterial(state, ownerKind);
   const publicMaterial = publicKeyMaterialFromPrivate(privateMaterial);
   const signingKeyId = computeSigningKeyId(publicMaterial);
@@ -645,6 +653,18 @@ export function handleSignIdentityKeyDirectoryCheckpoint(
   return signOwnerKeyDirectoryCheckpoint(state, p, "identity");
 }
 
+export function handleSignIdentitySuccessorKeyDirectoryCheckpoint(
+  state: WorkerKeyState,
+  p: HandlerPayload,
+): unknown {
+  const successor = successorSigningState(state);
+  return signOwnerKeyDirectoryCheckpoint(state, p, "identity", {
+    privateKeyMaterial: successor.hybridSigningPrivateKeyMaterial,
+    publicKeyMaterial: successor.hybridSigningPublicKeyMaterial,
+    signingKeyId: computeSigningKeyId(successor.hybridSigningPublicKeyMaterial),
+  });
+}
+
 export function handleSignDeviceKeyDirectoryCheckpoint(
   state: WorkerKeyState,
   p: HandlerPayload,
@@ -663,10 +683,18 @@ function signOwnerKeyDirectoryEvent(
   state: WorkerKeyState,
   p: HandlerPayload,
   ownerKind: "identity" | "device" | "share_participant_device",
+  identitySigningState?: HybridSigningState,
 ): unknown {
+  const allowOverdueIdentityRotation =
+    ownerKind === "identity" &&
+    !identitySigningState &&
+    isAuthorizedIdentityRotationEvent(state, p);
   const privateMaterial =
     ownerKind === "identity"
-      ? requireIdentityHybridSigningPrivateKeyMaterial(state)
+      ? (identitySigningState?.privateKeyMaterial ??
+        requireIdentityHybridSigningPrivateKeyMaterial(state, {
+          allowOverdue: allowOverdueIdentityRotation,
+        }))
       : requireSigningPrivateKeyMaterial(state, ownerKind);
   const publicMaterial = publicKeyMaterialFromPrivate(privateMaterial);
   const eventPayload = p.eventPayload as Record<string, unknown>;
@@ -701,6 +729,240 @@ export function handleSignIdentityKeyDirectoryEvent(
   p: HandlerPayload,
 ): unknown {
   return signOwnerKeyDirectoryEvent(state, p, "identity");
+}
+
+export function handleSignIdentitySuccessorKeyDirectoryEvent(
+  state: WorkerKeyState,
+  p: HandlerPayload,
+): unknown {
+  const successor = successorSigningState(state);
+  return signOwnerKeyDirectoryEvent(state, p, "identity", {
+    privateKeyMaterial: successor.hybridSigningPrivateKeyMaterial,
+    publicKeyMaterial: successor.hybridSigningPublicKeyMaterial,
+    signingKeyId: computeSigningKeyId(successor.hybridSigningPublicKeyMaterial),
+  });
+}
+
+function successorSigningState(state: WorkerKeyState) {
+  if (state.pendingIdentitySuccessor) return state.pendingIdentitySuccessor;
+  const activation = state.identityRotationActivation;
+  const active = state.identityHybridSigningState;
+  if (
+    activation &&
+    active?.signingKeyId === activation.successorSigningKeyId &&
+    state.identityHybridEncryptionPublicKeyMaterial &&
+    computeHybridEncryptionKeyId(state.identityHybridEncryptionPublicKeyMaterial) ===
+      activation.successorEncryptionKeyId
+  ) {
+    return {
+      hybridSigningPrivateKeyMaterial: active.privateKeyMaterial,
+      hybridSigningPublicKeyMaterial: active.publicKeyMaterial,
+    };
+  }
+  throw new Error("identity_successor_unavailable");
+}
+
+function isAuthorizedIdentityRotationCheckpoint(state: WorkerKeyState, p: HandlerPayload): boolean {
+  const successor = state.pendingIdentitySuccessor;
+  const checkpoint = p.checkpointPayload;
+  const previous = p.rotationPreviousCheckpointPayload;
+  const event = p.rotationEventPayload;
+  const startedEvent = p.rotationStartedEventPayload;
+  if (
+    p.variant !== "identity_rotation" ||
+    !successor ||
+    !isRecord(checkpoint) ||
+    !isRecord(previous) ||
+    !isRecord(event) ||
+    !isRecord(startedEvent) ||
+    !isAuthorizedIdentityRotationEvent(state, {
+      eventType: "identity_key_added",
+      eventPayload: event,
+      rotationPreviousCheckpointPayload: previous,
+      rotationStartedEventPayload: startedEvent,
+    }) ||
+    typeof checkpoint.issued_at !== "string" ||
+    !Number.isFinite(Date.parse(checkpoint.issued_at))
+  ) {
+    return false;
+  }
+
+  const eventHash = blake3Base64Url(canonicalizeStrictBytes(event as StrictJsonValue));
+  const validFrom = {
+    scope_kind: "user",
+    scope_id: state.userId,
+    event_sequence: event.sequence,
+    event_hash: eventHash,
+  };
+  const policy = currentSuitePolicy();
+  const expected = {
+    protocol: "refmd.key-directory-checkpoint",
+    version: CURRENT_PROTOCOL_VERSION,
+    scope_kind: "user",
+    scope_id: state.userId,
+    sequence: integerField(previous.sequence) + 1,
+    issued_at: checkpoint.issued_at,
+    suite_policy_version: policy.suite_policy_version,
+    min_suite_rank: policy.min_suite_rank,
+    allowed_suite_ids: policy.allowed_suite_ids,
+    required_components: policy.required_components,
+    identity_keys: [
+      ...recordArray(previous.identity_keys),
+      {
+        key_id: successor.encryptionKeyId,
+        key_material: successor.hybridEncryptionPublicKeyMaterial,
+        valid_from: validFrom,
+      },
+      {
+        key_id: computeSigningKeyId(successor.hybridSigningPublicKeyMaterial),
+        key_material: successor.hybridSigningPublicKeyMaterial,
+        valid_from: validFrom,
+      },
+    ],
+    device_keys: recordArray(previous.device_keys),
+    share_participant_keys: recordArray(previous.share_participant_keys),
+    revoked_key_ids: stringArray(previous.revoked_key_ids),
+    covered_event_head: {
+      head_sequence: event.sequence,
+      head_hash: eventHash,
+    },
+    previous_checkpoint_hash: blake3Base64Url(canonicalizeStrictBytes(previous as StrictJsonValue)),
+  };
+  return strictJsonEqual(checkpoint, expected as unknown as StrictJsonValue);
+}
+
+function isAuthorizedIdentityRotationEvent(state: WorkerKeyState, p: HandlerPayload): boolean {
+  const successor = state.pendingIdentitySuccessor;
+  const currentSigning = state.identityHybridSigningState;
+  const event = p.eventPayload;
+  const previous = p.rotationPreviousCheckpointPayload;
+  const startedEvent = p.rotationStartedEventPayload;
+  const trustedPrevious = state.identityRotationTrustedCheckpointPayload;
+  if (
+    !successor ||
+    !currentSigning ||
+    !isRecord(event) ||
+    !isRecord(previous) ||
+    !trustedPrevious ||
+    !strictJsonEqual(previous, trustedPrevious as unknown as StrictJsonValue) ||
+    !isRecord(previous.covered_event_head)
+  ) {
+    return false;
+  }
+
+  if (p.eventType === "rotation_started") {
+    return isAuthorizedIdentityRotationStartedEvent(state, event, previous);
+  }
+  if (p.eventType !== "identity_key_added" || !isRecord(startedEvent)) return false;
+  if (!isAuthorizedIdentityRotationStartedEvent(state, startedEvent, previous)) return false;
+
+  const expected = {
+    protocol: "refmd.key-directory-event",
+    version: CURRENT_PROTOCOL_VERSION,
+    scope_kind: "user",
+    scope_id: state.userId,
+    sequence: integerField(startedEvent.sequence) + 1,
+    event_type: "identity_key_added",
+    actor: {
+      signer_kind: "identity",
+      user_id: state.userId,
+      signing_key_id: currentSigning.signingKeyId,
+      key_scope_kind: "user",
+      key_scope_id: state.userId,
+      key_checkpoint_sequence: integerField(previous.sequence),
+      key_checkpoint_hash: blake3Base64Url(canonicalizeStrictBytes(previous as StrictJsonValue)),
+    },
+    body: {
+      key_id: computeSigningKeyId(successor.hybridSigningPublicKeyMaterial),
+      key_material_hash: blake3Base64Url(
+        canonicalizeStrictBytes(
+          successor.hybridSigningPublicKeyMaterial as unknown as StrictJsonValue,
+        ),
+      ),
+    },
+    previous_event_hash: blake3Base64Url(canonicalizeStrictBytes(startedEvent as StrictJsonValue)),
+  };
+  return strictJsonEqual(event, expected as unknown as StrictJsonValue);
+}
+
+function isAuthorizedIdentityRotationStartedEvent(
+  state: WorkerKeyState,
+  event: Record<string, unknown>,
+  previous: Record<string, unknown>,
+): boolean {
+  const currentSigning = state.identityHybridSigningState;
+  const currentEncryption = state.identityHybridEncryptionPublicKeyMaterial;
+  const successor = state.pendingIdentitySuccessor;
+  const body = event.body;
+  if (
+    !currentSigning ||
+    !currentEncryption ||
+    !successor ||
+    !isRecord(previous.covered_event_head) ||
+    !isRecord(body)
+  )
+    return false;
+  const sequence = integerField(previous.covered_event_head.head_sequence) + 1;
+  const oldCheckpointHash = blake3Base64Url(canonicalizeStrictBytes(previous as StrictJsonValue));
+  const successorSigningKeyId = computeSigningKeyId(successor.hybridSigningPublicKeyMaterial);
+
+  const expected = {
+    protocol: "refmd.key-directory-event",
+    version: CURRENT_PROTOCOL_VERSION,
+    scope_kind: "user",
+    scope_id: state.userId,
+    sequence,
+    event_type: "rotation_started",
+    actor: {
+      signer_kind: "identity",
+      user_id: state.userId,
+      signing_key_id: currentSigning.signingKeyId,
+      key_scope_kind: "user",
+      key_scope_id: state.userId,
+      key_checkpoint_sequence: integerField(previous.sequence),
+      key_checkpoint_hash: blake3Base64Url(canonicalizeStrictBytes(previous as StrictJsonValue)),
+    },
+    body: {
+      event_type: "rotation_started",
+      rotation_kind: "identity",
+      scope_kind: "user",
+      scope_id: state.userId,
+      old_identity_signing_key_id: currentSigning.signingKeyId,
+      old_identity_encryption_key_id: computeHybridEncryptionKeyId(currentEncryption),
+      new_identity_signing_key_id: successorSigningKeyId,
+      new_identity_encryption_key_id: successor.encryptionKeyId,
+      old_user_checkpoint_sequence: integerField(previous.sequence),
+      old_user_checkpoint_hash: oldCheckpointHash,
+      new_key_material_hash: blake3Base64Url(
+        canonicalizeStrictBytes({
+          hybrid_encryption_public_key_material:
+            successor.hybridEncryptionPublicKeyMaterial as unknown as StrictJsonValue,
+          hybrid_signing_public_key_material:
+            successor.hybridSigningPublicKeyMaterial as unknown as StrictJsonValue,
+        }),
+      ),
+      not_before_event_sequence: sequence,
+      reason: "scheduled",
+    },
+    previous_event_hash: stringField(previous.covered_event_head.head_hash),
+  };
+  return strictJsonEqual(event, expected as unknown as StrictJsonValue);
+}
+
+function integerField(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) ? value : Number.NaN;
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) && value.every(isRecord) ? value : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string") ? value : [];
 }
 
 export function handleSignDeviceKeyDirectoryEvent(
@@ -907,6 +1169,8 @@ export function handleSignRecoverySession(state: WorkerKeyState, p: HandlerPaylo
     candidateUserCheckpointHash: p.candidateUserCheckpointHash as string,
     candidateUserEventHeadSequence: p.candidateUserEventHeadSequence as number,
     candidateUserEventHeadHash: p.candidateUserEventHeadHash as string,
+    candidateUserAuditSequence: p.candidateUserAuditSequence as number,
+    candidateUserAuditHash: p.candidateUserAuditHash as string,
     recoveryCapabilityHash,
   });
 
@@ -1345,32 +1609,6 @@ export function handleVerifyDocumentUpdateSignature(
       }),
     }),
   };
-}
-
-export function handleVerifyDocumentUpdateEd25519Signature(
-  _state: WorkerKeyState,
-  p: HandlerPayload,
-): Promise<unknown> {
-  const publicKeyMaterial = p.publicKeyMaterial as HybridSigningPublicKeyMaterial;
-  const publicData = p.publicData as Record<string, unknown>;
-  validatePublicDataOwner(publicKeyMaterial, publicData);
-
-  return verifyDocumentUpdateEd25519SignatureAsync({
-    publicKeyMaterial,
-    signature: p.signature as never,
-    transcript: buildDocumentUpdateTranscript({
-      ownerKind: publicKeyMaterial.owner_kind,
-      ownerId: publicKeyMaterial.owner_id,
-      actorUserId: p.actorUserId as string,
-      actorDeviceId: publicData.ownerId as string,
-      signingKeyId: publicData.signingKeyId as string,
-      workspaceId: p.workspaceId as string,
-      publicData,
-      authorityBoundary: p.authorityBoundary as Record<string, unknown>,
-      ciphertext: p.ciphertext as string,
-      nonce: p.nonce as string,
-    }),
-  }).then((valid) => ({ valid }));
 }
 
 export function handleVerifyDocumentSnapshotSignature(

@@ -31,6 +31,7 @@ defmodule RefMD.Workspaces.Workspace do
     field :current_kek_version, :integer, default: 0
     field :min_kek_version, :integer, default: 0
     field :needs_kek_rotation, :boolean, default: false
+    field :kek_rotation_due_at, :utc_datetime_usec
     field :kek_rotation_initiator_user_id, :binary_id
 
     has_many :roles, RefMD.Workspaces.WorkspaceRole

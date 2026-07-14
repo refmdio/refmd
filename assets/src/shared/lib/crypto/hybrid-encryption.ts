@@ -1,9 +1,11 @@
-import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
-import { x25519 } from "@noble/curves/ed25519.js";
 import { decodeBase64UrlStrict, encodeBase64Url } from "./encoding";
 import { blake3Base64Url } from "./hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "./jcs";
 import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "./suite";
+import {
+  deriveNativeHybridEncryptionKey,
+  generateNativeHybridEncryptionKey,
+} from "./worker/native-hpke";
 
 export const HYBRID_ENCRYPTION_KEY_MATERIAL_PROTOCOL = "refmd.hybrid-encryption-key-material";
 
@@ -11,7 +13,7 @@ export const HYBRID_ENCRYPTION_LENGTHS = {
   X25519_PUBLIC: 32,
   X25519_PRIVATE: 32,
   MLKEM768_PUBLIC: 1184,
-  MLKEM768_PRIVATE: 2400,
+  MLKEM768_X25519_PRIVATE: 32,
   HYBRID_PUBLIC: 1216,
 } as const;
 
@@ -38,18 +40,22 @@ export type DeviceHybridEncryptionPublicKeyMaterial = HybridEncryptionPublicKeyM
 };
 
 export interface HybridEncryptionPrivateKeyMaterial extends HybridEncryptionPublicKeyMaterial {
+  mlkem768_x25519_private: string;
   x25519_private: string;
-  mlkem768_private: string;
+}
+
+export function destroyHybridEncryptionPrivateKeyMaterial(
+  material: HybridEncryptionPrivateKeyMaterial,
+): void {
+  material.mlkem768_x25519_private = "";
+  material.x25519_private = "";
 }
 
 export function generateHybridEncryptionPrivateKeyMaterial(
   ownerKind: HybridEncryptionOwnerKind,
   ownerId: string,
 ): HybridEncryptionPrivateKeyMaterial {
-  const x25519Private = x25519.utils.randomSecretKey();
-  const x25519Public = x25519.getPublicKey(x25519Private);
-  const mlkem = ml_kem768.keygen();
-  const hybridPublic = concatBytes(mlkem.publicKey, x25519Public);
+  const nativeMaterial = generateNativeHybridEncryptionKey();
 
   return {
     protocol: HYBRID_ENCRYPTION_KEY_MATERIAL_PROTOCOL,
@@ -58,11 +64,11 @@ export function generateHybridEncryptionPrivateKeyMaterial(
     suite_rank: CURRENT_SUITE_RANK,
     owner_kind: ownerKind,
     owner_id: ownerId,
-    x25519_private: encodeBase64Url(x25519Private),
-    x25519_public: encodeBase64Url(x25519Public),
-    mlkem768_private: encodeBase64Url(mlkem.secretKey),
-    mlkem768_public: encodeBase64Url(mlkem.publicKey),
-    hybrid_public: encodeBase64Url(hybridPublic),
+    mlkem768_x25519_private: encodeBase64Url(nativeMaterial.privateKey),
+    x25519_private: encodeBase64Url(nativeMaterial.x25519PrivateKey),
+    x25519_public: encodeBase64Url(nativeMaterial.x25519PublicKey),
+    mlkem768_public: encodeBase64Url(nativeMaterial.mlkem768PublicKey),
+    hybrid_public: encodeBase64Url(nativeMaterial.publicKey),
   };
 }
 
@@ -125,7 +131,7 @@ export function assertHybridEncryptionPrivateKeyMaterial(
   const value = material as Record<string, unknown>;
   const expectedKeys = [
     "hybrid_public",
-    "mlkem768_private",
+    "mlkem768_x25519_private",
     "mlkem768_public",
     "owner_id",
     "owner_kind",
@@ -142,23 +148,19 @@ export function assertHybridEncryptionPrivateKeyMaterial(
   }
   assertCommonPublicMaterial(value);
 
-  const x25519Private = decodeBase64UrlStrict(
-    value.x25519_private as string,
-    HYBRID_ENCRYPTION_LENGTHS.X25519_PRIVATE,
+  const privateKey = decodeBase64UrlStrict(
+    value.mlkem768_x25519_private as string,
+    HYBRID_ENCRYPTION_LENGTHS.MLKEM768_X25519_PRIVATE,
   );
-  const mlkemPrivate = decodeBase64UrlStrict(
-    value.mlkem768_private as string,
-    HYBRID_ENCRYPTION_LENGTHS.MLKEM768_PRIVATE,
-  );
-
-  const expectedX25519Public = encodeBase64Url(x25519.getPublicKey(x25519Private));
-  const expectedMlkemPublic = encodeBase64Url(ml_kem768.getPublicKey(mlkemPrivate));
-
-  if (expectedX25519Public !== value.x25519_public) {
-    throw new Error("hybrid_encryption_x25519_public_mismatch");
-  }
-  if (expectedMlkemPublic !== value.mlkem768_public) {
-    throw new Error("hybrid_encryption_mlkem768_public_mismatch");
+  const derived = deriveNativeHybridEncryptionKey(privateKey);
+  const nativeFields = [
+    ["x25519_private", encodeBase64Url(derived.x25519PrivateKey)],
+    ["x25519_public", encodeBase64Url(derived.x25519PublicKey)],
+    ["mlkem768_public", encodeBase64Url(derived.mlkem768PublicKey)],
+    ["hybrid_public", encodeBase64Url(derived.publicKey)],
+  ] as const;
+  for (const [field, expected] of nativeFields) {
+    if (value[field] !== expected) throw new Error(`hybrid_encryption_${field}_mismatch`);
   }
 }
 

@@ -13,6 +13,12 @@ defmodule RefMDWeb.Schemas.InvitationListItem do
       role_name: %Schema{type: :string, nullable: true},
       invited_by: %Schema{type: :string, format: :uuid},
       invited_email: %Schema{type: :string, format: :email},
+      delivery_mode: %Schema{type: :string, enum: ["unknown_fragment", "known_recipient"]},
+      recipient_user_id: %Schema{type: :string, format: :uuid, nullable: true},
+      recipient_device_ids: %Schema{
+        type: :array,
+        items: %Schema{type: :string, format: :uuid}
+      },
       kek_version: %Schema{type: :integer},
       is_used: %Schema{type: :boolean},
       expires_at: %Schema{type: :string, format: :"date-time", nullable: true},
@@ -24,6 +30,8 @@ defmodule RefMDWeb.Schemas.InvitationListItem do
       :token_prefix,
       :invited_by,
       :invited_email,
+      :delivery_mode,
+      :recipient_device_ids,
       :kek_version,
       :is_used,
       :created_at
@@ -44,6 +52,42 @@ defmodule RefMDWeb.Schemas.InvitationBootstrapCiphertext do
       ciphertext: %Schema{type: :string}
     },
     required: [:nonce, :ciphertext]
+  })
+end
+
+defmodule RefMDWeb.Schemas.InvitationKnownRecipientWrap do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "InvitationKnownRecipientWrap",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      delivery_mode: %Schema{type: :string, enum: ["known_recipient"]},
+      recipient_user_id: %Schema{type: :string, format: :uuid},
+      sender_signing_public_key_material: RefMDWeb.Schemas.HybridSigningPublicKeyMaterial,
+      wraps: %Schema{type: :array, maxItems: 0, items: RefMDWeb.Schemas.HybridKeyWrapFields}
+    },
+    required: [
+      :delivery_mode,
+      :recipient_user_id,
+      :sender_signing_public_key_material,
+      :wraps
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.InvitationPackageKeyRecipientWrap do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "InvitationPackageKeyRecipientWrap",
+    oneOf: [
+      RefMDWeb.Schemas.InvitationBootstrapCiphertext,
+      RefMDWeb.Schemas.InvitationKnownRecipientWrap
+    ]
   })
 end
 
@@ -80,6 +124,17 @@ defmodule RefMDWeb.Schemas.WorkspaceInvitationBootstrapAad do
       invitation_id: %Schema{type: :string, format: :uuid},
       role_id: %Schema{type: :string, format: :uuid},
       invited_email: %Schema{type: :string, format: :email},
+      delivery_mode: %Schema{type: :string, enum: ["unknown_fragment", "known_recipient"]},
+      recipient_user_id: %Schema{
+        oneOf: [
+          %Schema{type: :string, format: :uuid},
+          %Schema{type: :string, enum: ["NOT_APPLICABLE"]}
+        ]
+      },
+      recipient_device_ids: %Schema{
+        type: :array,
+        items: %Schema{type: :string, format: :uuid}
+      },
       key_version_context: %Schema{
         type: :object,
         additionalProperties: false,
@@ -96,6 +151,8 @@ defmodule RefMDWeb.Schemas.WorkspaceInvitationBootstrapAad do
       :invitation_id,
       :role_id,
       :invited_email,
+      :delivery_mode,
+      :recipient_device_ids,
       :key_version_context,
       :token_hash
     ]
@@ -118,7 +175,7 @@ defmodule RefMDWeb.Schemas.WorkspaceInvitationBootstrapPackage do
       key_version: %Schema{type: :integer, minimum: 1},
       aad: RefMDWeb.Schemas.WorkspaceInvitationBootstrapAad,
       encrypted_payload: RefMDWeb.Schemas.InvitationBootstrapCiphertext,
-      package_key_recipient_wrap: RefMDWeb.Schemas.InvitationBootstrapCiphertext,
+      package_key_recipient_wrap: RefMDWeb.Schemas.InvitationPackageKeyRecipientWrap,
       package_key_maintenance_wrap: RefMDWeb.Schemas.InvitationBootstrapMaintenanceWrap
     },
     required: [
@@ -150,11 +207,17 @@ defmodule RefMDWeb.Schemas.CreateInvitationRequest do
       kek_version: %Schema{type: :integer},
       role_id: %Schema{type: :string, format: :uuid, nullable: true},
       invited_email: %Schema{type: :string, format: :email},
+      delivery_mode: %Schema{type: :string, enum: ["unknown_fragment", "known_recipient"]},
+      recipient_user_id: %Schema{type: :string, format: :uuid, nullable: true},
+      recipient_device_ids: %Schema{
+        type: :array,
+        items: %Schema{type: :string, format: :uuid}
+      },
       expires_at: %Schema{type: :string, format: :"date-time", nullable: true},
       bootstrap_key_commitment: %Schema{type: :string},
       encrypted_bootstrap_package: RefMDWeb.Schemas.WorkspaceInvitationBootstrapPackage,
       bootstrap_package_hash: %Schema{type: :string},
-      bootstrap_package_key_recipient_wrap: RefMDWeb.Schemas.InvitationBootstrapCiphertext,
+      bootstrap_package_key_recipient_wrap: RefMDWeb.Schemas.InvitationPackageKeyRecipientWrap,
       bootstrap_package_key_maintenance_wrap: RefMDWeb.Schemas.InvitationBootstrapMaintenanceWrap,
       bootstrap_suite_id: %Schema{
         type: :string,
@@ -173,6 +236,8 @@ defmodule RefMDWeb.Schemas.CreateInvitationRequest do
       :token_prefix,
       :kek_version,
       :invited_email,
+      :delivery_mode,
+      :recipient_device_ids,
       :bootstrap_key_commitment,
       :encrypted_bootstrap_package,
       :bootstrap_package_hash,
@@ -271,6 +336,10 @@ defmodule RefMDWeb.Schemas.AcceptInvitationResponse do
       },
       workspace_key_directory_checkpoint: %Schema{
         allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope],
+        nullable: true
+      },
+      recipient_delivery_artifacts: %Schema{
+        allOf: [RefMDWeb.Schemas.ApproveInvitationDeliveryAttemptRequest],
         nullable: true
       }
     },

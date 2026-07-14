@@ -19,6 +19,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
       add :doc_type, :text, null: false, default: "document"
       add :is_encrypted, :boolean, null: false, default: true
       add :needs_dek_rotation, :boolean, null: false, default: false
+      add :dek_rotation_reason, :text
       add :needs_rotation_snapshot, :boolean, null: false, default: false
       add :min_dek_version, :integer, null: false, default: 1
       add :created_by, references(:users, type: :binary_id, on_delete: :nilify_all)
@@ -29,6 +30,13 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
 
     # active_snapshot_id added after document_snapshots table is created
     create index(:documents, [:workspace_id])
+
+    create constraint(:documents, :documents_dek_rotation_reason_consistent,
+             check:
+               "(needs_dek_rotation = FALSE AND dek_rotation_reason IS NULL) OR " <>
+                 "(needs_dek_rotation = TRUE AND dek_rotation_reason IN " <>
+                 "('time_based', 'manual', 'security', 'membership_change'))"
+           )
 
     create unique_index(:documents, [:workspace_id, :parent_id, :position],
              name: :documents_workspace_parent_position,
@@ -151,5 +159,59 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
     end
 
     create index(:document_snapshot_archives, [:document_id])
+
+    create table(:document_dek_rotation_deletion_evidences, primary_key: false) do
+      add :old_key_deleted_event_hash, :string, primary_key: true
+
+      add :document_id, references(:documents, type: :binary_id, on_delete: :delete_all),
+        null: false
+
+      add :workspace_id, references(:workspaces, type: :binary_id, on_delete: :delete_all),
+        null: false
+
+      add :rotation_kind, :string, null: false
+      add :scope_kind, :string, null: false
+      add :scope_id, :string, null: false
+      add :old_key_version, :integer, null: false
+      add :completion_manifest, :map, null: false
+      add :deletion_manifest, :map, null: false
+      add :device_key_deletion_proofs, :map, null: false
+      add :wipe_required_device_ids, {:array, :binary_id}, null: false, default: []
+
+      timestamps(type: :utc_datetime_usec, updated_at: false)
+    end
+
+    create constraint(:document_dek_rotation_deletion_evidences, :rotation_kind_is_dek,
+             check: "rotation_kind = 'dek'"
+           )
+
+    create constraint(:document_dek_rotation_deletion_evidences, :scope_kind_is_document,
+             check: "scope_kind = 'document'"
+           )
+
+    create constraint(
+             :document_dek_rotation_deletion_evidences,
+             :scope_id_matches_document_id,
+             check: "scope_id = document_id::text"
+           )
+
+    create index(:document_dek_rotation_deletion_evidences, [:document_id])
+
+    create table(:document_device_wipe_requirements, primary_key: false) do
+      add :document_id, references(:documents, type: :binary_id, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
+      add :device_id, references(:devices, type: :binary_id, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
+      add :required_dek_version, :integer, null: false, primary_key: true
+      add :reason, :string, null: false
+      add :required_at, :utc_datetime_usec, null: false
+      timestamps(type: :utc_datetime_usec, updated_at: false)
+    end
+
+    create index(:document_device_wipe_requirements, [:device_id])
   end
 end

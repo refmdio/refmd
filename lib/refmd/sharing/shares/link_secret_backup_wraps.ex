@@ -3,12 +3,42 @@ defmodule RefMD.Sharing.Shares.LinkSecretBackupWraps do
 
   import Ecto.Query
 
+  alias RefMD.Crypto.Encoding
   alias RefMD.Devices
   alias RefMD.Encryption
   alias RefMD.Repo
   alias RefMD.Workspaces
 
   alias RefMD.Sharing.ShareLinkSecretBackupWrap
+
+  def with_key_directory_proof(wrap, workspace_id) do
+    operation = Map.fetch!(wrap, "operation_checkpoint")
+
+    checkpoint_ref = %{
+      workspace_id: workspace_id,
+      operation_checkpoint_sequence: Map.fetch!(operation, "checkpoint_sequence"),
+      operation_checkpoint_hash:
+        operation |> Map.fetch!("checkpoint_hash") |> Encoding.decode_base64url!(32),
+      operation_checkpoint_covered_head_sequence:
+        Map.fetch!(operation, "covered_event_head_sequence"),
+      operation_checkpoint_covered_head_hash:
+        operation |> Map.fetch!("covered_event_head_hash") |> Encoding.decode_base64url!(32)
+    }
+
+    wrap
+    |> Map.put(
+      "workspace_key_directory_checkpoint",
+      Encryption.workspace_key_operation_checkpoint_envelope(checkpoint_ref)
+    )
+    |> Map.put(
+      "workspace_key_directory_checkpoint_ancestry",
+      Encryption.workspace_key_operation_checkpoint_ancestry(checkpoint_ref)
+    )
+    |> Map.put(
+      "workspace_key_directory_event_ancestry",
+      Encryption.workspace_key_operation_event_ancestry(checkpoint_ref)
+    )
+  end
 
   def insert!(share, document, attrs) do
     expected_recipients = expected_recipients!(document.workspace_id)

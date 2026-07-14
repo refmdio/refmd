@@ -9,6 +9,7 @@ defmodule RefMD.Sharing.ShareKey do
     belongs_to :share, RefMD.Sharing.Share, define_field: false
     belongs_to :document, RefMD.Documents.Document
 
+    field :key_version, :integer, default: 1
     field :encrypted_dek, :binary
     field :nonce, :binary
     field :salt, :binary
@@ -25,6 +26,7 @@ defmodule RefMD.Sharing.ShareKey do
     |> cast(attrs, [
       :share_id,
       :document_id,
+      :key_version,
       :encrypted_dek,
       :nonce,
       :salt,
@@ -36,9 +38,11 @@ defmodule RefMD.Sharing.ShareKey do
     |> validate_required([
       :share_id,
       :document_id,
+      :key_version,
       :encrypted_dek,
       :nonce
     ])
+    |> validate_number(:key_version, greater_than: 0)
     |> validate_change(:nonce, fn :nonce, nonce ->
       if byte_size(nonce) == 24, do: [], else: [nonce: "must be 24 bytes"]
     end)

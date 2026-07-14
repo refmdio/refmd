@@ -419,9 +419,9 @@ async function readVisibleProseMirrorText(page: Page): Promise<string> {
         style.opacity !== "0"
       );
     };
-    const editor = [...document.querySelectorAll<HTMLElement>(
-      '.ProseMirror, [data-testid="markdown-preview"]',
-    )].find(isVisible);
+    const editor = [
+      ...document.querySelectorAll<HTMLElement>('.ProseMirror, [data-testid="markdown-preview"]'),
+    ].find(isVisible);
     if (!editor) throw new Error("WYSIWYG preview content element was not mounted");
     return editor.innerText || editor.textContent || "";
   });
@@ -1083,6 +1083,7 @@ async function waitForEditor(page: Page): Promise<void> {
             "Share not found.",
             "Invalid share document route.",
             "Invalid share link.",
+            "Unable to verify shared document.",
           ]) {
             if (bodyText.includes(message)) return `route-error:${message}`;
           }
@@ -1149,6 +1150,7 @@ async function waitForShareEditor(page: Page, fullShareLink: string): Promise<vo
             "Share not found.",
             "Invalid share document route.",
             "Invalid share link.",
+            "Unable to verify shared document.",
           ]) {
             if (bodyText.includes(message)) return `route-error:${message}`;
           }
@@ -2118,6 +2120,186 @@ test("anonymous edit share editor accepts real click focus and keyboard input", 
     diagnostics?.stop();
     await guestContext?.close();
     await ownerContext?.close();
+  }
+});
+
+test("anonymous edit share remains editable after a DEK deadline rotation", async ({ browser }) => {
+  const deadlineSeconds = Number(process.env.REFMD_DEK_ROTATION_SECONDS ?? "0");
+  test.skip(
+    !Number.isInteger(deadlineSeconds) || deadlineSeconds < 5 || deadlineSeconds > 60,
+    "run with REFMD_DEK_ROTATION_SECONDS between 5 and 60",
+  );
+  test.setTimeout(E2E_TIMEOUTS.extendedScenario);
+
+  const title = `Share Deadline Rotation ${Date.now()}`;
+  const ownerContext = await newStrictShareContext(browser, { acceptDownloads: true });
+  const guestContext = await newStrictShareContext(browser, { acceptDownloads: true });
+
+  try {
+    await ownerContext.addInitScript(() => {
+      window.__REFMD_E2E__ = true;
+      const logs: unknown[] = [];
+      (window as Window & { __refmdRotationLogs?: unknown[] }).__refmdRotationLogs = logs;
+      window.addEventListener("refmd:client-log", (event) => {
+        logs.push((event as CustomEvent).detail);
+      });
+    });
+    await guestContext.addInitScript(() => {
+      window.__REFMD_E2E__ = true;
+      const logs: unknown[] = [];
+      (window as Window & { __refmdRotationLogs?: unknown[] }).__refmdRotationLogs = logs;
+      window.addEventListener("refmd:client-log", (event) => {
+        logs.push((event as CustomEvent).detail);
+      });
+    });
+
+    const ownerPage = await ownerContext.newPage();
+    let guestPage = await guestContext.newPage();
+
+    await registerAccount(ownerPage);
+    await createDocument(ownerPage, title);
+    await openDocument(ownerPage, title);
+    await typeInVisibleEditor(ownerPage, "owner-before-share-deadline");
+    const shareLink = await createEditShareLinkFromUi(ownerPage, title);
+
+    await guestPage.goto(shareLink, { waitUntil: "domcontentloaded" });
+    await waitForShareEditor(guestPage, shareLink);
+    await expectEditorTextContains(guestPage, "owner-before-share-deadline", 60_000);
+
+    await ownerPage.waitForTimeout((deadlineSeconds + 1) * 1_000);
+    await ownerPage.reload({ waitUntil: "domcontentloaded" });
+    await waitForEditor(ownerPage);
+
+    const ownerDocumentId = currentDocumentId(ownerPage);
+    await expect
+      .poll(
+        () =>
+          ownerPage.evaluate(
+            (id) => window.__refmdGetDocumentSyncState?.(id)?.keyVersion ?? 0,
+            ownerDocumentId,
+          ),
+        { timeout: 90_000, message: "owner did not complete the deadline DEK rotation" },
+      )
+      .toBeGreaterThanOrEqual(2)
+      .catch(async (error) => {
+        const snapshot = await ownerPage.evaluate(
+          (id) => ({
+            body: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 1200),
+            logs: (window as Window & { __refmdRotationLogs?: unknown[] }).__refmdRotationLogs,
+            perf: (window as Window & { __refmdE2ESyncPerf?: unknown[] }).__refmdE2ESyncPerf,
+            state: window.__refmdGetDocumentSyncState?.(id) ?? null,
+            url: window.location.href,
+          }),
+          ownerDocumentId,
+        );
+        throw new Error(`${String(error)}\nrotation-diagnostics=${JSON.stringify(snapshot)}`);
+      });
+    await waitForDocumentSyncReady(ownerPage);
+    await typeInVisibleEditor(ownerPage, "owner-after-share-deadline");
+    await flushDocumentSync(ownerPage);
+    await waitForDocumentSyncReady(ownerPage);
+    await expectEditorTextContains(guestPage, "owner-after-share-deadline", 60_000).catch(
+      async (error) => {
+        const [ownerSnapshot, guestSnapshot] = await Promise.all(
+          [ownerPage, guestPage].map(async (page) => {
+            const id = currentDocumentId(page);
+            return page.evaluate(
+              (documentId) => ({
+                body: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 1200),
+                logs: (window as Window & { __refmdRotationLogs?: unknown[] }).__refmdRotationLogs,
+                perf: (window as Window & { __refmdE2ESyncPerf?: unknown[] }).__refmdE2ESyncPerf,
+                state: window.__refmdGetDocumentSyncState?.(documentId) ?? null,
+                url: window.location.href,
+              }),
+              id,
+            );
+          }),
+        );
+        throw new Error(
+          `${String(error)}\nlive-rotation-diagnostics=${JSON.stringify({ ownerSnapshot, guestSnapshot })}`,
+        );
+      },
+    );
+
+    const liveGuestDocumentId = currentDocumentId(guestPage);
+    await expect
+      .poll(
+        () =>
+          guestPage.evaluate(
+            (id) => window.__refmdGetDocumentSyncState?.(id)?.keyVersion ?? 0,
+            liveGuestDocumentId,
+          ),
+        { timeout: 60_000, message: "live share participant did not receive the rotated DEK" },
+      )
+      .toBeGreaterThanOrEqual(2);
+    await typeByUserClickAndKeyboardWithoutWriteSessionWait(
+      guestPage,
+      "guest-live-after-share-deadline",
+    );
+    await flushDocumentSync(guestPage);
+    await waitForDocumentSyncReady(guestPage);
+    await expectEditorTextContains(ownerPage, "guest-live-after-share-deadline", 60_000);
+
+    const ownerDocumentUrl = ownerPage.url();
+    await guestPage.close();
+    await ownerPage.close();
+
+    guestPage = await guestContext.newPage();
+    await guestPage.goto(shareLink, { waitUntil: "domcontentloaded" });
+    await waitForShareEditor(guestPage, shareLink).catch(async (error) => {
+      const snapshot = await guestPage.evaluate(() => {
+        const perf =
+          (window as Window & { __refmdE2ESyncPerf?: Array<Record<string, unknown>> })
+            .__refmdE2ESyncPerf ?? [];
+        const documentId = perf.findLast((entry) => {
+          const detail = entry.detail as Record<string, unknown> | undefined;
+          return typeof detail?.documentId === "string";
+        })?.detail as Record<string, unknown> | undefined;
+        const resolvedDocumentId =
+          typeof documentId?.documentId === "string" ? documentId.documentId : null;
+        return {
+          body: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 1200),
+          logs: (window as Window & { __refmdRotationLogs?: unknown[] }).__refmdRotationLogs,
+          perf,
+          state: resolvedDocumentId
+            ? window.__refmdGetDocumentSyncState?.(resolvedDocumentId)
+            : null,
+          url: window.location.href,
+        };
+      });
+      throw new Error(`${String(error)}\nguest-rotation-diagnostics=${JSON.stringify(snapshot)}`);
+    });
+    await expectEditorTextContains(guestPage, "owner-after-share-deadline", 60_000);
+    await expectEditorTextContains(guestPage, "guest-live-after-share-deadline", 60_000);
+
+    const guestDocumentId = currentDocumentId(guestPage);
+    await expect
+      .poll(
+        () =>
+          guestPage.evaluate(
+            (id) => window.__refmdGetDocumentSyncState?.(id)?.keyVersion ?? 0,
+            guestDocumentId,
+          ),
+        { timeout: 60_000, message: "share participant did not bootstrap the rotated DEK" },
+      )
+      .toBeGreaterThanOrEqual(2);
+
+    await typeByUserClickAndKeyboardWithoutWriteSessionWait(
+      guestPage,
+      "guest-reentry-after-share-deadline",
+    );
+    await flushDocumentSync(guestPage);
+    await waitForDocumentSyncReady(guestPage);
+
+    const reopenedOwnerPage = await ownerContext.newPage();
+    await reopenedOwnerPage.goto(ownerDocumentUrl, { waitUntil: "domcontentloaded" });
+    await waitForEditor(reopenedOwnerPage);
+    await expectEditorTextContains(reopenedOwnerPage, "guest-reentry-after-share-deadline", 60_000);
+    await expectNoDocumentSecurityFailure(reopenedOwnerPage);
+    await expectNoDocumentSecurityFailure(guestPage);
+  } finally {
+    await guestContext.close().catch(() => {});
+    await ownerContext.close().catch(() => {});
   }
 });
 

@@ -4,6 +4,7 @@ defmodule RefMDWeb.DocumentController do
 
   alias RefMD.Crypto.Encoding
   alias RefMD.Documents
+  alias RefMD.Encryption.RotationPolicy
   alias RefMDWeb.Schemas
 
   @create_encrypted_title_fields ~w(encrypted_title encrypted_title_nonce encrypted_title_key_version)
@@ -128,6 +129,12 @@ defmodule RefMDWeb.DocumentController do
     |> json(serialize_document(conn, document))
   end
 
+  defp handle_create_result(conn, {:error, :kek_rotation_required}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "kek_rotation_required"})
+  end
+
   defp handle_create_result(conn, {:error, changeset}) do
     if has_constraint_error?(changeset, :id) do
       conn |> put_status(:conflict) |> json(%{error: "document_id_already_exists"})
@@ -221,6 +228,11 @@ defmodule RefMDWeb.DocumentController do
             conn
             |> put_status(:unprocessable_entity)
             |> json(%{error: "document_write_disabled"})
+
+          {:error, :dek_rotation_required} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "dek_rotation_required"})
 
           {:error, changeset} ->
             conn
@@ -470,7 +482,9 @@ defmodule RefMDWeb.DocumentController do
       path: document.path,
       doc_type: document.doc_type,
       is_encrypted: document.is_encrypted,
-      needs_dek_rotation: document.needs_dek_rotation,
+      needs_dek_rotation: RotationPolicy.dek_overdue?(document),
+      dek_rotation_reason: dek_rotation_reason(document),
+      dek_rotation_due_at: document.dek_rotation_due_at,
       needs_rotation_snapshot: document.needs_rotation_snapshot,
       min_dek_version: document.min_dek_version,
       is_published: RefMD.Public.published?(document.id),
@@ -482,6 +496,14 @@ defmodule RefMDWeb.DocumentController do
       created_at: document.created_at,
       updated_at: document.updated_at
     }
+  end
+
+  defp dek_rotation_reason(%{needs_dek_rotation: true, dek_rotation_reason: reason})
+       when is_binary(reason),
+       do: reason
+
+  defp dek_rotation_reason(document) do
+    if RotationPolicy.dek_overdue?(document), do: "time_based"
   end
 
   defp handle_write_state_transition(conn, params, transition) do

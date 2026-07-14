@@ -43,10 +43,11 @@ defmodule RefMD.Security.Notification do
     |> unique_constraint([:recipient_kind, :recipient_id, :dedupe_key])
   end
 
-  def payload(%__MODULE__{} = notification) do
+  def payload(%__MODULE__{} = notification, audit_checkpoint) when is_map(audit_checkpoint) do
     %{
       id: notification.id,
       audit_event_id: notification.audit_event_id,
+      audit_checkpoint: audit_checkpoint,
       recipient_kind: notification.recipient_kind,
       recipient_id: notification.recipient_id,
       type: notification.type,

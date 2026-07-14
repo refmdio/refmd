@@ -709,7 +709,11 @@ describe("assertWriteSessionNotInvalidatedByEvents", () => {
         events: [
           event(
             "member_role_changed",
-            { workspace_id: "workspace-1", user_id: "writer-user", base_role: "viewer" },
+            {
+              workspace_id: "workspace-1",
+              user_id: "writer-user",
+              effective_permissions: ["document:read", "member:list"],
+            },
             11,
           ),
         ],
@@ -996,12 +1000,20 @@ describe("assertWriteSessionNotInvalidatedByEvents", () => {
         events: [
           event(
             "member_role_changed",
-            { workspace_id: "workspace-1", user_id: "other-user", base_role: "viewer" },
+            {
+              workspace_id: "workspace-1",
+              user_id: "other-user",
+              effective_permissions: ["document:read", "member:list"],
+            },
             11,
           ),
           event(
             "member_role_changed",
-            { workspace_id: "workspace-1", user_id: "writer-user", base_role: "editor" },
+            {
+              workspace_id: "workspace-1",
+              user_id: "writer-user",
+              effective_permissions: ["document:read", "document:write", "member:list"],
+            },
             12,
           ),
           event(

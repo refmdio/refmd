@@ -13,6 +13,9 @@ defmodule RefMD.Encryption.KeyDirectory.Invitation do
         "invitee_binding",
         "role_id",
         "base_role",
+        "delivery_mode",
+        "recipient_user_id",
+        "recipient_device_ids",
         "kek_version",
         "expires_event_sequence",
         "redeem_authority",
@@ -26,6 +29,7 @@ defmodule RefMD.Encryption.KeyDirectory.Invitation do
     A.assert_positive_integer!(body["kek_version"], "kek_version_invalid")
     A.assert_positive_integer!(body["expires_event_sequence"], "expires_event_sequence_invalid")
     A.assert_invitee_binding!(body["invitee_binding"])
+    assert_delivery_binding!(body)
     A.assert_redeem_authority!(body["redeem_authority"])
     Hash.assert_blake3_base64url!(body["bootstrap_key_commitment"])
     Hash.assert_blake3_base64url!(body["bootstrap_package_hash"])
@@ -107,6 +111,9 @@ defmodule RefMD.Encryption.KeyDirectory.Invitation do
         "scope_kind",
         "scope_id",
         "permission",
+        "delivery_mode",
+        "recipient_user_id",
+        "recipient_device_ids",
         "key_version_context",
         "allowed_share_ids_hash",
         "expires_event_sequence",
@@ -120,6 +127,7 @@ defmodule RefMD.Encryption.KeyDirectory.Invitation do
 
     A.assert_guest_scope!(body["scope_kind"], body["scope_id"])
     A.assert_permission!(body["permission"])
+    assert_delivery_binding!(body)
 
     A.assert_key_version_context!(
       body["key_version_context"],
@@ -195,6 +203,8 @@ defmodule RefMD.Encryption.KeyDirectory.Invitation do
         "scope_kind",
         "scope_id",
         "permission",
+        "recipient_account_user_id",
+        "recipient_account_device_id",
         "redeemed_at_event_sequence"
       ])
     )
@@ -251,4 +261,25 @@ defmodule RefMD.Encryption.KeyDirectory.Invitation do
       "revoked_at_event_sequence_invalid"
     )
   end
+
+  defp assert_delivery_binding!(%{
+         "delivery_mode" => "unknown_fragment",
+         "recipient_user_id" => "NOT_APPLICABLE",
+         "recipient_device_ids" => []
+       }),
+       do: :ok
+
+  defp assert_delivery_binding!(%{
+         "delivery_mode" => "known_recipient",
+         "recipient_user_id" => recipient_user_id,
+         "recipient_device_ids" => recipient_device_ids
+       })
+       when is_binary(recipient_user_id) and is_list(recipient_device_ids) and
+              recipient_device_ids != [] do
+    true = Enum.all?(recipient_device_ids, &is_binary/1)
+    true = Enum.uniq(recipient_device_ids) == recipient_device_ids
+    :ok
+  end
+
+  defp assert_delivery_binding!(_), do: raise(ArgumentError, "recipient_delivery_invalid")
 end

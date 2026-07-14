@@ -6,6 +6,7 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
   alias RefMD.Encryption
   alias RefMD.Repo
+  alias RefMD.Users.User
   alias RefMD.Workspaces.{WorkspaceGuestGrant, WorkspaceMember, WorkspaceRole}
 
   @protocol "refmd.device-key-deletion-proof"
@@ -27,28 +28,131 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
       when is_binary(workspace_id) and is_integer(old_kek_version) and old_kek_version > 0 and
              is_binary(rotation_completed_event_hash) and is_list(proofs) and
              is_list(wipe_required_device_ids) do
+    validate_context!(
+      %{
+        workspace_id: workspace_id,
+        rotation_kind: "kek",
+        scope_kind: "workspace",
+        scope_id: workspace_id,
+        old_key_version: old_kek_version,
+        rotation_completed_event_hash: rotation_completed_event_hash,
+        deleted_secret_ids_hash:
+          deleted_workspace_kek_secret_ids_hash(workspace_id, old_kek_version)
+      },
+      proofs,
+      wipe_required_device_ids
+    )
+  end
+
+  def validate!(_, _, _, _, _), do: raise(ArgumentError, "device_deletion_proofs_invalid")
+
+  def validate_dek!(
+        workspace_id,
+        document_id,
+        old_dek_version,
+        rotation_completed_event_hash,
+        proofs,
+        wipe_required_device_ids
+      )
+      when is_binary(workspace_id) and is_binary(document_id) and is_integer(old_dek_version) and
+             old_dek_version > 0 and is_binary(rotation_completed_event_hash) and
+             is_list(proofs) and is_list(wipe_required_device_ids) do
+    validate_context!(
+      %{
+        workspace_id: workspace_id,
+        rotation_kind: "dek",
+        scope_kind: "document",
+        scope_id: document_id,
+        old_key_version: old_dek_version,
+        rotation_completed_event_hash: rotation_completed_event_hash,
+        deleted_secret_ids_hash:
+          deleted_document_dek_secret_ids_hash(document_id, old_dek_version)
+      },
+      proofs,
+      wipe_required_device_ids
+    )
+  end
+
+  def validate_dek!(_, _, _, _, _, _),
+    do: raise(ArgumentError, "device_deletion_proofs_invalid")
+
+  def validate_dek_ack!(
+        workspace_id,
+        document_id,
+        old_dek_version,
+        rotation_completed_event_hash,
+        expected_device_id,
+        proof
+      ) do
+    context = %{
+      workspace_id: workspace_id,
+      rotation_kind: "dek",
+      scope_kind: "document",
+      scope_id: document_id,
+      old_key_version: old_dek_version,
+      rotation_completed_event_hash: rotation_completed_event_hash,
+      deleted_secret_ids_hash: deleted_document_dek_secret_ids_hash(document_id, old_dek_version)
+    }
+
     Hash.assert_blake3_base64url!(rotation_completed_event_hash)
+    active_devices = workspace_id |> active_workspace_devices() |> Map.new(&{&1.id, &1})
+    checkpoint = Encryption.current_workspace_key_directory_checkpoint(workspace_id)
+    result = validate_proof!(proof, active_devices, context, checkpoint)
+
+    unless result.device_id == expected_device_id,
+      do: raise(ArgumentError, "device_deletion_proof_device_invalid")
+
+    :ok
+  end
+
+  def validate_kek_ack!(
+        workspace_id,
+        old_kek_version,
+        rotation_completed_event_hash,
+        expected_device_id,
+        proof
+      ) do
+    context = %{
+      workspace_id: workspace_id,
+      rotation_kind: "kek",
+      scope_kind: "workspace",
+      scope_id: workspace_id,
+      old_key_version: old_kek_version,
+      rotation_completed_event_hash: rotation_completed_event_hash,
+      deleted_secret_ids_hash:
+        deleted_workspace_kek_secret_ids_hash(workspace_id, old_kek_version)
+    }
+
+    Hash.assert_blake3_base64url!(rotation_completed_event_hash)
+    active_devices = workspace_id |> active_workspace_devices() |> Map.new(&{&1.id, &1})
+    checkpoint = Encryption.current_workspace_key_directory_checkpoint(workspace_id)
+    result = validate_proof!(proof, active_devices, context, checkpoint)
+
+    unless result.device_id == expected_device_id,
+      do: raise(ArgumentError, "device_deletion_proof_device_invalid")
+
+    :ok
+  end
+
+  defp validate_context!(context, proofs, wipe_required_device_ids) do
+    Hash.assert_blake3_base64url!(context.rotation_completed_event_hash)
 
     active_devices =
-      workspace_id
+      context.workspace_id
       |> active_workspace_devices()
       |> Map.new(&{&1.id, &1})
 
     wipe_required_ids = normalize_wipe_required_device_ids!(wipe_required_device_ids)
     assert_wipe_required_ids_supported!(wipe_required_ids, active_devices)
 
-    checkpoint = Encryption.current_workspace_key_directory_checkpoint(workspace_id)
-    deleted_secret_ids_hash = deleted_workspace_kek_secret_ids_hash(workspace_id, old_kek_version)
+    checkpoint = Encryption.current_workspace_key_directory_checkpoint(context.workspace_id)
 
     proof_records =
       Enum.map(proofs, fn proof ->
         validate_proof!(
           proof,
           active_devices,
-          workspace_id,
-          old_kek_version,
-          rotation_completed_event_hash,
-          deleted_secret_ids_hash,
+          context,
           checkpoint
         )
       end)
@@ -70,8 +174,6 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
         wipe_required_device_ids_hash(MapSet.to_list(wipe_required_ids))
     }
   end
-
-  def validate!(_, _, _, _, _), do: raise(ArgumentError, "device_deletion_proofs_invalid")
 
   defp assert_wipe_required_ids_supported!(wipe_required_ids, active_devices) do
     active_device_ids = active_devices |> Map.keys() |> MapSet.new()
@@ -104,6 +206,14 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     )
   end
 
+  def deleted_document_dek_secret_ids_hash(document_id, old_dek_version) do
+    Hash.blake3_base64url(
+      JCS.canonical_bytes!(%{
+        "secret_ids" => ["document:dek:#{document_id}:#{old_dek_version}"]
+      })
+    )
+  end
+
   def active_device_deletion_proofs_hash(proof_hashes) when is_list(proof_hashes) do
     sorted_unique_hashes =
       proof_hashes
@@ -126,16 +236,23 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     Hash.blake3_base64url(JCS.canonical_bytes!(%{"device_ids" => sorted_unique_ids}))
   end
 
+  def active_workspace_device_ids(workspace_id) do
+    workspace_id
+    |> active_workspace_devices()
+    |> Enum.map(& &1.id)
+  end
+
   defp validate_proof!(
          proof,
          active_devices,
-         workspace_id,
-         old_kek_version,
-         rotation_completed_event_hash,
-         deleted_secret_ids_hash,
+         context,
          checkpoint
        )
        when is_map(proof) do
+    if Enum.sort(Map.keys(proof)) != ~w(payload signature transcript) do
+      raise ArgumentError, "device_deletion_proof_container_invalid"
+    end
+
     payload = fetch_map!(proof, "payload", "device_deletion_proof_payload_invalid")
     device_id = fetch_string!(payload, "device_id", "device_deletion_proof_device_invalid")
 
@@ -149,22 +266,12 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
       validate_payload!(
         payload,
         device_id,
-        workspace_id,
-        old_kek_version,
-        rotation_completed_event_hash,
-        deleted_secret_ids_hash
+        context
       )
 
     proof_hash = Hash.blake3_base64url(JCS.canonical_bytes!(payload))
     transcript = fetch_map!(proof, "transcript", "device_deletion_proof_transcript_invalid")
     signature = fetch_signature!(proof)
-
-    proof_context = %{
-      workspace_id: workspace_id,
-      old_kek_version: old_kek_version,
-      rotation_completed_event_hash: rotation_completed_event_hash,
-      deleted_secret_ids_hash: deleted_secret_ids_hash
-    }
 
     :ok =
       validate_transcript!(
@@ -173,7 +280,7 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
         device,
         proof_hash,
         checkpoint,
-        proof_context
+        context
       )
 
     case Signature.verify_hybrid_signature_result(
@@ -181,7 +288,7 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
            transcript,
            signature,
            device.public_material,
-           key_deletion_semantic_context(device, proof_context)
+           key_deletion_semantic_context(device, context)
          ) do
       :ok ->
         :ok
@@ -196,7 +303,7 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     %{device_id: device_id, proof_hash: proof_hash}
   end
 
-  defp validate_proof!(_, _, _, _, _, _, _),
+  defp validate_proof!(_, _, _, _),
     do: raise(ArgumentError, "device_deletion_proof_invalid")
 
   defp key_deletion_semantic_context(device, context) do
@@ -206,8 +313,8 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
         signing_key_id: device.signing_key_id
       },
       deletion: %{
-        scope_id: context.workspace_id,
-        old_key_version: context.old_kek_version,
+        scope_id: context.scope_id,
+        old_key_version: context.old_key_version,
         rotation_completed_event_hash: context.rotation_completed_event_hash,
         deleted_secret_ids_hash: context.deleted_secret_ids_hash
       }
@@ -217,10 +324,7 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
   defp validate_payload!(
          payload,
          device_id,
-         workspace_id,
-         old_kek_version,
-         rotation_completed_event_hash,
-         deleted_secret_ids_hash
+         context
        ) do
     expected_keys =
       Enum.sort([
@@ -245,14 +349,14 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
     payload_checks = [
       payload["protocol"] == @protocol,
       payload["version"] == 1,
-      payload["workspace_id"] == workspace_id,
+      payload["workspace_id"] == context.workspace_id,
       payload["device_id"] == device_id,
-      payload["rotation_kind"] == "kek",
-      payload["scope_kind"] == "workspace",
-      payload["scope_id"] == workspace_id,
-      payload["old_key_version"] == old_kek_version,
-      payload["rotation_completed_event_hash"] == rotation_completed_event_hash,
-      payload["deleted_secret_ids_hash"] == deleted_secret_ids_hash,
+      payload["rotation_kind"] == context.rotation_kind,
+      payload["scope_kind"] == context.scope_kind,
+      payload["scope_id"] == context.scope_id,
+      payload["old_key_version"] == context.old_key_version,
+      payload["rotation_completed_event_hash"] == context.rotation_completed_event_hash,
+      payload["deleted_secret_ids_hash"] == context.deleted_secret_ids_hash,
       deleted_storage_classes_valid?(payload["deleted_storage_classes"]),
       valid_cache_epoch?(payload["local_cache_epoch"]),
       valid_proof_nonce?(payload["proof_nonce"])
@@ -315,10 +419,10 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
   defp transcript_authority_matches?(authority, context, expected_deleted_storage_classes_hash) do
     Enum.all?([
       authority["workspace_id"] == context.workspace_id,
-      authority["rotation_kind"] == "kek",
-      authority["scope_kind"] == "workspace",
-      authority["scope_id"] == context.workspace_id,
-      authority["old_key_version"] == context.old_kek_version,
+      authority["rotation_kind"] == context.rotation_kind,
+      authority["scope_kind"] == context.scope_kind,
+      authority["scope_id"] == context.scope_id,
+      authority["old_key_version"] == context.old_key_version,
       authority["rotation_completed_event_hash"] == context.rotation_completed_event_hash,
       authority["deleted_secret_ids_hash"] == context.deleted_secret_ids_hash,
       authority["deleted_storage_classes_hash"] == expected_deleted_storage_classes_hash
@@ -332,19 +436,24 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
   defp valid_cache_epoch?(epoch), do: is_integer(epoch) and epoch >= 0
 
   defp active_workspace_devices(workspace_id) do
+    (active_workspace_member_devices(workspace_id) ++
+       active_workspace_guest_devices(workspace_id))
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.id)
+  end
+
+  defp active_workspace_member_devices(workspace_id) do
     from(m in WorkspaceMember,
       join: r in WorkspaceRole,
       on: r.id == m.role_id,
-      left_join: g in WorkspaceGuestGrant,
-      on:
-        g.workspace_id == m.workspace_id and g.user_id == m.user_id and
-          g.scope_kind == "workspace" and is_nil(g.revoked_at),
+      join: u in User,
+      on: u.id == m.user_id,
       join: d in RefMD.Devices.Device,
       on: d.user_id == m.user_id,
       where:
-        m.workspace_id == ^workspace_id and (r.base_role != "guest" or not is_nil(g.user_id)) and
-          is_nil(d.revoked_at),
-      order_by: [asc: d.id],
+        m.workspace_id == ^workspace_id and u.account_type != "guest" and
+          r.base_role != "guest" and is_nil(d.revoked_at) and
+          is_nil(d.identity_wipe_required_at),
       select: %{
         id: d.id,
         user_id: d.user_id,
@@ -353,6 +462,34 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
       }
     )
     |> Repo.all()
+  end
+
+  defp active_workspace_guest_devices(workspace_id) do
+    from(g in WorkspaceGuestGrant,
+      join: u in User,
+      on: u.id == g.user_id,
+      join: d in RefMD.Devices.Device,
+      on: d.user_id == g.user_id,
+      where:
+        g.workspace_id == ^workspace_id and u.account_type == "guest" and
+          g.scope_kind == "workspace" and
+          is_nil(g.revoked_at) and is_nil(d.revoked_at) and
+          is_nil(d.identity_wipe_required_at),
+      select: %{
+        id: d.id,
+        user_id: d.user_id,
+        signing_key_id: d.signing_key_id,
+        public_material: d.hybrid_signing_public_key_material
+      }
+    )
+    |> Repo.all()
+    |> Enum.filter(
+      &Encryption.active_workspace_scope_guest_device_admitted?(
+        workspace_id,
+        &1.user_id,
+        &1.id
+      )
+    )
   end
 
   defp assert_checkpoint_active_signing_key!(checkpoint_payload, device) do
@@ -385,7 +522,6 @@ defmodule RefMD.Workspaces.KekRotation.DeletionProofs do
   end
 
   defp fetch_signature!(%{"signature" => signature}) when is_map(signature), do: signature
-  defp fetch_signature!(%{"hybrid_signature" => signature}) when is_map(signature), do: signature
   defp fetch_signature!(_), do: raise(ArgumentError, "device_deletion_proof_signature_missing")
 
   defp fetch_map!(map, key, error) when is_map(map) do

@@ -13,9 +13,37 @@ defmodule RefMDWeb.Schemas.MemberInfo do
       role_name: %Schema{type: :string},
       base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer", "guest"]},
       is_default: %Schema{type: :boolean},
+      permission_version: %Schema{type: :integer, minimum: 1},
       joined_at: %Schema{type: :string, format: :"date-time"}
     },
-    required: [:user_id, :email, :name, :role_id, :role_name, :base_role, :joined_at]
+    required: [
+      :user_id,
+      :email,
+      :name,
+      :role_id,
+      :role_name,
+      :base_role,
+      :permission_version,
+      :joined_at
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.ChangeMemberRoleResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "ChangeMemberRoleResponse",
+    type: :object,
+    properties: %{
+      ok: %Schema{type: :boolean},
+      workspaces_needing_kek_rotation: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.WorkspaceRotationInfo
+      }
+    },
+    required: [:ok, :workspaces_needing_kek_rotation]
   })
 end
 

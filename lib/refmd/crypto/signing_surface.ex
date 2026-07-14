@@ -44,7 +44,6 @@ defmodule RefMD.Crypto.SigningSurface do
     "rotation_started",
     "rotation_completed",
     "old_key_deleted",
-    "document_update_accepted",
     "document_write_session_admitted",
     "document_write_state_changed",
     "document_snapshot_accepted"
@@ -152,7 +151,6 @@ defmodule RefMD.Crypto.SigningSurface do
       key_directory_event_surface("rotation_started"),
       key_directory_event_surface("rotation_completed"),
       key_directory_event_surface("old_key_deleted"),
-      key_directory_event_surface("document_update_accepted"),
       key_directory_event_surface("document_write_session_admitted"),
       key_directory_event_surface("document_write_state_changed"),
       key_directory_event_surface("document_snapshot_accepted"),
@@ -590,7 +588,6 @@ defmodule RefMD.Crypto.SigningSurface do
 
   defp key_directory_event_surface(event_type)
        when event_type in [
-              "document_update_accepted",
               "document_write_session_admitted",
               "document_snapshot_accepted"
             ] do
@@ -685,7 +682,6 @@ defmodule RefMD.Crypto.SigningSurface do
               "rotation_started",
               "rotation_completed",
               "old_key_deleted",
-              "document_update_accepted",
               "document_write_session_admitted",
               "document_write_state_changed",
               "document_snapshot_accepted"

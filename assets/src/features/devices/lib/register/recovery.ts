@@ -10,7 +10,9 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
+  hydrateVerifiedKeyDirectoryLineage,
   pinInitialKeyDirectoryCheckpoint,
+  rememberVerifiedKeyDirectoryLineage,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { buildRecoveryWorkspaceDeviceKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory/device-events";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
@@ -145,7 +147,7 @@ export async function registerRecoveredDevice(params: {
   if (!identityHybridSigningPublicKeyMaterialKey)
     throw new Error("Identity signing public key not available");
 
-  await assertRecoveryWorkspaceCandidatesMatchLocalPins(pending.candidateWorkspaceCheckpoints);
+  await advanceRecoveryWorkspaceCandidatesToBase(pending.candidateWorkspaceCheckpoints);
 
   const userKeyDirectory = pending.userKeyDirectory;
   const workspaceAppends: RecoveryWorkspaceKeyDirectoryAppend[] = await Promise.all(
@@ -154,6 +156,7 @@ export async function registerRecoveredDevice(params: {
         const append = await buildRecoveryWorkspaceDeviceKeyDirectoryAppend({
           workspaceId,
           userId: auth.user.id,
+          actorIdentitySigningKeyId: deviceSignature.signing_key_id,
           checkpointEnvelope: checkpoint,
           recipientDeviceId: deviceId,
           recipientHybridSigningPublicKeyMaterial: deviceHybridSigningPublicKeyMaterial,
@@ -326,26 +329,58 @@ export function buildRecoveryApproveDeviceRequest(params: {
   };
 }
 
-async function assertRecoveryWorkspaceCandidatesMatchLocalPins(
+async function advanceRecoveryWorkspaceCandidatesToBase(
   candidates: Array<{
     workspaceId: string;
     checkpoint: KeyDirectoryEnvelope;
+    checkpointAncestry: KeyDirectoryEnvelope[];
+    eventAncestry: KeyDirectoryEnvelope[];
   }>,
 ): Promise<void> {
   await Promise.all(
-    candidates.map(async ({ workspaceId, checkpoint }) => {
+    candidates.map(async ({ workspaceId, checkpoint, checkpointAncestry, eventAncestry }) => {
       const existing = await getKeyDirectoryPin("workspace", workspaceId);
-      if (!existing) return;
+      if (!existing) {
+        await bootstrapRecoveredBaseCheckpoint({
+          scopeKind: "workspace",
+          scopeId: workspaceId,
+          baseCheckpointEnvelope: checkpoint,
+          baseCheckpointAncestry: checkpointAncestry,
+          baseEventAncestry: eventAncestry,
+        });
+        return;
+      }
 
       const pin = checkpointPin(checkpoint);
       if (
-        existing.checkpointSequence !== pin.checkpointSequence ||
-        existing.checkpointHash !== pin.checkpointHash ||
-        existing.eventHeadSequence !== pin.eventHeadSequence ||
-        existing.eventHeadHash !== pin.eventHeadHash
+        existing.checkpointSequence === pin.checkpointSequence &&
+        existing.checkpointHash === pin.checkpointHash &&
+        existing.eventHeadSequence === pin.eventHeadSequence &&
+        existing.eventHeadHash === pin.eventHeadHash
       ) {
-        throw new Error("recovery_candidate_workspace_key_directory_pin_conflict");
+        return;
       }
+
+      await hydrateVerifiedKeyDirectoryLineage("workspace", workspaceId, existing);
+      await advanceKeyDirectoryPinWithProof({
+        scopeKind: "workspace",
+        scopeId: workspaceId,
+        checkpointEnvelope: checkpoint,
+        checkpointAncestry: checkpointAncestry.filter(
+          (entry) => checkpointPin(entry).checkpointSequence >= existing.checkpointSequence,
+        ),
+        eventAncestry: eventAncestry.filter(
+          (entry) => eventSequence(entry) > existing.eventHeadSequence,
+        ),
+        authorityEventAncestry: eventAncestry,
+      });
+      rememberVerifiedKeyDirectoryLineage({
+        scopeKind: "workspace",
+        scopeId: workspaceId,
+        checkpointEnvelope: checkpoint,
+        checkpointAncestry,
+        eventAncestry,
+      });
     }),
   );
 }

@@ -37,8 +37,10 @@ export function readInvitationToken(): string | null {
     const params = new URLSearchParams(hash.slice(1));
     const lookupToken = params.get("it");
     const bootstrapSecret = params.get("ib");
-    if (!lookupToken || !bootstrapSecret) return invitationTokenMemory;
-    const token = invitationTokenWithFragmentSecrets(lookupToken, bootstrapSecret);
+    if (!lookupToken) return invitationTokenMemory;
+    const token = bootstrapSecret
+      ? invitationTokenWithFragmentSecrets(lookupToken, bootstrapSecret)
+      : lookupToken;
     invitationTokenMemory = token;
     sessionStorage.setItem(LOOKUP_TOKEN_SESSION_KEY, lookupToken);
     history.replaceState(null, "", window.location.pathname);

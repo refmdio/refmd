@@ -10,7 +10,56 @@ function rrpOverrideHeaders(options?: RrpOverrideOptions): Record<string, string
 }
 
 export const encryptionApi = {
-  getWorkspaceIds: async () => throwIfError(await client.GET("/api/workspaces/ids")),
+  getWorkspaceIds: async (options?: RrpOverrideOptions) =>
+    throwIfError(
+      await client.GET("/api/workspaces/ids", {
+        headers: rrpOverrideHeaders(options),
+      }),
+    ),
+
+  getIdentityRotationStatus: async (options?: RrpOverrideOptions) =>
+    throwIfError(
+      await client.GET("/api/encryption/identity-rotation", {
+        params: withUserRrpParams({}),
+        headers: rrpOverrideHeaders(options),
+      }),
+    ),
+
+  prepareIdentityRotation: async (
+    body: components["schemas"]["IdentityRotationPrepareRequest"],
+    options?: RrpOverrideOptions,
+  ) =>
+    throwIfError(
+      await client.POST("/api/encryption/identity-rotation/prepare", {
+        params: withUserRrpParams({}),
+        headers: rrpOverrideHeaders(options),
+        body,
+      }),
+    ),
+
+  activateIdentityRotation: async (
+    body: components["schemas"]["IdentityRotationActivateRequest"],
+    options?: RrpOverrideOptions,
+  ) =>
+    throwIfError(
+      await client.POST("/api/encryption/identity-rotation/activate", {
+        params: withUserRrpParams({}),
+        headers: rrpOverrideHeaders(options),
+        body,
+      }),
+    ),
+
+  finalizeIdentityRotation: async (
+    body: components["schemas"]["IdentityRotationFinalizeRequest"],
+    options?: RrpOverrideOptions,
+  ) =>
+    throwIfError(
+      await client.POST("/api/encryption/identity-rotation/finalize", {
+        params: withUserRrpParams({}),
+        headers: rrpOverrideHeaders(options),
+        body,
+      }),
+    ),
 
   appendWorkspaceKeyDirectory: async (
     workspaceId: string,
@@ -30,7 +79,7 @@ export const encryptionApi = {
   getWorkspaceKeysWithRrp: async (
     workspaceId: string,
     deviceId: string,
-    init?: Pick<RequestInit, "signal">,
+    options?: RrpOverrideOptions & Pick<RequestInit, "signal">,
   ) =>
     throwIfError(
       await client.GET("/api/encryption/workspaces/{workspace_id}/keys", {
@@ -38,7 +87,8 @@ export const encryptionApi = {
           path: { workspace_id: workspaceId },
           query: { device_id: deviceId },
         }),
-        ...init,
+        headers: rrpOverrideHeaders(options),
+        ...(options?.signal ? { signal: options.signal } : {}),
       }),
     ),
 
@@ -95,6 +145,29 @@ export const encryptionApi = {
     );
   },
 
+  getWorkspaceWipeRequirement: async (workspaceId: string) => {
+    const result = await client.GET(
+      "/api/encryption/workspaces/{workspace_id}/kek-rotation/wipe-requirement",
+      { params: withUserRrpParams({ path: { workspace_id: workspaceId } }) },
+    );
+    if (result.response.status === 404) return null;
+    return throwIfError(result);
+  },
+
+  acknowledgeWorkspaceWipe: async (
+    workspaceId: string,
+    body: components["schemas"]["WorkspaceWipeAcknowledgementRequest"],
+  ) =>
+    throwIfError(
+      await client.POST(
+        "/api/encryption/workspaces/{workspace_id}/kek-rotation/wipe-requirement/acknowledge",
+        {
+          params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
+          body,
+        },
+      ),
+    ),
+
   startKekRotation: async (
     workspaceId: string,
     body: components["schemas"]["KekRotationStartRequest"],
@@ -107,9 +180,10 @@ export const encryptionApi = {
     );
   },
 
-  getMemberEnvelopeWithRrp: async (workspaceId: string) => {
+  getMemberEnvelopeWithRrp: async (workspaceId: string, options?: RrpOverrideOptions) => {
     const result = await client.GET("/api/encryption/workspaces/{workspace_id}/member-envelope", {
       params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
+      headers: rrpOverrideHeaders(options),
     });
     if (result.response.status === 404) return null;
     return throwIfError(result);
@@ -133,12 +207,76 @@ export const encryptionApi = {
       }),
     ),
 
+  getDocumentKeyRotationTargets: async (documentId: string) =>
+    throwIfError(
+      await client.GET("/api/encryption/documents/{document_id}/keys/rotation-targets", {
+        params: withUserRrpParams({ path: { document_id: documentId } }),
+      }),
+    ),
+
+  prepareDekRotationCompletion: async (documentId: string, newKeyVersion: number) =>
+    throwIfError(
+      await client.GET("/api/encryption/documents/{document_id}/keys/rotation-completion", {
+        params: withUserRrpParams({
+          path: { document_id: documentId },
+          query: { new_key_version: newKeyVersion },
+        }),
+      }),
+    ),
+
+  completeDekRotation: async (
+    documentId: string,
+    body: components["schemas"]["DekRotationCompletionRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/encryption/documents/{document_id}/keys/rotation-completion", {
+        params: withUserRrpParams({ path: { document_id: documentId } }),
+        body,
+      }),
+    ),
+
+  getDocumentWipeRequirement: async (documentId: string) => {
+    const result = await client.GET(
+      "/api/encryption/documents/{document_id}/keys/wipe-requirement",
+      {
+        params: withUserRrpParams({ path: { document_id: documentId } }),
+      },
+    );
+    if (result.response.status === 404) return null;
+    return throwIfError(result);
+  },
+
+  acknowledgeDocumentWipe: async (
+    documentId: string,
+    body: components["schemas"]["DocumentWipeAcknowledgementRequest"],
+  ) =>
+    throwIfError(
+      await client.POST(
+        "/api/encryption/documents/{document_id}/keys/wipe-requirement/acknowledge",
+        {
+          params: withUserRrpParams({ path: { document_id: documentId } }),
+          body,
+        },
+      ),
+    ),
+
   createDocumentKey: async (
     documentId: string,
     body: components["schemas"]["CreateDocumentKeyRequest"],
   ) =>
     throwIfError(
       await client.POST("/api/encryption/documents/{document_id}/keys", {
+        params: withUserRrpParams({ path: { document_id: documentId } }),
+        body,
+      }),
+    ),
+
+  rewrapDocumentKeyForKekRotation: async (
+    documentId: string,
+    body: components["schemas"]["RewrapDocumentKeyForKekRotationRequest"],
+  ) =>
+    throwIfError(
+      await client.PUT("/api/encryption/documents/{document_id}/keys/kek-rotation-rewrap", {
         params: withUserRrpParams({ path: { document_id: documentId } }),
         body,
       }),

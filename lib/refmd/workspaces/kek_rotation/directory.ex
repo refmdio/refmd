@@ -8,12 +8,7 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
   alias RefMD.Repo
   alias RefMD.Workspaces.KekRotation.DeletionProofs
 
-  alias RefMD.Workspaces.{
-    WorkspaceGuestGrant,
-    WorkspaceKekRotationDeletionEvidence,
-    WorkspaceMember,
-    WorkspaceRole
-  }
+  alias RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence
 
   def rotation_started?(workspace, new_kek_version) when is_integer(new_kek_version) do
     rotation_started_event(workspace.id, workspace.current_kek_version, new_kek_version) != nil
@@ -162,7 +157,8 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
             deletion_context,
             deleted_event["payload"]["sequence"]
           ),
-          deletion_proofs
+          deletion_proofs,
+          wipe_required_device_ids
         )
 
       _ ->
@@ -332,7 +328,8 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
          old_kek_version,
          old_key_deleted_event_hash,
          deletion_manifest,
-         deletion_proofs
+         deletion_proofs,
+         wipe_required_device_ids
        ) do
     %WorkspaceKekRotationDeletionEvidence{}
     |> WorkspaceKekRotationDeletionEvidence.changeset(%{
@@ -343,7 +340,8 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
       scope_id: workspace_id,
       old_key_version: old_kek_version,
       deletion_manifest: deletion_manifest,
-      device_key_deletion_proofs: %{"proofs" => deletion_proofs}
+      device_key_deletion_proofs: %{"proofs" => deletion_proofs},
+      wipe_required_device_ids: Enum.uniq(wipe_required_device_ids)
     })
     |> Repo.insert!()
   end
@@ -437,22 +435,7 @@ defmodule RefMD.Workspaces.KekRotation.Directory do
   end
 
   defp active_workspace_device_ids(workspace_id) do
-    from(m in WorkspaceMember,
-      join: r in WorkspaceRole,
-      on: r.id == m.role_id,
-      left_join: g in WorkspaceGuestGrant,
-      on:
-        g.workspace_id == m.workspace_id and g.user_id == m.user_id and
-          g.scope_kind == "workspace" and is_nil(g.revoked_at),
-      join: d in RefMD.Devices.Device,
-      on: d.user_id == m.user_id,
-      where:
-        m.workspace_id == ^workspace_id and (r.base_role != "guest" or not is_nil(g.user_id)) and
-          is_nil(d.revoked_at),
-      order_by: [asc: d.id],
-      select: d.id
-    )
-    |> Repo.all()
+    DeletionProofs.active_workspace_device_ids(workspace_id)
   end
 
   defp encode_hash(value) when is_binary(value) and byte_size(value) == 32,

@@ -2,11 +2,12 @@ defmodule RefMD.Workspaces.Invitations do
   @moduledoc false
 
   import Ecto.Query
-  alias Ecto.Adapters.SQL, as: EctoSQL
-
   alias RefMD.Crypto.Encoding
+  alias RefMD.Devices
   alias RefMD.Encryption
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
+  alias RefMD.Users
   alias RefMD.Workspaces.Invitations.KeyDirectory
 
   alias RefMD.Workspaces.{
@@ -58,12 +59,16 @@ defmodule RefMD.Workspaces.Invitations do
              "workspace_id"
            ]),
          true <- exact_keys?(encrypted_payload, ["ciphertext", "nonce"]),
-         true <- exact_keys?(recipient_wrap, ["ciphertext", "nonce"]),
+         :ok <-
+           validate_recipient_wrap(recipient_wrap, aad, workspace_id, key_version),
          true <- exact_keys?(maintenance_wrap, ["ciphertext", "key_version", "nonce"]),
          true <-
            exact_keys?(aad, [
              "invitation_id",
              "invited_email",
+             "delivery_mode",
+             "recipient_user_id",
+             "recipient_device_ids",
              "key_version_context",
              "protocol",
              "role_id",
@@ -87,8 +92,7 @@ defmodule RefMD.Workspaces.Invitations do
          true <- is_binary(aad["role_id"]),
          true <- is_binary(aad["invited_email"]),
          true <- is_binary(aad["token_hash"]),
-         :ok <- validate_base64url_bytes(recipient_wrap["nonce"], 24),
-         :ok <- validate_base64url_min_bytes(recipient_wrap["ciphertext"], 48),
+         :ok <- validate_delivery_aad(aad),
          :ok <- validate_base64url_bytes(encrypted_payload["nonce"], 24),
          :ok <- validate_base64url_min_bytes(encrypted_payload["ciphertext"], 128),
          true <- maintenance_wrap["key_version"] == key_version,
@@ -102,6 +106,67 @@ defmodule RefMD.Workspaces.Invitations do
 
   def validate_encrypted_bootstrap_package(_package, _workspace_id, _key_version),
     do: {:error, :invalid_encrypted_bootstrap_package}
+
+  defp validate_recipient_wrap(%{"nonce" => nonce, "ciphertext" => ciphertext} = wrap, _, _, _) do
+    with true <- exact_keys?(wrap, ["ciphertext", "nonce"]),
+         :ok <- validate_base64url_bytes(nonce, 24),
+         :ok <- validate_base64url_min_bytes(ciphertext, 48) do
+      :ok
+    else
+      _ -> {:error, :invalid_encrypted_bootstrap_package}
+    end
+  end
+
+  defp validate_recipient_wrap(
+         %{
+           "delivery_mode" => "known_recipient",
+           "recipient_user_id" => recipient_user_id,
+           "sender_signing_public_key_material" => sender_public,
+           "wraps" => wraps
+         } = recipient_wrap,
+         aad,
+         workspace_id,
+         key_version
+       )
+       when is_binary(recipient_user_id) and wraps == [] and is_map(sender_public) do
+    with true <-
+           exact_keys?(recipient_wrap, [
+             "delivery_mode",
+             "recipient_user_id",
+             "sender_signing_public_key_material",
+             "wraps"
+           ]),
+         true <- recipient_user_id == aad["recipient_user_id"],
+         true <- aad["workspace_id"] == workspace_id,
+         true <- aad["key_version_context"]["workspace_kek_version"] == key_version do
+      :ok
+    else
+      _ -> {:error, :invalid_encrypted_bootstrap_package}
+    end
+  end
+
+  defp validate_recipient_wrap(_, _, _, _),
+    do: {:error, :invalid_encrypted_bootstrap_package}
+
+  defp validate_delivery_aad(%{
+         "delivery_mode" => "unknown_fragment",
+         "recipient_user_id" => "NOT_APPLICABLE",
+         "recipient_device_ids" => []
+       }),
+       do: :ok
+
+  defp validate_delivery_aad(%{
+         "delivery_mode" => "known_recipient",
+         "recipient_user_id" => recipient_user_id,
+         "recipient_device_ids" => device_ids
+       })
+       when is_binary(recipient_user_id) and is_list(device_ids) and device_ids != [] do
+    if Enum.all?(device_ids, &is_binary/1) and Enum.uniq(device_ids) == device_ids,
+      do: :ok,
+      else: {:error, :invalid_encrypted_bootstrap_package}
+  end
+
+  defp validate_delivery_aad(_), do: {:error, :invalid_encrypted_bootstrap_package}
 
   def create_invitation(attrs) do
     create_invitation_with_retry(attrs, 0)
@@ -161,6 +226,9 @@ defmodule RefMD.Workspaces.Invitations do
         role_name: r.name,
         invited_by: i.invited_by,
         invited_email: i.invited_email,
+        delivery_mode: i.delivery_mode,
+        recipient_user_id: i.recipient_user_id,
+        recipient_device_ids: i.recipient_device_ids,
         kek_version: i.kek_version,
         is_used: i.is_used,
         expires_at: i.expires_at,
@@ -272,32 +340,35 @@ defmodule RefMD.Workspaces.Invitations do
   end
 
   defp do_create_invitation(attrs) do
-    Repo.transaction(fn ->
-      EctoSQL.query!(Repo, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
+    Repo.transaction(
+      fn ->
+        workspace = lock_workspace_for_share(attrs.workspace_id)
 
-      workspace = lock_workspace_for_share(attrs.workspace_id)
-
-      with :ok <- validate_invitation_creation(workspace, attrs),
-           {:ok, actor_role} <- lock_actor_role(attrs.workspace_id, attrs.invited_by),
-           :ok <- check_rbac_permission(actor_role, "member:invite"),
-           {:ok, target_role} <- resolve_invitation_role(attrs),
-           :ok <- validate_escalation(actor_role, target_role),
-           {:ok, invitation} <- insert_invitation(attrs, target_role),
-           :ok <-
-             KeyDirectory.append_if_present(attrs[:key_directory], %{
-               kind: :workspace_invitation_created,
-               workspace_id: invitation.workspace_id,
-               actor_user_id: attrs.invited_by,
-               actor_device_id: attrs[:actor_device_id],
-               invitee_user_id: attrs[:invitee_user_id],
-               invitation: invitation,
-               target_role: target_role
-             }) do
-        invitation
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+        with :ok <- validate_invitation_creation(workspace, attrs),
+             {:ok, actor_role} <- lock_actor_role(attrs.workspace_id, attrs.invited_by),
+             :ok <- check_rbac_permission(actor_role, "member:invite"),
+             :ok <- validate_recipient_delivery_binding(attrs),
+             :ok <- validate_known_recipient_not_member(attrs),
+             {:ok, target_role} <- resolve_invitation_role(attrs),
+             :ok <- validate_escalation(actor_role, target_role),
+             {:ok, invitation} <- insert_invitation(attrs, target_role),
+             :ok <-
+               KeyDirectory.append_if_present(attrs[:key_directory], %{
+                 kind: :workspace_invitation_created,
+                 workspace_id: invitation.workspace_id,
+                 actor_user_id: attrs.invited_by,
+                 actor_device_id: attrs[:actor_device_id],
+                 invitee_user_id: attrs[:invitee_user_id],
+                 invitation: invitation,
+                 target_role: target_role
+               }) do
+          invitation
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end,
+      isolation: :serializable
+    )
     |> normalize_transaction_result()
   rescue
     e in Postgrex.Error ->
@@ -357,24 +428,25 @@ defmodule RefMD.Workspaces.Invitations do
          requester_device_id,
          admission
        ) do
-    Repo.transaction(fn ->
-      EctoSQL.query!(Repo, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", [])
+    Repo.transaction(
+      fn ->
+        invitation = find_invitation_by_hash_for_update(token_hash)
+        if is_nil(invitation), do: Repo.rollback(:not_found)
 
-      invitation = find_invitation_by_hash_for_update(token_hash)
-      if is_nil(invitation), do: Repo.rollback(:not_found)
+        workspace = lock_workspace_for_share(invitation.workspace_id)
+        if is_nil(workspace), do: Repo.rollback(:not_found)
 
-      workspace = lock_workspace_for_share(invitation.workspace_id)
-      if is_nil(workspace), do: Repo.rollback(:not_found)
-
-      handle_acceptance_membership_state(
-        invitation,
-        workspace,
-        user_id,
-        user_email,
-        requester_device_id,
-        admission
-      )
-    end)
+        handle_acceptance_membership_state(
+          invitation,
+          workspace,
+          user_id,
+          user_email,
+          requester_device_id,
+          admission
+        )
+      end,
+      isolation: :serializable
+    )
     |> normalize_transaction_result()
   rescue
     e in Postgrex.Error ->
@@ -398,22 +470,74 @@ defmodule RefMD.Workspaces.Invitations do
          requester_device_id,
          admission
        ) do
-    if find_existing_member(invitation.workspace_id, user_id) do
-      validate_existing_member_or_rollback(invitation, user_email, workspace)
-    else
-      reserve_new_member_acceptance(
-        invitation,
-        workspace,
-        user_id,
-        user_email,
-        requester_device_id,
-        admission
-      )
+    case {find_existing_member(invitation.workspace_id, user_id), invitation.delivery_mode} do
+      {%WorkspaceMember{}, "known_recipient"} ->
+        case validate_recipient_acceptance(
+               invitation,
+               user_id,
+               user_email,
+               requester_device_id
+             ) do
+          :ok -> Repo.rollback(:recipient_already_member)
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      {%WorkspaceMember{}, _delivery_mode} ->
+        validate_existing_member_or_rollback(
+          invitation,
+          user_id,
+          user_email,
+          requester_device_id,
+          workspace
+        )
+
+      {nil, _delivery_mode} ->
+        reserve_new_member_acceptance(
+          invitation,
+          workspace,
+          user_id,
+          user_email,
+          requester_device_id,
+          admission
+        )
     end
   end
 
-  defp validate_existing_member_or_rollback(invitation, user_email, workspace) do
-    case validate_existing_member_acceptance(invitation, user_email, workspace) do
+  defp validate_recipient_delivery_binding(attrs) do
+    Users.validate_invitation_delivery_binding(
+      attrs.invited_email,
+      attrs.delivery_mode,
+      attrs[:recipient_user_id],
+      attrs[:recipient_device_ids] || []
+    )
+  end
+
+  defp validate_known_recipient_not_member(%{
+         delivery_mode: "known_recipient",
+         workspace_id: workspace_id,
+         recipient_user_id: recipient_user_id
+       }) do
+    if find_existing_member(workspace_id, recipient_user_id),
+      do: {:error, :recipient_already_member},
+      else: :ok
+  end
+
+  defp validate_known_recipient_not_member(_attrs), do: :ok
+
+  defp validate_existing_member_or_rollback(
+         invitation,
+         user_id,
+         user_email,
+         requester_device_id,
+         workspace
+       ) do
+    case validate_existing_member_acceptance(
+           invitation,
+           user_id,
+           user_email,
+           requester_device_id,
+           workspace
+         ) do
       :ok -> build_acceptance_result(invitation, workspace)
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -427,7 +551,8 @@ defmodule RefMD.Workspaces.Invitations do
          requester_device_id,
          admission
        ) do
-    with :ok <- check_invitation_validity(invitation, user_email),
+    with :ok <- check_invitation_validity(invitation, user_id, user_email, requester_device_id),
+         :ok <- validate_known_recipient_delivery_admission(invitation, admission),
          :ok <- validate_workspace_acceptance_state(invitation, workspace),
          {:ok, target_role} <- fetch_target_role(invitation),
          {:ok, _member} <- insert_member(invitation, user_id),
@@ -439,6 +564,20 @@ defmodule RefMD.Workspaces.Invitations do
     end
   end
 
+  defp validate_known_recipient_delivery_admission(
+         %WorkspaceInvitation{delivery_mode: "known_recipient"},
+         %{recipient_delivery_attempt: %RefMD.Workspaces.InvitationDeliveryAttempt{}}
+       ),
+       do: :ok
+
+  defp validate_known_recipient_delivery_admission(
+         %WorkspaceInvitation{delivery_mode: "known_recipient"},
+         _admission
+       ),
+       do: {:error, :recipient_delivery_required}
+
+  defp validate_known_recipient_delivery_admission(_invitation, _admission), do: :ok
+
   defp find_existing_member(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       where: wm.workspace_id == ^workspace_id and wm.user_id == ^user_id,
@@ -447,7 +586,13 @@ defmodule RefMD.Workspaces.Invitations do
     |> Repo.one()
   end
 
-  defp validate_existing_member_acceptance(invitation, user_email, workspace) do
+  defp validate_existing_member_acceptance(
+         invitation,
+         user_id,
+         user_email,
+         requester_device_id,
+         workspace
+       ) do
     cond do
       invitation.revoked_at != nil ->
         {:error, :invitation_revoked}
@@ -455,21 +600,15 @@ defmodule RefMD.Workspaces.Invitations do
       DateTime.compare(invitation.expires_at, DateTime.utc_now()) != :gt ->
         {:error, :invitation_expired}
 
-      invitation.invited_email != user_email ->
-        {:error, :email_mismatch}
-
-      workspace.needs_kek_rotation ->
-        {:error, :kek_rotation_in_progress}
-
-      invitation.kek_version < workspace.min_kek_version ->
-        {:error, {:invitation_kek_outdated, invitation.workspace_id}}
-
       true ->
-        :ok
+        with :ok <-
+               validate_recipient_acceptance(invitation, user_id, user_email, requester_device_id) do
+          validate_workspace_acceptance_state(invitation, workspace)
+        end
     end
   end
 
-  defp check_invitation_validity(invitation, user_email) do
+  defp check_invitation_validity(invitation, user_id, user_email, requester_device_id) do
     cond do
       invitation.revoked_at != nil ->
         {:error, :invitation_revoked}
@@ -480,17 +619,46 @@ defmodule RefMD.Workspaces.Invitations do
       invitation.is_used ->
         {:error, :invitation_already_used}
 
-      invitation.invited_email != user_email ->
-        {:error, :email_mismatch}
+      true ->
+        validate_recipient_acceptance(invitation, user_id, user_email, requester_device_id)
+    end
+  end
+
+  defp validate_recipient_acceptance(
+         %WorkspaceInvitation{delivery_mode: "known_recipient"} = invitation,
+         user_id,
+         _user_email,
+         requester_device_id
+       ) do
+    cond do
+      invitation.recipient_user_id != user_id ->
+        {:error, :recipient_mismatch}
+
+      requester_device_id not in invitation.recipient_device_ids ->
+        {:error, :recipient_device_mismatch}
+
+      not Devices.user_owns_active_device?(user_id, requester_device_id) ->
+        {:error, :recipient_device_revoked}
 
       true ->
         :ok
     end
   end
 
+  defp validate_recipient_acceptance(
+         %WorkspaceInvitation{delivery_mode: "unknown_fragment"} = invitation,
+         _user_id,
+         user_email,
+         _requester_device_id
+       ) do
+    if invitation.invited_email == user_email, do: :ok, else: {:error, :email_mismatch}
+  end
+
+  defp validate_recipient_acceptance(_, _, _, _), do: {:error, :recipient_mismatch}
+
   defp validate_workspace_acceptance_state(invitation, workspace) do
     cond do
-      workspace.needs_kek_rotation ->
+      RotationPolicy.kek_overdue?(workspace) ->
         {:error, :kek_rotation_in_progress}
 
       invitation.kek_version < workspace.min_kek_version ->
@@ -533,29 +701,42 @@ defmodule RefMD.Workspaces.Invitations do
     end
   end
 
-  defp persist_invitation_admission!(invitation, user_id, requester_device_id, %{
-         key_directory: key_directory,
-         member_envelope: member_envelope
-       })
+  defp persist_invitation_admission!(
+         invitation,
+         user_id,
+         requester_device_id,
+         %{
+           key_directory: key_directory,
+           member_envelope: member_envelope
+         } = admission
+       )
        when is_map(member_envelope) do
-    case Encryption.validate_workspace_invitation_member_envelope(member_envelope, %{
-           workspace_id: invitation.workspace_id,
-           invitation_id: invitation.id,
-           target_user_id: user_id,
-           requester_device_id: requester_device_id,
-           kek_version: invitation.kek_version,
-           key_directory: key_directory
-         }) do
+    validation_context = %{
+      workspace_id: invitation.workspace_id,
+      invitation_id: invitation.id,
+      target_user_id: user_id,
+      requester_device_id: requester_device_id,
+      kek_version: invitation.kek_version,
+      key_directory: key_directory,
+      recipient_delivery_attempt: Map.get(admission, :recipient_delivery_attempt)
+    }
+
+    case Encryption.validate_workspace_invitation_member_envelope(
+           member_envelope,
+           validation_context
+         ) do
       {:ok, %{member_envelope_hash: member_envelope_hash}} ->
-        KeyDirectory.append_if_present(key_directory, %{
-          kind: :workspace_invitation_redeemed,
-          workspace_id: invitation.workspace_id,
-          redeem_authority_signing_key_id: redeem_authority_signing_key_id!(key_directory),
-          invitation: invitation,
-          redeemed_user_id: user_id,
-          redeemed_device_id: requester_device_id,
-          member_envelope_hash: member_envelope_hash
-        })
+        KeyDirectory.append_if_present(
+          key_directory,
+          workspace_redeem_operation(
+            invitation,
+            user_id,
+            requester_device_id,
+            member_envelope_hash,
+            Map.get(admission, :recipient_delivery_attempt),
+            key_directory
+          )
+        )
 
         case Encryption.save_member_envelopes(invitation.workspace_id, [member_envelope]) do
           {:ok, _} -> :ok
@@ -568,6 +749,48 @@ defmodule RefMD.Workspaces.Invitations do
   end
 
   defp persist_invitation_admission!(_, _, _, _), do: {:error, :missing_key_directory}
+
+  defp workspace_redeem_operation(
+         invitation,
+         user_id,
+         requester_device_id,
+         member_envelope_hash,
+         nil,
+         key_directory
+       ) do
+    %{
+      kind: :workspace_invitation_redeemed,
+      workspace_id: invitation.workspace_id,
+      redeem_authority_signing_key_id: redeem_authority_signing_key_id!(key_directory),
+      invitation: invitation,
+      redeemed_user_id: user_id,
+      redeemed_device_id: requester_device_id,
+      member_envelope_hash: member_envelope_hash
+    }
+  end
+
+  defp workspace_redeem_operation(
+         invitation,
+         user_id,
+         requester_device_id,
+         member_envelope_hash,
+         attempt,
+         _key_directory
+       ) do
+    freshness = attempt.approved_artifacts["redeem_freshness_proof"]
+
+    %{
+      kind: :workspace_invitation_redeemed,
+      workspace_id: invitation.workspace_id,
+      actor_user_id: get_in(freshness, ["authoritative_device", "user_id"]),
+      actor_device_id: get_in(freshness, ["authoritative_device", "device_id"]),
+      invitation: invitation,
+      redeemed_user_id: user_id,
+      redeemed_device_id: requester_device_id,
+      member_envelope_hash: member_envelope_hash,
+      recipient_delivery_attempt: attempt
+    }
+  end
 
   defp redeem_authority_signing_key_id!(%{events: events}) when is_list(events) do
     events
@@ -632,7 +855,7 @@ defmodule RefMD.Workspaces.Invitations do
 
   defp validate_invitation_creation(workspace, attrs) do
     cond do
-      workspace.needs_kek_rotation ->
+      RotationPolicy.kek_overdue?(workspace) ->
         {:error, :kek_rotation_in_progress}
 
       workspace.current_kek_version == 0 ->
@@ -682,6 +905,9 @@ defmodule RefMD.Workspaces.Invitations do
         role_id: role_id,
         invited_by: attrs.invited_by,
         invited_email: attrs.invited_email,
+        delivery_mode: attrs.delivery_mode,
+        recipient_user_id: attrs[:recipient_user_id],
+        recipient_device_ids: attrs[:recipient_device_ids] || [],
         kek_version: attrs.kek_version,
         bootstrap_key_commitment: attrs[:bootstrap_key_commitment],
         encrypted_bootstrap_package: attrs[:encrypted_bootstrap_package],

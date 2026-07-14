@@ -37,7 +37,52 @@ defmodule RefMD.Encryption do
     to: Users,
     as: :get_encrypted_identity_key
 
+  defdelegate get_pending_user_encrypted_identity_key(user_id),
+    to: Users,
+    as: :get_pending_encrypted_identity_key
+
+  defdelegate get_user_encrypted_identity_key_by_version(user_id, key_version),
+    to: Users,
+    as: :get_encrypted_identity_key_by_version
+
   defdelegate get_user_identity_public_key(user_id), to: Users, as: :get_identity_public_key
+
+  defdelegate get_pending_user_identity_public_key(user_id),
+    to: Users,
+    as: :get_pending_identity_public_key
+
+  defdelegate user_identity_rotation_status(user_id),
+    to: Users,
+    as: :identity_rotation_status
+
+  defdelegate list_user_identity_public_keys(user_id),
+    to: Users,
+    as: :list_identity_public_keys
+
+  defdelegate lock_user_identity_keys_for_membership(user_id),
+    to: Users,
+    as: :lock_identity_keys_for_membership
+
+  defdelegate user_identity_key_for_new_encryption(user_id),
+    to: Users,
+    as: :identity_key_for_new_encryption
+
+  defdelegate prepare_user_identity_rotation(user_id, attrs),
+    to: Users,
+    as: :prepare_identity_rotation
+
+  defdelegate activate_user_identity_rotation(user_id, key_version),
+    to: Users,
+    as: :activate_identity_rotation
+
+  defdelegate finalize_user_identity_rotation(
+                user_id,
+                key_version,
+                deletion_proof,
+                key_directory
+              ),
+              to: Users,
+              as: :finalize_identity_rotation
 
   defdelegate create_workspace_encrypted_key_with_key_directory(
                 attrs,
@@ -93,7 +138,20 @@ defmodule RefMD.Encryption do
 
   defdelegate list_document_encrypted_keys(document_id), to: Documents, as: :list
 
+  defdelegate rewrap_document_key_for_kek_rotation(
+                document_id,
+                key_version,
+                new_kek_version,
+                attrs
+              ),
+              to: Documents,
+              as: :rewrap_for_kek_rotation
+
   defdelegate create_document_key_with_rotation(attrs),
+    to: Documents,
+    as: :create_with_rotation
+
+  defdelegate create_document_key_with_rotation(attrs, share_rotation),
     to: Documents,
     as: :create_with_rotation
 
@@ -146,6 +204,14 @@ defmodule RefMD.Encryption do
   def current_workspace_key_directory_pin(workspace_id),
     do: KeyDirectory.current_pin("workspace", workspace_id)
 
+  def active_workspace_scope_guest_device_admitted?(workspace_id, user_id, device_id),
+    do:
+      KeyDirectory.active_workspace_scope_guest_device_admitted?(
+        workspace_id,
+        user_id,
+        device_id
+      )
+
   def workspace_key_directory_event_type_by_hash(workspace_id, event_hash) do
     case KeyDirectory.event_by_hash("workspace", workspace_id, event_hash) do
       %{event_type: event_type} -> event_type
@@ -176,6 +242,26 @@ defmodule RefMD.Encryption do
 
   def workspace_key_directory_events_up_to(workspace_id, head_sequence),
     do: KeyDirectory.events_up_to("workspace", workspace_id, head_sequence)
+
+  def key_directory_authority_events(
+        scope_kind,
+        scope_id,
+        anchor_event_sequence,
+        candidate_events,
+        candidate_checkpoint
+      ),
+      do:
+        KeyDirectory.authority_events(
+          scope_kind,
+          scope_id,
+          anchor_event_sequence,
+          candidate_events,
+          candidate_checkpoint
+        )
+
+  defdelegate user_identity_rotation_deletion_evidences_by_event_hash(event_hashes),
+    to: Users,
+    as: :rotation_deletion_evidences_by_event_hash
 
   def workspace_key_directory_ancestry_for_body_field(
         workspace_id,
@@ -362,6 +448,7 @@ defmodule RefMD.Encryption do
       encrypted_master_key: get_user_encrypted_master_key(user_id),
       encrypted_identity_key: get_user_encrypted_identity_key(user_id),
       identity_public_key: get_user_identity_public_key(user_id),
+      identity_key_checkpoint: current_user_key_directory_checkpoint(user_id),
       device_encrypted_umk:
         if(device_id, do: RefMD.Devices.get_device_encrypted_umk(user_id, device_id))
     }

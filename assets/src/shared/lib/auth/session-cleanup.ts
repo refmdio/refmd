@@ -2,13 +2,23 @@ type SessionCleanupScope = "all" | "secure";
 
 interface BeforeCleanupEntry {
   callback: () => Promise<void> | void;
+  callbackId: number;
   scope: SessionCleanupScope;
   order: number;
 }
 
+export interface SessionCleanupFailure {
+  callbackId: number;
+  reason: "rejected";
+}
+
+export interface SessionCleanupResult {
+  failures: SessionCleanupFailure[];
+}
+
 const beforeCleanupCallbacks = new Set<BeforeCleanupEntry>();
 const cleanupCallbacks = new Set<() => void>();
-const BEFORE_CLEANUP_CALLBACK_TIMEOUT_MS = 5_000;
+let nextBeforeCleanupCallbackId = 1;
 
 export function registerBeforeSessionCleanup(
   callback: () => Promise<void> | void,
@@ -16,6 +26,7 @@ export function registerBeforeSessionCleanup(
 ): () => void {
   const entry: BeforeCleanupEntry = {
     callback,
+    callbackId: nextBeforeCleanupCallbackId++,
     scope: options.scope ?? "all",
     order: options.order ?? 0,
   };
@@ -27,27 +38,36 @@ export function registerSessionCleanup(callback: () => void): void {
   cleanupCallbacks.add(callback);
 }
 
-export async function runBeforeSessionCleanup(options: { secure: boolean }): Promise<void> {
+export async function runBeforeSessionCleanup(options: {
+  secure: boolean;
+}): Promise<SessionCleanupResult> {
   const entries = [...beforeCleanupCallbacks]
     .filter((entry) => options.secure || entry.scope === "all")
     .sort((left, right) => left.order - right.order);
   const orders = [...new Set(entries.map((entry) => entry.order))];
+  const failures: SessionCleanupFailure[] = [];
+
   for (const order of orders) {
-    await Promise.allSettled(
+    const results = await Promise.all(
       entries
         .filter((entry) => entry.order === order)
         .map((entry) => runBeforeCleanupCallback(entry)),
     );
+    failures.push(...results.filter((result) => result !== null));
   }
+
+  return { failures };
 }
 
-async function runBeforeCleanupCallback(entry: BeforeCleanupEntry): Promise<void> {
-  await Promise.race([
-    Promise.resolve().then(() => entry.callback()),
-    new Promise<void>((resolve) => {
-      window.setTimeout(resolve, BEFORE_CLEANUP_CALLBACK_TIMEOUT_MS);
-    }),
-  ]);
+function runBeforeCleanupCallback(
+  entry: BeforeCleanupEntry,
+): Promise<SessionCleanupFailure | null> {
+  return Promise.resolve()
+    .then(() => entry.callback())
+    .then(
+      () => null,
+      () => ({ callbackId: entry.callbackId, reason: "rejected" as const }),
+    );
 }
 
 export function runSessionCleanup(): void {

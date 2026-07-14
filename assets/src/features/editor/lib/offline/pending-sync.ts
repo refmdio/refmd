@@ -128,6 +128,10 @@ async function doSyncPendingDocument(documentId: string, workspaceId: string): P
   }
 }
 async function syncExistingState(documentId: string, state: DocumentState): Promise<void> {
+  if (state.access.kind !== "share") {
+    const { acknowledgeDocumentWipeIfRequired } = await import("../sync/bootstrap-key-rotation");
+    if (await acknowledgeDocumentWipeIfRequired(documentId, state.workspaceId, state)) return;
+  }
   if (state.loadedFromOfflineCache || state.initPromise) {
     return;
   }

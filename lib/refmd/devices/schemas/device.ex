@@ -103,6 +103,8 @@ defmodule RefMD.Devices.Device do
     field :last_seen_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec
     field :revoked_at, :utc_datetime_usec
+    field :identity_wipe_required_at, :utc_datetime_usec
+    belongs_to :identity_replaced_by_device, __MODULE__
   end
 
   def changeset(device, attrs) do
@@ -123,7 +125,9 @@ defmodule RefMD.Devices.Device do
       :key_checkpoint_hash,
       :client_nonce,
       :last_seen_at,
-      :revoked_at
+      :revoked_at,
+      :identity_wipe_required_at,
+      :identity_replaced_by_device_id
     ])
     |> validate_required([
       :id,
@@ -469,9 +473,17 @@ defmodule RefMD.Devices.Device do
   defp delivery_record_hash_matches?(commitment, artifact)
        when is_map(commitment) and is_map(artifact) do
     delivery = artifact["initial_key_delivery"]
+    metadata = if is_map(delivery), do: delivery["metadata"]
+    aead = if is_map(delivery), do: delivery["aead"]
 
-    is_map(delivery) and
-      commitment["delivery_record_hash"] == Hash.blake3_base64url(JCS.canonical_bytes!(delivery))
+    is_map(metadata) and is_map(aead) and
+      commitment["delivery_record_hash"] ==
+        Hash.blake3_base64url(
+          JCS.canonical_bytes!(%{
+            "metadata" => Map.delete(metadata, "key_confirmation_hash"),
+            "aead" => aead
+          })
+        )
   rescue
     ArgumentError -> false
   end

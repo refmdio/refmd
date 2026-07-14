@@ -285,6 +285,11 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
     params.bootstrap,
     "workspace_pin_bootstrap_invalid",
   );
+  assertWorkspacePinBootstrapHash({
+    workspaceId: params.workspaceId,
+    authenticatedWorkspacePinBootstrapHash: params.authenticatedWorkspacePinBootstrapHash,
+    bootstrap,
+  });
   const checkpoint = assertEnvelope(
     params.checkpointEnvelope as unknown as Record<string, unknown>,
   );
@@ -298,14 +303,6 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
     checkpoint as unknown as Record<string, unknown>,
   );
 
-  if (
-    buildWorkspacePinBootstrapHash({
-      workspaceId: params.workspaceId,
-      bootstrap: params.bootstrap,
-    }) !== params.authenticatedWorkspacePinBootstrapHash
-  ) {
-    throw new Error("workspace_pin_bootstrap_hash_mismatch");
-  }
   if (
     payload.protocol !== PROTOCOL ||
     payload.version !== VERSION ||
@@ -417,6 +414,21 @@ export async function verifyAndInstallWorkspacePinBootstrap(params: {
     workspaceId: params.workspaceId,
     elapsedMs: performance.now() - startedAt,
   });
+}
+
+export function assertWorkspacePinBootstrapHash(params: {
+  workspaceId: string;
+  authenticatedWorkspacePinBootstrapHash: string;
+  bootstrap: WorkspacePinBootstrapEnvelope;
+}): void {
+  if (
+    buildWorkspacePinBootstrapHash({
+      workspaceId: params.workspaceId,
+      bootstrap: params.bootstrap,
+    }) !== params.authenticatedWorkspacePinBootstrapHash
+  ) {
+    throw new Error("workspace_pin_bootstrap_hash_mismatch");
+  }
 }
 
 function assertIssuingEventCovered(params: {

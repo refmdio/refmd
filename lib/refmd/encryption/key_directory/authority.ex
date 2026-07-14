@@ -66,6 +66,21 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   def assert_workspace_admin_authority!(_, _, _),
     do: raise(ArgumentError, "workspace_admin_authority_invalid")
 
+  def active_workspace_scope_guest_device_admitted?(
+        workspace_id,
+        event_head_sequence,
+        user_id,
+        device_id
+      )
+      when is_binary(workspace_id) and is_integer(event_head_sequence) and
+             event_head_sequence >= 0 and is_binary(user_id) and is_binary(device_id) do
+    workspace_id
+    |> workspace_authority_state(event_head_sequence)
+    |> workspace_scope_guest_device_admitted?(user_id, device_id)
+  end
+
+  def active_workspace_scope_guest_device_admitted?(_, _, _, _), do: false
+
   def stored_authority_state(%{
         "scope_kind" => "workspace",
         "scope_id" => workspace_id,
@@ -93,7 +108,6 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
         }
       )
       when event_type in [
-             "document_update_accepted",
              "document_write_session_admitted",
              "document_snapshot_accepted"
            ] do
@@ -126,6 +140,8 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
       fn -> initial_workspace_bootstrap_key_event?(state, payload) end,
       fn -> self_member_removal_authorized?(state, payload) end,
       fn -> identity_device_key_add_authorized?(state, payload, actor, permission) end,
+      fn -> guest_identity_key_add_authorized?(state, payload, actor, permission) end,
+      fn -> guest_identity_wrap_authorized?(state, payload, actor, permission) end,
       fn -> permission_granted?(Map.get(state.members, actor_user_id!(actor)), permission) end,
       fn -> self_member_key_revocation_authorized?(state, payload) end,
       fn -> guest_grant_permission_granted?(state, actor, payload, permission) end
@@ -144,6 +160,63 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   end
 
   defp identity_device_key_add_authorized?(_, _, _, _), do: false
+
+  defp guest_identity_key_add_authorized?(
+         state,
+         %{"event_type" => "identity_key_added"},
+         %{"signer_kind" => "device", "user_id" => user_id, "device_id" => device_id},
+         :active_member
+       )
+       when is_binary(user_id) and is_binary(device_id) do
+    workspace_scope_guest_device_admitted?(state, user_id, device_id)
+  end
+
+  defp guest_identity_key_add_authorized?(_, _, _, _), do: false
+
+  defp guest_identity_wrap_authorized?(
+         state,
+         %{
+           "scope_kind" => "workspace",
+           "scope_id" => workspace_id,
+           "event_type" => "wrap_issued",
+           "body" => %{
+             "purpose" => "workspace_member_kek_wrap",
+             "resource" => %{
+               "workspace_id" => workspace_id,
+               "target_user_id" => user_id
+             },
+             "recipient" => %{
+               "recipient_kind" => "user_identity",
+               "user_id" => user_id
+             },
+             "sender" => %{"user_id" => user_id, "device_id" => device_id}
+           }
+         },
+         %{"signer_kind" => "device", "user_id" => user_id, "device_id" => device_id},
+         :active_member
+       )
+       when is_binary(workspace_id) and is_binary(user_id) and is_binary(device_id) do
+    workspace_scope_guest_device_admitted?(state, user_id, device_id)
+  end
+
+  defp guest_identity_wrap_authorized?(_, _, _, _), do: false
+
+  defp workspace_scope_guest_device_admitted?(%{guest_grants: guest_grants}, user_id, device_id) do
+    Enum.any?(guest_grants, fn
+      {_grant_id,
+       %{
+         guest_user_id: ^user_id,
+         guest_device_id: ^device_id,
+         scope_kind: "workspace",
+         scope_id: "none",
+         status: "active"
+       }} ->
+        true
+
+      _entry ->
+        false
+    end)
+  end
 
   defp required_permission!(event_type)
        when event_type in [
@@ -197,7 +270,6 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
 
   defp required_permission!(event_type)
        when event_type in [
-              "document_update_accepted",
               "document_write_session_admitted",
               "document_snapshot_accepted"
             ],
@@ -238,7 +310,7 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
          %{event_type: "member_role_changed", payload: %{"body" => body}},
          state
        ) do
-    put_member_role(state, body["user_id"], body["base_role"])
+    put_member_authority(state, body["user_id"], body["base_role"], body["effective_permissions"])
   end
 
   defp apply_authority_event(
@@ -425,6 +497,16 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
 
   defp put_member_role(state, _user_id, _role), do: state
 
+  defp put_member_authority(state, user_id, role, permissions)
+       when is_binary(user_id) and is_binary(role) and is_list(permissions),
+       do:
+         put_in(state, [:members, user_id], %{
+           base_role: role,
+           permissions: MapSet.new(permissions)
+         })
+
+  defp put_member_authority(state, _user_id, _role, _permissions), do: state
+
   defp put_key_owner(state, key_id, %{user_id: user_id, device_id: device_id})
        when is_binary(key_id) and is_binary(user_id) and is_binary(device_id) do
     Map.update(state, :key_owners, %{key_id => %{user_id: user_id, device_id: device_id}}, fn
@@ -459,11 +541,15 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   defp permission_granted?(role, :document_archive),
     do: role_permission_granted?(role, "document:archive")
 
+  defp permission_granted?(%{base_role: role}, :active_member), do: is_binary(role)
   defp permission_granted?(role, :active_member), do: is_binary(role)
 
   defp permission_granted?(_role, :none), do: true
 
   defp role_permission_granted?("owner", _permission), do: true
+
+  defp role_permission_granted?(%{permissions: %MapSet{} = permissions}, permission),
+    do: MapSet.member?(permissions, permission)
 
   defp role_permission_granted?(role, permission) when is_binary(role),
     do: permission in base_role_permissions(role)
@@ -579,6 +665,21 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
 
     if is_nil(rotation) or rotation.status != :completed do
       raise ArgumentError, "rotation_completed_event_missing"
+    end
+
+    :ok
+  end
+
+  defp assert_event_transition!(
+         _state,
+         %{
+           "event_type" => "member_role_changed",
+           "actor" => %{"signer_kind" => "device", "user_id" => user_id},
+           "body" => %{"user_id" => user_id, "effective_permissions" => permissions}
+         }
+       ) do
+    unless is_list(permissions) and "workspace:admin" in permissions do
+      raise ArgumentError, "member_role_change_candidate_signer_ineligible"
     end
 
     :ok

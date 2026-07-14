@@ -63,7 +63,7 @@ defmodule RefMDWeb.Channels.Document.EnvelopeTest do
       %{
         "payload" => %{
           "body" => %{"previous_workspace_event_sequence" => 1},
-          "event_type" => "document_update_accepted"
+          "event_type" => "document_write_session_admitted"
         }
       },
       %{"payload" => %{"event_type" => "document_snapshot_accepted"}}

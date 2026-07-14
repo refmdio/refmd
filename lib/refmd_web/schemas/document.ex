@@ -20,6 +20,12 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       doc_type: %Schema{type: :string, enum: ["document", "folder"]},
       is_encrypted: %Schema{type: :boolean},
       needs_dek_rotation: %Schema{type: :boolean},
+      dek_rotation_reason: %Schema{
+        type: :string,
+        enum: ["time_based", "manual", "security", "membership_change"],
+        nullable: true
+      },
+      dek_rotation_due_at: %Schema{type: :string, format: :"date-time", nullable: true},
       needs_rotation_snapshot: %Schema{type: :boolean},
       min_dek_version: %Schema{type: :integer},
       is_published: %Schema{type: :boolean},
@@ -43,6 +49,7 @@ defmodule RefMDWeb.Schemas.DocumentResponse do
       :doc_type,
       :is_encrypted,
       :needs_dek_rotation,
+      :dek_rotation_reason,
       :min_dek_version,
       :is_published,
       :can_sync_publication,

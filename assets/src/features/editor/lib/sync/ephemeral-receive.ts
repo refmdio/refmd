@@ -21,6 +21,7 @@ import type { EphemeralPayload, PeerLeftPayload } from "@/shared/lib/ws/document
 import { getLocalDeviceId } from "./share-identity";
 import { getDocumentCryptoWorker } from "./crypto-worker";
 import { buildEphemeralAuthorityBoundary } from "./ephemeral-authority";
+import { ensureDekCached } from "./inbound-verify-decrypt";
 // ── Ephemeral message handling ────────────────────────────────
 export function handleEphemeralMessage(
   payload: EphemeralPayload,
@@ -60,6 +61,7 @@ async function processEphemeral(
     return;
   }
   if (state.revokedSigningKeys.has(senderSigningKeyId)) return;
+  if (!Number.isSafeInteger(pd.keyVersion) || pd.keyVersion < 1) return;
   const worker = getDocumentCryptoWorker(state);
   const valid = await worker.verifyEditorEphemeralSignature({
     publicKeyMaterial: resolveResult.key,
@@ -77,11 +79,12 @@ async function processEphemeral(
   if (!valid) return;
   let decrypted: Uint8Array;
   try {
+    await ensureDekCached(documentId, state.workspaceId, pd.keyVersion, state);
     decrypted = await worker.decryptContent({
       ciphertext: base64UrlDecode(payload.ciphertext as string),
       nonce: base64UrlDecode(payload.nonce as string),
       documentId,
-      keyVersion: state.keyVersion,
+      keyVersion: pd.keyVersion,
       cacheKey: getDocumentDekCacheKey(state, documentId),
     });
   } catch {

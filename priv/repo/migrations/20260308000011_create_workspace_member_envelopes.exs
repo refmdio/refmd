@@ -7,7 +7,10 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceMemberEnvelopes do
         null: false,
         primary_key: true
 
-      add :target_user_id, :binary_id, null: false, primary_key: true
+      add :target_user_id, references(:users, type: :binary_id, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
       add :key_version, :integer, null: false, primary_key: true
       add :sender_device_id, :binary_id, null: false
       add :wrap_protocol, :text, null: false
@@ -44,20 +47,5 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceMemberEnvelopes do
     create index(:workspace_member_envelopes, [:suite_id])
     create index(:workspace_member_envelopes, [:sender_signing_key_id])
     create index(:workspace_member_envelopes, [:recipient_key_id])
-
-    # Composite FK: (workspace_id, target_user_id) → workspace_members(workspace_id, user_id)
-    execute(
-      """
-      ALTER TABLE workspace_member_envelopes
-      ADD CONSTRAINT workspace_member_envelopes_member_fk
-      FOREIGN KEY (workspace_id, target_user_id)
-      REFERENCES workspace_members (workspace_id, user_id)
-      ON DELETE CASCADE
-      """,
-      """
-      ALTER TABLE workspace_member_envelopes
-      DROP CONSTRAINT workspace_member_envelopes_member_fk
-      """
-    )
   end
 end

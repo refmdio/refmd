@@ -232,6 +232,8 @@ defmodule RefMD.Crypto.Signature.Core do
       "target_key_checkpoint_sequence"
     ],
     {"recovery_session", "none"} => [
+      "candidate_user_audit_hash",
+      "candidate_user_audit_sequence",
       "candidate_user_checkpoint_hash",
       "candidate_user_checkpoint_sequence",
       "candidate_user_event_head_hash",

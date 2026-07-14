@@ -36,10 +36,108 @@ export function isInvitationAdmissionWrapEvent(
   if (!body || !sender || !recipient || !nextBody) return false;
   if (body.purpose !== "workspace_member_kek_wrap") return false;
   if (nextEvent.payload.event_type !== "workspace_invitation_redeemed") return false;
-  return (
+  const actor = nextEvent.payload.actor as Record<string, unknown> | undefined;
+  const unknownFragmentWrap =
     recipient.user_id === nextBody.redeemed_user_id &&
     sender.user_id === nextBody.redeemed_user_id &&
-    sender.device_id === nextBody.redeemed_device_id
+    sender.device_id === nextBody.redeemed_device_id;
+  const recipientBoundWrap =
+    actor !== undefined &&
+    recipient.recipient_kind === "user_identity" &&
+    recipient.user_id === nextBody.redeemed_user_id &&
+    recipient.key_scope_kind === "user" &&
+    recipient.key_scope_id === nextBody.redeemed_user_id &&
+    sender.user_id === actor.user_id &&
+    sender.device_id === actor.device_id &&
+    sender.signing_key_id === actor.signing_key_id;
+  return unknownFragmentWrap || recipientBoundWrap;
+}
+
+export function isRecipientBoundWorkspaceRedeemEvent(
+  event: SignedKeyDirectoryEnvelope,
+  events: SignedKeyDirectoryEnvelope[],
+): boolean {
+  const index = events.indexOf(event);
+  const admission = events[index - 2];
+  const memberWrap = events[index - 1];
+  if (
+    event.payload.event_type !== "workspace_invitation_redeemed" ||
+    admission?.payload.event_type !== "recipient_bound_delivery_admitted" ||
+    memberWrap?.payload.event_type !== "wrap_issued"
+  ) {
+    return false;
+  }
+  const body = event.payload.body as Record<string, unknown>;
+  const actor = event.payload.actor as Record<string, unknown>;
+  const admissionBody = admission.payload.body as Record<string, unknown>;
+  const wrapBody = memberWrap.payload.body as Record<string, unknown>;
+  const sender = wrapBody.sender as Record<string, unknown>;
+  const recipient = wrapBody.recipient as Record<string, unknown>;
+  const resource = wrapBody.resource as Record<string, unknown>;
+  return (
+    admissionBody.context_kind === "workspace_invitation" &&
+    admissionBody.context_id === body.invitation_id &&
+    admissionBody.recipient_device_id === body.redeemed_device_id &&
+    wrapBody.purpose === "workspace_member_kek_wrap" &&
+    resource.workspace_id === event.payload.scope_id &&
+    resource.target_user_id === body.redeemed_user_id &&
+    recipient.recipient_kind === "user_identity" &&
+    recipient.user_id === body.redeemed_user_id &&
+    recipient.key_scope_kind === "user" &&
+    recipient.key_scope_id === body.redeemed_user_id &&
+    sender.user_id === actor.user_id &&
+    sender.device_id === actor.device_id &&
+    sender.signing_key_id === actor.signing_key_id
+  );
+}
+
+export function isRecipientBoundGuestRedeemEvent(
+  event: SignedKeyDirectoryEnvelope,
+  events: SignedKeyDirectoryEnvelope[],
+): boolean {
+  const index = events.indexOf(event);
+  const admission = events[index - 1];
+  if (
+    event.payload.event_type !== "guest_invitation_redeemed" ||
+    admission?.payload.event_type !== "recipient_bound_delivery_admitted"
+  ) {
+    return false;
+  }
+  const body = event.payload.body as Record<string, unknown>;
+  const admissionBody = admission.payload.body as Record<string, unknown>;
+  return (
+    admissionBody.context_kind === "guest_invitation" &&
+    admissionBody.context_id === body.guest_invitation_id &&
+    admissionBody.recipient_device_id === body.guest_device_id &&
+    typeof body.recipient_account_user_id === "string" &&
+    body.recipient_account_user_id !== body.guest_user_id &&
+    typeof body.recipient_account_device_id === "string"
+  );
+}
+
+export function isRecipientBoundDeliveryWrapEvent(
+  event: SignedKeyDirectoryEnvelope,
+  events: SignedKeyDirectoryEnvelope[],
+): boolean {
+  const index = events.indexOf(event);
+  const redeemed = events[index - 1];
+  if (!redeemed || !isRecipientBoundWorkspaceRedeemEvent(redeemed, events)) return false;
+  const body = event.payload.body as Record<string, unknown>;
+  const recipient = body.recipient as Record<string, unknown> | undefined;
+  const resource = body.resource as Record<string, unknown> | undefined;
+  const redeemedBody = redeemed.payload.body as Record<string, unknown>;
+  return (
+    event.payload.event_type === "wrap_issued" &&
+    body.purpose === "workspace_invitation_kek_wrap" &&
+    resource !== undefined &&
+    resource.invitation_id === redeemedBody.invitation_id &&
+    resource.redeemed_user_id === redeemedBody.redeemed_user_id &&
+    resource.redeemed_device_id === redeemedBody.redeemed_device_id &&
+    recipient?.recipient_kind === "invitee" &&
+    recipient.invitee_user_id === redeemedBody.redeemed_user_id &&
+    recipient.invitee_device_id === redeemedBody.redeemed_device_id &&
+    recipient.key_scope_kind === "user" &&
+    recipient.key_scope_id === redeemedBody.redeemed_user_id
   );
 }
 
@@ -60,7 +158,9 @@ export async function verifyCheckpointSignatures(
     const variant = checkpointSignatureVariant(checkpoint.payload, signer, previousPayload);
     const material =
       signingKeys.get(signingKeyId) ??
-      (variant === "device_authorized" ? checkpointSigningKeys.get(signingKeyId) : undefined);
+      (variant === "device_authorized" || variant === "identity_rotation"
+        ? checkpointSigningKeys.get(signingKeyId)
+        : undefined);
     if (!material) throw new Error("key_directory_checkpoint_signer_unknown");
     assertSignerMatchesMaterial(signer, material);
     const activePayload =
@@ -214,7 +314,6 @@ export function assertShareParticipantCheckpointAdvance(
   }
 
   if (
-    coveredEvent.payload.event_type !== "document_update_accepted" &&
     coveredEvent.payload.event_type !== "document_write_session_admitted" &&
     coveredEvent.payload.event_type !== "document_snapshot_accepted"
   ) {

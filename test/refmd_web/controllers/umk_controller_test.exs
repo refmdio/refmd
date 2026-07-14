@@ -7,7 +7,7 @@ defmodule RefMDWeb.UmkControllerTest do
   alias RefMD.Devices.{DeviceEncryptedUMK, DeviceRegistration}
   alias RefMD.Repo
   alias RefMD.Users.User
-  alias RefMDWeb.UmkController
+  alias RefMDWeb.{DeviceController, UmkController}
 
   defp create_user(email) do
     user_id = Ecto.UUID.generate()
@@ -100,6 +100,9 @@ defmodule RefMDWeb.UmkControllerTest do
           commitments
         ),
       approval_delivery_commitments: commitments,
+      approval_delivery_artifacts: %{
+        "initial_ake_offers" => initial_ake_offer_bundle(sender_device.id, registration.id)
+      },
       approval_key_directory: %{
         "user_key_directory_events" => [],
         "user_key_directory_checkpoint" => %{},
@@ -107,6 +110,47 @@ defmodule RefMDWeb.UmkControllerTest do
       }
     })
     |> Repo.update!()
+  end
+
+  defp initial_ake_offer_bundle(sender_device_id, recipient_device_id) do
+    %{
+      "umk_distribution" =>
+        initial_ake_offer("umk_distribution", sender_device_id, recipient_device_id, "umk-prekey"),
+      "trust_transfer" =>
+        initial_ake_offer("trust_transfer", sender_device_id, recipient_device_id, "trust-prekey"),
+      "device_approval_kek_initial" => %{}
+    }
+  end
+
+  defp initial_ake_offer(purpose, sender_device_id, recipient_device_id, prekey_id) do
+    %{
+      "purpose" => purpose,
+      "transcript_hash" => Hash.blake3_base64url("#{purpose}-transcript"),
+      "transcript" => %{
+        "initiator" => %{"device_id" => sender_device_id},
+        "responder" => %{"device_id" => recipient_device_id, "prekey_id" => prekey_id}
+      }
+    }
+  end
+
+  defp response_bundle(offers) do
+    response = fn offer ->
+      %{
+        "protocol" => "refmd.initial-ake-responder-confirmation",
+        "version" => 1,
+        "purpose" => offer["purpose"],
+        "transcript_hash" => offer["transcript_hash"],
+        "prekey_id" => get_in(offer, ["transcript", "responder", "prekey_id"]),
+        "responder_confirmation" =>
+          Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+      }
+    end
+
+    %{
+      "umk_distribution" => response.(offers["umk_distribution"]),
+      "trust_transfer" => response.(offers["trust_transfer"]),
+      "device_approval_kek_initial" => %{}
+    }
   end
 
   test "distribute_umk rejects invalid initial AKE delivery without finalizing the device", %{
@@ -134,5 +178,61 @@ defmodule RefMDWeb.UmkControllerTest do
     assert Repo.get(DeviceRegistration, target.id)
     refute Devices.get_device(target.id)
     refute Repo.get_by(DeviceEncryptedUMK, user_id: user_id, device_id: target.id)
+  end
+
+  test "pending responder stores one response bundle and rejects replay", %{conn: conn} do
+    user_id = create_user("initial-ake-response@example.com")
+    sender = create_device(user_id)
+    target = create_approved_registration(user_id, sender)
+    {:ok, %{offers: offers}} = Devices.get_initial_ake_exchange(user_id, target.id)
+    responses = response_bundle(offers)
+    pending_session = %{device_registration_id: target.id}
+
+    response =
+      conn
+      |> Plug.Conn.assign(:current_user_id, user_id)
+      |> Plug.Conn.assign(:current_session, pending_session)
+      |> DeviceController.initial_ake_responses(%{
+        "device_id" => target.id,
+        "responses" => responses
+      })
+      |> json_response(201)
+
+    assert response == %{"ok" => true}
+    assert {:ok, %{responses: ^responses}} = Devices.get_initial_ake_exchange(user_id, target.id)
+
+    replay =
+      conn
+      |> Plug.Conn.assign(:current_user_id, user_id)
+      |> Plug.Conn.assign(:current_session, pending_session)
+      |> DeviceController.initial_ake_responses(%{
+        "device_id" => target.id,
+        "responses" => responses
+      })
+      |> json_response(409)
+
+    assert replay["error"] == "initial_ake_response_reused"
+  end
+
+  test "pending responder rejects a reflected or mismatched response bundle", %{conn: conn} do
+    user_id = create_user("initial-ake-mismatch@example.com")
+    sender = create_device(user_id)
+    target = create_approved_registration(user_id, sender)
+    {:ok, %{offers: offers}} = Devices.get_initial_ake_exchange(user_id, target.id)
+    responses = response_bundle(offers)
+    bad_responses = put_in(responses, ["umk_distribution", "purpose"], "trust_transfer")
+
+    response =
+      conn
+      |> Plug.Conn.assign(:current_user_id, user_id)
+      |> Plug.Conn.assign(:current_session, %{device_registration_id: target.id})
+      |> DeviceController.initial_ake_responses(%{
+        "device_id" => target.id,
+        "responses" => bad_responses
+      })
+      |> json_response(422)
+
+    assert response["error"] == "invalid_initial_ake_response"
+    assert {:ok, %{responses: nil}} = Devices.get_initial_ake_exchange(user_id, target.id)
   end
 end

@@ -1,7 +1,7 @@
 defmodule RefMD.Sharing.Capability do
   @moduledoc false
 
-  alias RefMD.Crypto.{Blake3, JCS}
+  alias RefMD.Crypto.{Blake3, Hash, JCS}
   alias RefMD.Sharing.Share
 
   @max_safe_integer 9_007_199_254_740_991
@@ -24,9 +24,8 @@ defmodule RefMD.Sharing.Capability do
       "token_hash" => fetch!(attrs, :token_hash),
       "permission" => fetch!(attrs, :permission),
       "share_capability_secret_commitment" => fetch!(attrs, :share_capability_secret_commitment),
-      "workspace_pin_bootstrap_hash" => fetch!(attrs, :workspace_pin_bootstrap_hash),
-      "authenticated_bootstrap_source" =>
-        optional_attr(attrs, :authenticated_bootstrap_source, "url-fragment"),
+      "workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash!(attrs),
+      "authenticated_bootstrap_source" => authenticated_bootstrap_source!(attrs),
       "password_protected" => fetch!(attrs, :password_protected),
       "password_auth_metadata_hash" => optional_attr(attrs, :password_auth_metadata_hash, "none"),
       "password_capability_secret_commitment" =>
@@ -49,6 +48,7 @@ defmodule RefMD.Sharing.Capability do
       share_capability_secret_commitment: share.share_capability_secret_commitment,
       password_capability_secret_commitment: share.password_capability_secret_commitment,
       workspace_pin_bootstrap_hash: share.authenticated_workspace_pin_bootstrap_hash,
+      authenticated_bootstrap_source: "url-fragment",
       max_views: share.max_views || @max_safe_integer,
       redeem_authority_policy:
         if(share.password_protected, do: "password_challenge", else: "capability_url")
@@ -65,6 +65,24 @@ defmodule RefMD.Sharing.Capability do
     case dual_key_get(attrs, key) do
       nil -> default
       value -> value
+    end
+  end
+
+  defp authenticated_bootstrap_source!(attrs) do
+    case dual_key_get(attrs, :authenticated_bootstrap_source) do
+      "url-fragment" -> "url-fragment"
+      _ -> raise ArgumentError, "share_capability_authenticated_bootstrap_source_invalid"
+    end
+  end
+
+  defp workspace_pin_bootstrap_hash!(attrs) do
+    case dual_key_get(attrs, :workspace_pin_bootstrap_hash) do
+      nil ->
+        raise ArgumentError, "workspace_pin_bootstrap_hash_required"
+
+      value ->
+        Hash.assert_blake3_base64url!(value)
+        value
     end
   end
 

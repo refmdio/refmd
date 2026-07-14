@@ -1,11 +1,13 @@
-import { ApiError, devicesApi, encryptionApi, workspacesApi } from "@/shared/api";
+import { ApiError, devicesApi, documentsApi, encryptionApi, workspacesApi } from "@/shared/api";
 import type { WorkspaceRotationInfo } from "@/shared/api/devices";
-import type { components } from "@/shared/api/schema";
-import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
+import {
+  authState,
+  cryptoWorkerReady,
+  deviceState,
+  getKekResolverSession,
+} from "@/entities/session";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
-import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
-import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   persistWorkspaceKekForDevice,
@@ -20,11 +22,10 @@ import {
   kekRotationCompletedEventHash,
 } from "@/shared/lib/crypto/key-directory/rotation-events";
 import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { acknowledgeWorkspaceWipeIfRequired } from "@/shared/lib/crypto/workspace-kek-wipe";
+import { resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
 
 type TriggerKekRotationFn = (rotationList: WorkspaceRotationInfo[]) => Promise<void>;
-type DeviceKeyDeletionProof =
-  components["schemas"]["KekRotationCompleteRequest"]["device_key_deletion_proofs"][number];
-
 export function createWorkspaceKekRotationTrigger(): TriggerKekRotationFn {
   return async (rotationList) => {
     if (rotationList.length === 0) return;
@@ -94,7 +95,7 @@ export async function performKekRotation(
     }
   }
 
-  const failedWorkspaces: string[] = [];
+  const failedWorkspaces: Array<{ workspaceId: string; reason: string }> = [];
 
   for (const workspace of workspaces) {
     const workspaceId = workspace.workspace_id;
@@ -115,6 +116,7 @@ export async function performKekRotation(
         newKeyVersion: newVersion,
         reason: "security",
       });
+      let rotationAlreadyInProgress = false;
       try {
         await encryptionApi.startKekRotation(workspaceId, {
           workspace_key_directory_events: startAppend.events,
@@ -135,9 +137,30 @@ export async function performKekRotation(
         ) {
           throw error;
         }
+        rotationAlreadyInProgress = true;
       }
 
-      await worker.generateKek(workspaceId, newVersion);
+      let pendingKek = await worker.resolveKek(workspaceId, newVersion);
+      if (!pendingKek.found) {
+        const offlineKek = await worker.loadOfflineKekMetadata(workspaceId);
+        if (offlineKek?.keyVersion === newVersion) {
+          const restored = await worker.restoreKekFromOffline({
+            workspaceId,
+            keyVersion: newVersion,
+            isActive: true,
+          });
+          pendingKek = { found: restored.restored, keyVersion: restored.keyVersion };
+        }
+      }
+      if (pendingKek.found) {
+        await worker.setActiveKekVersion(workspaceId, newVersion);
+      } else {
+        if (rotationAlreadyInProgress) {
+          throw new Error("pending_kek_unavailable_for_active_rotation");
+        }
+        await worker.generateKek(workspaceId, newVersion);
+        await worker.storeKekForOffline({ workspaceId, keyVersion: newVersion });
+      }
 
       const workspaceDirectory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
@@ -178,6 +201,8 @@ export async function performKekRotation(
         });
       }
 
+      await rewrapWorkspaceDocumentKeys(workspaceId, newVersion);
+
       const completionDirectory = await fetchVerifiedKeyDirectory({
         scopeKind: "workspace",
         scopeId: workspaceId,
@@ -202,24 +227,14 @@ export async function performKekRotation(
         newKeyVersion: newVersion,
         completionManifestHash: manifestMaterials.completion_manifest_hash,
       });
-      const deletionProof = await buildCurrentDeviceDeletionProof({
-        workspaceId,
-        userId,
-        currentDeviceId,
-        oldKeyVersion: workspace.current_kek_version,
-        rotationCompletedEventHash,
-        checkpointEnvelope: completionDirectory.checkpoint,
-      });
-      const wipeRequiredDeviceIds = memberDevices
-        .map((memberDevice) => memberDevice.device_id)
-        .filter((deviceId) => deviceId !== currentDeviceId);
+      const wipeRequiredDeviceIds = memberDevices.map((memberDevice) => memberDevice.device_id);
       const deletionManifestHash = buildKekOldKeyDeletionManifestHash({
         workspaceId,
         oldKeyVersion: workspace.current_kek_version,
         rotationCompletedEventHash,
         deletedSecretIdsHash: manifestMaterials.deleted_secret_ids_hash,
         deletedWrapIdsHash: manifestMaterials.deleted_wrap_ids_hash,
-        deviceKeyDeletionProofs: [deletionProof],
+        deviceKeyDeletionProofs: [],
         wipeRequiredDeviceIds: wipeRequiredDeviceIds,
         serverRejectsOldKeyUploadsAfterSequence:
           manifestMaterials.server_rejects_old_key_uploads_after_sequence,
@@ -239,7 +254,7 @@ export async function performKekRotation(
         new_kek_version: newVersion,
         workspace_key_directory_events: completionAppend.events,
         workspace_key_directory_checkpoint: completionAppend.checkpoint,
-        device_key_deletion_proofs: [deletionProof as DeviceKeyDeletionProof],
+        device_key_deletion_proofs: [],
         wipe_required_device_ids: wipeRequiredDeviceIds,
       });
       await fetchVerifiedKeyDirectory({
@@ -247,80 +262,61 @@ export async function performKekRotation(
         scopeId: workspaceId,
         rrpDeviceId: currentDeviceId,
       });
-    } catch {
-      failedWorkspaces.push(workspaceId);
+      await acknowledgeWorkspaceWipeIfRequired({
+        workspaceId,
+        userId,
+        deviceId: currentDeviceId,
+      });
+    } catch (error) {
+      failedWorkspaces.push({
+        workspaceId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   if (failedWorkspaces.length > 0) {
     throw new Error(
-      `KEK rotation failed for ${failedWorkspaces.length} workspace(s). Keys will be rotated on next access.`,
+      `KEK rotation failed: ${failedWorkspaces
+        .map(({ workspaceId, reason }) => `${workspaceId}: ${reason}`)
+        .join("; ")}`,
     );
   }
 }
 
-async function buildCurrentDeviceDeletionProof(params: {
-  workspaceId: string;
-  userId: string;
-  currentDeviceId: string;
-  oldKeyVersion: number;
-  rotationCompletedEventHash: string;
-  checkpointEnvelope: Record<string, unknown>;
-}): Promise<Record<string, unknown>> {
+async function rewrapWorkspaceDocumentKeys(
+  workspaceId: string,
+  newKekVersion: number,
+): Promise<void> {
   const worker = getCryptoWorker();
-  const checkpointPayload = params.checkpointEnvelope.payload as
-    | Record<string, unknown>
-    | undefined;
-  if (!checkpointPayload) throw new Error("key_directory_checkpoint_payload_invalid");
-  const signingKeyId = activeDeviceSigningKeyId(checkpointPayload, params.currentDeviceId);
-  const proofNonce = new Uint8Array(32);
-  crypto.getRandomValues(proofNonce);
-  return worker.signDeviceKeyDeletionProof({
-    payload: {
-      protocol: "refmd.device-key-deletion-proof",
-      version: 1,
-      workspace_id: params.workspaceId,
-      device_id: params.currentDeviceId,
-      rotation_kind: "kek",
-      scope_kind: "workspace",
-      scope_id: params.workspaceId,
-      old_key_version: params.oldKeyVersion,
-      rotation_completed_event_hash: params.rotationCompletedEventHash,
-      deleted_secret_ids_hash: deletedWorkspaceKekSecretIdsHash(
-        params.workspaceId,
-        params.oldKeyVersion,
-      ),
-      deleted_storage_classes: [
-        "crypto_worker_state",
-        "indexeddb_cache",
-        "local_encrypted_key_store",
-        "offline_cache",
-        "pending_queue",
-      ],
-      local_cache_epoch: 1,
-      proof_nonce: base64UrlEncode(proofNonce),
-    },
-    actor: {
-      signer_kind: "workspace_device",
-      user_id: params.userId,
-      device_id: params.currentDeviceId,
-      signing_key_id: signingKeyId,
-      key_scope_kind: "workspace",
-      key_scope_id: params.workspaceId,
-      key_checkpoint_sequence: checkpointPayload.sequence,
-      key_checkpoint_hash: blake3Base64Url(
-        canonicalizeStrictBytes(checkpointPayload as StrictJsonValue),
-      ),
-    },
-  });
-}
+  const { documents } = await documentsApi.list(workspaceId);
 
-function deletedWorkspaceKekSecretIdsHash(workspaceId: string, oldKeyVersion: number): string {
-  return blake3Base64Url(
-    canonicalizeStrictBytes({
-      secret_ids: [`workspace:kek:${workspaceId}:${oldKeyVersion}`],
-    }),
-  );
+  for (const document of documents) {
+    const { keys } = await encryptionApi.getDocumentKeys(document.id);
+    for (const key of keys) {
+      await resolveKekByVersion(workspaceId, key.kek_version, getKekResolverSession());
+      await worker.unwrapDek({
+        encryptedDek: base64UrlDecode(key.encrypted_dek),
+        nonce: base64UrlDecode(key.nonce),
+        documentId: document.id,
+        workspaceId,
+        keyVersion: key.key_version,
+        isActive: key.is_active,
+        kekVersion: key.kek_version,
+      });
+      const rewrapped = await worker.wrapDek({
+        documentId: document.id,
+        workspaceId,
+        keyVersion: key.key_version,
+      });
+      await encryptionApi.rewrapDocumentKeyForKekRotation(document.id, {
+        encrypted_dek: base64UrlEncode(rewrapped.encryptedDek),
+        nonce: base64UrlEncode(rewrapped.nonce),
+        key_version: key.key_version,
+        new_kek_version: newKekVersion,
+      });
+    }
+  }
 }
 
 async function listWorkspaceActiveDevices(workspaceId: string) {
@@ -358,27 +354,4 @@ function activeWorkspaceDeviceEncryptionKeys(
     });
   }
   return result;
-}
-
-function activeDeviceSigningKeyId(
-  checkpointPayload: Record<string, unknown>,
-  deviceId: string,
-): string {
-  const deviceKeys = checkpointPayload.device_keys;
-  if (!Array.isArray(deviceKeys)) throw new Error("key_directory_device_keys_invalid");
-  for (const entry of deviceKeys) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-    const record = entry as Record<string, unknown>;
-    if ("revoked_at" in record) continue;
-    const material = record.key_material as Record<string, unknown> | undefined;
-    if (
-      material?.protocol === "refmd.hybrid-signing-key-material" &&
-      material.owner_kind === "device" &&
-      material.owner_id === deviceId &&
-      typeof record.key_id === "string"
-    ) {
-      return record.key_id;
-    }
-  }
-  throw new Error("key_directory_device_signing_key_missing");
 }

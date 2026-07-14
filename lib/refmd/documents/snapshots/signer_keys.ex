@@ -66,6 +66,8 @@ defmodule RefMD.Documents.Snapshots.SignerKeys do
           d.hybrid_signing_public_key_material
         FROM devices d
         WHERE d.id = $1 AND d.user_id = $2
+          AND d.revoked_at IS NULL
+          AND d.identity_wipe_required_at IS NULL
         """,
         [Ecto.UUID.dump!(device_id), Ecto.UUID.dump!(user_id)]
       )

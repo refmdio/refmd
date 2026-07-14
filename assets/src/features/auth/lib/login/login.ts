@@ -9,6 +9,7 @@ import {
 } from "@/shared/lib/auth/key-persistence";
 import type { DeviceInfo } from "@/shared/api/devices";
 import { AuthError } from "../session/error";
+import { wipePredecessorDeviceBeforeIdentityRecovery } from "../recovery/wipe-required-recovery";
 type LoginResult =
   | {
       type: "verified";
@@ -29,6 +30,13 @@ type LoginResult =
     }
   | {
       type: "device_required";
+      userId: string;
+      email: string;
+      name: string;
+      sessionId: string;
+    }
+  | {
+      type: "identity_recovery_required";
       userId: string;
       email: string;
       name: string;
@@ -126,6 +134,16 @@ export async function login(
       saltRes = await authApi.getSalt(email);
     }
     // Step 5: Check device status
+    if (loginRes.identity_recovery_required) {
+      await wipePredecessorDeviceBeforeIdentityRecovery();
+      return {
+        type: "identity_recovery_required",
+        userId,
+        email: loginRes.user.email,
+        name: loginRes.user.name,
+        sessionId: loginRes.session_id,
+      };
+    }
     if (!loginRes.device_verified || !loginRes.keys) {
       await worker.clearTransientKeys();
       return {
@@ -136,7 +154,6 @@ export async function login(
         sessionId: loginRes.session_id,
       };
     }
-    const keys = loginRes.keys;
     // Step 6: Initialize Worker with Worker-owned DSK data + server login keys
     const hadDsk = await worker.hasStoredDsk();
     await worker.setUserContext(userId, deviceId ?? undefined);
@@ -154,22 +171,7 @@ export async function login(
         userId,
         deviceId,
         deviceSigningKeyId: cachedBootstrap.deviceSigningKeyId,
-        serverEncryptedUmk: base64UrlDecode(keys.encrypted_umk!),
-        serverUmkNonce: base64UrlDecode(keys.umk_nonce!),
-        encryptedIdentityHybridEncryptionPrivateKeyMaterial: base64UrlDecode(
-          keys.encrypted_identity_hybrid_encryption_private_key_material,
-        ),
-        identityHybridEncryptionPrivateKeyMaterialNonce: base64UrlDecode(
-          keys.identity_hybrid_encryption_private_key_material_nonce,
-        ),
-        identityEncryptionKeyId: keys.identity_encryption_key_id,
-        encryptedIdentityHybridSigningPrivateKeyMaterial: base64UrlDecode(
-          keys.encrypted_identity_hybrid_signing_private_key_material,
-        ),
-        identityHybridSigningPrivateKeyMaterialNonce: base64UrlDecode(
-          keys.identity_hybrid_signing_private_key_material_nonce,
-        ),
-        identitySigningKeyId: keys.identity_signing_key_id,
+        keyRestoreEndpointRef: "auth-key-restore-v1",
       });
     } else {
       await worker.initFromPassword({
@@ -179,22 +181,7 @@ export async function login(
         dsk: null,
         userId,
         deviceId: deviceId ?? "",
-        serverEncryptedUmk: base64UrlDecode(keys.encrypted_umk!),
-        serverUmkNonce: base64UrlDecode(keys.umk_nonce!),
-        encryptedIdentityHybridEncryptionPrivateKeyMaterial: base64UrlDecode(
-          keys.encrypted_identity_hybrid_encryption_private_key_material,
-        ),
-        identityHybridEncryptionPrivateKeyMaterialNonce: base64UrlDecode(
-          keys.identity_hybrid_encryption_private_key_material_nonce,
-        ),
-        identityEncryptionKeyId: keys.identity_encryption_key_id,
-        encryptedIdentityHybridSigningPrivateKeyMaterial: base64UrlDecode(
-          keys.encrypted_identity_hybrid_signing_private_key_material,
-        ),
-        identityHybridSigningPrivateKeyMaterialNonce: base64UrlDecode(
-          keys.identity_hybrid_signing_private_key_material_nonce,
-        ),
-        identitySigningKeyId: keys.identity_signing_key_id,
+        keyRestoreEndpointRef: "auth-key-restore-v1",
       });
     }
     // Step 7: Persist UMK + device keys (KMSI-aware)

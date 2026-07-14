@@ -271,4 +271,48 @@ test.describe.serial("Offline Editing", () => {
       }
     });
   });
+
+  test("pending changes are re-encrypted after crossing a DEK deadline offline", async () => {
+    const deadlineSeconds = Number(process.env.REFMD_DEK_ROTATION_SECONDS ?? "0");
+    test.skip(
+      !Number.isInteger(deadlineSeconds) || deadlineSeconds < 5 || deadlineSeconds > 60,
+      "run with REFMD_DEK_ROTATION_SECONDS between 5 and 60",
+    );
+    test.setTimeout(E2E_TIMEOUTS.accountSetup);
+
+    const title = `Offline Deadline ${Date.now()}`;
+    await createDocument(sharedPage, title);
+    await openDocument(sharedPage, title);
+
+    await sharedPage.context().setOffline(true);
+    await waitForOfflineState(sharedPage, true);
+    const editor = sharedPage.locator(".cm-content");
+    await editor.click();
+    await sharedPage.keyboard.insertText("preserved across deadline rotation");
+    await waitForPendingChanges(sharedPage);
+    await sharedPage.waitForTimeout((deadlineSeconds + 1) * 1_000);
+
+    await sharedPage.context().setOffline(false);
+    await waitForOfflineState(sharedPage, false);
+    await flushDocumentSync(sharedPage);
+
+    await expect
+      .poll(
+        () =>
+          sharedPage.evaluate(() =>
+            ((window as Window & { __refmdE2ESyncPerf?: unknown[] }).__refmdE2ESyncPerf ?? []).some(
+              (entry) =>
+                typeof entry === "object" &&
+                entry !== null &&
+                (entry as { event?: string }).event === "pending_changes_reencrypted",
+            ),
+          ),
+        { timeout: 60_000, message: "pending changes were not re-encrypted after DEK deadline" },
+      )
+      .toBe(true);
+
+    await waitForDocumentSyncReady(sharedPage);
+    await waitForPendingChangesCleared(sharedPage);
+    await expectEditorTextContains(sharedPage, "preserved across deadline rotation");
+  });
 });

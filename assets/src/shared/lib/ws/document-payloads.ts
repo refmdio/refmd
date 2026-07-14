@@ -72,6 +72,7 @@ interface WriteSessionPublicData {
 }
 interface EphemeralPublicData {
   docId: string;
+  keyVersion: number;
   ownerKind: "device" | "share_participant_device";
   ownerId: string;
   authorityKind: "workspace_device" | "share_participant_device";

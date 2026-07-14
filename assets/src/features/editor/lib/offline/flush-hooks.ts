@@ -50,7 +50,7 @@ function waitForSaveIdle(state: DocumentState): Promise<void> {
 
 async function flushAllActiveBeforeSessionCleanup(): Promise<void> {
   const states = [...getAllActiveDocumentStates()];
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     states.map(async ([documentId, state]) => {
       if (state.access.kind !== "share") {
         flushDocumentCache(documentId, state.workspaceId, state);
@@ -59,6 +59,9 @@ async function flushAllActiveBeforeSessionCleanup(): Promise<void> {
       await waitForSaveIdle(state);
     }),
   );
+  if (results.some((result) => result.status === "rejected")) {
+    throw new Error("document_session_cleanup_incomplete");
+  }
 }
 
 export function setupFlushHooks(): () => void {

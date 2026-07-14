@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getRrpHeaders: vi.fn(),
   getPreferredSessionScope: vi.fn(),
   hashKeyDirectoryCheckpointEnvelope: vi.fn(),
+  hydrateVerifiedKeyDirectoryLineage: vi.fn(),
   lookupVerifiedKeyDirectoryEventBodies: vi.fn(),
   verifyAndRememberKeyDirectoryLineageFromTrustedAnchor: vi.fn(),
 }));
@@ -15,6 +16,7 @@ vi.mock("@/shared/lib/anti-rollback/key-directory-pin/pins", () => ({
   advanceKeyDirectoryPinWithProof: mocks.advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin: mocks.getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope: mocks.hashKeyDirectoryCheckpointEnvelope,
+  hydrateVerifiedKeyDirectoryLineage: mocks.hydrateVerifiedKeyDirectoryLineage,
   lookupVerifiedKeyDirectoryEventBodies: mocks.lookupVerifiedKeyDirectoryEventBodies,
   verifyAndRememberKeyDirectoryLineageFromTrustedAnchor:
     mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
@@ -39,6 +41,7 @@ describe("fetchVerifiedKeyDirectory", () => {
     mocks.getRrpHeaders.mockReset();
     mocks.getPreferredSessionScope.mockReset();
     mocks.hashKeyDirectoryCheckpointEnvelope.mockReset();
+    mocks.hydrateVerifiedKeyDirectoryLineage.mockReset();
     mocks.lookupVerifiedKeyDirectoryEventBodies.mockReset();
     mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor.mockReset();
 
@@ -60,6 +63,7 @@ describe("fetchVerifiedKeyDirectory", () => {
     };
     const checkpoint = { payload: { sequence: 4 }, signatures: [] };
     const cachedEvent = { payload: { sequence: 6 }, signatures: [] };
+    const authorityEvent = { payload: { sequence: 5 }, signatures: [] };
     const responseEvent = { payload: { sequence: 7 }, signatures: [] };
 
     mocks.getKeyDirectoryPin.mockResolvedValue(pin);
@@ -73,6 +77,7 @@ describe("fetchVerifiedKeyDirectory", () => {
             checkpoint,
             checkpoint_ancestry: [],
             event_ancestry: [responseEvent],
+            authority_event_ancestry: [authorityEvent],
             rotation_deletion_evidences: [],
             pin: {
               checkpoint_sequence: pin.checkpointSequence,
@@ -97,13 +102,19 @@ describe("fetchVerifiedKeyDirectory", () => {
       }),
     ).resolves.toEqual({ checkpoint });
 
+    expect(mocks.hydrateVerifiedKeyDirectoryLineage).toHaveBeenCalledWith(
+      "workspace",
+      scopeId,
+      pin,
+    );
+
     expect(mocks.advanceKeyDirectoryPinWithProof).toHaveBeenCalledWith({
       scopeKind: "workspace",
       scopeId,
       checkpointEnvelope: checkpoint,
       checkpointAncestry: [],
       eventAncestry: [responseEvent],
-      authorityEventAncestry: [cachedEvent, responseEvent],
+      authorityEventAncestry: [cachedEvent, authorityEvent, responseEvent],
       rotationDeletionEvidences: [],
     });
   });
@@ -160,6 +171,7 @@ describe("fetchVerifiedKeyDirectory", () => {
             checkpoint: currentCheckpoint,
             checkpoint_ancestry: checkpointAncestry,
             event_ancestry: eventAncestry,
+            authority_event_ancestry: [],
             rotation_deletion_evidences: [],
             pin: {
               checkpoint_sequence: currentPin.checkpointSequence,
@@ -272,6 +284,7 @@ describe("fetchVerifiedKeyDirectory", () => {
               checkpoint: latestCheckpoint,
               checkpoint_ancestry: checkpointAncestry,
               event_ancestry: eventAncestry,
+              authority_event_ancestry: [],
               rotation_deletion_evidences: [],
               pin: {
                 checkpoint_sequence: advancedPin.checkpointSequence,
@@ -398,6 +411,7 @@ describe("fetchVerifiedKeyDirectory", () => {
             checkpoint: latestCheckpoint,
             checkpoint_ancestry: [localCheckpoint, trustedCheckpoint, checkpoint3],
             event_ancestry: [event2, event3, event4],
+            authority_event_ancestry: [],
             rotation_deletion_evidences: [],
             pin: {
               checkpoint_sequence: advancedPin.checkpointSequence,
@@ -439,7 +453,7 @@ describe("fetchVerifiedKeyDirectory", () => {
     });
   });
 
-  it("stops trusted checkpoint refresh retries after persistent pin-race failures", async () => {
+  it("propagates trusted checkpoint verification failures without retrying", async () => {
     const scopeId = "11111111-1111-4111-8111-111111111111";
     const currentPin = {
       pinKey: `workspace:${scopeId}`,
@@ -491,6 +505,7 @@ describe("fetchVerifiedKeyDirectory", () => {
               checkpoint: currentCheckpoint,
               checkpoint_ancestry: [trustedCheckpoint],
               event_ancestry: [],
+              authority_event_ancestry: [],
               rotation_deletion_evidences: [],
               pin: {
                 checkpoint_sequence: currentPin.checkpointSequence,
@@ -516,6 +531,6 @@ describe("fetchVerifiedKeyDirectory", () => {
       }),
     ).rejects.toThrow("key_directory_checkpoint_anchor_mismatch");
 
-    expect(mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor).toHaveBeenCalledTimes(4);
+    expect(mocks.verifyAndRememberKeyDirectoryLineageFromTrustedAnchor).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,9 +1,10 @@
 defmodule RefMD.Sharing.SharingTest do
   use RefMD.DataCase, async: true
 
-  alias RefMD.Crypto.{Blake3, JCS, Signature}
+  alias RefMD.Crypto.{Blake3, Hash, JCS, Signature}
   alias RefMD.Documents
   alias RefMD.Documents.{Document, DocumentSnapshot, DocumentUpdate}
+  alias RefMD.Encryption.UserIdentityPublicKey
   alias RefMD.Repo
   alias RefMD.Sharing
 
@@ -167,6 +168,7 @@ defmodule RefMD.Sharing.SharingTest do
         share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
       "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
       "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+      "key_version" => 1,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24),
       "max_views" => Keyword.get(opts, :max_views),
@@ -398,6 +400,7 @@ defmodule RefMD.Sharing.SharingTest do
         ),
       "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
       "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+      "key_version" => 1,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24),
       "share_keys" => Enum.map(nodes, &folder_share_key_attrs(&1, password_protected)),
@@ -412,6 +415,7 @@ defmodule RefMD.Sharing.SharingTest do
     %{
       "share_id" => Ecto.UUID.generate(),
       "document_id" => document.id,
+      "key_version" => 1,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24)
     }
@@ -499,6 +503,21 @@ defmodule RefMD.Sharing.SharingTest do
     assert landing.share.id == result.share.id
     assert landing.root.kind == "document"
     assert is_binary(landing.root.document_token)
+  end
+
+  test "create_share/3 rejects stale and overdue DEK wraps", %{
+    document: document,
+    owner_id: owner_id
+  } do
+    assert {:error, {:invalid_value, :key_version}} =
+             create_share(document, owner_id, Map.put(create_share_attrs(), "key_version", 2))
+
+    document
+    |> Ecto.Changeset.change(dek_rotation_due_at: DateTime.add(DateTime.utc_now(), -1, :second))
+    |> Repo.update!()
+
+    assert {:error, :dek_rotation_required} =
+             create_share(document, owner_id, create_share_attrs())
   end
 
   test "create_share/3 rejects share capability material with the wrong owner id", %{
@@ -1129,6 +1148,59 @@ defmodule RefMD.Sharing.SharingTest do
                "delivery" => %{"initial_key_delivery" => %{"delivery" => "kek"}}
              }
            ]
+  end
+
+  test "verification directory selects the historical identity key named by the approval proof",
+       %{
+         document: document,
+         owner_id: owner_id
+       } do
+    assert {:ok, created} =
+             create_share(document, owner_id, create_share_attrs(permission: "edit"))
+
+    old_identity =
+      Repo.get_by!(UserIdentityPublicKey, user_id: owner_id, lifecycle_state: "current")
+
+    old_signing_public = old_identity.hybrid_signing_public_key_material
+
+    old_identity
+    |> Ecto.Changeset.change(
+      lifecycle_state: "historical",
+      superseded_at: DateTime.utc_now(),
+      rotation_due_at: DateTime.add(DateTime.utc_now(), -1, :second)
+    )
+    |> Repo.update!()
+
+    new_signing_private = hybrid_signing_private_key_material("identity", owner_id, "new")
+    new_signing_public = hybrid_signing_public_key_material(new_signing_private)
+    {new_x25519, _} = :crypto.generate_key(:ecdh, :x25519)
+    new_encryption = hybrid_encryption_public_key_material("identity", owner_id, new_x25519)
+
+    %UserIdentityPublicKey{}
+    |> UserIdentityPublicKey.changeset(%{
+      user_id: owner_id,
+      key_version: old_identity.key_version + 1,
+      lifecycle_state: "current",
+      rotation_due_at: DateTime.add(DateTime.utc_now(), 86_400, :second),
+      hybrid_encryption_public_key_material: new_encryption.public,
+      hybrid_signing_public_key_material: new_signing_public,
+      pending_registration_challenge_hash: Hash.blake3_base64url("new-challenge")
+    })
+    |> Repo.insert!()
+
+    {%RefMD.Devices.Device{} = device, _private_material} =
+      Process.get({:test_share_actor_device, owner_id})
+
+    from(d in RefMD.Devices.Device, where: d.id == ^device.id)
+    |> Repo.update_all(
+      set: [approval_proof: %{"approving_signing_key_id" => old_identity.signing_key_id}]
+    )
+
+    directory = Sharing.verification_directory(created.share.id, document.id)
+    verification_device = Enum.find(directory.workspace_devices, &(&1.device_id == device.id))
+
+    assert verification_device.identity_hybrid_signing_public_key_material == old_signing_public
+    refute verification_device.identity_hybrid_signing_public_key_material == new_signing_public
   end
 
   test "canonical bootstrap requires re-entry when share session is missing", %{
@@ -1897,6 +1969,54 @@ defmodule RefMD.Sharing.SharingTest do
     assert Sharing.can_read_document?(created.share.id, nested_document.id)
   end
 
+  test "folder share creation and additions reject stale or overdue child DEK wraps", %{
+    folder: folder,
+    owner_id: owner_id
+  } do
+    initial_document = create_document(folder.workspace_id, owner_id, folder.id)
+
+    stale_initial_key =
+      initial_document
+      |> folder_share_key_attrs()
+      |> Map.put("key_version", 2)
+
+    stale_initial_attrs =
+      [initial_document]
+      |> create_folder_share_attrs()
+      |> Map.put("share_keys", [stale_initial_key])
+
+    assert {:error, {:invalid_value, :share_keys}} =
+             create_share(folder, owner_id, stale_initial_attrs)
+
+    assert {:ok, created} =
+             create_share(folder, owner_id, create_folder_share_attrs([initial_document]))
+
+    added_document = create_document(folder.workspace_id, owner_id, folder.id)
+
+    stale_add_key =
+      added_document
+      |> folder_share_key_attrs()
+      |> Map.put("key_version", 2)
+
+    assert {:error, {:invalid_value, :add_keys}} =
+             update_share_keys(
+               folder.id,
+               created.share.id,
+               %{"add_keys" => [stale_add_key]}
+             )
+
+    added_document
+    |> Ecto.Changeset.change(dek_rotation_due_at: DateTime.add(DateTime.utc_now(), -1, :second))
+    |> Repo.update!()
+
+    assert {:error, :dek_rotation_required} =
+             update_share_keys(
+               folder.id,
+               created.share.id,
+               %{"add_keys" => [folder_share_key_attrs(added_document)]}
+             )
+  end
+
   test "folder share keys can be replaced for existing child shares", %{
     folder: folder,
     owner_id: owner_id
@@ -1925,6 +2045,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => target_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => replacement_encrypted_dek,
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }
@@ -1991,6 +2112,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => added_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => replacement_nonce
                    }
@@ -2049,6 +2171,7 @@ defmodule RefMD.Sharing.SharingTest do
                      "share_id" => Ecto.UUID.generate(),
                      "document_id" =>
                        create_document(folder.workspace_id, owner_id, folder.id).id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => nil
                    }
@@ -2065,6 +2188,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => target_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => nil
                    }
@@ -2130,6 +2254,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => moved_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }
@@ -2208,6 +2333,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => Ecto.UUID.generate(),
                      "document_id" => target_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }
@@ -2239,6 +2365,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share_without_key.id,
                      "document_id" => replace_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }
@@ -2336,6 +2463,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => new_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }
@@ -2352,6 +2480,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => new_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }
@@ -2360,6 +2489,7 @@ defmodule RefMD.Sharing.SharingTest do
                    %{
                      "share_id" => child_share.id,
                      "document_id" => existing_document.id,
+                     "key_version" => 1,
                      "encrypted_dek" => :crypto.strong_rand_bytes(48),
                      "nonce" => :crypto.strong_rand_bytes(24)
                    }

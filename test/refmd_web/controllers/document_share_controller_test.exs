@@ -175,6 +175,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
         share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
       "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
       "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+      "key_version" => 1,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24),
       "expires_event_sequence" =>
@@ -237,6 +238,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => share_keys
@@ -255,6 +257,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
     %{
       "share_id" => Ecto.UUID.generate(),
       "document_id" => document.id,
+      "key_version" => 1,
       "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
       "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
     }
@@ -313,6 +316,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(auth_key, share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "salt" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false),
@@ -360,6 +364,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "max_views" => 1
@@ -420,6 +425,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
       })
@@ -456,18 +462,21 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => [
           %{
             "share_id" => Ecto.UUID.generate(),
             "document_id" => shared_document.id,
+            "key_version" => 1,
             "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
             "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
           },
           %{
             "share_id" => Ecto.UUID.generate(),
             "document_id" => child_folder.id,
+            "key_version" => 1,
             "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
             "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
           }
@@ -537,12 +546,14 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => [
           %{
             "share_id" => Ecto.UUID.generate(),
             "document_id" => shared_document.id,
+            "key_version" => 1,
             "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
             "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
           }
@@ -579,6 +590,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
       })
@@ -614,6 +626,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => []
@@ -668,6 +681,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => [
@@ -740,6 +754,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => []
@@ -816,6 +831,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
         "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
         "authenticated_workspace_pin_bootstrap_hash" => workspace_pin_bootstrap_hash(),
+        "key_version" => 1,
         "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
         "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false),
         "share_keys" => [encoded_folder_share_key(shared_document)]
@@ -843,6 +859,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
             %{
               "share_id" => child_share.id,
               "document_id" => shared_document.id,
+              "key_version" => 1,
               "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
               "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
             }
@@ -909,6 +926,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
           %{
             "share_id" => Ecto.UUID.generate(),
             "document_id" => new_document.id,
+            "key_version" => 1,
             "encrypted_dek" => "not-base64url",
             "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
           }
@@ -1037,6 +1055,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
             %{
               "share_id" => Ecto.UUID.generate(),
               "document_id" => shared_document.id,
+              "key_version" => 1,
               "encrypted_dek" => Base.url_encode64(:crypto.strong_rand_bytes(48), padding: false),
               "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
             }

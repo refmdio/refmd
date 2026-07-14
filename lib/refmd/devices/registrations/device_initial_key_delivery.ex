@@ -18,6 +18,7 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
     }
 
     with :ok <- validate_approval_commitments_present(binding),
+         :ok <- validate_completed_exchange(binding),
          :ok <-
            validate_initial_ake_prekey(
              "umk_distribution",
@@ -73,6 +74,116 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
   end
 
   defp validate_approval_commitments_present(_), do: {:error, :invalid_initial_key_delivery}
+
+  defp validate_completed_exchange(%{target_registration: registration, params: params}) do
+    with {:ok, exchange} <- completed_exchange_state(registration, params),
+         true <- primary_deliveries_match_exchange?(params, exchange),
+         true <- kek_deliveries_match_exchange?(exchange) do
+      :ok
+    else
+      _ -> {:error, :invalid_initial_key_delivery}
+    end
+  rescue
+    _ -> {:error, :invalid_initial_key_delivery}
+  end
+
+  defp completed_exchange_state(registration, params) do
+    artifacts = registration.approval_delivery_artifacts
+    offers = if is_map(artifacts), do: artifacts["initial_ake_offers"]
+    responses = if is_map(artifacts), do: artifacts["initial_ake_responses"]
+    kek_deliveries = params["initial_kek_deliveries"]
+    kek_offers = if is_map(offers), do: offers["device_approval_kek_initial"]
+    kek_responses = if is_map(responses), do: responses["device_approval_kek_initial"]
+    values = [offers, responses, kek_deliveries, kek_offers, kek_responses]
+
+    if Enum.all?(values, &is_map/1) do
+      {:ok,
+       %{
+         offers: offers,
+         responses: responses,
+         kek_deliveries: kek_deliveries,
+         kek_offers: kek_offers,
+         kek_responses: kek_responses
+       }}
+    else
+      {:error, :invalid_initial_key_delivery}
+    end
+  end
+
+  defp primary_deliveries_match_exchange?(params, exchange) do
+    umk_pair = %{
+      "initial_ake" => params["initial_ake"],
+      "initial_key_delivery" => params["initial_key_delivery"]
+    }
+
+    final_pair_matches_exchange?(
+      umk_pair,
+      exchange.offers["umk_distribution"],
+      exchange.responses["umk_distribution"]
+    ) and
+      final_pair_matches_exchange?(
+        params["device_state_delivery"],
+        exchange.offers["trust_transfer"],
+        exchange.responses["trust_transfer"]
+      )
+  end
+
+  defp kek_deliveries_match_exchange?(exchange) do
+    delivery_ids = Enum.sort(Map.keys(exchange.kek_deliveries))
+
+    delivery_ids == Enum.sort(Map.keys(exchange.kek_offers)) and
+      delivery_ids == Enum.sort(Map.keys(exchange.kek_responses)) and
+      Enum.all?(exchange.kek_deliveries, fn {workspace_id, pair} ->
+        final_pair_matches_exchange?(
+          pair,
+          exchange.kek_offers[workspace_id],
+          exchange.kek_responses[workspace_id]
+        )
+      end)
+  end
+
+  defp final_pair_matches_exchange?(pair, offer, response)
+       when is_map(pair) and is_map(offer) and is_map(response) do
+    initial_ake = pair["initial_ake"]
+    initial_key_delivery = pair["initial_key_delivery"]
+    metadata = initial_key_delivery["metadata"]
+    aead = initial_key_delivery["aead"]
+
+    reconstructed_offer =
+      initial_ake
+      |> Map.take([
+        "ake_suite_id",
+        "ake_suite_rank",
+        "initiator_commitment",
+        "initiator_commitment_signature",
+        "initiator_confirmation",
+        "protocol",
+        "purpose",
+        "transcript",
+        "transcript_hash",
+        "version"
+      ])
+      |> Map.put("pending_delivery", %{
+        "metadata" => Map.delete(metadata, "key_confirmation_hash"),
+        "aead" => aead
+      })
+
+    reconstructed_response = %{
+      "protocol" => "refmd.initial-ake-responder-confirmation",
+      "version" => 1,
+      "purpose" => initial_ake["purpose"],
+      "transcript_hash" => initial_ake["transcript_hash"],
+      "prekey_id" => get_in(initial_ake, ["transcript", "responder", "prekey_id"]),
+      "responder_confirmation" => initial_ake["responder_confirmation"]
+    }
+
+    JCS.canonical_bytes!(reconstructed_offer) == JCS.canonical_bytes!(offer) and
+      JCS.canonical_bytes!(reconstructed_response) == JCS.canonical_bytes!(response)
+  rescue
+    _ -> false
+  end
+
+  defp final_pair_matches_exchange?(_, _, _), do: false
 
   defp sorted_commitments?(commitments) when is_list(commitments) do
     commitments == Enum.sort_by(commitments, &JCS.canonical_bytes!/1)
@@ -749,7 +860,12 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
       commitment["recipient_device_id"] == metadata["recipient_device_id"] and
       commitment["sender_device_id"] == metadata["sender_device_id"] and
       commitment["delivery_record_hash"] ==
-        Hash.blake3_base64url(JCS.canonical_bytes!(initial_key_delivery)) and
+        Hash.blake3_base64url(
+          JCS.canonical_bytes!(%{
+            "metadata" => Map.delete(metadata, "key_confirmation_hash"),
+            "aead" => initial_key_delivery["aead"]
+          })
+        ) and
       commitment["key_checkpoint_hash"] == metadata["key_checkpoint_hash"]
   end
 

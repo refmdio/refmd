@@ -5,12 +5,16 @@ import {
   assertAndApplyRotationReplayState,
   applyAuthoritySeedEventsToCheckpointPayload,
   eventSignatureAuthorityPayload,
+  rotationReplayStateFromAuthorityEvents,
   verifyEventSemantics,
   type RotationReplayState,
 } from "./replay";
 import {
   checkpointSignatureAuthorityPayload,
   isInvitationAdmissionWrapEvent,
+  isRecipientBoundDeliveryWrapEvent,
+  isRecipientBoundGuestRedeemEvent,
+  isRecipientBoundWorkspaceRedeemEvent,
   verifyCheckpointSignatures,
   verifyEventSignatures,
   assertShareParticipantCheckpointAdvance,
@@ -136,7 +140,7 @@ export async function verifyEventAncestry(
 
   let previousHash = current.eventHeadHash;
   let expectedSequence = current.eventHeadSequence + 1;
-  let rotationState: RotationReplayState = {};
+  let rotationState = rotationReplayStateFromAuthorityEvents(authoritySeedEvents, events);
   let replayPayload = applyAuthoritySeedEventsToCheckpointPayload(
     authorityPayload,
     authoritySeedEvents,
@@ -156,21 +160,32 @@ export async function verifyEventAncestry(
       throw new Error("key_directory_event_previous_hash_mismatch");
     }
     const admissionWrap = isInvitationAdmissionWrapEvent(event, nextEvent);
+    const deliveryWrap = isRecipientBoundDeliveryWrapEvent(event, events);
+    const recipientBoundWorkspaceRedeem = isRecipientBoundWorkspaceRedeemEvent(event, events);
+    const recipientBoundGuestRedeem = isRecipientBoundGuestRedeemEvent(event, events);
+    const recipientBoundRedeem = recipientBoundWorkspaceRedeem || recipientBoundGuestRedeem;
+    const userScopedWrap = admissionWrap || deliveryWrap;
     verifyEventSemantics(event, candidate.payload, {
       allowInactiveWrapPrincipal: admissionWrap,
+      allowUserScopedWrapRecipient: userScopedWrap,
     });
     rotationState = assertAndApplyRotationReplayState(rotationState, event);
     await verifyEventSignatures(
       event,
       admissionWrap
         ? candidate.payload
-        : eventSignatureAuthorityPayload(event, replayPayload, candidate.payload),
+        : recipientBoundRedeem
+          ? replayPayload
+          : eventSignatureAuthorityPayload(event, replayPayload, candidate.payload),
       { allowInactiveSigner: admissionWrap },
     );
     previousHash = eventHash(event);
     expectedSequence += 1;
     replayPayload = applyEventToCheckpointPayload(replayPayload, event, candidate.payload, {
       allowInactiveWrapPrincipal: admissionWrap,
+      allowUserScopedWrapRecipient: userScopedWrap,
+      recipientBoundWorkspaceRedeem,
+      recipientBoundGuestRedeem,
     });
   }
 

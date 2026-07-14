@@ -167,6 +167,7 @@ describe("offline cache writes", () => {
       encryptedDiff: new Uint8Array([1, 2, 3]),
       diffNonce: new Uint8Array([4]),
       keyVersion: 1,
+      writeId: "write-1",
       createdAt: 1,
       updatedAt: 1,
     });
@@ -197,6 +198,7 @@ describe("offline cache writes", () => {
       encryptedDiff: new Uint8Array([9]),
       diffNonce: new Uint8Array([8]),
       keyVersion: 1,
+      writeId: "write-2",
       createdAt: 1,
       updatedAt: 1,
     };

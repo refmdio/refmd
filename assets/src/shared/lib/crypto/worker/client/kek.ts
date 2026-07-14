@@ -4,9 +4,12 @@ import type { HybridEncryptionPublicKeyMaterial } from "../../hybrid-encryption"
 import type { HybridSigningPublicKeyMaterial } from "../../signature";
 import type {
   InitialAkeArtifact,
+  InitialAkeOffer,
+  InitialAkeResponderConfirmation,
   InitialAkeResponderPrekeyRecord,
   InitialKeyDeliveryRecord,
 } from "../../initial-ake";
+import type { RecipientDeliveryAdmissionProof } from "@/shared/lib/anti-rollback/key-directory-pin/recipient-delivery-admission";
 
 export interface KekWorkerClientMethods {
   generateKek(workspaceId: string, keyVersion?: number): Promise<{ keyVersion: number }>;
@@ -15,15 +18,16 @@ export interface KekWorkerClientMethods {
     workspaceId: string,
     keyVersion?: number,
   ): Promise<{ found: boolean; keyVersion?: number }>;
+  deleteKekVersion(
+    workspaceId: string,
+    keyVersion: number,
+  ): Promise<{ memoryDeleted: boolean; offlineDeleted: boolean; keyVersion: number }>;
   createSignedPqKekWrap(params: {
     purpose?:
       | "workspace_device_kek_wrap"
       | "workspace_member_kek_wrap"
-      | "share_participant_bootstrap_wrap"
-      | "share_link_secret_backup_wrap"
       | "workspace_invitation_kek_wrap"
-      | "guest_invitation_workspace_kek_wrap"
-      | "guest_invitation_share_key_wrap";
+      | "guest_invitation_workspace_kek_wrap";
     workspaceId: string;
     keyVersion: number;
     recipientPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
@@ -36,6 +40,37 @@ export interface KekWorkerClientMethods {
       checkpointHash: string;
       coveredHeadSequence: number;
       coveredHeadHash: string;
+    };
+    eventPrevious?: {
+      sequence: number;
+      hash: string;
+    };
+    recipientKeyCheckpoint?: {
+      scopeKind: "user" | "workspace" | "document" | "folder";
+      scopeId: string;
+      sequence: number;
+      checkpointHash: string;
+    };
+  }): Promise<SignedPqWrapRecord>;
+  createSignedPqGuestInvitationShareKeyWrap(params: {
+    shareSlug: string;
+    recipientPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+    senderUserId: string;
+    senderDeviceId: string;
+    resource: Record<string, unknown>;
+    eventScope: Record<string, unknown>;
+    operationCheckpoint: {
+      sequence: number;
+      checkpointHash: string;
+      coveredHeadSequence: number;
+      coveredHeadHash: string;
+    };
+    eventPrevious: { sequence: number; hash: string };
+    recipientKeyCheckpoint: {
+      scopeKind: "workspace";
+      scopeId: string;
+      sequence: number;
+      checkpointHash: string;
     };
   }): Promise<SignedPqWrapRecord>;
   finalizeSignedPqWrapOperationCheckpoint(params: {
@@ -73,40 +108,55 @@ export interface KekWorkerClientMethods {
     };
   }): Promise<SignedPqWrapRecord>;
   openSignedPqDeviceKekWrap(params: {
-    record: SignedPqWrapRecord;
+    operationProof: object;
     senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
-    expectedOperationCheckpoint: {
-      sequence: number;
-      checkpointHash: string;
-    };
+  }): Promise<void>;
+  openRecipientBoundInvitationDeviceKekWrap(params: {
+    operationProof: object;
+    recipientDeliveryAdmissionProof: RecipientDeliveryAdmissionProof;
+    senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   }): Promise<void>;
   openSignedPqMemberKekWrap(params: {
-    record: SignedPqWrapRecord;
+    operationProof: object;
     senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
-    expectedOperationCheckpoint: {
-      sequence: number;
-      checkpointHash: string;
-    };
   }): Promise<void>;
   openSignedPqShareLinkSecretBackupWrap(params: {
-    record: SignedPqWrapRecord;
+    operationProof: object;
     senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
     expectedShareId: string;
-    expectedOperationCheckpoint: {
-      sequence: number;
-      checkpointHash: string;
-    };
   }): Promise<{ sharePathWithFragment: string }>;
+  openSignedPqGuestInvitationShareKeyWrap(params: {
+    operationProof: object;
+    recipientDeliveryAdmissionProof: RecipientDeliveryAdmissionProof;
+    senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  }): Promise<void>;
+  restoreGuestInvitationShareKey(params: {
+    shareId: string;
+    scopeKind: "document" | "folder";
+    scopeId: string;
+    permission: "view" | "edit";
+    shareKeyVersion: number;
+    dekVersion: number;
+  }): Promise<{ restored: boolean }>;
+  commitGuestInvitationShareKey(params: {
+    invitationId: string;
+    shareId: string;
+    scopeKind: "document" | "folder";
+    scopeId: string;
+    permission: "view" | "edit";
+    shareKeyVersion: number;
+    dekVersion: number;
+  }): Promise<void>;
   generateInitialAkeResponderPrekey(params: {
     operationId: string;
     userId: string;
     deviceId: string;
     purpose: "umk_distribution" | "device_approval_kek_initial" | "trust_transfer";
-    serverChallenge?: string;
+    serverChallenge: string;
     issuedAtEventSequence: number;
     expiresEventSequence: number;
   }): Promise<InitialAkeResponderPrekeyRecord>;
-  createInitialAkeUmkDelivery(params: {
+  beginInitialAkeUmkDelivery(params: {
     userId: string;
     senderDeviceId: string;
     recipientDeviceId: string;
@@ -117,11 +167,8 @@ export interface KekWorkerClientMethods {
     keyCheckpointHash: string;
     keyEventHeadHash: string;
     pendingRegistrationBindingHash: string;
-  }): Promise<{
-    initialAke: InitialAkeArtifact;
-    initialKeyDelivery: InitialKeyDeliveryRecord;
-  }>;
-  createInitialAkeKekDelivery(params: {
+  }): Promise<InitialAkeOffer>;
+  beginInitialAkeKekDelivery(params: {
     workspaceId: string;
     keyVersion: number;
     userId: string;
@@ -137,11 +184,8 @@ export interface KekWorkerClientMethods {
     workspaceCheckpointHash: string;
     workspaceEventHeadHash: string;
     pendingRegistrationBindingHash: string;
-  }): Promise<{
-    initialAke: InitialAkeArtifact;
-    initialKeyDelivery: InitialKeyDeliveryRecord;
-  }>;
-  createInitialAkeDeviceStateTransferDelivery(params: {
+  }): Promise<InitialAkeOffer>;
+  beginInitialAkeDeviceStateTransferDelivery(params: {
     deviceStateBundle: Record<string, unknown>;
     userId: string;
     senderDeviceId: string;
@@ -155,7 +199,12 @@ export interface KekWorkerClientMethods {
     workspacePinsHash: string;
     documentRollbackPinSetHash: string;
     pendingRegistrationBindingHash: string;
-  }): Promise<{
+  }): Promise<InitialAkeOffer>;
+  respondToInitialAkeOffer(params: {
+    offer: InitialAkeOffer;
+    senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  }): Promise<InitialAkeResponderConfirmation>;
+  finalizeInitialAkeDelivery(params: { response: InitialAkeResponderConfirmation }): Promise<{
     initialAke: InitialAkeArtifact;
     initialKeyDelivery: InitialKeyDeliveryRecord;
   }>;
@@ -178,16 +227,19 @@ export interface KekWorkerClientMethods {
     protocol: "refmd.workspace-invitation-bootstrap" | "refmd.guest-invitation-bootstrap";
     workspaceId: string;
     keyVersion: number;
-    bootstrapSecret: string;
+    bootstrapSecret?: string;
+    recipientDelivery?: {
+      recipientUserId: string;
+    };
     aad: Record<string, unknown>;
     plaintext: Record<string, unknown>;
     redeemAuthorityInvitationId?: string;
     includeWorkspaceKek?: boolean;
-    maintenanceWrapKey?: Uint8Array;
+    maintenanceShareSlug?: string;
   }): Promise<Record<string, unknown>>;
   unwrapKekFromInvitationBootstrap(params: {
     bootstrap: Record<string, unknown>;
-    bootstrapSecret: string;
+    bootstrapSecret?: string;
   }): Promise<Record<string, unknown>>;
   cacheKek(params: { workspaceId: string; kek: Uint8Array; keyVersion: number }): Promise<void>;
   storeKekForOffline(params: { workspaceId: string; keyVersion: number }): Promise<void>;
@@ -224,6 +276,14 @@ export const kekWorkerClientMethods: KekWorkerClientMethods &
     };
   },
 
+  async deleteKekVersion(workspaceId, keyVersion) {
+    return (await this[workerSend]("delete-kek-version", { workspaceId, keyVersion })) as {
+      memoryDeleted: boolean;
+      offlineDeleted: boolean;
+      keyVersion: number;
+    };
+  },
+
   async createSignedPqKekWrap(params) {
     return (await this[workerSend]("create-signed-pq-kek-wrap", params)) as SignedPqWrapRecord;
   },
@@ -231,6 +291,13 @@ export const kekWorkerClientMethods: KekWorkerClientMethods &
   async createSignedPqShareLinkSecretBackupWrap(params) {
     return (await this[workerSend](
       "create-signed-pq-share-link-secret-backup-wrap",
+      params,
+    )) as SignedPqWrapRecord;
+  },
+
+  async createSignedPqGuestInvitationShareKeyWrap(params) {
+    return (await this[workerSend](
+      "create-signed-pq-guest-invitation-share-key-wrap",
       params,
     )) as SignedPqWrapRecord;
   },
@@ -246,6 +313,10 @@ export const kekWorkerClientMethods: KekWorkerClientMethods &
     await this[workerSend]("open-signed-pq-device-kek-wrap", params);
   },
 
+  async openRecipientBoundInvitationDeviceKekWrap(params) {
+    await this[workerSend]("open-recipient-bound-invitation-device-kek-wrap", params);
+  },
+
   async openSignedPqMemberKekWrap(params) {
     await this[workerSend]("open-signed-pq-member-kek-wrap", params);
   },
@@ -256,6 +327,20 @@ export const kekWorkerClientMethods: KekWorkerClientMethods &
     };
   },
 
+  async openSignedPqGuestInvitationShareKeyWrap(params) {
+    await this[workerSend]("open-signed-pq-guest-invitation-share-key-wrap", params);
+  },
+
+  async restoreGuestInvitationShareKey(params) {
+    return (await this[workerSend]("restore-guest-invitation-share-key", params)) as {
+      restored: boolean;
+    };
+  },
+
+  async commitGuestInvitationShareKey(params) {
+    await this[workerSend]("commit-guest-invitation-share-key", params);
+  },
+
   async generateInitialAkeResponderPrekey(params) {
     return (await this[workerSend](
       "generate-initial-ake-responder-prekey",
@@ -263,25 +348,30 @@ export const kekWorkerClientMethods: KekWorkerClientMethods &
     )) as InitialAkeResponderPrekeyRecord;
   },
 
-  async createInitialAkeUmkDelivery(params) {
-    return (await this[workerSend]("create-initial-ake-umk-delivery", params)) as {
-      initialAke: InitialAkeArtifact;
-      initialKeyDelivery: InitialKeyDeliveryRecord;
-    };
+  async beginInitialAkeUmkDelivery(params) {
+    return (await this[workerSend]("begin-initial-ake-umk-delivery", params)) as InitialAkeOffer;
   },
 
-  async createInitialAkeKekDelivery(params) {
-    return (await this[workerSend]("create-initial-ake-kek-delivery", params)) as {
-      initialAke: InitialAkeArtifact;
-      initialKeyDelivery: InitialKeyDeliveryRecord;
-    };
+  async beginInitialAkeKekDelivery(params) {
+    return (await this[workerSend]("begin-initial-ake-kek-delivery", params)) as InitialAkeOffer;
   },
 
-  async createInitialAkeDeviceStateTransferDelivery(params) {
+  async beginInitialAkeDeviceStateTransferDelivery(params) {
     return (await this[workerSend](
-      "create-initial-ake-device-state-transfer-delivery",
+      "begin-initial-ake-device-state-transfer-delivery",
       params,
-    )) as {
+    )) as InitialAkeOffer;
+  },
+
+  async respondToInitialAkeOffer(params) {
+    return (await this[workerSend](
+      "respond-to-initial-ake-offer",
+      params,
+    )) as InitialAkeResponderConfirmation;
+  },
+
+  async finalizeInitialAkeDelivery(params) {
+    return (await this[workerSend]("finalize-initial-ake-delivery", params)) as {
       initialAke: InitialAkeArtifact;
       initialKeyDelivery: InitialKeyDeliveryRecord;
     };

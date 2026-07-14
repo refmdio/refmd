@@ -12,7 +12,11 @@ config :refmd, RefMD.Repo,
   password: "postgres",
   hostname: "localhost",
   database: "refmd_test#{System.get_env("MIX_TEST_PARTITION")}",
-  pool: Ecto.Adapters.SQL.Sandbox,
+  pool:
+    if(System.get_env("PHX_SERVER"),
+      do: DBConnection.ConnectionPool,
+      else: Ecto.Adapters.SQL.Sandbox
+    ),
   pool_size: System.schedulers_online() * 2
 
 # We don't run a server during test. If one is required,
@@ -20,7 +24,7 @@ config :refmd, RefMD.Repo,
 config :refmd, RefMDWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: secret_key_base,
-  server: false
+  server: not is_nil(System.get_env("PHX_SERVER"))
 
 config :refmd, token_secret_key_base: secret_key_base
 

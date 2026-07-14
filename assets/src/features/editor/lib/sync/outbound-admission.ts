@@ -41,7 +41,7 @@ export function documentOperationAdmissionForTransport<T extends Record<string, 
   return { ...admission };
 }
 
-export interface DocumentOperationAdmissionAuthority {
+export interface DocumentAuthorityContext {
   directory: { checkpoint: KeyDirectoryEnvelope };
   publicDataFields: {
     ownerKind: "device" | "share_participant_device";
@@ -57,13 +57,15 @@ export interface DocumentOperationAdmissionAuthority {
   authorityBoundary: {
     previous_workspace_event_sequence: number;
     previous_workspace_event_hash: string;
-    admission_event_type:
-      | "document_update_accepted"
-      | "document_write_session_admitted"
-      | "document_snapshot_accepted";
-    admission_nonce: string;
     min_dek_version: number;
     document_permission_proof_hash: string;
+  };
+}
+
+export interface DocumentOperationAdmissionAuthority extends DocumentAuthorityContext {
+  authorityBoundary: DocumentAuthorityContext["authorityBoundary"] & {
+    admission_event_type: "document_write_session_admitted" | "document_snapshot_accepted";
+    admission_nonce: string;
   };
 }
 
@@ -177,16 +179,12 @@ export async function getCachedWorkspaceDirectory(
   return checkpoint ? { checkpoint: checkpoint as unknown as KeyDirectoryEnvelope } : null;
 }
 
-export async function prepareDocumentOperationAdmissionAuthority(
+export async function prepareDocumentAuthorityContext(
   state: DocumentState,
   documentId: string,
   signingKeyId: string,
-  eventType:
-    | "document_update_accepted"
-    | "document_snapshot_accepted"
-    | "document_write_session_admitted",
   keyVersion: number,
-): Promise<DocumentOperationAdmissionAuthority> {
+): Promise<DocumentAuthorityContext> {
   const sessionDevice = deviceState();
   const worker = getDocumentCryptoWorker(state);
   const deviceId =
@@ -259,8 +257,6 @@ export async function prepareDocumentOperationAdmissionAuthority(
     authorityBoundary: {
       previous_workspace_event_sequence: previousSequence,
       previous_workspace_event_hash: previousHash,
-      admission_event_type: eventType,
-      admission_nonce: base64UrlRandom(32),
       min_dek_version: keyVersion,
       document_permission_proof_hash: blake3Base64Url(
         canonicalizeStrictBytes(permissionProof as unknown as StrictJsonValue),
@@ -269,13 +265,34 @@ export async function prepareDocumentOperationAdmissionAuthority(
   };
 }
 
+export async function prepareDocumentOperationAdmissionAuthority(
+  state: DocumentState,
+  documentId: string,
+  signingKeyId: string,
+  eventType: "document_snapshot_accepted" | "document_write_session_admitted",
+  keyVersion: number,
+): Promise<DocumentOperationAdmissionAuthority> {
+  const context = await prepareDocumentAuthorityContext(
+    state,
+    documentId,
+    signingKeyId,
+    keyVersion,
+  );
+
+  return {
+    ...context,
+    authorityBoundary: {
+      ...context.authorityBoundary,
+      admission_event_type: eventType,
+      admission_nonce: base64UrlRandom(32),
+    },
+  };
+}
+
 export async function buildDocumentOperationAdmission(params: {
   documentId: string;
   state: DocumentState;
-  eventType:
-    | "document_update_accepted"
-    | "document_snapshot_accepted"
-    | "document_write_session_admitted";
+  eventType: "document_snapshot_accepted" | "document_write_session_admitted";
   operationHash?: string;
   signature?: HybridSignature;
   keyVersion: number;

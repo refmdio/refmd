@@ -18,7 +18,9 @@ import {
   handleSignDeviceKeyDirectoryCheckpoint,
   handleSignDeviceKeyDirectoryEvent,
   handleSignIdentityKeyDirectoryCheckpoint,
+  handleSignIdentitySuccessorKeyDirectoryCheckpoint,
   handleSignIdentityKeyDirectoryEvent,
+  handleSignIdentitySuccessorKeyDirectoryEvent,
   handleSignInvitationRedeemKeyDirectoryCheckpoint,
   handleSignInvitationRedeemKeyDirectoryEvent,
   handleSignPluginConsentEvent,
@@ -34,7 +36,6 @@ import {
   handleSignShareParticipantDeviceAuthorization,
   handleSignRecipientBoundAuthorization,
   handleVerifyDocumentSnapshotSignature,
-  handleVerifyDocumentUpdateEd25519Signature,
   handleVerifyDocumentUpdateSignature,
   handleVerifyEditorEphemeralSignature,
   handleVerifyKeyDirectoryCheckpointSignature,
@@ -74,6 +75,10 @@ export const signingRequestHandlers = {
     withCryptoOperationError("signature_failed", () =>
       handleSignIdentityKeyDirectoryCheckpoint(state, payload),
     ),
+  "sign-identity-successor-key-directory-checkpoint": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignIdentitySuccessorKeyDirectoryCheckpoint(state, payload),
+    ),
   "sign-device-key-directory-checkpoint": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
       handleSignDeviceKeyDirectoryCheckpoint(state, payload),
@@ -85,6 +90,10 @@ export const signingRequestHandlers = {
   "sign-identity-key-directory-event": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
       handleSignIdentityKeyDirectoryEvent(state, payload),
+    ),
+  "sign-identity-successor-key-directory-event": (state, payload) =>
+    withCryptoOperationError("signature_failed", () =>
+      handleSignIdentitySuccessorKeyDirectoryEvent(state, payload),
     ),
   "sign-device-key-directory-event": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
@@ -179,10 +188,6 @@ export const signingRequestHandlers = {
   "verify-document-update-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
       handleVerifyDocumentUpdateSignature(state, payload),
-    ),
-  "verify-document-update-ed25519-signature": (state, payload) =>
-    withCryptoOperationError("signature_failed", () =>
-      handleVerifyDocumentUpdateEd25519Signature(state, payload),
     ),
   "verify-document-snapshot-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>

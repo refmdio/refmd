@@ -488,7 +488,7 @@ defmodule RefMD.Documents.Admission do
 
     document_session_owner?(attrs, actor) and body["user_id"] == actor["user_id"] and
       body["workspace_id"] == document.workspace_id and
-      not base_role_can_write_document?(body["base_role"])
+      not permission_granted_in_role_change?(body, "document:write")
   end
 
   defp write_session_invalidating_event?(
@@ -616,8 +616,8 @@ defmodule RefMD.Documents.Admission do
       do: write_session_invalidating_event?(event, document, attrs, session_payload)
   end
 
-  defp base_role_can_write_document?(role),
-    do: role in ["owner", "admin", "editor", "guest"]
+  defp permission_granted_in_role_change?(body, permission),
+    do: is_list(body["effective_permissions"]) and permission in body["effective_permissions"]
 
   defp dek_floor_invalidates_session?(body, document_id, key_version) do
     body["rotation_kind"] == "dek" and body["scope_kind"] == "document" and

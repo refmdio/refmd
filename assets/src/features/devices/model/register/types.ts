@@ -1,9 +1,9 @@
 import type { DeviceHybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
 import type { DeviceHybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
-import type { RegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 
 export type DeviceRegistrationPhase =
   | "generating"
+  | "approval_choice"
   | "waiting"
   | "restoring"
   | "done"
@@ -19,5 +19,4 @@ export interface DeviceRegistrationPublicKeys {
   encryptionKeyId: string;
   hybridSigningPublicKeyMaterial: DeviceHybridSigningPublicKeyMaterial;
   signingKeyId: string;
-  initialAkeResponderPrekeys?: RegistrationInitialAkeResponderPrekeys;
 }

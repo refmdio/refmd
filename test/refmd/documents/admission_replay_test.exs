@@ -156,6 +156,42 @@ defmodule RefMD.Documents.AdmissionReplayTest do
            )
   end
 
+  test "member role changes invalidate writes from effective permissions, not base role" do
+    user_id = create_user("admission-replay-role-change@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(user_id, "Replay Role Workspace")
+    document = create_document(workspace.id, user_id, "document")
+    attrs = %{public_data: %{"ownerKind" => "device"}}
+    session_payload = %{"actor" => %{"user_id" => user_id}}
+
+    event = fn permissions ->
+      %{
+        event_type: "member_role_changed",
+        payload: %{
+          "body" => %{
+            "workspace_id" => workspace.id,
+            "user_id" => user_id,
+            "base_role" => "admin",
+            "effective_permissions" => permissions
+          }
+        }
+      }
+    end
+
+    assert Admission.__test_write_session_invalidating_event?(
+             event.(["document:read"]),
+             document,
+             attrs,
+             session_payload
+           )
+
+    refute Admission.__test_write_session_invalidating_event?(
+             event.(["document:read", "document:write"]),
+             document,
+             attrs,
+             session_payload
+           )
+  end
+
   defp guest_grant_revoked_event(body) do
     %{
       event_type: "guest_grant_revoked",

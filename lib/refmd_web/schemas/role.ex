@@ -80,8 +80,31 @@ defmodule RefMDWeb.Schemas.UpdateRoleRequest do
     properties: %{
       name: %Schema{type: :string, minLength: 1, maxLength: 100},
       is_default: %Schema{type: :boolean},
-      permissions: %Schema{type: :array, items: RefMDWeb.Schemas.PermissionOverride}
+      permissions: %Schema{type: :array, items: RefMDWeb.Schemas.PermissionOverride},
+      workspace_key_directory_events: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      },
+      workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
     }
+  })
+end
+
+defmodule RefMDWeb.Schemas.UpdateRoleResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "UpdateRoleResponse",
+    type: :object,
+    properties: %{
+      role: RefMDWeb.Schemas.RoleResponse,
+      workspaces_needing_kek_rotation: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.WorkspaceRotationInfo
+      }
+    },
+    required: [:role, :workspaces_needing_kek_rotation]
   })
 end
 

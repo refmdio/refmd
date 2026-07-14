@@ -47,10 +47,12 @@ defmodule RefMDWeb.Schemas.WorkspaceResponse do
       plugin_user_policy: RefMDWeb.Schemas.PluginUserPolicy,
       current_kek_version: %Schema{type: :integer},
       needs_kek_rotation: %Schema{type: :boolean},
+      kek_rotation_due_at: %Schema{type: :string, format: :"date-time", nullable: true},
       kek_rotation_initiator_user_id: %Schema{type: :string, format: :uuid, nullable: true},
       current_user_role_id: %Schema{type: :string, format: :uuid, nullable: true},
       current_user_base_role: %Schema{type: :string, nullable: true},
       is_default: %Schema{type: :boolean, nullable: true},
+      audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint,
       created_at: %Schema{type: :string, format: :"date-time"},
       updated_at: %Schema{type: :string, format: :"date-time"}
     },
@@ -64,6 +66,7 @@ defmodule RefMDWeb.Schemas.WorkspaceResponse do
       :guest_invites_enabled,
       :current_kek_version,
       :needs_kek_rotation,
+      :audit_checkpoint,
       :created_at,
       :updated_at
     ]

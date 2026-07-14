@@ -401,6 +401,9 @@ async function loginForDeviceRegistration(page: Page, email: string): Promise<vo
   await page.locator("#password").fill(TEST_PASSWORD);
   await page.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(/devices\/register/, { timeout: 120_000 });
+  await page.getByRole("button", { name: "Verify with an existing device" }).click({
+    timeout: 120_000,
+  });
 
   const deadline = Date.now() + 120_000;
 
@@ -528,7 +531,12 @@ test.describe.serial("Single-User Multi-Device Sync", () => {
       await pageA.getByRole("button", { name: /Emojis Match.*Approve/i }).click();
 
       await expect(pageB).toHaveURL(/dashboard/, { timeout: 120_000 });
-      await waitForWorkspaceReady(pageB);
+      await waitForWorkspaceReady(pageB).catch(async (error) => {
+        const logs = await collectClientLogs(pageB).catch(() => []);
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}; clientLogs=${JSON.stringify(logs)}`,
+        );
+      });
       await pageB.waitForTimeout(E2E_DELAYS.syncSettle);
 
       await expect(pageB.locator("aside").getByText("Multi Device Doc")).toBeVisible({

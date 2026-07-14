@@ -1,14 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { registerAccount } from "../../support/auth";
 import { newE2EContext } from "../../support/context";
-import {
-  createDocument,
-  openDocument,
-} from "../../support/documents";
-import {
-  openSettings,
-  selectSettingsTab,
-} from "../../support/settings";
+import { createDocument, openDocument } from "../../support/documents";
+import { openSettings, selectSettingsTab } from "../../support/settings";
 import { E2E_DELAYS, E2E_TIMEOUTS } from "../../support/timeouts";
 
 let sharedPage: Page;
@@ -38,17 +32,17 @@ test.describe.serial("Settings Dialog", () => {
     await test.step("opens settings dialog with tab list", async () => {
       await openSettings(sharedPage);
 
-      await expect(
-        sharedPage.getByRole("tablist", { name: "Settings" }),
-      ).toBeVisible({ timeout: 5_000 });
+      await expect(sharedPage.getByRole("tablist", { name: "Settings" })).toBeVisible({
+        timeout: 5_000,
+      });
     });
 
     await test.step("About tab is accessible", async () => {
       await selectSettingsTab(sharedPage, "About");
 
-      await expect(
-        sharedPage.getByRole("tab", { name: "About", selected: true }),
-      ).toBeVisible({ timeout: 5_000 });
+      await expect(sharedPage.getByRole("tab", { name: "About", selected: true })).toBeVisible({
+        timeout: 5_000,
+      });
     });
 
     await test.step("Security tab shows current device", async () => {
@@ -109,155 +103,248 @@ test.describe.serial("Settings Dialog", () => {
     });
 
     await test.step("Guest Invite dialog creates and redeems workspace guest invitations", async () => {
-    await openSettings(sharedPage);
-    await selectSettingsTab(sharedPage, "Workspace");
+      await openSettings(sharedPage);
+      await selectSettingsTab(sharedPage, "Workspace");
 
-    const workspaceTab = sharedPage.locator('[role="dialog"]').filter({ hasText: "Guest Invites" });
-    const guestInvitesSection = workspaceTab.getByTestId("guest-invites-section");
-    const allowGuestInvites = guestInvitesSection.getByText("Allow guest invites", { exact: true });
-    await expect(allowGuestInvites).toBeVisible({ timeout: 5_000 });
-
-    if (
-      !(await guestInvitesSection
-        .getByRole("button", { name: "Invite Guest" })
-        .isVisible()
-        .catch(() => false))
-    ) {
-      const updateResponse = sharedPage.waitForResponse(
-        (response) =>
-          response.request().method() === "PATCH" &&
-          response.url().includes("/api/workspaces/") &&
-          !response.url().endsWith("/features"),
-      );
-      await guestInvitesSection.getByRole("group", { name: "Allow guest invites" }).click();
-      await expect(guestInvitesSection.getByRole("switch").first()).toBeChecked({
-        timeout: 10_000,
+      const workspaceTab = sharedPage
+        .locator('[role="dialog"]')
+        .filter({ hasText: "Guest Invites" });
+      const guestInvitesSection = workspaceTab.getByTestId("guest-invites-section");
+      const allowGuestInvites = guestInvitesSection.getByText("Allow guest invites", {
+        exact: true,
       });
-      await guestInvitesSection.getByRole("button", { name: "Save" }).click();
-      await updateResponse;
-      await expect(guestInvitesSection.getByRole("button", { name: "Invite Guest" })).toBeVisible({
-        timeout: 30_000,
-      });
-    }
+      await expect(allowGuestInvites).toBeVisible({ timeout: 5_000 });
 
-    const createResponse = sharedPage.waitForResponse((response) => {
-      const request = response.request();
-      return (
-        request.method() === "POST" &&
-        response.status() === 201 &&
-        /\/api\/workspaces\/[^/]+\/guest-invitations$/.test(response.url())
-      );
-    });
-
-    await guestInvitesSection.getByRole("button", { name: "Invite Guest" }).click();
-    const dialog = sharedPage
-      .locator('[role="dialog"]')
-      .filter({ has: sharedPage.getByRole("heading", { name: "Invite Guest" }) });
-    await expect(dialog.getByRole("heading", { name: "Invite Guest" })).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(dialog.getByText("Scope", { exact: true })).toHaveCount(0);
-    await expect(dialog.getByText("Target", { exact: true })).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Create Invitation" }).click();
-
-    const response = await createResponse;
-    const payload = (await response.json()) as {
-      invitation_id?: string;
-      token_prefix?: string;
-      scope_kind?: string;
-      scope_id?: string | null;
-    };
-    expect(payload.invitation_id).toBeTruthy();
-    expect(payload.token_prefix).toBeTruthy();
-    expect(payload.scope_kind).toBe("workspace");
-    expect(payload.scope_id).toBeNull();
-
-    const inviteLinkInput = dialog.locator("input[readonly]").first();
-    await expect(inviteLinkInput).toHaveValue(/\/invite#it=.+&ib=.+/, {
-      timeout: 60_000,
-    });
-    const inviteLink = await inviteLinkInput.inputValue();
-    await dialog.getByRole("button", { name: "Done" }).click();
-    await expect(sharedPage.getByRole("heading", { name: "Invite Guest" })).not.toBeVisible({
-      timeout: 10_000,
-    });
-
-    const guestContext = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
-    const guestPage = await guestContext.newPage();
-    const apiErrors: string[] = [];
-    const forbiddenBodies: string[] = [];
-    guestPage.on("response", (response) => {
-      if (!response.url().includes("/api/") || response.status() < 400) return;
-      void response
-        .text()
-        .then((body) => {
-          const entry = `${response.status()} ${response.url()} ${body}`;
-          apiErrors.push(entry);
-          if (response.status() === 403) forbiddenBodies.push(entry);
-        })
-        .catch(() => {});
-    });
-
-    try {
-      await guestPage.goto(inviteLink, { waitUntil: "domcontentloaded" });
-      await expect(guestPage.getByRole("button", { name: "Create Account" })).toHaveCount(0);
-      await expect(guestPage.getByRole("button", { name: "Sign In" })).toHaveCount(0);
-      await expect(guestPage.getByRole("button", { name: "Continue as Guest" })).toBeVisible({
-        timeout: 30_000,
-      });
-      await guestPage.getByRole("button", { name: "Continue as Guest" }).click();
-      const guestSucceeded = await expect
-        .poll(
-          async () => {
-            if (/\/dashboard/.test(guestPage.url())) return true;
-            const bodyText = await guestPage.locator("body").innerText().catch(() => "");
-            return bodyText.includes("joined the workspace");
+      if (
+        !(await guestInvitesSection
+          .getByRole("button", { name: "Invite Guest" })
+          .isVisible()
+          .catch(() => false))
+      ) {
+        const updateResponse = sharedPage.waitForResponse(
+          (response) =>
+            response.request().method() === "PATCH" &&
+            response.url().includes("/api/workspaces/") &&
+            !response.url().endsWith("/features"),
+        );
+        await guestInvitesSection.getByRole("group", { name: "Allow guest invites" }).click();
+        await expect(guestInvitesSection.getByRole("switch").first()).toBeChecked({
+          timeout: 10_000,
+        });
+        await guestInvitesSection.getByRole("button", { name: "Save" }).click();
+        await updateResponse;
+        await expect(guestInvitesSection.getByRole("button", { name: "Invite Guest" })).toBeVisible(
+          {
+            timeout: 30_000,
           },
-          { timeout: 60_000, message: "guest invitation redemption did not succeed" },
-        )
-        .toBe(true)
-        .then(() => true)
-        .catch(() => false);
-      if (!guestSucceeded) {
-        const bodyText = await guestPage.locator("body").innerText().catch(() => "");
-        throw new Error(
-          `guest invitation redemption did not succeed; url=${guestPage.url()}; body=${bodyText}; apiErrors=${apiErrors.join(" | ")}`,
         );
       }
-      await expect.poll(() => /\/dashboard/.test(guestPage.url()), { timeout: 30_000 }).toBe(true);
-      await openDocument(guestPage, guestDocumentTitle);
-      await expect
-        .poll(
-          () => {
-            const matched = forbiddenBodies.filter(
-              (body) =>
-                body.includes("rrp_missing_device_id") || body.includes("permission_denied"),
-            );
-            return matched.length === 0 ? false : matched.join(" | ");
-          },
-          {
-            timeout: 2_000,
-            message: "guest redemption/open must not hit RRP or member-list permission failures",
-          },
-        )
-        .toBe(false);
-    } finally {
-      await guestContext.close();
-    }
 
-    await expect(guestInvitesSection.getByText(payload.token_prefix!)).toBeVisible({
-      timeout: 10_000,
-    });
-    const revokeResponse = sharedPage.waitForResponse(
-      (response) =>
-        response.request().method() === "DELETE" &&
-        response.url().includes(`/guest-invitations/${payload.invitation_id}`),
-    );
-    await guestInvitesSection.getByRole("button", { name: "Revoke invitation" }).click();
-    await revokeResponse;
-    await expect(guestInvitesSection.getByText(payload.token_prefix!)).toHaveCount(0, {
-      timeout: 10_000,
-    });
+      const createResponse = sharedPage.waitForResponse((response) => {
+        const request = response.request();
+        return (
+          request.method() === "POST" &&
+          /\/api\/workspaces\/[^/]+\/guest-invitations$/.test(response.url())
+        );
+      });
+
+      await guestInvitesSection.getByRole("button", { name: "Invite Guest" }).click();
+      const dialog = sharedPage
+        .locator('[role="dialog"]')
+        .filter({ has: sharedPage.getByRole("heading", { name: "Invite Guest" }) });
+      await expect(dialog.getByRole("heading", { name: "Invite Guest" })).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(dialog.getByText("Scope", { exact: true })).toHaveCount(0);
+      await expect(dialog.getByText("Target", { exact: true })).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Create Invitation" }).click();
+
+      const response = await createResponse;
+      if (response.status() !== 201) {
+        throw new Error(
+          `guest invitation creation failed: ${response.status()} ${await response.text()}; request=${response.request().postData()}`,
+        );
+      }
+      const payload = (await response.json()) as {
+        invitation_id?: string;
+        token_prefix?: string;
+        scope_kind?: string;
+        scope_id?: string | null;
+      };
+      expect(payload.invitation_id).toBeTruthy();
+      expect(payload.token_prefix).toBeTruthy();
+      expect(payload.scope_kind).toBe("workspace");
+      expect(payload.scope_id).toBeNull();
+
+      const inviteLinkInput = dialog.locator("input[readonly]").first();
+      await expect(inviteLinkInput).toHaveValue(/\/invite#it=.+&ib=.+/, {
+        timeout: 60_000,
+      });
+      const inviteLink = await inviteLinkInput.inputValue();
+      await dialog.getByRole("button", { name: "Done" }).click();
+      await expect(sharedPage.getByRole("heading", { name: "Invite Guest" })).not.toBeVisible({
+        timeout: 10_000,
+      });
+
+      const guestContext = await newE2EContext(browser, { bypassCSP: true, acceptDownloads: true });
+      await guestContext.addInitScript(() => {
+        window.__REFMD_E2E__ = true;
+        window.__refmdE2EClientLogs = [];
+        window.addEventListener("refmd:client-log", (event) => {
+          window.__refmdE2EClientLogs?.push((event as CustomEvent).detail);
+        });
+      });
+      const guestPage = await guestContext.newPage();
+      const apiErrors: string[] = [];
+      const forbiddenBodies: string[] = [];
+      const pageErrors: string[] = [];
+      let workspaceResponse: unknown = null;
+      const keyDirectoryResponses: unknown[] = [];
+      guestPage.on("pageerror", (error) => pageErrors.push(error.message));
+      guestPage.on("response", (response) => {
+        if (!response.url().includes("/api/") || response.status() < 400) return;
+        void response
+          .text()
+          .then((body) => {
+            const entry = `${response.status()} ${response.url()} ${body}`;
+            apiErrors.push(entry);
+            if (response.status() === 403) forbiddenBodies.push(entry);
+          })
+          .catch(() => {});
+      });
+      guestPage.on("response", (response) => {
+        if (
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname.endsWith("/key-directory/latest")
+        ) {
+          void response
+            .json()
+            .then((value) => {
+              keyDirectoryResponses.push(value);
+            })
+            .catch(() => {});
+        }
+      });
+      guestPage.on("response", (response) => {
+        if (
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === "/api/workspaces"
+        ) {
+          void response
+            .json()
+            .then((value) => {
+              workspaceResponse = value;
+            })
+            .catch(() => {});
+        }
+      });
+
+      try {
+        await guestPage.goto(inviteLink, { waitUntil: "domcontentloaded" });
+        await expect(guestPage.getByRole("button", { name: "Create Account" })).toHaveCount(0);
+        await expect(guestPage.getByRole("button", { name: "Sign In" })).toHaveCount(0);
+        await expect(guestPage.getByRole("button", { name: "Continue as Guest" })).toBeVisible({
+          timeout: 30_000,
+        });
+        await guestPage.getByRole("button", { name: "Continue as Guest" }).click();
+        const guestSucceeded = await expect
+          .poll(
+            async () => {
+              if (/\/dashboard/.test(guestPage.url())) return true;
+              const bodyText = await guestPage
+                .locator("body")
+                .innerText()
+                .catch(() => "");
+              return bodyText.includes("joined the workspace");
+            },
+            { timeout: 60_000, message: "guest invitation redemption did not succeed" },
+          )
+          .toBe(true)
+          .then(() => true)
+          .catch(() => false);
+        if (!guestSucceeded) {
+          const bodyText = await guestPage
+            .locator("body")
+            .innerText()
+            .catch(() => "");
+          const clientLogs = await guestPage.evaluate(() => window.__refmdE2EClientLogs ?? []);
+          throw new Error(
+            `guest invitation redemption did not succeed; url=${guestPage.url()}; body=${bodyText}; apiErrors=${apiErrors.join(" | ")}; pageErrors=${JSON.stringify(pageErrors)}; clientLogs=${JSON.stringify(clientLogs)}; workspaceResponse=${JSON.stringify(workspaceResponse)}`,
+          );
+        }
+        await expect
+          .poll(() => /\/dashboard/.test(guestPage.url()), { timeout: 30_000 })
+          .toBe(true);
+        await openDocument(guestPage, guestDocumentTitle).catch(async (error) => {
+          const clientLogs = await guestPage.evaluate(() => window.__refmdE2EClientLogs ?? []);
+          throw new Error(
+            `${String(error)}; pageErrors=${JSON.stringify(pageErrors)}; clientLogs=${JSON.stringify(clientLogs)}; workspaceResponse=${JSON.stringify(workspaceResponse)}; keyDirectoryResponseCount=${keyDirectoryResponses.length}`,
+          );
+        });
+
+        await guestPage.reload({ waitUntil: "domcontentloaded" });
+        await openDocument(guestPage, guestDocumentTitle).catch(async (error) => {
+          const clientLogs = await guestPage.evaluate(() => window.__refmdE2EClientLogs ?? []);
+          throw new Error(
+            `guest reload failed: ${String(error)}; apiErrors=${apiErrors.join(" | ")}; pageErrors=${JSON.stringify(pageErrors)}; clientLogs=${JSON.stringify(clientLogs)}`,
+          );
+        });
+
+        await guestPage.goto(inviteLink, { waitUntil: "domcontentloaded" });
+        const reenterButton = guestPage.getByRole("button", { name: "Continue as Guest" });
+        await expect
+          .poll(
+            async () => {
+              if (/\/dashboard/.test(guestPage.url())) return "reentered";
+              if (await reenterButton.isVisible().catch(() => false)) return "confirm";
+              return guestPage.locator("body").innerText();
+            },
+            { timeout: 30_000, message: "guest reentry did not start" },
+          )
+          .toMatch(/^(reentered|confirm)$/);
+        if (await reenterButton.isVisible().catch(() => false)) {
+          await reenterButton.click();
+        }
+        await expect
+          .poll(() => /\/dashboard/.test(guestPage.url()), {
+            timeout: 60_000,
+            message: "admitted guest did not re-enter from the same invitation and device",
+          })
+          .toBe(true);
+        await openDocument(guestPage, guestDocumentTitle);
+
+        await expect
+          .poll(
+            () => {
+              const matched = forbiddenBodies.filter(
+                (body) =>
+                  body.includes("rrp_missing_device_id") || body.includes("permission_denied"),
+              );
+              return matched.length === 0 ? false : matched.join(" | ");
+            },
+            {
+              timeout: 2_000,
+              message: "guest redemption/open must not hit RRP or member-list permission failures",
+            },
+          )
+          .toBe(false);
+      } finally {
+        await guestContext.close();
+      }
+
+      await expect(guestInvitesSection.getByText(payload.token_prefix!)).toBeVisible({
+        timeout: 10_000,
+      });
+      const revokeResponse = sharedPage.waitForResponse(
+        (response) =>
+          response.request().method() === "DELETE" &&
+          response.url().includes(`/guest-invitations/${payload.invitation_id}`),
+      );
+      await guestInvitesSection.getByRole("button", { name: "Revoke invitation" }).click();
+      await revokeResponse;
+      await expect(guestInvitesSection.getByText(payload.token_prefix!)).toHaveCount(0, {
+        timeout: 10_000,
+      });
     });
 
     await test.step("Editor tab shows Default Editor Mode setting", async () => {
@@ -275,12 +362,128 @@ test.describe.serial("Settings Dialog", () => {
     });
 
     await test.step("Account tab has logout button", async () => {
-      await expect(
-        sharedPage.getByRole("button", { name: "Log out" }),
-      ).toBeVisible({ timeout: 5_000 });
+      await expect(sharedPage.getByRole("button", { name: "Log out" })).toBeVisible({
+        timeout: 5_000,
+      });
 
       await sharedPage.keyboard.press("Escape");
       await sharedPage.waitForTimeout(E2E_DELAYS.poll);
     });
+  });
+
+  test("registered guest recipient redeems a recipient-bound invitation", async ({ browser }) => {
+    test.setTimeout(E2E_TIMEOUTS.extendedScenario);
+
+    const recipientContext = await newE2EContext(browser, { bypassCSP: true });
+    const recipientPage = await recipientContext.newPage();
+    try {
+      const recipientEmail = await registerAccount(recipientPage, "Known guest recipient");
+      await openSettings(sharedPage);
+      await selectSettingsTab(sharedPage, "Workspace");
+      const guestInvitesSection = sharedPage.getByTestId("guest-invites-section");
+      if (
+        !(await guestInvitesSection
+          .getByRole("button", { name: "Invite Guest" })
+          .isVisible()
+          .catch(() => false))
+      ) {
+        const updateResponse = sharedPage.waitForResponse(
+          (response) =>
+            response.request().method() === "PATCH" &&
+            response.url().includes("/api/workspaces/") &&
+            !response.url().endsWith("/features"),
+        );
+        await guestInvitesSection.getByRole("group", { name: "Allow guest invites" }).click();
+        await expect(guestInvitesSection.getByRole("switch").first()).toBeChecked({
+          timeout: 10_000,
+        });
+        await guestInvitesSection.getByRole("button", { name: "Save" }).click();
+        await updateResponse;
+        await expect(guestInvitesSection.getByRole("button", { name: "Invite Guest" })).toBeVisible(
+          { timeout: 30_000 },
+        );
+      }
+      await guestInvitesSection.getByRole("button", { name: "Invite Guest" }).click();
+      const dialog = sharedPage
+        .locator('[role="dialog"]')
+        .filter({ has: sharedPage.getByRole("heading", { name: "Invite Guest" }) });
+      await dialog.locator("#guest-email").fill(recipientEmail);
+      const createResponse = sharedPage.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.status() === 201 &&
+          /\/api\/workspaces\/[^/]+\/guest-invitations$/.test(response.url()),
+      );
+      await dialog.getByRole("button", { name: "Create Invitation" }).click();
+      const payload = (await (await createResponse).json()) as { delivery_mode?: string };
+      expect(payload.delivery_mode).toBe("known_recipient");
+      const link = await dialog.locator("input[readonly]").inputValue();
+      expect(link).toContain("/invite#it=");
+      expect(link).not.toContain("&ib=");
+
+      await recipientPage.goto(link, { waitUntil: "domcontentloaded" });
+      const continueButton = recipientPage.getByRole("button", { name: "Continue as Guest" });
+      await continueButton.waitFor({ state: "visible", timeout: 30_000 });
+      await continueButton.click();
+      await expect(
+        recipientPage.getByText("Workspace key delivery is waiting for approval."),
+      ).toBeVisible({ timeout: 30_000 });
+      await dialog.getByRole("button", { name: "Done" }).click();
+      const approveButton = guestInvitesSection
+        .getByRole("button", { name: "Approve key delivery" })
+        .first();
+      await approveButton.waitFor({ state: "visible", timeout: 30_000 });
+      await approveButton.click();
+      await expect(approveButton).toHaveCount(0, { timeout: 30_000 });
+      await recipientPage.getByRole("button", { name: "Retry" }).click();
+      await expect
+        .poll(
+          async () => {
+            if (/\/dashboard/.test(recipientPage.url())) return "redeemed";
+            const bodyText = await recipientPage.locator("body").innerText();
+            return JSON.stringify({ url: recipientPage.url(), bodyText });
+          },
+          { timeout: 60_000, message: "guest invitation redemption did not succeed" },
+        )
+        .toBe("redeemed");
+
+      await openDocument(recipientPage, guestDocumentTitle);
+      await recipientPage.reload({ waitUntil: "domcontentloaded" });
+      await openDocument(recipientPage, guestDocumentTitle);
+
+      const reentryDeliveryRequests: string[] = [];
+      const recordReentryDeliveryRequest = (request: { url(): string }) => {
+        if (request.url().includes("delivery-attempts")) {
+          reentryDeliveryRequests.push(request.url());
+        }
+      };
+      recipientPage.on("request", recordReentryDeliveryRequest);
+      await recipientPage.goto(link, { waitUntil: "domcontentloaded" });
+      const reenterButton = recipientPage.getByRole("button", { name: "Continue as Guest" });
+      await expect
+        .poll(
+          async () => {
+            if (/\/dashboard/.test(recipientPage.url())) return "reentered";
+            if (await reenterButton.isVisible().catch(() => false)) return "confirm";
+            return recipientPage.locator("body").innerText();
+          },
+          { timeout: 30_000, message: "known-recipient reentry did not start" },
+        )
+        .toMatch(/^(reentered|confirm)$/);
+      if (await reenterButton.isVisible().catch(() => false)) {
+        await reenterButton.click();
+      }
+      await expect
+        .poll(() => /\/dashboard/.test(recipientPage.url()), {
+          timeout: 60_000,
+          message: "known recipient did not re-enter from the same invitation and device",
+        })
+        .toBe(true);
+      recipientPage.off("request", recordReentryDeliveryRequest);
+      expect(reentryDeliveryRequests).toEqual([]);
+      await openDocument(recipientPage, guestDocumentTitle);
+    } finally {
+      await recipientContext.close();
+    }
   });
 });

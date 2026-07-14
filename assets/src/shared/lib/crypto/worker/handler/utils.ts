@@ -96,18 +96,28 @@ export function requireDeviceHybridEncryptionPrivateKeyMaterial(
 }
 export function requireIdentityHybridSigningPrivateKeyMaterial(
   state: WorkerKeyState,
+  options: { allowOverdue?: boolean } = {},
 ): HybridSigningPrivateKeyMaterial {
+  assertIdentityPrivateKeyUsable(state);
   if (!state.identityHybridSigningState) {
     throw new CryptoOperationError(
       "not_initialized",
       "Identity hybrid signing private key material not available",
     );
   }
+  if (
+    !options.allowOverdue &&
+    state.identityRotationDueAtMs !== null &&
+    state.identityRotationDueAtMs <= Date.now()
+  ) {
+    throw new CryptoOperationError("key_expired", "Identity signing key rotation is overdue");
+  }
   return state.identityHybridSigningState.privateKeyMaterial;
 }
 export function requireIdentityHybridEncryptionPrivateKeyMaterial(
   state: WorkerKeyState,
 ): HybridEncryptionPrivateKeyMaterial {
+  assertIdentityPrivateKeyUsable(state);
   if (!state.identityHybridEncryptionPrivateKeyMaterial) {
     throw new CryptoOperationError(
       "not_initialized",
@@ -117,10 +127,20 @@ export function requireIdentityHybridEncryptionPrivateKeyMaterial(
   return state.identityHybridEncryptionPrivateKeyMaterial;
 }
 export function requireIdentityEcdhPrivate(state: WorkerKeyState): Uint8Array {
+  assertIdentityPrivateKeyUsable(state);
   if (!state.identityEcdhPrivate) {
     throw new CryptoOperationError("not_initialized", "Identity ECDH private key not available");
   }
   return state.identityEcdhPrivate;
+}
+
+function assertIdentityPrivateKeyUsable(state: WorkerKeyState): void {
+  if (state.identityRotationFinalization) {
+    throw new CryptoOperationError(
+      "key_expired",
+      "Identity private key is blocked during rotation finalization",
+    );
+  }
 }
 export function requireDsk(state: WorkerKeyState): CryptoKey {
   if (!state.dsk) throw new CryptoOperationError("not_initialized", "DSK not available");

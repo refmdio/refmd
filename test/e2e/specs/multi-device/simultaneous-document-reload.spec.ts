@@ -19,6 +19,9 @@ async function loginForDeviceRegistration(page: Page, email: string) {
   await page.locator("#password").fill(TEST_PASSWORD);
   await page.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(/devices\/register/, { timeout: 120_000 });
+  await page.getByRole("button", { name: "Verify with an existing device" }).click({
+    timeout: 120_000,
+  });
 }
 
 async function waitForSyncReady(page: Page, documentId: string, label: string) {

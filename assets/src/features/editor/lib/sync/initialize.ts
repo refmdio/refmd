@@ -30,6 +30,7 @@ export async function initializeDocumentSync(
   documentId: string,
   workspaceId: string,
   state: DocumentState,
+  options: { skipDocumentWipeAcknowledgement?: boolean } = {},
 ): Promise<void> {
   const abortController = new AbortController();
   state._initAbortController?.abort();
@@ -43,6 +44,7 @@ export async function initializeDocumentSync(
       workspaceId,
       state,
       abortController.signal,
+      options,
     );
     void initPromise.catch(() => {});
     try {

@@ -10,7 +10,7 @@ defmodule RefMD.Workspaces.WorkspaceDeviceWipeRequirement do
   schema "workspace_device_wipe_requirements" do
     belongs_to :workspace, RefMD.Workspaces.Workspace, primary_key: true
     belongs_to :device, RefMD.Devices.Device, primary_key: true
-    field :required_kek_version, :integer
+    field :required_kek_version, :integer, primary_key: true
     field :reason, :string
     field :required_at, :utc_datetime_usec
 
@@ -36,7 +36,7 @@ defmodule RefMD.Workspaces.WorkspaceDeviceWipeRequirement do
     |> validate_number(:required_kek_version, greater_than: 0)
     |> foreign_key_constraint(:workspace_id)
     |> foreign_key_constraint(:device_id)
-    |> unique_constraint([:workspace_id, :device_id],
+    |> unique_constraint([:workspace_id, :device_id, :required_kek_version],
       name: :workspace_device_wipe_requirements_pkey
     )
   end

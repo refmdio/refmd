@@ -14,6 +14,7 @@ import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signatu
 import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
 import { buildInitialKeyDirectoryBootstrap } from "@/shared/lib/crypto/key-directory/initial";
 import { pinInitialKeyDirectoryCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { verifyAndPinSetupAuditCheckpoints } from "@/shared/lib/anti-rollback/setup-audit-checkpoints";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
 interface RegisterResult {
@@ -217,7 +218,12 @@ export async function register(
       ignoreConflict: true,
     });
     // Step 10: Mark encryption setup complete
-    await encryptionApi.setupComplete();
+    const setupAudit = await encryptionApi.setupComplete();
+    await verifyAndPinSetupAuditCheckpoints({
+      userId,
+      rrpDeviceId: deviceId,
+      checkpoints: setupAudit,
+    });
     setCryptoWorkerReady(true);
     return {
       userId,

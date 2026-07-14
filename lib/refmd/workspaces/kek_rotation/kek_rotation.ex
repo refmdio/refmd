@@ -3,29 +3,106 @@ defmodule RefMD.Workspaces.KekRotation do
 
   import Ecto.Query
 
+  alias RefMD.Devices.Device
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
+  alias RefMD.Users.User
+  alias RefMD.Workspaces.KekRotation.DeletionProofs
   alias RefMD.Workspaces.KekRotation.Directory
-  alias RefMD.Workspaces.{Workspace, WorkspaceDeviceWipeRequirement}
+
+  alias RefMD.Workspaces.{
+    Workspace,
+    WorkspaceDeviceWipeRequirement,
+    WorkspaceMember,
+    WorkspaceRole
+  }
 
   def mark_kek_rotation_needed(workspace_ids, initiator_user_id) when workspace_ids != [] do
-    from(w in Workspace,
-      where: w.id in ^workspace_ids and w.needs_kek_rotation == false
-    )
-    |> Repo.update_all(
-      set: [needs_kek_rotation: true, kek_rotation_initiator_user_id: initiator_user_id]
-    )
+    count =
+      Enum.reduce(workspace_ids, 0, fn workspace_id, count ->
+        initiator =
+          if rotation_initiator_eligible?(workspace_id, initiator_user_id),
+            do: initiator_user_id,
+            else: next_rotation_initiator(workspace_id)
+
+        case initiator do
+          nil ->
+            count
+
+          user_id ->
+            {updated, _} =
+              from(w in Workspace,
+                where: w.id == ^workspace_id and w.needs_kek_rotation == false
+              )
+              |> Repo.update_all(
+                set: [needs_kek_rotation: true, kek_rotation_initiator_user_id: user_id]
+              )
+
+            count + updated
+        end
+      end)
+
+    {count, nil}
   end
 
   def mark_kek_rotation_needed([], _initiator_user_id), do: {0, nil}
 
-  def mark_dek_rotation_needed(workspace_ids) when workspace_ids != [] do
-    from(d in RefMD.Documents.Document,
-      where: d.workspace_id in ^workspace_ids and d.needs_dek_rotation == false
-    )
-    |> Repo.update_all(set: [needs_dek_rotation: true])
+  def rotation_initiator_eligible?(workspace_id, user_id)
+      when is_binary(workspace_id) and is_binary(user_id) do
+    workspace_id
+    |> eligible_rotation_initiators_query()
+    |> where([wm, _role, _user, _device], wm.user_id == ^user_id)
+    |> Repo.exists?()
   end
 
-  def mark_dek_rotation_needed([]), do: {0, nil}
+  def rotation_initiator_eligible?(_, _), do: false
+
+  def next_rotation_initiator(workspace_id) when is_binary(workspace_id) do
+    workspace_id
+    |> eligible_rotation_initiators_query()
+    |> select([wm, _role, _user, _device], wm.user_id)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  def next_rotation_initiator(_), do: nil
+
+  def mark_dek_rotation_needed(workspace_ids, "security") when workspace_ids != [] do
+    from(d in RefMD.Documents.Document, where: d.workspace_id in ^workspace_ids)
+    |> Repo.update_all(set: [needs_dek_rotation: true, dek_rotation_reason: "security"])
+  end
+
+  def mark_dek_rotation_needed(workspace_ids, "membership_change") when workspace_ids != [] do
+    from(d in RefMD.Documents.Document,
+      where:
+        d.workspace_id in ^workspace_ids and
+          (is_nil(d.dek_rotation_reason) or d.dek_rotation_reason != "security")
+    )
+    |> Repo.update_all(set: [needs_dek_rotation: true, dek_rotation_reason: "membership_change"])
+  end
+
+  def mark_dek_rotation_needed([], reason)
+      when reason in ["security", "membership_change"],
+      do: {0, nil}
+
+  def mark_membership_rotation_needed!(workspace_id, initiator_user_id) do
+    case mark_kek_rotation_needed([workspace_id], initiator_user_id) do
+      {1, _} -> :ok
+      {0, _} -> assert_rotation_already_pending!(workspace_id)
+    end
+
+    mark_dek_rotation_needed([workspace_id], "membership_change")
+    :ok
+  rescue
+    _ -> Repo.rollback(:rotation_mark_failed)
+  end
+
+  defp assert_rotation_already_pending!(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %{needs_kek_rotation: true} -> :ok
+      _ -> Repo.rollback(:rotation_initiator_missing)
+    end
+  end
 
   def start_kek_rotation(workspace_id, initiator_user_id, opts \\ []) do
     events = Keyword.get(opts, :workspace_key_directory_events)
@@ -42,6 +119,9 @@ defmodule RefMD.Workspaces.KekRotation do
       cond do
         workspace == nil ->
           Repo.rollback(:not_found)
+
+        not rotation_initiator_eligible?(workspace_id, initiator_user_id) ->
+          Repo.rollback(:forbidden)
 
         workspace.needs_kek_rotation and
             Directory.rotation_started?(workspace, workspace.current_kek_version + 1) ->
@@ -65,6 +145,25 @@ defmodule RefMD.Workspaces.KekRotation do
       {:ok, workspace} -> {:ok, workspace}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp eligible_rotation_initiators_query(workspace_id) do
+    from(wm in WorkspaceMember,
+      join: role in WorkspaceRole,
+      on: role.id == wm.role_id and role.workspace_id == wm.workspace_id,
+      join: user in User,
+      on: user.id == wm.user_id,
+      join: device in Device,
+      on: device.user_id == wm.user_id,
+      where:
+        wm.workspace_id == ^workspace_id and user.account_type != "guest" and
+          role.base_role in ["owner", "admin"] and is_nil(device.revoked_at) and
+          is_nil(device.identity_wipe_required_at),
+      order_by: [
+        asc: fragment("CASE ? WHEN 'owner' THEN 0 ELSE 1 END", role.base_role),
+        asc: wm.user_id
+      ]
+    )
   end
 
   def prepare_kek_rotation_completion(workspace_id, new_kek_version, opts \\ []) do
@@ -162,6 +261,73 @@ defmodule RefMD.Workspaces.KekRotation do
     |> Map.new(&{&1.old_key_deleted_event_hash, &1})
   end
 
+  def wipe_requirement(workspace_id, device_id) do
+    with %WorkspaceDeviceWipeRequirement{} = requirement <-
+           oldest_wipe_requirement(workspace_id, device_id),
+         %RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence{} = evidence <-
+           wipe_evidence(workspace_id, device_id, requirement.required_kek_version) do
+      {:ok,
+       %{
+         workspace_id: workspace_id,
+         required_kek_version: requirement.required_kek_version,
+         old_key_version: evidence.old_key_version,
+         rotation_completed_event_hash:
+           evidence.deletion_manifest["rotation_completed_event_hash"],
+         deleted_secret_ids_hash: evidence.deletion_manifest["deleted_secret_ids_hash"]
+       }}
+    else
+      _ -> {:error, :wipe_requirement_not_found}
+    end
+  end
+
+  def acknowledge_wipe(workspace_id, device_id, proof) when is_map(proof) do
+    Repo.transaction(fn ->
+      requirement =
+        from(r in WorkspaceDeviceWipeRequirement,
+          where: r.workspace_id == ^workspace_id and r.device_id == ^device_id,
+          order_by: [asc: r.required_kek_version],
+          limit: 1,
+          lock: "FOR UPDATE"
+        )
+        |> Repo.one()
+
+      if is_nil(requirement), do: Repo.rollback(:wipe_requirement_not_found)
+
+      evidence =
+        wipe_evidence(workspace_id, device_id, requirement.required_kek_version) ||
+          Repo.rollback(:wipe_requirement_not_found)
+
+      :ok =
+        DeletionProofs.validate_kek_ack!(
+          workspace_id,
+          evidence.old_key_version,
+          evidence.deletion_manifest["rotation_completed_event_hash"],
+          device_id,
+          proof
+        )
+
+      Repo.delete!(requirement)
+      :ok
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    _ -> {:error, :invalid_deletion_proof}
+  end
+
+  def acknowledge_wipe(_, _, _), do: {:error, :invalid_deletion_proof}
+
+  defp wipe_evidence(workspace_id, device_id, required_kek_version) do
+    from(e in RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence,
+      where: e.workspace_id == ^workspace_id and e.old_key_version == ^(required_kek_version - 1),
+      order_by: [desc: e.inserted_at]
+    )
+    |> Repo.all()
+    |> Enum.find(&(device_id in &1.wipe_required_device_ids))
+  end
+
   defp apply_rotation_completion(
          workspace,
          new_kek_version,
@@ -210,6 +376,7 @@ defmodule RefMD.Workspaces.KekRotation do
             current_kek_version: new_kek_version,
             min_kek_version: new_kek_version,
             needs_kek_rotation: false,
+            kek_rotation_due_at: RotationPolicy.next_kek_due_at(),
             kek_rotation_initiator_user_id: nil
           ]
         )
@@ -247,10 +414,19 @@ defmodule RefMD.Workspaces.KekRotation do
 
     Repo.insert_all(WorkspaceDeviceWipeRequirement, rows,
       on_conflict: :nothing,
-      conflict_target: [:workspace_id, :device_id]
+      conflict_target: [:workspace_id, :device_id, :required_kek_version]
     )
 
     :ok
+  end
+
+  defp oldest_wipe_requirement(workspace_id, device_id) do
+    from(r in WorkspaceDeviceWipeRequirement,
+      where: r.workspace_id == ^workspace_id and r.device_id == ^device_id,
+      order_by: [asc: r.required_kek_version],
+      limit: 1
+    )
+    |> Repo.one()
   end
 
   defp reject_old_kek_document_references!(workspace_id, new_kek_version) do

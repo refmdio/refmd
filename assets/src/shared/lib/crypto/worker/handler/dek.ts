@@ -152,9 +152,10 @@ export function handleUnwrapShareDek(state: WorkerKeyState, p: HandlerPayload): 
   const candidates =
     explicitDekEncryptionKey instanceof Uint8Array
       ? [explicitDekEncryptionKey]
-      : candidateSlugs
-          .map((slug) => state.shareSecrets.get(slug)?.dekEncryptionKey)
-          .filter((value): value is Uint8Array => value instanceof Uint8Array);
+      : [
+          state.guestShareKeys.get(shareId)?.key,
+          ...candidateSlugs.map((slug) => state.shareSecrets.get(slug)?.dekEncryptionKey),
+        ].filter((value): value is Uint8Array => value instanceof Uint8Array);
 
   if (candidates.length === 0) {
     throw new Error("share_dek_encryption_key_required");
@@ -547,6 +548,29 @@ function upsertShareSecrets(
     current.passwordCapabilitySecret = new Uint8Array(secrets.passwordCapabilitySecret);
   }
   state.shareSecrets.set(shareSlug, current);
+}
+
+export function installManagedShareSecretsFromBackup(
+  state: WorkerKeyState,
+  shareSlug: string,
+  capabilitySecret: Uint8Array,
+  passwordCapabilitySecret?: Uint8Array,
+): void {
+  const authorizationSecret = passwordCapabilitySecret
+    ? derivePasswordShareAdmissionKey(passwordCapabilitySecret, capabilitySecret)
+    : deriveOpenShareAdmissionKey(capabilitySecret);
+  const dekEncryptionKey = passwordCapabilitySecret
+    ? derivePasswordShareDekEncryptionKey(passwordCapabilitySecret, capabilitySecret)
+    : deriveOpenShareDekEncryptionKey(capabilitySecret);
+
+  upsertShareSecrets(state, shareSlug, {
+    authorizationSecret,
+    dekEncryptionKey,
+    capabilitySecret,
+    passwordCapabilitySecret,
+  });
+  authorizationSecret.fill(0);
+  dekEncryptionKey.fill(0);
 }
 
 function deriveShareDekEncryptionKeyFromStoredSecrets(

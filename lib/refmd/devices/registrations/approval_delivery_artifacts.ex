@@ -20,251 +20,21 @@ defmodule RefMD.Devices.Registrations.ApprovalDeliveryArtifacts do
         get_in(details || %{}, ["device_approval_kek_initial_delivery_commitments"])
     }
 
-    if valid_approval_inputs?(params, proof, commitments, approver_device, device_registration),
-      do: {:ok, commitments, nil},
-      else: {:error, :invalid_approval_commitments}
+    offers = params["initial_ake_offers"]
+
+    if valid_approval_inputs?(
+         params,
+         proof,
+         commitments,
+         offers,
+         approver_device,
+         device_registration
+       ),
+       do: {:ok, commitments, %{"initial_ake_offers" => offers}},
+       else: {:error, :invalid_approval_commitments}
   end
 
   def approval_inputs_from_params(_, _, _, _), do: {:error, :invalid_approval_commitments}
-
-  def delivery_artifact_matches?(
-        purpose,
-        %{"initial_ake" => initial_ake, "initial_key_delivery" => initial_key_delivery},
-        commitment,
-        approver_device,
-        device_registration
-      )
-      when is_binary(purpose) and is_map(initial_ake) and is_map(initial_key_delivery) and
-             is_map(commitment) and not is_nil(approver_device) do
-    metadata = initial_key_delivery["metadata"]
-
-    delivery_artifact_base_matches?(
-      purpose,
-      initial_ake,
-      initial_key_delivery,
-      commitment,
-      metadata,
-      approver_device,
-      device_registration
-    ) and delivery_artifact_purpose_matches?(purpose, initial_ake, commitment, metadata)
-  rescue
-    _ -> false
-  end
-
-  def delivery_artifact_matches?(_, _, _, _, _), do: false
-
-  def kek_delivery_artifacts_match?(artifacts, commitments, approver_device, device_registration)
-      when is_map(artifacts) and is_list(commitments) do
-    map_size(artifacts) == length(commitments) and
-      Enum.all?(commitments, fn commitment ->
-        workspace_id = commitment["workspace_id"]
-
-        is_binary(workspace_id) and
-          delivery_artifact_matches?(
-            "device_approval_kek_initial",
-            artifacts[workspace_id],
-            commitment,
-            approver_device,
-            device_registration
-          )
-      end)
-  end
-
-  def kek_delivery_artifacts_match?(_, _, _, _), do: false
-
-  defp delivery_artifact_base_matches?(
-         purpose,
-         initial_ake,
-         initial_key_delivery,
-         commitment,
-         metadata,
-         approver_device,
-         device_registration
-       ) do
-    is_map(metadata) and
-      verify_initial_key_delivery_artifact?(
-        purpose,
-        initial_ake,
-        initial_key_delivery,
-        approver_device,
-        device_registration
-      ) and delivery_commitment_base_matches?(purpose, initial_key_delivery, commitment, metadata) and
-      initial_key_delivery["protocol"] == "refmd.initial-key-delivery" and
-      initial_key_delivery["purpose"] == purpose and
-      initial_key_delivery["variant"] == purpose
-  end
-
-  defp delivery_commitment_base_matches?(purpose, initial_key_delivery, commitment, metadata) do
-    commitment["purpose"] == purpose and
-      commitment["variant"] == purpose and
-      commitment["delivery_id"] == metadata["delivery_id"] and
-      commitment["recipient_device_id"] == metadata["recipient_device_id"] and
-      commitment["sender_device_id"] == metadata["sender_device_id"] and
-      commitment["delivery_record_hash"] ==
-        Hash.blake3_base64url(JCS.canonical_bytes!(initial_key_delivery)) and
-      commitment["key_checkpoint_hash"] == metadata["key_checkpoint_hash"]
-  end
-
-  defp delivery_artifact_purpose_matches?("trust_transfer", initial_ake, commitment, metadata) do
-    context = get_in(initial_ake, ["transcript", "context"])
-
-    is_map(context) and commitment["ake_session_id"] == context["operation_id"] and
-      commitment["document_rollback_pin_set_hash"] ==
-        metadata["document_rollback_pin_set_hash"]
-  end
-
-  defp delivery_artifact_purpose_matches?(
-         "device_approval_kek_initial",
-         _initial_ake,
-         commitment,
-         metadata
-       ) do
-    commitment["workspace_id"] == metadata["workspace_id"] and
-      commitment["key_version"] == metadata["key_version"]
-  end
-
-  defp delivery_artifact_purpose_matches?(_, _, _, _), do: true
-
-  defp verify_initial_key_delivery_artifact?(
-         purpose,
-         initial_ake,
-         initial_key_delivery,
-         approver_device,
-         device_registration
-       ) do
-    metadata = Map.fetch!(initial_key_delivery, "metadata")
-    aead = Map.fetch!(initial_key_delivery, "aead")
-    authority = Map.fetch!(initial_key_delivery, "authority")
-    signature = Map.fetch!(initial_key_delivery, "signature")
-    signing_body = Map.delete(initial_key_delivery, "signature")
-    ake_transcript = Map.fetch!(initial_ake, "transcript")
-    context = Map.fetch!(ake_transcript, "context")
-    initiator_commitment = Map.fetch!(initial_ake, "initiator_commitment")
-    transcript_hash = Hash.blake3_base64url(JCS.canonical_bytes!(ake_transcript))
-    context_hash = Hash.blake3_base64url(JCS.canonical_bytes!(context))
-    ciphertext_hash = Hash.blake3_base64url(Encoding.decode_base64url!(aead["ciphertext"]))
-    initiator_commitment_hash = Hash.blake3_base64url(JCS.canonical_bytes!(initiator_commitment))
-
-    commitment_transcript =
-      Signature.build_initiator_ake_commitment_transcript!(
-        metadata["sender_device_id"],
-        initiator_commitment,
-        Map.fetch!(initiator_commitment, "initiator"),
-        Map.fetch!(initiator_commitment, "ake_inputs"),
-        %{
-          "operation_id" => context["operation_id"],
-          "context_hash" => initiator_commitment["context_hash"],
-          "directory_hash" => initiator_commitment["directory_hash"],
-          "recipient_hash" => initiator_commitment["recipient_hash"],
-          "server_challenge" => initiator_commitment["server_challenge"]
-        }
-      )
-
-    signature_transcript =
-      Signature.build_initial_key_delivery_transcript!(
-        metadata["sender_device_id"],
-        purpose,
-        signing_body,
-        %{
-          "user_id" => approver_device.user_id,
-          "device_id" => metadata["sender_device_id"],
-          "signing_key_id" => signature["signing_key_id"]
-        },
-        %{
-          "user_id" => approver_device.user_id,
-          "device_id" => metadata["recipient_device_id"],
-          "encryption_key_id" => metadata["recipient_encryption_key_id"]
-        },
-        %{
-          "ake_transcript_hash" => transcript_hash,
-          "initiator_commitment_hash" => initiator_commitment_hash,
-          "purpose" => purpose,
-          "operation_id" => context["operation_id"]
-        },
-        %{
-          "delivery_id" => metadata["delivery_id"],
-          "context_hash" => metadata["context_hash"],
-          "payload_kind" => metadata["payload_kind"],
-          "ciphertext_hash" => aead["ciphertext_hash"]
-        },
-        authority
-      )
-
-    Enum.all?([
-      exact_keys?(initial_ake, [
-        "protocol",
-        "version",
-        "ake_suite_id",
-        "ake_suite_rank",
-        "purpose",
-        "transcript",
-        "transcript_hash",
-        "initiator_commitment",
-        "initiator_commitment_signature",
-        "initiator_confirmation",
-        "responder_confirmation"
-      ]),
-      exact_keys?(initial_key_delivery, [
-        "protocol",
-        "version",
-        "purpose",
-        "variant",
-        "initial_delivery_suite_id",
-        "initial_delivery_suite_rank",
-        "metadata",
-        "aead",
-        "authority",
-        "signature"
-      ]),
-      exact_keys?(aead, ["suite_id", "suite_rank", "nonce", "ciphertext", "ciphertext_hash"]),
-      initial_ake["protocol"] == "refmd.initial-hybrid-key-agreement",
-      initial_ake["version"] == 1,
-      initial_ake["ake_suite_id"] ==
-        "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65",
-      initial_ake["ake_suite_rank"] == 1000,
-      initial_ake["purpose"] == purpose,
-      initial_ake["transcript_hash"] == transcript_hash,
-      initial_key_delivery["protocol"] == "refmd.initial-key-delivery",
-      initial_key_delivery["version"] == 1,
-      initial_key_delivery["initial_delivery_suite_id"] ==
-        "refmd-v2-initial-delivery-xchacha20poly1305",
-      initial_key_delivery["initial_delivery_suite_rank"] == 1000,
-      initial_key_delivery["purpose"] == purpose,
-      initial_key_delivery["variant"] == purpose,
-      aead["suite_id"] == "refmd-v2-initial-delivery-xchacha20poly1305",
-      aead["suite_rank"] == 1000,
-      byte_size(Encoding.decode_base64url!(aead["nonce"])) == 24,
-      metadata["ake_transcript_hash"] == transcript_hash,
-      metadata["context_hash"] == context_hash,
-      metadata["initiator_commitment_hash"] == initiator_commitment_hash,
-      metadata["sender_device_id"] == approver_device.id,
-      metadata["recipient_device_id"] == device_registration.id,
-      metadata["signing_key_id"] == approver_device.signing_key_id,
-      aead["ciphertext_hash"] == ciphertext_hash,
-      signature["signing_key_id"] == approver_device.signing_key_id,
-      get_in(ake_transcript, ["initiator", "device_id"]) == approver_device.id,
-      get_in(ake_transcript, ["initiator", "signing_key_id"]) == approver_device.signing_key_id,
-      get_in(ake_transcript, ["responder", "device_id"]) == device_registration.id,
-      get_in(ake_transcript, ["context", "purpose"]) == purpose,
-      get_in(ake_transcript, ["context", "operation_id"]) == context["operation_id"],
-      context_targets_device?(purpose, context, device_registration.id),
-      Signature.verify_hybrid_signature(
-        "initiator_ake_commitment",
-        commitment_transcript,
-        initial_ake["initiator_commitment_signature"],
-        approver_device.hybrid_signing_public_key_material
-      ),
-      Signature.verify_hybrid_signature(
-        "initial_key_delivery",
-        signature_transcript,
-        signature,
-        approver_device.hybrid_signing_public_key_material,
-        %{delivery_signing_body: signing_body, authority: authority}
-      )
-    ])
-  rescue
-    _ -> false
-  end
 
   defp context_targets_device?("trust_transfer", context, device_id),
     do: context["target_device_id"] == device_id
@@ -275,10 +45,211 @@ defmodule RefMD.Devices.Registrations.ApprovalDeliveryArtifacts do
   defp context_targets_device?(_, context, device_id),
     do: context["recipient_device_id"] == device_id
 
-  defp valid_approval_inputs?(params, proof, commitments, approver_device, device_registration) do
+  defp valid_approval_inputs?(
+         params,
+         proof,
+         commitments,
+         offers,
+         approver_device,
+         device_registration
+       ) do
     device_approval_proof?(proof) and device_approval_commitments?(commitments) and
-      approval_participants_match?(params, approver_device, device_registration)
+      approval_participants_match?(params, approver_device, device_registration) and
+      initial_ake_offers_match?(offers, commitments, approver_device, device_registration)
   end
+
+  defp initial_ake_offers_match?(offers, commitments, approver_device, device_registration)
+       when is_map(offers) do
+    kek_offers = offers["device_approval_kek_initial"]
+    kek_commitments = commitments["device_approval_kek_initial_delivery_commitments"]
+
+    exact_keys?(offers, [
+      "device_approval_kek_initial",
+      "trust_transfer",
+      "umk_distribution"
+    ]) and
+      initial_ake_offer_matches?(
+        "umk_distribution",
+        offers["umk_distribution"],
+        commitments["umk_distribution_delivery_commitment"],
+        approver_device,
+        device_registration
+      ) and
+      initial_ake_offer_matches?(
+        "trust_transfer",
+        offers["trust_transfer"],
+        commitments["trust_transfer_delivery_commitment"],
+        approver_device,
+        device_registration
+      ) and
+      is_map(kek_offers) and is_list(kek_commitments) and
+      map_size(kek_offers) == length(kek_commitments) and
+      Enum.all?(kek_commitments, fn commitment ->
+        workspace_id = commitment["workspace_id"]
+
+        is_binary(workspace_id) and
+          initial_ake_offer_matches?(
+            "device_approval_kek_initial",
+            kek_offers[workspace_id],
+            commitment,
+            approver_device,
+            device_registration
+          )
+      end)
+  end
+
+  defp initial_ake_offers_match?(_, _, _, _), do: false
+
+  defp initial_ake_offer_matches?(
+         purpose,
+         offer,
+         commitment,
+         approver_device,
+         device_registration
+       )
+       when is_map(offer) and is_map(commitment) do
+    transcript = offer["transcript"]
+    initiator_commitment = offer["initiator_commitment"]
+    pending_delivery = offer["pending_delivery"]
+    metadata = pending_delivery["metadata"]
+    aead = pending_delivery["aead"]
+    context = transcript["context"]
+    transcript_hash = Hash.blake3_base64url(JCS.canonical_bytes!(transcript))
+
+    commitment_transcript =
+      Signature.build_initiator_ake_commitment_transcript!(
+        approver_device.id,
+        initiator_commitment,
+        initiator_commitment["initiator"],
+        initiator_commitment["ake_inputs"],
+        %{
+          "operation_id" => context["operation_id"],
+          "context_hash" => initiator_commitment["context_hash"],
+          "directory_hash" => initiator_commitment["directory_hash"],
+          "recipient_hash" => initiator_commitment["recipient_hash"],
+          "server_challenge" => initiator_commitment["server_challenge"]
+        }
+      )
+
+    Enum.all?([
+      exact_keys?(offer, [
+        "ake_suite_id",
+        "ake_suite_rank",
+        "initiator_commitment",
+        "initiator_commitment_signature",
+        "initiator_confirmation",
+        "pending_delivery",
+        "protocol",
+        "purpose",
+        "transcript",
+        "transcript_hash",
+        "version"
+      ]),
+      exact_keys?(pending_delivery, ["aead", "metadata"]),
+      offer["protocol"] == "refmd.initial-hybrid-key-agreement",
+      offer["version"] == 1,
+      offer["ake_suite_id"] ==
+        "refmd-v2-initial-ake-mlkem768-x25519-hkdfsha256-ed25519-mldsa65",
+      offer["ake_suite_rank"] == 1000,
+      offer["purpose"] == purpose,
+      offer["transcript_hash"] == transcript_hash,
+      byte_size(Encoding.decode_base64url!(offer["initiator_confirmation"])) == 32,
+      get_in(transcript, ["initiator", "device_id"]) == approver_device.id,
+      get_in(transcript, ["initiator", "signing_key_id"]) == approver_device.signing_key_id,
+      get_in(transcript, ["responder", "device_id"]) == device_registration.id,
+      context_targets_device?(purpose, context, device_registration.id),
+      metadata["sender_device_id"] == approver_device.id,
+      metadata["recipient_device_id"] == device_registration.id,
+      metadata["ake_transcript_hash"] == transcript_hash,
+      aead["ciphertext_hash"] ==
+        Hash.blake3_base64url(Encoding.decode_base64url!(aead["ciphertext"])),
+      commitment["purpose"] == purpose,
+      commitment["variant"] == purpose,
+      commitment["delivery_id"] == metadata["delivery_id"],
+      commitment["sender_device_id"] == approver_device.id,
+      commitment["recipient_device_id"] == device_registration.id,
+      commitment["delivery_record_hash"] ==
+        Hash.blake3_base64url(JCS.canonical_bytes!(pending_delivery)),
+      Signature.verify_hybrid_signature(
+        "initiator_ake_commitment",
+        commitment_transcript,
+        offer["initiator_commitment_signature"],
+        approver_device.hybrid_signing_public_key_material
+      )
+    ]) and offer_purpose_commitment_matches?(purpose, context, metadata, commitment)
+  rescue
+    _ -> false
+  end
+
+  defp initial_ake_offer_matches?(_, _, _, _, _), do: false
+
+  def responses_match_offers?(responses, offers)
+      when is_map(responses) and is_map(offers) do
+    exact_keys?(responses, [
+      "device_approval_kek_initial",
+      "trust_transfer",
+      "umk_distribution"
+    ]) and
+      response_matches_offer?(responses["umk_distribution"], offers["umk_distribution"]) and
+      response_matches_offer?(responses["trust_transfer"], offers["trust_transfer"]) and
+      response_map_matches_offers?(
+        responses["device_approval_kek_initial"],
+        offers["device_approval_kek_initial"]
+      )
+  end
+
+  def responses_match_offers?(_, _), do: false
+
+  defp response_map_matches_offers?(responses, offers)
+       when is_map(responses) and is_map(offers) do
+    Enum.sort(Map.keys(responses)) == Enum.sort(Map.keys(offers)) and
+      Enum.all?(offers, fn {workspace_id, offer} ->
+        response_matches_offer?(responses[workspace_id], offer)
+      end)
+  end
+
+  defp response_map_matches_offers?(_, _), do: false
+
+  defp response_matches_offer?(response, offer) when is_map(response) and is_map(offer) do
+    transcript = offer["transcript"]
+
+    exact_keys?(response, [
+      "prekey_id",
+      "protocol",
+      "purpose",
+      "responder_confirmation",
+      "transcript_hash",
+      "version"
+    ]) and
+      response["protocol"] == "refmd.initial-ake-responder-confirmation" and
+      response["version"] == 1 and
+      response["purpose"] == offer["purpose"] and
+      response["transcript_hash"] == offer["transcript_hash"] and
+      response["prekey_id"] == get_in(transcript, ["responder", "prekey_id"]) and
+      byte_size(Encoding.decode_base64url!(response["responder_confirmation"])) == 32
+  rescue
+    _ -> false
+  end
+
+  defp response_matches_offer?(_, _), do: false
+
+  defp offer_purpose_commitment_matches?("trust_transfer", context, metadata, commitment) do
+    commitment["ake_session_id"] == context["operation_id"] and
+      commitment["document_rollback_pin_set_hash"] ==
+        metadata["document_rollback_pin_set_hash"]
+  end
+
+  defp offer_purpose_commitment_matches?(
+         "device_approval_kek_initial",
+         _context,
+         metadata,
+         commitment
+       ) do
+    commitment["workspace_id"] == metadata["workspace_id"] and
+      commitment["key_version"] == metadata["key_version"]
+  end
+
+  defp offer_purpose_commitment_matches?(_, _, _, _), do: true
 
   defp approval_participants_match?(_params, approver_device, device_registration),
     do: is_map(approver_device) and is_map(device_registration)

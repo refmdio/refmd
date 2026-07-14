@@ -299,19 +299,23 @@ export async function clearShareParticipantSession(shareSlug?: string): Promise<
     return;
   }
 
-  await Promise.allSettled([
+  const workerResults = await Promise.allSettled([
     getCryptoWorker().clearShareSecrets(),
-    ...[...activeShareParticipantSessions.keys()].map((slug) =>
-      Promise.allSettled([
-        getShareParticipantCryptoWorker(slug).clearShareSecrets(),
-        getShareParticipantCryptoWorker(slug).deleteShareSessionTrustAnchorWithDsk(slug),
-      ]),
-    ),
+    ...[...activeShareParticipantSessions.keys()].flatMap((slug) => [
+      getShareParticipantCryptoWorker(slug).clearShareSecrets(),
+      getShareParticipantCryptoWorker(slug).deleteShareSessionTrustAnchorWithDsk(slug),
+    ]),
   ]);
   activeShareParticipantSessions.clear();
   activeShareSessionTrustAnchors.clear();
   resetPhoenixConnection("share");
-  await clearStoredShareParticipantSessions();
+  const storedSessionCleared = await clearStoredShareParticipantSessions().then(
+    () => true,
+    () => false,
+  );
+  if (!storedSessionCleared || workerResults.some((result) => result.status === "rejected")) {
+    throw new Error("share_session_cleanup_incomplete");
+  }
 }
 
 async function restoreStoredShareParticipantSession(

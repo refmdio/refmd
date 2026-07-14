@@ -3,10 +3,24 @@ import { describe, expect, it } from "vite-plus/test";
 import { base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import {
   assertWorkspacePinBootstrapEnvelope,
+  assertWorkspacePinBootstrapHash,
   buildWorkspacePinBootstrapHash,
   type WorkspacePinBootstrapEnvelope,
   type WorkspacePinBootstrapPayload,
 } from "./workspace-pin-bootstrap";
+
+const nodeFsPromises = "node:fs/promises";
+const { readFile } = await import(/* @vite-ignore */ nodeFsPromises);
+const securityFixture = JSON.parse(
+  await readFile("../native/refmd_crypto/testdata/refmd-signed-pq-wrap-v1.json", "utf8"),
+) as {
+  negative: Array<{
+    base: string;
+    mutation: string;
+    operations: Array<{ op: "replace"; path: string; value: string }>;
+    expected_error: string;
+  }>;
+};
 
 const base64Url32 = (byte: number) => base64UrlEncode(new Uint8Array(32).fill(byte));
 
@@ -125,5 +139,24 @@ describe("WorkspacePinBootstrap exact schema", () => {
         "workspace_pin_bootstrap_invalid",
       ),
     ).toThrow("workspace_pin_signature_invalid");
+  });
+
+  it.each(
+    securityFixture.negative.filter((vector) => vector.base === "workspace-pin-bootstrap-hash-v1"),
+  )("rejects $mutation", (vector) => {
+    const input = {
+      workspaceId: "workspace-1",
+      authenticatedWorkspacePinBootstrapHash: buildWorkspacePinBootstrapHash({
+        workspaceId: "workspace-1",
+        bootstrap: bootstrap(),
+      }),
+      bootstrap: bootstrap(),
+    };
+    for (const operation of vector.operations) {
+      expect(operation.path).toBe("/authenticatedWorkspacePinBootstrapHash");
+      input.authenticatedWorkspacePinBootstrapHash = operation.value;
+    }
+
+    expect(() => assertWorkspacePinBootstrapHash(input)).toThrow(vector.expected_error);
   });
 });

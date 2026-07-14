@@ -1,5 +1,4 @@
 import { authApi } from "@/shared/api";
-import { prepareRegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { ensureDskInWorker, persistCurrentDeviceKeys } from "./session-keys";
@@ -67,10 +66,6 @@ export async function prepareNormalRegistration(
 
   const hasDsk = await ensureDskInWorker();
   const publicKeys = await worker.generateDeviceKeys({ deviceId });
-  const initialAkeResponderPrekeys = await prepareRegistrationInitialAkeResponderPrekeys({
-    userId,
-    deviceId,
-  });
   const deviceKeysPersisted = hasDsk ? await persistCurrentDeviceKeys(userId) : false;
 
   return {
@@ -79,7 +74,6 @@ export async function prepareNormalRegistration(
     publicKeys: {
       deviceId,
       ...publicKeys,
-      initialAkeResponderPrekeys,
     },
     decision: decideNormalRegistrationNextStep({
       hasDsk,

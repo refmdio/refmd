@@ -7,6 +7,8 @@ import { resetPhoenixSocketState } from "@/shared/lib/ws/socket";
 import { Spinner } from "@/shared/ui/spinner";
 import { ThemeProvider } from "@/shared/ui/theme-provider";
 import { isPublicPath, useSessionBootstrap } from "@/app/bootstrap/session";
+import { useIdentityRotationMonitor } from "@/app/bootstrap/use-identity-rotation-monitor";
+import { installSecureLogoutPersistenceE2EHook } from "@/app/bootstrap/e2e-persistence";
 import { AppRoutes } from "@/app/router/AppRoutes";
 import "@/app.css";
 
@@ -86,6 +88,7 @@ function validateUserUnauthorizedBeforeClearing(sessionIdAtUnauthorized: string)
 }
 
 export default function App() {
+  installSecureLogoutPersistenceE2EHook();
   createEffect(() => {
     const sessionId = authState()?.sessionId ?? null;
     if (sessionId && sessionId !== observedSessionId) {
@@ -110,6 +113,7 @@ export default function App() {
 
   const { ready, showPasswordReentry, transientError, retryRestore, closePasswordReentry } =
     useSessionBootstrap();
+  useIdentityRotationMonitor();
   const shouldBlockForPasswordReentry = () => showPasswordReentry() && !isPublicPath();
 
   return (

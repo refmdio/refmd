@@ -12,6 +12,7 @@ import {
   setPreferredSessionScope,
 } from "@/shared/lib/auth/session-scope";
 import { resetPhoenixConnection } from "@/shared/lib/ws/phoenix-channel";
+import { setSecureLogoutIncomplete } from "@/shared/lib/auth/logout-incomplete";
 
 interface LogoutResult {
   logoutIncomplete: boolean;
@@ -19,22 +20,19 @@ interface LogoutResult {
 }
 
 export async function performLogout(keepCredentials: boolean): Promise<LogoutResult> {
-  const shareScopedLogout = getPreferredSessionScope() === "share";
+  const shareScopedLogout = getPreferredSessionScope() === "share" && keepCredentials;
   const hasUserSession = !!authState();
   const worker = getCryptoWorker();
 
-  await runBeforeSessionCleanup({ secure: !keepCredentials });
+  const beforeCleanup = await runBeforeSessionCleanup({ secure: !keepCredentials });
+  let logoutIncomplete = beforeCleanup.failures.length > 0;
 
-  try {
-    await worker.lock();
-  } catch {
-    // Worker may not be initialized.
+  if (!(await runLogoutStep(() => worker.lock()))) {
+    logoutIncomplete = true;
   }
   terminateCryptoWorker();
   terminateAllScopedCryptoWorkers();
   resetPhoenixConnection();
-
-  let logoutIncomplete = false;
 
   if (!shareScopedLogout) {
     clearDocumentKeyCache();
@@ -44,44 +42,42 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
   }
 
   if (!shareScopedLogout && !keepCredentials) {
-    try {
-      await clearStoredShareParticipantSessions();
-    } catch {
+    if (!(await runLogoutStep(clearStoredShareParticipantSessions))) {
       logoutIncomplete = true;
     }
 
-    try {
-      await clearAllPersistedKeys();
-    } catch {
+    if (!(await runLogoutStep(clearAllPersistedKeys))) {
       logoutIncomplete = true;
     }
   }
 
   if (!shareScopedLogout && !keepCredentials) {
-    try {
-      await authApi.logout({ clearMountSession: true, sessionScope: "share" });
-    } catch {
-      // A user may not have an active share session cookie.
+    if (
+      !(await runLogoutStep(() =>
+        authApi.logout({ clearMountSession: true, sessionScope: "share" }),
+      ))
+    ) {
+      logoutIncomplete = true;
     }
   }
 
   if (!shareScopedLogout || !keepCredentials) {
-    try {
-      await authApi.logout(
-        shareScopedLogout
-          ? { clearMountSession: !keepCredentials, sessionScope: "share" }
-          : { clearMountSession: !keepCredentials },
-      );
-    } catch {
+    if (
+      !(await runLogoutStep(() =>
+        authApi.logout(
+          shareScopedLogout
+            ? { clearMountSession: !keepCredentials, sessionScope: "share" }
+            : { clearMountSession: !keepCredentials },
+        ),
+      ))
+    ) {
       logoutIncomplete = true;
     }
   }
 
   if (shareScopedLogout) {
     if (!keepCredentials) {
-      try {
-        await clearShareParticipantState();
-      } catch {
+      if (!(await runLogoutStep(clearShareParticipantState))) {
         logoutIncomplete = true;
       }
     }
@@ -92,9 +88,7 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
     clearDocumentKeyCache();
 
     if (hasUserSession) {
-      try {
-        await restoreSessionContext();
-      } catch {
+      if (!(await runLogoutStep(restoreSessionContext))) {
         logoutIncomplete = true;
       }
     }
@@ -114,20 +108,20 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
     };
   }
 
-  try {
-    await clearSessionData({ preserveAuthBootstrap: keepCredentials });
-  } catch {
+  if (!(await runLogoutStep(() => clearSessionData({ preserveAuthBootstrap: keepCredentials })))) {
     logoutIncomplete = true;
   }
 
   if (!keepCredentials) {
-    try {
-      await clearAllPersistedKeys();
-    } catch {
+    if (!(await runLogoutStep(clearAllPersistedKeys))) {
       logoutIncomplete = true;
     }
   }
 
+  if (!keepCredentials) {
+    setPreferredSessionScope(null);
+    setSecureLogoutIncomplete(logoutIncomplete);
+  }
   return {
     logoutIncomplete,
     redirectPath: logoutIncomplete ? "/auth/login?logout_incomplete=true" : "/auth/login",
@@ -139,4 +133,13 @@ async function clearShareParticipantState(): Promise<void> {
     clearStoredShareParticipantSessions(),
     getCryptoWorker().clearMountTrustAnchorsWithDsk(),
   ]);
+}
+
+async function runLogoutStep(step: () => unknown): Promise<boolean> {
+  try {
+    await step();
+    return true;
+  } catch {
+    return false;
+  }
 }

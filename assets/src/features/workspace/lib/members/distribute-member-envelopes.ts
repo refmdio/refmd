@@ -5,25 +5,19 @@ import {
   getKekResolverSession,
 } from "@/entities/session";
 import { encryptionApi, workspacesApi } from "@/shared/api";
-import {
-  buildDeviceKeyDirectoryAppend,
-  buildIdentityKeyDirectoryAppend,
-} from "@/shared/lib/crypto/key-directory/device-events";
+import { buildDeviceKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory/device-events";
 import type {
   KeyDirectoryAppendArtifacts,
   KeyDirectoryEnvelope,
 } from "@/shared/lib/crypto/key-directory/types";
 import { resolveActiveKek } from "@/shared/lib/crypto/kek-resolver";
-import {
-  computeHybridEncryptionKeyId,
-  type HybridEncryptionPublicKeyMaterial,
-} from "@/shared/lib/crypto/hybrid-encryption";
-import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
+import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import {
   persistWorkspaceKekForDevice,
   persistWorkspaceKekForMember,
 } from "@/shared/lib/crypto/workspace-kek-persistence";
+import { ensureWorkspaceIdentityKey } from "@/shared/lib/crypto/workspace-identity-directory";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 
 const DISTRIBUTION_STABLE_TTL_MS = 60_000;
@@ -168,52 +162,6 @@ async function runWorkspaceMemberEnvelopeDistribution(workspaceId: string): Prom
   return true;
 }
 
-async function ensureWorkspaceIdentityKey(params: {
-  workspaceId: string;
-  ownerUserId: string;
-  ownerDeviceId: string;
-  targetUserId: string;
-  targetIdentityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
-  targetIdentityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
-}): Promise<{ checkpoint: KeyDirectoryEnvelope }> {
-  let directory = await fetchVerifiedKeyDirectory({
-    scopeKind: "workspace",
-    scopeId: params.workspaceId,
-    rrpDeviceId: params.ownerDeviceId,
-  });
-  const targetKeyId = computeHybridEncryptionKeyId(
-    params.targetIdentityHybridEncryptionPublicKeyMaterial,
-  );
-  const targetSigningKeyId = computeSigningKeyId(
-    params.targetIdentityHybridSigningPublicKeyMaterial,
-  );
-  if (
-    checkpointHasIdentityKey(directory.checkpoint, targetKeyId) &&
-    checkpointHasIdentityKey(directory.checkpoint, targetSigningKeyId)
-  ) {
-    return directory;
-  }
-
-  const append = await buildIdentityKeyDirectoryAppend({
-    scopeKind: "workspace",
-    scopeId: params.workspaceId,
-    userId: params.ownerUserId,
-    actorDeviceId: params.ownerDeviceId,
-    checkpointEnvelope: directory.checkpoint,
-    recipientHybridEncryptionPublicKeyMaterial:
-      params.targetIdentityHybridEncryptionPublicKeyMaterial,
-    recipientHybridSigningPublicKeyMaterial: params.targetIdentityHybridSigningPublicKeyMaterial,
-  });
-  await appendWorkspaceKeyDirectory({
-    workspaceId: params.workspaceId,
-    rrpDeviceId: params.ownerDeviceId,
-    events: append.events,
-    checkpoint: append.checkpoint,
-  });
-  directory = { checkpoint: append.checkpoint };
-  return directory;
-}
-
 async function persistWorkspaceDeviceKek(params: {
   workspaceId: string;
   ownerUserId: string;
@@ -287,13 +235,4 @@ function checkpointHasKey(checkpointEnvelope: KeyDirectoryEnvelope, keyId: strin
   const payload = checkpointEnvelope.payload as Record<string, unknown> | undefined;
   const deviceKeys = payload?.device_keys as Array<Record<string, unknown>> | undefined;
   return deviceKeys?.some((entry) => entry.key_id === keyId && !entry["revoked_at"]) ?? false;
-}
-
-function checkpointHasIdentityKey(
-  checkpointEnvelope: KeyDirectoryEnvelope,
-  keyId: string,
-): boolean {
-  const payload = checkpointEnvelope.payload as Record<string, unknown> | undefined;
-  const identityKeys = payload?.identity_keys as Array<Record<string, unknown>> | undefined;
-  return identityKeys?.some((entry) => entry.key_id === keyId && !entry["revoked_at"]) ?? false;
 }

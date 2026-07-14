@@ -1,5 +1,5 @@
 import { Match, Show, Switch, type Accessor } from "solid-js";
-import { AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
+import { AlertTriangleIcon, CheckCircleIcon, ShieldCheckIcon } from "lucide-solid";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
@@ -29,6 +29,7 @@ interface DeviceRegistrationPhaseContentProps {
   setReauthPassword: (value: string) => void;
   submitPasswordReentry: (event: Event) => Promise<void>;
   submitReauth: (event: Event) => Promise<void>;
+  beginApproval: () => Promise<void>;
   reloadPage: () => void;
   backToLogin: () => void;
 }
@@ -36,6 +37,18 @@ interface DeviceRegistrationPhaseContentProps {
 export function DeviceRegistrationPhaseContent(props: DeviceRegistrationPhaseContentProps) {
   return (
     <Switch>
+      <Match when={props.phase() === "approval_choice"}>
+        <div class="space-y-4 py-4">
+          <p class="text-sm text-muted-foreground">
+            Send an approval request to a device where you are already signed in.
+          </p>
+          <Button class="w-full" onClick={props.beginApproval}>
+            <ShieldCheckIcon />
+            Verify with an existing device
+          </Button>
+        </div>
+      </Match>
+
       <Match when={props.phase() === "generating"}>
         <div class="flex flex-col items-center gap-4 py-8">
           <Spinner class="size-6" />

@@ -425,7 +425,7 @@ defmodule RefMD.Devices.Revocations do
 
     RefMD.Workspaces.revoke_all_active_access_invitations(ws_ids)
     RefMD.Workspaces.mark_kek_rotation_needed(ws_ids, user_id)
-    RefMD.Workspaces.mark_dek_rotation_needed(ws_ids)
+    RefMD.Workspaces.mark_dek_rotation_needed(ws_ids, "security")
 
     Enum.map(ws_with_versions, fn {id, version} ->
       %{workspace_id: id, current_kek_version: version}

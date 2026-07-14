@@ -2,7 +2,7 @@ defmodule RefMDWeb.InvitationController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.Crypto.Encoding
+  alias RefMD.Crypto.{Encoding, Hash, JCS}
   alias RefMD.Encryption
   alias RefMD.Users
   alias RefMD.Workspaces
@@ -11,11 +11,45 @@ defmodule RefMDWeb.InvitationController do
 
   plug RequireRBAC,
        [permission: "member:invite", not_member_status: :not_found]
-       when action in [:index, :create, :delete]
+       when action in [
+              :index,
+              :create,
+              :delete,
+              :resolve_recipient
+            ]
 
   # Accept uses no workspace RBAC (email-bound, RRP required)
 
   @max_expires_days 30
+
+  operation(:resolve_recipient,
+    summary: "Resolve a workspace invitation recipient",
+    parameters: [
+      workspace_id: [in: :path, type: :string, required: true],
+      email: [in: :query, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"Recipient delivery", "application/json", Schemas.InvitationRecipientResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Recipient unavailable", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def resolve_recipient(conn, %{"email" => email}) when is_binary(email) do
+    if String.match?(email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/) do
+      case Users.resolve_invitation_recipient(email) do
+        {:ok, recipient} -> json(conn, recipient)
+        {:error, :recipient_delivery_unavailable} -> recipient_delivery_unavailable(conn)
+      end
+    else
+      conn |> put_status(:bad_request) |> json(%{error: "invalid_email"})
+    end
+  end
+
+  def resolve_recipient(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_email"})
+  end
 
   # ── POST /api/workspaces/:workspace_id/invitations ──
 
@@ -189,6 +223,180 @@ defmodule RefMDWeb.InvitationController do
     conn |> put_status(:bad_request) |> json(%{error: "missing_token"})
   end
 
+  operation(:create_delivery_attempt,
+    summary: "Create a known-recipient invitation delivery attempt",
+    request_body:
+      {"Delivery attempt", "application/json", Schemas.CreateInvitationDeliveryAttemptRequest},
+    responses: [
+      created:
+        {"Created delivery attempt", "application/json",
+         Schemas.InvitationDeliveryAttemptResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      gone: {"Gone", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def create_delivery_attempt(conn, %{"token" => token} = params) do
+    with {:ok, recipient_device_id} <- require_rrp_device_id(conn),
+         {:ok, token_bytes} <- decode_token(token),
+         {:ok, token_hash} <- compute_token_hash(token_bytes),
+         {:ok, attempt} <-
+           Workspaces.create_invitation_delivery_attempt(
+             token_hash,
+             conn.assigns.current_user_id,
+             recipient_device_id,
+             Map.delete(params, "token")
+           ) do
+      conn
+      |> put_status(:created)
+      |> json(serialize_delivery_attempt(attempt))
+    else
+      {:error, reason} -> handle_delivery_attempt_error(conn, reason)
+    end
+  end
+
+  def create_delivery_attempt(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing_token"})
+  end
+
+  operation(:show_delivery_attempt,
+    summary: "Get a known-recipient invitation delivery attempt",
+    parameters: [attempt_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Delivery attempt", "application/json", Schemas.InvitationDeliveryAttemptResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def show_delivery_attempt(conn, %{"attempt_id" => attempt_id}) do
+    with {:ok, recipient_device_id} <- require_rrp_device_id(conn),
+         {:ok, attempt} <-
+           Workspaces.get_invitation_delivery_attempt(
+             attempt_id,
+             conn.assigns.current_user_id,
+             recipient_device_id
+           ) do
+      json(conn, serialize_delivery_attempt(attempt))
+    else
+      {:error, reason} -> handle_delivery_attempt_error(conn, reason)
+    end
+  end
+
+  operation(:delivery_attempts,
+    summary: "List pending invitation delivery attempts",
+    parameters: [workspace_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok:
+        {"Pending delivery attempts", "application/json",
+         Schemas.InvitationDeliveryAttemptListResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def delivery_attempts(conn, %{"workspace_id" => workspace_id}) do
+    user_id = conn.assigns.current_user_id
+
+    can_manage_members =
+      Workspaces.member_permission_granted?(workspace_id, user_id, "member:invite")
+
+    can_manage_guests =
+      Workspaces.member_permission_granted?(workspace_id, user_id, "guest:invite")
+
+    if can_manage_members or can_manage_guests do
+      attempts =
+        workspace_id
+        |> Workspaces.list_pending_invitation_delivery_attempts()
+        |> Enum.filter(fn attempt ->
+          (attempt.context_kind == "workspace_invitation" and can_manage_members) or
+            (attempt.context_kind == "guest_invitation" and can_manage_guests)
+        end)
+        |> Enum.map(&serialize_delivery_attempt/1)
+
+      json(conn, %{attempts: attempts})
+    else
+      conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
+
+  operation(:approve_delivery_attempt,
+    summary: "Approve a known-recipient invitation delivery attempt",
+    parameters: [
+      workspace_id: [in: :path, type: :string, required: true],
+      attempt_id: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Delivery approval", "application/json", Schemas.ApproveInvitationDeliveryAttemptRequest},
+    responses: [
+      ok:
+        {"Approved delivery attempt", "application/json",
+         Schemas.InvitationDeliveryAttemptResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Conflict", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def approve_delivery_attempt(conn, %{
+        "workspace_id" => workspace_id,
+        "attempt_id" => attempt_id
+      }) do
+    with {:ok, actor_device_id} <- require_rrp_device_id(conn),
+         {:ok, attempt} <-
+           Workspaces.approve_invitation_delivery_attempt(
+             workspace_id,
+             attempt_id,
+             conn.assigns.current_user_id,
+             actor_device_id,
+             conn.body_params
+           ) do
+      json(conn, serialize_delivery_attempt(attempt))
+    else
+      {:error, reason} -> handle_delivery_attempt_error(conn, reason)
+    end
+  end
+
+  operation(:consume_delivery_attempt,
+    summary: "Consume an approved workspace invitation delivery attempt",
+    parameters: [attempt_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Delivery consume", "application/json", Schemas.ConsumeInvitationDeliveryAttemptRequest},
+    responses: [
+      ok: {"Accepted", "application/json", Schemas.AcceptInvitationResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Conflict", "application/json", Schemas.ErrorResponse},
+      gone: {"Gone", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def consume_delivery_attempt(conn, %{"attempt_id" => attempt_id, "token" => token}) do
+    with {:ok, recipient_device_id} <- require_rrp_device_id(conn),
+         {:ok, token_bytes} <- decode_token(token),
+         {:ok, token_hash} <- compute_token_hash(token_bytes),
+         {:ok, result} <-
+           Workspaces.consume_workspace_invitation_delivery_attempt(
+             attempt_id,
+             token_hash,
+             conn.assigns.current_user_id,
+             recipient_device_id
+           ) do
+      json(conn, serialize_acceptance(result))
+    else
+      {:error, reason} -> handle_delivery_attempt_error(conn, reason)
+    end
+  end
+
+  def consume_delivery_attempt(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing_token"})
+  end
+
   # ── Helpers ─────────────────────────────────────────
 
   @create_request_keys ~w(
@@ -198,11 +406,14 @@ defmodule RefMDWeb.InvitationController do
     bootstrap_package_key_recipient_wrap
     bootstrap_suite_id
     capability_context_hash
+    delivery_mode
     encrypted_bootstrap_package
     expires_at
     invitation_id
     invited_email
     kek_version
+    recipient_device_ids
+    recipient_user_id
     role_id
     token_hash
     token_prefix
@@ -220,6 +431,13 @@ defmodule RefMDWeb.InvitationController do
          :ok <- validate_invitation_id(body_params["invitation_id"]),
          :ok <- validate_role_id(workspace_id, body_params["role_id"]),
          :ok <- validate_email(body_params["invited_email"]),
+         :ok <-
+           validate_delivery_binding(
+             body_params["invited_email"],
+             body_params["delivery_mode"],
+             body_params["recipient_user_id"],
+             body_params["recipient_device_ids"]
+           ),
          :ok <- validate_expires_at(body_params["expires_at"]),
          :ok <- validate_commitment(body_params["bootstrap_key_commitment"]),
          :ok <-
@@ -243,6 +461,8 @@ defmodule RefMDWeb.InvitationController do
              workspace_id,
              body_params["kek_version"]
            ),
+         :ok <- validate_package_recipient_binding(body_params),
+         :ok <- validate_bootstrap_request_binding(body_params),
          {:ok, key_directory} <- require_workspace_key_directory(body_params) do
       {:ok,
        %{
@@ -254,6 +474,9 @@ defmodule RefMDWeb.InvitationController do
          role_id: body_params["role_id"],
          invited_by: user_id,
          invited_email: body_params["invited_email"],
+         delivery_mode: body_params["delivery_mode"],
+         recipient_user_id: body_params["recipient_user_id"],
+         recipient_device_ids: body_params["recipient_device_ids"],
          expires_at: parse_expires_at(body_params["expires_at"]),
          bootstrap_key_commitment: body_params["bootstrap_key_commitment"],
          encrypted_bootstrap_package: body_params["encrypted_bootstrap_package"],
@@ -340,6 +563,65 @@ defmodule RefMDWeb.InvitationController do
 
   defp validate_map(value, _reason) when is_map(value), do: :ok
   defp validate_map(_value, reason), do: {:error, reason}
+
+  defp validate_delivery_binding(email, mode, recipient_user_id, recipient_device_ids) do
+    Users.validate_invitation_delivery_binding(
+      email,
+      mode,
+      recipient_user_id,
+      recipient_device_ids
+    )
+  end
+
+  defp validate_package_recipient_binding(%{"delivery_mode" => "unknown_fragment"} = params) do
+    package_wrap = get_in(params, ["encrypted_bootstrap_package", "package_key_recipient_wrap"])
+    request_wrap = params["bootstrap_package_key_recipient_wrap"]
+
+    case package_wrap do
+      %{"nonce" => _, "ciphertext" => _} ->
+        if package_wrap == request_wrap,
+          do: :ok,
+          else: {:error, :recipient_delivery_mismatch}
+
+      _ ->
+        {:error, :recipient_delivery_mismatch}
+    end
+  end
+
+  defp validate_package_recipient_binding(%{"delivery_mode" => "known_recipient"} = params) do
+    wrap = get_in(params, ["encrypted_bootstrap_package", "package_key_recipient_wrap"])
+
+    if wrap == params["bootstrap_package_key_recipient_wrap"] and
+         wrap["recipient_user_id"] == params["recipient_user_id"] and
+         wrap["wraps"] == [],
+       do: :ok,
+       else: {:error, :recipient_delivery_mismatch}
+  end
+
+  defp validate_package_recipient_binding(_), do: {:error, :recipient_delivery_mismatch}
+
+  defp validate_bootstrap_request_binding(params) do
+    package = params["encrypted_bootstrap_package"]
+    aad = package["aad"]
+    expected_recipient_user_id = params["recipient_user_id"] || "NOT_APPLICABLE"
+
+    if Enum.all?([
+         aad["invitation_id"] == params["invitation_id"],
+         aad["role_id"] == params["role_id"],
+         aad["invited_email"] == String.downcase(params["invited_email"]),
+         aad["token_hash"] == params["token_hash"],
+         aad["delivery_mode"] == params["delivery_mode"],
+         aad["recipient_user_id"] == expected_recipient_user_id,
+         Enum.sort(aad["recipient_device_ids"] || []) ==
+           Enum.sort(params["recipient_device_ids"] || []),
+         Hash.blake3_base64url(JCS.canonical_bytes!(package)) ==
+           params["bootstrap_package_hash"]
+       ]),
+       do: :ok,
+       else: {:error, :invalid_encrypted_bootstrap_package}
+  rescue
+    _ -> {:error, :invalid_encrypted_bootstrap_package}
+  end
 
   defp validate_bootstrap_suite_id("refmd-v2-invitation-bootstrap-xchacha20poly1305"), do: :ok
   defp validate_bootstrap_suite_id(_), do: {:error, :invalid_bootstrap_suite_id}
@@ -442,6 +724,9 @@ defmodule RefMDWeb.InvitationController do
       token_prefix: invitation.token_prefix,
       role_id: invitation.role_id,
       invited_email: invitation.invited_email,
+      delivery_mode: invitation.delivery_mode,
+      recipient_user_id: invitation.recipient_user_id,
+      recipient_device_ids: invitation.recipient_device_ids,
       kek_version: invitation.kek_version,
       is_used: invitation.is_used,
       expires_at: invitation.expires_at,
@@ -465,6 +750,9 @@ defmodule RefMDWeb.InvitationController do
     %{
       kind: "workspace",
       invitation_id: invitation.id,
+      delivery_mode: invitation.delivery_mode,
+      recipient_user_id: invitation.recipient_user_id,
+      recipient_device_ids: invitation.recipient_device_ids,
       kek_version: invitation.kek_version,
       encrypted_bootstrap_package: invitation.encrypted_bootstrap_package,
       workspace_key_directory_checkpoint: serialize_checkpoint(current_checkpoint),
@@ -498,12 +786,33 @@ defmodule RefMDWeb.InvitationController do
       workspace_id: invitation.workspace_id,
       scope_kind: scope_kind,
       scope_id: scope_id,
+      share_id: invitation.share_id,
       permission: invitation.permission,
+      delivery_mode: invitation.delivery_mode,
+      recipient_user_id: invitation.recipient_user_id,
+      recipient_device_ids: invitation.recipient_device_ids,
       kek_version: invitation.kek_version,
+      key_version_context: guest_invitation_key_version_context(invitation),
       encrypted_bootstrap_package: invitation.encrypted_bootstrap_package,
       workspace_key_directory_checkpoint: serialize_checkpoint(current_checkpoint),
       workspace_key_directory_checkpoint_ancestry: ancestry.checkpoints,
       workspace_key_directory_event_ancestry: ancestry.events
+    }
+  end
+
+  defp guest_invitation_key_version_context(%{scope_kind: "workspace"} = invitation) do
+    %{
+      workspace_kek_version: invitation.kek_version,
+      share_key_version: "NOT_APPLICABLE",
+      dek_version: "NOT_APPLICABLE"
+    }
+  end
+
+  defp guest_invitation_key_version_context(invitation) do
+    %{
+      workspace_kek_version: "NOT_APPLICABLE",
+      share_key_version: invitation.share_key_version,
+      dek_version: invitation.dek_version
     }
   end
 
@@ -548,7 +857,37 @@ defmodule RefMDWeb.InvitationController do
       invitation_id: result.invitation_id,
       kek_version: result.kek_version,
       encrypted_bootstrap_package: result[:encrypted_bootstrap_package],
-      workspace_key_directory_checkpoint: result[:workspace_key_directory_checkpoint]
+      workspace_key_directory_checkpoint: result[:workspace_key_directory_checkpoint],
+      recipient_delivery_artifacts: result[:recipient_delivery_artifacts]
+    }
+  end
+
+  defp serialize_delivery_attempt(attempt) do
+    %{
+      redeem_attempt_id: attempt.id,
+      workspace_id: attempt.workspace_id,
+      context_kind: attempt.context_kind,
+      context_id: attempt.context_id,
+      recipient_user_id: attempt.recipient_user_id,
+      recipient_device_id: attempt.recipient_device_id,
+      target_user_id: attempt.target_user_id,
+      target_device_id: attempt.target_device_id,
+      target_encryption_key_id: attempt.target_encryption_key_id,
+      target_key_checkpoint_sequence: attempt.target_key_checkpoint_sequence,
+      target_key_checkpoint_hash: attempt.target_key_checkpoint_hash,
+      target_registration: attempt.target_registration,
+      target_registration_proof: attempt.target_registration_proof,
+      recipient_redeem_nonce: attempt.recipient_redeem_nonce,
+      live_redeem_challenge_hash: attempt.live_redeem_challenge_hash,
+      recipient_nonce_state_hash: attempt.recipient_nonce_state_hash,
+      request_binding_hash: attempt.request_binding_hash,
+      resource_hash: attempt.resource_hash,
+      context_snapshot: attempt.context_snapshot,
+      status: attempt.status,
+      authorization_id: attempt.authorization_id,
+      approved_artifacts: attempt.approved_artifacts,
+      expires_at: attempt.expires_at,
+      created_at: attempt.created_at
     }
   end
 
@@ -566,6 +905,17 @@ defmodule RefMDWeb.InvitationController do
 
   defp handle_create_error(conn, :invalid_encrypted_bootstrap_package) do
     conn |> put_status(:bad_request) |> json(%{error: "invalid_encrypted_bootstrap_package"})
+  end
+
+  defp handle_create_error(conn, :recipient_delivery_mismatch) do
+    conn |> put_status(:conflict) |> json(%{error: "recipient_delivery_mismatch"})
+  end
+
+  defp handle_create_error(conn, :recipient_delivery_unavailable),
+    do: recipient_delivery_unavailable(conn)
+
+  defp handle_create_error(conn, :recipient_already_member) do
+    conn |> put_status(:conflict) |> json(%{error: "recipient_already_member"})
   end
 
   defp handle_create_error(conn, :invalid_bootstrap_package_key_recipient_wrap) do
@@ -656,6 +1006,10 @@ defmodule RefMDWeb.InvitationController do
     conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
   end
 
+  defp recipient_delivery_unavailable(conn) do
+    conn |> put_status(:conflict) |> json(%{error: "recipient_delivery_unavailable"})
+  end
+
   defp handle_accept_error(conn, :not_found) do
     conn |> put_status(:not_found) |> json(%{error: "not_found"})
   end
@@ -674,6 +1028,26 @@ defmodule RefMDWeb.InvitationController do
 
   defp handle_accept_error(conn, :email_mismatch) do
     conn |> put_status(:forbidden) |> json(%{error: "email_mismatch"})
+  end
+
+  defp handle_accept_error(conn, :recipient_mismatch) do
+    conn |> put_status(:forbidden) |> json(%{error: "recipient_mismatch"})
+  end
+
+  defp handle_accept_error(conn, :recipient_device_mismatch) do
+    conn |> put_status(:forbidden) |> json(%{error: "recipient_device_mismatch"})
+  end
+
+  defp handle_accept_error(conn, :recipient_device_revoked) do
+    conn |> put_status(:gone) |> json(%{error: "recipient_device_revoked"})
+  end
+
+  defp handle_accept_error(conn, :recipient_delivery_required) do
+    conn |> put_status(:conflict) |> json(%{error: "recipient_delivery_required"})
+  end
+
+  defp handle_accept_error(conn, :recipient_already_member) do
+    conn |> put_status(:conflict) |> json(%{error: "recipient_already_member"})
   end
 
   defp handle_accept_error(conn, :kek_rotation_in_progress) do
@@ -712,6 +1086,59 @@ defmodule RefMDWeb.InvitationController do
 
   defp handle_accept_error(conn, error) do
     conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason)
+       when reason in [:not_found, :recipient_delivery_not_required] do
+    conn |> put_status(:not_found) |> json(%{error: "not_found"})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason)
+       when reason in [:delivery_attempt_not_pending, :delivery_attempt_expired] do
+    conn |> put_status(:conflict) |> json(%{error: to_string(reason)})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason)
+       when reason in [
+              :delivery_attempt_not_approved,
+              :delivery_attempt_token_mismatch,
+              :delivery_approval_stale
+            ] do
+    conn |> put_status(:conflict) |> json(%{error: to_string(reason)})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason)
+       when reason in [:permission_denied, :approver_device_invalid] do
+    conn |> put_status(:forbidden) |> json(%{error: to_string(reason)})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason)
+       when reason in [
+              :recipient_mismatch,
+              :recipient_device_mismatch,
+              :recipient_target_mismatch,
+              :recipient_target_key_mismatch
+            ] do
+    conn |> put_status(:forbidden) |> json(%{error: to_string(reason)})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason)
+       when reason in [
+              :recipient_device_revoked,
+              :invitation_revoked,
+              :invitation_expired,
+              :invitation_used,
+              :invitation_redemptions_exhausted
+            ] do
+    conn |> put_status(:gone) |> json(%{error: to_string(reason)})
+  end
+
+  defp handle_delivery_attempt_error(conn, :missing_device) do
+    conn |> put_status(:forbidden) |> json(%{error: "missing_device"})
+  end
+
+  defp handle_delivery_attempt_error(conn, reason) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(reason)})
   end
 
   defp handle_lookup_error(conn, :not_found) do

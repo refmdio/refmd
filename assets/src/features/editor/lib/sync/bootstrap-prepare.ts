@@ -10,7 +10,6 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
-  verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { resolveActiveKek, resolveKekByVersion } from "@/shared/lib/crypto/kek-resolver";
@@ -26,9 +25,18 @@ import {
   buildDocumentSigningKeyCaches,
   buildDocumentSigningKeyCachesForInitialPayload,
 } from "./inbound-signing-keys";
-import { completeDekRotationIfNeeded } from "./bootstrap-key-rotation";
+import {
+  acknowledgeDocumentWipeIfRequired,
+  completeDekRotationIfNeeded,
+  completeDekRotationNow,
+} from "./bootstrap-key-rotation";
 import { primeHistoricalDeks } from "./bootstrap-post-init";
-import { ensureSharedDekCached, refreshSharedDocumentAccess } from "./share-access";
+import {
+  ensureCurrentSharedDekCached,
+  getDocumentDekCacheKey,
+  refreshSharedDocumentAccess,
+} from "./share-access";
+import { getDocumentCryptoWorker } from "./crypto-worker";
 import {
   getCachedWorkspaceDirectory,
   rememberShareWorkspaceCheckpoint,
@@ -39,6 +47,8 @@ import {
   type SharedDocumentAccess,
 } from "../../model/document-state/access";
 import { recordSyncPerf } from "./perf";
+import { reencryptPendingChangesForLatestDek } from "../offline/pending-reencrypt";
+import type { DocumentPayload } from "@/shared/lib/ws/document-payloads";
 
 type DeviceKeyCacheBuildResult = Awaited<ReturnType<typeof buildDeviceKeyCaches>>;
 type DeviceKeyCacheOutcome = { result: DeviceKeyCacheBuildResult } | { error: unknown };
@@ -49,6 +59,7 @@ export interface PreparedInitialization {
   preDocumentReadyPromise: Promise<{ ready: true } | { error: unknown }>;
   oldDekPrimePromise: Promise<void>;
   buildJoinParams: () => Promise<Record<string, unknown>>;
+  getBootstrapInitialDocument: () => DocumentPayload | null;
   startDeviceKeyCache?: () => void;
 }
 
@@ -103,6 +114,7 @@ export async function prepareInitializationSession(
   state: DocumentState,
   signal: AbortSignal,
   assertActive: AssertInitializationActive,
+  options: { skipDocumentWipeAcknowledgement?: boolean } = {},
 ): Promise<PreparedInitialization> {
   const worker = getCryptoWorker();
   const startedAt = performance.now();
@@ -134,7 +146,21 @@ export async function prepareInitializationSession(
     const existingPinPromise = getDocumentStatePin(
       buildDocumentStatePinKey(documentId, initialShareId),
     ).catch(() => null);
-    const initialDocument = initialAccess.initialDocument ?? null;
+    const initialPin = await existingPinPromise;
+    const initialDocumentCandidate = initialAccess.initialDocument ?? null;
+    const initialDocument = shouldUseShareBootstrapInitialDocument(
+      initialDocumentCandidate,
+      initialPin,
+    )
+      ? initialDocumentCandidate
+      : null;
+    if (initialDocumentCandidate && !initialDocument) {
+      recordSyncPerf("initial_prepare_share_bootstrap_document_bypassed", {
+        documentId,
+        pinnedSnapshotId: hasCompleteSnapshotPin(initialPin) ? initialPin.latestSnapshotId : null,
+        bootstrapSnapshotId: initialDocumentCandidate.snapshot?.publicData.snapshotId ?? null,
+      });
+    }
     let liveKeyDirectoryReadyPromise: Promise<void> | null = null;
     const ensureLiveKeyDirectoryReady = () => {
       liveKeyDirectoryReadyPromise ??= ensureInitialShareKeyDirectoryLineage(
@@ -179,12 +205,25 @@ export async function prepareInitializationSession(
       documentId,
       elapsedMs: performance.now() - startedAt,
     });
-    const shareDekReadyPromise = ensureSharedDekCached(state, documentId, initialAccess.keyVersion);
+    const shareAccessReadyPromise = ensureCurrentSharedDekCached(state, documentId);
+    const sharePendingReadyPromise = shareAccessReadyPromise.then(async (currentAccess) => {
+      assertActive();
+      if (canSharedAccessWriteDurably(currentAccess)) {
+        await reencryptPendingChangesForLatestDek({
+          documentId,
+          latestKeyVersion: currentAccess.keyVersion,
+          worker: getDocumentCryptoWorker(state),
+          cacheKey: getDocumentDekCacheKey(state, documentId),
+        });
+        assertActive();
+      }
+      return currentAccess;
+    });
     const preDocumentReadyPromise = Promise.all([
-      shareDekReadyPromise,
+      sharePendingReadyPromise,
       initialSigningKeyCachePromise,
     ])
-      .then(([, initialSigningKeyCacheOutcome]) => {
+      .then(([currentAccess, initialSigningKeyCacheOutcome]) => {
         if (initialSigningKeyCacheOutcome) {
           if ("error" in initialSigningKeyCacheOutcome) throw initialSigningKeyCacheOutcome.error;
           if (initialSigningKeyCacheOutcome.result.status === "key_changed") {
@@ -199,8 +238,8 @@ export async function prepareInitializationSession(
           elapsedMs: performance.now() - startedAt,
         });
         state.dekResolved = true;
-        state.keyVersion = initialAccess.keyVersion;
-        setDocumentReadOnly(state.stateKey, !canSharedAccessWriteDurably(initialAccess));
+        state.keyVersion = currentAccess.keyVersion;
+        setDocumentReadOnly(state.stateKey, !canSharedAccessWriteDurably(currentAccess));
         return { ready: true as const };
       })
       .catch((error) => ({ error }));
@@ -252,7 +291,7 @@ export async function prepareInitializationSession(
       const access = state.access;
       const existingPin =
         access.shareId === initialShareId
-          ? await existingPinPromise
+          ? initialPin
           : await getDocumentStatePin(buildDocumentStatePinKey(documentId, access.shareId)).catch(
               () => null,
             );
@@ -349,9 +388,18 @@ export async function prepareInitializationSession(
       preDocumentReadyPromise,
       oldDekPrimePromise: Promise.resolve(),
       buildJoinParams,
+      getBootstrapInitialDocument: () =>
+        state.access.kind === "share" && state.access.shareId === initialShareId
+          ? initialDocument
+          : null,
       ...(startDeviceKeyCache ? { startDeviceKeyCache } : {}),
     };
   }
+
+  if (!options.skipDocumentWipeAcknowledgement) {
+    await acknowledgeDocumentWipeIfRequired(documentId, workspaceId, state);
+  }
+  assertActive();
 
   const activeKekPromise = resolveActiveKek(workspaceId, getKekResolverSession(), signal);
   const documentKeysPromise = encryptionApi.getDocumentKeys(documentId, { signal });
@@ -396,11 +444,19 @@ export async function prepareInitializationSession(
     activeKey.key_version,
     signal,
   );
+  await oldDekPrimePromise;
+  assertActive();
+  await reencryptPendingChangesForLatestDek({
+    documentId,
+    latestKeyVersion: activeKey.key_version,
+    worker,
+  });
+  assertActive();
 
   state.dekResolved = true;
   state.keyVersion = activeKey.key_version;
 
-  state._retryDekRotation = () => completeDekRotationIfNeeded(documentId, workspaceId, state);
+  state._retryDekRotation = () => completeDekRotationNow(documentId, workspaceId, state);
   completeDekRotationIfNeeded(documentId, workspaceId, state).catch(() => {});
 
   setTimeout(async () => {
@@ -485,7 +541,16 @@ export async function prepareInitializationSession(
     preDocumentReadyPromise: Promise.resolve({ ready: true }),
     oldDekPrimePromise,
     buildJoinParams,
+    getBootstrapInitialDocument: () => null,
   };
+}
+
+function shouldUseShareBootstrapInitialDocument(
+  initialDocument: DocumentPayload | null,
+  pin: Awaited<ReturnType<typeof getDocumentStatePin>>,
+): boolean {
+  if (!initialDocument || !hasCompleteSnapshotPin(pin)) return Boolean(initialDocument);
+  return initialDocument.snapshot?.publicData.snapshotId === pin.latestSnapshotId;
 }
 
 async function ensureInitialShareKeyDirectoryLineage(
@@ -514,21 +579,6 @@ async function ensureInitialShareKeyDirectoryLineage(
   const checkpointAncestry = access.workspaceKeyDirectoryCheckpointAncestry ?? [];
   const eventAncestry = access.workspaceKeyDirectoryEventAncestry ?? [];
   if (latestSequence === current.checkpointSequence && latestHash === current.checkpointHash) {
-    if (
-      !access.workspaceKeyDirectoryCheckpoint ||
-      (checkpointAncestry.length < 1 && eventAncestry.length < 1)
-    ) {
-      return;
-    }
-    await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
-      scopeKind: "workspace",
-      scopeId: workspaceId,
-      trustedCheckpointEnvelope: access.workspaceKeyDirectoryCheckpoint,
-      checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
-      checkpointAncestry,
-      eventAncestry,
-      authorityEventAncestry: eventAncestry,
-    });
     return;
   }
   const lineage = lineageFromCurrentPin(checkpointAncestry, eventAncestry, current);

@@ -14,6 +14,7 @@ import {
   ensureOfflineDbReady,
 } from "@/shared/lib/offline/storage/store";
 import type { DeviceInfo } from "@/shared/api/devices";
+import { clientWarn } from "@/shared/lib/logger";
 export interface SessionRestoreResult {
   userId: string;
   email: string;
@@ -114,7 +115,12 @@ async function restoreSessionInternal(): Promise<
           keyRestoreEndpointRef: me.key_restore_endpoint_ref ?? null,
         });
         workerReady = await worker.isReady();
-      } catch {
+      } catch (error) {
+        clientWarn("session_worker_restore_failed", {
+          accountType: me.account_type,
+          deviceId,
+          error,
+        });
         workerReady = false;
       }
     }
@@ -255,7 +261,7 @@ export async function restoreOfflineSession(): Promise<OfflineSessionResult | nu
     });
     // isReady() requires UMK, but offline editing only needs DSK + device keys.
     // For KMSI-disabled sessions after browser restart, UMK is unavailable but
-    // the DSK→offline-dek-cache→DEK chain still works for offline document access.
+    // the DSK-to-DEK recovery chain still works for offline document access.
     const workerReady = await worker.isReady();
     let deviceSigningKeyId: string | null = null;
     let deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null = null;

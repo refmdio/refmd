@@ -16,6 +16,7 @@ defmodule RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence do
     field :old_key_version, :integer
     field :deletion_manifest, :map
     field :device_key_deletion_proofs, :map
+    field :wipe_required_device_ids, {:array, :binary_id}, default: []
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
@@ -30,7 +31,8 @@ defmodule RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence do
       :scope_id,
       :old_key_version,
       :deletion_manifest,
-      :device_key_deletion_proofs
+      :device_key_deletion_proofs,
+      :wipe_required_device_ids
     ])
     |> validate_required([
       :old_key_deleted_event_hash,
@@ -40,7 +42,8 @@ defmodule RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence do
       :scope_id,
       :old_key_version,
       :deletion_manifest,
-      :device_key_deletion_proofs
+      :device_key_deletion_proofs,
+      :wipe_required_device_ids
     ])
     |> validate_number(:old_key_version, greater_than: 0)
     |> validate_inclusion(:rotation_kind, ["kek"])

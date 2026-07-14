@@ -73,6 +73,7 @@ export interface DeviceKeyDirectoryAppendInput {
 export interface RecoveryWorkspaceDeviceKeyDirectoryAppendInput {
   workspaceId: string;
   userId: string;
+  actorIdentitySigningKeyId: string;
   checkpointEnvelope: KeyDirectoryEnvelope;
   recipientDeviceId: string;
   recipientHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
@@ -87,6 +88,15 @@ export interface IdentityKeyDirectoryAppendInput {
   checkpointEnvelope: KeyDirectoryEnvelope;
   recipientHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
   recipientHybridSigningPublicKeyMaterial?: HybridSigningPublicKeyMaterial;
+}
+
+export interface IdentityRotationKeyDirectoryAppendInput {
+  userId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  successorHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  successorHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  oldKeyVersion: number;
+  newKeyVersion: number;
 }
 
 export interface DeviceRevocationKeyDirectoryAppendInput {
@@ -116,11 +126,16 @@ export interface WorkspaceMemberRoleChangeKeyDirectoryAppendInput {
   workspaceId: string;
   actorUserId: string;
   actorDeviceId: string;
-  targetUserId: string;
-  previousRoleId: string;
-  previousBaseRole: string;
-  roleId: string;
-  baseRole: string;
+  changes: Array<{
+    targetUserId: string;
+    previousRoleId: string;
+    previousBaseRole: string;
+    previousEffectivePermissions: string[];
+    roleId: string;
+    baseRole: string;
+    effectivePermissions: string[];
+    permissionVersion: number;
+  }>;
   checkpointEnvelope: KeyDirectoryEnvelope;
 }
 
@@ -175,6 +190,29 @@ export interface KekRotationStartKeyDirectoryAppendInput {
   reason: "manual" | "security" | "membership_change" | "scheduled";
 }
 
+export interface DekRotationStartKeyDirectoryAppendInput {
+  workspaceId: string;
+  documentId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  oldKeyVersion: number;
+  newKeyVersion: number;
+  reason: "time_based" | "manual" | "security" | "membership_change";
+}
+
+export interface DekRotationCompletionKeyDirectoryAppendInput {
+  workspaceId: string;
+  documentId: string;
+  actorUserId: string;
+  actorDeviceId: string;
+  checkpointEnvelope: KeyDirectoryEnvelope;
+  oldKeyVersion: number;
+  newKeyVersion: number;
+  completionManifestHash: string;
+  deletionManifestHash: string;
+}
+
 export interface KeyDirectoryAppendArtifacts {
   events: KeyDirectoryEnvelope[];
   checkpoint: KeyDirectoryEnvelope;
@@ -200,10 +238,7 @@ export interface DocumentAdmissionKeyDirectoryAppendInput {
         signingKeyId: string;
         hybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
       };
-  eventType:
-    | "document_update_accepted"
-    | "document_snapshot_accepted"
-    | "document_write_session_admitted";
+  eventType: "document_snapshot_accepted" | "document_write_session_admitted";
   operationHash?: string;
   operationSignatureHash?: string;
   dekVersion?: number;
@@ -241,6 +276,9 @@ export interface WorkspaceInvitationCreatedKeyDirectoryAppendInput {
   baseRole: string;
   kekVersion: number;
   invitedEmail: string;
+  deliveryMode: "unknown_fragment" | "known_recipient";
+  recipientUserId: string | null;
+  recipientDeviceIds: string[];
   expiresEventSequence: number;
   redeemAuthority: {
     signingKeyId: string;
@@ -270,7 +308,15 @@ export interface GuestInvitationCreatedKeyDirectoryAppendInput {
   scopeKind: "workspace" | "document" | "folder" | "share";
   scopeId: string;
   permission: "view" | "edit";
-  kekVersion: number;
+  deliveryMode: "unknown_fragment" | "known_recipient";
+  recipientUserId: string | null;
+  recipientDeviceIds: string[];
+  keyVersionContext: {
+    workspaceKekVersion: number | "NOT_APPLICABLE";
+    shareKeyVersion: number | "NOT_APPLICABLE";
+    dekVersion: number | "NOT_APPLICABLE";
+  };
+  allowedShareIds: string[];
   expiresEventSequence: number;
   redeemAuthority: {
     signingKeyId: string;
@@ -323,4 +369,6 @@ export interface GuestInvitationRedeemedKeyDirectoryAppendInput {
   scopeKind: "workspace" | "document" | "folder" | "share";
   scopeId: string;
   permission: "view" | "edit";
+  recipientAccountUserId: string | null;
+  recipientAccountDeviceId: string | null;
 }

@@ -8,7 +8,6 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
-  verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { normalizeShareVerificationDirectory } from "@/shared/lib/document/share-verification-directory";
 import {
@@ -28,23 +27,11 @@ import {
   prewarmSharedDekForAccess,
 } from "@/shared/lib/crypto/share-dek-prewarm";
 
-function optionalKeyDirectoryEnvelope(
-  value: unknown,
-  fallback: KeyDirectoryEnvelope | null | undefined,
-  code: string,
-): KeyDirectoryEnvelope | null | undefined {
-  if (value === undefined) return fallback;
-  if (value === null) return null;
+function requiredKeyDirectoryEnvelope(value: unknown, code: string): KeyDirectoryEnvelope {
   return assertKeyDirectoryEnvelope(value, code);
 }
 
-function optionalKeyDirectoryEnvelopeArray(
-  value: unknown,
-  fallback: KeyDirectoryEnvelope[] | undefined,
-  code: string,
-): KeyDirectoryEnvelope[] | undefined {
-  if (value === undefined) return fallback;
-  if (value === null) return undefined;
+function requiredKeyDirectoryEnvelopeArray(value: unknown, code: string): KeyDirectoryEnvelope[] {
   if (!Array.isArray(value)) throw new Error(code);
   return value.map((entry) => assertKeyDirectoryEnvelope(entry, code));
 }
@@ -102,28 +89,23 @@ function toSharedDocumentAccess(
     ),
     keyVersion: numberValue(response.key_version, "key_version_invalid"),
     encryptedKeyRefs: stringArrayValue(response.encrypted_key_refs, "encrypted_key_refs_invalid"),
-    workspaceKeyDirectoryCheckpoint: optionalKeyDirectoryEnvelope(
+    workspaceKeyDirectoryCheckpoint: requiredKeyDirectoryEnvelope(
       response.workspace_key_directory_checkpoint,
-      previous.workspaceKeyDirectoryCheckpoint,
       "share_workspace_key_directory_checkpoint_invalid",
     ),
-    workspaceKeyDirectoryLatestCheckpoint: optionalKeyDirectoryEnvelope(
+    workspaceKeyDirectoryLatestCheckpoint: requiredKeyDirectoryEnvelope(
       response.workspace_key_directory_latest_checkpoint,
-      previous.workspaceKeyDirectoryLatestCheckpoint,
       "share_workspace_key_directory_latest_checkpoint_invalid",
     ),
-    workspaceKeyDirectoryCheckpointAncestry: optionalKeyDirectoryEnvelopeArray(
+    workspaceKeyDirectoryCheckpointAncestry: requiredKeyDirectoryEnvelopeArray(
       response.workspace_key_directory_checkpoint_ancestry,
-      previous.workspaceKeyDirectoryCheckpointAncestry,
       "share_workspace_key_directory_checkpoint_ancestry_invalid",
     ),
-    workspaceKeyDirectoryEventAncestry: optionalKeyDirectoryEnvelopeArray(
+    workspaceKeyDirectoryEventAncestry: requiredKeyDirectoryEnvelopeArray(
       response.workspace_key_directory_event_ancestry,
-      previous.workspaceKeyDirectoryEventAncestry,
       "share_workspace_key_directory_event_ancestry_invalid",
     ),
     workspacePinReady: previous.workspacePinReady,
-    shareDekReady: previous.shareDekReady,
     verificationDirectory: normalizeShareVerificationDirectory(response.verification_directory),
     shareTrustAnchor: updateShareTrustAnchor(previous.shareTrustAnchor, previous, response),
   };
@@ -209,28 +191,23 @@ function toMountedSharedDocumentAccess(
     ),
     keyVersion: numberValue(document.key_version, "key_version_invalid"),
     encryptedKeyRefs: stringArrayValue(document.encrypted_key_refs, "encrypted_key_refs_invalid"),
-    workspaceKeyDirectoryCheckpoint: optionalKeyDirectoryEnvelope(
+    workspaceKeyDirectoryCheckpoint: requiredKeyDirectoryEnvelope(
       (document as Record<string, unknown>).workspace_key_directory_checkpoint,
-      previous.workspaceKeyDirectoryCheckpoint,
       "mounted_share_workspace_key_directory_checkpoint_invalid",
     ),
-    workspaceKeyDirectoryLatestCheckpoint: optionalKeyDirectoryEnvelope(
+    workspaceKeyDirectoryLatestCheckpoint: requiredKeyDirectoryEnvelope(
       (document as Record<string, unknown>).workspace_key_directory_latest_checkpoint,
-      previous.workspaceKeyDirectoryLatestCheckpoint,
       "mounted_share_workspace_key_directory_latest_checkpoint_invalid",
     ),
-    workspaceKeyDirectoryCheckpointAncestry: optionalKeyDirectoryEnvelopeArray(
+    workspaceKeyDirectoryCheckpointAncestry: requiredKeyDirectoryEnvelopeArray(
       (document as Record<string, unknown>).workspace_key_directory_checkpoint_ancestry,
-      previous.workspaceKeyDirectoryCheckpointAncestry,
       "mounted_share_workspace_key_directory_checkpoint_ancestry_invalid",
     ),
-    workspaceKeyDirectoryEventAncestry: optionalKeyDirectoryEnvelopeArray(
+    workspaceKeyDirectoryEventAncestry: requiredKeyDirectoryEnvelopeArray(
       (document as Record<string, unknown>).workspace_key_directory_event_ancestry,
-      previous.workspaceKeyDirectoryEventAncestry,
       "mounted_share_workspace_key_directory_event_ancestry_invalid",
     ),
     workspacePinReady: previous.workspacePinReady,
-    shareDekReady: previous.shareDekReady,
     verificationDirectory: normalizeShareVerificationDirectory(document.verification_directory),
     shareTrustAnchor: previous.shareTrustAnchor,
   };
@@ -270,56 +247,18 @@ async function advanceRefreshedShareWorkspaceLineage(access: SharedDocumentAcces
   const current = await getKeyDirectoryPin("workspace", access.workspaceId);
   if (!current) throw new Error("key_directory_pin_required");
 
-  const latestSequence = checkpointSequence(access.workspaceKeyDirectoryLatestCheckpoint);
-  const latestHash = hashKeyDirectoryCheckpointEnvelope(
-    access.workspaceKeyDirectoryLatestCheckpoint,
-  );
-  if (latestSequence < current.checkpointSequence) {
-    return;
-  }
-  if (latestSequence === current.checkpointSequence && latestHash !== current.checkpointHash) {
-    throw new Error("share_workspace_key_directory_checkpoint_fork");
-  }
-
   const checkpointAncestry = access.workspaceKeyDirectoryCheckpointAncestry ?? [];
   const eventAncestry = access.workspaceKeyDirectoryEventAncestry ?? [];
-  if (latestSequence === current.checkpointSequence && latestHash === current.checkpointHash) {
-    if (
-      !access.workspaceKeyDirectoryCheckpoint ||
-      (checkpointAncestry.length < 1 && eventAncestry.length < 1)
-    ) {
-      return;
-    }
-    await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
-      scopeKind: "workspace",
-      scopeId: access.workspaceId,
-      trustedCheckpointEnvelope: access.workspaceKeyDirectoryCheckpoint,
-      checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
-      checkpointAncestry,
-      eventAncestry,
-      authorityEventAncestry: eventAncestry,
-    });
-    return;
-  }
 
   const lineage = lineageFromCurrentPin(checkpointAncestry, eventAncestry, current);
-  if (latestSequence > current.checkpointSequence && !lineage) {
-    throw new Error("key_directory_event_ancestry_required");
-  }
-
-  try {
-    await advanceKeyDirectoryPinWithProof({
-      scopeKind: "workspace",
-      scopeId: access.workspaceId,
-      checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
-      checkpointAncestry: lineage?.checkpointAncestry ?? checkpointAncestry,
-      eventAncestry: lineage?.eventAncestry ?? eventAncestry,
-      authorityEventAncestry: eventAncestry,
-    });
-  } catch (error) {
-    if (latestSequence < current.checkpointSequence && isStaleLineageError(error)) return;
-    throw error;
-  }
+  await advanceKeyDirectoryPinWithProof({
+    scopeKind: "workspace",
+    scopeId: access.workspaceId,
+    checkpointEnvelope: access.workspaceKeyDirectoryLatestCheckpoint,
+    checkpointAncestry: lineage?.checkpointAncestry ?? checkpointAncestry,
+    eventAncestry: lineage?.eventAncestry ?? eventAncestry,
+    authorityEventAncestry: eventAncestry,
+  });
 }
 
 export async function refreshSharedDocumentAccess(
@@ -397,13 +336,6 @@ export async function ensureSharedDekCached(
   if (state.access.source === "mounted") {
     await refreshSharedDocumentAccess(state);
   }
-  if (
-    state.dekResolved &&
-    state.keyVersion >= keyVersion &&
-    state.access.keyVersion === keyVersion
-  ) {
-    return;
-  }
   const cacheKey = getSharedDekCacheKey(documentId, state.access.shareId);
   const worker = getDocumentCryptoWorker(state);
   if (await worker.hasDek(documentId, keyVersion, cacheKey)) return;
@@ -417,12 +349,32 @@ export async function ensureSharedDekCached(
     throw new Error(`share_dek_version_unavailable:${keyVersion}`);
   }
 
-  await (keyVersion === access.keyVersion && access.shareDekReady
-    ? access.shareDekReady
-    : prewarmSharedDekForAccess(access, documentId, keyVersion));
+  await prewarmSharedDekForAccess(access, documentId, keyVersion);
 
   state.dekResolved = true;
   state.keyVersion = Math.max(state.keyVersion, keyVersion);
+}
+
+export async function ensureCurrentSharedDekCached(
+  state: DocumentState,
+  documentId: string,
+): Promise<SharedDocumentAccess> {
+  if (state.access.kind !== "share") {
+    throw new Error("share_access_unavailable");
+  }
+
+  const access = await refreshSharedDocumentAccess(state);
+  const keyVersion = access.keyVersion;
+  const cacheKey = getSharedDekCacheKey(documentId, access.shareId);
+  const worker = getDocumentCryptoWorker(state);
+
+  if (!(await worker.hasDek(documentId, keyVersion, cacheKey))) {
+    await prewarmSharedDekForAccess(access, documentId, keyVersion);
+  }
+
+  state.dekResolved = true;
+  state.keyVersion = keyVersion;
+  return access;
 }
 
 function recordValue(value: unknown, code: string): Record<string, unknown> {
@@ -498,16 +450,6 @@ function keyDirectoryEventSequence(event: KeyDirectoryEnvelope): number {
     throw new Error("workspace_key_directory_event_sequence_invalid");
   }
   return sequence;
-}
-
-function isStaleLineageError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.message === "key_directory_checkpoint_rollback" ||
-      error.message === "key_directory_checkpoint_anchor_mismatch" ||
-      error.message === "key_directory_checkpoint_fork" ||
-      error.message === "key_directory_pin_conflict")
-  );
 }
 
 function permissionValue(value: unknown): "view" | "edit" {

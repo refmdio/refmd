@@ -20,10 +20,15 @@ import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import { createWorkspacePinBootstrap } from "@/shared/lib/key-directory/workspace-pin-bootstrap";
 import { buildInvitationExpiryIso, buildInvitationLink } from "@/shared/lib/invite/link";
+import { invitationSecretCommitment } from "../../lib/invitation/token";
 import {
-  invitationSecretCommitment,
-  invitationTokenWithFragmentSecrets,
-} from "../../lib/invitation/token";
+  invitationRecipientAadUserId,
+  invitationRecipientDelivery,
+  invitationRecipientDeviceIds,
+  invitationRecipientToken,
+  normalizeInvitationRecipient,
+} from "../../lib/invitation/recipient-delivery";
+import { buildGuestRecipientDeliveryApproval } from "../../lib/invitation/recipient-bound-delivery";
 
 type GuestInvitationBootstrapPackage = components["schemas"]["GuestInvitationBootstrapPackage"];
 
@@ -53,6 +58,11 @@ interface UseGuestInvitationManagementOptions {
   guestMemberLimit: Accessor<number | null | undefined>;
   setError: (value: string | null) => void;
   refetchWorkspace: () => void;
+  prepareShareSecretsForRecipientDelivery: (
+    workspaceId: string,
+    documentId: string,
+    shareId: string,
+  ) => Promise<string>;
 }
 
 export function useGuestInvitationManagement(options: UseGuestInvitationManagementOptions) {
@@ -65,9 +75,16 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     queryFn: () => workspacesApi.listGuestInvitations(workspaceId()!),
     enabled: !!workspaceId() && canManageGuestInvitations(),
   }));
+  const deliveryAttempts = createQuery(() => ({
+    queryKey: ["invitation-delivery-attempts", workspaceId()],
+    queryFn: () => workspacesApi.listInvitationDeliveryAttempts(workspaceId()!),
+    enabled: !!workspaceId() && canManageGuestInvitations(),
+    refetchInterval: 3000,
+  }));
 
   const [dialogOpen, setDialogOpen] = createSignal(false);
   const [permission, setPermission] = createSignal<"view" | "edit">("view");
+  const [guestEmail, setGuestEmail] = createSignal("");
   const [expiryDays, setExpiryDays] = createSignal(7);
   const [maxRedemptions, setMaxRedemptions] = createSignal("1");
   const [creating, setCreating] = createSignal(false);
@@ -78,6 +95,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
   const [settingsLimit, setSettingsLimit] = createSignal("");
   const [settingsDirty, setSettingsDirty] = createSignal(false);
   const [updatingSettings, setUpdatingSettings] = createSignal(false);
+  const [approvingAttemptId, setApprovingAttemptId] = createSignal<string | null>(null);
 
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   let syncedWorkspaceId: string | null | undefined;
@@ -106,6 +124,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
   const resetDialog = () => {
     setDialogOpen(false);
     setPermission("view");
+    setGuestEmail("");
     setExpiryDays(7);
     setMaxRedemptions("1");
     setInviteLink(null);
@@ -174,6 +193,11 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
       if (!cryptoWorkerReady()) throw new Error("Crypto worker not ready");
 
       const worker = getCryptoWorker();
+      const email = guestEmail().trim().toLowerCase();
+      const recipientResponse: components["schemas"]["InvitationRecipientResponse"] = email
+        ? await workspacesApi.resolveGuestInvitationRecipient(id, email)
+        : { delivery_mode: "unknown_fragment", recipient_user_id: null, devices: [] };
+      const recipient = normalizeInvitationRecipient(recipientResponse);
       const { kekVersion } = await resolveActiveKek(id, getKekResolverSession());
       const { token: lookupToken, tokenHash, tokenPrefix } = await worker.generateInvitationToken();
       const { token: clientSecret } = await worker.generateInvitationToken();
@@ -191,7 +215,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
       const device = deviceState();
       if (!auth?.user.id || !device?.deviceId) throw new Error("Session not ready");
       const redeemAuthority = await worker.generateInvitationRedeemAuthority({ invitationId });
-      const keyVersionContext = {
+      const keyVersionContext: components["schemas"]["GuestInvitationKeyVersionContext"] = {
         workspace_kek_version: kekVersion,
         share_key_version: "NOT_APPLICABLE",
         dek_version: "NOT_APPLICABLE",
@@ -209,9 +233,13 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
         invitation_id: invitationId,
         token_hash: tokenHash,
         token_prefix: tokenPrefix,
-        kek_version: kekVersion,
+        key_version_context: keyVersionContext,
         scope_kind: "workspace" as const,
         permission: permission(),
+        ...(email ? { invited_email: email } : {}),
+        delivery_mode: recipient.delivery_mode,
+        ...(recipient.recipient_user_id ? { recipient_user_id: recipient.recipient_user_id } : {}),
+        recipient_device_ids: invitationRecipientDeviceIds(recipient),
         bootstrap_key_commitment: bootstrapSecretCommitment,
         max_redemptions: parsedMaxRedemptions,
         expires_at: expiresAt,
@@ -228,11 +256,12 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
           actorUserId: auth.user.id,
           actorDeviceId: device.deviceId,
         });
+        const recipientDelivery = invitationRecipientDelivery(recipient);
         const bootstrapPackage = await worker.wrapKekForInvitationBootstrap({
           protocol: "refmd.guest-invitation-bootstrap",
           workspaceId: id,
           keyVersion: kekVersion,
-          bootstrapSecret: clientSecret,
+          ...(recipientDelivery ? { recipientDelivery } : { bootstrapSecret: clientSecret }),
           aad: {
             protocol: "refmd.guest-invitation-bootstrap",
             version: 1,
@@ -242,6 +271,9 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
             scope_kind: "workspace",
             scope_id: "none",
             permission: permission(),
+            delivery_mode: recipient.delivery_mode,
+            recipient_user_id: invitationRecipientAadUserId(recipient),
+            recipient_device_ids: invitationRecipientDeviceIds(recipient),
             key_version_context: keyVersionContext,
             token_hash: tokenHash,
           },
@@ -259,6 +291,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
             workspace_pin_bootstrap: workspacePinBootstrap.bootstrap,
           },
           redeemAuthorityInvitationId: invitationId,
+          includeWorkspaceKek: recipient.delivery_mode === "unknown_fragment",
         });
         const keyDirectoryAppend = await buildGuestInvitationCreatedKeyDirectoryAppend({
           workspaceId: id,
@@ -269,7 +302,15 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
           scopeKind: "workspace",
           scopeId: "none",
           permission: permission(),
-          kekVersion,
+          deliveryMode: recipient.delivery_mode,
+          recipientUserId: recipient.recipient_user_id,
+          recipientDeviceIds: invitationRecipientDeviceIds(recipient),
+          keyVersionContext: {
+            workspaceKekVersion: kekVersion,
+            shareKeyVersion: "NOT_APPLICABLE",
+            dekVersion: "NOT_APPLICABLE",
+          },
+          allowedShareIds: [],
           expiresEventSequence,
           redeemAuthority: {
             signingKeyId: redeemAuthority.signer.signing_key_id,
@@ -293,7 +334,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
               canonicalizeStrictBytes(bootstrapPackage as StrictJsonValue),
             ),
             bootstrap_package_key_recipient_wrap:
-              bootstrapPackage.package_key_recipient_wrap as components["schemas"]["InvitationBootstrapCiphertext"],
+              bootstrapPackage.package_key_recipient_wrap as components["schemas"]["InvitationPackageKeyRecipientWrap"],
             bootstrap_package_key_maintenance_wrap:
               bootstrapPackage.package_key_maintenance_wrap as components["schemas"]["InvitationBootstrapMaintenanceWrap"],
             bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305" as const,
@@ -329,7 +370,7 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
       setInviteLink(
         buildInvitationLink(
           window.location.origin,
-          invitationTokenWithFragmentSecrets(lookupToken, clientSecret),
+          invitationRecipientToken(recipient, lookupToken, clientSecret),
         ),
       );
       invalidate();
@@ -415,12 +456,70 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     }
   };
 
+  const approveDeliveryAttempt = async (
+    attempt: components["schemas"]["InvitationDeliveryAttemptResponse"],
+  ) => {
+    const id = workspaceId();
+    if (!id || attempt.context_kind !== "guest_invitation") return;
+
+    setApprovingAttemptId(attempt.redeem_attempt_id);
+    options.setError(null);
+    try {
+      if (!cryptoWorkerReady()) throw new Error("Crypto worker not ready");
+      const auth = authState();
+      const device = deviceState();
+      if (!auth?.user.id || !device?.deviceId) throw new Error("Session not ready");
+      const directory = await fetchVerifiedKeyDirectory({
+        scopeKind: "workspace",
+        scopeId: id,
+        rrpDeviceId: device.deviceId,
+      });
+      const pinBootstrap = await createWorkspacePinBootstrap({
+        workspaceId: id,
+        checkpointEnvelope: directory.checkpoint,
+        actorUserId: auth.user.id,
+        actorDeviceId: device.deviceId,
+      });
+      const context = attempt.context_snapshot as Record<string, unknown>;
+      const shareSlug =
+        context.scope_kind === "workspace"
+          ? undefined
+          : await options.prepareShareSecretsForRecipientDelivery(
+              id,
+              requiredContextString(context, "management_document_id"),
+              requiredContextString(context, "management_share_id"),
+            );
+      const approval = await buildGuestRecipientDeliveryApproval({
+        attempt,
+        checkpointEnvelope: directory.checkpoint,
+        workspacePinBootstrap: pinBootstrap.bootstrap,
+        workspacePinBootstrapHash: pinBootstrap.hash,
+        actorUserId: auth.user.id,
+        actorDeviceId: device.deviceId,
+        ...(shareSlug ? { shareSlug } : {}),
+      });
+      await workspacesApi.approveInvitationDeliveryAttempt(
+        id,
+        attempt.redeem_attempt_id,
+        approval as unknown as components["schemas"]["ApproveInvitationDeliveryAttemptRequest"],
+      );
+      await queryClient.invalidateQueries({
+        queryKey: ["invitation-delivery-attempts", id],
+      });
+    } catch (err) {
+      options.setError(err instanceof Error ? err.message : "Failed to approve key delivery");
+    } finally {
+      setApprovingAttemptId(null);
+    }
+  };
+
   onCleanup(() => {
     if (copiedTimer) clearTimeout(copiedTimer);
   });
 
   return {
     invitations,
+    deliveryAttempts,
     canManageGuestInvitations,
     canUpdateWorkspace: options.canUpdateWorkspace,
     guestInvitesEnabled: appliedGuestInvitesEnabled,
@@ -429,6 +528,8 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     resetDialog,
     permission,
     setPermission,
+    guestEmail,
+    setGuestEmail,
     expiryDays,
     setExpiryDays,
     maxRedemptions,
@@ -439,6 +540,8 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     copyInviteLink,
     createInvitation,
     revokeInvitation,
+    approveDeliveryAttempt,
+    approvingAttemptId,
     settingsEnabled,
     setSettingsEnabled: updateSettingsEnabled,
     settingsLimit,
@@ -447,6 +550,14 @@ export function useGuestInvitationManagement(options: UseGuestInvitationManageme
     updateSettings,
     syncSettings,
   };
+}
+
+function requiredContextString(context: Record<string, unknown>, field: string): string {
+  const value = context[field];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("guest_invitation_delivery_context_invalid");
+  }
+  return value;
 }
 
 export type GuestInvitationManagementModel = ReturnType<typeof useGuestInvitationManagement>;

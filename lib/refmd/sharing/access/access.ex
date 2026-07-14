@@ -185,7 +185,7 @@ defmodule RefMD.Sharing.Access do
       join: d in Document,
       on: d.id == s.document_id,
       join: sk in ShareKey,
-      on: sk.share_id == s.id,
+      on: sk.share_id == s.id and sk.key_version == d.min_dek_version,
       left_join: dt in SharedDocumentToken,
       on: dt.share_id == s.id and dt.document_id == s.document_id,
       left_join: ft in SharedFolderToken,

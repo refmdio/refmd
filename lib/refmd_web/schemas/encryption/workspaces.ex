@@ -12,6 +12,42 @@ defmodule RefMDWeb.Schemas.WorkspaceIdsResponse do
   })
 end
 
+defmodule RefMDWeb.Schemas.WorkspaceAuditCheckpoint do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceAuditCheckpoint",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      workspace_id: %Schema{type: :string, format: :uuid},
+      audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint
+    },
+    required: [:workspace_id, :audit_checkpoint]
+  })
+end
+
+defmodule RefMDWeb.Schemas.EncryptionSetupCompleteResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "EncryptionSetupCompleteResponse",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      ok: %Schema{type: :boolean, enum: [true]},
+      user_audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint,
+      workspace_audit_checkpoints: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.WorkspaceAuditCheckpoint
+      }
+    },
+    required: [:ok, :user_audit_checkpoint, :workspace_audit_checkpoints]
+  })
+end
+
 defmodule RefMDWeb.Schemas.CreateWorkspaceKeyRequest do
   alias OpenApiSpex.Schema
   require OpenApiSpex
@@ -86,7 +122,16 @@ defmodule RefMDWeb.Schemas.WorkspaceKeyItem do
             allOf: [RefMDWeb.Schemas.ApprovalDeliveryArtifacts],
             nullable: true
           },
-          sender_client_nonce: %Schema{type: :string}
+          sender_client_nonce: %Schema{type: :string},
+          workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope,
+          workspace_key_directory_checkpoint_ancestry: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+          },
+          workspace_key_directory_event_ancestry: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+          }
         },
         required: [
           :key_version,
@@ -102,7 +147,10 @@ defmodule RefMDWeb.Schemas.WorkspaceKeyItem do
           :sender_approval_proof,
           :sender_approval_delivery_commitments,
           :sender_approval_delivery_artifacts,
-          :sender_client_nonce
+          :sender_client_nonce,
+          :workspace_key_directory_checkpoint,
+          :workspace_key_directory_checkpoint_ancestry,
+          :workspace_key_directory_event_ancestry
         ]
       }
     ]

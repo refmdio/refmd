@@ -7,13 +7,53 @@ import {
   createSignedPqWrap,
   finalizeSignedPqWrapOperationCheckpoint,
   openSignedPqWrap,
+  signedPqWrapEventBody,
+  type SignedPqWrapRecord,
 } from "./signed-pq-wrap";
 import { generateHybridSigningPrivateKeyMaterial, publicKeyMaterialFromPrivate } from "./signature";
+import { base64UrlDecode, base64UrlEncode } from "./encoding";
+import { blake3Base64Url } from "./hash";
+import { canonicalizeStrictBytes, type StrictJsonValue } from "./jcs";
+import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "./suite";
+import type { VerifiedSignedPqWrapOperation } from "@/shared/lib/anti-rollback/key-directory-pin/wrap-operation-proof";
 
 const HASH_A = "F3Yv3dlppFOSXWVxesPuohMgtmtUNC_eFRKNbK8hIV8";
 const HASH_B = "EOXPPTyKT580aMjMWO6oSJKiL9rbwayyJBAZAETB1VM";
 
 describe("signed PQ wrap", () => {
+  it.each(["workspace_invitation_package_key_wrap", "guest_invitation_package_key_wrap"])(
+    "rejects removed invitation package purpose %s",
+    (purpose) => {
+      const senderDeviceId = crypto.randomUUID();
+      const recipientDeviceId = crypto.randomUUID();
+      const workspaceId = crypto.randomUUID();
+
+      expect(() =>
+        createSignedPqWrap({
+          purpose,
+          plaintext: crypto.getRandomValues(new Uint8Array(32)),
+          recipientPublicKeyMaterial: publicHybridEncryptionMaterialFromPrivate(
+            generateHybridEncryptionPrivateKeyMaterial("device", recipientDeviceId),
+          ),
+          senderSigningPrivateKeyMaterial: generateHybridSigningPrivateKeyMaterial(
+            "device",
+            senderDeviceId,
+          ),
+          senderUserId: crypto.randomUUID(),
+          senderDeviceId,
+          resource: {},
+          eventScope: { scope_kind: "workspace", scope_id: workspaceId },
+          operationCheckpoint: {
+            sequence: 1,
+            checkpointHash: HASH_A,
+            coveredHeadSequence: 1,
+            coveredHeadHash: HASH_B,
+          },
+        } as never),
+      ).toThrow("signed_pq_wrap_purpose_invalid");
+    },
+  );
+
   it("rejects share-scoped wrap resources with workspace scope", () => {
     const senderDeviceId = crypto.randomUUID();
     const recipientDeviceId = crypto.randomUUID();
@@ -267,10 +307,7 @@ describe("signed PQ wrap", () => {
         record: valid,
         recipientPrivateKeyMaterial: recipientEncryption,
         senderSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(senderSigning),
-        expectedOperationCheckpoint: {
-          sequence: valid.operation_checkpoint.checkpoint_sequence,
-          checkpointHash: valid.operation_checkpoint.checkpoint_hash,
-        },
+        verifiedOperation: verifiedOperationFor(valid),
       }),
     ).toEqual(base.plaintext);
 
@@ -282,14 +319,293 @@ describe("signed PQ wrap", () => {
         },
         recipientPrivateKeyMaterial: recipientEncryption,
         senderSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(senderSigning),
-        expectedOperationCheckpoint: {
-          sequence: valid.operation_checkpoint.checkpoint_sequence,
-          checkpointHash: valid.operation_checkpoint.checkpoint_hash,
-        },
+        verifiedOperation: verifiedOperationFor(valid),
       }),
     ).toThrow("signed_pq_wrap_event_body_hash_mismatch");
   });
+
+  it("rejects a record substituted after operation-proof verification", () => {
+    const senderDeviceId = crypto.randomUUID();
+    const recipientDeviceId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const senderSigning = generateHybridSigningPrivateKeyMaterial("device", senderDeviceId);
+    const recipientEncryption = generateHybridEncryptionPrivateKeyMaterial(
+      "device",
+      recipientDeviceId,
+    );
+    const initial = createSignedPqWrap({
+      purpose: "workspace_device_kek_wrap",
+      plaintext: crypto.getRandomValues(new Uint8Array(32)),
+      recipientPublicKeyMaterial: publicHybridEncryptionMaterialFromPrivate(recipientEncryption),
+      senderSigningPrivateKeyMaterial: senderSigning,
+      senderUserId: crypto.randomUUID(),
+      senderDeviceId,
+      resource: {
+        workspace_id: workspaceId,
+        target_user_id: crypto.randomUUID(),
+        target_device_id: recipientDeviceId,
+        kek_version: 1,
+      },
+      eventScope: { scope_kind: "workspace", scope_id: workspaceId },
+      operationCheckpoint: {
+        sequence: 1,
+        checkpointHash: HASH_A,
+        coveredHeadSequence: 1,
+        coveredHeadHash: HASH_B,
+      },
+    });
+    const valid = finalizeSignedPqWrapOperationCheckpoint({
+      record: initial,
+      operationCheckpoint: {
+        sequence: 2,
+        checkpointHash: HASH_B,
+        coveredHeadSequence: initial.event.wrap_event_sequence,
+        coveredHeadHash: initial.event.wrap_event_hash,
+      },
+      senderSigningPrivateKeyMaterial: senderSigning,
+    });
+    const verifiedOperation = verifiedOperationFor(valid);
+    const substituted = {
+      ...valid,
+      signature: {
+        ...valid.signature,
+        ed25519: `${valid.signature.ed25519.slice(0, -1)}${
+          valid.signature.ed25519.endsWith("A") ? "B" : "A"
+        }`,
+      },
+    };
+
+    expect(() =>
+      openSignedPqWrap({
+        record: substituted,
+        recipientPrivateKeyMaterial: recipientEncryption,
+        senderSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(senderSigning),
+        verifiedOperation,
+      }),
+    ).toThrow("signed_pq_wrap_operation_verification_mismatch");
+  });
+
+  it("rejects tampered ML-KEM ciphertext at the worker decapsulation boundary", () => {
+    const senderDeviceId = crypto.randomUUID();
+    const recipientDeviceId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const senderSigning = generateHybridSigningPrivateKeyMaterial("device", senderDeviceId);
+    const recipientEncryption = generateHybridEncryptionPrivateKeyMaterial(
+      "device",
+      recipientDeviceId,
+    );
+    const initial = createSignedPqWrap({
+      purpose: "workspace_device_kek_wrap",
+      plaintext: crypto.getRandomValues(new Uint8Array(32)),
+      recipientPublicKeyMaterial: publicHybridEncryptionMaterialFromPrivate(recipientEncryption),
+      senderSigningPrivateKeyMaterial: senderSigning,
+      senderUserId: crypto.randomUUID(),
+      senderDeviceId,
+      resource: {
+        workspace_id: workspaceId,
+        target_user_id: crypto.randomUUID(),
+        target_device_id: recipientDeviceId,
+        kek_version: 1,
+      },
+      eventScope: { scope_kind: "workspace", scope_id: workspaceId },
+      operationCheckpoint: {
+        sequence: 1,
+        checkpointHash: HASH_A,
+        coveredHeadSequence: 1,
+        coveredHeadHash: HASH_B,
+      },
+    });
+    const tamperedInitial = tamperSignedMlkemCiphertext(initial);
+    const valid = finalizeSignedPqWrapOperationCheckpoint({
+      record: tamperedInitial,
+      operationCheckpoint: {
+        sequence: 2,
+        checkpointHash: HASH_B,
+        coveredHeadSequence: tamperedInitial.event.wrap_event_sequence,
+        coveredHeadHash: tamperedInitial.event.wrap_event_hash,
+      },
+      senderSigningPrivateKeyMaterial: senderSigning,
+    });
+    expect(() =>
+      openSignedPqWrap({
+        record: valid,
+        recipientPrivateKeyMaterial: recipientEncryption,
+        senderSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(senderSigning),
+        verifiedOperation: verifiedOperationFor(valid),
+      }),
+    ).toThrow("hpke_open_failed");
+  });
+
+  it("chains a wrap after an earlier event in the same operation", () => {
+    const senderDeviceId = crypto.randomUUID();
+    const recipientDeviceId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const plaintext = crypto.getRandomValues(new Uint8Array(32));
+    const senderSigning = generateHybridSigningPrivateKeyMaterial("device", senderDeviceId);
+    const recipientEncryption = generateHybridEncryptionPrivateKeyMaterial(
+      "device",
+      recipientDeviceId,
+    );
+    const initial = createSignedPqWrap({
+      purpose: "workspace_device_kek_wrap",
+      plaintext,
+      recipientPublicKeyMaterial: publicHybridEncryptionMaterialFromPrivate(recipientEncryption),
+      senderSigningPrivateKeyMaterial: senderSigning,
+      senderUserId: crypto.randomUUID(),
+      senderDeviceId,
+      resource: {
+        workspace_id: workspaceId,
+        target_user_id: crypto.randomUUID(),
+        target_device_id: recipientDeviceId,
+        kek_version: 1,
+      },
+      eventScope: { scope_kind: "workspace", scope_id: workspaceId },
+      operationCheckpoint: {
+        sequence: 3,
+        checkpointHash: HASH_A,
+        coveredHeadSequence: 7,
+        coveredHeadHash: HASH_A,
+      },
+      eventPrevious: { sequence: 8, hash: HASH_B },
+    });
+    expect(initial.event.wrap_event_sequence).toBe(9);
+    const finalized = finalizeSignedPqWrapOperationCheckpoint({
+      record: initial,
+      operationCheckpoint: {
+        sequence: 4,
+        checkpointHash: HASH_B,
+        coveredHeadSequence: 10,
+        coveredHeadHash: HASH_A,
+      },
+      senderSigningPrivateKeyMaterial: senderSigning,
+    });
+
+    expect(
+      openSignedPqWrap({
+        record: finalized,
+        recipientPrivateKeyMaterial: recipientEncryption,
+        senderSigningPublicKeyMaterial: publicKeyMaterialFromPrivate(senderSigning),
+        verifiedOperation: verifiedOperationFor(finalized),
+      }),
+    ).toEqual(plaintext);
+  });
 });
+
+function tamperSignedMlkemCiphertext(record: SignedPqWrapRecord): SignedPqWrapRecord {
+  const enc = base64UrlDecode(record.hpke.enc);
+  enc[0] ^= 0x01;
+  const hpke = { ...record.hpke, enc: base64UrlEncode(enc) };
+  const info = {
+    label: "RefMD HPKE info v1",
+    protocol: record.protocol,
+    protocol_version: record.protocol_version,
+    suite_id: record.suite_id,
+    suite_rank: record.suite_rank,
+    purpose: record.purpose,
+    resource_hash: blake3Base64Url(canonicalizeStrictBytes(record.resource)),
+    sender_user_id: record.sender.user_id,
+    sender_device_id: record.sender.device_id,
+    sender_signing_key_id: record.sender.signing_key_id,
+    sender_key_scope_kind: record.sender.key_scope_kind,
+    sender_key_scope_id: record.sender.key_scope_id,
+    sender_key_checkpoint_hash: record.sender.key_checkpoint_hash,
+    recipient_kind: record.recipient.recipient_kind,
+    recipient_key_id: record.recipient.encryption_key_id,
+    recipient_key_scope_kind: record.recipient.key_scope_kind,
+    recipient_key_scope_id: record.recipient.key_scope_id,
+    recipient_key_checkpoint_hash: record.recipient.key_checkpoint_hash,
+    event_scope_kind: record.event_scope.scope_kind,
+    event_scope_id: record.event_scope.scope_id,
+  } satisfies StrictJsonValue;
+  const aad = {
+    label: "RefMD PQ wrap AAD v1",
+    protocol: record.protocol,
+    protocol_version: record.protocol_version,
+    suite_id: record.suite_id,
+    suite_rank: record.suite_rank,
+    purpose: record.purpose,
+    resource: record.resource,
+    sender: record.sender,
+    recipient: record.recipient,
+    event_scope: record.event_scope,
+    hpke: {
+      mode: "base",
+      kem_id: hpke.kem_id,
+      kdf_id: hpke.kdf_id,
+      aead_id: hpke.aead_id,
+      enc: hpke.enc,
+    },
+  } satisfies StrictJsonValue;
+  const wrapBody = {
+    label: "RefMD PQ wrap body v1",
+    protocol: record.protocol,
+    version: CURRENT_PROTOCOL_VERSION,
+    suite_id: SUITE_IDS.SIGNED_PQ_HYBRID_WRAP,
+    suite_rank: CURRENT_SUITE_RANK,
+    purpose: record.purpose,
+    resource: record.resource,
+    sender: record.sender,
+    recipient: record.recipient,
+    event_scope: record.event_scope,
+    hpke,
+    hpke_info_hash: blake3Base64Url(canonicalizeStrictBytes(info)),
+    aad_hash: blake3Base64Url(canonicalizeStrictBytes(aad)),
+  } satisfies StrictJsonValue;
+  const eventBody = {
+    purpose: record.purpose,
+    recipient: record.recipient,
+    resource: record.resource,
+    resource_hash: blake3Base64Url(canonicalizeStrictBytes(record.resource)),
+    sender: record.sender,
+    wrap_body_hash: blake3Base64Url(canonicalizeStrictBytes(wrapBody)),
+    wrap_protocol: record.protocol,
+    wrap_suite_id: record.suite_id,
+    wrap_suite_rank: record.suite_rank,
+    wrap_version: record.protocol_version,
+  } satisfies StrictJsonValue;
+  const eventBodyHash = blake3Base64Url(canonicalizeStrictBytes(eventBody));
+  const event = {
+    protocol: "refmd.key-directory-event",
+    version: CURRENT_PROTOCOL_VERSION,
+    scope_kind: record.event_scope.scope_kind,
+    scope_id: record.event_scope.scope_id,
+    sequence: record.event.wrap_event_sequence,
+    event_type: "wrap_issued",
+    actor: record.sender,
+    previous_event_hash: record.operation_checkpoint.covered_event_head_hash,
+    body: eventBody,
+  } satisfies StrictJsonValue;
+
+  return {
+    ...record,
+    hpke,
+    event: {
+      ...record.event,
+      wrap_event_body_hash: eventBodyHash,
+      wrap_event_hash: blake3Base64Url(canonicalizeStrictBytes(event)),
+    },
+  };
+}
+
+function verifiedOperationFor(record: SignedPqWrapRecord): VerifiedSignedPqWrapOperation {
+  const eventBody = signedPqWrapEventBody(record) as Record<string, StrictJsonValue>;
+  return {
+    protocol: "refmd.verified-signed-pq-wrap-operation",
+    version: 1,
+    sequence: record.operation_checkpoint.checkpoint_sequence,
+    checkpointHash: record.operation_checkpoint.checkpoint_hash,
+    coveredHeadSequence: record.operation_checkpoint.covered_event_head_sequence,
+    coveredHeadHash: record.operation_checkpoint.covered_event_head_hash,
+    wrapEventSequence: record.event.wrap_event_sequence,
+    wrapEventHash: record.event.wrap_event_hash,
+    wrapEventBodyHash: record.event.wrap_event_body_hash,
+    wrapBodyHash: eventBody.wrap_body_hash as string,
+    transcriptHash: record.transcript_hash,
+    recordCommitmentHash: blake3Base64Url(
+      canonicalizeStrictBytes(record as unknown as StrictJsonValue),
+    ),
+  } as VerifiedSignedPqWrapOperation;
+}
 
 function shareLinkSecretBackupResource(overrides: Record<string, unknown> = {}) {
   return {

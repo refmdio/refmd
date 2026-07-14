@@ -7,17 +7,16 @@ import {
   putOfflineKek,
 } from "@/shared/lib/offline/storage/store";
 import { clientWarn } from "@/shared/lib/logger";
+import { runDocumentOfflineWrite } from "../../../crypto/document-key-write-barrier";
 
 export async function cacheDek(documentId: string, keyVersion: number): Promise<void> {
-  try {
-    await putOfflineDek({
-      documentId,
-      keyVersion,
-      cachedAt: Date.now(),
-    });
-  } catch (err) {
-    clientWarn("offline_cache_dek_failed", { documentId, error: err });
-  }
+  await runDocumentOfflineWrite(documentId, async () => {
+    try {
+      await putOfflineDek({ documentId, keyVersion, cachedAt: Date.now() });
+    } catch (err) {
+      clientWarn("offline_cache_dek_failed", { documentId, error: err });
+    }
+  });
 }
 
 export async function cacheKek(workspaceId: string, keyVersion: number): Promise<void> {
@@ -56,20 +55,22 @@ export async function cacheOfflineTitle(
   workspaceId: string,
   title: string,
 ): Promise<void> {
-  try {
-    const { encryptedTitle, encryptedTitleNonce } = await wrapTitleWithDsk(documentId, title);
-    const existing = await getOfflineDocumentMeta(documentId);
-    await putOfflineDocumentMeta({
-      documentId,
-      workspaceId,
-      encryptedTitle,
-      encryptedTitleNonce,
-      lastAccessedAt: existing?.lastAccessedAt ?? Date.now(),
-      cacheSize: existing?.cacheSize ?? 0,
-    });
-  } catch {
-    // Best effort
-  }
+  await runDocumentOfflineWrite(documentId, async () => {
+    try {
+      const { encryptedTitle, encryptedTitleNonce } = await wrapTitleWithDsk(documentId, title);
+      const existing = await getOfflineDocumentMeta(documentId);
+      await putOfflineDocumentMeta({
+        documentId,
+        workspaceId,
+        encryptedTitle,
+        encryptedTitleNonce,
+        lastAccessedAt: existing?.lastAccessedAt ?? Date.now(),
+        cacheSize: existing?.cacheSize ?? 0,
+      });
+    } catch {
+      // Best effort
+    }
+  });
 }
 
 export async function recoverKekFromCache(workspaceId: string): Promise<boolean> {

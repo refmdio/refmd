@@ -8,12 +8,9 @@ import {
   type HybridEncryptionPublicKeyMaterial,
 } from "./hybrid-encryption";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "./jcs";
-import {
-  getKeyDirectoryPin,
-  hashKeyDirectoryCheckpointEnvelope,
-  advanceKeyDirectoryPinWithProof,
-} from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { verifyWorkspaceSignedPqWrapOperation } from "@/shared/lib/anti-rollback/key-directory-pin/wrap-operation-proof";
 import { recoverKekFromCache } from "@/shared/lib/offline/cache/manager/keys";
+import { acknowledgeWorkspaceWipeIfRequired } from "./workspace-kek-wipe";
 const pendingActiveKekResolutions = new Map<
   string,
   Promise<{
@@ -56,6 +53,11 @@ export async function resolveActiveKek(
 }> {
   const worker = getCryptoWorker();
   const { auth, device } = requireKekResolverSession(session);
+  await acknowledgeWorkspaceWipeIfRequired({
+    workspaceId,
+    userId: auth.user.id,
+    deviceId: device.deviceId,
+  });
   const cached = await worker.resolveKek(workspaceId);
   if (cached.found && cached.keyVersion !== undefined) {
     await worker.setActiveKekVersion(workspaceId, cached.keyVersion);
@@ -105,9 +107,9 @@ async function doResolveActiveKek(
   }
   const activeKey = keys.find((k) => k.key_version === currentKekVersion);
   if (activeKey) {
-    const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(
+    await verifyWorkspaceSignedPqWrapOperation(
       workspaceId,
-      activeKey as Record<string, unknown>,
+      activeKey as unknown as Record<string, unknown>,
     );
     assertWorkspaceSenderKeyAdmission(workspaceId, activeKey as Record<string, unknown>);
     const senderUserId = activeKey.sender_user_id ?? userId;
@@ -124,10 +126,9 @@ async function doResolveActiveKek(
       throw new KekResolutionError(workspaceId, "Key verification failed for KEK sender device.");
     }
     await worker.openSignedPqDeviceKekWrap({
-      record: activeKey as never,
+      operationProof: activeKey as unknown as Record<string, unknown>,
       senderSigningPublicKeyMaterial:
         activeKey.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
-      expectedOperationCheckpoint,
     });
     await worker.setActiveKekVersion(workspaceId, currentKekVersion);
   } else {
@@ -197,9 +198,9 @@ async function tryDecryptKekViaDeviceEnvelope(
       return false;
     }
     envelopeFound = true;
-    const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(
+    await verifyWorkspaceSignedPqWrapOperation(
       workspaceId,
-      matchingKey as Record<string, unknown>,
+      matchingKey as unknown as Record<string, unknown>,
     );
     assertWorkspaceSenderKeyAdmission(workspaceId, matchingKey as Record<string, unknown>);
     const senderUserId = matchingKey.sender_user_id ?? userId;
@@ -216,10 +217,9 @@ async function tryDecryptKekViaDeviceEnvelope(
       throw new KekResolutionError(workspaceId, "Key verification failed for KEK sender device.");
     }
     await worker.openSignedPqDeviceKekWrap({
-      record: matchingKey as never,
+      operationProof: matchingKey as unknown as Record<string, unknown>,
       senderSigningPublicKeyMaterial:
         matchingKey.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
-      expectedOperationCheckpoint,
     });
     return true;
   } catch (err) {
@@ -228,94 +228,8 @@ async function tryDecryptKekViaDeviceEnvelope(
   }
 }
 
-export async function installWorkspaceOperationCheckpointPin(
-  workspaceId: string,
-  wrapRecord: Record<string, unknown>,
-): Promise<{ sequence: number; checkpointHash: string }> {
-  const checkpoint = wrapRecord.workspace_key_directory_checkpoint;
-  if (!isRecord(checkpoint)) {
-    throw new Error("workspace_key_directory_checkpoint_missing");
-  }
-
-  const operationCheckpoint = wrapRecord.operation_checkpoint;
-  if (!isRecord(operationCheckpoint)) {
-    throw new Error("workspace_key_directory_checkpoint_missing");
-  }
-  const operationCheckpointSequence = operationCheckpoint.checkpoint_sequence;
-  if (typeof operationCheckpointSequence !== "number") {
-    throw new Error("workspace_key_directory_checkpoint_sequence_invalid");
-  }
-
-  const expectedHash = operationCheckpoint.checkpoint_hash;
-  if (
-    typeof expectedHash !== "string" ||
-    hashKeyDirectoryCheckpointEnvelope(checkpoint) !== expectedHash
-  ) {
-    throw new Error("workspace_key_directory_checkpoint_hash_mismatch");
-  }
-
-  const existing = await getKeyDirectoryPin("workspace", workspaceId);
-  if (existing) {
-    if (
-      existing.checkpointSequence === operationCheckpointSequence &&
-      existing.checkpointHash !== expectedHash
-    ) {
-      throw new Error("workspace_key_directory_checkpoint_pin_mismatch");
-    }
-    if (existing.checkpointSequence < operationCheckpointSequence) {
-      const checkpointAncestry = wrapRecord.workspace_key_directory_checkpoint_ancestry;
-      const eventAncestry = wrapRecord.workspace_key_directory_event_ancestry;
-      if (!Array.isArray(checkpointAncestry) || !Array.isArray(eventAncestry)) {
-        throw new Error("workspace_key_directory_checkpoint_ancestry_required");
-      }
-      const eventAncestryRecords = eventAncestry.filter((entry): entry is Record<string, unknown> =>
-        isRecord(entry),
-      );
-      await advanceKeyDirectoryPinWithProof({
-        scopeKind: "workspace",
-        scopeId: workspaceId,
-        checkpointEnvelope: checkpoint,
-        checkpointAncestry: checkpointAncestry
-          .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-          .filter((entry) => checkpointEnvelopeSequence(entry) >= existing.checkpointSequence),
-        eventAncestry: eventAncestryRecords.filter(
-          (entry) => eventEnvelopeSequence(entry) > existing.eventHeadSequence,
-        ),
-        authorityEventAncestry: eventAncestryRecords,
-      });
-      const advanced = await getKeyDirectoryPin("workspace", workspaceId);
-      if (
-        !advanced ||
-        advanced.checkpointSequence !== operationCheckpointSequence ||
-        advanced.checkpointHash !== expectedHash
-      ) {
-        throw new Error("workspace_key_directory_checkpoint_pin_advance_failed");
-      }
-    }
-    return { sequence: operationCheckpointSequence, checkpointHash: expectedHash };
-  }
-
-  throw new Error("workspace_key_directory_pin_required");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function checkpointEnvelopeSequence(envelope: Record<string, unknown>): number {
-  const payload = envelope.payload;
-  if (!isRecord(payload) || typeof payload.sequence !== "number") {
-    throw new Error("workspace_key_directory_checkpoint_sequence_invalid");
-  }
-  return payload.sequence;
-}
-
-function eventEnvelopeSequence(envelope: Record<string, unknown>): number {
-  const payload = envelope.payload;
-  if (!isRecord(payload) || typeof payload.sequence !== "number") {
-    throw new Error("workspace_key_directory_event_sequence_invalid");
-  }
-  return payload.sequence;
 }
 
 export function assertWorkspaceSenderKeyAdmission(
@@ -335,13 +249,22 @@ export function assertWorkspaceSenderKeyAdmission(
   if (!isRecord(senderMaterial)) throw new Error("workspace_sender_signing_material_invalid");
   const operationCheckpoint = wrapRecord.operation_checkpoint;
   if (!isRecord(operationCheckpoint)) throw new Error("workspace_operation_checkpoint_invalid");
-  const operationSequence = numberField(operationCheckpoint.covered_event_head_sequence);
+  const event = wrapRecord.event;
+  if (!isRecord(event)) throw new Error("workspace_wrap_event_invalid");
+  const wrapEventSequence = numberField(event.wrap_event_sequence);
+  const eventScope = wrapRecord.event_scope;
+  if (!isRecord(eventScope)) throw new Error("workspace_event_scope_invalid");
 
   if (
+    checkpoint.payload.scope_kind !== "workspace" ||
+    checkpoint.payload.scope_id !== workspaceId ||
+    eventScope.scope_kind !== "workspace" ||
+    eventScope.scope_id !== workspaceId ||
+    sender.signer_kind !== "device" ||
     sender.key_scope_kind !== "workspace" ||
     sender.key_scope_id !== workspaceId ||
     sender.device_id !== senderDeviceId ||
-    sender.signing_key_id !== senderSigningKeyId
+    (typeof wrapRecord.sender_user_id === "string" && sender.user_id !== wrapRecord.sender_user_id)
   ) {
     throw new Error("workspace_sender_record_mismatch");
   }
@@ -353,7 +276,7 @@ export function assertWorkspaceSenderKeyAdmission(
     ownerKind: "device",
     ownerId: senderDeviceId,
     keyMaterial: senderMaterial,
-    operationSequence,
+    operationSequence: wrapEventSequence,
     errorPrefix: "workspace_sender_signing",
   });
 
@@ -368,10 +291,27 @@ export function assertWorkspaceSenderKeyAdmission(
       ownerKind: "device",
       ownerId: senderDeviceId,
       keyMaterial: senderEncryptionMaterial,
-      operationSequence,
+      operationSequence: wrapEventSequence,
       errorPrefix: "workspace_sender_encryption",
     });
   }
+}
+
+export async function openAdmittedWorkspaceMemberKekEnvelope(
+  workspaceId: string,
+  envelope: Record<string, unknown>,
+): Promise<void> {
+  await verifyWorkspaceSignedPqWrapOperation(workspaceId, envelope);
+  assertWorkspaceSenderKeyAdmission(workspaceId, envelope);
+  const senderSigningPublicKeyMaterial = envelope.sender_hybrid_signing_public_key_material;
+  if (!isRecord(senderSigningPublicKeyMaterial)) {
+    throw new Error("workspace_sender_signing_material_invalid");
+  }
+  await getCryptoWorker().openSignedPqMemberKekWrap({
+    operationProof: envelope,
+    senderSigningPublicKeyMaterial:
+      senderSigningPublicKeyMaterial as unknown as HybridSigningPublicKeyMaterial,
+  });
 }
 
 function assertActiveCheckpointKey(params: {
@@ -386,12 +326,34 @@ function assertActiveCheckpointKey(params: {
 }): void {
   const entries = params.checkpointPayload[params.keySet];
   if (!Array.isArray(entries)) throw new Error(`${params.errorPrefix}_key_set_invalid`);
-  const entry = entries.find(
+  const matches = entries.filter(
     (candidate) => isRecord(candidate) && candidate.key_id === params.keyId,
   );
-  if (!isRecord(entry)) throw new Error(`${params.errorPrefix}_key_missing`);
-  if (isRevokedAtOrBefore(entry.revoked_at, params.operationSequence)) {
-    throw new Error(`${params.errorPrefix}_key_revoked`);
+  if (matches.length !== 1 || !isRecord(matches[0])) {
+    throw new Error(
+      matches.length === 0
+        ? `${params.errorPrefix}_key_missing`
+        : `${params.errorPrefix}_key_duplicate`,
+    );
+  }
+  const entry = matches[0];
+  const validFromSequence = assertWorkspaceEventReference(
+    entry.valid_from,
+    params.checkpointPayload.scope_id,
+    `${params.errorPrefix}_valid_from`,
+  );
+  if (validFromSequence > params.operationSequence) {
+    throw new Error(`${params.errorPrefix}_key_not_yet_valid`);
+  }
+  if (entry.revoked_at !== undefined) {
+    const revokedAtSequence = assertWorkspaceEventReference(
+      entry.revoked_at,
+      params.checkpointPayload.scope_id,
+      `${params.errorPrefix}_revoked_at`,
+    );
+    if (revokedAtSequence <= params.operationSequence) {
+      throw new Error(`${params.errorPrefix}_key_revoked`);
+    }
   }
   const material = entry.key_material;
   if (!isRecord(material)) throw new Error(`${params.errorPrefix}_material_missing`);
@@ -403,10 +365,21 @@ function assertActiveCheckpointKey(params: {
   }
 }
 
-function isRevokedAtOrBefore(value: unknown, operationSequence: number): boolean {
-  if (!isRecord(value)) return false;
-  const eventSequence = value.event_sequence;
-  return typeof eventSequence === "number" && eventSequence <= operationSequence;
+function assertWorkspaceEventReference(
+  value: unknown,
+  workspaceId: unknown,
+  errorPrefix: string,
+): number {
+  if (
+    !isRecord(value) ||
+    value.scope_kind !== "workspace" ||
+    value.scope_id !== workspaceId ||
+    typeof value.event_hash !== "string" ||
+    value.event_hash.length === 0
+  ) {
+    throw new Error(`${errorPrefix}_invalid`);
+  }
+  return numberField(value.event_sequence);
 }
 
 function sameStrictJson(left: Record<string, unknown>, right: Record<string, unknown>): boolean {

@@ -49,6 +49,9 @@ export async function buildWorkspaceInvitationCreatedKeyDirectoryAppend(
     },
     role_id: input.roleId ?? "",
     base_role: input.baseRole,
+    delivery_mode: input.deliveryMode,
+    recipient_user_id: input.recipientUserId ?? "NOT_APPLICABLE",
+    recipient_device_ids: [...input.recipientDeviceIds].sort(),
     kek_version: input.kekVersion,
     expires_event_sequence: input.expiresEventSequence,
     redeem_authority: {
@@ -92,12 +95,19 @@ export async function buildGuestInvitationCreatedKeyDirectoryAppend(
     scope_kind: input.scopeKind,
     scope_id: input.scopeId,
     permission: input.permission,
+    delivery_mode: input.deliveryMode,
+    recipient_user_id: input.recipientUserId ?? "NOT_APPLICABLE",
+    recipient_device_ids: [...input.recipientDeviceIds].sort(),
     key_version_context: {
-      workspace_kek_version: input.scopeKind === "workspace" ? input.kekVersion : "NOT_APPLICABLE",
-      share_key_version: "NOT_APPLICABLE",
-      dek_version: "NOT_APPLICABLE",
+      workspace_kek_version: input.keyVersionContext.workspaceKekVersion,
+      share_key_version: input.keyVersionContext.shareKeyVersion,
+      dek_version: input.keyVersionContext.dekVersion,
     },
-    allowed_share_ids_hash: blake3Base64Url(canonicalizeStrictBytes({ allowed_share_ids: [] })),
+    allowed_share_ids_hash: blake3Base64Url(
+      canonicalizeStrictBytes({
+        allowed_share_ids: [...input.allowedShareIds].sort((a, b) => a.localeCompare(b)),
+      }),
+    ),
     expires_event_sequence: input.expiresEventSequence,
     redeem_authority: {
       signer_kind: "invitation_redeem_authority",
@@ -255,6 +265,8 @@ export async function buildGuestInvitationRedeemedKeyDirectoryAppend(
       scope_kind: input.scopeKind,
       scope_id: input.scopeId,
       permission: input.permission,
+      recipient_account_user_id: input.recipientAccountUserId ?? "NOT_APPLICABLE",
+      recipient_account_device_id: input.recipientAccountDeviceId ?? "NOT_APPLICABLE",
       redeemed_at_event_sequence: numberField(coveredHead.head_sequence) + 1,
     },
   });

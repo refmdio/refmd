@@ -13,6 +13,10 @@ defmodule RefMD.Workspaces.WorkspaceGuestGrant do
     field :scope_id, :binary_id
     field :permission, :string
 
+    belongs_to :linked_account_user, RefMD.Users.User,
+      foreign_key: :linked_account_user_id,
+      type: :binary_id
+
     belongs_to :invite, RefMD.Workspaces.GuestInvitation,
       foreign_key: :invite_id,
       type: :binary_id
@@ -30,6 +34,7 @@ defmodule RefMD.Workspaces.WorkspaceGuestGrant do
       :scope_kind,
       :scope_id,
       :permission,
+      :linked_account_user_id,
       :invite_id,
       :revoked_at
     ])
@@ -39,6 +44,7 @@ defmodule RefMD.Workspaces.WorkspaceGuestGrant do
     |> validate_target_scope()
     |> foreign_key_constraint(:workspace_id)
     |> foreign_key_constraint(:user_id)
+    |> foreign_key_constraint(:linked_account_user_id)
     |> foreign_key_constraint(:invite_id)
   end
 

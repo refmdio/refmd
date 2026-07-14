@@ -17,6 +17,16 @@ defmodule RefMDWeb.Router do
     plug RefMDWeb.Plugs.RequireAuth, allow_share_participant: true
   end
 
+  pipeline :identity_recovery_authenticated do
+    plug RefMDWeb.Plugs.RequireAuth, allow_identity_recovery: true
+  end
+
+  pipeline :logout_authenticated do
+    plug RefMDWeb.Plugs.RequireAuth,
+      allow_share_participant: true,
+      allow_identity_recovery: true
+  end
+
   pipeline :share_session_authenticated do
     plug RefMDWeb.Plugs.RequireAuth, allow_share_participant: true, prefer_share_participant: true
   end
@@ -179,23 +189,34 @@ defmodule RefMDWeb.Router do
 
   # Session-only endpoints (no RRP required, Origin-verified for CSRF defense)
   scope "/api", RefMDWeb do
+    pipe_through [:api, :identity_recovery_authenticated, :verify_origin]
+
+    get "/auth/me", AuthController, :me
+    get "/auth/recovery", AuthController, :get_recovery
+    post "/devices/registrations/challenge", DeviceController, :registration_challenge
+    post "/devices/registrations", DeviceController, :create_registration
+  end
+
+  scope "/api", RefMDWeb do
+    pipe_through [:api, :logout_authenticated, :verify_origin]
+
+    post "/auth/logout", AuthController, :logout
+  end
+
+  scope "/api", RefMDWeb do
     pipe_through [:api, :authenticated, :verify_origin]
 
     # Auth
-    get "/auth/me", AuthController, :me
     get "/auth/external-accounts", AuthController, :external_accounts
     get "/auth/key-restore", AuthController, :key_restore
     post "/auth/oauth/crypto-setup", AuthController, :oauth_crypto_setup
     post "/auth/verify-key", AuthController, :verify_key
     post "/auth/kdf-migration", AuthController, :kdf_migration
-    get "/auth/recovery", AuthController, :get_recovery
     post "/auth/password-set", PasswordController, :password_set
 
     # Device (bootstrap, registration, listing, status polling)
     post "/devices/bootstrap/challenge", DeviceController, :bootstrap_challenge
     post "/devices/bootstrap", DeviceController, :bootstrap
-    post "/devices/registrations/challenge", DeviceController, :registration_challenge
-    post "/devices/registrations", DeviceController, :create_registration
     get "/devices/registrations", DeviceController, :list_registrations
     get "/devices/registrations/:device_id/sas", DeviceController, :get_registration_sas
     delete "/devices/registrations/:device_id", DeviceController, :reject_registration
@@ -218,9 +239,16 @@ defmodule RefMDWeb.Router do
   scope "/api", RefMDWeb do
     pipe_through [:api, :session_authenticated, :verify_origin]
 
-    post "/auth/logout", AuthController, :logout
     post "/auth/rrp-challenge", AuthController, :rrp_challenge
     post "/auth/ws-token", AuthController, :ws_token
+
+    get "/devices/registrations/:device_id/initial-ake-offers",
+        DeviceController,
+        :initial_ake_offers
+
+    post "/devices/registrations/:device_id/initial-ake-responses",
+         DeviceController,
+         :initial_ake_responses
   end
 
   scope "/api", RefMDWeb do
@@ -251,15 +279,49 @@ defmodule RefMDWeb.Router do
     patch "/auth/password", PasswordController, :change_password
     put "/auth/recovery-key", PasswordController, :regenerate_recovery_key
 
+    get "/encryption/identity-rotation", IdentityRotationController, :status
+    post "/encryption/identity-rotation/prepare", IdentityRotationController, :prepare
+    post "/encryption/identity-rotation/activate", IdentityRotationController, :activate
+    post "/encryption/identity-rotation/finalize", IdentityRotationController, :finalize
+
     # Settings (write: RRP required)
     patch "/settings", SettingsController, :update
 
     # Invitation mutations and member admission require the current device proof.
     post "/workspaces/invitations/accept", InvitationController, :accept
+    post "/invitations/delivery-attempts", InvitationController, :create_delivery_attempt
+    get "/invitations/delivery-attempts/:attempt_id", InvitationController, :show_delivery_attempt
+
+    post "/workspaces/invitations/delivery-attempts/:attempt_id/consume",
+         InvitationController,
+         :consume_delivery_attempt
+
     post "/workspaces/:workspace_id/invitations", InvitationController, :create
+
+    get "/workspaces/:workspace_id/invitation-delivery-attempts",
+        InvitationController,
+        :delivery_attempts
+
+    post "/workspaces/:workspace_id/invitation-delivery-attempts/:attempt_id/approve",
+         InvitationController,
+         :approve_delivery_attempt
+
+    get "/workspaces/:workspace_id/invitations/recipient",
+        InvitationController,
+        :resolve_recipient
+
     delete "/workspaces/:workspace_id/invitations/:invitation_id", InvitationController, :delete
 
     post "/workspaces/:workspace_id/guest-invitations", GuestInvitationController, :create
+    post "/guest/redeem-known", GuestInvitationController, :redeem_known
+
+    post "/guest/invitations/delivery-attempts/:attempt_id/consume",
+         GuestInvitationController,
+         :consume_delivery_attempt
+
+    get "/workspaces/:workspace_id/guest-invitations/recipient",
+        GuestInvitationController,
+        :resolve_recipient
 
     delete "/workspaces/:workspace_id/guest-invitations/:invitation_id",
            GuestInvitationController,
@@ -437,6 +499,11 @@ defmodule RefMDWeb.Router do
 
     # Devices (RRP required)
     get "/devices", DeviceController, :list
+
+    get "/devices/:device_id/initial-ake-responses",
+        DeviceController,
+        :initial_ake_response_status
+
     patch "/devices/:device_id", DeviceController, :rename
     delete "/devices/:device_id", DeviceController, :revoke
 
@@ -451,7 +518,32 @@ defmodule RefMDWeb.Router do
 
     # Encryption (DEK operations)
     get "/encryption/documents/:document_id/keys", DocumentKeyController, :get_document_keys
+
+    get "/encryption/documents/:document_id/keys/rotation-targets",
+        DocumentKeyController,
+        :get_rotation_targets
+
+    get "/encryption/documents/:document_id/keys/rotation-completion",
+        DocumentKeyController,
+        :prepare_dek_rotation_completion
+
+    post "/encryption/documents/:document_id/keys/rotation-completion",
+         DocumentKeyController,
+         :complete_dek_rotation
+
+    get "/encryption/documents/:document_id/keys/wipe-requirement",
+        DocumentKeyController,
+        :get_document_wipe_requirement
+
+    post "/encryption/documents/:document_id/keys/wipe-requirement/acknowledge",
+         DocumentKeyController,
+         :acknowledge_document_wipe
+
     post "/encryption/documents/:document_id/keys", DocumentKeyController, :create_document_key
+
+    put "/encryption/documents/:document_id/keys/kek-rotation-rewrap",
+        DocumentKeyController,
+        :rewrap_document_key_for_kek_rotation
 
     # Encryption (KEK operations)
     post "/encryption/workspaces/:workspace_id/keys", EncryptionController, :create_workspace_key
@@ -469,6 +561,14 @@ defmodule RefMDWeb.Router do
     post "/encryption/workspaces/:workspace_id/kek-rotation/complete",
          KekRotationController,
          :complete_kek_rotation
+
+    get "/encryption/workspaces/:workspace_id/kek-rotation/wipe-requirement",
+        KekRotationController,
+        :get_workspace_wipe_requirement
+
+    post "/encryption/workspaces/:workspace_id/kek-rotation/wipe-requirement/acknowledge",
+         KekRotationController,
+         :acknowledge_workspace_wipe
 
     post "/encryption/workspaces/:workspace_id/member-envelopes",
          KekRotationController,

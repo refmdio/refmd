@@ -69,6 +69,23 @@ export function setActiveKekVersion(
   state.activeKekVersions.set(workspaceId, keyVersion);
 }
 
+export function evictCachedKek(
+  state: WorkerKeyState,
+  workspaceId: string,
+  keyVersion: number,
+): boolean {
+  const versionMap = state.kekCache.get(workspaceId);
+  const entry = versionMap?.get(keyVersion);
+  if (!versionMap || !entry) return false;
+
+  zeroOut(entry.kek);
+  versionMap.delete(keyVersion);
+  if (versionMap.size === 0) {
+    state.kekCache.delete(workspaceId);
+  }
+  return true;
+}
+
 export function getCachedDek(
   state: WorkerKeyState,
   cacheKey: string,

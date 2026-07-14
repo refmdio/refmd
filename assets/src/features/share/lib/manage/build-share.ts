@@ -43,6 +43,7 @@ export interface CreateShareOptions {
 interface PreparedShareKey {
   encryptedDek: string;
   nonce: string;
+  keyVersion: number;
 }
 
 interface ShareLinkBackupRecipient {
@@ -254,15 +255,21 @@ export async function buildShareExclusionKeyDirectoryAppend(input: {
 export async function buildShareKeyScopeKeyDirectoryAppend(input: {
   workspaceId: string;
   shareId: string;
-  share: {
-    permission: SharePermission;
-    password_protected: boolean;
-    max_views?: number | null;
-    expires_event_sequence?: number | null;
-  };
   documents: DocumentResponse[];
-  addKeys: Array<{ document_id: string; share_id: string }>;
-  replaceKeys: Array<{ document_id: string; share_id: string }>;
+  addKeys: Array<{
+    document_id: string;
+    share_id: string;
+    key_version: number;
+    encrypted_dek: string;
+    nonce: string;
+  }>;
+  replaceKeys: Array<{
+    document_id: string;
+    share_id: string;
+    key_version: number;
+    encrypted_dek: string;
+    nonce: string;
+  }>;
 }): Promise<{
   workspace_key_directory_events: KeyDirectoryEnvelope[];
   workspace_key_directory_checkpoint: KeyDirectoryEnvelope;
@@ -288,12 +295,9 @@ export async function buildShareKeyScopeKeyDirectoryAppend(input: {
         parent_share_id: input.shareId,
         scope_kind: shareScopeKindForDocument(documentsById, entry.document_id),
         scope_id: entry.document_id,
-        document_scope_hash: shareScopeHash(
-          shareScopeKindForDocument(documentsById, entry.document_id),
-          entry.document_id,
-        ),
-        share_metadata_hash: shareMetadataHash(input.share),
-        share_key_version: 1,
+        document_scope_hash: documentScopeHash(input.workspaceId, entry.document_id),
+        share_metadata_hash: shareKeyMetadataHash(entry),
+        share_key_version: entry.key_version,
         added_at_event_sequence: sequence,
       },
     });
@@ -314,13 +318,10 @@ export async function buildShareKeyScopeKeyDirectoryAppend(input: {
         share_id: entry.share_id,
         scope_kind: shareScopeKindForDocument(documentsById, entry.document_id),
         scope_id: entry.document_id,
-        document_scope_hash: shareScopeHash(
-          shareScopeKindForDocument(documentsById, entry.document_id),
-          entry.document_id,
-        ),
-        share_metadata_hash: shareMetadataHash(input.share),
-        share_key_version: 2,
-        previous_share_key_version: 1,
+        document_scope_hash: documentScopeHash(input.workspaceId, entry.document_id),
+        share_metadata_hash: shareKeyMetadataHash(entry),
+        share_key_version: entry.key_version,
+        previous_share_key_version: Math.max(entry.key_version - 1, 1),
         replaced_at_event_sequence: sequence,
       },
     });
@@ -435,6 +436,7 @@ async function prepareShareKey(
   return {
     encryptedDek: base64UrlEncode(wrapped.encryptedDek),
     nonce: base64UrlEncode(wrapped.nonce),
+    keyVersion,
   };
 }
 
@@ -449,6 +451,7 @@ export async function prepareFolderShareKeyEntries(
   Array<{
     document_id: string;
     share_id: string;
+    key_version: number;
     encrypted_dek: string;
     nonce: string;
   }>
@@ -471,6 +474,7 @@ export async function prepareFolderShareKeyEntries(
       return {
         document_id: document.id,
         share_id: childShareId,
+        key_version: childKey.keyVersion,
         encrypted_dek: childKey.encryptedDek,
         nonce: childKey.nonce,
       };
@@ -537,6 +541,7 @@ export async function createManagedShare(options: CreateShareOptions) {
       authenticated_workspace_pin_bootstrap: workspacePinBootstrap.bootstrap,
       encrypted_dek: rootKey.encryptedDek,
       nonce: rootKey.nonce,
+      key_version: rootKey.keyVersion,
       ...passwordFields,
       ...(authKey ? { auth_key: authKey } : {}),
       expires_event_sequence: options.expiresEventSequence ?? Number.MAX_SAFE_INTEGER,
@@ -626,6 +631,7 @@ export async function createManagedShare(options: CreateShareOptions) {
                     share_id: childShareId,
                     encrypted_dek: childKey.encryptedDek,
                     nonce: childKey.nonce,
+                    key_version: childKey.keyVersion,
                   };
                 },
               ),
@@ -691,18 +697,25 @@ function shareScopeKindForDocument(
   return documentsById.get(documentId)?.doc_type === "folder" ? "folder" : "document";
 }
 
-function shareMetadataHash(share: {
-  permission: SharePermission;
-  password_protected: boolean;
-  max_views?: number | null;
-  expires_event_sequence?: number | null;
+function documentScopeHash(workspaceId: string, documentId: string): string {
+  return blake3Base64Url(
+    canonicalizeStrictBytes({
+      workspace_id: workspaceId,
+      document_id: documentId,
+    }),
+  );
+}
+
+function shareKeyMetadataHash(entry: {
+  share_id: string;
+  encrypted_dek: string;
+  nonce: string;
 }): string {
   return blake3Base64Url(
     canonicalizeStrictBytes({
-      permission: share.permission,
-      password_protected: share.password_protected,
-      max_views: share.max_views ?? Number.MAX_SAFE_INTEGER,
-      expires_event_sequence: share.expires_event_sequence ?? Number.MAX_SAFE_INTEGER,
+      share_id: entry.share_id,
+      encrypted_dek_hash: blake3Base64Url(base64UrlDecode(entry.encrypted_dek)),
+      nonce_hash: blake3Base64Url(base64UrlDecode(entry.nonce)),
     }),
   );
 }

@@ -22,10 +22,10 @@ defmodule RefMD.Sharing.Lookup do
       on: s.id == t.share_id,
       left_join: ps in Share,
       on: ps.id == s.parent_share_id,
-      join: sk in ShareKey,
-      on: sk.share_id == s.id,
       join: d in Document,
       on: d.id == t.document_id,
+      join: sk in ShareKey,
+      on: sk.share_id == s.id and sk.key_version == d.min_dek_version,
       where: t.token == ^document_token,
       select: %{token: t, share: s, root_share: ps, share_key: sk, document: d}
     )
@@ -92,7 +92,7 @@ defmodule RefMD.Sharing.Lookup do
        encrypted_title: document.encrypted_title,
        encrypted_title_nonce: document.encrypted_title_nonce,
        encrypted_title_key_version: document.encrypted_title_key_version,
-       key_version: document.min_dek_version,
+       key_version: share_key.key_version,
        permission: session_grant,
        password_protected: access_share.password_protected,
        encrypted_dek: share_key.encrypted_dek,
@@ -285,7 +285,8 @@ defmodule RefMD.Sharing.Lookup do
          token
        ) do
     case Repo.get(ShareKey, token_share.id) do
-      %ShareKey{} = share_key ->
+      %ShareKey{key_version: key_version} = share_key
+      when key_version == document.min_dek_version ->
         %{
           id: document.id,
           share_id: token_share.id,
@@ -295,7 +296,7 @@ defmodule RefMD.Sharing.Lookup do
           encrypted_title: document.encrypted_title,
           encrypted_title_nonce: document.encrypted_title_nonce,
           encrypted_title_key_version: document.encrypted_title_key_version,
-          key_version: document.min_dek_version,
+          key_version: share_key.key_version,
           encrypted_dek: share_key.encrypted_dek,
           nonce: share_key.nonce,
           workspace_pin_bootstrap: access_share.authenticated_workspace_pin_bootstrap_checkpoint

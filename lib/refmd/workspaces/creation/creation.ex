@@ -3,16 +3,20 @@ defmodule RefMD.Workspaces.Creation do
 
   alias RefMD.Crypto.{Hash, HybridEncryptionMaterial, JCS, Signature}
   alias RefMD.Encryption
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
+  alias RefMD.Security
   alias RefMD.Workspaces.{Workspace, WorkspaceMember, WorkspaceRole}
 
   def create_default_workspace(user_id, name) do
     slug = generate_slug(name)
 
     Repo.transaction(fn ->
+      lock_identity_or_rollback!(user_id)
+
       workspace =
         insert_or_rollback(
-          %Workspace{}
+          %Workspace{kek_rotation_due_at: RotationPolicy.next_kek_due_at()}
           |> Workspace.changeset(%{name: name, slug: slug, owner_id: user_id})
         )
 
@@ -42,6 +46,8 @@ defmodule RefMD.Workspaces.Creation do
         })
       )
 
+      record_workspace_audit_genesis!(workspace.id, user_id, nil)
+
       workspace
     end)
   end
@@ -57,9 +63,14 @@ defmodule RefMD.Workspaces.Creation do
       |> maybe_put(:icon, opts[:icon])
 
     Repo.transaction(fn ->
+      lock_identity_or_rollback!(user_id)
+
       workspace =
         insert_or_rollback(
-          %Workspace{id: workspace_id}
+          %Workspace{
+            id: workspace_id,
+            kek_rotation_due_at: RotationPolicy.next_kek_due_at()
+          }
           |> Workspace.changeset(attrs)
         )
 
@@ -91,9 +102,39 @@ defmodule RefMD.Workspaces.Creation do
       )
 
       insert_workspace_key_directory!(workspace.id, user_id, owner_role, opts)
+      record_workspace_audit_genesis!(workspace.id, user_id, opts[:creator_device_id])
 
       workspace
     end)
+  end
+
+  defp record_workspace_audit_genesis!(workspace_id, user_id, device_id) do
+    attrs = %{
+      class: "authority",
+      type: "workspace.created",
+      actor: %{
+        "user_id" => user_id,
+        "device_id" => device_id,
+        "session_id" => nil,
+        "principal_kind" => "user",
+        "principal_id" => user_id
+      },
+      scope: %{"workspace_id" => workspace_id, "document_id" => nil, "share_id" => nil},
+      resource: %{"kind" => "workspace", "id" => workspace_id, "version_hash" => nil},
+      action: %{"operation" => "workspace.create", "result" => "completed", "reason_code" => nil},
+      sensitivity: Security.empty_sensitivity(),
+      correlation: %{
+        "request_id" => nil,
+        "capability_id" => nil,
+        "execution_context_id" => nil,
+        "authority_event_ref" => nil
+      }
+    }
+
+    case Security.record_audit_event(attrs) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp default_roles do
@@ -236,8 +277,7 @@ defmodule RefMD.Workspaces.Creation do
          material_hash,
          user_id
        ) do
-    with identity when not is_nil(identity) <-
-           RefMD.Encryption.get_user_identity_public_key(user_id),
+    with {:ok, identity} <- RefMD.Encryption.user_identity_key_for_new_encryption(user_id),
          true <- identity.signing_key_id == key_id,
          true <-
            Hash.blake3_base64url(
@@ -252,6 +292,13 @@ defmodule RefMD.Workspaces.Creation do
       )
     else
       _ -> false
+    end
+  end
+
+  defp lock_identity_or_rollback!(user_id) do
+    case Encryption.lock_user_identity_keys_for_membership(user_id) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 

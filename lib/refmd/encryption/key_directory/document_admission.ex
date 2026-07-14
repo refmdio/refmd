@@ -6,8 +6,7 @@ defmodule RefMD.Encryption.KeyDirectory.DocumentAdmission do
 
   @max_write_session_lifetime_ms 60_000
 
-  def assert!(type, body)
-      when type in ["document_update_accepted", "document_snapshot_accepted"] do
+  def assert!("document_snapshot_accepted" = type, body) do
     base_keys = [
       "actor_hash",
       "admission_nonce",

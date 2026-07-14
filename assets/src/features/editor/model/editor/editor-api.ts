@@ -74,6 +74,7 @@ declare global {
   interface Window {
     __REFMD_E2E__?: boolean;
     __refmdGetAwarenessDiagnostics?: (documentId: string) => unknown;
+    __refmdTriggerDekRotation?: (documentId: string) => Promise<void>;
     __refmdSetEditorValueForDocument?: (documentId: string, value: string) => boolean;
     __refmdGetDocumentSyncState?: (documentId: string) => {
       accessKind: "workspace" | "share";
@@ -418,6 +419,12 @@ function installE2EEditorHook(): void {
   window.__refmdGetDocumentText = (documentId: string) => {
     const state = findDocumentState(documentId);
     return state ? readE2EDocumentText(state.yDoc) : null;
+  };
+  window.__refmdTriggerDekRotation = async (documentId: string) => {
+    const state = findDocumentState(documentId);
+    if (!state) throw new Error("dek_rotation_state_unavailable");
+    const { completeDekRotationNow } = await import("../../lib/sync/bootstrap-key-rotation");
+    await completeDekRotationNow(documentId, state.workspaceId, state);
   };
   window.__refmdFlushDocumentSync = async (documentId: string) => {
     const states = [...getAllActiveDocumentStates().values()].filter(

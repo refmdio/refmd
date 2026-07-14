@@ -1,23 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildRecoveryDeviceRegistrationRequest } from "./recover";
-import type { InitialAkeResponderPrekeyRecord } from "@/shared/lib/crypto/initial-ake";
+import { buildRecoveryTargetDeviceRegistration } from "./recover";
 
 describe("recover", () => {
-  it("includes initial AKE responder prekeys when creating the pending recovered device", () => {
-    const initialAkeResponderPrekeys = {
-      umk_distribution: { id: "umk" } as unknown as InitialAkeResponderPrekeyRecord,
-      trust_transfer: { id: "trust" } as unknown as InitialAkeResponderPrekeyRecord,
-      device_approval_kek_initial: [
-        {
-          workspace_id: "workspace-1",
-          prekey: { id: "workspace-1" } as unknown as InitialAkeResponderPrekeyRecord,
-        },
-      ],
-    } as unknown as Parameters<
-      typeof buildRecoveryDeviceRegistrationRequest
-    >[0]["initialAkeResponderPrekeys"];
-
-    const request = buildRecoveryDeviceRegistrationRequest({
+  it("builds the target device payload embedded in the recovery session", () => {
+    const request = buildRecoveryTargetDeviceRegistration({
       deviceId: "device-1",
       identitySigningKeyId: "identity-signing-key",
       publicKeys: {
@@ -48,14 +34,13 @@ describe("recover", () => {
         signingKeyId: "device-signing-key",
       },
       clientNonce: new Uint8Array([3, 4]),
-      registrationChallenge: "challenge",
-      initialAkeResponderPrekeys,
     });
 
     expect(request).toMatchObject({
       device_id: "device-1",
       identity_signing_key_id: "identity-signing-key",
-      ake_responder_prekeys: initialAkeResponderPrekeys,
     });
+    expect(request).not.toHaveProperty("ake_responder_prekeys");
+    expect(request).not.toHaveProperty("registration_challenge");
   });
 });

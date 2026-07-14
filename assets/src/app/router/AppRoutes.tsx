@@ -2,7 +2,7 @@ import { lazy, type ParentProps } from "solid-js";
 import { Navigate, Route, Router, useLocation, type MatchFilters } from "@solidjs/router";
 import { Show } from "solid-js";
 import { isPublicPath } from "@/app/bootstrap/session";
-import { RequireAuth, RequireGuest } from "@/app/router/AuthGuard";
+import { RequireAuth, RequireGuest, RequireSecureLogoutComplete } from "@/app/router/AuthGuard";
 import { PendingDeviceMonitor } from "@/features/devices";
 
 const LoginPage = lazy(() => import("@/pages/auth/login"));
@@ -46,6 +46,38 @@ function RootRedirect() {
   return location.pathname === "/" ? <Navigate href="/dashboard" /> : null;
 }
 
+function SecureRegisterRoute() {
+  return (
+    <RequireSecureLogoutComplete>
+      <RegisterPage />
+    </RequireSecureLogoutComplete>
+  );
+}
+
+function SecureRecoveryRoute() {
+  return (
+    <RequireSecureLogoutComplete>
+      <RecoveryPage />
+    </RequireSecureLogoutComplete>
+  );
+}
+
+function SecurePasswordResetRoute() {
+  return (
+    <RequireSecureLogoutComplete>
+      <PasswordResetPage />
+    </RequireSecureLogoutComplete>
+  );
+}
+
+function SecureDeviceRegisterRoute() {
+  return (
+    <RequireSecureLogoutComplete>
+      <DeviceRegisterPage />
+    </RequireSecureLogoutComplete>
+  );
+}
+
 export function AppRoutes() {
   return (
     <Router>
@@ -53,10 +85,10 @@ export function AppRoutes() {
         <Route path="/login" component={LoginPage} />
       </Route>
 
-      <Route path="/auth/register" component={RegisterPage} />
-      <Route path="/auth/recovery" component={RecoveryPage} />
-      <Route path="/auth/password-reset" component={PasswordResetPage} />
-      <Route path="/devices/register" component={DeviceRegisterPage} />
+      <Route path="/auth/register" component={SecureRegisterRoute} />
+      <Route path="/auth/recovery" component={SecureRecoveryRoute} />
+      <Route path="/auth/password-reset" component={SecurePasswordResetRoute} />
+      <Route path="/devices/register" component={SecureDeviceRegisterRoute} />
       <Route path="/invite" component={InvitePage} />
       <Route path="/share/d/:documentToken" component={ShareDocumentPage} />
       <Route path="/share/f/:folderToken" component={ShareFolderPage} />

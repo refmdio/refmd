@@ -2,6 +2,7 @@ import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
+  hydrateVerifiedKeyDirectoryLineage,
   lookupVerifiedKeyDirectoryEventBodies,
   verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
@@ -26,6 +27,7 @@ interface KeyDirectoryLatestBody {
   checkpoint: KeyDirectoryEnvelope;
   checkpoint_ancestry?: Record<string, unknown>[];
   event_ancestry?: Record<string, unknown>[];
+  authority_event_ancestry: Record<string, unknown>[];
   rotation_deletion_evidences?: Record<string, unknown>[];
   pin?: {
     checkpoint_sequence?: number;
@@ -42,13 +44,7 @@ function envelopeRecords(values: unknown[] | undefined): Record<string, unknown>
 }
 
 function isRetryablePinRace(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.message === "key_directory_pin_conflict" ||
-      error.message === "key_directory_checkpoint_anchor_mismatch" ||
-      error.message === "key_directory_checkpoint_rollback" ||
-      error.message === "key_directory_checkpoint_fork")
-  );
+  return error instanceof Error && error.message === "key_directory_pin_conflict";
 }
 
 interface FetchVerifiedKeyDirectoryParams {
@@ -118,6 +114,7 @@ export async function fetchVerifiedKeyDirectory(
 ): Promise<{ checkpoint: KeyDirectoryEnvelope }> {
   const pin = await getKeyDirectoryPin(params.scopeKind, params.scopeId);
   if (!pin) throw new Error("key_directory_pin_required");
+  await hydrateVerifiedKeyDirectoryLineage(params.scopeKind, params.scopeId, pin);
 
   const body = await fetchLatestBody(params, pin);
 
@@ -131,6 +128,7 @@ export async function fetchVerifiedKeyDirectory(
       eventAncestry: body.event_ancestry ?? [],
       authorityEventAncestry: [
         ...envelopeRecords(lookupVerifiedKeyDirectoryEventBodies(params.scopeKind, params.scopeId)),
+        ...body.authority_event_ancestry,
         ...(body.event_ancestry ?? []),
       ],
       rotationDeletionEvidences: body.rotation_deletion_evidences ?? [],
@@ -187,6 +185,7 @@ export async function fetchVerifiedKeyDirectoryFromTrustedCheckpoint(
 ): Promise<{ checkpoint: KeyDirectoryEnvelope }> {
   const current = await getKeyDirectoryPin(params.scopeKind, params.scopeId);
   if (!current) throw new Error("key_directory_pin_required");
+  await hydrateVerifiedKeyDirectoryLineage(params.scopeKind, params.scopeId, current);
 
   const trustedAnchor = pinFromCheckpointEnvelope(params.trustedCheckpointEnvelope);
   if (anchorIsOlderThan(current, trustedAnchor)) {
@@ -210,7 +209,7 @@ export async function fetchVerifiedKeyDirectoryFromTrustedCheckpoint(
       checkpointEnvelope: body.checkpoint,
       checkpointAncestry: body.checkpoint_ancestry ?? [],
       eventAncestry: body.event_ancestry ?? [],
-      authorityEventAncestry: body.event_ancestry ?? [],
+      authorityEventAncestry: [...body.authority_event_ancestry, ...(body.event_ancestry ?? [])],
       rotationDeletionEvidences: body.rotation_deletion_evidences ?? [],
     });
 
@@ -231,7 +230,7 @@ export async function fetchVerifiedKeyDirectoryFromTrustedCheckpoint(
         checkpointEnvelope: body.checkpoint,
         checkpointAncestry: responseCheckpointsFromCurrent(body, current),
         eventAncestry: responseEventsAfterCurrent(body, current),
-        authorityEventAncestry: body.event_ancestry ?? [],
+        authorityEventAncestry: [...body.authority_event_ancestry, ...(body.event_ancestry ?? [])],
         rotationDeletionEvidences: body.rotation_deletion_evidences ?? [],
       });
     } catch (error) {

@@ -60,6 +60,64 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
     _ -> Repo.rollback(:invalid_key_directory)
   end
 
+  def append_rotation!(workspace_id, attrs, replacements) do
+    %{events: events, checkpoint: checkpoint} = parse_rotation_append!(attrs)
+    replacements_by_share_id = Map.new(replacements, &{&1.share_id, &1})
+
+    event_hashes =
+      Enum.reduce(events, %{}, fn
+        %{"payload" => %{"event_type" => "share_key_scope_replaced", "body" => body} = payload},
+        acc ->
+          replacement = Map.get(replacements_by_share_id, body["share_id"])
+
+          if replacement &&
+               share_scope_event_body_matches_entry?(
+                 replacement.target.root_share,
+                 workspace_id,
+                 body,
+                 replacement,
+                 "share_key_scope_replaced",
+                 payload["sequence"]
+               ) do
+            Map.put(
+              acc,
+              replacement.root_share_id,
+              Hash.blake3_base64url(JCS.canonical_bytes!(payload))
+            )
+          else
+            Repo.rollback(:invalid_key_directory)
+          end
+
+        _event, _acc ->
+          Repo.rollback(:invalid_key_directory)
+      end)
+
+    if length(events) != length(replacements) or
+         map_size(replacements_by_share_id) != length(events) do
+      Repo.rollback(:invalid_key_directory)
+    end
+
+    Encryption.append_workspace_key_directory!(
+      workspace_id,
+      events,
+      checkpoint,
+      checkpoint_signer_kind: "device"
+    )
+
+    event_hashes
+  rescue
+    _ -> Repo.rollback(:invalid_key_directory)
+  end
+
+  defp parse_rotation_append!(attrs) do
+    events = Map.get(attrs, :workspace_key_directory_events)
+    checkpoint = Map.get(attrs, :workspace_key_directory_checkpoint)
+
+    if is_list(events) and is_map(checkpoint),
+      do: %{events: events, checkpoint: checkpoint},
+      else: Repo.rollback(:invalid_key_directory)
+  end
+
   def latest_event_hash!(%{events: events}, event_type) when is_list(events) do
     %{"payload" => %{"event_type" => ^event_type} = payload} =
       Enum.find(events, &(get_in(&1, ["payload", "event_type"]) == event_type))
@@ -313,7 +371,7 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
       body["document_scope_hash"] == document_scope_hash(workspace_id, entry.document_id) and
       body["share_metadata_hash"] == share_scope_metadata_hash(entry) and
       share_scope_sequence_matches?(body, event_type, sequence) and
-      share_scope_version_matches?(body, event_type) and
+      share_scope_version_matches?(body, event_type, entry) and
       share_scope_parent_matches?(share, body, event_type)
   end
 
@@ -326,11 +384,21 @@ defmodule RefMD.Sharing.Management.KeyDirectory do
   defp document_scope_kind(%Document{doc_type: doc_type}), do: doc_type
   defp document_scope_kind(_), do: nil
 
-  defp share_scope_version_matches?(body, "share_key_scope_added"),
-    do: body["share_key_version"] == 1 and not Map.has_key?(body, "previous_share_key_version")
+  defp share_scope_version_matches?(body, "share_key_scope_added", entry),
+    do:
+      body["share_key_version"] == Map.get(entry, :key_version, 1) and
+        not Map.has_key?(body, "previous_share_key_version")
 
-  defp share_scope_version_matches?(body, "share_key_scope_replaced"),
-    do: body["share_key_version"] == 1 and body["previous_share_key_version"] == 1
+  defp share_scope_version_matches?(body, "share_key_scope_replaced", entry) do
+    previous_version =
+      case Map.get(entry, :target) do
+        %{share_key: %{key_version: version}} -> version
+        _ -> max(Map.get(entry, :key_version, 1) - 1, 1)
+      end
+
+    body["share_key_version"] == Map.get(entry, :key_version, 1) and
+      body["previous_share_key_version"] == previous_version
+  end
 
   defp share_scope_parent_matches?(share, body, "share_key_scope_added"),
     do: body["parent_share_id"] == share.id

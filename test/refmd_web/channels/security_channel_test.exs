@@ -28,6 +28,11 @@ defmodule RefMDWeb.SecurityChannelTest do
 
     assert_push "notification", %{
       type: "device.pending_approval",
+      audit_checkpoint: %{
+        chain_scope: chain_scope,
+        sequence: 1,
+        event_hash: event_hash
+      },
       action_ref: %{
         "device_id" => device_id,
         "name" => "New browser",
@@ -35,8 +40,15 @@ defmodule RefMDWeb.SecurityChannelTest do
       }
     }
 
+    assert chain_scope == "user:#{user.id}"
+    assert is_binary(event_hash)
     assert device_id == pending.id
-    assert Repo.get_by(AuditEvent, type: "device.registration.created")
+
+    assert Repo.get_by(AuditEvent,
+             type: "device.registration.created",
+             chain_scope: "user:#{user.id}"
+           )
+
     assert Repo.get_by(Notification, type: "device.pending_approval", recipient_id: user.id)
   end
 
@@ -68,6 +80,29 @@ defmodule RefMDWeb.SecurityChannelTest do
     }
 
     assert device_id == pending.id
+  end
+
+  test "pending registration receives non-terminal Initial AKE offer readiness" do
+    user = create_user("registration-ake-ready@example.com")
+    pending = create_registration(user.id)
+    {:ok, session, _token} = Auth.create_session(user.id)
+
+    {:ok, _reply, socket} =
+      subscribe_and_join(
+        user_socket(user.id, session),
+        "security:pending_registration:#{pending.id}",
+        %{}
+      )
+
+    assert {:ok, _} = Security.record_initial_ake_offers_ready(user.id, pending.id)
+
+    assert_push "notification", %{
+      type: "device.initial_ake_offers_ready",
+      action_ref: %{"device_id" => device_id}
+    }
+
+    assert device_id == pending.id
+    assert socket.channel_pid |> Process.alive?()
   end
 
   test "current device joins device security notifications" do
@@ -116,7 +151,8 @@ defmodule RefMDWeb.SecurityChannelTest do
 
     assert {:ok, _} =
              Security.record_audit_event(
-               security_event("security.workspace.test", "plugin", "com.example.notes"),
+               security_event("security.workspace.test", "plugin", "com.example.notes")
+               |> put_in([:scope, "workspace_id"], workspace.id),
                [
                  %{
                    recipient_kind: "workspace_role",
@@ -131,9 +167,16 @@ defmodule RefMDWeb.SecurityChannelTest do
 
     assert_push "notification", %{
       type: "security.workspace.test",
+      audit_checkpoint: %{
+        chain_scope: chain_scope,
+        sequence: 1,
+        event_hash: event_hash
+      },
       action_ref: %{"workspace_id" => workspace_id}
     }
 
+    assert chain_scope == "workspace:#{workspace.id}"
+    assert is_binary(event_hash)
     assert workspace_id == workspace.id
   end
 

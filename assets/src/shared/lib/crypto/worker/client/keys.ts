@@ -38,6 +38,7 @@ export interface KeyWorkerClientMethods {
     encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
     hybridSigningPrivateKeyMaterialNonce: Uint8Array;
     signingKeyId: string;
+    rotationDueAt: string | null;
   }): Promise<{
     deviceEcdhPublic: Uint8Array;
     deviceHybridSigningPublicKeyMaterial: DeviceHybridSigningPublicKeyMaterial | null;
@@ -53,6 +54,60 @@ export interface KeyWorkerClientMethods {
     encryptionKeyId: string;
     hybridSigningPublicKeyMaterial: IdentityHybridSigningPublicKeyMaterial;
   }>;
+  generateIdentitySuccessor(): Promise<{
+    ecdhPublic: Uint8Array;
+    hybridEncryptionPublicKeyMaterial: IdentityHybridEncryptionPublicKeyMaterial;
+    encryptionKeyId: string;
+    hybridSigningPublicKeyMaterial: IdentityHybridSigningPublicKeyMaterial;
+  }>;
+  importIdentitySuccessor(params: {
+    encryptedHybridEncryptionPrivateKeyMaterial: Uint8Array;
+    hybridEncryptionPrivateKeyMaterialNonce: Uint8Array;
+    encryptionKeyId: string;
+    encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
+    hybridSigningPrivateKeyMaterialNonce: Uint8Array;
+    signingKeyId: string;
+  }): Promise<{
+    ecdhPublic: Uint8Array;
+    encryptionKeyId: string;
+    hybridEncryptionPublicKeyMaterial: IdentityHybridEncryptionPublicKeyMaterial;
+    hybridSigningPublicKeyMaterial: IdentityHybridSigningPublicKeyMaterial;
+  }>;
+  restoreActivatedIdentitySuccessor(params: {
+    encryptedHybridEncryptionPrivateKeyMaterial: Uint8Array;
+    hybridEncryptionPrivateKeyMaterialNonce: Uint8Array;
+    encryptionKeyId: string;
+    encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
+    hybridSigningPrivateKeyMaterialNonce: Uint8Array;
+    signingKeyId: string;
+    previousEncryptionKeyId: string;
+    previousSigningKeyId: string;
+  }): Promise<{
+    ecdhPublic: Uint8Array;
+    encryptionKeyId: string;
+    hybridEncryptionPublicKeyMaterial: IdentityHybridEncryptionPublicKeyMaterial;
+    hybridSigningPublicKeyMaterial: IdentityHybridSigningPublicKeyMaterial;
+  }>;
+  beginIdentitySuccessorFinalization(): Promise<{
+    previousEncryptionKeyId: string;
+    previousSigningKeyId: string;
+    successorEncryptionKeyId: string;
+    successorSigningKeyId: string;
+    oldPrivateKeyUseBlocked: true;
+  }>;
+  activateIdentitySuccessor(): Promise<{
+    previousEncryptionKeyId: string | null;
+    previousSigningKeyId: string | null;
+    successorEncryptionKeyId: string;
+    successorSigningKeyId: string;
+    oldPrivateKeyDeleted: true;
+  }>;
+  discardIdentitySuccessor(): Promise<void>;
+  setIdentityRotationDeadline(rotationDueAt: string | null): Promise<void>;
+  trustIdentityRotationCheckpoint(params: {
+    checkpointPayload: Record<string, unknown>;
+    checkpointAncestryPayloads: Record<string, unknown>[];
+  }): Promise<void>;
   generateDeviceKeys(params?: {
     deviceId?: string;
     ownerKind?: "device" | "share_participant_device";
@@ -94,10 +149,20 @@ export interface KeyWorkerClientMethods {
     hybridSigningPrivateKeyMaterialNonce: Uint8Array;
     signingKeyId: string;
   }>;
+  wrapIdentitySuccessorForServer(
+    userId: string,
+  ): ReturnType<KeyWorkerClientMethods["wrapIdentityKeysForServer"]>;
   persistCurrentKeysWithDsk(
     userId: string,
     options?: { persistUmk?: boolean },
   ): Promise<{ storedUmk: boolean; storedDeviceKeys: boolean }>;
+  persistGuestPendingKeysWithDsk(params: { storageKey: string; userId: string }): Promise<void>;
+  restoreGuestPendingKeysWithDsk(params: {
+    storageKey: string;
+    userId: string;
+    signingKeyId: string;
+  }): Promise<{ restored: boolean }>;
+  deleteGuestPendingKeysWithDsk(storageKey: string): Promise<void>;
   wrapDeviceKeysWithDsk(userId: string): Promise<{
     wrappedEcdh: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
     wrappedMlkem: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
@@ -209,6 +274,48 @@ export const keyWorkerClientMethods: KeyWorkerClientMethods &
     };
   },
 
+  async generateIdentitySuccessor() {
+    return (await this[workerSend]("generate-identity-successor", {})) as Awaited<
+      ReturnType<KeyWorkerClientMethods["generateIdentitySuccessor"]>
+    >;
+  },
+
+  async importIdentitySuccessor(params) {
+    return (await this[workerSend]("import-identity-successor", params)) as Awaited<
+      ReturnType<KeyWorkerClientMethods["importIdentitySuccessor"]>
+    >;
+  },
+
+  async restoreActivatedIdentitySuccessor(params) {
+    return (await this[workerSend]("restore-activated-identity-successor", params)) as Awaited<
+      ReturnType<KeyWorkerClientMethods["restoreActivatedIdentitySuccessor"]>
+    >;
+  },
+
+  async beginIdentitySuccessorFinalization() {
+    return (await this[workerSend]("begin-identity-successor-finalization", {})) as Awaited<
+      ReturnType<KeyWorkerClientMethods["beginIdentitySuccessorFinalization"]>
+    >;
+  },
+
+  async activateIdentitySuccessor() {
+    return (await this[workerSend]("activate-identity-successor", {})) as Awaited<
+      ReturnType<KeyWorkerClientMethods["activateIdentitySuccessor"]>
+    >;
+  },
+
+  async discardIdentitySuccessor() {
+    await this[workerSend]("discard-identity-successor", {});
+  },
+
+  async setIdentityRotationDeadline(rotationDueAt) {
+    await this[workerSend]("set-identity-rotation-deadline", { rotationDueAt });
+  },
+
+  async trustIdentityRotationCheckpoint(params) {
+    await this[workerSend]("trust-identity-rotation-checkpoint", params);
+  },
+
   async generateDeviceKeys(params) {
     return (await this[workerSend]("generate-device-keys", params ?? {})) as {
       ecdhPublic: Uint8Array;
@@ -281,11 +388,31 @@ export const keyWorkerClientMethods: KeyWorkerClientMethods &
     };
   },
 
+  async wrapIdentitySuccessorForServer(userId) {
+    return (await this[workerSend]("wrap-identity-successor-for-server", { userId })) as Awaited<
+      ReturnType<KeyWorkerClientMethods["wrapIdentitySuccessorForServer"]>
+    >;
+  },
+
   async persistCurrentKeysWithDsk(userId, options) {
     return (await this[workerSend]("persist-current-keys-with-dsk", {
       userId,
       persistUmk: options?.persistUmk,
     })) as { storedUmk: boolean; storedDeviceKeys: boolean };
+  },
+
+  async persistGuestPendingKeysWithDsk(params) {
+    await this[workerSend]("persist-guest-pending-keys-with-dsk", params);
+  },
+
+  async restoreGuestPendingKeysWithDsk(params) {
+    return (await this[workerSend]("restore-guest-pending-keys-with-dsk", params)) as {
+      restored: boolean;
+    };
+  },
+
+  async deleteGuestPendingKeysWithDsk(storageKey) {
+    await this[workerSend]("delete-guest-pending-keys-with-dsk", { storageKey });
   },
 
   async wrapDeviceKeysWithDsk(userId) {

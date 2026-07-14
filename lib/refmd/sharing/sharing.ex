@@ -5,6 +5,7 @@ defmodule RefMD.Sharing do
 
   alias RefMD.Sharing.Access
   alias RefMD.Sharing.Bootstrap
+  alias RefMD.Sharing.KeyRotation
   alias RefMD.Sharing.Management
   alias RefMD.Sharing.Mounts
   alias RefMD.Sharing.Participants
@@ -13,6 +14,18 @@ defmodule RefMD.Sharing do
   alias RefMD.Sharing.Verification.Directory
 
   defdelegate create_share(document, user_id, attrs), to: Shares
+
+  defdelegate list_key_rotation_targets(document, user_id),
+    to: KeyRotation,
+    as: :list_targets
+
+  defdelegate rotate_share_keys_for_dek!(document, next_key_version, attrs),
+    to: KeyRotation,
+    as: :rotate_for_dek!
+
+  defdelegate delete_obsolete_share_key_wraps!(document_id, current_key_version),
+    to: KeyRotation,
+    as: :delete_obsolete_wraps!
 
   defdelegate list_document_shares(document, actor_user_id, role), to: Management
 

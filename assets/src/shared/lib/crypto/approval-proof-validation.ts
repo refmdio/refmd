@@ -267,7 +267,7 @@ function validateApprovalDeliveryArtifactHashes(
 
   for (const [commitmentKey, artifactKey] of directChecks) {
     const commitment = details[commitmentKey];
-    const artifactHash = deliveryRecordHashFromArtifact(artifacts[artifactKey]);
+    const artifactHash = pendingDeliveryRecordHashFromArtifact(artifacts[artifactKey]);
     if (
       !isRecord(commitment) ||
       !artifactHash ||
@@ -291,20 +291,30 @@ function validateApprovalDeliveryArtifactHashes(
 
   return kekCommitments.every((commitment) => {
     if (!isRecord(commitment) || typeof commitment.workspace_id !== "string") return false;
-    const artifactHash = deliveryRecordHashFromArtifact(
+    const artifactHash = pendingDeliveryRecordHashFromArtifact(
       artifactByWorkspace.get(commitment.workspace_id),
     );
     return Boolean(artifactHash && commitment.delivery_record_hash === artifactHash);
   });
 }
 
-function deliveryRecordHashFromArtifact(artifact: unknown): string | null {
+export function pendingDeliveryRecordHashFromArtifact(artifact: unknown): string | null {
   if (!isRecord(artifact)) return null;
   const deliveryRecord = artifact.initial_key_delivery;
-  if (!isRecord(deliveryRecord)) return null;
+  if (
+    !isRecord(deliveryRecord) ||
+    !isRecord(deliveryRecord.metadata) ||
+    !isRecord(deliveryRecord.aead)
+  ) {
+    return null;
+  }
 
   try {
-    return blake3Base64Url(canonicalizeStrictBytes(deliveryRecord as StrictJsonValue));
+    const metadata = { ...deliveryRecord.metadata };
+    delete metadata.key_confirmation_hash;
+    return blake3Base64Url(
+      canonicalizeStrictBytes({ metadata, aead: deliveryRecord.aead } as StrictJsonValue),
+    );
   } catch {
     return null;
   }

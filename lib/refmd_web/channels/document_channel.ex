@@ -300,6 +300,7 @@ defmodule RefMDWeb.DocumentChannel do
                  parsed,
                  socket
                ),
+             :ok <- Access.validate_ephemeral_dek(socket, parsed.public_data["keyVersion"]),
              :ok <- Access.validate_device_active(socket) do
           broadcast_from(socket, "ephemeral-message", payload)
           {:noreply, socket}

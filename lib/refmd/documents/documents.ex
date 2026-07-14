@@ -14,9 +14,11 @@ defmodule RefMD.Documents do
   }
 
   alias RefMD.Encryption
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
   alias RefMD.Sharing
   alias RefMD.Workspaces
+  alias RefMD.Workspaces.Workspace
 
   @max_nesting_depth 10
   @checkpoint_state_keys ~w(identity_keys device_keys share_participant_keys revoked_key_ids)
@@ -745,30 +747,112 @@ defmodule RefMD.Documents do
 
     base =
       case get_attr(attrs, :id) do
-        nil -> %Document{}
-        id -> %Document{id: id}
+        nil -> %Document{dek_rotation_due_at: RotationPolicy.next_dek_due_at()}
+        id -> %Document{id: id, dek_rotation_due_at: RotationPolicy.next_dek_due_at()}
       end
 
     base
     |> Document.changeset(enriched)
+    |> validate_initial_encrypted_title_key()
     |> validate_parent_constraints()
     |> validate_create_depth()
-    |> Repo.insert()
+    |> insert_document_with_kek_policy(is_encrypted, workspace_id)
+  end
+
+  defp validate_initial_encrypted_title_key(changeset) do
+    key_version = get_field(changeset, :encrypted_title_key_version)
+
+    if get_field(changeset, :is_encrypted) and is_integer(key_version) and key_version != 1 and
+         not Keyword.has_key?(changeset.errors, :encrypted_title_key_version) do
+      add_error(changeset, :encrypted_title_key_version, "must be 1 for a new document")
+    else
+      changeset
+    end
+  end
+
+  defp insert_document_with_kek_policy(changeset, false, _workspace_id),
+    do: Repo.insert(changeset)
+
+  defp insert_document_with_kek_policy(changeset, true, workspace_id) do
+    Repo.transaction(fn ->
+      workspace =
+        from(w in Workspace, where: w.id == ^workspace_id, lock: "FOR UPDATE")
+        |> Repo.one!()
+
+      if RotationPolicy.kek_overdue?(workspace), do: Repo.rollback(:kek_rotation_required)
+
+      case Repo.insert(changeset) do
+        {:ok, document} -> document
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   def update_document(%Document{} = document, attrs) do
+    if encrypted_title_update?(attrs) do
+      update_document_with_encrypted_title(document.id, attrs)
+    else
+      update_document_without_key_validation(document, attrs)
+    end
+  end
+
+  defp update_document_with_encrypted_title(document_id, attrs) do
+    Repo.transaction(fn ->
+      document =
+        from(d in Document, where: d.id == ^document_id, lock: "FOR UPDATE")
+        |> Repo.one!()
+
+      with :ok <- writable_document?(document),
+           {:ok, changeset} <- validated_document_update_changeset(document, attrs),
+           :ok <- validate_encrypted_title_key(document, attrs),
+           {:ok, updated} <- update_document_result(document, changeset) do
+        updated
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp update_document_without_key_validation(document, attrs) do
     case writable_document?(document) do
       :ok ->
-        changeset =
-          document
-          |> Document.changeset(attrs)
-          |> validate_parent_constraints()
-          |> validate_parent_change(document.id)
-
-        update_document_result(document, changeset)
+        document
+        |> document_update_changeset(attrs)
+        |> then(&update_document_result(document, &1))
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp validated_document_update_changeset(document, attrs) do
+    case document_update_changeset(document, attrs) do
+      %{valid?: true} = changeset -> {:ok, changeset}
+      changeset -> {:error, changeset}
+    end
+  end
+
+  defp document_update_changeset(document, attrs) do
+    document
+    |> Document.changeset(attrs)
+    |> validate_parent_constraints()
+    |> validate_parent_change(document.id)
+  end
+
+  defp encrypted_title_update?(attrs) do
+    Enum.any?(
+      [:encrypted_title, :encrypted_title_nonce, :encrypted_title_key_version],
+      &(not is_nil(get_attr(attrs, &1)))
+    )
+  end
+
+  defp validate_encrypted_title_key(document, attrs) do
+    key_version = get_attr(attrs, :encrypted_title_key_version)
+
+    cond do
+      key_version != document.min_dek_version -> {:error, :dek_rotation_required}
+      RotationPolicy.dek_overdue?(document) -> {:error, :dek_rotation_required}
+      true -> :ok
     end
   end
 

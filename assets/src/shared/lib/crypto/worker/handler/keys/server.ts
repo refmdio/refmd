@@ -2,7 +2,12 @@ import type { WorkerKeyState } from "../../state";
 import { wrapUmk } from "../../../umk";
 import { encryptIdentityKeys } from "../../../identity";
 import { takeTransientPuk } from "../transient";
-import { requireUmk } from "../utils";
+import {
+  requireIdentityEcdhPrivate,
+  requireIdentityHybridEncryptionPrivateKeyMaterial,
+  requireIdentityHybridSigningPrivateKeyMaterial,
+  requireUmk,
+} from "../utils";
 import { CryptoOperationError } from "../../operation-error";
 import type { HandlerPayload } from "../utils";
 
@@ -26,6 +31,10 @@ export function handleWrapIdentityKeysForServer(
 ): unknown {
   const umk = requireUmk(state);
   const userId = payload.userId as string;
+  const ecdhPrivate = requireIdentityEcdhPrivate(state);
+  const hybridEncryptionPrivateKeyMaterial =
+    requireIdentityHybridEncryptionPrivateKeyMaterial(state);
+  const hybridSigningPrivateKeyMaterial = requireIdentityHybridSigningPrivateKeyMaterial(state);
 
   if (
     !state.identityEcdhPrivate ||
@@ -39,12 +48,12 @@ export function handleWrapIdentityKeysForServer(
 
   const encrypted = encryptIdentityKeys(
     {
-      ecdhPrivate: state.identityEcdhPrivate,
+      ecdhPrivate,
       ecdhPublic: state.identityEcdhPublic,
-      hybridEncryptionPrivateKeyMaterial: state.identityHybridEncryptionPrivateKeyMaterial,
+      hybridEncryptionPrivateKeyMaterial,
       hybridEncryptionPublicKeyMaterial: state.identityHybridEncryptionPublicKeyMaterial,
       encryptionKeyId: "",
-      hybridSigningPrivateKeyMaterial: state.identityHybridSigningState.privateKeyMaterial,
+      hybridSigningPrivateKeyMaterial,
       hybridSigningPublicKeyMaterial: state.identityHybridSigningState.publicKeyMaterial,
     },
     umk,
@@ -60,4 +69,16 @@ export function handleWrapIdentityKeysForServer(
     hybridSigningPrivateKeyMaterialNonce: encrypted.hybridSigningPrivateKeyMaterialNonce,
     signingKeyId: encrypted.signingKeyId,
   };
+}
+
+export function handleWrapIdentitySuccessorForServer(
+  state: WorkerKeyState,
+  payload: HandlerPayload,
+): unknown {
+  const umk = requireUmk(state);
+  const successor = state.pendingIdentitySuccessor;
+  if (!successor) {
+    throw new CryptoOperationError("not_initialized", "Identity successor not available");
+  }
+  return encryptIdentityKeys(successor, umk, payload.userId as string);
 }

@@ -35,7 +35,9 @@ defmodule RefMDWeb.Schemas.LoginKeys do
       encrypted_identity_hybrid_signing_private_key_material:
         RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
       identity_hybrid_signing_private_key_material_nonce: RefMDWeb.Schemas.EncryptedMaterialNonce,
-      identity_signing_key_id: RefMDWeb.Schemas.Blake3Base64Url
+      identity_signing_key_id: RefMDWeb.Schemas.Blake3Base64Url,
+      identity_rotation_due_at: %Schema{type: :string, format: :"date-time", nullable: true},
+      identity_key_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
     },
     required: [
       :encrypted_identity_hybrid_encryption_private_key_material,
@@ -43,7 +45,9 @@ defmodule RefMDWeb.Schemas.LoginKeys do
       :identity_encryption_key_id,
       :encrypted_identity_hybrid_signing_private_key_material,
       :identity_hybrid_signing_private_key_material_nonce,
-      :identity_signing_key_id
+      :identity_signing_key_id,
+      :identity_rotation_due_at,
+      :identity_key_checkpoint
     ]
   })
 end
@@ -59,11 +63,12 @@ defmodule RefMDWeb.Schemas.LoginResponse do
       user: RefMDWeb.Schemas.UserInfo,
       session_id: %Schema{type: :string, format: :uuid},
       device_verified: %Schema{type: :boolean},
+      identity_recovery_required: %Schema{type: :boolean},
       keys: RefMDWeb.Schemas.LoginKeys,
       kdf_migration_required: %Schema{type: :boolean},
       target_kdf_params: RefMDWeb.Schemas.KdfParams
     },
-    required: [:user, :session_id, :device_verified]
+    required: [:user, :session_id, :device_verified, :identity_recovery_required]
   })
 end
 

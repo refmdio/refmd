@@ -5,7 +5,7 @@ export function getDeviceName(userAgent = navigator.userAgent): string {
   return "Browser";
 }
 
-export function getDeviceType(userAgent = navigator.userAgent): string {
+export function getDeviceType(userAgent = navigator.userAgent): "mobile" | "desktop" {
   if (/Mobi|Android/i.test(userAgent)) return "mobile";
   return "desktop";
 }

@@ -6,6 +6,7 @@ import type { CryptoRequest, CryptoResponse, CryptoErrorCode } from "./types";
 import { createInitialState } from "./state";
 import { handleRequest } from "./handler/index";
 import { CryptoOperationError } from "./operation-error";
+import { initializeNativeHpke } from "./native-hpke";
 
 // In a Dedicated Worker, `self` is DedicatedWorkerGlobalScope.
 // We cast to a minimal interface to avoid needing the WebWorker lib
@@ -15,6 +16,7 @@ const workerSelf = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void;
 };
 const state = createInitialState();
+const nativeHpkeReady = initializeNativeHpke();
 
 // Token bucket rate limiter.
 // Each bucket has a steady-state rate (tokensPerSec) and a burst cap.
@@ -79,18 +81,19 @@ function checkRateLimit(type: string): boolean {
 workerSelf.onmessage = async (event: MessageEvent<CryptoRequest>) => {
   const request = event.data;
 
-  if (request.type === "lock" || request.type === "is-ready") {
-    const result = await handleRequest(state, request);
-    respond(request.id, result);
-    return;
-  }
-
-  if (!checkRateLimit(request.type)) {
-    respondError(request.id, "rate_limited", `Rate limited: ${request.type}`);
-    return;
-  }
-
   try {
+    await nativeHpkeReady;
+    if (request.type === "lock" || request.type === "is-ready") {
+      const result = await handleRequest(state, request);
+      respond(request.id, result);
+      return;
+    }
+
+    if (!checkRateLimit(request.type)) {
+      respondError(request.id, "rate_limited", `Rate limited: ${request.type}`);
+      return;
+    }
+
     const result = await handleRequest(state, request);
     respond(request.id, result);
   } catch (error) {

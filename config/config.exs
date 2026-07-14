@@ -46,6 +46,7 @@ config :refmd, Oban,
        {"*/5 * * * *", RefMD.Workers.CleanupRrpChallenges},
        {"*/15 * * * *", RefMD.Workers.CleanupSessions},
        {"*/30 * * * *", RefMD.Workers.CleanupPluginPackageStorage},
+       {"*/5 * * * *", RefMD.Workers.MarkOverdueKeyRotations},
        {"0 * * * *", RefMD.Workers.KekRotationReminder},
        {"0 3 * * *", RefMD.Workers.CleanupInvitations}
      ]}
@@ -57,6 +58,11 @@ config :swoosh, :api_client, false
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+config :refmd, RefMD.Encryption.RotationPolicy,
+  kek_rotation_seconds: 90 * 24 * 60 * 60,
+  dek_rotation_seconds: 90 * 24 * 60 * 60,
+  identity_rotation_seconds: 90 * 24 * 60 * 60
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

@@ -151,7 +151,6 @@ function expectedActiveSigningSurfacePairs(): string[][] {
     "rotation_started",
     "rotation_completed",
     "old_key_deleted",
-    "document_update_accepted",
     "document_write_session_admitted",
     "document_write_state_changed",
     "document_snapshot_accepted",
@@ -856,14 +855,9 @@ describe("active signing surface inventory", () => {
     expect(getActiveSigningSurface("recipient_bound_authorization", "none").owner_kind).toBe(
       "device",
     );
-    const documentUpdateSurface = getActiveSigningSurface(
-      "key_directory_event",
-      "document_update_accepted",
-    );
-    expect(documentUpdateSurface.owner_kind).toBe("device");
     expect(() =>
-      assertSigningSurfaceOwner(documentUpdateSurface, "share_participant_device"),
-    ).not.toThrow();
+      getActiveSigningSurface("key_directory_event", "document_update_accepted"),
+    ).toThrow("signing_surface_not_active");
     const documentWriteSessionSurface = getActiveSigningSurface(
       "key_directory_event",
       "document_write_session_admitted",
@@ -1187,6 +1181,8 @@ function buildSurfaceTranscript(
         candidateUserCheckpointHash: hash("checkpoint"),
         candidateUserEventHeadSequence: 1,
         candidateUserEventHeadHash: hash("event"),
+        candidateUserAuditSequence: 1,
+        candidateUserAuditHash: hash("audit"),
         recoveryCapabilityHash: hash("capability"),
         pendingRegistrationBindingHash: hash("binding"),
       });
@@ -1824,11 +1820,33 @@ function deviceKeyDeletionPayloadFixture(
   deviceId: string,
   variant: string,
 ): Record<string, unknown> {
+  if (variant === "identity_key_deletion_proof") {
+    return {
+      protocol: "refmd.identity-key-deletion-proof",
+      version: 1,
+      user_id: testUuid(417),
+      device_id: deviceId,
+      rotation_kind: "identity",
+      scope_kind: "user",
+      scope_id: testUuid(417),
+      old_identity_signing_key_id: hash("old-signing-key"),
+      old_identity_encryption_key_id: hash("old-encryption-key"),
+      new_identity_signing_key_id: hash("new-signing-key"),
+      new_identity_encryption_key_id: hash("new-encryption-key"),
+      old_user_checkpoint_hash: hash("old-user-checkpoint"),
+      new_user_checkpoint_hash: hash("new-user-checkpoint"),
+      rotation_completed_event_hash: hash("rotation-completed"),
+      deleted_identity_secret_ids_hash: hash("deleted-identity-secret-ids"),
+      deleted_storage_classes: ["local"],
+      local_cache_epoch: 1,
+      proof_nonce: hash("nonce"),
+    };
+  }
+
   return {
     deleted_secret_ids: ["dek:1"],
     deleted_secret_ids_hash: hash("deleted-secret-ids"),
     deleted_storage_classes: ["local"],
-    deletion_proof_kind: variant,
     device_id: deviceId,
     old_key_version: 1,
     rotation_completed_event_hash: hash("rotation-completed"),

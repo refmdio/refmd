@@ -1,8 +1,7 @@
 import { encryptionApi } from "@/shared/api";
 import { ApiError } from "@/shared/api/core";
-import { installWorkspaceOperationCheckpointPin } from "@/shared/lib/crypto/kek-resolver";
+import { openAdmittedWorkspaceMemberKekEnvelope } from "@/shared/lib/crypto/kek-resolver";
 import { persistWorkspaceKekLocally } from "@/shared/lib/crypto/workspace-kek-persistence";
-import type { SignedPqWrapRecord } from "@/shared/lib/crypto/signed-pq-wrap";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
@@ -18,7 +17,9 @@ export async function restoreWorkspaceKeks(
   _identityEcdhPublic: Uint8Array | null,
 ): Promise<KekRestoreResults> {
   const result: KekRestoreResults = { restored: [], failed: [] };
-  const { workspace_ids: workspaceIds } = await encryptionApi.getWorkspaceIds();
+  const { workspace_ids: workspaceIds } = await encryptionApi.getWorkspaceIds({
+    rrpDeviceId: deviceId,
+  });
 
   for (const workspaceId of workspaceIds) {
     try {
@@ -26,10 +27,11 @@ export async function restoreWorkspaceKeks(
       if (status === "restored") {
         result.restored.push(workspaceId);
       } else {
-        result.failed.push(workspaceId);
+        result.failed.push(`${workspaceId}:needs_distribution`);
       }
-    } catch {
-      result.failed.push(workspaceId);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      result.failed.push(`${workspaceId}:${reason}`);
     }
   }
 
@@ -45,7 +47,9 @@ async function restoreKekForWorkspace(
 
   let currentKekVersion = 0;
   try {
-    const existing = await encryptionApi.getWorkspaceKeysWithRrp(workspaceId, deviceId);
+    const existing = await encryptionApi.getWorkspaceKeysWithRrp(workspaceId, deviceId, {
+      rrpDeviceId: deviceId,
+    });
     if (existing.keys.some((key) => key.is_active)) return "restored";
     currentKekVersion = existing.current_kek_version;
   } catch (error) {
@@ -85,20 +89,16 @@ async function restoreKekFromMemberEnvelope(
   userId: string,
   deviceId: string,
 ): Promise<"restored" | "needs_distribution"> {
-  const envelope = await encryptionApi.getMemberEnvelopeWithRrp(workspaceId);
+  const envelope = await encryptionApi.getMemberEnvelopeWithRrp(workspaceId, {
+    rrpDeviceId: deviceId,
+  });
   if (!envelope) return "needs_distribution";
 
   const worker = getCryptoWorker();
-  const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(
+  await openAdmittedWorkspaceMemberKekEnvelope(
     workspaceId,
     envelope as unknown as Record<string, unknown>,
   );
-  await worker.openSignedPqMemberKekWrap({
-    record: envelope as unknown as SignedPqWrapRecord,
-    senderSigningPublicKeyMaterial:
-      envelope.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
-    expectedOperationCheckpoint,
-  });
 
   const publicKeys = await worker.getPublicKeys();
   if (

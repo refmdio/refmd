@@ -6,9 +6,25 @@ edition = "2021"
 [lib]
 name = "refmd_crypto"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["nif"]
+nif = ["dep:blake3", "dep:ml-dsa", "dep:rustler"]
+wasm = ["dep:getrandom", "dep:wasm-bindgen"]
 
 [dependencies]
-rustler = "0.37"
-blake3 = "1.5"
-ml-dsa = "0.1.0-rc.9"
+blake3 = { version = "1.5", optional = true }
+getrandom = { version = "0.2", features = ["js"], optional = true }
+hpke-rs = { version = "=0.6.1", features = ["experimental", "hazmat", "rustcrypto"] }
+ml-dsa = { version = "0.1.0-rc.9", optional = true }
+rustler = { version = "0.37", optional = true }
+shake = "=0.1.0"
+wasm-bindgen = { version = "0.2", optional = true }
+x-wing = { version = "=0.1.0", features = ["zeroize"] }
+
+[dev-dependencies]
+hex = "0.4"
+hpke-rs = { version = "=0.6.1", features = ["experimental", "hazmat", "hpke-test", "rustcrypto"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

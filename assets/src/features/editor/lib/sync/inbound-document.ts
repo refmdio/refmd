@@ -5,6 +5,7 @@ import { computeSnapshotProofLinkHash } from "@/shared/lib/anti-rollback/snapsho
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import {
+  applyAuthoritativeCanonicalState,
   canonicalMarkdownText,
   clearProseMirrorXml,
   encodeCanonicalDiffAsUpdate,
@@ -98,9 +99,7 @@ function replaceLiveWithServerCanonicalDoc(
     return;
   }
 
-  replaceDocWithCanonicalText(state.yDoc, "", origin);
-  Y.applyUpdate(state.yDoc, serverUpdate, origin);
-  clearProseMirrorXml(state.yDoc, origin);
+  applyAuthoritativeCanonicalState(state.yDoc, serverDoc, origin);
 }
 
 function applyServerCanonicalDocAndLocalDiff(
@@ -476,6 +475,13 @@ export async function handleDocumentMessage(
       if (snapshotChanged && payload.snapshotProofChain.length > 0) {
         // anchorProofHash IS the computed proof for the anchor snapshot.
         // Chain head's parentProofHash should match this directly.
+        recordSyncPerf("initial_snapshot_chain_check", {
+          documentId,
+          anchorSnapshotId: anchor.snapshotId,
+          anchorProofHash: anchor.proofHash,
+          chainHeadParentProofHash: payload.snapshotProofChain[0]?.parent_proof_hash ?? null,
+          chainTailSnapshotId: payload.snapshotProofChain.at(-1)?.snapshot_id ?? null,
+        });
         await verifySnapshotProofChain(
           payload.snapshotProofChain,
           snap.publicData.parentProofHash,

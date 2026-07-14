@@ -169,6 +169,22 @@ defmodule RefMD.Encryption.KeyDirectory.State do
     )
   end
 
+  def assert_device_signer_matches_actor!(signatures, actor) when is_map(actor) do
+    signer =
+      Enum.find_value(signatures, fn signature_envelope ->
+        {candidate, _signature} = SignatureEnvelope.parts!(signature_envelope)
+        if candidate["signer_kind"] == "device", do: candidate, else: nil
+      end)
+
+    if is_nil(signer), do: raise(ArgumentError, "device_signer_missing")
+
+    for field <- ["user_id", "device_id", "signing_key_id"] do
+      Assertions.assert_literal!(signer[field], actor[field], "device_signer_actor_mismatch")
+    end
+
+    :ok
+  end
+
   def key_directory_authority_entries(checkpoint_payload) do
     checkpoint_payload["identity_keys"] ++
       checkpoint_payload["device_keys"] ++

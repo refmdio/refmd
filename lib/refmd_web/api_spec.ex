@@ -216,6 +216,9 @@ defmodule RefMDWeb.ApiSpec do
     {"/api/devices/registrations", :post} => @user_session_security,
     {"/api/devices/registrations", :get} => @user_session_security,
     {"/api/devices/registrations/{device_id}/sas", :get} => @user_session_security,
+    {"/api/devices/registrations/{device_id}/initial-ake-offers", :get} => @user_session_security,
+    {"/api/devices/registrations/{device_id}/initial-ake-responses", :post} =>
+      @user_session_security,
     {"/api/devices/registrations/{device_id}", :delete} => @user_session_security,
     {"/api/encryption/setup-complete", :post} => @user_session_security,
     {"/api/workspaces/ids", :get} => @user_session_security,

@@ -24,7 +24,7 @@ defmodule RefMDWeb.Schemas.ShareListItem do
       exclusions: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
       share_link_secret_backup_wraps: %Schema{
         type: :array,
-        items: RefMDWeb.Schemas.HybridKeyWrapFields
+        items: RefMDWeb.Schemas.WorkspaceOperationProvenSignedPqWrap
       }
     },
     required: [

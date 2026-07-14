@@ -17,3 +17,19 @@ export async function retryGetUmk(
 
   throw new Error("UMK retrieval failed after retries");
 }
+
+export async function retryGetInitialAkeOffers(
+  deviceId: string,
+  maxAttempts: number,
+  delayMs: number,
+): Promise<Awaited<ReturnType<typeof devicesApi.getInitialAkeOffers>>> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await devicesApi.getInitialAkeOffers(deviceId);
+    } catch (error) {
+      if (attempt === maxAttempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error("Initial AKE offers retrieval failed after retries");
+}

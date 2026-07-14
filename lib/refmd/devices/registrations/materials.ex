@@ -33,8 +33,13 @@ defmodule RefMD.Devices.Registrations.Materials do
 
   def validate_identity_signing_key_id(user_id, identity_signing_key_id)
       when is_binary(user_id) and is_binary(identity_signing_key_id) do
+    now = DateTime.utc_now()
+
     from(k in UserIdentityPublicKey,
-      where: k.user_id == ^user_id and k.signing_key_id == ^identity_signing_key_id,
+      where:
+        k.user_id == ^user_id and k.signing_key_id == ^identity_signing_key_id and
+          k.lifecycle_state == "current" and k.needs_rotation == false and
+          k.rotation_due_at > ^now,
       select: true,
       limit: 1
     )
@@ -70,8 +75,13 @@ defmodule RefMD.Devices.Registrations.Materials do
     do: {:error, :invalid_identity_hybrid_signing_public_key_material}
 
   defp fetch_identity_signing_material(user_id, signing_key_id) do
+    now = DateTime.utc_now()
+
     from(k in UserIdentityPublicKey,
-      where: k.user_id == ^user_id and k.signing_key_id == ^signing_key_id,
+      where:
+        k.user_id == ^user_id and k.signing_key_id == ^signing_key_id and
+          k.lifecycle_state == "current" and k.needs_rotation == false and
+          k.rotation_due_at > ^now,
       select: k.hybrid_signing_public_key_material,
       limit: 1
     )

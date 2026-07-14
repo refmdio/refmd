@@ -1,14 +1,8 @@
 import { clearAuthBootstrap } from "@/shared/lib/crypto/dsk";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { PERSISTED_DATABASE_NAMES } from "@/shared/lib/storage/persistence-registry";
 
 const DEVICE_ID_KEY_PREFIX = "refmd-device-id:";
-const OBSOLETE_CRYPTO_CACHE_PREFIXES = [
-  "refmd-pdk",
-  "refmd-pdk:",
-  "refmd-umk-cache",
-  "refmd-device-key-cache",
-];
-
 export function persistDeviceId(deviceId: string, userId: string): void {
   localStorage.setItem(`${DEVICE_ID_KEY_PREFIX}${userId}`, deviceId);
 }
@@ -22,7 +16,6 @@ export async function persistCurrentKeysWithDsk(
   userId: string,
   options?: { persistUmk?: boolean },
 ): Promise<void> {
-  clearLegacyCryptoCaches();
   await getCryptoWorker().persistCurrentKeysWithDsk(userId, options);
 }
 
@@ -30,55 +23,8 @@ export async function clearSessionData(
   options: { preserveAuthBootstrap?: boolean } = {},
 ): Promise<void> {
   sessionStorage.clear();
-  clearLegacyCryptoCaches();
   if (!options.preserveAuthBootstrap) {
     await clearAuthBootstrap().catch(() => {});
-  }
-}
-
-export async function clearPersistedLoginKeyMaterial(): Promise<void> {
-  sessionStorage.clear();
-  clearLegacyCryptoCaches();
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(DEVICE_ID_KEY_PREFIX)) {
-      localStorage.removeItem(key);
-    }
-  }
-
-  await clearAuthBootstrap().catch(() => {});
-
-  const dbNames = ["refmd-keys", "refmd-offline", "refmd-security", "refmd-share-sessions"];
-  const existingDbNames = await persistedDatabaseNames(dbNames);
-  const existingDbNameSet = new Set(existingDbNames);
-  if (existingDbNameSet.has("refmd-keys")) {
-    await overwriteDbEntries("refmd-keys", [
-      "dsk",
-      "device-keys",
-      "wrapped-umk",
-      "wrapped-device-ecdh",
-      "wrapped-device-mlkem768-material",
-      "wrapped-device-hybrid-signing",
-      "auth-bootstrap",
-    ]);
-  }
-  if (existingDbNameSet.has("refmd-offline")) {
-    await overwriteDbEntries("refmd-offline", []);
-  }
-
-  const dbResults = await Promise.all(dbNames.map((name) => deleteDbWithRetry(name)));
-  const failedDbs = dbResults.filter((result) => !result.deleted);
-  if (failedDbs.length > 0) {
-    throw new Error(
-      `Local key reset incomplete: failed to delete ${failedDbs.map((result) => result.name).join(", ")}`,
-    );
-  }
-}
-
-function clearLegacyCryptoCaches(): void {
-  for (const key of Object.keys(localStorage)) {
-    if (OBSOLETE_CRYPTO_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-      localStorage.removeItem(key);
-    }
   }
 }
 
@@ -93,13 +39,7 @@ export async function clearAllPersistedKeys(): Promise<void> {
       localStorage.removeItem(key);
     }
   }
-  const dbNames = [
-    "refmd-keys",
-    "refmd-trust",
-    "refmd-offline",
-    "refmd-security",
-    "refmd-share-sessions",
-  ];
+  const dbNames = PERSISTED_DATABASE_NAMES;
   const existingDbNames = await persistedDatabaseNames(dbNames);
   const existingDbNameSet = new Set(existingDbNames);
   if (existingDbNameSet.has("refmd-keys")) {

@@ -9,8 +9,10 @@ import { joinPendingRegistrationSecurityNotifications } from "@/shared/lib/secur
 import { getAuthTransportBackoffMs } from "@/shared/lib/ws/transport-coordinator";
 import type { DeviceRegistrationPublicKeys } from "../../model/register/types";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
+import { prepareRegistrationInitialAkeResponderPrekeys } from "@/shared/lib/auth/registration-initial-ake-prekeys";
 
 interface StartRegistrationApprovalParams {
+  userId: string;
   publicKeys: DeviceRegistrationPublicKeys;
   identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   signal?: AbortSignal;
@@ -38,6 +40,12 @@ export async function startRegistrationApproval(
   try {
     const challenge = await devicesApi.registrationChallenge({ signal: params.signal });
     if (params.signal?.aborted) throw createAbortError();
+    const initialAkeResponderPrekeys = await prepareRegistrationInitialAkeResponderPrekeys({
+      userId: params.userId,
+      deviceId: params.publicKeys.deviceId,
+      serverChallenge: challenge.registration_challenge,
+    });
+    if (params.signal?.aborted) throw createAbortError();
     const registration = await devicesApi.createRegistration(
       {
         name: getDeviceName(),
@@ -51,8 +59,8 @@ export async function startRegistrationApproval(
         device_signing_key_id: params.publicKeys.signingKeyId,
         client_nonce: base64UrlEncode(clientNonce),
         registration_challenge: challenge.registration_challenge,
-        ake_responder_prekeys: params.publicKeys
-          .initialAkeResponderPrekeys as unknown as RegistrationRequestWithAke["ake_responder_prekeys"],
+        ake_responder_prekeys:
+          initialAkeResponderPrekeys as unknown as RegistrationRequestWithAke["ake_responder_prekeys"],
       },
       { signal: params.signal },
     );
@@ -122,13 +130,13 @@ export async function startRegistrationApproval(
     params.onRejected();
   };
 
-  const startPollingFallback = () => {
+  const startStatusPolling = () => {
     if (pollTimer || settled) return;
 
     pollTimer = setInterval(async () => {
       try {
         const status = await devicesApi.getRegistrationSas(params.publicKeys.deviceId);
-        if (status.status === "approved") {
+        if (status.status === "initial_ake_offers_ready" || status.status === "approved") {
           await approve();
         } else if (status.status === "expired") {
           expire();
@@ -155,7 +163,7 @@ export async function startRegistrationApproval(
     if (settled || generation !== connectionGeneration) return;
 
     clearSecurityNotifications();
-    startPollingFallback();
+    startStatusPolling();
     scheduleEventReconnect(connectionGeneration);
   };
 
@@ -164,6 +172,9 @@ export async function startRegistrationApproval(
     const generation = connectionGeneration;
 
     joinPendingRegistrationSecurityNotifications(params.publicKeys.deviceId, {
+      onInitialAkeOffersReady: () => {
+        void approve();
+      },
       onApproved: () => {
         void approve();
       },
@@ -184,14 +195,13 @@ export async function startRegistrationApproval(
           return;
         }
         securityNotifications = handle;
-        clearPolling();
       })
       .catch(() => {
-        startPollingFallback();
         scheduleEventReconnect(generation);
       });
   };
 
+  startStatusPolling();
   connectSecurityNotifications();
 
   return {

@@ -18,6 +18,7 @@ interface InitialAkePrekeyWorker {
     userId: string;
     deviceId: string;
     purpose: "umk_distribution" | "device_approval_kek_initial" | "trust_transfer";
+    serverChallenge: string;
     issuedAtEventSequence: number;
     expiresEventSequence: number;
   }): Promise<InitialAkeResponderPrekeyRecord>;
@@ -38,6 +39,7 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
   userId: string;
   deviceId: string;
   workspaceIds: string[];
+  serverChallenge: string;
   issuedAtEventSequence: number;
   worker: InitialAkePrekeyWorker;
   operationIdFactory?: () => string;
@@ -45,10 +47,11 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
   const expiresEventSequence = params.issuedAtEventSequence + 1;
   const nextOperationId = params.operationIdFactory ?? (() => crypto.randomUUID());
   const umkDistribution = await params.worker.generateInitialAkeResponderPrekey({
-    operationId: params.deviceId,
+    operationId: nextOperationId(),
     userId: params.userId,
     deviceId: params.deviceId,
     purpose: "umk_distribution",
+    serverChallenge: params.serverChallenge,
     issuedAtEventSequence: params.issuedAtEventSequence,
     expiresEventSequence,
   });
@@ -57,6 +60,7 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
     userId: params.userId,
     deviceId: params.deviceId,
     purpose: "trust_transfer",
+    serverChallenge: params.serverChallenge,
     issuedAtEventSequence: params.issuedAtEventSequence,
     expiresEventSequence,
   });
@@ -70,6 +74,7 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
         userId: params.userId,
         deviceId: params.deviceId,
         purpose: "device_approval_kek_initial",
+        serverChallenge: params.serverChallenge,
         issuedAtEventSequence: params.issuedAtEventSequence,
         expiresEventSequence,
       }),
@@ -86,6 +91,7 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
 export async function prepareRegistrationInitialAkeResponderPrekeys(params: {
   userId: string;
   deviceId: string;
+  serverChallenge: string;
 }): Promise<RegistrationInitialAkeResponderPrekeys> {
   const me = await authApi.me();
   const { workspace_ids: workspaceIds } = await encryptionApi.getWorkspaceIds();
@@ -99,6 +105,7 @@ export async function prepareRegistrationInitialAkeResponderPrekeys(params: {
     userId: params.userId,
     deviceId: params.deviceId,
     workspaceIds,
+    serverChallenge: params.serverChallenge,
     issuedAtEventSequence,
     worker: getCryptoWorker(),
   });

@@ -27,6 +27,8 @@ defmodule RefMD.Devices do
   defdelegate get_user_device_registrations(user_id), to: WRegistrations
   defdelegate get_device_registration_status(user_id, device_id), to: WRegistrations
   defdelegate delete_device_registration(id), to: WRegistrations
+  defdelegate get_initial_ake_exchange(user_id, device_id), to: WRegistrations
+  defdelegate submit_initial_ake_responses(user_id, device_id, responses), to: WRegistrations
 
   defdelegate replace_user_device_registration(user_id, session_id, attrs), to: WRegistrations
 
@@ -153,7 +155,9 @@ defmodule RefMD.Devices do
               to: WRevocations
 
   def touch_device(device_id) do
-    from(d in Device, where: d.id == ^device_id and is_nil(d.revoked_at))
+    from(d in Device,
+      where: d.id == ^device_id and is_nil(d.revoked_at) and is_nil(d.identity_wipe_required_at)
+    )
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
@@ -167,7 +171,7 @@ defmodule RefMD.Devices do
     if include_revoked do
       base
     else
-      from(d in base, where: is_nil(d.revoked_at))
+      from(d in base, where: is_nil(d.revoked_at) and is_nil(d.identity_wipe_required_at))
     end
     |> Repo.all()
   end
@@ -283,6 +287,7 @@ defmodule RefMD.Devices do
       with {:ok, identity_material} <- get_identity_public_material(attrs.user_id),
            :ok <-
              verify_genesis_device_signature(attrs, approval_signature, identity_material.signing),
+           :ok <- validate_initial_user_key_directory_materials(attrs, identity_material),
            {:ok, device} <-
              attrs
              |> Map.put(:approval_signature, approval_signature)
@@ -296,6 +301,7 @@ defmodule RefMD.Devices do
                )
              )
              |> create_device() do
+        insert_initial_user_key_directory!(attrs)
         device
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -310,7 +316,10 @@ defmodule RefMD.Devices do
   def bootstrap_guest_device(_, _, _), do: {:error, :invalid_signature}
 
   def user_has_devices?(user_id) do
-    from(d in Device, where: d.user_id == ^user_id and is_nil(d.revoked_at))
+    from(d in Device,
+      where:
+        d.user_id == ^user_id and is_nil(d.revoked_at) and is_nil(d.identity_wipe_required_at)
+    )
     |> Repo.exists?()
   end
 
@@ -326,14 +335,18 @@ defmodule RefMD.Devices do
 
   def user_owns_active_device?(user_id, device_id) do
     from(d in Device,
-      where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
+      where:
+        d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at) and
+          is_nil(d.identity_wipe_required_at)
     )
     |> Repo.exists?()
   end
 
   def rename_device(user_id, device_id, name) do
     case from(d in Device,
-           where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
+           where:
+             d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at) and
+               is_nil(d.identity_wipe_required_at)
          )
          |> Repo.one() do
       nil -> {:error, :not_found}
@@ -470,8 +483,12 @@ defmodule RefMD.Devices do
   end
 
   defp get_identity_public_material(user_id) do
+    now = DateTime.utc_now()
+
     from(k in RefMD.Encryption.UserIdentityPublicKey,
-      where: k.user_id == ^user_id,
+      where:
+        k.user_id == ^user_id and k.lifecycle_state == "current" and
+          k.needs_rotation == false and k.rotation_due_at > ^now,
       select: %{
         signing: k.hybrid_signing_public_key_material,
         encryption: k.hybrid_encryption_public_key_material,

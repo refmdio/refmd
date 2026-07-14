@@ -121,6 +121,7 @@ defmodule RefMD.Workspaces.Members do
         role_name: r.name,
         base_role: r.base_role,
         is_default: wm.is_default,
+        permission_version: wm.permission_version,
         joined_at: wm.joined_at
       },
       order_by: [asc: wm.joined_at]
@@ -131,6 +132,7 @@ defmodule RefMD.Workspaces.Members do
   def change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id, key_directory) do
     Repo.transaction(fn ->
       owner_rows = lock_owner_rows(workspace_id)
+      target_member = lock_member!(workspace_id, target_user_id)
 
       new_role =
         case Repo.get(WorkspaceRole, new_role_id) do
@@ -142,6 +144,7 @@ defmodule RefMD.Workspaces.Members do
         actor_role: fetch_role_for_user(workspace_id, actor_user_id),
         target_role: fetch_role_for_user(workspace_id, target_user_id),
         new_role: new_role,
+        target_member: target_member,
         owner_count: count_owners(owner_rows)
       }
 
@@ -152,15 +155,40 @@ defmodule RefMD.Workspaces.Members do
           target_user_id,
           ctx.target_role,
           ctx.new_role,
+          ctx.target_member.permission_version + 1,
           key_directory
         )
 
-        do_change_role(workspace_id, target_user_id, new_role_id)
+        previous_permissions = effective_permissions(ctx.target_role)
+        effective_permissions = effective_permissions(ctx.new_role)
+        permission_loss? = not MapSet.subset?(previous_permissions, effective_permissions)
+
+        read_loss? =
+          MapSet.member?(previous_permissions, "document:read") and
+            not MapSet.member?(effective_permissions, "document:read")
+
+        member = do_change_role(workspace_id, target_user_id, new_role_id)
+
+        maybe_mark_role_change_rotation!(
+          read_loss?,
+          workspace_id,
+          target_user_id,
+          actor_user_id
+        )
+
+        %{member: member, permission_loss?: permission_loss?}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> normalize_transaction_result()
+    |> case do
+      {:ok, %{member: member, permission_loss?: permission_loss?}} ->
+        if permission_loss?, do: disconnect_member_sessions(target_user_id)
+        {:ok, member}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   def remove_member(workspace_id, target_user_id, actor_user_id, key_directory) do
@@ -182,7 +210,7 @@ defmodule RefMD.Workspaces.Members do
           member = do_remove_member(workspace_id, target_user_id)
           revoke_removed_member_invitations(workspace_id, target_user_id)
 
-          mark_rotation_needed!(
+          KekRotation.mark_membership_rotation_needed!(
             workspace_id,
             rotation_initiator(workspace_id, target_user_id, actor_user_id)
           )
@@ -260,15 +288,7 @@ defmodule RefMD.Workspaces.Members do
   end
 
   defp find_rotation_initiator(workspace_id) do
-    from(wm in WorkspaceMember,
-      join: r in WorkspaceRole,
-      on: r.id == wm.role_id,
-      where: wm.workspace_id == ^workspace_id and r.base_role in ["owner", "admin"],
-      order_by: [asc: fragment("CASE ? WHEN 'owner' THEN 0 ELSE 1 END", r.base_role)],
-      limit: 1,
-      select: wm.user_id
-    )
-    |> Repo.one!()
+    KekRotation.next_rotation_initiator(workspace_id)
   end
 
   defp revoke_removed_member_invitations(workspace_id, target_user_id) do
@@ -295,12 +315,14 @@ defmodule RefMD.Workspaces.Members do
     end
   end
 
-  defp mark_rotation_needed!(workspace_id, initiator_user_id) do
-    KekRotation.mark_kek_rotation_needed([workspace_id], initiator_user_id)
-    KekRotation.mark_dek_rotation_needed([workspace_id])
-    :ok
-  rescue
-    _ -> Repo.rollback(:rotation_mark_failed)
+  defp maybe_mark_role_change_rotation!(false, _workspace_id, _target_user_id, _actor_user_id),
+    do: :ok
+
+  defp maybe_mark_role_change_rotation!(true, workspace_id, target_user_id, actor_user_id) do
+    KekRotation.mark_membership_rotation_needed!(
+      workspace_id,
+      rotation_initiator(workspace_id, target_user_id, actor_user_id)
+    )
   end
 
   defp check_rbac_permission(nil, _permission), do: {:error, :actor_not_member}
@@ -330,6 +352,18 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.one!()
   end
 
+  defp lock_member!(workspace_id, user_id) do
+    from(wm in WorkspaceMember,
+      where: wm.workspace_id == ^workspace_id and wm.user_id == ^user_id,
+      lock: "FOR UPDATE"
+    )
+    |> Repo.one()
+    |> case do
+      nil -> Repo.rollback(:target_not_member)
+      member -> member
+    end
+  end
+
   defp fetch_role_for_user(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       join: r in WorkspaceRole,
@@ -351,6 +385,7 @@ defmodule RefMD.Workspaces.Members do
          target_user_id,
          previous_role,
          new_role,
+         permission_version,
          %{
            workspace_events: workspace_events,
            workspace_checkpoint: workspace_checkpoint
@@ -362,7 +397,8 @@ defmodule RefMD.Workspaces.Members do
       workspace_id,
       target_user_id,
       previous_role,
-      new_role
+      new_role,
+      permission_version
     )
 
     Encryption.append_workspace_key_directory!(
@@ -375,7 +411,7 @@ defmodule RefMD.Workspaces.Members do
     _ -> Repo.rollback(:invalid_key_directory)
   end
 
-  defp append_member_role_change_key_directory!(_, _, _, _, _),
+  defp append_member_role_change_key_directory!(_, _, _, _, _, _),
     do: Repo.rollback(:missing_key_directory)
 
   defp assert_member_role_change_append!(
@@ -383,15 +419,19 @@ defmodule RefMD.Workspaces.Members do
          workspace_id,
          target_user_id,
          previous_role,
-         new_role
+         new_role,
+         permission_version
        ) do
     expected = %{
       "workspace_id" => workspace_id,
       "user_id" => target_user_id,
       "previous_role_id" => previous_role.id,
       "previous_base_role" => previous_role.base_role,
+      "previous_effective_permissions" => canonical_effective_permissions(previous_role),
       "role_id" => new_role.id,
-      "base_role" => new_role.base_role
+      "base_role" => new_role.base_role,
+      "effective_permissions" => canonical_effective_permissions(new_role),
+      "permission_version" => permission_version
     }
 
     unless Map.take(body, Map.keys(expected)) == expected do
@@ -399,8 +439,25 @@ defmodule RefMD.Workspaces.Members do
     end
   end
 
-  defp assert_member_role_change_append!(_, _, _, _, _),
+  defp assert_member_role_change_append!(_, _, _, _, _, _),
     do: raise(ArgumentError, "key_directory_member_role_changed_event_mismatch")
+
+  defp canonical_effective_permissions(role),
+    do: role |> effective_permissions() |> MapSet.to_list() |> Enum.sort()
+
+  defp effective_permissions(role), do: RefMD.Workspaces.effective_permissions(role)
+
+  def disconnect_member_sessions(user_id) do
+    Phoenix.PubSub.broadcast(
+      RefMD.PubSub,
+      "user_socket:#{user_id}",
+      %Phoenix.Socket.Broadcast{
+        topic: "user_socket:#{user_id}",
+        event: "disconnect",
+        payload: %{}
+      }
+    )
+  end
 
   defp append_member_removal_key_directory!(
          workspace_id,

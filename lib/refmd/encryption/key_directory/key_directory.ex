@@ -39,6 +39,24 @@ defmodule RefMD.Encryption.KeyDirectory do
   @doc "Key-directory package boundary for canonical checkpoint payload hashing."
   def checkpoint_hash(payload), do: Protocol.checkpoint_hash(payload)
 
+  def active_workspace_scope_guest_device_admitted?(workspace_id, user_id, device_id)
+      when is_binary(workspace_id) and is_binary(user_id) and is_binary(device_id) do
+    case current_checkpoint("workspace", workspace_id) do
+      %{covered_event_head_sequence: event_head_sequence} ->
+        Authority.active_workspace_scope_guest_device_admitted?(
+          workspace_id,
+          event_head_sequence,
+          user_id,
+          device_id
+        )
+
+      _ ->
+        false
+    end
+  end
+
+  def active_workspace_scope_guest_device_admitted?(_, _, _), do: false
+
   def build_event_payload!(attrs) when is_map(attrs) do
     payload =
       %{
@@ -288,6 +306,11 @@ defmodule RefMD.Encryption.KeyDirectory do
 
           admission_wrap? = Signatures.invitation_admission_wrap_event?(payload, next_payload)
 
+          recipient_bound_delivery_wrap? =
+            recipient_bound_workspace_delivery_wrap?(payload, event_payloads)
+
+          recipient_bound_wrap? = admission_wrap? or recipient_bound_delivery_wrap?
+
           authority_state =
             if admission_wrap? do
               authority_state
@@ -295,7 +318,7 @@ defmodule RefMD.Encryption.KeyDirectory do
               Authority.assert_and_apply_event!(authority_state, payload)
             end
 
-          if admission_wrap? do
+          if recipient_bound_wrap? do
             Semantics.assert_invitation_admission_wrap_event_semantics!(
               payload,
               checkpoint_payload
@@ -330,15 +353,16 @@ defmodule RefMD.Encryption.KeyDirectory do
           event = Store.insert_event!(payload, signatures)
 
           next_replay_payload =
-            if admission_wrap? do
+            if recipient_bound_wrap? do
               replay_payload
             else
-              Replay.apply_event_to_checkpoint_payload!(
+              apply_append_event_to_replay!(
                 replay_payload,
                 payload,
                 signatures,
                 checkpoint_payload,
-                authorized_share_participant_keys
+                authorized_share_participant_keys,
+                event_payloads
               )
             end
 
@@ -381,6 +405,188 @@ defmodule RefMD.Encryption.KeyDirectory do
 
     %{events: events, checkpoint: checkpoint, pin: pin}
   end
+
+  defp apply_append_event_to_replay!(
+         replay_payload,
+         %{"event_type" => "guest_invitation_redeemed"} = payload,
+         signatures,
+         checkpoint_payload,
+         authorized_share_participant_keys,
+         event_payloads
+       ) do
+    if recipient_bound_guest_redeem?(payload, event_payloads) do
+      Replay.apply_recipient_bound_guest_invitation_redeemed!(
+        replay_payload,
+        payload,
+        signatures,
+        checkpoint_payload
+      )
+    else
+      Replay.apply_event_to_checkpoint_payload!(
+        replay_payload,
+        payload,
+        signatures,
+        checkpoint_payload,
+        authorized_share_participant_keys
+      )
+    end
+  end
+
+  defp apply_append_event_to_replay!(
+         replay_payload,
+         %{"event_type" => "workspace_invitation_redeemed"} = payload,
+         signatures,
+         checkpoint_payload,
+         authorized_share_participant_keys,
+         event_payloads
+       ) do
+    if recipient_bound_workspace_redeem?(payload, event_payloads) do
+      Replay.apply_recipient_bound_workspace_invitation_redeemed!(
+        replay_payload,
+        payload,
+        signatures,
+        checkpoint_payload
+      )
+    else
+      Replay.apply_event_to_checkpoint_payload!(
+        replay_payload,
+        payload,
+        signatures,
+        checkpoint_payload,
+        authorized_share_participant_keys
+      )
+    end
+  end
+
+  defp apply_append_event_to_replay!(
+         replay_payload,
+         payload,
+         signatures,
+         checkpoint_payload,
+         authorized_share_participant_keys,
+         _event_payloads
+       ) do
+    Replay.apply_event_to_checkpoint_payload!(
+      replay_payload,
+      payload,
+      signatures,
+      checkpoint_payload,
+      authorized_share_participant_keys
+    )
+  end
+
+  defp recipient_bound_guest_redeem?(redeemed, event_payloads) do
+    case event_payloads do
+      [
+        %{"event_type" => "recipient_bound_delivery_admitted", "body" => admission_body},
+        ^redeemed
+      ] ->
+        body = redeemed["body"]
+
+        admission_body["context_kind"] == "guest_invitation" and
+          admission_body["context_id"] == body["guest_invitation_id"] and
+          admission_body["recipient_device_id"] == body["guest_device_id"] and
+          body["recipient_account_user_id"] != body["guest_user_id"] and
+          is_binary(body["recipient_account_user_id"]) and
+          is_binary(body["recipient_account_device_id"])
+
+      _ ->
+        false
+    end
+  end
+
+  defp recipient_bound_workspace_redeem?(redeemed, event_payloads) do
+    event_payloads
+    |> Enum.chunk_every(3, 1, :discard)
+    |> Enum.any?(&recipient_bound_workspace_redeem_window?(&1, redeemed))
+  end
+
+  defp recipient_bound_workspace_delivery_wrap?(delivery, event_payloads) do
+    event_payloads
+    |> Enum.chunk_every(4, 1, :discard)
+    |> Enum.any?(&recipient_bound_workspace_delivery_window?(&1, delivery, event_payloads))
+  end
+
+  defp recipient_bound_workspace_redeem_window?(
+         [
+           %{"event_type" => "recipient_bound_delivery_admitted", "body" => admission_body},
+           %{"event_type" => "wrap_issued", "body" => wrap_body},
+           redeemed
+         ],
+         redeemed
+       ) do
+    redeemed_body = redeemed["body"]
+
+    workspace_redeem_admission_matches?(admission_body, redeemed_body) and
+      workspace_member_wrap_matches?(wrap_body, redeemed)
+  end
+
+  defp recipient_bound_workspace_redeem_window?(_, _), do: false
+
+  defp workspace_redeem_admission_matches?(admission_body, redeemed_body) do
+    admission_body["context_kind"] == "workspace_invitation" and
+      admission_body["context_id"] == redeemed_body["invitation_id"] and
+      admission_body["recipient_device_id"] == redeemed_body["redeemed_device_id"]
+  end
+
+  defp workspace_member_wrap_matches?(wrap_body, redeemed) do
+    redeemed_body = redeemed["body"]
+    sender = wrap_body["sender"]
+    recipient = wrap_body["recipient"]
+    resource = wrap_body["resource"]
+    actor = redeemed["actor"]
+
+    fields_match?([
+      {wrap_body["purpose"], "workspace_member_kek_wrap"},
+      {resource["workspace_id"], redeemed["scope_id"]},
+      {resource["target_user_id"], redeemed_body["redeemed_user_id"]},
+      {recipient["recipient_kind"], "user_identity"},
+      {recipient["user_id"], redeemed_body["redeemed_user_id"]},
+      {recipient["key_scope_kind"], "user"},
+      {recipient["key_scope_id"], redeemed_body["redeemed_user_id"]},
+      {sender["user_id"], actor["user_id"]},
+      {sender["device_id"], actor["device_id"]},
+      {sender["signing_key_id"], actor["signing_key_id"]}
+    ])
+  end
+
+  defp recipient_bound_workspace_delivery_window?(
+         [
+           %{"event_type" => "recipient_bound_delivery_admitted"},
+           %{"event_type" => "wrap_issued"},
+           %{"event_type" => "workspace_invitation_redeemed"} = redeemed,
+           delivery
+         ],
+         delivery,
+         event_payloads
+       ) do
+    recipient_bound_workspace_redeem?(redeemed, event_payloads) and
+      workspace_delivery_wrap_matches?(delivery, redeemed)
+  end
+
+  defp recipient_bound_workspace_delivery_window?(_, _, _), do: false
+
+  defp workspace_delivery_wrap_matches?(delivery, redeemed) do
+    body = delivery["body"]
+    recipient = body["recipient"]
+    resource = body["resource"]
+    redeemed_body = redeemed["body"]
+
+    fields_match?([
+      {delivery["event_type"], "wrap_issued"},
+      {body["purpose"], "workspace_invitation_kek_wrap"},
+      {resource["invitation_id"], redeemed_body["invitation_id"]},
+      {resource["redeemed_user_id"], redeemed_body["redeemed_user_id"]},
+      {resource["redeemed_device_id"], redeemed_body["redeemed_device_id"]},
+      {recipient["recipient_kind"], "invitee"},
+      {recipient["invitee_user_id"], redeemed_body["redeemed_user_id"]},
+      {recipient["invitee_device_id"], redeemed_body["redeemed_device_id"]},
+      {recipient["key_scope_kind"], "user"},
+      {recipient["key_scope_id"], redeemed_body["redeemed_user_id"]}
+    ])
+  end
+
+  defp fields_match?(pairs), do: Enum.all?(pairs, fn {actual, expected} -> actual == expected end)
 
   defp inactive_checkpoint_signers_allowed_by_append(
          "device",
@@ -678,6 +884,110 @@ defmodule RefMD.Encryption.KeyDirectory do
   @doc "Key-directory package boundary for ordered event range lookup."
   def events_after_until(scope_kind, scope_id, after_sequence, head_sequence),
     do: Store.events_after_until(scope_kind, scope_id, after_sequence, head_sequence)
+
+  @doc "Returns signed lifecycle events needed to verify transitions after an anchor."
+  def authority_events(
+        scope_kind,
+        scope_id,
+        anchor_event_sequence,
+        candidate_events,
+        candidate_checkpoint
+      )
+      when is_integer(anchor_event_sequence) and is_list(candidate_events) do
+    rotation_keys =
+      candidate_events
+      |> Enum.filter(&(&1.event_type in ["rotation_completed", "old_key_deleted"]))
+      |> Enum.map(&rotation_key/1)
+      |> MapSet.new()
+
+    invitation_ids = invitation_authority_ids(candidate_events, candidate_checkpoint)
+
+    scope_kind
+    |> events_up_to(scope_id, anchor_event_sequence)
+    |> Enum.filter(fn event ->
+      rotation_authority_event?(event, rotation_keys) or
+        invitation_authority_event?(event, invitation_ids)
+    end)
+  end
+
+  defp rotation_authority_event?(event, rotation_keys) do
+    MapSet.size(rotation_keys) > 0 and
+      event.event_type in ["rotation_started", "rotation_completed"] and
+      MapSet.member?(rotation_keys, rotation_key(event))
+  end
+
+  defp invitation_authority_ids(candidate_events, candidate_checkpoint) do
+    event_ids =
+      candidate_events
+      |> Enum.flat_map(&invitation_id/1)
+      |> MapSet.new()
+
+    candidate_checkpoint
+    |> Map.get(:signatures, [])
+    |> Enum.reduce(event_ids, fn
+      %{
+        "signer" => %{
+          "signer_kind" => "invitation_redeem_authority",
+          "invitation_id" => invitation_id
+        }
+      },
+      ids
+      when is_binary(invitation_id) ->
+        MapSet.put(ids, invitation_id)
+
+      _, ids ->
+        ids
+    end)
+  end
+
+  defp invitation_id(event) do
+    body = event.payload["body"]
+
+    case event.event_type do
+      "workspace_invitation_redeemed" -> [body["invitation_id"]]
+      "guest_invitation_redeemed" -> [body["guest_invitation_id"]]
+      _ -> []
+    end
+  end
+
+  defp invitation_authority_event?(event, invitation_ids) do
+    body = event.payload["body"]
+
+    case event.event_type do
+      event_type
+      when event_type in [
+             "workspace_invitation_created",
+             "workspace_invitation_revoked",
+             "workspace_invitation_redeemed"
+           ] ->
+        MapSet.member?(invitation_ids, body["invitation_id"])
+
+      event_type
+      when event_type in [
+             "guest_invitation_created",
+             "guest_invitation_revoked",
+             "guest_invitation_redeemed"
+           ] ->
+        MapSet.member?(invitation_ids, body["guest_invitation_id"])
+
+      _ ->
+        false
+    end
+  end
+
+  defp rotation_key(event) do
+    body = event.payload["body"]
+
+    {
+      body["rotation_kind"],
+      body["scope_kind"],
+      body["scope_id"],
+      if(body["rotation_kind"] == "identity",
+        do: body["old_identity_signing_key_id"],
+        else: body["old_key_version"]
+      )
+    }
+  end
 
   @doc "Key-directory package boundary for ordered checkpoint range lookup."
   def checkpoints_between(scope_kind, scope_id, start_sequence, end_sequence),

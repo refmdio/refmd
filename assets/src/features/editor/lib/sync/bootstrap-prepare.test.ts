@@ -10,12 +10,15 @@ const mocks = vi.hoisted(() => ({
   buildDocumentSigningKeyCaches: vi.fn(),
   deviceState: vi.fn(),
   ensurePhoenixWsToken: vi.fn(),
-  ensureSharedDekCached: vi.fn(),
+  ensureCurrentSharedDekCached: vi.fn(),
   fetchVerifiedKeyDirectory: vi.fn(),
   getCachedWorkspaceDirectory: vi.fn(),
+  getDocumentStatePin: vi.fn(),
   getKeyDirectoryPin: vi.fn(),
+  hasCompleteSnapshotPin: vi.fn(),
   getLocalSigningKeyId: vi.fn(),
   recordSyncPerf: vi.fn(),
+  reencryptPendingChangesForLatestDek: vi.fn(),
   refreshSharedDocumentAccess: vi.fn(),
   rememberShareWorkspaceCheckpoint: vi.fn(),
   setDocumentReadOnly: vi.fn(),
@@ -41,8 +44,8 @@ vi.mock("@/shared/lib/anti-rollback/document-state-pins", () => ({
   buildDocumentStatePinKey: vi.fn((documentId: string, shareId?: string) =>
     shareId ? `${documentId}:${shareId}` : documentId,
   ),
-  getDocumentStatePin: vi.fn(async () => null),
-  hasCompleteSnapshotPin: vi.fn(() => false),
+  getDocumentStatePin: mocks.getDocumentStatePin,
+  hasCompleteSnapshotPin: mocks.hasCompleteSnapshotPin,
 }));
 
 vi.mock("@/shared/lib/anti-rollback/key-directory-pin/pins", () => ({
@@ -92,6 +95,7 @@ vi.mock("./inbound-signing-keys", () => ({
 }));
 
 vi.mock("./bootstrap-key-rotation", () => ({
+  acknowledgeDocumentWipeIfRequired: vi.fn(async () => {}),
   completeDekRotationIfNeeded: vi.fn(),
 }));
 
@@ -99,8 +103,13 @@ vi.mock("./bootstrap-post-init", () => ({
   primeHistoricalDeks: vi.fn(),
 }));
 
+vi.mock("../offline/pending-reencrypt", () => ({
+  reencryptPendingChangesForLatestDek: mocks.reencryptPendingChangesForLatestDek,
+}));
+
 vi.mock("./share-access", () => ({
-  ensureSharedDekCached: mocks.ensureSharedDekCached,
+  ensureCurrentSharedDekCached: mocks.ensureCurrentSharedDekCached,
+  getDocumentDekCacheKey: vi.fn(() => "share-cache-key"),
   refreshSharedDocumentAccess: mocks.refreshSharedDocumentAccess,
 }));
 
@@ -125,9 +134,16 @@ describe("prepareInitializationSession", () => {
       deviceSigningKeyId: "local-signing-key",
     });
     mocks.ensurePhoenixWsToken.mockResolvedValue(undefined);
-    mocks.ensureSharedDekCached.mockResolvedValue(undefined);
+    mocks.ensureCurrentSharedDekCached.mockImplementation(
+      async (state: { access: unknown }) => state.access,
+    );
+    mocks.reencryptPendingChangesForLatestDek.mockResolvedValue(false);
     mocks.fetchVerifiedKeyDirectory.mockResolvedValue({ checkpoint: checkpoint(1) });
     mocks.getCachedWorkspaceDirectory.mockResolvedValue({ checkpoint: checkpoint(1) });
+    mocks.getDocumentStatePin.mockResolvedValue(null);
+    mocks.hasCompleteSnapshotPin.mockImplementation(
+      (pin: unknown) => pin !== null && typeof pin === "object",
+    );
     mocks.getKeyDirectoryPin.mockResolvedValue({
       pinKey: "workspace:workspace-1",
       scopeKind: "workspace",
@@ -151,8 +167,15 @@ describe("prepareInitializationSession", () => {
 
   it("waits for share workspace pin readiness before building initial payload signing keys", async () => {
     const workspacePinReady = promiseWithResolvers<void>();
+    const pendingReencryptionReady = promiseWithResolvers<boolean>();
+    mocks.reencryptPendingChangesForLatestDek.mockReturnValueOnce(pendingReencryptionReady.promise);
     const state = {
       stateKey: "state-1",
+      activeSnapshotId: null,
+      snapshotCiphertextHash: "",
+      snapshotProofHash: "",
+      lastSavedState: null,
+      confirmedClocks: {},
       access: {
         kind: "share",
         shareId: "share-1",
@@ -181,8 +204,24 @@ describe("prepareInitializationSession", () => {
     expect(mocks.buildDocumentSigningKeyCachesForInitialPayload).not.toHaveBeenCalled();
 
     workspacePinReady.resolve();
-    await expect(prepared.preDocumentReadyPromise).resolves.toEqual({ ready: true });
+    await flushPromises();
     expect(mocks.buildDocumentSigningKeyCachesForInitialPayload).toHaveBeenCalledTimes(1);
+
+    let preDocumentReady = false;
+    void prepared.preDocumentReadyPromise.then(() => {
+      preDocumentReady = true;
+    });
+    await flushPromises();
+    expect(preDocumentReady).toBe(false);
+
+    pendingReencryptionReady.resolve(true);
+    await expect(prepared.preDocumentReadyPromise).resolves.toEqual({ ready: true });
+    expect(mocks.reencryptPendingChangesForLatestDek).toHaveBeenCalledWith({
+      documentId: "document-1",
+      latestKeyVersion: 1,
+      worker: {},
+      cacheKey: "share-cache-key",
+    });
   });
 
   it("waits for refreshed share workspace pin readiness before fetching retry key directory", async () => {
@@ -220,6 +259,91 @@ describe("prepareInitializationSession", () => {
     refreshedWorkspacePinReady.resolve();
     await refresh;
     expect(mocks.fetchVerifiedKeyDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses refreshed share access for pending re-encryption and editability", async () => {
+    const initialAccess = {
+      kind: "share",
+      shareId: "share-1",
+      shareSlug: "share-slug",
+      participantDeviceId: "share-device-1",
+      keyVersion: 1,
+      workspaceKeyDirectoryCheckpoint: checkpoint(1),
+      workspaceKeyDirectoryLatestCheckpoint: checkpoint(1),
+      workspaceKeyDirectoryCheckpointAncestry: [],
+      workspaceKeyDirectoryEventAncestry: [],
+      workspacePinReady: Promise.resolve(),
+      permission: "view",
+    };
+    const refreshedAccess = { ...initialAccess, keyVersion: 2, permission: "edit" };
+    const state = { stateKey: "state-1", access: initialAccess };
+    mocks.ensureCurrentSharedDekCached.mockImplementationOnce(async (currentState) => {
+      currentState.access = refreshedAccess;
+      return refreshedAccess;
+    });
+
+    const prepared = await prepareInitializationSession(
+      "document-1",
+      "workspace-1",
+      state as never,
+      new AbortController().signal,
+      () => {},
+    );
+
+    await expect(prepared.preDocumentReadyPromise).resolves.toEqual({ ready: true });
+    expect(mocks.reencryptPendingChangesForLatestDek).toHaveBeenCalledWith({
+      documentId: "document-1",
+      latestKeyVersion: 2,
+      worker: {},
+      cacheKey: "share-cache-key",
+    });
+    expect(state).toMatchObject({ access: refreshedAccess, keyVersion: 2 });
+    expect(mocks.setDocumentReadOnly).toHaveBeenCalledWith("state-1", false);
+  });
+
+  it("bypasses a share bootstrap document that is newer than the persisted snapshot pin", async () => {
+    mocks.getDocumentStatePin.mockResolvedValueOnce({ latestSnapshotId: "snapshot-1" });
+    const state = {
+      stateKey: "state-1",
+      activeSnapshotId: null,
+      snapshotCiphertextHash: "",
+      snapshotProofHash: "",
+      lastSavedState: null,
+      confirmedClocks: {},
+      access: {
+        kind: "share",
+        shareId: "share-1",
+        shareSlug: "share-slug",
+        participantDeviceId: "share-device-1",
+        keyVersion: 2,
+        workspaceKeyDirectoryCheckpoint: checkpoint(1),
+        workspaceKeyDirectoryLatestCheckpoint: checkpoint(1),
+        workspaceKeyDirectoryCheckpointAncestry: [],
+        workspaceKeyDirectoryEventAncestry: [],
+        workspacePinReady: Promise.resolve(),
+        initialDocument: {
+          snapshot: { publicData: { snapshotId: "snapshot-2" } },
+        },
+        permission: "edit",
+      },
+    };
+
+    const prepared = await prepareInitializationSession(
+      "document-1",
+      "workspace-1",
+      state as never,
+      new AbortController().signal,
+      () => {},
+    );
+
+    expect(prepared.getBootstrapInitialDocument()).toBeNull();
+    expect(mocks.buildDocumentSigningKeyCachesForInitialPayload).not.toHaveBeenCalled();
+
+    const joinParams = await prepared.buildJoinParams();
+    expect(joinParams).toMatchObject({
+      mode: "complete",
+      knownSnapshotId: "snapshot-1",
+    });
   });
 });
 

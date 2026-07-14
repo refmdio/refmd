@@ -311,6 +311,7 @@ defmodule RefMD.Sharing.Input do
   defp parse_folder_share_key_entry(entry, password_protected) when is_map(entry) do
     with {:ok, share_id} <- fetch_uuid(entry, :share_id),
          {:ok, document_id} <- fetch_uuid(entry, :document_id),
+         {:ok, key_version} <- fetch_required_positive_integer(entry, :key_version),
          {:ok, encrypted_dek} <- fetch_binary(entry, :encrypted_dek),
          {:ok, nonce} <- fetch_optional_binary(entry, :nonce),
          :ok <- validate_encrypted_dek(encrypted_dek, password_protected),
@@ -319,6 +320,7 @@ defmodule RefMD.Sharing.Input do
        %{
          share_id: share_id,
          document_id: document_id,
+         key_version: key_version,
          encrypted_dek: encrypted_dek,
          nonce: nonce
        }}

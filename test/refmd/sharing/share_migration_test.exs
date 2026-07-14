@@ -115,6 +115,7 @@ defmodule RefMD.Sharing.ShareMigrationTest do
     %{
       "share_id" => Ecto.UUID.generate(),
       "document_id" => document.id,
+      "key_version" => document.min_dek_version,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24)
     }

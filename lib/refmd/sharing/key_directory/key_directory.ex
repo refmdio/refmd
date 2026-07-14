@@ -154,6 +154,7 @@ defmodule RefMD.Sharing.KeyDirectory do
       password_auth_metadata_hash: body["password_auth_metadata_hash"],
       password_capability_secret_commitment: attrs.password_capability_secret_commitment,
       workspace_pin_bootstrap_hash: attrs.authenticated_workspace_pin_bootstrap_hash,
+      authenticated_bootstrap_source: "url-fragment",
       max_views: body["max_views"],
       redeem_authority_policy: body["redeem_authority_policy"]
     })

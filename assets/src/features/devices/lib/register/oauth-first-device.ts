@@ -12,6 +12,7 @@ import {
 } from "@/shared/lib/crypto/workspace-kek-persistence";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { pinInitialKeyDirectoryCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { verifyAndPinSetupAuditCheckpoints } from "@/shared/lib/anti-rollback/setup-audit-checkpoints";
 import { persistCurrentKeysWithDsk, persistDeviceId } from "@/shared/lib/auth/key-persistence";
 import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
 import { ensureDskInWorker } from "./session-keys";
@@ -186,7 +187,12 @@ export async function completeOAuthFirstDeviceBootstrap(params: {
       rrpDeviceId: deviceId,
       ignoreConflict: true,
     });
-    await encryptionApi.setupComplete();
+    const setupAudit = await encryptionApi.setupComplete();
+    await verifyAndPinSetupAuditCheckpoints({
+      userId,
+      rrpDeviceId: deviceId,
+      checkpoints: setupAudit,
+    });
     setCryptoWorkerReady(true);
 
     return {

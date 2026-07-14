@@ -20,6 +20,7 @@ function documentFixture(
     is_published: false,
     min_dek_version: 1,
     needs_dek_rotation: false,
+    dek_rotation_reason: null,
     parent_id: null,
     position,
     slug: id,

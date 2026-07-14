@@ -313,7 +313,11 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
          :ok <- validate_workspace_member_kek_resource(attrs, context),
          :ok <- validate_workspace_kek_sender(attrs.sender, context, sender_signing_key_id),
          :ok <-
-           validate_workspace_member_kek_recipient(attrs.recipient, context, recipient_key_id),
+           validate_invitation_workspace_member_kek_recipient(
+             attrs.recipient,
+             context,
+             recipient_key_id
+           ),
          :ok <- validate_wrap_event(attrs, context.key_directory_events) do
       :ok
     else
@@ -464,6 +468,26 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
   defp validate_workspace_member_kek_recipient(recipient, context, recipient_key_id) do
     with :ok <- validate_recipient_keys(recipient) do
       expect(recipient == user_identity_recipient(context, recipient_key_id))
+    end
+  end
+
+  defp validate_invitation_workspace_member_kek_recipient(
+         recipient,
+         %{recipient_key_scope_kind: "user"} = context,
+         recipient_key_id
+       ) do
+    with :ok <- validate_recipient_keys(recipient) do
+      expect(
+        recipient == %{
+          "recipient_kind" => "user_identity",
+          "user_id" => context.target_user_id,
+          "encryption_key_id" => recipient_key_id,
+          "key_scope_kind" => "user",
+          "key_scope_id" => context.target_user_id,
+          "key_checkpoint_sequence" => context.recipient_key_checkpoint_sequence,
+          "key_checkpoint_hash" => context.recipient_key_checkpoint_hash
+        }
+      )
     end
   end
 
@@ -953,10 +977,7 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
   defp valid_resource_value?(_, value), do: is_binary(value) and value != ""
 
   defp validate_resource_semantics("guest_invitation_workspace_kek_wrap", resource) do
-    expect(
-      resource["scope_kind"] == "workspace" and resource["scope_id"] == "none" and
-        resource["permission"] == "edit"
-    )
+    expect(resource["scope_kind"] == "workspace" and resource["scope_id"] == "none")
   end
 
   defp validate_resource_semantics(purpose, resource)

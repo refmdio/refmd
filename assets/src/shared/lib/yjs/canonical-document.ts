@@ -164,6 +164,24 @@ export function replaceDocWithCanonicalText(
   }, origin);
 }
 
+export function applyAuthoritativeCanonicalState(
+  targetDoc: Y.Doc,
+  sourceDoc: Y.Doc,
+  origin: unknown = "remote",
+): void {
+  const expectedText = canonicalMarkdownText(sourceDoc);
+  Y.applyUpdate(targetDoc, encodeCanonicalSyncedStateAsUpdate(sourceDoc), origin);
+  clearProseMirrorXml(targetDoc, origin);
+
+  if (canonicalMarkdownText(targetDoc) !== expectedText) {
+    replaceDocWithCanonicalText(targetDoc, expectedText, origin);
+  }
+
+  if (canonicalMarkdownText(targetDoc) !== expectedText) {
+    throw new Error("canonical_state_reconstruction_failed");
+  }
+}
+
 export function replaceDocWithCanonicalMarkdown(
   targetDoc: Y.Doc,
   sourceDoc: Y.Doc,

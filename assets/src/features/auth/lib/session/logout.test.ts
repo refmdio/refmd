@@ -69,10 +69,12 @@ vi.mock("@/shared/lib/auth/session-scope", () => ({
 }));
 
 import { performLogout } from "./logout";
+import { registerBeforeSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 
 describe("logout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mocks.getCryptoWorker.mockReturnValue({
       clearMountTrustAnchorsWithDsk: mocks.clearMountTrustAnchorsWithDsk,
       getDeviceId: mocks.getDeviceId,
@@ -129,23 +131,24 @@ describe("logout", () => {
     expect(mocks.restoreSessionContext).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the share session selector for explicit secure share-scoped logout", async () => {
+  it("treats explicit secure logout as global while a share session is active", async () => {
     mocks.getPreferredSessionScope.mockReturnValue("share");
 
     await expect(performLogout(false)).resolves.toEqual({
       logoutIncomplete: false,
-      redirectPath: "/dashboard",
+      redirectPath: "/auth/login",
     });
 
+    expect(mocks.logout).toHaveBeenCalledWith({ clearMountSession: true });
     expect(mocks.logout).toHaveBeenCalledWith({
       clearMountSession: true,
       sessionScope: "share",
     });
     expect(mocks.clearStoredShareParticipantSessions).toHaveBeenCalledTimes(1);
-    expect(mocks.clearMountTrustAnchorsWithDsk).toHaveBeenCalledTimes(1);
-    expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
-    expect(mocks.clearSessionData).not.toHaveBeenCalled();
-    expect(mocks.clearSession).not.toHaveBeenCalled();
+    expect(mocks.clearMountTrustAnchorsWithDsk).not.toHaveBeenCalled();
+    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(2);
+    expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
+    expect(mocks.clearSession).toHaveBeenCalledTimes(1);
     expect(mocks.setPreferredSessionScope).toHaveBeenCalledWith(null);
   });
 
@@ -243,6 +246,19 @@ describe("logout", () => {
     expect(mocks.setCurrentWorkspaceId).toHaveBeenCalledWith(null);
   });
 
+  it("reports an incomplete secure logout when share server logout fails", async () => {
+    mocks.logout.mockRejectedValueOnce(new Error("share server logout failed"));
+
+    await expect(performLogout(false)).resolves.toEqual({
+      logoutIncomplete: true,
+      redirectPath: "/auth/login?logout_incomplete=true",
+    });
+
+    expect(mocks.logout).toHaveBeenCalledTimes(2);
+    expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
+    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the user session alive but marks logout incomplete when share context restore fails", async () => {
     mocks.getPreferredSessionScope.mockReturnValue("share");
     mocks.restoreSessionContext.mockRejectedValueOnce(new Error("restore failed"));
@@ -258,16 +274,88 @@ describe("logout", () => {
     expect(mocks.setCurrentWorkspaceId).not.toHaveBeenCalled();
   });
 
-  it("still resets documents and socket when worker lock fails", async () => {
+  it("marks logout incomplete and still resets documents and socket when worker lock fails", async () => {
     mocks.lock.mockRejectedValueOnce(new Error("worker already gone"));
 
     await expect(performLogout(true)).resolves.toEqual({
-      logoutIncomplete: false,
-      redirectPath: "/auth/login",
+      logoutIncomplete: true,
+      redirectPath: "/auth/login?logout_incomplete=true",
     });
 
     expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1);
     expect(mocks.terminateAllScopedCryptoWorkers).toHaveBeenCalledTimes(1);
     expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an incomplete secure logout when a pre-cleanup callback rejects", async () => {
+    const unregister = registerBeforeSessionCleanup(
+      () => Promise.reject(new Error("cleanup failed")),
+      { scope: "secure" },
+    );
+
+    try {
+      await expect(performLogout(false)).resolves.toEqual({
+        logoutIncomplete: true,
+        redirectPath: "/auth/login?logout_incomplete=true",
+      });
+
+      expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1);
+      expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("waits for late pre-cleanup completion before returning from secure logout", async () => {
+    let finishCleanup!: () => void;
+    const unregister = registerBeforeSessionCleanup(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCleanup = resolve;
+        }),
+      {
+        scope: "secure",
+      },
+    );
+
+    try {
+      const logout = performLogout(false);
+      await Promise.resolve();
+      expect(mocks.terminateCryptoWorker).not.toHaveBeenCalled();
+
+      finishCleanup();
+      await expect(logout).resolves.toEqual({
+        logoutIncomplete: false,
+        redirectPath: "/auth/login",
+      });
+      expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1);
+      expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not continue logout while persisted-key cleanup remains unsettled", async () => {
+    let finishCleanup!: () => void;
+    mocks.clearAllPersistedKeys.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCleanup = resolve;
+        }),
+    );
+
+    const logout = performLogout(false);
+    await vi.waitFor(() => expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(1));
+    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(mocks.clearSessionData).not.toHaveBeenCalled();
+
+    finishCleanup();
+    await expect(logout).resolves.toEqual({
+      logoutIncomplete: false,
+      redirectPath: "/auth/login",
+    });
+    expect(mocks.logout).toHaveBeenCalledTimes(2);
+    expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
+    expect(mocks.clearAllPersistedKeys).toHaveBeenCalledTimes(2);
   });
 });

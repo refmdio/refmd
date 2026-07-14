@@ -6,7 +6,9 @@ defmodule RefMD.Workspaces.Guests do
   alias RefMD.Auth
   alias RefMD.Devices
   alias RefMD.Encryption
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
+  alias RefMD.Sharing.{Share, ShareKey}
   alias RefMD.Users
   alias RefMD.Workspaces.Invitations.KeyDirectory
 
@@ -25,6 +27,9 @@ defmodule RefMD.Workspaces.Guests do
     as: :role_for_active_grants
 
   defdelegate authorize_permission(workspace_id, user_id, permission, document_or_conn \\ nil),
+    to: RefMD.Workspaces.Guests.Authorization
+
+  defdelegate authorize_workspace_access(workspace_id, user_id),
     to: RefMD.Workspaces.Guests.Authorization
 
   defdelegate authorize_document_create(workspace_id, user_id, doc_type, parent_id),
@@ -53,6 +58,16 @@ defmodule RefMD.Workspaces.Guests do
   end
 
   def redeem_guest_invitation(token_hash, device_attrs, session_attrs, key_directory) do
+    redeem_guest_invitation(token_hash, device_attrs, session_attrs, key_directory, nil)
+  end
+
+  def redeem_guest_invitation(
+        token_hash,
+        device_attrs,
+        session_attrs,
+        key_directory,
+        recipient_account
+      ) do
     invitation =
       from(i in GuestInvitation, where: i.token_hash == ^token_hash)
       |> Repo.one()
@@ -61,11 +76,99 @@ defmodule RefMD.Workspaces.Guests do
       invitation == nil ->
         {:error, :not_found}
 
-      reused = find_existing_guest_device(invitation.workspace_id, device_attrs) ->
-        issue_guest_session(reused, invitation, session_attrs, key_directory)
+      identity_result = validate_guest_identity_materials(device_attrs) ->
+        if identity_result == :ok do
+          redeem_guest_invitation_for_valid_identity(
+            invitation,
+            device_attrs,
+            session_attrs,
+            key_directory,
+            recipient_account
+          )
+        else
+          identity_result
+        end
+    end
+  end
 
-      true ->
-        create_guest_onboarding(invitation, device_attrs, session_attrs, key_directory)
+  defp redeem_guest_invitation_for_valid_identity(
+         invitation,
+         device_attrs,
+         session_attrs,
+         key_directory,
+         recipient_account
+       ) do
+    redeem_guest_invitation_for_recipient(
+      invitation,
+      device_attrs,
+      session_attrs,
+      key_directory,
+      recipient_account
+    )
+  end
+
+  defp validate_guest_identity_materials(%{
+         guest_user_id: guest_user_id,
+         identity_hybrid_encryption_public_key_material: encryption_material,
+         identity_hybrid_signing_public_key_material: signing_material
+       })
+       when is_binary(guest_user_id) and is_map(encryption_material) and is_map(signing_material) do
+    with "identity" <- encryption_material["owner_kind"],
+         ^guest_user_id <- encryption_material["owner_id"],
+         "identity" <- signing_material["owner_kind"],
+         ^guest_user_id <- signing_material["owner_id"] do
+      :ok
+    else
+      _ -> {:error, :invalid_guest_identity_materials}
+    end
+  end
+
+  defp validate_guest_identity_materials(_), do: {:error, :invalid_guest_identity_materials}
+
+  defp redeem_guest_invitation_for_recipient(
+         invitation,
+         device_attrs,
+         session_attrs,
+         key_directory,
+         recipient_account
+       ) do
+    case find_existing_guest_device(invitation.workspace_id, device_attrs) do
+      nil ->
+        onboard_guest_from_invitation(
+          invitation,
+          device_attrs,
+          session_attrs,
+          key_directory,
+          recipient_account
+        )
+
+      reused ->
+        with :ok <- validate_invitation_session_actor(invitation, recipient_account, reused) do
+          issue_guest_session(reused, invitation, session_attrs, key_directory, recipient_account)
+        end
+    end
+  end
+
+  defp onboard_guest_from_invitation(
+         invitation,
+         device_attrs,
+         session_attrs,
+         key_directory,
+         recipient_account
+       ) do
+    with :ok <- validate_invitation_recipient(invitation, recipient_account) do
+      if invitation.delivery_mode == "known_recipient" and
+           is_nil(Map.get(key_directory || %{}, :recipient_delivery_attempt)) do
+        {:error, :recipient_delivery_required}
+      else
+        create_guest_onboarding(
+          invitation,
+          device_attrs,
+          session_attrs,
+          key_directory,
+          recipient_account
+        )
+      end
     end
   end
 
@@ -121,7 +224,13 @@ defmodule RefMD.Workspaces.Guests do
     end
   end
 
-  defp create_guest_onboarding(invitation, device_attrs, session_attrs, key_directory) do
+  defp create_guest_onboarding(
+         invitation,
+         device_attrs,
+         session_attrs,
+         key_directory,
+         recipient_account
+       ) do
     with_transaction_retry(fn ->
       fresh_invitation =
         from(i in GuestInvitation, where: i.id == ^invitation.id, lock: "FOR UPDATE")
@@ -131,7 +240,7 @@ defmodule RefMD.Workspaces.Guests do
         from(w in Workspace, where: w.id == ^fresh_invitation.workspace_id, lock: "FOR UPDATE")
         |> Repo.one()
 
-      case validate_guest_onboarding_workspace(fresh_invitation, workspace) do
+      case validate_guest_onboarding_workspace(fresh_invitation, workspace, recipient_account) do
         {:ok, fresh_invitation, workspace} ->
           create_or_reuse_guest(
             fresh_invitation,
@@ -150,9 +259,10 @@ defmodule RefMD.Workspaces.Guests do
     end)
   end
 
-  defp validate_guest_onboarding_workspace(fresh_invitation, workspace) do
+  defp validate_guest_onboarding_workspace(fresh_invitation, workspace, recipient_account) do
     with %GuestInvitation{} <- fresh_invitation,
          %Workspace{} <- workspace,
+         :ok <- validate_invitation_recipient(fresh_invitation, recipient_account),
          :ok <- validate_workspace_settings(workspace) do
       {:ok, fresh_invitation, workspace}
     end
@@ -194,7 +304,7 @@ defmodule RefMD.Workspaces.Guests do
          key_directory
        ) do
     with :ok <- validate_new_guest_redemption_available(fresh_invitation),
-         :ok <- validate_workspace_crypto_state(workspace, fresh_invitation.kek_version),
+         :ok <- validate_guest_crypto_state(workspace, fresh_invitation),
          :ok <- validate_guest_member_limit_locked(workspace),
          {:ok, guest_user, guest_device} <-
            create_guest_principal_and_device(device_attrs, key_directory),
@@ -225,7 +335,13 @@ defmodule RefMD.Workspaces.Guests do
     end
   end
 
-  defp issue_guest_session(reused, invitation, session_attrs, key_directory) do
+  defp issue_guest_session(
+         reused,
+         invitation,
+         session_attrs,
+         key_directory,
+         recipient_account
+       ) do
     with_transaction_retry(fn ->
       fresh_invitation =
         from(i in GuestInvitation, where: i.id == ^invitation.id, lock: "FOR UPDATE")
@@ -237,6 +353,8 @@ defmodule RefMD.Workspaces.Guests do
 
       with %GuestInvitation{} <- fresh_invitation,
            %Workspace{} <- workspace,
+           :ok <-
+             validate_invitation_session_actor(fresh_invitation, recipient_account, reused),
            :ok <- validate_workspace_settings(workspace) do
         complete_existing_guest_redeem(
           workspace,
@@ -305,7 +423,7 @@ defmodule RefMD.Workspaces.Guests do
          key_directory
        ) do
     with :ok <- validate_new_guest_redemption_available(invitation),
-         :ok <- validate_workspace_crypto_state(workspace, invitation.kek_version),
+         :ok <- validate_guest_crypto_state(workspace, invitation),
          {:ok, guest_user} <- fetch_guest_user(reused.user_id),
          {:ok, guest_device} <- fetch_guest_device(reused.device_id),
          guest_grant_id = guest_grant_id!(key_directory),
@@ -351,7 +469,9 @@ defmodule RefMD.Workspaces.Guests do
       guest_user_id: guest_user_id,
       guest_device_id: guest_device_id,
       guest_encryption_key_id: guest_encryption_key_id,
-      guest_signing_key_id: guest_signing_key_id
+      guest_signing_key_id: guest_signing_key_id,
+      recipient_account: Map.get(key_directory, :recipient_account),
+      recipient_delivery_attempt: Map.get(key_directory, :recipient_delivery_attempt)
     })
   end
 
@@ -412,6 +532,8 @@ defmodule RefMD.Workspaces.Guests do
          session_result,
          extra \\ %{}
        ) do
+    share_scope = guest_share_scope(invitation)
+
     Map.merge(
       %{
         workspace_id: workspace.id,
@@ -419,15 +541,27 @@ defmodule RefMD.Workspaces.Guests do
         invitation_id: invitation.id,
         scope_kind: invitation.scope_kind,
         scope_id: invitation.scope_id,
+        share_id: invitation.share_id,
+        share_scope_kind: share_scope[:scope_kind],
+        share_scope_id: share_scope[:scope_id],
+        key_version_context: guest_key_version_context(invitation),
         permission: invitation.permission,
         guest_user_id: user_id,
         guest_device_id: device_id,
-        kek_version: invitation.kek_version,
         session: session_result.session,
         session_token: session_result.token
       },
       extra
     )
+  end
+
+  defp guest_share_scope(%GuestInvitation{scope_kind: "workspace"}), do: %{}
+
+  defp guest_share_scope(%GuestInvitation{share_id: share_id}) do
+    case Repo.get(Share, share_id) do
+      %Share{} = share -> %{scope_kind: share.scope, scope_id: share.document_id}
+      nil -> Repo.rollback(:share_not_found)
+    end
   end
 
   defp find_existing_guest_device(workspace_id, device_attrs) do
@@ -453,25 +587,65 @@ defmodule RefMD.Workspaces.Guests do
   defp validate_workspace_settings(%Workspace{guest_invites_enabled: true}), do: :ok
   defp validate_workspace_settings(_workspace), do: {:error, :guest_invites_disabled}
 
-  defp validate_workspace_crypto_state(%Workspace{needs_kek_rotation: true}, _kek_version),
-    do: {:error, :kek_rotation_in_progress}
-
   defp validate_workspace_crypto_state(%Workspace{current_kek_version: 0}, _kek_version),
     do: {:error, :encryption_setup_incomplete}
 
   defp validate_workspace_crypto_state(%Workspace{} = workspace, kek_version) do
-    if kek_version == workspace.current_kek_version,
-      do: :ok,
-      else: {:error, :kek_version_mismatch}
+    cond do
+      RotationPolicy.kek_overdue?(workspace) -> {:error, :kek_rotation_in_progress}
+      kek_version != workspace.current_kek_version -> {:error, :kek_version_mismatch}
+      true -> :ok
+    end
   end
 
-  defp validate_guest_reentry_crypto_state(%Workspace{needs_kek_rotation: true}, _invitation),
-    do: {:error, :kek_rotation_in_progress}
+  defp validate_guest_crypto_state(
+         workspace,
+         %GuestInvitation{scope_kind: "workspace"} = invitation
+       ),
+       do: validate_workspace_crypto_state(workspace, invitation.kek_version)
 
-  defp validate_guest_reentry_crypto_state(workspace, invitation) do
-    if invitation.kek_version >= workspace.min_kek_version,
-      do: :ok,
-      else: {:error, :invitation_kek_outdated}
+  defp validate_guest_crypto_state(_workspace, %GuestInvitation{} = invitation) do
+    case Repo.get(ShareKey, invitation.share_id) do
+      %ShareKey{key_version: version}
+      when version == invitation.share_key_version and version == invitation.dek_version ->
+        :ok
+
+      %ShareKey{} ->
+        {:error, :invitation_share_key_outdated}
+
+      nil ->
+        {:error, :share_not_found}
+    end
+  end
+
+  defp validate_guest_reentry_crypto_state(
+         workspace,
+         %GuestInvitation{scope_kind: "workspace"} = invitation
+       ) do
+    cond do
+      RotationPolicy.kek_overdue?(workspace) -> {:error, :kek_rotation_in_progress}
+      invitation.kek_version < workspace.min_kek_version -> {:error, :invitation_kek_outdated}
+      true -> :ok
+    end
+  end
+
+  defp validate_guest_reentry_crypto_state(workspace, %GuestInvitation{} = invitation),
+    do: validate_guest_crypto_state(workspace, invitation)
+
+  defp guest_key_version_context(%GuestInvitation{scope_kind: "workspace"} = invitation) do
+    %{
+      workspace_kek_version: invitation.kek_version,
+      share_key_version: "NOT_APPLICABLE",
+      dek_version: "NOT_APPLICABLE"
+    }
+  end
+
+  defp guest_key_version_context(%GuestInvitation{} = invitation) do
+    %{
+      workspace_kek_version: "NOT_APPLICABLE",
+      share_key_version: invitation.share_key_version,
+      dek_version: invitation.dek_version
+    }
   end
 
   defp validate_guest_reentry_invitation_active(invitation) do
@@ -507,6 +681,58 @@ defmodule RefMD.Workspaces.Guests do
     end
   end
 
+  defp validate_invitation_recipient(
+         %GuestInvitation{delivery_mode: "unknown_fragment"},
+         nil
+       ),
+       do: :ok
+
+  defp validate_invitation_recipient(
+         %GuestInvitation{delivery_mode: "known_recipient"} = invitation,
+         %{user_id: user_id, device_id: device_id}
+       ) do
+    cond do
+      invitation.recipient_user_id != user_id ->
+        {:error, :recipient_mismatch}
+
+      device_id not in invitation.recipient_device_ids ->
+        {:error, :recipient_device_mismatch}
+
+      not Devices.user_owns_active_device?(user_id, device_id) ->
+        {:error, :recipient_device_revoked}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_invitation_recipient(_, _), do: {:error, :recipient_mismatch}
+
+  defp validate_invitation_session_actor(invitation, recipient_account, reused) do
+    case validate_invitation_recipient(invitation, recipient_account) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        validate_guest_reentry_actor(invitation, recipient_account, reused)
+    end
+  end
+
+  defp validate_guest_reentry_actor(
+         %GuestInvitation{} = invitation,
+         %{user_id: user_id, device_id: device_id},
+         %{user_id: user_id, device_id: device_id}
+       ) do
+    with %Users.User{account_type: "guest"} <- Users.get_user(user_id),
+         :ok <- validate_existing_guest_device_access(invitation.workspace_id, user_id, device_id) do
+      :ok
+    else
+      _ -> {:error, :recipient_mismatch}
+    end
+  end
+
+  defp validate_guest_reentry_actor(_, _, _), do: {:error, :recipient_mismatch}
+
   defp validate_new_guest_redemption_available(invitation) do
     with :ok <- validate_invitation_redeemable(invitation) do
       if invitation.redemption_count < invitation.max_redemptions,
@@ -524,6 +750,7 @@ defmodule RefMD.Workspaces.Guests do
       scope_kind: invitation.scope_kind,
       scope_id: invitation.scope_id,
       permission: invitation.permission,
+      linked_account_user_id: invitation.recipient_user_id,
       invite_id: invitation.id
     })
     |> Repo.insert(
@@ -533,6 +760,7 @@ defmodule RefMD.Workspaces.Guests do
           scope_kind: invitation.scope_kind,
           scope_id: invitation.scope_id,
           permission: invitation.permission,
+          linked_account_user_id: invitation.recipient_user_id,
           invite_id: invitation.id,
           revoked_at: nil,
           created_at: DateTime.utc_now()
@@ -637,6 +865,8 @@ defmodule RefMD.Workspaces.Guests do
       with {:ok, user} <- create_guest_user(user_id),
            {:ok, _settings} <- Users.create_user_settings(user.id),
            {:ok, _identity_keys} <- create_guest_identity_public_key(user.id, device_attrs),
+           {:ok, _encrypted_identity_keys} <-
+             create_guest_encrypted_identity_key(user.id, device_attrs),
            {:ok, device} <- bootstrap_guest_device(user.id, device_attrs, key_directory) do
         {user, device}
       else
@@ -668,6 +898,22 @@ defmodule RefMD.Workspaces.Guests do
     })
   end
 
+  defp create_guest_encrypted_identity_key(user_id, device_attrs) do
+    Encryption.create_user_encrypted_identity_key(%{
+      user_id: user_id,
+      encrypted_identity_hybrid_encryption_private_key_material:
+        device_attrs.encrypted_identity_hybrid_encryption_private_key_material,
+      identity_hybrid_encryption_private_key_material_nonce:
+        device_attrs.identity_hybrid_encryption_private_key_material_nonce,
+      encryption_key_id: device_attrs.identity_encryption_key_id,
+      encrypted_identity_hybrid_signing_private_key_material:
+        device_attrs.encrypted_identity_hybrid_signing_private_key_material,
+      identity_hybrid_signing_private_key_material_nonce:
+        device_attrs.identity_hybrid_signing_private_key_material_nonce,
+      signing_key_id: device_attrs.identity_signing_key_id
+    })
+  end
+
   defp bootstrap_guest_device(user_id, device_attrs, %{checkpoint: checkpoint}) do
     Devices.bootstrap_guest_device(
       %{
@@ -680,7 +926,11 @@ defmodule RefMD.Workspaces.Guests do
         hybrid_signing_public_key_material:
           device_attrs.device_hybrid_signing_public_key_material,
         client_nonce: device_attrs.client_nonce,
-        pending_registration_challenge_hash: device_attrs.pending_registration_challenge_hash
+        pending_registration_challenge_hash: device_attrs.pending_registration_challenge_hash,
+        key_directory: %{
+          user_events: device_attrs.user_key_directory_events,
+          user_checkpoint: device_attrs.user_key_directory_checkpoint
+        }
       },
       device_attrs.approval_signature,
       checkpoint

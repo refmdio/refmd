@@ -12,6 +12,9 @@ defmodule RefMD.Workspaces.WorkspaceInvitation do
     field :role_id, :binary_id
     field :invited_by, :binary_id
     field :invited_email, :string
+    field :delivery_mode, :string, default: "unknown_fragment"
+    field :recipient_user_id, :binary_id
+    field :recipient_device_ids, {:array, :binary_id}, default: []
     field :kek_version, :integer
     field :bootstrap_key_commitment, :string
     field :encrypted_bootstrap_package, :map
@@ -36,6 +39,9 @@ defmodule RefMD.Workspaces.WorkspaceInvitation do
       :role_id,
       :invited_by,
       :invited_email,
+      :delivery_mode,
+      :recipient_user_id,
+      :recipient_device_ids,
       :kek_version,
       :bootstrap_key_commitment,
       :encrypted_bootstrap_package,
@@ -56,6 +62,8 @@ defmodule RefMD.Workspaces.WorkspaceInvitation do
       :token_prefix,
       :invited_by,
       :invited_email,
+      :delivery_mode,
+      :recipient_device_ids,
       :kek_version,
       :bootstrap_key_commitment,
       :encrypted_bootstrap_package,
@@ -77,9 +85,23 @@ defmodule RefMD.Workspaces.WorkspaceInvitation do
     |> validate_length(:capability_context_hash, is: 43)
     |> validate_format(:capability_context_hash, ~r/^[A-Za-z0-9\-_]{43}$/)
     |> validate_number(:kek_version, greater_than: 0)
+    |> validate_inclusion(:delivery_mode, ~w(unknown_fragment known_recipient))
+    |> validate_delivery_binding()
     |> unique_constraint(:token_hash)
     |> unique_constraint(:id, name: :workspace_invitations_pkey)
     |> foreign_key_constraint(:workspace_id)
     |> foreign_key_constraint(:role_id, name: :workspace_invitations_role_fk)
+  end
+
+  defp validate_delivery_binding(changeset) do
+    case {
+      get_field(changeset, :delivery_mode),
+      get_field(changeset, :recipient_user_id),
+      get_field(changeset, :recipient_device_ids) || []
+    } do
+      {"unknown_fragment", nil, []} -> changeset
+      {"known_recipient", user_id, [_ | _]} when is_binary(user_id) -> changeset
+      _ -> add_error(changeset, :delivery_mode, "does not match recipient binding")
+    end
   end
 end

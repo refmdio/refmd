@@ -51,6 +51,21 @@ function makePublicKeys(deviceId: string, ecdhPublic: Uint8Array): DeviceRegistr
 }
 
 describe("machine", () => {
+  it("requires an explicit approval choice before requesting normal registration", () => {
+    const next = transitionDeviceRegistrationState(createInitialDeviceRegistrationMachineState(), {
+      type: "normal_registration_prepared",
+      identityHybridSigningPublicKeyMaterial: hybridSigningPublicKeyMaterial("user-1"),
+      publicKeys: makePublicKeys("device-1", new Uint8Array([2])),
+      needsPassword: false,
+      dskUnavailableOAuth: false,
+    });
+
+    expect(next.phase).toBe("approval_choice");
+    expect(transitionDeviceRegistrationState(next, { type: "approval_started" }).phase).toBe(
+      "generating",
+    );
+  });
+
   it("moves normal registration into password reentry when device keys are not yet persisted", () => {
     const next = transitionDeviceRegistrationState(createInitialDeviceRegistrationMachineState(), {
       type: "normal_registration_prepared",

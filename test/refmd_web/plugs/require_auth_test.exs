@@ -2,6 +2,8 @@ defmodule RefMDWeb.Plugs.RequireAuthTest do
   use RefMDWeb.ConnCase, async: true
 
   alias RefMD.Auth
+  alias RefMD.Crypto.Hash
+  alias RefMD.Devices.Device
   alias RefMD.Documents
   alias RefMD.Repo
   alias RefMD.Sharing
@@ -117,6 +119,58 @@ defmodule RefMDWeb.Plugs.RequireAuthTest do
     assert conn.status == 401
   end
 
+  test "rejects a user session whose device requires an identity wipe", %{conn: conn} do
+    user_id = create_user("wipe-required-auth@example.com")
+    device = insert_device(user_id)
+    {:ok, _session, token} = Auth.create_session(user_id, %{device_id: device.id})
+
+    device
+    |> Ecto.Changeset.change(identity_wipe_required_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    conn =
+      conn
+      |> put_req_header(
+        "cookie",
+        "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+      )
+      |> RequireAuth.call([])
+
+    assert conn.halted
+    assert conn.status == 401
+  end
+
+  test "rejects identity-recovery-only sessions outside the narrow recovery pipeline", %{
+    conn: conn
+  } do
+    user_id = create_user("identity-recovery-session@example.com")
+
+    {:ok, _session, token} =
+      Auth.create_session(user_id, %{identity_recovery_required: true})
+
+    conn =
+      conn
+      |> put_req_header(
+        "cookie",
+        "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+      )
+      |> RequireAuth.call([])
+
+    assert conn.halted
+    assert conn.status == 401
+
+    allowed_conn =
+      build_conn()
+      |> put_req_header(
+        "cookie",
+        "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
+      )
+      |> RequireAuth.call(allow_identity_recovery: true)
+
+    refute allowed_conn.halted
+    refute allowed_conn.assigns.device_verified
+  end
+
   test "prefers the user session when both cookies are present and share scope is not requested",
        %{
          conn: conn,
@@ -133,5 +187,36 @@ defmodule RefMDWeb.Plugs.RequireAuthTest do
 
     refute conn.halted
     assert conn.assigns.session_kind == :user
+  end
+
+  defp insert_device(user_id) do
+    device_id = Ecto.UUID.generate()
+    signing = hybrid_device_material(device_id)
+    {x25519_public, _private} = :crypto.generate_key(:ecdh, :x25519)
+    encryption = hybrid_encryption_public_key_material("device", device_id, x25519_public)
+    checkpoint_hash = Hash.blake3_base64url("auth-device:" <> device_id)
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    Repo.insert!(%Device{
+      id: device_id,
+      user_id: user_id,
+      name: "Wipe-required browser",
+      device_type: "browser",
+      hybrid_encryption_public_key_material: encryption.public,
+      encryption_key_id: encryption.encryption_key_id,
+      hybrid_signing_public_key_material: signing.public,
+      signing_key_id: signing.signing_key_id,
+      approval_signature: %{"fixture" => "wipe-required-auth"},
+      approval_signature_surface: "device_approval",
+      approval_proof: %{
+        "target_key_checkpoint_sequence" => 1,
+        "target_key_checkpoint_hash" => checkpoint_hash
+      },
+      key_checkpoint_sequence: 1,
+      key_checkpoint_hash: checkpoint_hash,
+      client_nonce: :crypto.strong_rand_bytes(16),
+      last_seen_at: now,
+      created_at: now
+    })
   end
 end

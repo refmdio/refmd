@@ -70,7 +70,7 @@ export async function handleTofuVerifyAllDevices(
     rawDevices.map((device) => [device.deviceId, device.deviceHybridSigningPublicKeyMaterial]),
   );
   for (const device of rawDevices) {
-    if (!verifyDeviceApprovalSurface(device, identityPublicMaterial, deviceMaterials)) {
+    if (!verifyDeviceApprovalSurface(state, device, identityPublicMaterial, deviceMaterials)) {
       throw new Error(`invalid_device_approval_signature:${device.deviceId}`);
     }
 
@@ -90,6 +90,7 @@ export async function handleTofuVerifyAllDevices(
 }
 
 function verifyDeviceApprovalSurface(
+  state: WorkerKeyState,
   device: {
     userId: string;
     deviceId: string;
@@ -117,11 +118,15 @@ function verifyDeviceApprovalSurface(
   const purpose = device.identitySignaturePurpose;
   const context = device.identitySignatureContext;
   const details = isRecord(context.surface_details) ? context.surface_details : context;
+  const approvalIdentityPublicMaterial = resolveIdentityApprovalPublicMaterial(
+    state,
+    context.approving_signing_key_id,
+  );
   const candidate =
     purpose === "genesis_device_bootstrap"
       ? {
           signingPurpose: "genesis_device_bootstrap",
-          publicKeyMaterial: identityPublicMaterial,
+          publicKeyMaterial: approvalIdentityPublicMaterial,
           transcript: buildGenesisDeviceBootstrapTranscript({
             ownerId: identityPublicMaterial.owner_id,
             deviceId: device.deviceId,
@@ -166,7 +171,7 @@ function verifyDeviceApprovalSurface(
         : purpose === "recovery_device_approval"
           ? {
               signingPurpose: "recovery_device_approval",
-              publicKeyMaterial: identityPublicMaterial,
+              publicKeyMaterial: approvalIdentityPublicMaterial,
               transcript: buildRecoveryDeviceApprovalTranscript({
                 ownerId: identityPublicMaterial.owner_id,
                 approvingSigningKeyId: context.approving_signing_key_id as string,
@@ -245,6 +250,45 @@ function verifyDeviceApprovalSurface(
     return verifyDeviceApprovalSignature(verificationParams);
   }
   return verifyRecoveryDeviceApprovalSignature(verificationParams);
+}
+
+export function resolveIdentityApprovalPublicMaterial(
+  state: WorkerKeyState,
+  signingKeyId: unknown,
+): HybridSigningPublicKeyMaterial | null {
+  if (typeof signingKeyId !== "string" || !state.userId) return null;
+
+  const current = state.identityHybridSigningState;
+  if (current?.signingKeyId === signingKeyId) return current.publicKeyMaterial;
+
+  const checkpoint = state.identityRotationTrustedCheckpointPayload;
+  if (
+    checkpoint?.scope_kind !== "user" ||
+    checkpoint.scope_id !== state.userId ||
+    !Array.isArray(checkpoint.identity_keys)
+  ) {
+    return null;
+  }
+
+  const entry = checkpoint.identity_keys.find(
+    (candidate): candidate is Record<string, unknown> =>
+      isRecord(candidate) && candidate.key_id === signingKeyId,
+  );
+  if (!entry || !isRecord(entry.key_material)) return null;
+
+  const material = entry.key_material as unknown as HybridSigningPublicKeyMaterial;
+  try {
+    if (
+      material.owner_kind !== "identity" ||
+      material.owner_id !== state.userId ||
+      computeSigningKeyId(material) !== signingKeyId
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return material;
 }
 
 function deviceApprovalContextParams(value: Record<string, unknown>): {

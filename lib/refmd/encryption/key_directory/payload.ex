@@ -19,7 +19,6 @@ defmodule RefMD.Encryption.KeyDirectory.Payload do
     "member_role_changed",
     "member_removed",
     "document_snapshot_accepted",
-    "document_update_accepted",
     "document_write_session_admitted",
     "document_write_state_changed",
     "old_key_deleted",

@@ -311,6 +311,8 @@ export const OWNER_EXACT_PAYLOAD_KEYS: Record<string, readonly string[]> = {
     "target_key_checkpoint_sequence",
   ],
   "recovery_session:none": [
+    "candidate_user_audit_hash",
+    "candidate_user_audit_sequence",
     "candidate_user_checkpoint_hash",
     "candidate_user_checkpoint_sequence",
     "candidate_user_event_head_hash",
@@ -430,7 +432,6 @@ export const KEY_DIRECTORY_EVENT_VARIANTS = [
   "member_role_changed",
   "member_removed",
   "document_snapshot_accepted",
-  "document_update_accepted",
   "document_write_session_admitted",
   "document_write_state_changed",
   "old_key_deleted",

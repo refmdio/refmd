@@ -109,10 +109,9 @@ defmodule RefMDWeb.Plugs.RequireRrp do
   end
 
   defp verify_device_ownership(user_id, device_id) do
-    case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
-      _ -> {:error, :invalid_device}
-    end
+    if Devices.user_owns_active_device?(user_id, device_id),
+      do: {:ok, Devices.get_device(device_id)},
+      else: {:error, :invalid_device}
   end
 
   defp verify_rrp_signature(conn, challenge, signature, device, user_id) do

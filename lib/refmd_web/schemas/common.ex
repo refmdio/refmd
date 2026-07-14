@@ -32,6 +32,25 @@ defmodule RefMDWeb.Schemas.UserInfo do
   })
 end
 
+defmodule RefMDWeb.Schemas.AuditCheckpoint do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "AuditCheckpoint",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      chain_scope: %Schema{type: :string},
+      sequence: %Schema{type: :integer, minimum: 1},
+      event_hash: %Schema{type: :string, pattern: "^[A-Za-z0-9_-]{43}$"},
+      ancestry: %Schema{type: :array, items: %Schema{type: :object}},
+      authority_checkpoint: %Schema{type: :object, nullable: true}
+    },
+    required: [:chain_scope, :sequence, :event_hash, :ancestry, :authority_checkpoint]
+  })
+end
+
 defmodule RefMDWeb.Schemas.UserInfoWithSetup do
   alias OpenApiSpex.Schema
   require OpenApiSpex
@@ -181,6 +200,8 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       password_protected: %Schema{type: :boolean},
       permission: %Schema{type: :string},
       principal_id: %Schema{type: :string},
+      recipient_account_device_id: %Schema{type: :string},
+      recipient_account_user_id: %Schema{type: :string},
       recipient_kind: %Schema{type: :string},
       recipient_device_id: %Schema{type: :string},
       recipient_encryption_key_id: @hash_schema,
@@ -231,6 +252,8 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       allowed_share_ids_hash: @hash_schema,
       authorization_public_key_material: RefMDWeb.Schemas.ShareCapabilitySigningPublicKeyMaterial,
       authorization_public_key_material_hash: @hash_schema,
+      authority_kind: %Schema{type: :string},
+      authority_scope_id: %Schema{type: :string},
       base_role: %Schema{type: :string},
       bootstrap_key_commitment: @hash_schema,
       bootstrap_package_hash: @hash_schema,
@@ -248,12 +271,14 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       document_id: %Schema{type: :string},
       document_scope_hash: @hash_schema,
       document_permission_proof_hash: @hash_schema,
+      delivery_mode: %Schema{type: :string, enum: ["unknown_fragment", "known_recipient"]},
       encryption_key_id: @hash_schema,
       event_hash: @hash_schema,
       event_sequence: %Schema{type: :integer, minimum: 1},
       event_type: %Schema{type: :string},
       exclusion_change_nonce: %Schema{type: :string},
       expires_event_sequence: %Schema{type: :integer, minimum: 1},
+      expires_at_ms: %Schema{type: :integer, minimum: 1},
       guest_device_id: %Schema{type: :string},
       guest_encryption_key_id: @hash_schema,
       guest_grant_id: %Schema{type: :string},
@@ -284,9 +309,19 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       metadata_update_nonce: %Schema{type: :string},
       min_dek_version: %Schema{type: :integer, minimum: 1},
       max_views: %Schema{type: :integer, minimum: 1},
+      max_ciphertext_bytes: %Schema{type: :integer, minimum: 1},
+      max_update_count: %Schema{type: :integer, minimum: 1},
       new_key_version: %Schema{type: :integer, minimum: 1},
+      new_identity_encryption_key_id: @hash_schema,
+      new_identity_signing_key_id: @hash_schema,
+      new_key_material_hash: @hash_schema,
+      new_user_checkpoint_hash: @hash_schema,
       not_before_event_sequence: %Schema{type: :integer, minimum: 1},
+      old_identity_encryption_key_id: @hash_schema,
+      old_identity_signing_key_id: @hash_schema,
       old_key_version: %Schema{type: :integer, minimum: 1},
+      old_user_checkpoint_hash: @hash_schema,
+      old_user_checkpoint_sequence: %Schema{type: :integer, minimum: 1},
       operation_checkpoint_hash: @hash_schema,
       operation_checkpoint_sequence: %Schema{type: :integer, minimum: 1},
       operation_hash: @hash_schema,
@@ -312,6 +347,10 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       purpose: %Schema{type: :string},
       reason: %Schema{type: :string},
       recipient: @extension_context_schema,
+      recipient_account_device_id: %Schema{type: :string, nullable: true},
+      recipient_account_user_id: %Schema{type: :string, nullable: true},
+      recipient_device_ids: %Schema{type: :array, items: %Schema{type: :string}},
+      recipient_user_id: %Schema{type: :string, nullable: true},
       redeemed_at_event_sequence: %Schema{type: :integer, minimum: 1},
       redeemed_device_id: %Schema{type: :string},
       redeemed_encryption_key_id: @hash_schema,
@@ -353,9 +392,12 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       revoked_at_event_sequence: %Schema{type: :integer, minimum: 1},
       role_id: %Schema{type: :string},
       rotation_kind: %Schema{type: :string},
+      rotation_completed_event_hash: @hash_schema,
       scope_id: %Schema{type: :string},
       scope_kind: %Schema{type: :string},
       sender: @extension_context_schema,
+      session_id: @hash_schema,
+      session_nonce: @hash_schema,
       share_authority_kind: %Schema{type: :string},
       share_capability_secret_commitment: @hash_schema,
       share_id: %Schema{type: :string},
@@ -555,6 +597,8 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :authorization_id,
         :authorization_public_key_material,
         :authorization_public_key_material_hash,
+        :authority_kind,
+        :authority_scope_id,
         :base_role,
         :bootstrap_key_commitment,
         :bootstrap_package_hash,
@@ -569,6 +613,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :dek_version,
         :deleted_at_event_sequence,
         :deletion_manifest_hash,
+        :delivery_mode,
         :device_id,
         :document_id,
         :document_permission_proof_hash,
@@ -577,6 +622,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :event_type,
         :exclusion_change_nonce,
         :expires_event_sequence,
+        :expires_at_ms,
         :guest_device_id,
         :guest_encryption_key_id,
         :guest_grant_id,
@@ -593,14 +639,24 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :key_version_context,
         :live_redeem_challenge_hash,
         :max_views,
+        :max_ciphertext_bytes,
+        :max_update_count,
         :member_envelope_hash,
         :member_envelope_key_version,
         :metadata_update_nonce,
         :min_dek_version,
         :min_suite_rank,
         :new_key_version,
+        :new_identity_encryption_key_id,
+        :new_identity_signing_key_id,
+        :new_key_material_hash,
+        :new_user_checkpoint_hash,
         :not_before_event_sequence,
+        :old_identity_encryption_key_id,
+        :old_identity_signing_key_id,
         :old_key_version,
+        :old_user_checkpoint_hash,
+        :old_user_checkpoint_sequence,
         :operation_hash,
         :operation_signature_hash,
         :parent_share_id,
@@ -608,7 +664,11 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :password_capability_secret_commitment,
         :password_protected,
         :permission,
+        :permission_version,
         :previous_bootstrap_package_hash,
+        :previous_base_role,
+        :previous_effective_permissions,
+        :previous_role_id,
         :previous_share_key_version,
         :previous_share_scope_event_hash,
         :previous_workspace_event_hash,
@@ -617,9 +677,13 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :purpose,
         :reason,
         :recipient,
+        :recipient_account_device_id,
+        :recipient_account_user_id,
         :recipient_device_id,
+        :recipient_device_ids,
         :recipient_hash,
         :recipient_nonce_state_hash,
+        :recipient_user_id,
         :redeem_attempt_id,
         :redeem_authority,
         :redeem_authority_policy,
@@ -637,13 +701,18 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :revoked_at_event_sequence,
         :role_id,
         :rotation_kind,
+        :rotation_completed_event_hash,
         :scope_id,
         :scope_kind,
         :sender,
+        :session_id,
+        :session_nonce,
+        :share_authority_kind,
         :share_capability_secret_commitment,
         :share_id,
         :share_key_version,
         :share_metadata_hash,
+        :share_permission,
         :share_session_binding_hash,
         :share_session_id,
         :signing_key_id,
@@ -652,6 +721,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :updated_at_event_sequence,
         :user_id,
         :workspace_id,
+        :effective_permissions,
         :write_state,
         :wrap_body_hash,
         :wrap_protocol,
@@ -684,7 +754,12 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
     }
   end
 
-  event_schema = fn event_type, fields ->
+  body_schema_with_overrides = fn fields, overrides ->
+    schema = body_schema.(fields)
+    %{schema | properties: Map.merge(schema.properties, overrides)}
+  end
+
+  event_schema_with_body = fn event_type, body ->
     properties = %{
       protocol: %Schema{type: :string, enum: ["refmd.key-directory-event"]},
       version: %Schema{type: :integer, enum: [1]},
@@ -692,7 +767,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
       scope_id: %Schema{type: :string},
       event_type: %Schema{type: :string, enum: [event_type]},
       actor: @signature_signer_schema,
-      body: body_schema.(fields)
+      body: body
     }
 
     required = [
@@ -728,6 +803,17 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
     }
   end
 
+  event_schema = fn event_type, fields ->
+    event_schema_with_body.(event_type, body_schema.(fields))
+  end
+
+  strict_event_schema = fn event_type, fields, body_overrides ->
+    event_schema_with_body.(
+      event_type,
+      body_schema_with_overrides.(fields, body_overrides)
+    )
+  end
+
   @event_payload_schema %Schema{
     oneOf: [
       event_schema.("device_key_added", [
@@ -749,6 +835,38 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "suite_policy_version"
       ]),
       event_schema.("member_added", ["base_role", "role_id", "user_id", "workspace_id"]),
+      strict_event_schema.(
+        "member_role_changed",
+        [
+          "workspace_id",
+          "user_id",
+          "previous_role_id",
+          "previous_base_role",
+          "previous_effective_permissions",
+          "role_id",
+          "base_role",
+          "effective_permissions",
+          "permission_version",
+          "changed_at_event_sequence"
+        ],
+        %{
+          previous_base_role: %Schema{
+            type: :string,
+            enum: ["owner", "admin", "editor", "viewer"]
+          },
+          previous_effective_permissions: %Schema{
+            type: :array,
+            items: %Schema{type: :string}
+          },
+          base_role: %Schema{
+            type: :string,
+            enum: ["owner", "admin", "editor", "viewer"]
+          },
+          effective_permissions: %Schema{type: :array, items: %Schema{type: :string}},
+          permission_version: %Schema{type: :integer, minimum: 1},
+          changed_at_event_sequence: %Schema{type: :integer, minimum: 1}
+        }
+      ),
       event_schema.("member_removed", ["removed_at_event_sequence", "user_id", "workspace_id"]),
       event_schema.("wrap_issued", [
         "purpose",
@@ -768,6 +886,9 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "invitee_binding",
         "role_id",
         "base_role",
+        "delivery_mode",
+        "recipient_user_id",
+        "recipient_device_ids",
         "kek_version",
         "expires_event_sequence",
         "redeem_authority",
@@ -809,6 +930,9 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "scope_kind",
         "scope_id",
         "permission",
+        "delivery_mode",
+        "recipient_user_id",
+        "recipient_device_ids",
         "key_version_context",
         "allowed_share_ids_hash",
         "expires_event_sequence",
@@ -847,6 +971,8 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "scope_kind",
         "scope_id",
         "permission",
+        "recipient_account_user_id",
+        "recipient_account_device_id",
         "redeemed_at_event_sequence"
       ]),
       event_schema.("guest_grant_revoked", [
@@ -970,6 +1096,21 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "scope_id",
         "scope_kind"
       ]),
+      event_schema.("rotation_started", [
+        "event_type",
+        "rotation_kind",
+        "scope_kind",
+        "scope_id",
+        "old_identity_signing_key_id",
+        "old_identity_encryption_key_id",
+        "new_identity_signing_key_id",
+        "new_identity_encryption_key_id",
+        "old_user_checkpoint_sequence",
+        "old_user_checkpoint_hash",
+        "new_key_material_hash",
+        "reason",
+        "not_before_event_sequence"
+      ]),
       event_schema.("rotation_completed", [
         "completed_at_event_sequence",
         "completion_manifest_hash",
@@ -980,6 +1121,18 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "scope_id",
         "scope_kind"
       ]),
+      event_schema.("rotation_completed", [
+        "event_type",
+        "rotation_kind",
+        "scope_kind",
+        "scope_id",
+        "old_identity_signing_key_id",
+        "new_identity_signing_key_id",
+        "old_user_checkpoint_hash",
+        "new_user_checkpoint_hash",
+        "completed_at_event_sequence",
+        "completion_manifest_hash"
+      ]),
       event_schema.("old_key_deleted", [
         "deleted_at_event_sequence",
         "deletion_manifest_hash",
@@ -989,19 +1142,17 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "scope_id",
         "scope_kind"
       ]),
-      event_schema.("document_update_accepted", [
-        "actor_hash",
-        "admission_nonce",
-        "dek_version",
-        "document_id",
-        "document_permission_proof_hash",
+      event_schema.("old_key_deleted", [
         "event_type",
-        "min_dek_version",
-        "operation_hash",
-        "operation_signature_hash",
-        "previous_workspace_event_hash",
-        "previous_workspace_event_sequence",
-        "workspace_id"
+        "rotation_kind",
+        "scope_kind",
+        "scope_id",
+        "old_identity_signing_key_id",
+        "old_identity_encryption_key_id",
+        "new_identity_signing_key_id",
+        "rotation_completed_event_hash",
+        "deleted_at_event_sequence",
+        "deletion_manifest_hash"
       ]),
       event_schema.("document_snapshot_accepted", [
         "actor_hash",
@@ -1017,6 +1168,62 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "previous_workspace_event_sequence",
         "workspace_id"
       ]),
+      strict_event_schema.(
+        "document_write_session_admitted",
+        [
+          "actor_hash",
+          "authority_kind",
+          "authority_scope_id",
+          "document_id",
+          "document_permission_proof_hash",
+          "event_type",
+          "expires_at_ms",
+          "issued_at_ms",
+          "max_ciphertext_bytes",
+          "max_update_count",
+          "min_dek_version",
+          "previous_workspace_event_hash",
+          "previous_workspace_event_sequence",
+          "session_id",
+          "session_nonce",
+          "workspace_id"
+        ],
+        %{
+          authority_kind: %Schema{type: :string, enum: ["workspace_device"]},
+          event_type: %Schema{type: :string, enum: ["document_write_session_admitted"]}
+        }
+      ),
+      strict_event_schema.(
+        "document_write_session_admitted",
+        [
+          "actor_hash",
+          "authority_kind",
+          "authority_scope_id",
+          "document_id",
+          "document_permission_proof_hash",
+          "event_type",
+          "expires_at_ms",
+          "issued_at_ms",
+          "max_ciphertext_bytes",
+          "max_update_count",
+          "min_dek_version",
+          "previous_workspace_event_hash",
+          "previous_workspace_event_sequence",
+          "session_id",
+          "session_nonce",
+          "share_authority_kind",
+          "share_id",
+          "share_permission",
+          "share_session_id",
+          "workspace_id"
+        ],
+        %{
+          authority_kind: %Schema{type: :string, enum: ["share_participant_device"]},
+          event_type: %Schema{type: :string, enum: ["document_write_session_admitted"]},
+          share_authority_kind: %Schema{type: :string, enum: ["share_participant_device"]},
+          share_permission: %Schema{type: :string, enum: ["edit"]}
+        }
+      ),
       event_schema.("document_write_state_changed", [
         "document_id",
         "event_type",
@@ -1453,7 +1660,7 @@ defmodule RefMDWeb.Schemas.HybridKeyWrapFields do
         %{
           scope_kind: %Schema{type: :string, enum: ["workspace"]},
           scope_id: %Schema{type: :string, enum: ["none"]},
-          permission: %Schema{type: :string, enum: ["edit"]},
+          permission: %Schema{type: :string, enum: ["view", "edit"]},
           kek_version: %Schema{type: :integer, minimum: 1},
           guest_invitation_redeemed_event_hash: @hash_schema
         }
@@ -1562,6 +1769,37 @@ defmodule RefMDWeb.Schemas.HybridKeyWrapFields do
       :hpke,
       :transcript_hash,
       :signature
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.WorkspaceOperationProvenSignedPqWrap do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceOperationProvenSignedPqWrap",
+    allOf: [
+      RefMDWeb.Schemas.HybridKeyWrapFields,
+      %Schema{
+        type: :object,
+        properties: %{
+          workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope,
+          workspace_key_directory_checkpoint_ancestry: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+          },
+          workspace_key_directory_event_ancestry: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.KeyDirectoryEnvelope
+          }
+        },
+        required: [
+          :workspace_key_directory_checkpoint,
+          :workspace_key_directory_checkpoint_ancestry,
+          :workspace_key_directory_event_ancestry
+        ]
+      }
     ]
   })
 end

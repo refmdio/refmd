@@ -1,4 +1,4 @@
-import { getCryptoWorker } from "../worker/client";
+import { getCryptoWorker, type CryptoWorkerClient } from "../worker/client";
 import { getShareParticipantCryptoWorker } from "../worker/scoped";
 import { blake3Base64Url } from "../hash";
 import type { HybridSigningPublicKeyMaterial } from "../signature-types";
@@ -114,11 +114,13 @@ export async function signEvent(
   payload: Record<string, unknown>,
   shareSlug?: string,
   shareId?: string,
+  workerOverride?: CryptoWorkerClient,
 ): Promise<KeyDirectoryEnvelope> {
   const worker =
-    ownerKind === "share_participant_device"
+    workerOverride ??
+    (ownerKind === "share_participant_device"
       ? getShareParticipantCryptoWorker(stringField(shareSlug))
-      : getCryptoWorker();
+      : getCryptoWorker());
   const params = {
     eventType: payload.event_type as string,
     eventPayload: payload,
@@ -150,11 +152,13 @@ export async function signCheckpoint(
   payload: Record<string, unknown>,
   shareSlug?: string,
   shareId?: string,
+  workerOverride?: CryptoWorkerClient,
 ): Promise<KeyDirectoryEnvelope> {
   const worker =
-    ownerKind === "share_participant_device"
+    workerOverride ??
+    (ownerKind === "share_participant_device"
       ? getShareParticipantCryptoWorker(stringField(shareSlug))
-      : getCryptoWorker();
+      : getCryptoWorker());
   const params = { variant, checkpointPayload: payload, ...(shareId ? { shareId } : {}) };
   const signed =
     ownerKind === "identity"
@@ -224,6 +228,23 @@ export function activeIdentitySigningKeyId(
       candidate.key_material.owner_id === userId,
   );
   if (!entry) throw new Error("key_directory_identity_signing_key_missing");
+  return stringField(entry.key_id);
+}
+
+export function activeIdentityEncryptionKeyId(
+  checkpointPayload: Record<string, unknown>,
+  userId: string,
+): string {
+  const entry = keyEntries(checkpointPayload, "identity_keys").find((candidate) => {
+    const material = candidate.key_material as Record<string, unknown> | undefined;
+    return (
+      !("revoked_at" in candidate) &&
+      material?.protocol === "refmd.hybrid-encryption-key-material" &&
+      material.owner_kind === "identity" &&
+      material.owner_id === userId
+    );
+  });
+  if (!entry) throw new Error("key_directory_identity_encryption_key_missing");
   return stringField(entry.key_id);
 }
 

@@ -2,6 +2,9 @@ defmodule RefMDWeb.Channels.Document.Access do
   @moduledoc false
 
   alias RefMD.Devices
+  alias RefMD.Documents
+  alias RefMD.Documents.DekRotation
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Sharing
   alias RefMD.Workspaces
 
@@ -22,6 +25,21 @@ defmodule RefMDWeb.Channels.Document.Access do
         :evict -> {:error, "permission_denied"}
         :skip -> {:error, "permission_check_failed"}
       end
+    end
+  end
+
+  def validate_ephemeral_dek(socket, key_version) do
+    case Documents.get_document(socket.assigns.document_id) do
+      %{min_dek_version: ^key_version} = document ->
+        if RotationPolicy.dek_overdue?(document),
+          do: {:error, "key_rotation_required"},
+          else: :ok
+
+      %{} ->
+        {:error, "key_rotation_required"}
+
+      nil ->
+        {:error, "document_not_found"}
     end
   end
 
@@ -207,19 +225,31 @@ defmodule RefMDWeb.Channels.Document.Access do
 
   def validate_device_active(socket) do
     if socket.assigns[:session_kind] == :share_participant do
-      if share_participant_device_active?(socket) do
-        :ok
-      else
-        {:error, "device_revoked"}
-      end
+      validate_share_participant_device_active(socket)
     else
-      case Devices.get_device(socket.assigns.device_id) do
-        %{user_id: uid, revoked_at: nil} when uid == socket.assigns.current_user_id ->
-          validate_workspace_device_not_wipe_required(socket)
+      validate_user_device_active(socket)
+    end
+  end
 
-        _ ->
-          {:error, "device_revoked"}
-      end
+  defp validate_share_participant_device_active(socket) do
+    if share_participant_device_active?(socket), do: :ok, else: {:error, "device_revoked"}
+  end
+
+  defp validate_user_device_active(socket) do
+    case Devices.get_device(socket.assigns.device_id) do
+      %{user_id: uid, revoked_at: nil, identity_wipe_required_at: nil}
+      when uid == socket.assigns.current_user_id ->
+        with :ok <- validate_workspace_device_not_wipe_required(socket),
+             false <-
+               DekRotation.wipe_required?(socket.assigns.document.id, socket.assigns.device_id) do
+          :ok
+        else
+          true -> {:error, "device_wipe_required"}
+          {:error, _} = error -> error
+        end
+
+      _ ->
+        {:error, "device_revoked"}
     end
   end
 

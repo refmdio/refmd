@@ -4,11 +4,71 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature, Suite}
   alias RefMD.Encryption.KeyDirectory
   alias RefMD.Encryption.KeyDirectory.Authority, as: Authority
-  alias RefMD.Encryption.KeyDirectory.{Checkpoint, Payload, Signatures}
+  alias RefMD.Encryption.KeyDirectory.{Body, Checkpoint, Payload, Semantics, Signatures}
   alias RefMD.Repo
 
   import Ecto.Query
   import RefMD.TestCrypto
+
+  test "accepts a known invitation member wrap bound to the recipient user directory" do
+    workspace_id = Ecto.UUID.generate()
+    sender_user_id = Ecto.UUID.generate()
+    sender_device_id = Ecto.UUID.generate()
+    recipient_user_id = Ecto.UUID.generate()
+    signing_key_id = Hash.blake3_base64url("known-invitation-signer")
+
+    resource = %{
+      "workspace_id" => workspace_id,
+      "target_user_id" => recipient_user_id,
+      "kek_version" => 1
+    }
+
+    sender = %{
+      "user_id" => sender_user_id,
+      "device_id" => sender_device_id,
+      "signing_key_id" => signing_key_id,
+      "key_scope_kind" => "workspace",
+      "key_scope_id" => workspace_id
+    }
+
+    recipient = %{
+      "recipient_kind" => "user_identity",
+      "user_id" => recipient_user_id,
+      "encryption_key_id" => Hash.blake3_base64url("known-invitation-recipient"),
+      "key_scope_kind" => "user",
+      "key_scope_id" => recipient_user_id
+    }
+
+    wrap_event = %{
+      "event_type" => "wrap_issued",
+      "scope_kind" => "workspace",
+      "scope_id" => workspace_id,
+      "actor" => Map.put(sender, "signer_kind", "device"),
+      "body" => %{
+        "purpose" => "workspace_member_kek_wrap",
+        "resource" => resource,
+        "resource_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(resource)),
+        "sender" => sender,
+        "recipient" => recipient
+      }
+    }
+
+    redeemed_event = %{
+      "event_type" => "workspace_invitation_redeemed",
+      "actor" => Map.put(sender, "signer_kind", "device"),
+      "body" => %{"redeemed_user_id" => recipient_user_id}
+    }
+
+    assert Signatures.invitation_admission_wrap_event?(wrap_event, redeemed_event)
+    assert :ok = Semantics.assert_invitation_admission_wrap_event_semantics!(wrap_event, %{})
+
+    mismatched = put_in(wrap_event, ["body", "recipient", "key_scope_id"], sender_user_id)
+    refute Signatures.invitation_admission_wrap_event?(mismatched, redeemed_event)
+
+    assert_raise ArgumentError, "wrap_recipient_scope_mismatch", fn ->
+      Semantics.assert_invitation_admission_wrap_event_semantics!(mismatched, %{})
+    end
+  end
 
   test "user checkpoint signatures use identity_rotation while two identity keys are active" do
     payload = %{
@@ -53,6 +113,229 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     assert Signatures.checkpoint_signature_variant!(retired_payload, %{
              "signer_kind" => "identity"
            }) == "identity_active"
+  end
+
+  test "accepts a rotation checkpoint signed by both the current and newly added identity keys" do
+    %{user_id: user_id, bootstrap: bootstrap, identity_private: current_private} =
+      directory_fixture()
+
+    assert %{checkpoint: stored_checkpoint} =
+             KeyDirectory.insert_signed_initial_scope!(
+               "user",
+               user_id,
+               bootstrap.user_events,
+               bootstrap.user_checkpoint,
+               checkpoint_signer_kind: "identity"
+             )
+
+    current_payload = stored_checkpoint.payload
+    current_pin = KeyDirectory.current_pin("user", user_id)
+    successor_private = hybrid_signing_private_key_material("identity", user_id, "rotation")
+    successor_public = hybrid_signing_public_key_material(successor_private)
+    successor_signing_key_id = Signature.compute_signing_key_id!(successor_public)
+    {successor_ecdh_public, _} = :crypto.generate_key(:ecdh, :x25519)
+
+    successor_encryption =
+      hybrid_encryption_public_key_material("identity", user_id, successor_ecdh_public)
+
+    current_signing_key_id =
+      current_private
+      |> hybrid_signing_public_key_material()
+      |> Signature.compute_signing_key_id!()
+
+    actor =
+      identity_actor(user_id, current_signing_key_id)
+      |> Map.merge(%{
+        "key_scope_kind" => "user",
+        "key_scope_id" => user_id,
+        "key_checkpoint_sequence" => current_pin.checkpoint_sequence,
+        "key_checkpoint_hash" => current_pin.checkpoint_hash
+      })
+
+    event =
+      key_directory_event_payload!(%{
+        "scope_kind" => "user",
+        "scope_id" => user_id,
+        "sequence" => current_pin.event_head_sequence + 1,
+        "event_type" => "identity_key_added",
+        "actor" => actor,
+        "previous_event_hash" => current_pin.event_head_hash,
+        "body" => %{
+          "key_id" => successor_signing_key_id,
+          "key_material_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(successor_public))
+        }
+      })
+
+    valid_from = key_directory_event_ref("user", user_id, event)
+
+    checkpoint =
+      key_directory_checkpoint_payload!(%{
+        "scope_kind" => "user",
+        "scope_id" => user_id,
+        "sequence" => current_pin.checkpoint_sequence + 1,
+        "issued_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "previous_checkpoint_hash" => current_pin.checkpoint_hash,
+        "covered_event_head" => key_directory_event_head(event),
+        "identity_keys" =>
+          current_payload["identity_keys"] ++
+            [
+              Payload.key_entry!(successor_public, valid_from),
+              Payload.key_entry!(successor_encryption.public, valid_from)
+            ],
+        "device_keys" => current_payload["device_keys"],
+        "revoked_key_ids" => current_payload["revoked_key_ids"] || []
+      })
+
+    current_signature =
+      signed_key_directory_checkpoint_envelope(
+        checkpoint,
+        "identity_rotation",
+        current_private
+      )
+
+    successor_signature =
+      signed_key_directory_checkpoint_envelope(
+        checkpoint,
+        "identity_rotation",
+        successor_private
+      )
+
+    checkpoint_envelope = %{
+      "payload" => checkpoint,
+      "signatures" => current_signature["signatures"] ++ successor_signature["signatures"]
+    }
+
+    assert %{checkpoint: %{sequence: 2} = rotation_checkpoint, pin: rotation_pin} =
+             KeyDirectory.append_signed_scope!(
+               "user",
+               user_id,
+               [signed_key_directory_event_envelope(event, current_private)],
+               checkpoint_envelope,
+               checkpoint_signer_kind: "identity"
+             )
+
+    old_encryption_key_id =
+      current_payload["identity_keys"]
+      |> Enum.find(
+        &(get_in(&1, ["key_material", "protocol"]) == "refmd.hybrid-encryption-key-material")
+      )
+      |> Map.fetch!("key_id")
+
+    successor_actor =
+      identity_actor(user_id, successor_signing_key_id)
+      |> Map.merge(%{
+        "key_scope_kind" => "user",
+        "key_scope_id" => user_id,
+        "key_checkpoint_sequence" => rotation_pin.checkpoint_sequence,
+        "key_checkpoint_hash" => rotation_pin.checkpoint_hash
+      })
+
+    signing_revoked =
+      key_directory_event_payload!(%{
+        "scope_kind" => "user",
+        "scope_id" => user_id,
+        "sequence" => rotation_pin.event_head_sequence + 1,
+        "event_type" => "signing_key_revoked",
+        "actor" => successor_actor,
+        "previous_event_hash" => rotation_pin.event_head_hash,
+        "body" => %{
+          "key_id" => current_signing_key_id,
+          "reason" => "rotation",
+          "revoked_at_event_sequence" => rotation_pin.event_head_sequence + 1
+        }
+      })
+
+    encryption_revoked =
+      key_directory_event_payload!(%{
+        "scope_kind" => "user",
+        "scope_id" => user_id,
+        "sequence" => rotation_pin.event_head_sequence + 2,
+        "event_type" => "encryption_key_revoked",
+        "actor" => successor_actor,
+        "previous_event_hash" => KeyDirectory.event_hash(signing_revoked),
+        "body" => %{
+          "key_id" => old_encryption_key_id,
+          "reason" => "rotation",
+          "revoked_at_event_sequence" => rotation_pin.event_head_sequence + 2
+        }
+      })
+
+    retired_identity_keys =
+      Enum.map(rotation_checkpoint.payload["identity_keys"], fn entry ->
+        case entry["key_id"] do
+          ^current_signing_key_id ->
+            Map.put(
+              entry,
+              "revoked_at",
+              key_directory_event_ref("user", user_id, signing_revoked)
+            )
+
+          ^old_encryption_key_id ->
+            Map.put(
+              entry,
+              "revoked_at",
+              key_directory_event_ref("user", user_id, encryption_revoked)
+            )
+
+          _ ->
+            entry
+        end
+      end)
+
+    retirement_checkpoint =
+      key_directory_checkpoint_payload!(%{
+        "scope_kind" => "user",
+        "scope_id" => user_id,
+        "sequence" => rotation_pin.checkpoint_sequence + 1,
+        "issued_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "previous_checkpoint_hash" => rotation_pin.checkpoint_hash,
+        "covered_event_head" => key_directory_event_head(encryption_revoked),
+        "identity_keys" => retired_identity_keys,
+        "device_keys" => rotation_checkpoint.payload["device_keys"],
+        "revoked_key_ids" => [current_signing_key_id, old_encryption_key_id]
+      })
+
+    assert %{checkpoint: %{sequence: 3, payload: final_payload}} =
+             KeyDirectory.append_signed_scope!(
+               "user",
+               user_id,
+               [
+                 signed_key_directory_event_envelope(signing_revoked, successor_private),
+                 signed_key_directory_event_envelope(encryption_revoked, successor_private)
+               ],
+               signed_key_directory_checkpoint_envelope(
+                 retirement_checkpoint,
+                 "identity_active",
+                 successor_private
+               ),
+               checkpoint_signer_kind: "identity"
+             )
+
+    assert Enum.any?(final_payload["identity_keys"], fn entry ->
+             entry["key_id"] == current_signing_key_id and Map.has_key?(entry, "revoked_at")
+           end)
+
+    assert Enum.any?(final_payload["identity_keys"], fn entry ->
+             entry["key_id"] == successor_signing_key_id and not Map.has_key?(entry, "revoked_at")
+           end)
+
+    assert :ok =
+             KeyDirectory.verify_complete_replay!(
+               "user",
+               user_id,
+               bootstrap.user_events ++
+                 [
+                   signed_key_directory_event_envelope(event, current_private),
+                   signed_key_directory_event_envelope(signing_revoked, successor_private),
+                   signed_key_directory_event_envelope(encryption_revoked, successor_private)
+                 ],
+               signed_key_directory_checkpoint_envelope(
+                 retirement_checkpoint,
+                 "identity_active",
+                 successor_private
+               ),
+               checkpoint_signer_kind: "identity"
+             )
   end
 
   test "stores signed initial user and workspace directories and exposes current checkpoints" do
@@ -252,13 +535,85 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
 
     payload = %{
       "scope_kind" => "workspace",
-      "event_type" => "document_update_accepted",
+      "event_type" => "document_write_session_admitted",
       "actor" => %{"signer_kind" => "device", "user_id" => "viewer-user"},
       "body" => %{}
     }
 
     assert_raise ArgumentError, "key_directory_document_write_required", fn ->
       Authority.assert_event_authority!(state, payload)
+    end
+  end
+
+  test "member role change body accepts only the canonical effective permission schema" do
+    body = %{
+      "workspace_id" => Ecto.UUID.generate(),
+      "user_id" => Ecto.UUID.generate(),
+      "previous_role_id" => Ecto.UUID.generate(),
+      "previous_base_role" => "editor",
+      "previous_effective_permissions" => ["document:read", "document:write", "member:list"],
+      "role_id" => Ecto.UUID.generate(),
+      "base_role" => "viewer",
+      "effective_permissions" => ["document:read", "member:list"],
+      "permission_version" => 2,
+      "changed_at_event_sequence" => 13
+    }
+
+    assert :ok = Body.assert!("member_role_changed", body)
+
+    for invalid <- [
+          Map.delete(body, "permission_version"),
+          Map.put(body, "legacy_role", "viewer"),
+          Map.put(body, "effective_permissions", ["document:read", "document:read"]),
+          Map.put(body, "effective_permissions", ["member:list", "document:read"]),
+          Map.put(body, "effective_permissions", ["unknown:permission"])
+        ] do
+      assert_raise ArgumentError, fn -> Body.assert!("member_role_changed", invalid) end
+    end
+  end
+
+  test "member role changes replay exact effective permissions" do
+    state = %{
+      Authority.empty_state()
+      | members: %{"admin-user" => "admin", "member-user" => "editor"}
+    }
+
+    state =
+      Authority.assert_and_apply_event!(state, %{
+        "scope_kind" => "workspace",
+        "event_type" => "member_role_changed",
+        "actor" => %{"signer_kind" => "device", "user_id" => "admin-user"},
+        "body" => %{
+          "user_id" => "member-user",
+          "base_role" => "editor",
+          "effective_permissions" => ["document:read"]
+        }
+      })
+
+    assert_raise ArgumentError, "key_directory_document_write_required", fn ->
+      Authority.assert_event_authority!(state, %{
+        "scope_kind" => "workspace",
+        "event_type" => "document_write_session_admitted",
+        "actor" => %{"signer_kind" => "device", "user_id" => "member-user"},
+        "body" => %{}
+      })
+    end
+  end
+
+  test "rejects self-demotion when the candidate state cannot authorize the signer" do
+    state = %{Authority.empty_state() | members: %{"admin-user" => "admin"}}
+
+    assert_raise ArgumentError, "member_role_change_candidate_signer_ineligible", fn ->
+      Authority.assert_event_authority!(state, %{
+        "scope_kind" => "workspace",
+        "event_type" => "member_role_changed",
+        "actor" => %{"signer_kind" => "device", "user_id" => "admin-user"},
+        "body" => %{
+          "user_id" => "admin-user",
+          "base_role" => "viewer",
+          "effective_permissions" => ["document:read", "member:list"]
+        }
+      })
     end
   end
 
@@ -414,7 +769,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
 
     write_payload = %{
       "scope_kind" => "workspace",
-      "event_type" => "document_update_accepted",
+      "event_type" => "document_write_session_admitted",
       "actor" => %{
         "signer_kind" => "device",
         "user_id" => guest_user_id,
@@ -425,6 +780,99 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
 
     assert_raise ArgumentError, "key_directory_document_write_required", fn ->
       Authority.assert_event_authority!(state, write_payload)
+    end
+  end
+
+  test "workspace-scope guest authority is limited to its own device and identity rotation" do
+    workspace_id = Ecto.UUID.generate()
+    guest_user_id = Ecto.UUID.generate()
+    guest_device_id = Ecto.UUID.generate()
+
+    state = %{
+      Authority.empty_state()
+      | members: %{"owner-user" => "owner"},
+        guest_grants: %{
+          Ecto.UUID.generate() => %{
+            guest_user_id: guest_user_id,
+            guest_device_id: guest_device_id,
+            scope_kind: "workspace",
+            scope_id: "none",
+            permission: "view",
+            status: "active"
+          }
+        }
+    }
+
+    actor = %{
+      "signer_kind" => "device",
+      "user_id" => guest_user_id,
+      "device_id" => guest_device_id
+    }
+
+    identity_payload = %{
+      "scope_kind" => "workspace",
+      "scope_id" => workspace_id,
+      "event_type" => "identity_key_added",
+      "actor" => actor,
+      "body" => %{}
+    }
+
+    assert :ok = Authority.assert_event_authority!(state, identity_payload)
+
+    assert_raise ArgumentError, "key_directory_active_member_required", fn ->
+      Authority.assert_event_authority!(
+        state,
+        put_in(identity_payload, ["actor", "device_id"], Ecto.UUID.generate())
+      )
+    end
+
+    document_scope_state =
+      update_in(state.guest_grants, fn grants ->
+        Map.new(grants, fn {grant_id, grant} ->
+          {grant_id, %{grant | scope_kind: "document", scope_id: Ecto.UUID.generate()}}
+        end)
+      end)
+
+    assert_raise ArgumentError, "key_directory_active_member_required", fn ->
+      Authority.assert_event_authority!(document_scope_state, identity_payload)
+    end
+
+    wrap_payload = %{
+      "scope_kind" => "workspace",
+      "scope_id" => workspace_id,
+      "event_type" => "wrap_issued",
+      "actor" => actor,
+      "body" => %{
+        "purpose" => "workspace_member_kek_wrap",
+        "resource" => %{
+          "workspace_id" => workspace_id,
+          "target_user_id" => guest_user_id
+        },
+        "recipient" => %{
+          "recipient_kind" => "user_identity",
+          "user_id" => guest_user_id
+        },
+        "sender" => %{
+          "user_id" => guest_user_id,
+          "device_id" => guest_device_id
+        }
+      }
+    }
+
+    assert :ok = Authority.assert_event_authority!(state, wrap_payload)
+
+    assert_raise ArgumentError, "key_directory_active_member_required", fn ->
+      Authority.assert_event_authority!(
+        state,
+        put_in(wrap_payload, ["body", "resource", "target_user_id"], Ecto.UUID.generate())
+      )
+    end
+
+    assert_raise ArgumentError, "key_directory_active_member_required", fn ->
+      Authority.assert_event_authority!(
+        state,
+        put_in(wrap_payload, ["body", "recipient", "user_id"], Ecto.UUID.generate())
+      )
     end
   end
 
@@ -458,7 +906,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     assert :ok =
              Authority.assert_event_authority!(state, %{
                "scope_kind" => "workspace",
-               "event_type" => "document_update_accepted",
+               "event_type" => "document_write_session_admitted",
                "actor" => actor,
                "body" => %{"document_id" => granted_document_id}
              })
@@ -466,7 +914,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     assert_raise ArgumentError, "key_directory_document_write_required", fn ->
       Authority.assert_event_authority!(state, %{
         "scope_kind" => "workspace",
-        "event_type" => "document_update_accepted",
+        "event_type" => "document_write_session_admitted",
         "actor" => actor,
         "body" => %{"document_id" => other_document_id}
       })
@@ -574,7 +1022,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
 
     payload = %{
       "scope_kind" => "workspace",
-      "event_type" => "document_update_accepted",
+      "event_type" => "document_write_session_admitted",
       "actor" => %{"signer_kind" => "share_participant_device"},
       "body" => %{
         "document_id" => document_id,
@@ -624,7 +1072,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
 
     payload = %{
       "scope_kind" => "workspace",
-      "event_type" => "document_update_accepted",
+      "event_type" => "document_write_session_admitted",
       "actor" => %{"signer_kind" => "share_participant_device"},
       "body" => %{
         "document_id" => document_id,
@@ -691,7 +1139,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     admission_payload = fn document_id ->
       %{
         "scope_kind" => "workspace",
-        "event_type" => "document_update_accepted",
+        "event_type" => "document_write_session_admitted",
         "actor" => %{"signer_kind" => "share_participant_device"},
         "body" => %{
           "document_id" => document_id,
@@ -1575,6 +2023,23 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
       )
 
     assert appended.covered_event_head_hash == KeyDirectory.event_hash(deleted_event)
+
+    candidate_events =
+      KeyDirectory.events_after_until(
+        "workspace",
+        workspace_id,
+        started_sequence,
+        deleted_sequence
+      )
+
+    assert [%{event_type: "rotation_started", sequence: ^started_sequence}] =
+             KeyDirectory.authority_events(
+               "workspace",
+               workspace_id,
+               started_sequence,
+               candidate_events,
+               appended
+             )
   end
 
   defp rotation_authority_payload(workspace_id, event_type, actor, sequence, body) do

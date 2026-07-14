@@ -64,7 +64,10 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
       Enum.sort([
         "base_role",
         "changed_at_event_sequence",
+        "effective_permissions",
+        "permission_version",
         "previous_base_role",
+        "previous_effective_permissions",
         "previous_role_id",
         "role_id",
         "user_id",
@@ -76,6 +79,10 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
       body["changed_at_event_sequence"],
       "member_role_changed_sequence_invalid"
     )
+
+    A.assert_positive_integer!(body["permission_version"], "permission_version_invalid")
+    assert_canonical_permissions!(body["previous_effective_permissions"])
+    assert_canonical_permissions!(body["effective_permissions"])
   end
 
   def assert!("member_removed", body) do
@@ -109,4 +116,18 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
     Hash.assert_blake3_base64url!(body["wrap_body_hash"])
     Suite.assert_suite_rank_allowed!(body["wrap_suite_id"], body["wrap_suite_rank"])
   end
+
+  defp assert_canonical_permissions!(permissions) when is_list(permissions) do
+    canonical = permissions |> Enum.uniq() |> Enum.sort()
+
+    if permissions == canonical and
+         Enum.all?(permissions, &RefMD.Workspaces.permission_defined?/1) do
+      :ok
+    else
+      raise ArgumentError, "effective_permissions_invalid"
+    end
+  end
+
+  defp assert_canonical_permissions!(_),
+    do: raise(ArgumentError, "effective_permissions_invalid")
 end

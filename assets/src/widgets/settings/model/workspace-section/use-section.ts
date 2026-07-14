@@ -12,6 +12,7 @@ import {
   useWorkspaceRoleManagement,
 } from "@/features/workspace";
 import { createWorkspaceKekRotationTrigger } from "@/features/devices";
+import { prepareShareSecretsForRecipientDelivery } from "@/features/share";
 import { currentWorkspaceId } from "@/entities/workspace";
 
 interface UseWorkspaceSectionOptions {
@@ -27,8 +28,13 @@ export function useWorkspaceSection(options: UseWorkspaceSectionOptions = {}) {
 
   const [error, setError] = createSignal<string | null>(null);
   const [info, setInfo] = createSignal<string | null>(null);
-  const roleManagement = useWorkspaceRoleManagement({ workspaceId: wsId, setError, setInfo });
   const triggerKekRotation = createWorkspaceKekRotationTrigger();
+  const roleManagement = useWorkspaceRoleManagement({
+    workspaceId: wsId,
+    setError,
+    setInfo,
+    triggerKekRotation,
+  });
   const memberManagement = useWorkspaceMemberManagement({
     workspaceId: wsId,
     setError,
@@ -171,6 +177,7 @@ export function useWorkspaceSection(options: UseWorkspaceSectionOptions = {}) {
     guestMemberLimit: () => workspace.data?.guest_member_limit,
     setError,
     refetchWorkspace: refetchAll,
+    prepareShareSecretsForRecipientDelivery,
   });
 
   createEffect(() => {

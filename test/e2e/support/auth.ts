@@ -28,6 +28,13 @@ async function openRegisterForm(page: Page): Promise<void> {
 }
 
 export async function registerAccount(page: Page, name = "E2E User"): Promise<string> {
+  return (await registerAccountWithRecoveryPhrase(page, name)).email;
+}
+
+export async function registerAccountWithRecoveryPhrase(
+  page: Page,
+  name = "E2E User",
+): Promise<{ email: string; mnemonic: string }> {
   const email = testEmail();
 
   await openRegisterForm(page);
@@ -57,6 +64,11 @@ export async function registerAccount(page: Page, name = "E2E User"): Promise<st
       );
     });
 
+  await page.getByRole("button", { name: "Show" }).click();
+  const words = await page.locator("div.grid.grid-cols-3 > div > span:nth-child(2)").allTextContents();
+  expect(words).toHaveLength(24);
+  const mnemonic = words.join(" ");
+
   await page.getByRole("button", { name: "Download" }).click();
   await page.waitForTimeout(E2E_DELAYS.uiSettle);
   await page.evaluate(() => window.scrollTo(0, 9999));
@@ -66,8 +78,18 @@ export async function registerAccount(page: Page, name = "E2E User"): Promise<st
   await continueButton.click({ timeout: 60_000 });
 
   await expect(page).toHaveURL(/dashboard/, { timeout: 60_000 });
-  await waitForWorkspaceReady(page);
-  return email;
+  try {
+    await waitForWorkspaceReady(page);
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      clientLogs: window.__refmdE2EClientLogs ?? [],
+      url: window.location.href,
+    }));
+    throw new Error(
+      `registration workspace initialization failed: ${JSON.stringify(diagnostics)}\n${String(error)}`,
+    );
+  }
+  return { email, mnemonic };
 }
 
 export async function login(

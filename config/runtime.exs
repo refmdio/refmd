@@ -45,6 +45,19 @@ optional_env = fn name, default ->
   end
 end
 
+positive_integer_env = fn name, default ->
+  case Integer.parse(optional_env.(name, Integer.to_string(default))) do
+    {value, ""} when value > 0 -> value
+    _ -> raise "environment variable #{name} must be a positive integer"
+  end
+end
+
+config :refmd, RefMD.Encryption.RotationPolicy,
+  kek_rotation_seconds: positive_integer_env.("REFMD_KEK_ROTATION_SECONDS", 90 * 24 * 60 * 60),
+  dek_rotation_seconds: positive_integer_env.("REFMD_DEK_ROTATION_SECONDS", 90 * 24 * 60 * 60),
+  identity_rotation_seconds:
+    positive_integer_env.("REFMD_IDENTITY_ROTATION_SECONDS", 90 * 24 * 60 * 60)
+
 storage_mode =
   if config_env() == :prod do
     require_env.("REFMD_STORAGE_MODE")

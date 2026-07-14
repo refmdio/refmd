@@ -2,7 +2,7 @@ defmodule RefMDWeb.AuthController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.{Auth, Devices, Encryption, Sharing, Users, Workspaces}
+  alias RefMD.{Auth, Devices, Encryption, Security, Sharing, Users, Workspaces}
   alias RefMD.Auth.DBSC, as: AuthDBSC
   alias RefMD.Auth.OAuth
   alias RefMD.Crypto
@@ -10,6 +10,7 @@ defmodule RefMDWeb.AuthController do
   alias RefMDWeb.Http.RrpSessionBinding
   alias RefMDWeb.Http.RrpTranscript
   alias RefMDWeb.Http.SessionCookies
+  alias RefMDWeb.Payloads.DeviceRegistration, as: DeviceRegistrationPayload
 
   alias RefMDWeb.Schemas
 
@@ -968,48 +969,46 @@ defmodule RefMDWeb.AuthController do
            params["recovery_authorization_key_id"],
          recovery_authorization_proof when is_map(recovery_authorization_proof) <-
            params["recovery_authorization_proof"],
-         %{} = user <- Users.get_user_by_email(email) do
-      case Auth.verify_recovery_session(user.id, challenge, signature, %{
-             recovery_authorization_key_id: recovery_authorization_key_id,
-             recovery_authorization_proof: recovery_authorization_proof,
-             recovery_session_id: recovery_session_id,
-             recovery_capability_hash: params["recovery_capability_hash"],
-             recovery_session_transcript_hash: params["recovery_session_transcript_hash"],
-             pending_registration_id: params["pending_registration_id"],
-             recipient_device_id: params["recipient_device_id"],
-             pending_registration_binding_hash: params["pending_registration_binding_hash"],
-             target_key_checkpoint_sequence: params["target_key_checkpoint_sequence"],
-             target_key_checkpoint_hash: params["target_key_checkpoint_hash"],
-             candidate_user_checkpoint_sequence: params["candidate_user_checkpoint_sequence"],
-             candidate_user_checkpoint_hash: params["candidate_user_checkpoint_hash"],
-             candidate_user_event_head_sequence: params["candidate_user_event_head_sequence"],
-             candidate_user_event_head_hash: params["candidate_user_event_head_hash"],
-             candidate_user_checkpoint: params["candidate_user_checkpoint"],
-             candidate_user_event_ancestry: params["candidate_user_event_ancestry"]
-           }) do
-        {:ok, recovery_context} ->
-          {:ok, session, token} =
-            Auth.create_session(user.id, %{
-              id: recovery_context.recovery_session_id,
-              is_recovery: true,
-              device_registration_id: recovery_context.device_registration_id,
-              recovery_session_transcript_hash: recovery_context.recovery_session_transcript_hash,
-              recovery_capability_hash: recovery_context.recovery_capability_hash,
-              pending_registration_binding_hash:
-                recovery_context.pending_registration_binding_hash,
-              target_key_checkpoint_sequence: recovery_context.target_key_checkpoint_sequence,
-              target_key_checkpoint_hash: recovery_context.target_key_checkpoint_hash,
-              candidate_user_checkpoint_sequence:
-                recovery_context.candidate_user_checkpoint_sequence,
-              candidate_user_checkpoint_hash: recovery_context.candidate_user_checkpoint_hash,
-              candidate_user_event_head_sequence:
-                recovery_context.candidate_user_event_head_sequence,
-              candidate_user_event_head_hash: recovery_context.candidate_user_event_head_hash,
-              recovered_identity_signing_key_id:
-                recovery_context.recovered_identity_signing_key_id,
-              ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
-              user_agent: get_req_header(conn, "user-agent") |> List.first()
-            })
+         %{} = user <- Users.get_user_by_email(email),
+         target_registration when is_map(target_registration) <-
+           params["target_device_registration"],
+         material <- DeviceRegistrationPayload.decode_request_material!(target_registration),
+         :ok <- Devices.validate_device_registration(user.id, material) do
+      registration_attrs =
+        recovery_device_registration_attrs(
+          conn,
+          user.id,
+          target_registration,
+          material,
+          challenge
+        )
+
+      proof =
+        recovery_session_proof(
+          params,
+          recovery_session_id,
+          recovery_authorization_key_id,
+          recovery_authorization_proof
+        )
+
+      session_attrs = %{
+        ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
+        user_agent: get_req_header(conn, "user-agent") |> List.first()
+      }
+
+      case Auth.establish_recovery_session(
+             user.id,
+             challenge,
+             signature,
+             proof,
+             registration_attrs,
+             session_attrs
+           ) do
+        {:ok, %{context: recovery_context, session: session, token: token}} ->
+          recovery_registration =
+            Devices.get_valid_device_registration(recovery_context.device_registration_id)
+
+          Security.record_device_registration_created(user.id, recovery_registration)
 
           conn
           |> set_session_cookie(token, false)
@@ -1021,7 +1020,8 @@ defmodule RefMDWeb.AuthController do
               name: user.name
             },
             session_id: session.id,
-            is_recovery: true
+            is_recovery: true,
+            audit_checkpoint: Security.current_audit_checkpoint!("user:#{user.id}")
           })
 
         {:error, _reason} ->
@@ -1033,6 +1033,48 @@ defmodule RefMDWeb.AuthController do
       _ ->
         conn |> put_status(:unauthorized) |> json(%{error: "invalid_or_expired_recovery_request"})
     end
+  end
+
+  defp recovery_device_registration_attrs(conn, user_id, params, material, challenge) do
+    %{
+      user_id: user_id,
+      id: material.device_id,
+      name: params["name"] || "Recovered device",
+      device_type: params["device_type"] || "browser",
+      hybrid_encryption_public_key_material: material.hybrid_encryption_public_key_material,
+      hybrid_signing_public_key_material: material.hybrid_signing_public_key_material,
+      client_nonce: material.client_nonce,
+      pending_registration_challenge_hash: Hash.blake3_base64url(challenge),
+      ip_address: to_string(:inet_parse.ntoa(conn.remote_ip))
+    }
+  end
+
+  defp recovery_session_proof(
+         params,
+         recovery_session_id,
+         recovery_authorization_key_id,
+         recovery_authorization_proof
+       ) do
+    %{
+      recovery_authorization_key_id: recovery_authorization_key_id,
+      recovery_authorization_proof: recovery_authorization_proof,
+      recovery_session_id: recovery_session_id,
+      recovery_capability_hash: params["recovery_capability_hash"],
+      recovery_session_transcript_hash: params["recovery_session_transcript_hash"],
+      pending_registration_id: params["pending_registration_id"],
+      recipient_device_id: params["recipient_device_id"],
+      pending_registration_binding_hash: params["pending_registration_binding_hash"],
+      target_key_checkpoint_sequence: params["target_key_checkpoint_sequence"],
+      target_key_checkpoint_hash: params["target_key_checkpoint_hash"],
+      candidate_user_checkpoint_sequence: params["candidate_user_checkpoint_sequence"],
+      candidate_user_checkpoint_hash: params["candidate_user_checkpoint_hash"],
+      candidate_user_event_head_sequence: params["candidate_user_event_head_sequence"],
+      candidate_user_event_head_hash: params["candidate_user_event_head_hash"],
+      candidate_user_checkpoint: params["candidate_user_checkpoint"],
+      candidate_user_event_ancestry: params["candidate_user_event_ancestry"],
+      candidate_user_audit_sequence: params["candidate_user_audit_sequence"],
+      candidate_user_audit_hash: params["candidate_user_audit_hash"]
+    }
   end
 
   # ── Helpers ────────────────────────────────────
@@ -1069,18 +1111,27 @@ defmodule RefMDWeb.AuthController do
   defp handle_successful_login(conn, user, params) do
     device_id = params["device_id"]
     remember_me = params["remember_me"] || false
-    device_verified = check_device_verified(user.id, device_id)
+    device_login_status = device_login_status(user.id, device_id)
+    device_verified = device_login_status == :verified
+    identity_recovery_required = device_login_status == :identity_recovery_required
 
     {:ok, session, token} =
       Auth.create_session(user.id, %{
         device_id: if(device_verified, do: device_id),
+        identity_recovery_required: identity_recovery_required,
         remember_me: remember_me,
         ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
         user_agent: get_req_header(conn, "user-agent") |> List.first()
       })
 
     response =
-      build_login_response(user, session, device_id, device_verified)
+      build_login_response(
+        user,
+        session,
+        device_id,
+        device_verified,
+        identity_recovery_required
+      )
 
     conn
     |> set_session_cookie(token, remember_me)
@@ -1247,10 +1298,24 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
-  defp check_device_verified(_user_id, nil), do: false
+  defp device_login_status(_user_id, nil), do: :device_registration_required
 
-  defp check_device_verified(user_id, device_id) do
-    match?(%{user_id: ^user_id, revoked_at: nil}, Devices.get_device(device_id))
+  defp device_login_status(user_id, device_id) do
+    case Devices.get_device(device_id) do
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: nil} ->
+        :verified
+
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: wipe_required_at}
+      when not is_nil(wipe_required_at) ->
+        :identity_recovery_required
+
+      %{user_id: ^user_id, identity_replaced_by_device_id: replacement_device_id}
+      when not is_nil(replacement_device_id) ->
+        :identity_recovery_required
+
+      _ ->
+        :device_registration_required
+    end
   end
 
   defp setup_oauth_crypto(conn, params, user, session) do
@@ -1543,7 +1608,13 @@ defmodule RefMDWeb.AuthController do
 
   defp oauth_error_details(_reason), do: nil
 
-  defp build_login_response(user, session, device_id, device_verified) do
+  defp build_login_response(
+         user,
+         session,
+         device_id,
+         device_verified,
+         identity_recovery_required
+       ) do
     master_key = Encryption.get_user_encrypted_master_key(user.id)
 
     keys =
@@ -1563,7 +1634,8 @@ defmodule RefMDWeb.AuthController do
         name: user.name
       },
       session_id: session.id,
-      device_verified: device_verified
+      device_verified: device_verified,
+      identity_recovery_required: identity_recovery_required
     }
 
     response = if keys, do: Map.put(response, :keys, keys), else: response
@@ -1634,7 +1706,9 @@ defmodule RefMDWeb.AuthController do
         encode_binary(ik && ik.encrypted_identity_hybrid_signing_private_key_material),
       identity_hybrid_signing_private_key_material_nonce:
         encode_binary(ik && ik.identity_hybrid_signing_private_key_material_nonce),
-      identity_signing_key_id: ik && ik.signing_key_id
+      identity_signing_key_id: ik && ik.signing_key_id,
+      identity_rotation_due_at: struct_field(keys.identity_public_key, :rotation_due_at),
+      identity_key_checkpoint: key_directory_envelope(keys.identity_key_checkpoint)
     }
 
     if mk && mk.auth_type == "password" do
@@ -1645,6 +1719,12 @@ defmodule RefMDWeb.AuthController do
     else
       result
     end
+  end
+
+  defp key_directory_envelope(nil), do: nil
+
+  defp key_directory_envelope(checkpoint) do
+    %{payload: checkpoint.payload, signatures: checkpoint.signatures}
   end
 
   defp recovery_data_response(user_id, master_key) do
@@ -1675,6 +1755,7 @@ defmodule RefMDWeb.AuthController do
       identity_hybrid_signing_private_key_material_nonce:
         encode_struct_binary(identity_key, :identity_hybrid_signing_private_key_material_nonce),
       identity_signing_key_id: struct_field(identity_key, :signing_key_id),
+      identity_rotation_due_at: struct_field(identity_public_key, :rotation_due_at),
       hybrid_encryption_public_key_material:
         struct_field(identity_public_key, :hybrid_encryption_public_key_material),
       hybrid_signing_public_key_material:
@@ -1692,6 +1773,9 @@ defmodule RefMDWeb.AuthController do
       candidate_user_checkpoint_ancestry:
         Auth.user_key_directory_checkpoint_ancestry(user_id, user_pin),
       candidate_user_event_ancestry: Auth.user_key_directory_event_ancestry(user_id, user_pin),
+      candidate_user_rotation_deletion_evidences:
+        Auth.user_identity_rotation_deletion_evidences(user_id, user_pin),
+      candidate_user_audit_checkpoint: Security.current_audit_checkpoint!("user:#{user_id}"),
       candidate_workspace_checkpoints: candidate_workspace_checkpoints(user_id)
     }
   end
@@ -1807,8 +1891,11 @@ defmodule RefMDWeb.AuthController do
 
   defp get_user_rrp_device(user_id, device_id) do
     case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
-      _ -> {:error, :invalid_device}
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: nil} = device ->
+        {:ok, device}
+
+      _ ->
+        {:error, :invalid_device}
     end
   end
 

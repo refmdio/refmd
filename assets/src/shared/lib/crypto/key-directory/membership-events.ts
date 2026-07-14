@@ -229,7 +229,7 @@ export async function buildWorkspaceMemberRemovalKeyDirectoryAppend(
   return { events: signedEvents, checkpoint: signedCheckpoint };
 }
 
-export async function buildWorkspaceMemberRoleChangeKeyDirectoryAppend(
+export async function buildWorkspaceMemberRoleChangesKeyDirectoryAppend(
   input: WorkspaceMemberRoleChangeKeyDirectoryAppendInput,
 ): Promise<KeyDirectoryAppendArtifacts> {
   const checkpointPayload = input.checkpointEnvelope.payload as Record<string, unknown> | undefined;
@@ -247,25 +247,38 @@ export async function buildWorkspaceMemberRoleChangeKeyDirectoryAppend(
     input.workspaceId,
     checkpointPayload,
   );
-  const sequence = numberField(coveredHead.head_sequence) + 1;
-  const event = keyDirectoryEvent({
-    scopeKind: "workspace",
-    scopeId: input.workspaceId,
-    sequence,
-    eventType: "member_role_changed",
-    actor,
-    previousEventHash: stringField(coveredHead.head_hash),
-    body: {
-      workspace_id: input.workspaceId,
-      user_id: input.targetUserId,
-      previous_role_id: input.previousRoleId,
-      previous_base_role: input.previousBaseRole,
-      role_id: input.roleId,
-      base_role: input.baseRole,
-      changed_at_event_sequence: sequence,
-    },
-  });
-  const signedEvent = await signEvent("device", event);
+  if (input.changes.length === 0) throw new Error("member_role_changes_empty");
+  let previousEventHash = stringField(coveredHead.head_hash);
+  let sequence = numberField(coveredHead.head_sequence);
+  const signedEvents = [];
+  let lastEvent: Record<string, unknown> | null = null;
+  for (const change of input.changes) {
+    sequence += 1;
+    const event = keyDirectoryEvent({
+      scopeKind: "workspace",
+      scopeId: input.workspaceId,
+      sequence,
+      eventType: "member_role_changed",
+      actor,
+      previousEventHash,
+      body: {
+        workspace_id: input.workspaceId,
+        user_id: change.targetUserId,
+        previous_role_id: change.previousRoleId,
+        previous_base_role: change.previousBaseRole,
+        previous_effective_permissions: canonicalPermissions(change.previousEffectivePermissions),
+        role_id: change.roleId,
+        base_role: change.baseRole,
+        effective_permissions: canonicalPermissions(change.effectivePermissions),
+        permission_version: change.permissionVersion,
+        changed_at_event_sequence: sequence,
+      },
+    });
+    signedEvents.push(await signEvent("device", event));
+    previousEventHash = eventHash(event);
+    lastEvent = event;
+  }
+  if (!lastEvent) throw new Error("member_role_changes_empty");
   const checkpoint = keyDirectoryCheckpoint({
     scopeKind: "workspace",
     scopeId: input.workspaceId,
@@ -274,12 +287,16 @@ export async function buildWorkspaceMemberRoleChangeKeyDirectoryAppend(
     previousCheckpointHash: blake3Base64Url(
       canonicalizeStrictBytes(checkpointPayload as StrictJsonValue),
     ),
-    coveredEventHead: eventHead(event),
+    coveredEventHead: eventHead(lastEvent),
     identityKeys: (checkpointPayload.identity_keys as Record<string, unknown>[] | undefined) ?? [],
     deviceKeys: (checkpointPayload.device_keys as Record<string, unknown>[] | undefined) ?? [],
     shareParticipantKeys: checkpointShareParticipantKeys(checkpointPayload),
     revokedKeyIds: (checkpointPayload.revoked_key_ids as string[] | undefined) ?? [],
   });
   const signedCheckpoint = await signCheckpoint("device", "workspace_authorized", checkpoint);
-  return { events: [signedEvent], checkpoint: signedCheckpoint };
+  return { events: signedEvents, checkpoint: signedCheckpoint };
+}
+
+function canonicalPermissions(permissions: string[]): string[] {
+  return [...new Set(permissions)].sort();
 }

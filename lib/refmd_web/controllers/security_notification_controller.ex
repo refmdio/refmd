@@ -4,7 +4,6 @@ defmodule RefMDWeb.SecurityNotificationController do
 
   alias RefMD.{Devices, Security, Workspaces}
   alias RefMD.Repo
-  alias RefMD.Security.Notification
   alias RefMD.Workspaces.Workspace
   alias RefMDWeb.Schemas
 
@@ -47,7 +46,7 @@ defmodule RefMDWeb.SecurityNotificationController do
         notifications =
           recipient_kind
           |> Security.list_notifications(recipient_id)
-          |> Enum.map(&Notification.payload/1)
+          |> Enum.map(&Security.notification_payload/1)
 
         json(conn, %{notifications: notifications})
 
@@ -79,7 +78,7 @@ defmodule RefMDWeb.SecurityNotificationController do
   defp update_notification_state(conn, notification_id, update_fun) do
     case update_fun.(notification_id, "user", conn.assigns.current_user_id) do
       {:ok, notification} ->
-        json(conn, %{notification: Notification.payload(notification)})
+        json(conn, %{notification: Security.notification_payload(notification)})
 
       {:error, :not_found} ->
         conn

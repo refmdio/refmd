@@ -270,7 +270,6 @@ export function useShareManagement(options: UseShareManagementOptions) {
         ...(await buildShareKeyScopeKeyDirectoryAppend({
           workspaceId: document.workspace_id,
           shareId,
-          share,
           documents: options.documents(),
           addKeys: prepared.body.add_keys ?? [],
           replaceKeys: prepared.body.replace_keys ?? [],
@@ -329,7 +328,6 @@ export function useShareManagement(options: UseShareManagementOptions) {
           ...(await buildShareKeyScopeKeyDirectoryAppend({
             workspaceId: options.document()!.workspace_id,
             shareId: share.id,
-            share,
             documents: options.documents(),
             addKeys: prepared.body.add_keys ?? [],
             replaceKeys: prepared.body.replace_keys ?? [],

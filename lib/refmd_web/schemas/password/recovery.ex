@@ -17,6 +17,7 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
         RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
       identity_hybrid_signing_private_key_material_nonce: RefMDWeb.Schemas.EncryptedMaterialNonce,
       identity_signing_key_id: RefMDWeb.Schemas.Blake3Base64Url,
+      identity_rotation_due_at: %Schema{type: :string, format: :"date-time", nullable: true},
       hybrid_encryption_public_key_material:
         RefMDWeb.Schemas.IdentityHybridEncryptionPublicKeyMaterial,
       hybrid_signing_public_key_material: RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
@@ -33,6 +34,11 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
         type: :array,
         items: RefMDWeb.Schemas.KeyDirectoryEnvelope
       },
+      candidate_user_rotation_deletion_evidences: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.IdentityRotationDeletionEvidence
+      },
+      candidate_user_audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint,
       candidate_workspace_checkpoints: %Schema{
         type: :array,
         items: %Schema{
@@ -54,7 +60,12 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
         }
       }
     },
-    required: [:recovery_encrypted_umk, :recovery_nonce]
+    required: [
+      :recovery_encrypted_umk,
+      :recovery_nonce,
+      :identity_rotation_due_at,
+      :candidate_user_rotation_deletion_evidences
+    ]
   })
 end
 
@@ -90,6 +101,33 @@ defmodule RefMDWeb.Schemas.RecoverySessionRequest do
   alias OpenApiSpex.Schema
   require OpenApiSpex
 
+  @target_device_registration %Schema{
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      device_id: %Schema{type: :string, format: :uuid},
+      name: %Schema{type: :string},
+      device_type: %Schema{type: :string, enum: ["browser", "desktop", "mobile"]},
+      identity_signing_key_id: RefMDWeb.Schemas.Blake3Base64Url,
+      device_hybrid_signing_public_key_material:
+        RefMDWeb.Schemas.DeviceHybridSigningPublicKeyMaterial,
+      device_signing_key_id: RefMDWeb.Schemas.Blake3Base64Url,
+      device_hybrid_encryption_public_key_material:
+        RefMDWeb.Schemas.DeviceHybridEncryptionPublicKeyMaterial,
+      device_encryption_key_id: %Schema{type: :string},
+      client_nonce: %Schema{type: :string}
+    },
+    required: [
+      :device_id,
+      :identity_signing_key_id,
+      :device_hybrid_signing_public_key_material,
+      :device_signing_key_id,
+      :device_hybrid_encryption_public_key_material,
+      :device_encryption_key_id,
+      :client_nonce
+    ]
+  }
+
   OpenApiSpex.schema(%{
     title: "RecoverySessionRequest",
     type: :object,
@@ -116,7 +154,10 @@ defmodule RefMDWeb.Schemas.RecoverySessionRequest do
       candidate_user_event_ancestry: %Schema{
         type: :array,
         items: RefMDWeb.Schemas.KeyDirectoryEnvelope
-      }
+      },
+      candidate_user_audit_sequence: %Schema{type: :integer},
+      candidate_user_audit_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      target_device_registration: @target_device_registration
     },
     required: [
       :email,
@@ -137,7 +178,10 @@ defmodule RefMDWeb.Schemas.RecoverySessionRequest do
       :candidate_user_event_head_sequence,
       :candidate_user_event_head_hash,
       :candidate_user_checkpoint,
-      :candidate_user_event_ancestry
+      :candidate_user_event_ancestry,
+      :candidate_user_audit_sequence,
+      :candidate_user_audit_hash,
+      :target_device_registration
     ]
   })
 end
@@ -152,8 +196,9 @@ defmodule RefMDWeb.Schemas.RecoverySessionResponse do
     properties: %{
       user: RefMDWeb.Schemas.UserInfo,
       session_id: %Schema{type: :string, format: :uuid},
-      is_recovery: %Schema{type: :boolean}
+      is_recovery: %Schema{type: :boolean},
+      audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint
     },
-    required: [:user, :session_id, :is_recovery]
+    required: [:user, :session_id, :is_recovery, :audit_checkpoint]
   })
 end

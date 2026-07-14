@@ -47,12 +47,17 @@ interface KeyDirectoryEventSignParams {
   eventType: string;
   eventPayload: Record<string, unknown>;
   shareId?: string;
+  rotationPreviousCheckpointPayload?: Record<string, unknown>;
+  rotationStartedEventPayload?: Record<string, unknown>;
 }
 
 interface KeyDirectoryCheckpointSignParams {
   variant: KeyDirectoryCheckpointVariant;
   checkpointPayload: Record<string, unknown>;
   shareId?: string;
+  rotationPreviousCheckpointPayload?: Record<string, unknown>;
+  rotationEventPayload?: Record<string, unknown>;
+  rotationStartedEventPayload?: Record<string, unknown>;
 }
 
 export interface SignWorkerClientMethods {
@@ -147,6 +152,9 @@ export interface SignWorkerClientMethods {
   signIdentityKeyDirectoryCheckpoint(
     params: KeyDirectoryCheckpointSignParams,
   ): Promise<KeyDirectorySignedArtifact>;
+  signIdentitySuccessorKeyDirectoryCheckpoint(
+    params: KeyDirectoryCheckpointSignParams,
+  ): Promise<KeyDirectorySignedArtifact>;
   signDeviceKeyDirectoryCheckpoint(
     params: KeyDirectoryCheckpointSignParams,
   ): Promise<KeyDirectorySignedArtifact>;
@@ -167,6 +175,9 @@ export interface SignWorkerClientMethods {
     eventPayload: Record<string, unknown>;
   }): Promise<KeyDirectorySignedArtifact>;
   signIdentityKeyDirectoryEvent(
+    params: KeyDirectoryEventSignParams,
+  ): Promise<KeyDirectorySignedArtifact>;
+  signIdentitySuccessorKeyDirectoryEvent(
     params: KeyDirectoryEventSignParams,
   ): Promise<KeyDirectorySignedArtifact>;
   signDeviceKeyDirectoryEvent(
@@ -217,6 +228,8 @@ export interface SignWorkerClientMethods {
     candidateUserCheckpointHash: string;
     candidateUserEventHeadSequence: number;
     candidateUserEventHeadHash: string;
+    candidateUserAuditSequence: number;
+    candidateUserAuditHash: string;
   }): Promise<{
     transcript: StrictJsonValue;
     signature: HybridSignature;
@@ -325,16 +338,6 @@ export interface SignWorkerClientMethods {
     ciphertext: string;
     nonce: string;
   }): Promise<boolean>;
-  verifyDocumentUpdateEd25519Signature(params: {
-    publicKeyMaterial: HybridSigningPublicKeyMaterial;
-    signature: HybridSignature;
-    actorUserId: string;
-    workspaceId: string;
-    publicData: object;
-    authorityBoundary: Record<string, unknown>;
-    ciphertext: string;
-    nonce: string;
-  }): Promise<boolean>;
   verifyDocumentSnapshotSignature(params: {
     publicKeyMaterial: HybridSigningPublicKeyMaterial;
     signature: HybridSignature;
@@ -425,6 +428,15 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
     >;
   },
 
+  async signIdentitySuccessorKeyDirectoryCheckpoint(params) {
+    return (await this[workerSend](
+      "sign-identity-successor-key-directory-checkpoint",
+      params,
+    )) as Awaited<
+      ReturnType<SignWorkerClientMethods["signIdentitySuccessorKeyDirectoryCheckpoint"]>
+    >;
+  },
+
   async signDeviceKeyDirectoryCheckpoint(params) {
     return (await this[workerSend]("sign-device-key-directory-checkpoint", params)) as Awaited<
       ReturnType<SignWorkerClientMethods["signDeviceKeyDirectoryCheckpoint"]>
@@ -467,6 +479,13 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
     return (await this[workerSend]("sign-identity-key-directory-event", params)) as Awaited<
       ReturnType<SignWorkerClientMethods["signIdentityKeyDirectoryEvent"]>
     >;
+  },
+
+  async signIdentitySuccessorKeyDirectoryEvent(params) {
+    return (await this[workerSend](
+      "sign-identity-successor-key-directory-event",
+      params,
+    )) as Awaited<ReturnType<SignWorkerClientMethods["signIdentitySuccessorKeyDirectoryEvent"]>>;
   },
 
   async signDeviceKeyDirectoryEvent(params) {
@@ -600,13 +619,6 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
 
   async verifyDocumentUpdateSignature(params) {
     const result = (await this[workerSend]("verify-document-update-signature", params)) as {
-      valid: boolean;
-    };
-    return result.valid;
-  },
-
-  async verifyDocumentUpdateEd25519Signature(params) {
-    const result = (await this[workerSend]("verify-document-update-ed25519-signature", params)) as {
       valid: boolean;
     };
     return result.valid;

@@ -6,4 +6,5 @@ export {
   performKekRotation,
   createWorkspaceKekRotationTrigger,
 } from "./lib/kek-rotation/kek-rotation";
+export { rotateCurrentUserIdentity } from "./lib/identity-rotation/identity-rotation";
 export { DeviceRegistrationFlow } from "./ui/register/DeviceRegistrationFlow";

@@ -19,10 +19,15 @@ import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 import { createWorkspacePinBootstrap } from "@/shared/lib/key-directory/workspace-pin-bootstrap";
 import { buildInvitationExpiryIso, buildInvitationLink } from "@/shared/lib/invite/link";
+import { invitationSecretCommitment } from "../../lib/invitation/token";
 import {
-  invitationSecretCommitment,
-  invitationTokenWithFragmentSecrets,
-} from "../../lib/invitation/token";
+  invitationRecipientAadUserId,
+  invitationRecipientDelivery,
+  invitationRecipientDeviceIds,
+  invitationRecipientToken,
+  normalizeInvitationRecipient,
+} from "../../lib/invitation/recipient-delivery";
+import { buildWorkspaceRecipientDeliveryApproval } from "../../lib/invitation/recipient-bound-delivery";
 
 export interface WorkspaceInvitationRoleOption {
   id: string;
@@ -43,6 +48,7 @@ interface UseWorkspaceInvitationManagementOptions {
 }
 
 type InvitationListItem = components["schemas"]["InvitationListItem"];
+type InvitationRecipientResponse = components["schemas"]["InvitationRecipientResponse"];
 
 export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitationManagementOptions) {
   const queryClient = useQueryClient();
@@ -56,6 +62,12 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
     queryFn: () => workspacesApi.listInvitations(workspaceId()!),
     enabled: !!workspaceId() && canManageInvitations(),
   }));
+  const deliveryAttempts = createQuery(() => ({
+    queryKey: ["invitation-delivery-attempts", workspaceId()],
+    queryFn: () => workspacesApi.listInvitationDeliveryAttempts(workspaceId()!),
+    enabled: !!workspaceId() && canManageInvitations(),
+    refetchInterval: 3000,
+  }));
 
   const [inviteDialogOpen, setInviteDialogOpen] = createSignal(false);
   const [inviteEmail, setInviteEmail] = createSignal("");
@@ -64,6 +76,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
   const [isInviting, setIsInviting] = createSignal(false);
   const [inviteLink, setInviteLink] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
+  const [approvingAttemptId, setApprovingAttemptId] = createSignal<string | null>(null);
 
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -103,6 +116,9 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
       if (!cryptoWorkerReady()) throw new Error("Crypto worker not ready");
 
       const worker = getCryptoWorker();
+      const recipient = normalizeInvitationRecipient(
+        (await workspacesApi.resolveInvitationRecipient(id, email)) as InvitationRecipientResponse,
+      );
       const { kekVersion: currentKekVersion } = await resolveActiveKek(id, getKekResolverSession());
       const { token: tokenBase64, tokenHash, tokenPrefix } = await worker.generateInvitationToken();
       const { token: bootstrapSecret } = await worker.generateInvitationToken();
@@ -142,11 +158,12 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
         role_id: targetRole.id,
         workspace_id: id,
       };
+      const recipientDelivery = invitationRecipientDelivery(recipient);
       const bootstrapPackage = await worker.wrapKekForInvitationBootstrap({
         protocol: "refmd.workspace-invitation-bootstrap",
         workspaceId: id,
         keyVersion: currentKekVersion,
-        bootstrapSecret,
+        ...(recipientDelivery ? { recipientDelivery } : { bootstrapSecret }),
         aad: {
           protocol: "refmd.workspace-invitation-bootstrap",
           version: 1,
@@ -155,6 +172,9 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
           invitation_id: invitationId,
           role_id: targetRole.id,
           invited_email: email.trim().toLowerCase(),
+          delivery_mode: recipient.delivery_mode,
+          recipient_user_id: invitationRecipientAadUserId(recipient),
+          recipient_device_ids: invitationRecipientDeviceIds(recipient),
           key_version_context: { workspace_kek_version: currentKekVersion },
           token_hash: tokenHash,
         },
@@ -171,6 +191,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
           workspace_pin_bootstrap: workspacePinBootstrap.bootstrap,
         },
         redeemAuthorityInvitationId: invitationId,
+        includeWorkspaceKek: recipient.delivery_mode === "unknown_fragment",
       });
       const keyDirectoryAppend = await buildWorkspaceInvitationCreatedKeyDirectoryAppend({
         workspaceId: id,
@@ -182,6 +203,9 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
         baseRole: targetRole.base_role,
         kekVersion: currentKekVersion,
         invitedEmail: email,
+        deliveryMode: recipient.delivery_mode,
+        recipientUserId: recipient.recipient_user_id,
+        recipientDeviceIds: invitationRecipientDeviceIds(recipient),
         expiresEventSequence,
         redeemAuthority: {
           signingKeyId: redeemAuthority.signer.signing_key_id,
@@ -204,6 +228,9 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
         kek_version: currentKekVersion,
         role_id: targetRole.id,
         invited_email: email,
+        delivery_mode: recipient.delivery_mode,
+        recipient_user_id: recipient.recipient_user_id,
+        recipient_device_ids: invitationRecipientDeviceIds(recipient),
         expires_at: expiresAt,
         encrypted_bootstrap_package: bootstrapPackage as WorkspaceInvitationBootstrapPackage,
         bootstrap_key_commitment: bootstrapSecretCommitment,
@@ -211,7 +238,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
           canonicalizeStrictBytes(bootstrapPackage as StrictJsonValue),
         ),
         bootstrap_package_key_recipient_wrap:
-          bootstrapPackage.package_key_recipient_wrap as components["schemas"]["InvitationBootstrapCiphertext"],
+          bootstrapPackage.package_key_recipient_wrap as components["schemas"]["InvitationPackageKeyRecipientWrap"],
         bootstrap_package_key_maintenance_wrap:
           bootstrapPackage.package_key_maintenance_wrap as components["schemas"]["InvitationBootstrapMaintenanceWrap"],
         bootstrap_suite_id: "refmd-v2-invitation-bootstrap-xchacha20poly1305" as const,
@@ -232,7 +259,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
       setInviteLink(
         buildInvitationLink(
           window.location.origin,
-          invitationTokenWithFragmentSecrets(tokenBase64, bootstrapSecret),
+          invitationRecipientToken(recipient, tokenBase64, bootstrapSecret),
         ),
       );
       invalidateInvitations();
@@ -300,6 +327,53 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
     }
   };
 
+  const approveDeliveryAttempt = async (
+    attempt: components["schemas"]["InvitationDeliveryAttemptResponse"],
+  ) => {
+    const id = workspaceId();
+    if (!id || attempt.context_kind !== "workspace_invitation") return;
+
+    setApprovingAttemptId(attempt.redeem_attempt_id);
+    options.setError(null);
+    try {
+      if (!cryptoWorkerReady()) throw new Error("Crypto worker not ready");
+      const auth = authState();
+      const device = deviceState();
+      if (!auth?.user.id || !device?.deviceId) throw new Error("Session not ready");
+      const directory = await fetchVerifiedKeyDirectory({
+        scopeKind: "workspace",
+        scopeId: id,
+        rrpDeviceId: device.deviceId,
+      });
+      const pinBootstrap = await createWorkspacePinBootstrap({
+        workspaceId: id,
+        checkpointEnvelope: directory.checkpoint,
+        actorUserId: auth.user.id,
+        actorDeviceId: device.deviceId,
+      });
+      const approval = await buildWorkspaceRecipientDeliveryApproval({
+        attempt,
+        checkpointEnvelope: directory.checkpoint,
+        workspacePinBootstrap: pinBootstrap.bootstrap,
+        workspacePinBootstrapHash: pinBootstrap.hash,
+        actorUserId: auth.user.id,
+        actorDeviceId: device.deviceId,
+      });
+      await workspacesApi.approveInvitationDeliveryAttempt(
+        id,
+        attempt.redeem_attempt_id,
+        approval as unknown as components["schemas"]["ApproveInvitationDeliveryAttemptRequest"],
+      );
+      await queryClient.invalidateQueries({
+        queryKey: ["invitation-delivery-attempts", id],
+      });
+    } catch (err) {
+      options.setError(err instanceof Error ? err.message : "Failed to approve key delivery");
+    } finally {
+      setApprovingAttemptId(null);
+    }
+  };
+
   const hasPendingInvitations = () => {
     if (!canManageInvitations()) return false;
     return (invitations.data?.invitations?.length ?? 0) > 0;
@@ -311,6 +385,7 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
 
   return {
     invitations,
+    deliveryAttempts,
     inviteDialogOpen,
     openInviteDialog,
     resetInviteState,
@@ -326,6 +401,8 @@ export function useWorkspaceInvitationManagement(options: UseWorkspaceInvitation
     copyInviteLink,
     createInvitation,
     revokeInvitation,
+    approveDeliveryAttempt,
+    approvingAttemptId,
     assignableRoles,
     defaultRoleAssignable,
     canManageInvitations,

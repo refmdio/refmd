@@ -102,6 +102,7 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
       add :old_key_version, :integer, null: false
       add :deletion_manifest, :map, null: false
       add :device_key_deletion_proofs, :map, null: false
+      add :wipe_required_device_ids, {:array, :binary_id}, null: false, default: []
 
       timestamps(type: :utc_datetime_usec, updated_at: false)
     end
@@ -131,7 +132,7 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
         null: false,
         primary_key: true
 
-      add :required_kek_version, :integer, null: false
+      add :required_kek_version, :integer, null: false, primary_key: true
       add :reason, :text, null: false, default: "kek_rotation_deletion_proof_missing"
       add :required_at, :utc_datetime_usec, null: false
 

@@ -4,8 +4,10 @@ defmodule RefMD.Workspaces.Guests.Invitations do
   import Ecto.Query
 
   alias RefMD.Documents.Document
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
-  alias RefMD.Sharing.Share
+  alias RefMD.Sharing.{Share, ShareKey}
+  alias RefMD.Users
   alias RefMD.Workspaces.Invitations.KeyDirectory
 
   alias RefMD.Workspaces.{
@@ -26,17 +28,13 @@ defmodule RefMD.Workspaces.Guests.Invitations do
 
       with %Workspace{} <- workspace,
            :ok <- validate_workspace_settings(workspace),
-           :ok <- validate_workspace_crypto_state(workspace, attrs.kek_version),
+           :ok <- validate_invitation_key_context(workspace, attrs),
            {:ok, actor_role} <- lock_actor_role(attrs.workspace_id, attrs.invited_by),
            :ok <- validate_guest_role(actor_role),
+           :ok <- validate_recipient_delivery_binding(attrs),
            {:ok, guest_role} <- get_guest_workspace_role(workspace.id),
            :ok <- validate_guest_role_escalation(actor_role, guest_role, attrs.permission),
-           :ok <-
-             validate_scope_kind(
-               attrs.workspace_id,
-               attrs.scope_kind,
-               attrs.scope_id
-             ),
+           :ok <- validate_scope_kind(attrs),
            {:ok, invitation} <- insert_guest_invitation(attrs),
            :ok <-
              KeyDirectory.append_if_present(attrs[:key_directory], %{
@@ -63,9 +61,16 @@ defmodule RefMD.Workspaces.Guests.Invitations do
         token_prefix: i.token_prefix,
         scope_kind: i.scope_kind,
         scope_id: i.scope_id,
+        share_id: i.share_id,
         permission: i.permission,
+        invited_email: i.invited_email,
+        delivery_mode: i.delivery_mode,
+        recipient_user_id: i.recipient_user_id,
+        recipient_device_ids: i.recipient_device_ids,
         invited_by: i.invited_by,
         kek_version: i.kek_version,
+        share_key_version: i.share_key_version,
+        dek_version: i.dek_version,
         bootstrap_key_commitment: i.bootstrap_key_commitment,
         encrypted_bootstrap_package: i.encrypted_bootstrap_package,
         bootstrap_package_hash: i.bootstrap_package_hash,
@@ -171,17 +176,76 @@ defmodule RefMD.Workspaces.Guests.Invitations do
   defp validate_workspace_settings(%Workspace{guest_invites_enabled: true}), do: :ok
   defp validate_workspace_settings(_workspace), do: {:error, :guest_invites_disabled}
 
-  defp validate_workspace_crypto_state(%Workspace{needs_kek_rotation: true}, _kek_version),
-    do: {:error, :kek_rotation_in_progress}
-
-  defp validate_workspace_crypto_state(%Workspace{current_kek_version: 0}, _kek_version),
-    do: {:error, :encryption_setup_incomplete}
-
-  defp validate_workspace_crypto_state(%Workspace{} = workspace, kek_version) do
-    if kek_version == workspace.current_kek_version,
-      do: :ok,
-      else: {:error, :kek_version_mismatch}
+  defp validate_recipient_delivery_binding(attrs) do
+    Users.validate_invitation_delivery_binding(
+      attrs[:invited_email],
+      attrs.delivery_mode,
+      attrs[:recipient_user_id],
+      attrs[:recipient_device_ids] || []
+    )
   end
+
+  defp validate_invitation_key_context(
+         %Workspace{current_kek_version: 0},
+         %{scope_kind: "workspace"}
+       ),
+       do: {:error, :encryption_setup_incomplete}
+
+  defp validate_invitation_key_context(
+         %Workspace{} = workspace,
+         %{scope_kind: "workspace"} = attrs
+       ) do
+    cond do
+      RotationPolicy.kek_overdue?(workspace) -> {:error, :kek_rotation_in_progress}
+      attrs.kek_version != workspace.current_kek_version -> {:error, :kek_version_mismatch}
+      attrs[:share_id] != nil -> {:error, :invalid_key_version_context}
+      attrs[:share_key_version] != nil -> {:error, :invalid_key_version_context}
+      attrs[:dek_version] != nil -> {:error, :invalid_key_version_context}
+      true -> :ok
+    end
+  end
+
+  defp validate_invitation_key_context(%Workspace{} = workspace, attrs)
+       when attrs.scope_kind in ["document", "folder", "share"] do
+    target =
+      from(s in Share,
+        join: d in Document,
+        on: d.id == s.document_id,
+        join: sk in ShareKey,
+        on: sk.share_id == s.id,
+        where:
+          s.id == ^attrs.share_id and d.workspace_id == ^workspace.id and
+            is_nil(d.archived_at),
+        lock: "FOR SHARE",
+        select: %{share: s, document: d, share_key: sk},
+        limit: 1
+      )
+      |> Repo.one()
+
+    with %{share: share, document: document, share_key: share_key} <- target,
+         true <- attrs.kek_version == nil,
+         true <- attrs.share_key_version == share_key.key_version,
+         true <- attrs.dek_version == share_key.key_version,
+         true <- attrs.permission == share.permission,
+         true <- scoped_share_matches?(attrs, share, document) do
+      :ok
+    else
+      nil -> {:error, :share_not_found}
+      _ -> {:error, :invalid_key_version_context}
+    end
+  end
+
+  defp validate_invitation_key_context(_workspace, _attrs),
+    do: {:error, :invalid_key_version_context}
+
+  defp scoped_share_matches?(%{scope_kind: "share", scope_id: scope_id}, share, _document),
+    do: scope_id == share.id
+
+  defp scoped_share_matches?(%{scope_kind: scope_kind, scope_id: scope_id}, share, document)
+       when scope_kind in ["document", "folder"],
+       do: scope_id == document.id and scope_kind == share.scope
+
+  defp scoped_share_matches?(_attrs, _share, _document), do: false
 
   defp validate_guest_role(role) do
     if role |> RefMD.Workspaces.effective_permissions() |> MapSet.member?("guest:invite"),
@@ -231,37 +295,18 @@ defmodule RefMD.Workspaces.Guests.Invitations do
     if role, do: {:ok, role}, else: {:error, :no_guest_role}
   end
 
-  defp validate_scope_kind(_workspace_id, "workspace", nil), do: :ok
-
-  defp validate_scope_kind(workspace_id, "document", scope_id) when is_binary(scope_id) do
-    case Repo.get(Document, scope_id) do
-      %Document{workspace_id: ^workspace_id, doc_type: "document", archived_at: nil} -> :ok
-      _ -> {:error, :invalid_scope}
-    end
+  defp validate_scope_kind(%{scope_kind: "workspace"} = attrs) do
+    if is_nil(attrs[:scope_id]) and is_nil(attrs[:share_id]),
+      do: :ok,
+      else: {:error, :invalid_scope_kind}
   end
 
-  defp validate_scope_kind(workspace_id, "folder", scope_id) when is_binary(scope_id) do
-    case Repo.get(Document, scope_id) do
-      %Document{workspace_id: ^workspace_id, doc_type: "folder", archived_at: nil} -> :ok
-      _ -> {:error, :invalid_scope}
-    end
-  end
+  defp validate_scope_kind(%{scope_kind: scope_kind, scope_id: scope_id, share_id: share_id})
+       when scope_kind in ["document", "folder", "share"] and is_binary(scope_id) and
+              is_binary(share_id),
+       do: :ok
 
-  defp validate_scope_kind(workspace_id, "share", scope_id) when is_binary(scope_id) do
-    case from(s in Share,
-           join: d in Document,
-           on: d.id == s.document_id,
-           where: s.id == ^scope_id and d.workspace_id == ^workspace_id and is_nil(d.archived_at),
-           limit: 1
-         )
-         |> Repo.one() do
-      %Share{} -> :ok
-      _ -> {:error, :invalid_scope}
-    end
-  end
-
-  defp validate_scope_kind(_workspace_id, _scope_kind, _scope_id),
-    do: {:error, :invalid_scope_kind}
+  defp validate_scope_kind(_attrs), do: {:error, :invalid_scope_kind}
 
   defp insert_guest_invitation(attrs) do
     now = DateTime.utc_now()
@@ -274,8 +319,15 @@ defmodule RefMD.Workspaces.Guests.Invitations do
       token_prefix: attrs.token_prefix,
       scope_kind: attrs.scope_kind,
       scope_id: attrs.scope_id,
+      share_id: attrs[:share_id],
       permission: attrs.permission,
+      invited_email: attrs[:invited_email],
+      delivery_mode: attrs.delivery_mode,
+      recipient_user_id: attrs[:recipient_user_id],
+      recipient_device_ids: attrs[:recipient_device_ids] || [],
       kek_version: attrs.kek_version,
+      share_key_version: attrs[:share_key_version],
+      dek_version: attrs[:dek_version],
       bootstrap_key_commitment: attrs.bootstrap_key_commitment,
       encrypted_bootstrap_package: attrs.encrypted_bootstrap_package,
       bootstrap_package_hash: attrs.bootstrap_package_hash,
@@ -307,6 +359,9 @@ defmodule RefMD.Workspaces.Guests.Invitations do
 
       foreign_constraint_error?(changeset, :scope_id) ->
         {:error, :invalid_scope}
+
+      foreign_constraint_error?(changeset, :share_id) ->
+        {:error, :share_not_found}
 
       true ->
         {:error, changeset}
@@ -342,7 +397,7 @@ defmodule RefMD.Workspaces.Guests.Invitations do
   end
 
   defp with_transaction_retry(fun, attempt \\ 1) do
-    Repo.transaction(fun)
+    Repo.transaction(fun, isolation: :serializable)
   rescue
     e in Postgrex.Error ->
       retryable? =

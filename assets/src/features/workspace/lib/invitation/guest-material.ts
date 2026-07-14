@@ -80,6 +80,18 @@ export async function rememberGuestRedeemMaterial(
   );
 }
 
+export async function forgetGuestRedeemMaterial(
+  token: string,
+  material: GuestRedeemMaterial,
+): Promise<void> {
+  const worker = getCryptoWorker();
+  if (!(await worker.loadStoredDsk())) return;
+  await worker.deleteGuestInvitationMaterialWithDsk(await tokenStorageKey(token));
+  await worker.deleteGuestInvitationMaterialWithDsk(
+    activeStorageKey(material.body.guest_user_id, material.body.device_id),
+  );
+}
+
 async function rememberGuestRedeemMaterialByKey(
   key: string,
   material: GuestRedeemMaterial,

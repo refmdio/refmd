@@ -53,6 +53,7 @@ const WRAPPED_UMK_KEY = "wrapped-umk";
 const WRAPPED_DEVICE_ECDH_KEY = "wrapped-device-ecdh";
 const WRAPPED_DEVICE_MLKEM_KEY = "wrapped-device-mlkem768-material";
 const WRAPPED_DEVICE_SIGNING_KEY = "wrapped-device-hybrid-signing";
+const GUEST_PENDING_KEYS_PREFIX = "guest-pending-keys:";
 
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -893,6 +894,54 @@ export async function handlePersistCurrentKeysWithDsk(
   }
 
   return { storedUmk, storedDeviceKeys };
+}
+
+export async function handlePersistGuestPendingKeysWithDsk(
+  state: WorkerKeyState,
+  payload: HandlerPayload,
+): Promise<unknown> {
+  const storageKey = guestPendingKeysStorageKey(payload.storageKey);
+  const userId = requiredString(payload.userId, "user_id");
+  const wrappedUmk = await handleWrapUmkWithDsk(state, { userId });
+  const wrappedDevice = await handleWrapDeviceKeysWithDsk(state, { userId });
+  await storeDskStoreValueInWorker(storageKey, { wrappedUmk, wrappedDevice });
+  return { stored: true };
+}
+
+export async function handleRestoreGuestPendingKeysWithDsk(
+  state: WorkerKeyState,
+  payload: HandlerPayload,
+): Promise<unknown> {
+  const storageKey = guestPendingKeysStorageKey(payload.storageKey);
+  const userId = requiredString(payload.userId, "user_id");
+  const signingKeyId = requiredString(payload.signingKeyId, "signing_key_id");
+  const stored = await loadDskStoreValueInWorker<{
+    wrappedUmk: { ciphertext: ArrayBuffer; iv: ArrayBuffer };
+    wrappedDevice: {
+      wrappedEcdh: unknown;
+      wrappedMlkem: unknown;
+      wrappedSigning: unknown;
+    };
+  }>(storageKey);
+  if (!stored) return { restored: false };
+  await handleUnwrapUmkFromDsk(state, { ...stored.wrappedUmk, userId });
+  await handleUnwrapDeviceKeysFromDsk(state, {
+    ...stored.wrappedDevice,
+    userId,
+    signingKeyId,
+  });
+  return { restored: true };
+}
+
+export async function handleDeleteGuestPendingKeysWithDsk(
+  payload: HandlerPayload,
+): Promise<unknown> {
+  await deleteDskStoreValueInWorker(guestPendingKeysStorageKey(payload.storageKey));
+  return {};
+}
+
+function guestPendingKeysStorageKey(value: unknown): string {
+  return `${GUEST_PENDING_KEYS_PREFIX}${requiredString(value, "storage_key")}`;
 }
 
 export async function handleUnwrapDeviceKeysFromDsk(

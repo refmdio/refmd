@@ -1,6 +1,24 @@
-import { describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { assertShareBootstrapMatchesTrustAnchor } from "./session";
+const cleanupMocks = vi.hoisted(() => ({
+  clearShareSecrets: vi.fn(),
+  clearStoredShareParticipantSessions: vi.fn(),
+  resetPhoenixConnection: vi.fn(),
+}));
+
+vi.mock("@/shared/lib/crypto/worker/client", () => ({
+  getCryptoWorker: () => ({ clearShareSecrets: cleanupMocks.clearShareSecrets }),
+}));
+
+vi.mock("@/shared/lib/auth/share-participant-session-store", () => ({
+  clearStoredShareParticipantSessions: cleanupMocks.clearStoredShareParticipantSessions,
+}));
+
+vi.mock("@/shared/lib/ws/phoenix-channel", () => ({
+  resetPhoenixConnection: cleanupMocks.resetPhoenixConnection,
+}));
+
+import { assertShareBootstrapMatchesTrustAnchor, clearShareParticipantSession } from "./session";
 import type { ShareSessionTrustAnchor } from "@/shared/lib/auth/share-participant-session-store";
 
 const hashA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -52,6 +70,12 @@ function bootstrap(overrides: Record<string, string | boolean> = {}) {
 }
 
 describe("share session trust anchor bootstrap matching", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanupMocks.clearShareSecrets.mockResolvedValue(undefined);
+    cleanupMocks.clearStoredShareParticipantSessions.mockResolvedValue(undefined);
+  });
+
   it("accepts a newer latest bootstrap event hash for anchor refresh", () => {
     expect(() =>
       assertShareBootstrapMatchesTrustAnchor(shareSlug, anchor(), bootstrap()),
@@ -66,5 +90,16 @@ describe("share session trust anchor bootstrap matching", () => {
         bootstrap({ share_id: "55555555-5555-4555-8555-555555555555" }),
       ),
     ).toThrow("share_trust_anchor_mismatch");
+  });
+
+  it("reports Worker cleanup failure after continuing stored-session cleanup", async () => {
+    cleanupMocks.clearShareSecrets.mockRejectedValueOnce(new Error("worker cleanup failed"));
+
+    await expect(clearShareParticipantSession()).rejects.toThrow(
+      "share_session_cleanup_incomplete",
+    );
+
+    expect(cleanupMocks.clearStoredShareParticipantSessions).toHaveBeenCalledTimes(1);
+    expect(cleanupMocks.resetPhoenixConnection).toHaveBeenCalledWith("share");
   });
 });

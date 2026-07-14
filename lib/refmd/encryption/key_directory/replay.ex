@@ -34,7 +34,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     "guest_invitation_redeemed",
     "guest_grant_revoked",
     "guest_device_revoked",
-    "document_update_accepted",
     "document_write_session_admitted",
     "document_write_state_changed",
     "document_snapshot_accepted"
@@ -56,6 +55,7 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
 
     candidate_payload["identity_keys"]
     |> identity_entries_for_event(payload)
+    |> Enum.map(&key_entry_at_admission/1)
     |> append_identity_entries!(replay_payload)
   end
 
@@ -67,8 +67,16 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
         _authorized_share_participant_keys
       ) do
     assert_event_semantics_against_checkpoint!(payload, candidate_payload)
-    signing_entry = key_entry_by_id!(candidate_payload, payload["body"]["signing_key_id"])
-    encryption_entry = key_entry_by_id!(candidate_payload, payload["body"]["encryption_key_id"])
+
+    signing_entry =
+      candidate_payload
+      |> key_entry_by_id!(payload["body"]["signing_key_id"])
+      |> key_entry_at_admission()
+
+    encryption_entry =
+      candidate_payload
+      |> key_entry_by_id!(payload["body"]["encryption_key_id"])
+      |> key_entry_at_admission()
 
     assert_key_entry_valid_from_event!(signing_entry, payload)
     assert_key_entry_valid_from_event!(encryption_entry, payload)
@@ -119,7 +127,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
         authorized_share_participant_keys
       )
       when event_type in [
-             "document_update_accepted",
              "document_write_session_admitted",
              "document_snapshot_accepted"
            ] do
@@ -184,6 +191,58 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     assert_event_semantics_against_checkpoint!(payload, candidate_payload)
     body = payload["body"]
     assert_invitation_redeem_authority_matches!(signatures, body, "invitation_id")
+    apply_workspace_invitation_redeemed!(replay_payload, payload, candidate_payload)
+  end
+
+  def apply_event_to_checkpoint_payload!(
+        replay_payload,
+        %{"event_type" => "guest_invitation_redeemed"} = payload,
+        signatures,
+        candidate_payload,
+        _authorized_share_participant_keys
+      ) do
+    assert_event_semantics_against_checkpoint!(payload, candidate_payload)
+    body = payload["body"]
+    assert_invitation_redeem_authority_matches!(signatures, body, "guest_invitation_id")
+    apply_guest_invitation_redeemed!(replay_payload, payload, candidate_payload)
+  end
+
+  def apply_event_to_checkpoint_payload!(
+        replay_payload,
+        %{"event_type" => event_type} = payload,
+        _signatures,
+        candidate_payload,
+        _authorized_share_participant_keys
+      )
+      when event_type in @checkpoint_noop_event_types do
+    assert_event_semantics_against_checkpoint!(payload, candidate_payload)
+    replay_payload
+  end
+
+  def apply_event_to_checkpoint_payload!(
+        _replay_payload,
+        payload,
+        _signatures,
+        _candidate_payload,
+        _authorized_share_participant_keys
+      ) do
+    raise ArgumentError,
+          "key_directory_event_semantic_validator_missing:#{payload["event_type"]}"
+  end
+
+  def apply_recipient_bound_workspace_invitation_redeemed!(
+        replay_payload,
+        %{"event_type" => "workspace_invitation_redeemed", "actor" => actor} = payload,
+        signatures,
+        candidate_payload
+      ) do
+    assert_event_semantics_against_checkpoint!(payload, candidate_payload)
+    assert_device_signer_matches_actor!(signatures, actor)
+    apply_workspace_invitation_redeemed!(replay_payload, payload, candidate_payload)
+  end
+
+  defp apply_workspace_invitation_redeemed!(replay_payload, payload, candidate_payload) do
+    body = payload["body"]
     user_id = body["redeemed_user_id"]
     device_id = body["redeemed_device_id"]
 
@@ -252,16 +311,19 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     |> update_key_entries!("device_keys", encryption_entry)
   end
 
-  def apply_event_to_checkpoint_payload!(
+  def apply_recipient_bound_guest_invitation_redeemed!(
         replay_payload,
-        %{"event_type" => "guest_invitation_redeemed"} = payload,
+        %{"event_type" => "guest_invitation_redeemed", "actor" => actor} = payload,
         signatures,
-        candidate_payload,
-        _authorized_share_participant_keys
+        candidate_payload
       ) do
     assert_event_semantics_against_checkpoint!(payload, candidate_payload)
+    assert_device_signer_matches_actor!(signatures, actor)
+    apply_guest_invitation_redeemed!(replay_payload, payload, candidate_payload)
+  end
+
+  defp apply_guest_invitation_redeemed!(replay_payload, payload, candidate_payload) do
     body = payload["body"]
-    assert_invitation_redeem_authority_matches!(signatures, body, "guest_invitation_id")
     user_id = body["guest_user_id"]
     device_id = body["guest_device_id"]
 
@@ -349,29 +411,6 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     |> update_key_entries_if_missing!("device_keys", encryption_entry)
   end
 
-  def apply_event_to_checkpoint_payload!(
-        replay_payload,
-        %{"event_type" => event_type} = payload,
-        _signatures,
-        candidate_payload,
-        _authorized_share_participant_keys
-      )
-      when event_type in @checkpoint_noop_event_types do
-    assert_event_semantics_against_checkpoint!(payload, candidate_payload)
-    replay_payload
-  end
-
-  def apply_event_to_checkpoint_payload!(
-        _replay_payload,
-        payload,
-        _signatures,
-        _candidate_payload,
-        _authorized_share_participant_keys
-      ) do
-    raise ArgumentError,
-          "key_directory_event_semantic_validator_missing:#{payload["event_type"]}"
-  end
-
   def apply_document_admission_event_to_checkpoint_payload!(
         replay_payload,
         payload,
@@ -430,6 +469,8 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
         entry["key_material"]["owner_kind"] == "identity"
     end)
   end
+
+  defp key_entry_at_admission(entry), do: Map.delete(entry, "revoked_at")
 
   def append_identity_entries!([], _replay_payload),
     do: raise(ArgumentError, "key_directory_key_entry_missing")

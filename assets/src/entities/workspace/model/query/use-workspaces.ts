@@ -3,47 +3,49 @@ import { createQuery } from "@tanstack/solid-query";
 import { workspacesApi } from "@/shared/api";
 import { authState, deviceState } from "@/entities/session";
 import { currentWorkspaceId, setCurrentWorkspaceId } from "../selection/selection";
-import { putOfflineWorkspaces, getOfflineWorkspaces } from "@/shared/lib/offline/storage/store";
+import { putOfflineWorkspaces } from "@/shared/lib/offline/storage/store";
+import { verifyAndPinAuditCheckpoint } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
+import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
+import { clientError } from "@/shared/lib/logger";
+
+export async function fetchVerifiedWorkspaces() {
+  const deviceId = deviceState()?.deviceId;
+  if (!deviceId) throw new Error("workspace_query_device_required");
+
+  const result = await workspacesApi.list();
+  await Promise.all(
+    result.workspaces.map(async (workspace) => {
+      try {
+        await fetchVerifiedKeyDirectory({
+          scopeKind: "workspace",
+          scopeId: workspace.id,
+          rrpDeviceId: deviceId,
+        });
+        await verifyAndPinAuditCheckpoint(workspace.audit_checkpoint);
+      } catch (error) {
+        clientError("workspace_verification_failed", { error, workspaceId: workspace.id });
+        throw error;
+      }
+    }),
+  );
+  putOfflineWorkspaces(
+    result.workspaces.map((ws) => ({
+      id: ws.id,
+      name: ws.name,
+      description: ws.description ?? "",
+      slug: ws.slug,
+      isDefault: ws.is_default ?? false,
+      updatedAt: ws.updated_at,
+      lastSyncedAt: Date.now(),
+    })),
+  ).catch(() => {});
+  return result;
+}
 
 export function useWorkspaces() {
   const query = createQuery(() => ({
     queryKey: ["workspaces"],
-    queryFn: async () => {
-      try {
-        const result = await workspacesApi.list();
-        // Cache for offline use
-        putOfflineWorkspaces(
-          result.workspaces.map((ws) => ({
-            id: ws.id,
-            name: ws.name,
-            description: ws.description ?? "",
-            slug: ws.slug,
-            isDefault: ws.is_default ?? false,
-            updatedAt: ws.updated_at,
-            lastSyncedAt: Date.now(),
-          })),
-        ).catch(() => {});
-        return result;
-      } catch (err) {
-        const cached = await getOfflineWorkspaces().catch(() => []);
-        if (cached.length > 0) {
-          return {
-            workspaces: cached.map((ws) => ({
-              id: ws.id,
-              name: ws.name,
-              description: ws.description,
-              slug: ws.slug,
-              is_default: ws.isDefault,
-              updated_at: ws.updatedAt,
-              current_kek_version: 0,
-              needs_kek_rotation: false,
-              kek_rotation_initiator_user_id: null,
-            })),
-          };
-        }
-        throw err;
-      }
-    },
+    queryFn: fetchVerifiedWorkspaces,
     enabled: !!authState() && !!deviceState(),
   }));
 
@@ -70,6 +72,7 @@ export function useWorkspaces() {
         workspace_id: ws.id,
         current_kek_version: ws.current_kek_version,
         kek_rotation_initiator_user_id: ws.kek_rotation_initiator_user_id ?? null,
+        current_user_base_role: ws.current_user_base_role ?? null,
       }));
 
   const allWorkspaces = () => query.data?.workspaces ?? [];

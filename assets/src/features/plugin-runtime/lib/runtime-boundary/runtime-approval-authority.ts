@@ -166,7 +166,10 @@ export function assertApprovalAuthorityFromVerifiedLineage(
     throw new Error("approval_authority_checkpoint_head_mismatch");
   }
 
-  const memberRoles = new Map<string, string>();
+  const memberAuthorities = new Map<
+    string,
+    { baseRole: string; effectivePermissions?: Set<string> }
+  >();
   const sortedEvents = [...events].sort(
     (left, right) =>
       numberField(left.payload.sequence, "event_sequence_invalid") -
@@ -186,24 +189,30 @@ export function assertApprovalAuthorityFromVerifiedLineage(
     if (scopeKind === "user") continue;
     const body = isRecord(event.payload.body) ? event.payload.body : {};
     if (event.payload.event_type === "member_added") {
-      memberRoles.set(
-        stringField(body.user_id, "approval_authority_member_user_invalid"),
-        stringField(body.base_role, "approval_authority_member_role_invalid"),
-      );
+      memberAuthorities.set(stringField(body.user_id, "approval_authority_member_user_invalid"), {
+        baseRole: stringField(body.base_role, "approval_authority_member_role_invalid"),
+      });
     } else if (event.payload.event_type === "member_role_changed") {
-      memberRoles.set(
-        stringField(body.user_id, "approval_authority_member_user_invalid"),
-        stringField(body.base_role, "approval_authority_member_role_invalid"),
-      );
+      const permissions = body.effective_permissions;
+      if (!Array.isArray(permissions) || !permissions.every((value) => typeof value === "string")) {
+        throw new Error("approval_authority_member_permissions_invalid");
+      }
+      memberAuthorities.set(stringField(body.user_id, "approval_authority_member_user_invalid"), {
+        baseRole: stringField(body.base_role, "approval_authority_member_role_invalid"),
+        effectivePermissions: new Set(permissions),
+      });
     } else if (event.payload.event_type === "member_removed") {
-      memberRoles.delete(stringField(body.user_id, "approval_authority_member_user_invalid"));
+      memberAuthorities.delete(stringField(body.user_id, "approval_authority_member_user_invalid"));
     }
   }
 
   if (!eventHeadFound) throw new Error("approval_authority_event_head_required");
   if (scopeKind === "workspace") {
-    const role = memberRoles.get(userId);
-    if (role !== "owner" && role !== "admin") {
+    const memberAuthority = memberAuthorities.get(userId);
+    const authorized = memberAuthority?.effectivePermissions
+      ? memberAuthority.effectivePermissions.has("workspace:admin")
+      : memberAuthority?.baseRole === "owner" || memberAuthority?.baseRole === "admin";
+    if (!authorized) {
       throw new Error("approval_authority_role_forbidden");
     }
   } else if (userId !== scopeId) {

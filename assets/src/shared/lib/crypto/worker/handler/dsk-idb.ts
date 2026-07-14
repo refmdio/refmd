@@ -164,6 +164,15 @@ export async function loadDskStoreValueInWorker<T>(key: string): Promise<T | nul
   }
 }
 
+export async function loadDskStoreValueStrictInWorker<T>(key: string): Promise<T | null> {
+  const db = await openDskDb();
+  try {
+    return (await idbGet<T>(db, key)) ?? null;
+  } finally {
+    db.close();
+  }
+}
+
 export async function storeDskStoreValueInWorker(key: string, value: unknown): Promise<void> {
   const db = await openDskDb();
   try {

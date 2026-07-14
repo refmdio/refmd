@@ -5,8 +5,17 @@ defmodule RefMD.Documents.Snapshots do
 
   alias RefMD.Crypto.{Blake3, Encoding, Hash, JCS, Signature}
   alias RefMD.Devices.Device
-  alias RefMD.Documents.{Admission, Document, DocumentSnapshot, DocumentUpdate}
+
+  alias RefMD.Documents.{
+    Admission,
+    Document,
+    DocumentDeviceWipeRequirement,
+    DocumentSnapshot,
+    DocumentUpdate
+  }
+
   alias RefMD.Documents.Snapshots.{ProofChain, SignerKeys}
+  alias RefMD.Encryption.{DocumentEncryptedKey, RotationPolicy}
   alias RefMD.Repo
   alias RefMD.Sharing
   alias RefMD.Workspaces
@@ -25,7 +34,7 @@ defmodule RefMD.Documents.Snapshots do
       attrs = maybe_attach_share_participant_writer_context!(document, attrs)
       validate_writable!(document)
       validate_write_permission!(document, actor_id, attrs)
-      validate_device_active!(actor_id, attrs)
+      validate_device_active!(actor_id, attrs, document)
       verify_document_operation_signature_once!("document_update", actor_id, attrs, document)
       validate_update_preconditions!(document, attrs)
 
@@ -49,7 +58,7 @@ defmodule RefMD.Documents.Snapshots do
       attrs = maybe_attach_share_participant_writer_context!(document, attrs)
       validate_writable!(document)
       validate_write_permission!(document, actor_id, attrs)
-      validate_device_active!(actor_id, attrs)
+      validate_device_active!(actor_id, attrs, document)
 
       admission_event_hash = Admission.append_write_session!(document, attrs)
       %{admission_event_hash: admission_event_hash}
@@ -93,10 +102,10 @@ defmodule RefMD.Documents.Snapshots do
       document.active_snapshot_id != attrs.ref_snapshot_id ->
         Repo.rollback(:snapshot_mismatch)
 
-      attrs.key_version < document.min_dek_version ->
+      attrs.key_version != document.min_dek_version ->
         Repo.rollback(:key_version_too_old)
 
-      document.needs_dek_rotation ->
+      RotationPolicy.dek_overdue?(document) ->
         Repo.rollback(:key_rotation_required)
 
       document.needs_rotation_snapshot ->
@@ -112,7 +121,7 @@ defmodule RefMD.Documents.Snapshots do
       document = lock_document(document_id)
       validate_writable!(document)
       validate_write_permission!(document, actor_id, attrs)
-      validate_device_active!(actor_id, attrs)
+      validate_device_active!(actor_id, attrs, document)
       verify_document_operation_signature_once!("document_snapshot", actor_id, attrs, document)
 
       latest_version = validate_snapshot_preconditions!(document, attrs)
@@ -130,7 +139,7 @@ defmodule RefMD.Documents.Snapshots do
         Repo.rollback({:parent_mismatch, build_recovery_data(document)})
       end
 
-      maybe_clear_rotation_snapshot(document, document_id, attrs.key_version)
+      maybe_complete_rotation_snapshot(document, document_id, attrs.key_version)
 
       %{
         snapshot_id: snapshot_id,
@@ -300,10 +309,10 @@ defmodule RefMD.Documents.Snapshots do
 
   defp validate_snapshot_key_version!(document, attrs) do
     cond do
-      attrs.key_version < document.min_dek_version ->
+      attrs.key_version != document.min_dek_version ->
         Repo.rollback({:key_version_too_old, build_recovery_data(document)})
 
-      document.needs_dek_rotation ->
+      RotationPolicy.dek_overdue?(document) ->
         Repo.rollback({:key_version_too_old, build_recovery_data(document)})
 
       true ->
@@ -311,29 +320,17 @@ defmodule RefMD.Documents.Snapshots do
     end
   end
 
-  defp maybe_clear_rotation_snapshot(document, document_id, key_version) do
-    if document.needs_rotation_snapshot and key_version >= document.min_dek_version do
+  defp maybe_complete_rotation_snapshot(document, document_id, key_version) do
+    if document.needs_rotation_snapshot and key_version == document.min_dek_version do
       dek_exists =
         Repo.exists?(
-          from(k in RefMD.Encryption.DocumentEncryptedKey,
+          from(k in DocumentEncryptedKey,
             where: k.document_id == ^document_id and k.key_version == ^key_version
           )
         )
 
-      if dek_exists do
-        delete_obsolete_document_keys(document_id, key_version)
-
-        from(d in Document, where: d.id == ^document_id)
-        |> Repo.update_all(set: [needs_rotation_snapshot: false])
-      end
+      unless dek_exists, do: Repo.rollback(:rotation_snapshot_key_missing)
     end
-  end
-
-  defp delete_obsolete_document_keys(document_id, key_version) do
-    from(k in RefMD.Encryption.DocumentEncryptedKey,
-      where: k.document_id == ^document_id and k.key_version < ^key_version
-    )
-    |> Repo.delete_all()
   end
 
   defp insert_snapshot!(document_id, snapshot_id, latest_version, attrs) do
@@ -410,7 +407,7 @@ defmodule RefMD.Documents.Snapshots do
 
   defp lock_document(document_id) do
     case Repo.query(
-           "SELECT id, workspace_id, active_snapshot_id, archived_at, write_state, min_dek_version, needs_dek_rotation, needs_rotation_snapshot FROM documents WHERE id = $1 FOR UPDATE",
+           "SELECT id, workspace_id, active_snapshot_id, archived_at, write_state, min_dek_version, needs_dek_rotation, needs_rotation_snapshot, dek_rotation_due_at, created_at FROM documents WHERE id = $1 FOR UPDATE",
            [Ecto.UUID.dump!(document_id)]
          ) do
       {:ok, %{rows: [row]}} ->
@@ -422,7 +419,9 @@ defmodule RefMD.Documents.Snapshots do
           write_state,
           min_dek_version,
           needs_dek_rotation,
-          needs_rotation_snapshot
+          needs_rotation_snapshot,
+          dek_rotation_due_at,
+          created_at
         ] =
           row
 
@@ -434,7 +433,9 @@ defmodule RefMD.Documents.Snapshots do
           write_state: write_state || "writable",
           min_dek_version: min_dek_version,
           needs_dek_rotation: needs_dek_rotation,
-          needs_rotation_snapshot: needs_rotation_snapshot
+          needs_rotation_snapshot: needs_rotation_snapshot,
+          dek_rotation_due_at: dek_rotation_due_at,
+          created_at: created_at
         }
 
       _ ->
@@ -484,23 +485,32 @@ defmodule RefMD.Documents.Snapshots do
 
   defp validate_device_active!(
          _actor_id,
-         %{session_kind: :share_participant, share_participant_writer_context: _}
+         %{session_kind: :share_participant, share_participant_writer_context: _},
+         _document
        ),
        do: :ok
 
-  defp validate_device_active!(_actor_id, %{session_kind: :share_participant} = attrs) do
+  defp validate_device_active!(_actor_id, %{session_kind: :share_participant} = attrs, _document) do
     principal_id = Map.fetch!(attrs, :principal_id)
     validate_share_device_active!(principal_id, owner_id!(attrs))
   end
 
-  defp validate_device_active!(_actor_id, attrs) do
-    validate_member_device_not_revoked!(owner_id!(attrs))
+  defp validate_device_active!(_actor_id, attrs, document) do
+    device_id = owner_id!(attrs)
+    validate_member_device_not_revoked!(device_id)
+
+    if Repo.exists?(
+         from(r in DocumentDeviceWipeRequirement,
+           where: r.document_id == ^document.id and r.device_id == ^device_id
+         )
+       ),
+       do: Repo.rollback(:device_wipe_required)
   end
 
   defp validate_member_device_not_revoked!(device_id) do
     result =
       Repo.query(
-        "SELECT 1 FROM devices WHERE id = $1 AND revoked_at IS NULL FOR SHARE",
+        "SELECT 1 FROM devices WHERE id = $1 AND revoked_at IS NULL AND identity_wipe_required_at IS NULL FOR SHARE",
         [Ecto.UUID.dump!(device_id)]
       )
 

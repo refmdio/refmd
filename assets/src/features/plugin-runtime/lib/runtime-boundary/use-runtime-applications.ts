@@ -244,7 +244,7 @@ function publishPluginRuntimeDebug(
 }
 
 export async function handlePluginRuntimeSecurityNotification(
-  payload: SecurityNotificationPayload,
+  payload: Pick<SecurityNotificationPayload, "type" | "action_ref">,
   router: PluginRuntimeInvalidationRouter,
   currentWorkspaceId: string,
   refetch: () => void,

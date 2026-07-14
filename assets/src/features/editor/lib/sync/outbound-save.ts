@@ -29,6 +29,7 @@ import { resetWriteSessionCountersForSnapshotBaseline } from "./inbound-verify-d
 import { getLocalDeviceId, getLocalSigningKeyId } from "./share-identity";
 import { getDocumentDekCacheKey } from "./share-access";
 import { getDocumentCryptoWorker } from "./crypto-worker";
+import { completeDekRotationAfterSnapshot } from "./bootstrap-key-rotation";
 import {
   keyDirectoryAdvanceSymbol,
   rememberDocumentAdmissionCheckpoint,
@@ -434,8 +435,14 @@ export async function handleSnapshotSaved(
   state.pendingSnapshot = null;
   state.pendingSnapshotEnvelope = null;
   state.sending = false;
-  if (state.pendingRotationKeyVersion !== null) {
-    state.keyVersion = state.pendingRotationKeyVersion;
+  const completedRotation =
+    state.pendingRotationKeyVersion !== null
+      ? { oldKeyVersion: state.keyVersion, newKeyVersion: state.pendingRotationKeyVersion }
+      : state.pendingRotationSnapshot && state.keyVersion > 1
+        ? { oldKeyVersion: state.keyVersion - 1, newKeyVersion: state.keyVersion }
+        : null;
+  if (completedRotation) {
+    state.keyVersion = completedRotation.newKeyVersion;
     state.pendingRotationKeyVersion = null;
   }
   state.pendingRotationSnapshot = false;
@@ -445,7 +452,7 @@ export async function handleSnapshotSaved(
   resetWriteSessionCountersForSnapshotBaseline(state);
   state.localClock = nextLocalClockForDevice(state.confirmedClocks, state, signingKeyId);
 
-  if (documentId && state.workspaceId && state.keyVersion > 0) {
+  if (!completedRotation && documentId && state.workspaceId && state.keyVersion > 0) {
     cacheDocumentState(
       documentId,
       state.workspaceId,
@@ -453,6 +460,32 @@ export async function handleSnapshotSaved(
       getOfflineCacheOptions(state, documentId),
     ).catch(() => {});
     deletePendingChanges(documentId).catch(() => {});
+  }
+
+  if (completedRotation && documentId && state.workspaceId) {
+    try {
+      await deletePendingChanges(documentId);
+      await completeDekRotationAfterSnapshot({
+        documentId,
+        workspaceId: state.workspaceId,
+        state,
+        ...completedRotation,
+      });
+      await cacheDocumentState(
+        documentId,
+        state.workspaceId,
+        state,
+        getOfflineCacheOptions(state, documentId),
+      );
+    } catch (error) {
+      state.pendingRotationSnapshot = true;
+      state.autoSync?.notifyLocalEdit();
+      clientError("dek_rotation_deletion_completion_failed", {
+        documentId,
+        workspaceId: state.workspaceId,
+        error,
+      });
+    }
   }
 
   if (documentId) {

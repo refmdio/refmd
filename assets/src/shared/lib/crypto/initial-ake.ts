@@ -45,9 +45,7 @@ const AKE_PROTOCOL = "refmd.initial-hybrid-key-agreement";
 const COMMITMENT_PROTOCOL = "refmd.initiator-ake-commitment";
 const DELIVERY_PROTOCOL = "refmd.initial-key-delivery";
 const X25519_PUBLIC_BYTES = 32;
-const X25519_PRIVATE_BYTES = 32;
 const MLKEM_PUBLIC_BYTES = 1184;
-const MLKEM_PRIVATE_BYTES = 2400;
 const MLKEM_CIPHERTEXT_BYTES = 1088;
 const RESPONDER_PREKEY_PAYLOAD_KEYS = [
   "expires_event_sequence",
@@ -115,6 +113,28 @@ const INITIAL_AKE_ARTIFACT_KEYS = [
   "purpose",
   "responder_confirmation",
   "transcript",
+  "transcript_hash",
+  "version",
+] as const;
+const INITIAL_AKE_OFFER_KEYS = [
+  "ake_suite_id",
+  "ake_suite_rank",
+  "initiator_commitment",
+  "initiator_commitment_signature",
+  "initiator_confirmation",
+  "pending_delivery",
+  "protocol",
+  "purpose",
+  "transcript",
+  "transcript_hash",
+  "version",
+] as const;
+const INITIAL_AKE_PENDING_DELIVERY_KEYS = ["aead", "metadata"] as const;
+const INITIAL_AKE_RESPONSE_KEYS = [
+  "prekey_id",
+  "protocol",
+  "purpose",
+  "responder_confirmation",
   "transcript_hash",
   "version",
 ] as const;
@@ -238,8 +258,8 @@ export interface InitialAkeResponderPrekeyPrivate {
   prekey_id: string;
   operation_id: string;
   purpose: InitialAkePurpose;
-  x25519_private: string;
-  mlkem768_private: string;
+  x25519_private: Uint8Array;
+  mlkem768_private: Uint8Array;
 }
 
 export interface InitialAkeResponderPrekeyRecord {
@@ -249,13 +269,27 @@ export interface InitialAkeResponderPrekeyRecord {
 
 export type InitialAkeArtifact = components["schemas"]["InitialAkeArtifact"];
 export type InitialKeyDeliveryRecord = components["schemas"]["InitialKeyDeliveryRecord"];
+export type InitialAkeOffer = components["schemas"]["InitialAkeOffer"];
+export type InitialAkeResponderConfirmation =
+  components["schemas"]["InitialAkeResponderConfirmation"];
+
+export interface InitialAkeInitiatorState {
+  secret: Uint8Array;
+  offer: InitialAkeOffer;
+}
+
+export interface InitialAkeResponderState {
+  secret: Uint8Array;
+  offer: InitialAkeOffer;
+  response: InitialAkeResponderConfirmation;
+}
 
 export function generateInitialAkeResponderPrekey(params: {
   purpose: InitialAkePurpose;
   operationId: string;
   userId: string;
   deviceId: string;
-  serverChallenge?: string;
+  serverChallenge: string;
   issuedAtEventSequence: number;
   expiresEventSequence: number;
   signingPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
@@ -263,6 +297,15 @@ export function generateInitialAkeResponderPrekey(params: {
   record: InitialAkeResponderPrekeyRecord;
   privatePrekey: InitialAkeResponderPrekeyPrivate;
 } {
+  if (
+    params.purpose !== "umk_distribution" &&
+    params.purpose !== "device_approval_kek_initial" &&
+    params.purpose !== "trust_transfer"
+  ) {
+    throw new Error("responder_prekey_purpose_invalid");
+  }
+  decodeBase64UrlStrict(params.serverChallenge, 32);
+
   const x25519Private = x25519.utils.randomSecretKey();
   const x25519Public = x25519.getPublicKey(x25519Private);
   const mlkem = ml_kem768.keygen();
@@ -284,7 +327,7 @@ export function generateInitialAkeResponderPrekey(params: {
     operation_id: params.operationId,
     issued_at_event_sequence: params.issuedAtEventSequence,
     expires_event_sequence: params.expiresEventSequence,
-    server_challenge: params.serverChallenge ?? encodeBase64Url(randomBytes(32)),
+    server_challenge: params.serverChallenge,
   } as const;
   const signature = signResponderPrekeySignature({
     privateKeyMaterial: params.signingPrivateKeyMaterial,
@@ -317,8 +360,8 @@ export function generateInitialAkeResponderPrekey(params: {
       prekey_id: prekeyId,
       operation_id: params.operationId,
       purpose: params.purpose,
-      x25519_private: encodeBase64Url(x25519Private),
-      mlkem768_private: encodeBase64Url(mlkem.secretKey),
+      x25519_private: x25519Private,
+      mlkem768_private: mlkem.secretKey,
     },
   };
 }
@@ -420,14 +463,14 @@ export function verifyInitialAkeResponderPrekey(params: {
     !verifyResponderPrekeySignature({
       publicKeyMaterial: params.responderSigningPublicKeyMaterial,
       signature: params.record.signature,
-      transcript,
+      transcript: transcript as unknown as StrictJsonValue,
     })
   ) {
     throw new Error("responder_prekey_signature_invalid");
   }
 }
 
-export function createInitialAkeUmkDelivery(params: {
+export function beginInitialAkeUmkDelivery(params: {
   umk: Uint8Array;
   purpose?: InitialAkePurpose;
   plaintext?: Uint8Array;
@@ -452,262 +495,217 @@ export function createInitialAkeUmkDelivery(params: {
   workspacePinsHash?: string;
   documentRollbackPinSetHash?: string;
   pendingRegistrationBindingHash: string;
-}): {
-  initialAke: InitialAkeArtifact;
-  initialKeyDelivery: InitialKeyDeliveryRecord;
-} {
+}): { offer: InitialAkeOffer; initiatorState: InitialAkeInitiatorState } {
   const purpose = params.purpose ?? "umk_distribution";
   const plaintext = params.plaintext ?? params.umk;
   const payloadKind = params.payloadKind ?? "umk";
   const keyKind = params.keyKind ?? "umk";
   const keyVersion = params.keyVersion ?? 1;
-  const prekey = assertRecord(params.responderPrekey.payload, "responder_prekey_payload_invalid");
-  if (prekey.purpose !== purpose) throw new Error("responder_prekey_purpose_mismatch");
-  verifyInitialAkeResponderPrekey({
-    record: params.responderPrekey,
-    responderSigningPublicKeyMaterial: params.responderSigningPublicKeyMaterial,
-  });
-  const prekeyHash = blake3Base64Url(canonicalizeStrictBytes(params.responderPrekey.payload));
-  const initiatorPrivate = x25519.utils.randomSecretKey();
-  const initiatorPublic = x25519.getPublicKey(initiatorPrivate);
-  const responderX25519Public = decodeBase64UrlStrict(
-    stringField(prekey.x25519_ephemeral_public, "responder_x25519_prekey_invalid"),
-    X25519_PUBLIC_BYTES,
-  );
-  const responderMlkemPublic = decodeBase64UrlStrict(
-    stringField(prekey.mlkem768_ephemeral_public, "responder_mlkem_prekey_invalid"),
-    MLKEM_PUBLIC_BYTES,
-  );
-  const mlkem = ml_kem768.encapsulate(responderMlkemPublic);
-  const dh = x25519.getSharedSecret(initiatorPrivate, responderX25519Public);
-  assertNonZeroSharedSecret(dh);
-  const senderPublic = publicKeyMaterialFromPrivate(params.senderSigningPrivateKeyMaterial);
-  const senderSigningKeyId = computeSigningKeyId(senderPublic);
-  const operationId = stringField(prekey.operation_id, "operation_id_invalid");
-  const context = purposeContext({
-    purpose,
-    userId: params.userId,
-    senderDeviceId: params.senderDeviceId,
-    recipientDeviceId: params.recipientDeviceId,
-    workspaceId: params.workspaceId,
-    operationId,
-    targetKeyKind: keyKind,
-    targetKeyVersion: keyVersion,
-    challenge: stringField(prekey.server_challenge, "server_challenge_invalid"),
-  });
-  const contextRecord = context as Record<string, unknown>;
-  const directory = purposeDirectory({
-    purpose,
-    userCheckpointHash: params.userCheckpointHash ?? params.keyCheckpointHash,
-    userEventHeadHash: params.keyEventHeadHash,
-    workspaceCheckpointHash: params.workspaceCheckpointHash ?? params.keyCheckpointHash,
-    workspaceEventHeadHash: params.workspaceEventHeadHash ?? params.keyEventHeadHash,
-    workspacePinsHash: params.workspacePinsHash,
-  });
-  const commitmentPayload = {
-    protocol: COMMITMENT_PROTOCOL,
-    version: CURRENT_PROTOCOL_VERSION,
-    ake_suite_id: SUITE_IDS.INITIAL_AKE,
-    ake_suite_rank: CURRENT_SUITE_RANK,
-    initial_delivery_suite_id: SUITE_IDS.INITIAL_DELIVERY,
-    initial_delivery_suite_rank: CURRENT_SUITE_RANK,
-    purpose,
-    operation_id: operationId,
-    initiator: {
-      signer_kind: "active_device",
-      user_id: params.userId,
-      device_id: params.senderDeviceId,
-      signing_key_id: senderSigningKeyId,
-      encryption_key_id: params.senderEncryptionKeyId,
-      pending_registration_binding_hash: params.pendingRegistrationBindingHash,
-    },
-    ake_inputs: {
-      x25519_ephemeral_public: encodeBase64Url(initiatorPublic),
-      mlkem768_enc: encodeBase64Url(mlkem.cipherText),
-      responder_prekey_hash: prekeyHash,
-    },
-    context_hash: blake3Base64Url(canonicalizeStrictBytes(context)),
-    directory_hash: blake3Base64Url(canonicalizeStrictBytes(directory)),
-    recipient_hash: blake3Base64Url(
-      canonicalizeStrictBytes({
-        user_id: params.userId,
-        device_id: params.recipientDeviceId,
-        encryption_key_id: params.recipientEncryptionKeyId,
-        prekey_hash: prekeyHash,
-      }),
-    ),
-    server_challenge: stringField(contextRecord.challenge, "server_challenge_invalid"),
-  } as const;
-  const commitmentSignature = signInitiatorAkeCommitmentSignature({
-    privateKeyMaterial: params.senderSigningPrivateKeyMaterial,
-    transcript: buildInitiatorAkeCommitmentTranscript({
-      ownerDeviceId: params.senderDeviceId,
-      commitmentPayload,
-      initiator: commitmentPayload.initiator,
-      akeInputs: commitmentPayload.ake_inputs,
-      binding: {
-        operation_id: operationId,
-        context_hash: commitmentPayload.context_hash,
-        directory_hash: commitmentPayload.directory_hash,
-        recipient_hash: commitmentPayload.recipient_hash,
-        server_challenge: stringField(contextRecord.challenge, "server_challenge_invalid"),
-      },
-    }),
-  });
-  const commitmentHash = blake3Base64Url(canonicalizeStrictBytes(commitmentPayload));
-  const transcript = {
-    protocol: AKE_PROTOCOL,
-    version: CURRENT_PROTOCOL_VERSION,
-    ake_suite_id: SUITE_IDS.INITIAL_AKE,
-    ake_suite_rank: CURRENT_SUITE_RANK,
-    required_components: [
-      "x25519-ephemeral",
-      "mlkem768-ephemeral",
-      "hkdf-sha256",
-      "initiator-ake-commitment",
-      "responder-prekey-signature",
-    ] as const,
-    purpose,
-    initiator: {
-      user_id: params.userId,
-      device_id: params.senderDeviceId,
-      signing_key_id: senderSigningKeyId,
-      x25519_ephemeral_public: encodeBase64Url(initiatorPublic),
-      mlkem768_enc: encodeBase64Url(mlkem.cipherText),
-      initiator_commitment_hash: commitmentHash,
-    },
-    responder: {
-      signer_kind: "device",
-      user_id: params.userId,
-      device_id: params.recipientDeviceId,
-      signing_key_id: stringField(
-        prekey.responder_signing_key_id,
-        "responder_signing_key_id_invalid",
-      ),
-      x25519_ephemeral_public: stringField(
-        prekey.x25519_ephemeral_public,
-        "responder_x25519_invalid",
-      ),
-      mlkem768_ephemeral_public_hash: stringField(
-        prekey.mlkem768_ephemeral_public_hash,
-        "responder_mlkem_hash_invalid",
-      ),
-      prekey_id: stringField(prekey.prekey_id, "prekey_id_invalid"),
-      prekey_hash: prekeyHash,
-    },
-    context,
-    directory,
-  } as const;
-  const transcriptBytes = canonicalizeStrictBytes(transcript as unknown as StrictJsonValue);
-  const transcriptHashBytes = blake3(transcriptBytes);
-  const transcriptHash = encodeBase64Url(transcriptHashBytes);
-  const secret = deriveAkeSecret(dh, mlkem.sharedSecret, transcriptHashBytes, purpose);
-  const initiatorConfirmation = hmac(
-    sha256,
-    secret,
-    concatBytes(new TextEncoder().encode("initiator-confirm"), transcriptHashBytes),
-  );
-  const responderConfirmation = hmac(
-    sha256,
-    secret,
-    concatBytes(new TextEncoder().encode("responder-confirm"), transcriptHashBytes),
-  );
-  const contextHash = blake3Base64Url(canonicalizeStrictBytes(context));
-  const deliveryKey = deriveDeliveryKey(secret, transcriptHashBytes, contextHash, purpose);
-  const nonce = randomBytes(24);
-  const deliveryId = crypto.randomUUID();
-  const metadata = {
-    delivery_id: deliveryId,
-    sender_device_id: params.senderDeviceId,
-    recipient_device_id: params.recipientDeviceId,
-    ake_transcript_hash: transcriptHash,
-    context_hash: contextHash,
-    initiator_commitment_hash: commitmentHash,
-    recipient_challenge_hash: blake3Base64Url(
-      decodeBase64UrlStrict(stringField(contextRecord.challenge, "server_challenge_invalid"), 32),
-    ),
-    recipient_encryption_key_id: params.recipientEncryptionKeyId,
-    key_confirmation_hash: blake3Base64Url(
-      concatBytes(initiatorConfirmation, responderConfirmation),
-    ),
-    signing_key_id: senderSigningKeyId,
-    key_checkpoint_hash: params.keyCheckpointHash,
-    ...(params.documentRollbackPinSetHash
-      ? { document_rollback_pin_set_hash: params.documentRollbackPinSetHash }
-      : {}),
-    ...(params.workspaceId ? { workspace_id: params.workspaceId } : {}),
-    key_version: keyVersion,
-    payload_kind: payloadKind,
-    key_kind: keyKind,
-    resource_hash: params.resourceHash,
-    suite_id: SUITE_IDS.INITIAL_DELIVERY,
-    suite_rank: CURRENT_SUITE_RANK,
-  } as const;
-  const aadBase = initialDeliveryAad({
-    purpose,
-    deliveryId,
-    transcriptHash,
-    contextHash,
-    commitmentHash,
-    senderHash: blake3Base64Url(
-      canonicalizeStrictBytes({ user_id: params.userId, device_id: params.senderDeviceId }),
-    ),
-    recipientHash: commitmentPayload.recipient_hash,
-    payloadMetadataHash: blake3Base64Url(canonicalizeStrictBytes(metadata)),
-  });
-  const ciphertext = xchacha20poly1305(deliveryKey, nonce, aadBase).encrypt(plaintext);
-  const aead = {
-    suite_id: SUITE_IDS.INITIAL_DELIVERY,
-    suite_rank: CURRENT_SUITE_RANK,
-    nonce: encodeBase64Url(nonce),
-    ciphertext: encodeBase64Url(ciphertext),
-    ciphertext_hash: blake3Base64Url(ciphertext),
-  } as const;
-  const authority = { sender_authority_kind: "device" } as const;
-  const signingBody = {
-    protocol: DELIVERY_PROTOCOL,
-    version: CURRENT_PROTOCOL_VERSION,
-    purpose,
-    variant: purpose,
-    initial_delivery_suite_id: SUITE_IDS.INITIAL_DELIVERY,
-    initial_delivery_suite_rank: CURRENT_SUITE_RANK,
-    metadata,
-    aead,
-    authority,
-  } as const;
-  const deliverySignature = signInitialKeyDeliverySignature({
-    privateKeyMaterial: params.senderSigningPrivateKeyMaterial,
-    transcript: buildInitialKeyDeliveryTranscript({
-      ownerDeviceId: params.senderDeviceId,
-      variant: purpose,
-      deliverySigningBody: signingBody,
-      sender: {
+  let initiatorPrivate: Uint8Array | null = null;
+  let dh: Uint8Array | null = null;
+  let mlkemSharedSecret: Uint8Array | null = null;
+  let secret: Uint8Array | null = null;
+  let initiatorConfirmation: Uint8Array | null = null;
+  let deliveryKey: Uint8Array | null = null;
+  try {
+    const prekey = assertRecord(params.responderPrekey.payload, "responder_prekey_payload_invalid");
+    if (prekey.purpose !== purpose) throw new Error("responder_prekey_purpose_mismatch");
+    verifyInitialAkeResponderPrekey({
+      record: params.responderPrekey,
+      responderSigningPublicKeyMaterial: params.responderSigningPublicKeyMaterial,
+    });
+    const prekeyHash = blake3Base64Url(canonicalizeStrictBytes(params.responderPrekey.payload));
+    initiatorPrivate = x25519.utils.randomSecretKey();
+    const initiatorPublic = x25519.getPublicKey(initiatorPrivate);
+    const responderX25519Public = decodeBase64UrlStrict(
+      stringField(prekey.x25519_ephemeral_public, "responder_x25519_prekey_invalid"),
+      X25519_PUBLIC_BYTES,
+    );
+    const responderMlkemPublic = decodeBase64UrlStrict(
+      stringField(prekey.mlkem768_ephemeral_public, "responder_mlkem_prekey_invalid"),
+      MLKEM_PUBLIC_BYTES,
+    );
+    const mlkem = ml_kem768.encapsulate(responderMlkemPublic);
+    mlkemSharedSecret = mlkem.sharedSecret;
+    dh = x25519.getSharedSecret(initiatorPrivate, responderX25519Public);
+    assertNonZeroSharedSecret(dh);
+    const senderPublic = publicKeyMaterialFromPrivate(params.senderSigningPrivateKeyMaterial);
+    const senderSigningKeyId = computeSigningKeyId(senderPublic);
+    const operationId = stringField(prekey.operation_id, "operation_id_invalid");
+    const context = purposeContext({
+      purpose,
+      userId: params.userId,
+      senderDeviceId: params.senderDeviceId,
+      recipientDeviceId: params.recipientDeviceId,
+      workspaceId: params.workspaceId,
+      operationId,
+      targetKeyKind: keyKind,
+      targetKeyVersion: keyVersion,
+      challenge: stringField(prekey.server_challenge, "server_challenge_invalid"),
+    });
+    const contextRecord = context as Record<string, unknown>;
+    const directory = purposeDirectory({
+      purpose,
+      userCheckpointHash: params.userCheckpointHash ?? params.keyCheckpointHash,
+      userEventHeadHash: params.keyEventHeadHash,
+      workspaceCheckpointHash: params.workspaceCheckpointHash ?? params.keyCheckpointHash,
+      workspaceEventHeadHash: params.workspaceEventHeadHash ?? params.keyEventHeadHash,
+      workspacePinsHash: params.workspacePinsHash,
+    });
+    const commitmentPayload = {
+      protocol: COMMITMENT_PROTOCOL,
+      version: CURRENT_PROTOCOL_VERSION,
+      ake_suite_id: SUITE_IDS.INITIAL_AKE,
+      ake_suite_rank: CURRENT_SUITE_RANK,
+      initial_delivery_suite_id: SUITE_IDS.INITIAL_DELIVERY,
+      initial_delivery_suite_rank: CURRENT_SUITE_RANK,
+      purpose,
+      operation_id: operationId,
+      initiator: {
+        signer_kind: "active_device",
         user_id: params.userId,
         device_id: params.senderDeviceId,
         signing_key_id: senderSigningKeyId,
+        encryption_key_id: params.senderEncryptionKeyId,
+        pending_registration_binding_hash: params.pendingRegistrationBindingHash,
       },
-      recipient: {
+      ake_inputs: {
+        x25519_ephemeral_public: encodeBase64Url(initiatorPublic),
+        mlkem768_enc: encodeBase64Url(mlkem.cipherText),
+        responder_prekey_hash: prekeyHash,
+      },
+      context_hash: blake3Base64Url(canonicalizeStrictBytes(context)),
+      directory_hash: blake3Base64Url(canonicalizeStrictBytes(directory)),
+      recipient_hash: blake3Base64Url(
+        canonicalizeStrictBytes({
+          user_id: params.userId,
+          device_id: params.recipientDeviceId,
+          encryption_key_id: params.recipientEncryptionKeyId,
+          prekey_hash: prekeyHash,
+        }),
+      ),
+      server_challenge: stringField(contextRecord.challenge, "server_challenge_invalid"),
+    } as const;
+    const commitmentSignature = signInitiatorAkeCommitmentSignature({
+      privateKeyMaterial: params.senderSigningPrivateKeyMaterial,
+      transcript: buildInitiatorAkeCommitmentTranscript({
+        ownerDeviceId: params.senderDeviceId,
+        commitmentPayload,
+        initiator: commitmentPayload.initiator,
+        akeInputs: commitmentPayload.ake_inputs,
+        binding: {
+          operation_id: operationId,
+          context_hash: commitmentPayload.context_hash,
+          directory_hash: commitmentPayload.directory_hash,
+          recipient_hash: commitmentPayload.recipient_hash,
+          server_challenge: stringField(contextRecord.challenge, "server_challenge_invalid"),
+        },
+      }),
+    });
+    const commitmentHash = blake3Base64Url(canonicalizeStrictBytes(commitmentPayload));
+    const transcript = {
+      protocol: AKE_PROTOCOL,
+      version: CURRENT_PROTOCOL_VERSION,
+      ake_suite_id: SUITE_IDS.INITIAL_AKE,
+      ake_suite_rank: CURRENT_SUITE_RANK,
+      required_components: [
+        "x25519-ephemeral",
+        "mlkem768-ephemeral",
+        "hkdf-sha256",
+        "initiator-ake-commitment",
+        "responder-prekey-signature",
+      ] as const,
+      purpose,
+      initiator: {
+        user_id: params.userId,
+        device_id: params.senderDeviceId,
+        signing_key_id: senderSigningKeyId,
+        x25519_ephemeral_public: encodeBase64Url(initiatorPublic),
+        mlkem768_enc: encodeBase64Url(mlkem.cipherText),
+        initiator_commitment_hash: commitmentHash,
+      },
+      responder: {
+        signer_kind: "device",
         user_id: params.userId,
         device_id: params.recipientDeviceId,
-        encryption_key_id: params.recipientEncryptionKeyId,
+        signing_key_id: stringField(
+          prekey.responder_signing_key_id,
+          "responder_signing_key_id_invalid",
+        ),
+        x25519_ephemeral_public: stringField(
+          prekey.x25519_ephemeral_public,
+          "responder_x25519_invalid",
+        ),
+        mlkem768_ephemeral_public_hash: stringField(
+          prekey.mlkem768_ephemeral_public_hash,
+          "responder_mlkem_hash_invalid",
+        ),
+        prekey_id: stringField(prekey.prekey_id, "prekey_id_invalid"),
+        prekey_hash: prekeyHash,
       },
-      ake: {
-        ake_transcript_hash: transcriptHash,
-        initiator_commitment_hash: commitmentHash,
-        purpose,
-        operation_id: operationId,
-      },
-      delivery: {
-        delivery_id: deliveryId,
-        context_hash: contextHash,
-        payload_kind: payloadKind,
-        ciphertext_hash: aead.ciphertext_hash,
-      },
-      authority,
-    }),
-  });
-  return {
-    initialAke: {
+      context,
+      directory,
+    } as const;
+    const transcriptBytes = canonicalizeStrictBytes(transcript as unknown as StrictJsonValue);
+    const transcriptHashBytes = blake3(transcriptBytes);
+    const transcriptHash = encodeBase64Url(transcriptHashBytes);
+    secret = deriveAkeSecret(dh, mlkemSharedSecret, transcriptHashBytes, purpose);
+    initiatorConfirmation = hmac(
+      sha256,
+      secret,
+      concatBytes(new TextEncoder().encode("initiator-confirm"), transcriptHashBytes),
+    );
+    const contextHash = blake3Base64Url(canonicalizeStrictBytes(context));
+    deliveryKey = deriveDeliveryKey(secret, transcriptHashBytes, contextHash, purpose);
+    const nonce = randomBytes(24);
+    const deliveryId = crypto.randomUUID();
+    const metadata: Record<string, unknown> = {
+      delivery_id: deliveryId,
+      sender_device_id: params.senderDeviceId,
+      recipient_device_id: params.recipientDeviceId,
+      ake_transcript_hash: transcriptHash,
+      context_hash: contextHash,
+      initiator_commitment_hash: commitmentHash,
+      recipient_challenge_hash: blake3Base64Url(
+        decodeBase64UrlStrict(stringField(contextRecord.challenge, "server_challenge_invalid"), 32),
+      ),
+      recipient_encryption_key_id: params.recipientEncryptionKeyId,
+      signing_key_id: senderSigningKeyId,
+      key_checkpoint_hash: params.keyCheckpointHash,
+      ...(params.documentRollbackPinSetHash
+        ? { document_rollback_pin_set_hash: params.documentRollbackPinSetHash }
+        : {}),
+      ...(params.workspaceId ? { workspace_id: params.workspaceId } : {}),
+      key_version: keyVersion,
+      payload_kind: payloadKind,
+      key_kind: keyKind,
+      resource_hash: params.resourceHash,
+      suite_id: SUITE_IDS.INITIAL_DELIVERY,
+      suite_rank: CURRENT_SUITE_RANK,
+    } as const;
+    const aadBase = initialDeliveryAad({
+      purpose,
+      deliveryId,
+      transcriptHash,
+      contextHash,
+      commitmentHash,
+      senderHash: blake3Base64Url(
+        canonicalizeStrictBytes({ user_id: params.userId, device_id: params.senderDeviceId }),
+      ),
+      recipientHash: commitmentPayload.recipient_hash,
+      payloadMetadataHash: blake3Base64Url(
+        canonicalizeStrictBytes(metadata as unknown as StrictJsonValue),
+      ),
+    });
+    const ciphertext = xchacha20poly1305(deliveryKey, nonce, aadBase).encrypt(plaintext);
+    const aead = {
+      suite_id: SUITE_IDS.INITIAL_DELIVERY,
+      suite_rank: CURRENT_SUITE_RANK,
+      nonce: encodeBase64Url(nonce),
+      ciphertext: encodeBase64Url(ciphertext),
+      ciphertext_hash: blake3Base64Url(ciphertext),
+    } as const;
+    const offer = {
       protocol: AKE_PROTOCOL,
       version: CURRENT_PROTOCOL_VERSION,
       ake_suite_id: SUITE_IDS.INITIAL_AKE,
@@ -718,18 +716,30 @@ export function createInitialAkeUmkDelivery(params: {
       initiator_commitment: commitmentPayload,
       initiator_commitment_signature: commitmentSignature,
       initiator_confirmation: encodeBase64Url(initiatorConfirmation),
-      responder_confirmation: encodeBase64Url(responderConfirmation),
-    } as unknown as InitialAkeArtifact,
-    initialKeyDelivery: {
-      ...signingBody,
-      signature: deliverySignature,
-    } as InitialKeyDeliveryRecord,
-  };
+      pending_delivery: {
+        metadata,
+        aead,
+      },
+    } as unknown as InitialAkeOffer;
+    return {
+      offer,
+      initiatorState: { secret, offer },
+    };
+  } catch (error) {
+    secret?.fill(0);
+    throw error;
+  } finally {
+    initiatorPrivate?.fill(0);
+    dh?.fill(0);
+    mlkemSharedSecret?.fill(0);
+    initiatorConfirmation?.fill(0);
+    deliveryKey?.fill(0);
+  }
 }
 
-export function createInitialAkeKekDelivery(
+export function beginInitialAkeKekDelivery(
   params: Omit<
-    Parameters<typeof createInitialAkeUmkDelivery>[0],
+    Parameters<typeof beginInitialAkeUmkDelivery>[0],
     "umk" | "purpose" | "payloadKind" | "keyKind" | "plaintext"
   > & {
     kek: Uint8Array;
@@ -737,7 +747,7 @@ export function createInitialAkeKekDelivery(
     keyVersion: number;
   },
 ) {
-  return createInitialAkeUmkDelivery({
+  return beginInitialAkeUmkDelivery({
     ...params,
     umk: params.kek,
     plaintext: params.kek,
@@ -749,9 +759,9 @@ export function createInitialAkeKekDelivery(
   });
 }
 
-export function createInitialAkeDeviceStateTransferDelivery(
+export function beginInitialAkeDeviceStateTransferDelivery(
   params: Omit<
-    Parameters<typeof createInitialAkeUmkDelivery>[0],
+    Parameters<typeof beginInitialAkeUmkDelivery>[0],
     "umk" | "purpose" | "payloadKind" | "keyKind" | "plaintext"
   > & {
     deviceStateBundle: StrictJsonValue;
@@ -761,7 +771,7 @@ export function createInitialAkeDeviceStateTransferDelivery(
   if (!params.documentRollbackPinSetHash)
     throw new Error("document_rollback_pin_set_hash_required");
   const plaintext = canonicalizeStrictBytes(params.deviceStateBundle);
-  return createInitialAkeUmkDelivery({
+  return beginInitialAkeUmkDelivery({
     ...params,
     umk: plaintext,
     plaintext,
@@ -772,10 +782,350 @@ export function createInitialAkeDeviceStateTransferDelivery(
   });
 }
 
+export function respondToInitialAkeOffer(params: {
+  offer: InitialAkeOffer;
+  privatePrekey: InitialAkeResponderPrekeyPrivate;
+  senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+}): { response: InitialAkeResponderConfirmation; responderState: InitialAkeResponderState } {
+  const { transcriptHashBytes, transcript, initiator, responder, context, commitment } =
+    validateInitialAkeOffer(params.offer, params.senderSigningPublicKeyMaterial);
+  const purpose = params.offer.purpose as InitialAkePurpose;
+  if (
+    params.privatePrekey.purpose !== purpose ||
+    params.privatePrekey.prekey_id !== responder.prekey_id ||
+    params.privatePrekey.operation_id !== context.operation_id
+  ) {
+    throw new Error("initial_ake_prekey_mismatch");
+  }
+  let dh: Uint8Array | null = null;
+  let kem: Uint8Array | null = null;
+  let secret: Uint8Array | null = null;
+  let expectedInitiatorConfirmation: Uint8Array | null = null;
+  let responderConfirmation: Uint8Array | null = null;
+  try {
+    dh = x25519.getSharedSecret(
+      params.privatePrekey.x25519_private,
+      decodeBase64UrlStrict(
+        stringField(initiator.x25519_ephemeral_public, "initiator_x25519_invalid"),
+        X25519_PUBLIC_BYTES,
+      ),
+    );
+    assertNonZeroSharedSecret(dh);
+    kem = ml_kem768.decapsulate(
+      decodeBase64UrlStrict(
+        stringField(initiator.mlkem768_enc, "initiator_mlkem_invalid"),
+        MLKEM_CIPHERTEXT_BYTES,
+      ),
+      params.privatePrekey.mlkem768_private,
+    );
+    secret = deriveAkeSecret(dh, kem, transcriptHashBytes, purpose);
+    expectedInitiatorConfirmation = confirmationMac(
+      secret,
+      "initiator-confirm",
+      transcriptHashBytes,
+    );
+    if (
+      !constantTimeEqual(
+        expectedInitiatorConfirmation,
+        decodeBase64UrlStrict(params.offer.initiator_confirmation, 32),
+      )
+    ) {
+      throw new Error("initial_ake_initiator_confirmation_invalid");
+    }
+    responderConfirmation = confirmationMac(secret, "responder-confirm", transcriptHashBytes);
+    const response: InitialAkeResponderConfirmation = {
+      protocol: "refmd.initial-ake-responder-confirmation",
+      version: CURRENT_PROTOCOL_VERSION,
+      purpose,
+      transcript_hash: params.offer.transcript_hash,
+      prekey_id: stringField(responder.prekey_id, "responder_prekey_id_invalid"),
+      responder_confirmation: encodeBase64Url(responderConfirmation),
+    };
+    void transcript;
+    void commitment;
+    return { response, responderState: { secret, offer: params.offer, response } };
+  } catch (error) {
+    secret?.fill(0);
+    throw error;
+  } finally {
+    dh?.fill(0);
+    kem?.fill(0);
+    expectedInitiatorConfirmation?.fill(0);
+    responderConfirmation?.fill(0);
+  }
+}
+
+export function finalizeInitialAkeDelivery(params: {
+  initiatorState: InitialAkeInitiatorState;
+  response: InitialAkeResponderConfirmation;
+  senderSigningPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
+}): { initialAke: InitialAkeArtifact; initialKeyDelivery: InitialKeyDeliveryRecord } {
+  const { offer, secret } = params.initiatorState;
+  try {
+    const response = assertRecord(params.response, "initial_ake_responder_confirmation_invalid");
+    assertExactKeys(
+      response,
+      INITIAL_AKE_RESPONSE_KEYS,
+      "initial_ake_responder_confirmation_invalid",
+    );
+    const transcript = assertRecord(offer.transcript, "initial_ake_transcript_invalid");
+    const responder = assertRecord(transcript.responder, "initial_ake_responder_invalid");
+    if (
+      response.protocol !== "refmd.initial-ake-responder-confirmation" ||
+      response.version !== CURRENT_PROTOCOL_VERSION ||
+      response.purpose !== offer.purpose ||
+      response.transcript_hash !== offer.transcript_hash ||
+      response.prekey_id !== responder.prekey_id
+    ) {
+      secret.fill(0);
+      throw new Error("initial_ake_responder_confirmation_mismatch");
+    }
+    const transcriptHashBytes = decodeBase64UrlStrict(offer.transcript_hash, 32);
+    const responderConfirmation = decodeBase64UrlStrict(
+      stringField(response.responder_confirmation, "initial_ake_responder_confirmation_invalid"),
+      32,
+    );
+    const expectedResponderConfirmation = confirmationMac(
+      secret,
+      "responder-confirm",
+      transcriptHashBytes,
+    );
+    if (!constantTimeEqual(expectedResponderConfirmation, responderConfirmation)) {
+      secret.fill(0);
+      throw new Error("initial_ake_responder_confirmation_invalid");
+    }
+    const initiatorConfirmation = decodeBase64UrlStrict(offer.initiator_confirmation, 32);
+    const pending = assertRecord(offer.pending_delivery, "initial_ake_pending_delivery_invalid");
+    assertExactKeys(
+      pending,
+      INITIAL_AKE_PENDING_DELIVERY_KEYS,
+      "initial_ake_pending_delivery_invalid",
+    );
+    const pendingMetadata = assertRecord(pending.metadata, "initial_delivery_metadata_invalid");
+    const aead = assertRecord(pending.aead, "initial_delivery_aead_invalid");
+    const metadata: Record<string, unknown> = {
+      ...pendingMetadata,
+      key_confirmation_hash: blake3Base64Url(
+        concatBytes(initiatorConfirmation, responderConfirmation),
+      ),
+    };
+    const authority = { sender_authority_kind: "device" } as const;
+    const signingBody = {
+      protocol: DELIVERY_PROTOCOL,
+      version: CURRENT_PROTOCOL_VERSION,
+      purpose: offer.purpose,
+      variant: offer.purpose,
+      initial_delivery_suite_id: SUITE_IDS.INITIAL_DELIVERY,
+      initial_delivery_suite_rank: CURRENT_SUITE_RANK,
+      metadata,
+      aead,
+      authority,
+    } as const;
+    const context = assertRecord(transcript.context, "initial_ake_context_invalid");
+    const initiator = assertRecord(transcript.initiator, "initial_ake_initiator_invalid");
+    const commitmentHash = blake3Base64Url(
+      canonicalizeStrictBytes(offer.initiator_commitment as StrictJsonValue),
+    );
+    const deliverySignature = signInitialKeyDeliverySignature({
+      privateKeyMaterial: params.senderSigningPrivateKeyMaterial,
+      transcript: buildInitialKeyDeliveryTranscript({
+        ownerDeviceId: stringField(metadata.sender_device_id, "initial_delivery_sender_invalid"),
+        variant: offer.purpose as InitialAkePurpose,
+        deliverySigningBody: signingBody as unknown as StrictJsonValue,
+        sender: {
+          user_id: stringField(context.owner_user_id, "initial_ake_owner_invalid"),
+          device_id: stringField(metadata.sender_device_id, "initial_delivery_sender_invalid"),
+          signing_key_id: stringField(initiator.signing_key_id, "initiator_signing_key_invalid"),
+        },
+        recipient: {
+          user_id: stringField(context.owner_user_id, "initial_ake_owner_invalid"),
+          device_id: stringField(
+            metadata.recipient_device_id,
+            "initial_delivery_recipient_invalid",
+          ),
+          encryption_key_id: stringField(
+            metadata.recipient_encryption_key_id,
+            "initial_delivery_recipient_invalid",
+          ),
+        },
+        ake: {
+          ake_transcript_hash: offer.transcript_hash,
+          initiator_commitment_hash: commitmentHash,
+          purpose: offer.purpose,
+          operation_id: stringField(context.operation_id, "initial_ake_operation_invalid"),
+        },
+        delivery: {
+          delivery_id: stringField(metadata.delivery_id, "initial_delivery_id_invalid"),
+          context_hash: stringField(metadata.context_hash, "initial_delivery_context_invalid"),
+          payload_kind: stringField(metadata.payload_kind, "initial_delivery_payload_invalid"),
+          ciphertext_hash: stringField(aead.ciphertext_hash, "initial_delivery_ciphertext_invalid"),
+        },
+        authority,
+      }),
+    });
+    const result = {
+      initialAke: {
+        protocol: offer.protocol,
+        version: offer.version,
+        ake_suite_id: offer.ake_suite_id,
+        ake_suite_rank: offer.ake_suite_rank,
+        purpose: offer.purpose,
+        transcript: offer.transcript,
+        transcript_hash: offer.transcript_hash,
+        initiator_commitment: offer.initiator_commitment,
+        initiator_commitment_signature: offer.initiator_commitment_signature,
+        initiator_confirmation: offer.initiator_confirmation,
+        responder_confirmation: params.response.responder_confirmation,
+      } as unknown as InitialAkeArtifact,
+      initialKeyDelivery: {
+        ...signingBody,
+        signature: deliverySignature,
+      } as InitialKeyDeliveryRecord,
+    };
+    return result;
+  } finally {
+    secret.fill(0);
+  }
+}
+
+function confirmationMac(
+  secret: Uint8Array,
+  label: "initiator-confirm" | "responder-confirm",
+  transcriptHashBytes: Uint8Array,
+): Uint8Array {
+  return hmac(sha256, secret, concatBytes(new TextEncoder().encode(label), transcriptHashBytes));
+}
+
+function validateInitialAkeOffer(
+  offer: InitialAkeOffer,
+  senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial,
+): {
+  transcriptHashBytes: Uint8Array;
+  transcript: Record<string, unknown>;
+  initiator: Record<string, unknown>;
+  responder: Record<string, unknown>;
+  context: Record<string, unknown>;
+  commitment: Record<string, unknown>;
+} {
+  const offerRecord = assertRecord(offer, "initial_ake_offer_invalid");
+  const purpose = offer.purpose as InitialAkePurpose;
+  assertExactKeys(offerRecord, INITIAL_AKE_OFFER_KEYS, "initial_ake_offer_invalid");
+  if (
+    offer.protocol !== AKE_PROTOCOL ||
+    offer.version !== CURRENT_PROTOCOL_VERSION ||
+    offer.ake_suite_id !== SUITE_IDS.INITIAL_AKE ||
+    offer.ake_suite_rank !== CURRENT_SUITE_RANK
+  ) {
+    throw new Error("initial_ake_offer_policy_invalid");
+  }
+  const transcript = assertRecord(offer.transcript, "initial_ake_transcript_invalid");
+  assertExactKeys(transcript, INITIAL_AKE_TRANSCRIPT_KEYS, "initial_ake_transcript_invalid");
+  const transcriptHashBytes = blake3(canonicalizeStrictBytes(offer.transcript as StrictJsonValue));
+  if (offer.transcript_hash !== encodeBase64Url(transcriptHashBytes)) {
+    throw new Error("initial_ake_transcript_hash_mismatch");
+  }
+  const initiator = assertRecord(transcript.initiator, "initial_ake_initiator_invalid");
+  const responder = assertRecord(transcript.responder, "initial_ake_responder_invalid");
+  const context = assertRecord(transcript.context, "initial_ake_context_invalid");
+  const directory = assertRecord(transcript.directory, "initial_ake_directory_invalid");
+  assertExactKeys(
+    initiator,
+    INITIAL_AKE_TRANSCRIPT_INITIATOR_KEYS,
+    "initial_ake_initiator_invalid",
+  );
+  assertExactKeys(
+    responder,
+    INITIAL_AKE_TRANSCRIPT_RESPONDER_KEYS,
+    "initial_ake_responder_invalid",
+  );
+  assertInitialAkeContextKeys(purpose, context);
+  assertInitialAkeDirectoryKeys(purpose, directory);
+  if (
+    transcript.protocol !== AKE_PROTOCOL ||
+    transcript.version !== CURRENT_PROTOCOL_VERSION ||
+    transcript.ake_suite_id !== SUITE_IDS.INITIAL_AKE ||
+    transcript.ake_suite_rank !== CURRENT_SUITE_RANK ||
+    transcript.purpose !== offer.purpose ||
+    !requiredComponentsValid(transcript.required_components)
+  ) {
+    throw new Error("initial_ake_transcript_policy_invalid");
+  }
+  const commitment = assertRecord(offer.initiator_commitment, "initiator_commitment_invalid");
+  const commitmentInitiator = assertRecord(commitment.initiator, "initiator_invalid");
+  const commitmentAkeInputs = assertRecord(
+    commitment.ake_inputs,
+    "initiator_commitment_ake_inputs_invalid",
+  );
+  assertExactKeys(commitment, INITIATOR_COMMITMENT_KEYS, "initiator_commitment_invalid");
+  assertExactKeys(commitmentInitiator, INITIATOR_COMMITMENT_INITIATOR_KEYS, "initiator_invalid");
+  assertExactKeys(
+    commitmentAkeInputs,
+    INITIATOR_COMMITMENT_AKE_INPUT_KEYS,
+    "initiator_commitment_ake_inputs_invalid",
+  );
+  const commitmentTranscript = buildInitiatorAkeCommitmentTranscript({
+    ownerDeviceId: stringField(commitmentInitiator.device_id, "initiator_device_invalid"),
+    commitmentPayload: offer.initiator_commitment as StrictJsonValue,
+    initiator: commitmentInitiator as StrictJsonValue,
+    akeInputs: commitmentAkeInputs as StrictJsonValue,
+    binding: {
+      operation_id: stringField(commitment.operation_id, "commitment_operation_invalid"),
+      context_hash: stringField(commitment.context_hash, "commitment_context_invalid"),
+      directory_hash: stringField(commitment.directory_hash, "commitment_directory_invalid"),
+      recipient_hash: stringField(commitment.recipient_hash, "commitment_recipient_invalid"),
+      server_challenge: stringField(commitment.server_challenge, "commitment_challenge_invalid"),
+    },
+  });
+  if (
+    !verifyInitiatorAkeCommitmentSignature({
+      publicKeyMaterial: senderSigningPublicKeyMaterial,
+      signature: offer.initiator_commitment_signature,
+      transcript: commitmentTranscript,
+    })
+  ) {
+    throw new Error("initiator_ake_commitment_signature_invalid");
+  }
+  const pending = assertRecord(offer.pending_delivery, "initial_ake_pending_delivery_invalid");
+  assertExactKeys(
+    pending,
+    INITIAL_AKE_PENDING_DELIVERY_KEYS,
+    "initial_ake_pending_delivery_invalid",
+  );
+  const metadata = assertRecord(pending.metadata, "initial_delivery_metadata_invalid");
+  if (
+    initiator.initiator_commitment_hash !==
+      blake3Base64Url(canonicalizeStrictBytes(offer.initiator_commitment as StrictJsonValue)) ||
+    commitmentAkeInputs.x25519_ephemeral_public !== initiator.x25519_ephemeral_public ||
+    commitmentAkeInputs.mlkem768_enc !== initiator.mlkem768_enc ||
+    commitmentAkeInputs.responder_prekey_hash !== responder.prekey_hash ||
+    commitment.operation_id !== context.operation_id ||
+    commitment.context_hash !==
+      blake3Base64Url(canonicalizeStrictBytes(context as StrictJsonValue)) ||
+    commitment.directory_hash !==
+      blake3Base64Url(canonicalizeStrictBytes(directory as StrictJsonValue)) ||
+    commitment.server_challenge !== context.challenge ||
+    commitment.recipient_hash !==
+      blake3Base64Url(
+        canonicalizeStrictBytes({
+          user_id: stringField(responder.user_id, "responder_user_invalid"),
+          device_id: stringField(responder.device_id, "responder_device_invalid"),
+          encryption_key_id: stringField(
+            metadata.recipient_encryption_key_id,
+            "initial_delivery_recipient_invalid",
+          ),
+          prekey_hash: stringField(responder.prekey_hash, "responder_prekey_hash_invalid"),
+        }),
+      )
+  ) {
+    throw new Error("initiator_ake_commitment_binding_invalid");
+  }
+  return { transcriptHashBytes, transcript, initiator, responder, context, commitment };
+}
+
 export function openInitialAkeUmkDelivery(params: {
   initialAke: InitialAkeArtifact;
   initialKeyDelivery: InitialKeyDeliveryRecord;
-  privatePrekey: InitialAkeResponderPrekeyPrivate;
+  responderState: InitialAkeResponderState;
   senderSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
 }): Uint8Array {
   const initialAkeRecord = assertRecord(params.initialAke, "initial_ake_payload_invalid");
@@ -801,8 +1151,8 @@ export function openInitialAkeUmkDelivery(params: {
     params.initialAke.purpose,
     "initial_ake_purpose_invalid",
   ) as InitialAkePurpose;
-  if (params.privatePrekey.purpose !== purpose) {
-    throw new Error("initial_ake_prekey_purpose_mismatch");
+  if (params.responderState.offer.purpose !== purpose) {
+    throw new Error("initial_ake_responder_session_purpose_mismatch");
   }
   if (
     params.initialKeyDelivery.version !== CURRENT_PROTOCOL_VERSION ||
@@ -844,12 +1194,6 @@ export function openInitialAkeUmkDelivery(params: {
   );
   assertInitialAkeContextKeys(purpose, contextRecord);
   assertInitialAkeDirectoryKeys(purpose, directoryRecord);
-  if (
-    params.privatePrekey.prekey_id !== responder.prekey_id ||
-    params.privatePrekey.operation_id !== (contextRecord.operation_id as string)
-  ) {
-    throw new Error("initial_ake_prekey_mismatch");
-  }
   const commitment = params.initialAke.initiator_commitment;
   const commitmentRecord = assertRecord(commitment, "initiator_commitment_invalid");
   assertExactKeys(commitmentRecord, INITIATOR_COMMITMENT_KEYS, "initiator_commitment_invalid");
@@ -929,48 +1273,47 @@ export function openInitialAkeUmkDelivery(params: {
   ) {
     throw new Error("initiator_ake_commitment_binding_invalid");
   }
-  const dh = x25519.getSharedSecret(
-    decodeBase64UrlStrict(params.privatePrekey.x25519_private, X25519_PRIVATE_BYTES),
-    decodeBase64UrlStrict(
-      stringField(initiator.x25519_ephemeral_public, "initiator_x25519_invalid"),
-      X25519_PUBLIC_BYTES,
-    ),
+  const expectedInitiatorConfirmation = decodeBase64UrlStrict(
+    params.responderState.offer.initiator_confirmation,
+    32,
   );
-  assertNonZeroSharedSecret(dh);
-  const kem = ml_kem768.decapsulate(
-    decodeBase64UrlStrict(
-      stringField(initiator.mlkem768_enc, "initiator_mlkem_invalid"),
-      MLKEM_CIPHERTEXT_BYTES,
-    ),
-    decodeBase64UrlStrict(params.privatePrekey.mlkem768_private, MLKEM_PRIVATE_BYTES),
+  const expectedResponderConfirmation = decodeBase64UrlStrict(
+    params.responderState.response.responder_confirmation,
+    32,
   );
-  const secret = deriveAkeSecret(dh, kem, transcriptHashBytes, purpose);
-  const expectedInitiatorConfirmation = hmac(
-    sha256,
-    secret,
-    concatBytes(new TextEncoder().encode("initiator-confirm"), transcriptHashBytes),
-  );
-  const expectedResponderConfirmation = hmac(
-    sha256,
-    secret,
-    concatBytes(new TextEncoder().encode("responder-confirm"), transcriptHashBytes),
-  );
-  if (
-    !constantTimeEqual(
-      expectedInitiatorConfirmation,
-      decodeBase64UrlStrict(params.initialAke.initiator_confirmation, 32),
-    ) ||
-    !constantTimeEqual(
-      expectedResponderConfirmation,
-      decodeBase64UrlStrict(params.initialAke.responder_confirmation, 32),
-    )
-  ) {
-    throw new Error("initial_ake_key_confirmation_invalid");
-  }
   const expectedKeyConfirmationHash = blake3Base64Url(
     concatBytes(expectedInitiatorConfirmation, expectedResponderConfirmation),
   );
+  expectedInitiatorConfirmation.fill(0);
+  expectedResponderConfirmation.fill(0);
   const aead = assertRecord(delivery.aead, "initial_delivery_aead_invalid");
+  const reconstructedOffer = {
+    protocol: params.initialAke.protocol as typeof AKE_PROTOCOL,
+    version: params.initialAke.version,
+    ake_suite_id: params.initialAke.ake_suite_id,
+    ake_suite_rank: params.initialAke.ake_suite_rank,
+    purpose,
+    transcript: params.initialAke.transcript,
+    transcript_hash: params.initialAke.transcript_hash,
+    initiator_commitment: params.initialAke.initiator_commitment,
+    initiator_commitment_signature: params.initialAke.initiator_commitment_signature,
+    initiator_confirmation: params.initialAke.initiator_confirmation,
+    pending_delivery: { metadata: pendingMetadata(metadata), aead },
+  } as unknown as InitialAkeOffer;
+  const finalResponse = {
+    protocol: "refmd.initial-ake-responder-confirmation",
+    version: CURRENT_PROTOCOL_VERSION,
+    purpose,
+    transcript_hash: transcriptHash,
+    prekey_id: stringField(responder.prekey_id, "responder_prekey_id_invalid"),
+    responder_confirmation: params.initialAke.responder_confirmation,
+  } as const;
+  if (
+    !strictJsonEqual(reconstructedOffer, params.responderState.offer) ||
+    !strictJsonEqual(finalResponse, params.responderState.response)
+  ) {
+    throw new Error("initial_ake_pending_delivery_mismatch");
+  }
   const authority = assertRecord(delivery.authority, "initial_delivery_authority_invalid");
   assertExactKeys(deliveryRecord, INITIAL_KEY_DELIVERY_KEYS, "initial_delivery_payload_invalid");
   assertExactKeys(aead, INITIAL_DELIVERY_AEAD_KEYS, "initial_delivery_aead_invalid");
@@ -1025,7 +1368,7 @@ export function openInitialAkeUmkDelivery(params: {
         "commitment_hash_invalid",
       ),
       purpose,
-      operation_id: params.privatePrekey.operation_id,
+      operation_id: stringField(contextRecord.operation_id, "initial_ake_operation_invalid"),
     },
     delivery: {
       delivery_id: stringField(metadata.delivery_id, "delivery_id_invalid"),
@@ -1051,7 +1394,7 @@ export function openInitialAkeUmkDelivery(params: {
     throw new Error("ciphertext_hash_mismatch");
   }
   const deliveryKey = deriveDeliveryKey(
-    secret,
+    params.responderState.secret,
     transcriptHashBytes,
     stringField(metadata.context_hash, "context_hash_invalid"),
     purpose,
@@ -1071,14 +1414,31 @@ export function openInitialAkeUmkDelivery(params: {
     ),
     recipientHash: stringField(commitmentRecord.recipient_hash, "recipient_hash_invalid"),
     payloadMetadataHash: blake3Base64Url(
-      canonicalizeStrictBytes(metadata as unknown as StrictJsonValue),
+      canonicalizeStrictBytes(pendingMetadata(metadata) as StrictJsonValue),
     ),
   });
-  return xchacha20poly1305(
-    deliveryKey,
-    decodeBase64UrlStrict(stringField(aead.nonce, "nonce_invalid"), 24),
-    aadBytes,
-  ).decrypt(ciphertext);
+  try {
+    return xchacha20poly1305(
+      deliveryKey,
+      decodeBase64UrlStrict(stringField(aead.nonce, "nonce_invalid"), 24),
+      aadBytes,
+    ).decrypt(ciphertext);
+  } finally {
+    deliveryKey.fill(0);
+  }
+}
+
+function pendingMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const value = { ...metadata };
+  delete value.key_confirmation_hash;
+  return value;
+}
+
+function strictJsonEqual(left: unknown, right: unknown): boolean {
+  return (
+    blake3Base64Url(canonicalizeStrictBytes(left as StrictJsonValue)) ===
+    blake3Base64Url(canonicalizeStrictBytes(right as StrictJsonValue))
+  );
 }
 
 export function encodeInitialAkeJson(value: unknown): string {

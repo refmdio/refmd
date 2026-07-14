@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { UserPlusIcon, TrashIcon } from "lucide-solid";
+import { KeyRoundIcon, LoaderCircleIcon, UserPlusIcon, TrashIcon } from "lucide-solid";
 import { Button } from "@/shared/ui/button";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
@@ -71,40 +71,70 @@ export function GuestInvitationsSection(props: GuestInvitationsSectionProps) {
           >
             <div class="space-y-2">
               <For each={state().invitations.data?.invitations}>
-                {(invitation) => (
-                  <div class="flex items-center justify-between p-2 border border-border/40">
-                    <div>
-                      <div class="flex items-center gap-2 text-sm font-medium">
-                        <span>{invitation.permission}</span>
-                        <span class="font-mono text-xs text-muted-foreground">
-                          {invitation.token_prefix}
-                        </span>
+                {(invitation) => {
+                  const deliveryAttempt = () =>
+                    state().deliveryAttempts.data?.attempts.find(
+                      (attempt) => attempt.context_id === invitation.invitation_id,
+                    );
+
+                  return (
+                    <div class="flex items-center justify-between p-2 border border-border/40">
+                      <div>
+                        <div class="flex items-center gap-2 text-sm font-medium">
+                          <span>{invitation.permission}</span>
+                          <span class="font-mono text-xs text-muted-foreground">
+                            {invitation.token_prefix}
+                          </span>
+                        </div>
+                        <div class="text-xs text-muted-foreground">
+                          Workspace guest &middot; Created{" "}
+                          {new Date(invitation.created_at).toLocaleDateString()} &middot;{" "}
+                          {invitation.redemption_count}/{invitation.max_redemptions} redemptions
+                          {" · "}
+                          Expires{" "}
+                          {invitation.expires_at
+                            ? new Date(invitation.expires_at).toLocaleDateString()
+                            : "never"}
+                          {invitation.revoked_at ? " · Revoked" : ""}
+                        </div>
                       </div>
-                      <div class="text-xs text-muted-foreground">
-                        Workspace guest &middot; Created{" "}
-                        {new Date(invitation.created_at).toLocaleDateString()} &middot;{" "}
-                        {invitation.redemption_count}/{invitation.max_redemptions} redemptions
-                        {" · "}
-                        Expires{" "}
-                        {invitation.expires_at
-                          ? new Date(invitation.expires_at).toLocaleDateString()
-                          : "never"}
-                        {invitation.revoked_at ? " · Revoked" : ""}
+                      <div class="flex shrink-0 items-center gap-1">
+                        <Show when={deliveryAttempt()}>
+                          {(attempt) => (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              class="size-7"
+                              title="Approve key delivery"
+                              disabled={
+                                state().approvingAttemptId() === attempt().redeem_attempt_id
+                              }
+                              onClick={() => void state().approveDeliveryAttempt(attempt())}
+                            >
+                              <Show
+                                when={state().approvingAttemptId() !== attempt().redeem_attempt_id}
+                                fallback={<LoaderCircleIcon class="size-3 animate-spin" />}
+                              >
+                                <KeyRoundIcon class="size-3" />
+                              </Show>
+                            </Button>
+                          )}
+                        </Show>
+                        <Show when={!invitation.revoked_at && state().guestInvitesEnabled()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            class="size-7"
+                            title="Revoke invitation"
+                            onClick={() => state().revokeInvitation(invitation.invitation_id)}
+                          >
+                            <TrashIcon class="size-3" />
+                          </Button>
+                        </Show>
                       </div>
                     </div>
-                    <Show when={!invitation.revoked_at && state().guestInvitesEnabled()}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        class="size-7"
-                        title="Revoke invitation"
-                        onClick={() => state().revokeInvitation(invitation.invitation_id)}
-                      >
-                        <TrashIcon class="size-3" />
-                      </Button>
-                    </Show>
-                  </div>
-                )}
+                  );
+                }}
               </For>
             </div>
           </Show>

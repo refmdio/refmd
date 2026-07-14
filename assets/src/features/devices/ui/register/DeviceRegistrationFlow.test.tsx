@@ -36,6 +36,7 @@ vi.mock("../../model/register/use-registration-flow", () => ({
     setReauthPassword: vi.fn(),
     submitPasswordReentry: vi.fn(),
     submitReauth: vi.fn(),
+    beginApproval: vi.fn(),
     reloadPage: vi.fn(),
     backToLogin: vi.fn(),
     openRecovery: vi.fn(),

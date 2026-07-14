@@ -87,14 +87,14 @@ defmodule RefMD.Encryption.Members do
       when is_map(member_envelope) and is_map(context) do
     attrs = SignedPQ.attrs_from_container_params!(member_envelope)
     target_user_id = Map.fetch!(context, :target_user_id)
-    requester_device_id = Map.fetch!(context, :requester_device_id)
+    {sender_user_id, sender_device_id} = invitation_member_sender(context, target_user_id)
     identity = identity_public_key!(target_user_id)
-    sender_device = active_device_record!(requester_device_id)
+    sender_device = active_device_record!(sender_device_id)
     key_directory = Map.fetch!(context, :key_directory)
 
     member_envelope_hash = member_envelope_binding_hash!(attrs)
 
-    unless valid_invitation_member_sender?(identity, sender_device, target_user_id) do
+    unless valid_invitation_member_sender?(identity, sender_device, sender_user_id) do
       throw(:invalid_invitation_member_envelope)
     end
 
@@ -109,6 +109,8 @@ defmodule RefMD.Encryption.Members do
              member_envelope,
              attrs,
              expected_resource,
+             sender_user_id,
+             sender_device_id,
              sender_device.signing_key_id,
              identity.encryption_key_id
            ) do
@@ -148,7 +150,7 @@ defmodule RefMD.Encryption.Members do
     |> Enum.zip(workspace_events)
     |> Enum.each(fn {attrs, event} ->
       sender_device = active_device_record!(fetch_attr!(attrs, :sender_device_id))
-      target_identity = identity_public_key!(fetch_attr!(attrs, :target_user_id))
+      target_identity = identity_public_key_for_wrap!(attrs)
 
       :ok =
         validate_member_envelope_wrap(
@@ -232,9 +234,24 @@ defmodule RefMD.Encryption.Members do
     |> Encoding.encode_base64url()
   end
 
-  defp valid_invitation_member_sender?(identity, sender_device, target_user_id) do
+  defp valid_invitation_member_sender?(identity, sender_device, sender_user_id) do
     is_map(identity.hybrid_encryption_public_key_material) and
-      sender_device.user_id == target_user_id
+      sender_device.user_id == sender_user_id
+  end
+
+  defp invitation_member_sender(
+         %{recipient_delivery_attempt: nil, requester_device_id: device_id},
+         target_user_id
+       ),
+       do: {target_user_id, device_id}
+
+  defp invitation_member_sender(%{recipient_delivery_attempt: attempt}, _target_user_id) do
+    freshness = attempt.approved_artifacts["redeem_freshness_proof"]
+
+    {
+      get_in(freshness, ["authoritative_device", "user_id"]),
+      get_in(freshness, ["authoritative_device", "device_id"])
+    }
   end
 
   defp valid_invitation_member_envelope_attrs?(
@@ -242,18 +259,19 @@ defmodule RefMD.Encryption.Members do
          member_envelope,
          attrs,
          expected_resource,
+         expected_sender_user_id,
+         expected_sender_device_id,
          expected_sender_signing_key_id,
          expected_recipient_key_id
        ) do
     target_user_id = Map.fetch!(context, :target_user_id)
-    requester_device_id = Map.fetch!(context, :requester_device_id)
     kek_version = Map.fetch!(context, :kek_version)
     workspace_id = Map.fetch!(context, :workspace_id)
     expected_event_scope = %{"scope_kind" => "workspace", "scope_id" => workspace_id}
 
     envelope_values_match?(
       target_user_id,
-      requester_device_id,
+      expected_sender_device_id,
       kek_version,
       member_envelope,
       attrs,
@@ -262,8 +280,8 @@ defmodule RefMD.Encryption.Members do
     ) and
       envelope_sender_matches?(
         attrs,
-        target_user_id,
-        requester_device_id,
+        expected_sender_user_id,
+        expected_sender_device_id,
         expected_sender_signing_key_id
       ) and
       envelope_recipient_matches?(attrs, target_user_id, expected_recipient_key_id)
@@ -291,13 +309,13 @@ defmodule RefMD.Encryption.Members do
 
   defp envelope_sender_matches?(
          attrs,
-         target_user_id,
-         requester_device_id,
+         sender_user_id,
+         sender_device_id,
          expected_signing_key_id
        ) do
     [
-      {attrs.sender["user_id"], target_user_id},
-      {attrs.sender["device_id"], requester_device_id},
+      {attrs.sender["user_id"], sender_user_id},
+      {attrs.sender["device_id"], sender_device_id},
       {attrs.sender["signing_key_id"], expected_signing_key_id}
     ]
     |> Enum.all?(fn {actual, expected} -> actual == expected end)
@@ -314,14 +332,22 @@ defmodule RefMD.Encryption.Members do
   end
 
   defp validate_invitation_signed_context!(context, attrs, key_directory) do
+    {sender_user_id, sender_device_id} =
+      invitation_member_sender(context, Map.fetch!(context, :target_user_id))
+
+    recipient_checkpoint = invitation_recipient_checkpoint(context, attrs)
+
     case SignedPQ.validate_invitation_workspace_member_kek(attrs, %{
            workspace_id: Map.fetch!(context, :workspace_id),
            target_user_id: Map.fetch!(context, :target_user_id),
-           sender_user_id: Map.fetch!(context, :target_user_id),
-           sender_device_id: Map.fetch!(context, :requester_device_id),
+           sender_user_id: sender_user_id,
+           sender_device_id: sender_device_id,
            key_version: Map.fetch!(context, :kek_version),
            key_checkpoint_sequence: attrs.sender["key_checkpoint_sequence"],
            key_checkpoint_hash: attrs.sender["key_checkpoint_hash"],
+           recipient_key_scope_kind: recipient_checkpoint.scope_kind,
+           recipient_key_checkpoint_sequence: recipient_checkpoint.sequence,
+           recipient_key_checkpoint_hash: recipient_checkpoint.hash,
            operation_checkpoint_sequence: attrs.operation_checkpoint_sequence,
            operation_checkpoint_hash: Encoding.encode_base64url(attrs.operation_checkpoint_hash),
            key_directory_events: Map.fetch!(key_directory, :events)
@@ -329,6 +355,23 @@ defmodule RefMD.Encryption.Members do
       :ok -> :ok
       {:error, _reason} -> throw(:invalid_invitation_member_envelope)
     end
+  end
+
+  defp invitation_recipient_checkpoint(%{recipient_delivery_attempt: attempt}, _attrs)
+       when not is_nil(attempt) do
+    %{
+      scope_kind: "user",
+      sequence: attempt.target_key_checkpoint_sequence,
+      hash: attempt.target_key_checkpoint_hash
+    }
+  end
+
+  defp invitation_recipient_checkpoint(_context, attrs) do
+    %{
+      scope_kind: "workspace",
+      sequence: attrs.sender["key_checkpoint_sequence"],
+      hash: attrs.sender["key_checkpoint_hash"]
+    }
   end
 
   defp validate_invitation_member_envelope_admission!(
@@ -343,7 +386,7 @@ defmodule RefMD.Encryption.Members do
     target_user_id = Map.fetch!(context, :target_user_id)
     requester_device_id = Map.fetch!(context, :requester_device_id)
     kek_version = Map.fetch!(context, :kek_version)
-    wrap_event = wrap_issued_event!(events)
+    wrap_event = wrap_issued_event!(events, attrs)
     wrap_payload = event_payload!(wrap_event)
     event = redeemed_event!(events)
     event_payload = event_payload!(event)
@@ -351,7 +394,6 @@ defmodule RefMD.Encryption.Members do
     checkpoint_payload = envelope_payload!(checkpoint)
     covered_head = checkpoint_payload["covered_event_head"]
     checkpoint_hash = Hash.blake3_base64url(JCS.canonical_bytes!(checkpoint_payload))
-    redeemed_event_hash = Hash.blake3_base64url(JCS.canonical_bytes!(event_payload))
 
     true = wrap_payload["event_type"] == "wrap_issued"
     true = wrap_payload["scope_kind"] == "workspace"
@@ -383,13 +425,12 @@ defmodule RefMD.Encryption.Members do
     true = checkpoint_hash == Encoding.encode_base64url(attrs.operation_checkpoint_hash)
 
     true = is_map(covered_head)
-    true = covered_head["head_sequence"] == event_payload["sequence"]
-    true = covered_head["head_hash"] == redeemed_event_hash
-    true = attrs.operation_checkpoint_covered_head_sequence == event_payload["sequence"]
+    true = covered_head["head_sequence"] >= event_payload["sequence"]
+    true = attrs.operation_checkpoint_covered_head_sequence == covered_head["head_sequence"]
 
     true =
       Encoding.encode_base64url(attrs.operation_checkpoint_covered_head_hash) ==
-        redeemed_event_hash
+        covered_head["head_hash"]
   end
 
   defp validate_invitation_member_envelope_admission!(_, _, _, _),
@@ -404,9 +445,14 @@ defmodule RefMD.Encryption.Members do
     end
   end
 
-  defp wrap_issued_event!(events) do
+  defp wrap_issued_event!(events, attrs) do
+    expected_hash = Encoding.encode_base64url(attrs.wrap_event_hash)
+
     case Enum.filter(events, fn event ->
-           event_payload!(event)["event_type"] == "wrap_issued"
+           payload = event_payload!(event)
+
+           payload["event_type"] == "wrap_issued" and
+             Hash.blake3_base64url(JCS.canonical_bytes!(payload)) == expected_hash
          end) do
       [event] -> event
       _ -> throw(:invalid_invitation_member_envelope)
@@ -494,7 +540,9 @@ defmodule RefMD.Encryption.Members do
   def all_user_devices_have_key?(workspace_id, user_id, key_version) do
     active_device_ids =
       from(d in RefMD.Devices.Device,
-        where: d.user_id == ^user_id and is_nil(d.revoked_at),
+        where:
+          d.user_id == ^user_id and is_nil(d.revoked_at) and
+            is_nil(d.identity_wipe_required_at),
         select: d.id
       )
       |> Repo.all()
@@ -517,8 +565,7 @@ defmodule RefMD.Encryption.Members do
 
   def all_workspace_member_devices_have_key?(workspace_id, key_version) do
     active_devices =
-      active_workspace_kek_recipient_devices_query(workspace_id)
-      |> Repo.all()
+      active_workspace_kek_recipient_devices(workspace_id)
       |> MapSet.new()
 
     covered_devices =
@@ -529,7 +576,8 @@ defmodule RefMD.Encryption.Members do
           k.workspace_id == ^workspace_id and
             k.key_version == ^key_version and
             k.is_active == true and
-            is_nil(d.revoked_at),
+            is_nil(d.revoked_at) and
+            is_nil(d.identity_wipe_required_at),
         select: {k.user_id, k.device_id, d.encryption_key_id, k.recipient_key_id}
       )
       |> Repo.all()
@@ -545,20 +593,28 @@ defmodule RefMD.Encryption.Members do
   end
 
   def all_members_have_envelope?(workspace_id, key_version) do
-    member_ids =
+    registered_member_ids =
       from(wm in RefMD.Workspaces.WorkspaceMember,
         join: r in RefMD.Workspaces.WorkspaceRole,
         on: r.id == wm.role_id,
-        left_join: g in RefMD.Workspaces.WorkspaceGuestGrant,
-        on:
-          g.workspace_id == wm.workspace_id and g.user_id == wm.user_id and
-            g.scope_kind == "workspace" and is_nil(g.revoked_at),
-        where: wm.workspace_id == ^workspace_id,
-        where: r.base_role != "guest" or not is_nil(g.user_id),
+        join: u in RefMD.Users.User,
+        on: u.id == wm.user_id,
+        where:
+          wm.workspace_id == ^workspace_id and u.account_type != "guest" and
+            r.base_role != "guest",
         select: wm.user_id
       )
       |> Repo.all()
       |> MapSet.new()
+
+    admitted_guest_ids =
+      workspace_id
+      |> active_workspace_kek_recipient_devices()
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.filter(&WorkspaceContext.guest_user?/1)
+      |> MapSet.new()
+
+    member_ids = MapSet.union(registered_member_ids, admitted_guest_ids)
 
     covered_member_ids =
       from(e in WorkspaceMemberEnvelope,
@@ -591,9 +647,13 @@ defmodule RefMD.Encryption.Members do
   end
 
   defp validate_member_envelope_attrs!(attrs) do
-    case WorkspaceContext.get_member_role(attrs.workspace_id, attrs.target_user_id) do
-      role when is_binary(role) and role != "guest" -> :ok
-      _ -> raise ArgumentError, "target_member_invalid"
+    if WorkspaceContext.guest_user?(attrs.target_user_id) do
+      validate_workspace_guest_successor_envelope!(attrs)
+    else
+      case WorkspaceContext.get_member_role(attrs.workspace_id, attrs.target_user_id) do
+        role when is_binary(role) and role != "guest" -> :ok
+        _ -> raise ArgumentError, "target_member_invalid"
+      end
     end
 
     unless member_envelope_checkpoint_current?(attrs) do
@@ -601,6 +661,26 @@ defmodule RefMD.Encryption.Members do
     end
 
     :ok
+  end
+
+  defp validate_workspace_guest_successor_envelope!(attrs) do
+    sender_device = active_device_record!(attrs.sender_device_id)
+    pending = Users.get_pending_identity_public_key(attrs.target_user_id, lock: "FOR SHARE")
+    recipient_key_id = attrs.recipient_key_id |> encode_wrap_binary()
+
+    unless sender_device.user_id == attrs.target_user_id and
+             WorkspaceContext.authorize_workspace_guest_access(
+               attrs.workspace_id,
+               attrs.target_user_id
+             ) == :ok and
+             KeyDirectory.active_workspace_scope_guest_device_admitted?(
+               attrs.workspace_id,
+               attrs.target_user_id,
+               attrs.sender_device_id
+             ) and
+             pending != nil and pending.encryption_key_id == recipient_key_id do
+      raise ArgumentError, "target_member_invalid"
+    end
   end
 
   defp member_envelope_checkpoint_current?(attrs) do
@@ -689,9 +769,27 @@ defmodule RefMD.Encryption.Members do
   end
 
   defp identity_public_key!(user_id) do
-    case Users.get_identity_public_key(user_id) do
-      nil -> raise ArgumentError, "identity_key_missing"
-      identity -> identity
+    case Users.identity_key_for_new_encryption(user_id, lock: "FOR SHARE") do
+      {:ok, identity} -> identity
+      {:error, reason} -> raise ArgumentError, Atom.to_string(reason)
+    end
+  end
+
+  defp identity_public_key_for_wrap!(attrs) do
+    user_id = fetch_attr!(attrs, :target_user_id)
+    recipient_key_id = attrs |> fetch_attr!(:recipient_key_id) |> encode_wrap_binary()
+    current = Users.get_identity_public_key(user_id, lock: "FOR SHARE")
+    pending = Users.get_pending_identity_public_key(user_id, lock: "FOR SHARE")
+
+    cond do
+      pending && pending.encryption_key_id == recipient_key_id ->
+        pending
+
+      current && current.encryption_key_id == recipient_key_id ->
+        identity_public_key!(user_id)
+
+      true ->
+        raise ArgumentError, "identity_key_missing"
     end
   end
 
@@ -701,19 +799,48 @@ defmodule RefMD.Encryption.Members do
     KeyError -> Map.fetch!(attrs, Atom.to_string(key))
   end
 
-  defp active_workspace_kek_recipient_devices_query(workspace_id) do
+  defp active_workspace_kek_recipient_devices(workspace_id) do
+    Enum.uniq(
+      active_workspace_member_kek_recipient_devices(workspace_id) ++
+        active_workspace_guest_kek_recipient_devices(workspace_id)
+    )
+  end
+
+  defp active_workspace_member_kek_recipient_devices(workspace_id) do
     from(d in RefMD.Devices.Device,
+      join: u in RefMD.Users.User,
+      on: u.id == d.user_id,
       join: wm in RefMD.Workspaces.WorkspaceMember,
       on: wm.user_id == d.user_id and wm.workspace_id == ^workspace_id,
       join: r in RefMD.Workspaces.WorkspaceRole,
       on: r.id == wm.role_id,
-      left_join: g in RefMD.Workspaces.WorkspaceGuestGrant,
-      on:
-        g.workspace_id == wm.workspace_id and g.user_id == wm.user_id and
-          g.scope_kind == "workspace" and is_nil(g.revoked_at),
-      where: is_nil(d.revoked_at),
-      where: r.base_role != "guest" or not is_nil(g.user_id),
+      where:
+        u.account_type != "guest" and r.base_role != "guest" and is_nil(d.revoked_at) and
+          is_nil(d.identity_wipe_required_at),
       select: {d.user_id, d.id, d.encryption_key_id}
     )
+    |> Repo.all()
+  end
+
+  defp active_workspace_guest_kek_recipient_devices(workspace_id) do
+    from(d in RefMD.Devices.Device,
+      join: u in RefMD.Users.User,
+      on: u.id == d.user_id,
+      join: g in RefMD.Workspaces.WorkspaceGuestGrant,
+      on: g.user_id == d.user_id and g.workspace_id == ^workspace_id,
+      where:
+        u.account_type == "guest" and g.scope_kind == "workspace" and
+          is_nil(g.revoked_at) and is_nil(d.revoked_at) and
+          is_nil(d.identity_wipe_required_at),
+      select: {d.user_id, d.id, d.encryption_key_id}
+    )
+    |> Repo.all()
+    |> Enum.filter(fn {user_id, device_id, _encryption_key_id} ->
+      KeyDirectory.active_workspace_scope_guest_device_admitted?(
+        workspace_id,
+        user_id,
+        device_id
+      )
+    end)
   end
 end

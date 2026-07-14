@@ -16,7 +16,7 @@ defmodule RefMDWeb.PluginNetworkExecutorControllerTest do
   }
 
   alias RefMD.Repo
-  alias RefMD.Security.AuditEvent
+  alias RefMD.Security
   alias RefMD.Users.User
   alias RefMD.Workspaces
 
@@ -736,53 +736,54 @@ defmodule RefMDWeb.PluginNetworkExecutorControllerTest do
     proxy_id = if route == "proxy", do: body["proxy_id"] || "workspace-proxy", else: "none"
     proxy_action = if route == "proxy", do: %{"proxy_id" => proxy_id}, else: %{}
 
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
-      class: "security_runtime",
-      type: "plugin.network.requested",
-      actor: %{"user_id" => user_id, "device_id" => device_id},
-      scope: %{
-        "workspace_id" => application.workspace_id,
-        "document_id" => nil,
-        "share_id" => nil
-      },
-      resource: %{
-        "kind" => "network_endpoint",
-        "id" => body["endpoint_id"],
-        "version_hash" => target_url <> "|route=#{route}|credential=no|proxy=#{proxy_id}"
-      },
-      action:
-        Map.merge(
-          %{
-            "operation" => "app.network.fetch:#{method}:#{route}",
-            "result" => "allowed",
-            "reason_code" => nil,
-            "endpoint_id" => body["endpoint_id"],
-            "route" => route,
-            "method" => method,
-            "target_origin" => "#{target_uri.scheme}://#{target_uri.host}",
-            "target_path" => target_uri.path,
-            "request_bytes" => body["request_bytes"],
-            "credential_handle_used" => body["credential_handle_used"]
-          },
-          proxy_action
-        ),
-      sensitivity: %{
-        "plaintext_scope_kind" => "none",
-        "plaintext_bytes" => 0,
-        "egress_bytes" => 0,
-        "storage_bytes" => 0
-      },
-      correlation: %{
-        "request_id" => body["request_id"],
-        "capability_id" => "capability-one",
-        "capability_grant_id" => body["capability_grant_id"],
-        "frame_generation" => body["frame_generation"],
-        "execution_context_id" => nil,
-        "authority_event_ref" => nil
-      }
-    })
-    |> Repo.insert!()
+    {:ok, %{audit_event: audit_event}} =
+      Security.record_audit_event(%{
+        class: "security_runtime",
+        type: "plugin.network.requested",
+        actor: %{"user_id" => user_id, "device_id" => device_id},
+        scope: %{
+          "workspace_id" => application.workspace_id,
+          "document_id" => nil,
+          "share_id" => nil
+        },
+        resource: %{
+          "kind" => "network_endpoint",
+          "id" => body["endpoint_id"],
+          "version_hash" => target_url <> "|route=#{route}|credential=no|proxy=#{proxy_id}"
+        },
+        action:
+          Map.merge(
+            %{
+              "operation" => "app.network.fetch:#{method}:#{route}",
+              "result" => "allowed",
+              "reason_code" => nil,
+              "endpoint_id" => body["endpoint_id"],
+              "route" => route,
+              "method" => method,
+              "target_origin" => "#{target_uri.scheme}://#{target_uri.host}",
+              "target_path" => target_uri.path,
+              "request_bytes" => body["request_bytes"],
+              "credential_handle_used" => body["credential_handle_used"]
+            },
+            proxy_action
+          ),
+        sensitivity: %{
+          "plaintext_scope_kind" => "none",
+          "plaintext_bytes" => 0,
+          "egress_bytes" => 0,
+          "storage_bytes" => 0
+        },
+        correlation: %{
+          "request_id" => body["request_id"],
+          "capability_id" => "capability-one",
+          "capability_grant_id" => body["capability_grant_id"],
+          "frame_generation" => body["frame_generation"],
+          "execution_context_id" => nil,
+          "authority_event_ref" => nil
+        }
+      })
+
+    audit_event
   end
 
   defp set_workspace_proxy!(workspace, policy \\ %{"max_response_size" => 65_536}) do

@@ -3,9 +3,10 @@ defmodule RefMDWeb.DeviceController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Auth, Devices}
-  alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial}
+  alias RefMD.Crypto.{Encoding, Hash}
   alias RefMD.Security
 
+  alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Payloads.DeviceRegistration, as: RegistrationPayload
   alias RefMDWeb.Schemas
 
@@ -70,7 +71,7 @@ defmodule RefMDWeb.DeviceController do
   def bootstrap(conn, params) do
     user_id = conn.assigns.current_user_id
 
-    with material <- decode_device_request_material!(params),
+    with material <- RegistrationPayload.decode_request_material!(params),
          :ok <- Devices.validate_bootstrap_device_registration(user_id, material),
          {:ok, identity_signature} <-
            decode_hybrid_signature(
@@ -172,7 +173,7 @@ defmodule RefMDWeb.DeviceController do
     user_id = conn.assigns.current_user_id
     session = conn.assigns.current_session
 
-    with material <- decode_device_request_material!(params),
+    with material <- RegistrationPayload.decode_request_material!(params),
          :ok <- Devices.validate_device_registration(user_id, material) do
       if session.is_recovery or Devices.user_has_any_device_records?(user_id) do
         create_device_registration(conn, params, user_id, material)
@@ -229,8 +230,6 @@ defmodule RefMDWeb.DeviceController do
         |> json(%{error: "invalid_device", details: format_errors(changeset)})
     end
   end
-
-  defp validate_pending_registration_prekey(_params, %{is_recovery: true}), do: :ok
 
   defp validate_pending_registration_prekey(params, _session) do
     if RegistrationPayload.valid_ake_responder_prekeys?(params["ake_responder_prekeys"]) do
@@ -568,24 +567,109 @@ defmodule RefMDWeb.DeviceController do
     end
   end
 
-  defp decode_device_request_material!(params) do
-    hybrid_encryption_public_key_material = params["device_hybrid_encryption_public_key_material"]
+  operation(:initial_ake_offers,
+    summary: "Get pending Initial AKE offers for the registering device",
+    parameters: [device_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Initial AKE offers", "application/json", Schemas.InitialAkeExchangeResponse},
+      forbidden: {"Invalid pending registration", "application/json", Schemas.ErrorResponse},
+      not_found: {"Exchange not ready", "application/json", Schemas.ErrorResponse}
+    ]
+  )
 
-    %{
-      device_id: params["device_id"],
-      identity_signing_key_id: params["identity_signing_key_id"],
-      identity_hybrid_signing_public_key_material:
-        params["identity_hybrid_signing_public_key_material"],
-      device_signing_key_id: params["device_signing_key_id"],
-      device_encryption_key_id: params["device_encryption_key_id"],
-      x25519_public_key:
-        HybridEncryptionMaterial.x25519_public!(hybrid_encryption_public_key_material),
-      mlkem768_public_key:
-        HybridEncryptionMaterial.mlkem768_public!(hybrid_encryption_public_key_material),
-      hybrid_encryption_public_key_material: hybrid_encryption_public_key_material,
-      hybrid_signing_public_key_material: params["device_hybrid_signing_public_key_material"],
-      client_nonce: decode_binary!(params["client_nonce"])
-    }
+  def initial_ake_offers(conn, %{"device_id" => device_id}) do
+    session = conn.assigns.current_session
+
+    if session.device_registration_id == device_id do
+      case Devices.get_initial_ake_exchange(conn.assigns.current_user_id, device_id) do
+        {:ok, %{offers: offers}} when is_map(offers) ->
+          respond_with_initial_ake_offers(conn, offers)
+
+        _ ->
+          conn |> put_status(:not_found) |> json(%{error: "initial_ake_exchange_not_ready"})
+      end
+    else
+      conn |> put_status(:forbidden) |> json(%{error: "device_registration_mismatch"})
+    end
+  end
+
+  defp respond_with_initial_ake_offers(conn, offers) do
+    sender_device_id =
+      get_in(offers, ["umk_distribution", "transcript", "initiator", "device_id"])
+
+    case Devices.get_device(sender_device_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "initial_ake_sender_not_found"})
+
+      sender ->
+        json(
+          conn,
+          %{offers: offers, sender_device_id: sender.id}
+          |> Map.merge(DeviceIdentity.sender_fields(sender))
+        )
+    end
+  end
+
+  operation(:initial_ake_responses,
+    summary: "Submit one-time Initial AKE responder confirmations",
+    parameters: [device_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Initial AKE responses", "application/json", Schemas.InitialAkeResponsesRequest},
+    responses: [
+      created: {"Responses accepted", "application/json", Schemas.OkResponse},
+      conflict: {"Responses already consumed", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Invalid responses", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def initial_ake_responses(conn, %{"device_id" => device_id, "responses" => responses}) do
+    session = conn.assigns.current_session
+
+    if session.device_registration_id == device_id do
+      case Devices.submit_initial_ake_responses(
+             conn.assigns.current_user_id,
+             device_id,
+             responses
+           ) do
+        {:ok, _} ->
+          conn |> put_status(:created) |> json(%{ok: true})
+
+        {:error, :initial_ake_response_reused} ->
+          conn |> put_status(:conflict) |> json(%{error: "initial_ake_response_reused"})
+
+        {:error, reason} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: Atom.to_string(reason)})
+      end
+    else
+      conn |> put_status(:forbidden) |> json(%{error: "device_registration_mismatch"})
+    end
+  end
+
+  def initial_ake_responses(conn, _params),
+    do:
+      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_initial_ake_response"})
+
+  operation(:initial_ake_response_status,
+    summary: "Get Initial AKE responder confirmations for finalization",
+    parameters: [device_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Initial AKE responses", "application/json", Schemas.InitialAkeResponsesResponse},
+      forbidden: {"Invalid initiator", "application/json", Schemas.ErrorResponse},
+      not_found: {"Responses not ready", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def initial_ake_response_status(conn, %{"device_id" => device_id}) do
+    with {:ok, %{offers: offers, responses: responses}} when is_map(responses) <-
+           Devices.get_initial_ake_exchange(conn.assigns.current_user_id, device_id),
+         true <-
+           get_in(offers, ["umk_distribution", "transcript", "initiator", "device_id"]) ==
+             conn.assigns.rrp_device_id do
+      json(conn, %{responses: responses})
+    else
+      false -> conn |> put_status(:forbidden) |> json(%{error: "initial_ake_initiator_mismatch"})
+      _ -> conn |> put_status(:not_found) |> json(%{error: "initial_ake_responses_not_ready"})
+    end
   end
 
   defp device_validation_error_response(error) do

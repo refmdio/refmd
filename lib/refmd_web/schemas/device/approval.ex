@@ -42,9 +42,10 @@ defmodule RefMDWeb.Schemas.ApproveDeviceRequest do
     additionalProperties: false,
     properties:
       Map.merge(@base_properties, %{
-        approval_signature_surface: %Schema{type: :string, enum: ["device_approval"]}
+        approval_signature_surface: %Schema{type: :string, enum: ["device_approval"]},
+        initial_ake_offers: RefMDWeb.Schemas.InitialAkeOfferBundle
       }),
-    required: @base_required
+    required: @base_required ++ [:initial_ake_offers]
   }
 
   @recovery_device_approval_schema %Schema{

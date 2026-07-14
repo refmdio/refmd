@@ -173,8 +173,11 @@ defmodule RefMDWeb.UmkController do
 
   defp fetch_active_device(user_id, device_id) when is_binary(device_id) do
     case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
-      _ -> {:error, :invalid_device}
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: nil} = device ->
+        {:ok, device}
+
+      _ ->
+        {:error, :invalid_device}
     end
   end
 

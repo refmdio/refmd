@@ -1,6 +1,8 @@
 import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
 
+type InvitationRecipientResponse = components["schemas"]["InvitationRecipientResponse"];
+
 export const workspacesApi = {
   list: async () =>
     throwIfError(await client.GET("/api/workspaces", { params: withUserRrpParams() })),
@@ -108,6 +110,8 @@ export const workspacesApi = {
       name?: string;
       is_default?: boolean;
       permissions?: Array<{ permission: string; granted: boolean }>;
+      workspace_key_directory_events?: components["schemas"]["KeyDirectoryEnvelope"][];
+      workspace_key_directory_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"];
     },
   ) =>
     throwIfError(
@@ -142,6 +146,19 @@ export const workspacesApi = {
         body,
       }),
     ),
+
+  resolveInvitationRecipient: async (
+    workspaceId: string,
+    email: string,
+  ): Promise<InvitationRecipientResponse> =>
+    throwIfError(
+      await client.GET("/api/workspaces/{workspace_id}/invitations/recipient", {
+        params: withUserRrpParams({
+          path: { workspace_id: workspaceId },
+          query: { email },
+        }),
+      }),
+    ) as InvitationRecipientResponse,
 
   revokeInvitation: async (
     workspaceId: string,
@@ -213,6 +230,19 @@ export const workspacesApi = {
       }),
     ),
 
+  resolveGuestInvitationRecipient: async (
+    workspaceId: string,
+    email: string,
+  ): Promise<InvitationRecipientResponse> =>
+    throwIfError(
+      await client.GET("/api/workspaces/{workspace_id}/guest-invitations/recipient", {
+        params: withUserRrpParams({
+          path: { workspace_id: workspaceId },
+          query: { email },
+        }),
+      }),
+    ) as InvitationRecipientResponse,
+
   revokeGuestInvitation: async (
     workspaceId: string,
     invitationId: string,
@@ -230,6 +260,77 @@ export const workspacesApi = {
   redeemGuestInvitation: async (body: components["schemas"]["RedeemGuestInvitationRequest"]) =>
     throwIfError(
       await client.POST("/api/guest/redeem", {
+        body,
+      }),
+    ),
+
+  redeemKnownGuestInvitation: async (body: components["schemas"]["RedeemGuestInvitationRequest"]) =>
+    throwIfError(
+      await client.POST("/api/guest/redeem-known", {
+        params: withUserRrpParams(),
+        body,
+      }),
+    ),
+
+  createInvitationDeliveryAttempt: async (
+    body: components["schemas"]["CreateInvitationDeliveryAttemptRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/invitations/delivery-attempts", {
+        params: withUserRrpParams(),
+        body,
+      }),
+    ),
+
+  getInvitationDeliveryAttempt: async (attemptId: string) =>
+    throwIfError(
+      await client.GET("/api/invitations/delivery-attempts/{attempt_id}", {
+        params: withUserRrpParams({ path: { attempt_id: attemptId } }),
+      }),
+    ),
+
+  listInvitationDeliveryAttempts: async (workspaceId: string) =>
+    throwIfError(
+      await client.GET("/api/workspaces/{workspace_id}/invitation-delivery-attempts", {
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
+      }),
+    ),
+
+  approveInvitationDeliveryAttempt: async (
+    workspaceId: string,
+    attemptId: string,
+    body: components["schemas"]["ApproveInvitationDeliveryAttemptRequest"],
+  ) =>
+    throwIfError(
+      await client.POST(
+        "/api/workspaces/{workspace_id}/invitation-delivery-attempts/{attempt_id}/approve",
+        {
+          params: withUserRrpParams({
+            path: { workspace_id: workspaceId, attempt_id: attemptId },
+          }),
+          body,
+        },
+      ),
+    ),
+
+  consumeWorkspaceInvitationDeliveryAttempt: async (
+    attemptId: string,
+    body: components["schemas"]["ConsumeInvitationDeliveryAttemptRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/workspaces/invitations/delivery-attempts/{attempt_id}/consume", {
+        params: withUserRrpParams({ path: { attempt_id: attemptId } }),
+        body,
+      }),
+    ),
+
+  consumeGuestInvitationDeliveryAttempt: async (
+    attemptId: string,
+    body: components["schemas"]["ConsumeInvitationDeliveryAttemptRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/guest/invitations/delivery-attempts/{attempt_id}/consume", {
+        params: withUserRrpParams({ path: { attempt_id: attemptId } }),
         body,
       }),
     ),

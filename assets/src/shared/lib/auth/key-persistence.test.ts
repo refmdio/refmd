@@ -75,13 +75,7 @@ describe("key persistence secure cleanup", () => {
     expect(localStorage.getItem("unrelated")).toBe("keep");
     expect(openedDbs).toEqual(["refmd-keys", "refmd-trust", "refmd-offline"]);
     expect(deletedDbs.sort()).toEqual(
-      [
-        "refmd-keys",
-        "refmd-trust",
-        "refmd-offline",
-        "refmd-security",
-        "refmd-share-sessions",
-      ].sort(),
+      ["refmd-keys", "refmd-trust", "refmd-offline", "refmd-security"].sort(),
     );
     expect(deletedCaches.sort()).toEqual(["refmd-app-cache", "third-party-cache"].sort());
   });

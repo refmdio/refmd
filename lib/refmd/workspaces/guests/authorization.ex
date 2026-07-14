@@ -48,6 +48,12 @@ defmodule RefMD.Workspaces.Guests.Authorization do
     end
   end
 
+  def authorize_workspace_access(workspace_id, user_id) do
+    if Enum.any?(active_grants(workspace_id, user_id), &(&1.scope_kind == "workspace")),
+      do: :ok,
+      else: {:error, :permission_denied}
+  end
+
   def authorize_permission(workspace_id, user_id, permission, document_or_conn \\ nil) do
     grants = active_grants(workspace_id, user_id)
     role = role_for_active_grants(workspace_id, user_id)

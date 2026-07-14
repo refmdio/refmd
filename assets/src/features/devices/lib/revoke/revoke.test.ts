@@ -7,11 +7,23 @@ const mocks = vi.hoisted(() => ({
   buildKekOldKeyDeletionManifestHash: vi.fn(),
   buildKekRotationCompletionKeyDirectoryAppend: vi.fn(),
   getWorkspaceIds: vi.fn(),
+  listDocuments: vi.fn(),
+  getDocumentKeys: vi.fn(),
+  rewrapDocumentKeyForKekRotation: vi.fn(),
   getWorkspaceMemberKeys: vi.fn(),
   prepareKekRotationCompletion: vi.fn(),
   completeKekRotation: vi.fn(),
   startKekRotation: vi.fn(),
   generateKek: vi.fn(),
+  resolveKek: vi.fn(),
+  resolveKekByVersion: vi.fn(),
+  loadOfflineKekMetadata: vi.fn(),
+  setActiveKekVersion: vi.fn(),
+  restoreKekFromOffline: vi.fn(),
+  storeKekForOffline: vi.fn(),
+  deleteKekVersion: vi.fn(),
+  unwrapDek: vi.fn(),
+  wrapDek: vi.fn(),
   list: vi.fn(),
   listMembers: vi.fn(),
   listMemberDevices: vi.fn(),
@@ -24,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   fetchVerifiedKeyDirectory: vi.fn(),
   buildDeviceRevocationKeyDirectoryAppend: vi.fn(),
   advanceKeyDirectoryPinWithProof: vi.fn(),
+  acknowledgeWorkspaceWipeIfRequired: vi.fn(),
   signDeviceKeyDeletionProof: vi.fn(),
   tofuVerify: vi.fn(),
   tofuUpdateLastSeen: vi.fn(),
@@ -53,7 +66,10 @@ vi.mock("@/shared/api", () => ({
     prepareKekRotationCompletion: mocks.prepareKekRotationCompletion,
     completeKekRotation: mocks.completeKekRotation,
     startKekRotation: mocks.startKekRotation,
+    getDocumentKeys: mocks.getDocumentKeys,
+    rewrapDocumentKeyForKekRotation: mocks.rewrapDocumentKeyForKekRotation,
   },
+  documentsApi: { list: mocks.listDocuments },
   workspacesApi: {
     listMembers: mocks.listMembers,
     listMemberDevices: mocks.listMemberDevices,
@@ -72,6 +88,14 @@ vi.mock("@/shared/lib/anti-rollback/key-directory-pin/pins", () => ({
   advanceKeyDirectoryPinWithProof: mocks.advanceKeyDirectoryPinWithProof,
 }));
 
+vi.mock("@/shared/lib/crypto/workspace-kek-wipe", () => ({
+  acknowledgeWorkspaceWipeIfRequired: mocks.acknowledgeWorkspaceWipeIfRequired,
+}));
+
+vi.mock("@/shared/lib/crypto/kek-resolver", () => ({
+  resolveKekByVersion: mocks.resolveKekByVersion,
+}));
+
 vi.mock("@/shared/lib/crypto/workspace-kek-persistence", () => ({
   persistWorkspaceKekForDevice: mocks.persistWorkspaceKekForDevice,
   persistWorkspaceKekForMember: mocks.persistWorkspaceKekForMember,
@@ -88,6 +112,14 @@ vi.mock("@/shared/lib/crypto/worker/client", () => ({
   getCryptoWorker: () => ({
     createDeviceRevocationSignature: mocks.createDeviceRevocationSignature,
     generateKek: mocks.generateKek,
+    resolveKek: mocks.resolveKek,
+    loadOfflineKekMetadata: mocks.loadOfflineKekMetadata,
+    setActiveKekVersion: mocks.setActiveKekVersion,
+    restoreKekFromOffline: mocks.restoreKekFromOffline,
+    storeKekForOffline: mocks.storeKekForOffline,
+    deleteKekVersion: mocks.deleteKekVersion,
+    unwrapDek: mocks.unwrapDek,
+    wrapDek: mocks.wrapDek,
     signDeviceKeyDeletionProof: mocks.signDeviceKeyDeletionProof,
     tofuVerify: mocks.tofuVerify,
     tofuUpdateLastSeen: mocks.tofuUpdateLastSeen,
@@ -101,8 +133,10 @@ vi.mock("@/entities/session", () => ({
   authState: mocks.authState,
   cryptoWorkerReady: mocks.cryptoWorkerReady,
   deviceState: mocks.deviceState,
+  getKekResolverSession: vi.fn(() => ({ auth: {}, device: {} })),
 }));
 
+import { ApiError } from "@/shared/api";
 import { revokeDevice } from "./revoke";
 
 const deviceHybridSigningPublicKeyMaterial = {
@@ -205,12 +239,26 @@ describe("revoke", () => {
       checkpoint: { payload: { sequence: 2 } },
     });
     mocks.advanceKeyDirectoryPinWithProof.mockResolvedValue(undefined);
+    mocks.acknowledgeWorkspaceWipeIfRequired.mockResolvedValue(undefined);
     mocks.tofuVerify.mockResolvedValue({ status: "known_trusted" });
     mocks.tofuUpdateLastSeen.mockResolvedValue(undefined);
     mocks.verifyDeviceApprovalSignature.mockResolvedValue(true);
     mocks.verifyGenesisDeviceBootstrapSignature.mockResolvedValue(true);
     mocks.verifyRecoveryDeviceApprovalSignature.mockResolvedValue(true);
     mocks.generateKek.mockResolvedValue(undefined);
+    mocks.listDocuments.mockResolvedValue({ documents: [] });
+    mocks.getDocumentKeys.mockResolvedValue({ keys: [] });
+    mocks.rewrapDocumentKeyForKekRotation.mockResolvedValue(undefined);
+    mocks.unwrapDek.mockResolvedValue(undefined);
+    mocks.wrapDek.mockResolvedValue({
+      encryptedDek: new Uint8Array(48),
+      nonce: new Uint8Array(24),
+    });
+    mocks.deleteKekVersion.mockResolvedValue({
+      memoryDeleted: true,
+      offlineDeleted: true,
+      keyVersion: 1,
+    });
     mocks.listMembers.mockResolvedValue({ members: [{ user_id: "user_1" }] });
     mocks.listMemberDevices.mockResolvedValue({
       devices: [{ device_id: "device_current", encryption_key_id: "encryption_key_current" }],
@@ -238,7 +286,11 @@ describe("revoke", () => {
       server_rejects_old_key_uploads_after_sequence: 2,
     });
     mocks.kekRotationCompletedEventHash.mockReturnValue("rotation-completed-event-hash");
-    mocks.signDeviceKeyDeletionProof.mockResolvedValue({ proof: "device-key-deletion" });
+    mocks.signDeviceKeyDeletionProof.mockResolvedValue({
+      payload: { protocol: "refmd.device-key-deletion-proof" },
+      transcript: { protocol: "refmd.hybrid-signature-transcript" },
+      signature: { suite_id: "hybrid-signature-suite" },
+    });
     mocks.buildKekOldKeyDeletionManifestHash.mockReturnValue("deletion-manifest-hash");
     mocks.buildKekRotationStartKeyDirectoryAppend.mockResolvedValue({
       events: [{ payload: { event_type: "rotation_started" } }],
@@ -253,6 +305,11 @@ describe("revoke", () => {
       needs_kek_rotation: true,
     });
     mocks.completeKekRotation.mockResolvedValue(undefined);
+    mocks.resolveKek.mockResolvedValue({ found: false });
+    mocks.loadOfflineKekMetadata.mockResolvedValue({ keyVersion: 1 });
+    mocks.setActiveKekVersion.mockResolvedValue(undefined);
+    mocks.restoreKekFromOffline.mockResolvedValue({ restored: false });
+    mocks.storeKekForOffline.mockResolvedValue(undefined);
     mocks.revoke.mockResolvedValue({
       revoked_device_id: "device_target",
       revocation_mode: "retire",
@@ -350,8 +407,173 @@ describe("revoke", () => {
       new_kek_version: 2,
       workspace_key_directory_events: [{ payload: { event_type: "rotation_completed" } }],
       workspace_key_directory_checkpoint: { payload: { sequence: 4 } },
-      device_key_deletion_proofs: [{ proof: "device-key-deletion" }],
-      wipe_required_device_ids: [],
+      device_key_deletion_proofs: [],
+      wipe_required_device_ids: ["device_current"],
     });
+    expect(mocks.acknowledgeWorkspaceWipeIfRequired).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      deviceId: "device_current",
+    });
+    expect(mocks.completeKekRotation.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.acknowledgeWorkspaceWipeIfRequired.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("resolves each recorded KEK version when resuming a mixed-version document rewrap", async () => {
+    mocks.revoke.mockResolvedValueOnce({
+      revoked_device_id: "device_target",
+      revocation_mode: "security",
+      workspaces_needing_kek_rotation: [{ workspace_id: "workspace_1", current_kek_version: 1 }],
+    });
+    mocks.listDocuments.mockResolvedValueOnce({ documents: [{ id: "document_1" }] });
+    mocks.getDocumentKeys.mockResolvedValueOnce({
+      keys: [
+        {
+          encrypted_dek: "AA",
+          nonce: "AA",
+          key_version: 3,
+          kek_version: 1,
+          is_active: false,
+        },
+        {
+          encrypted_dek: "AQ",
+          nonce: "AQ",
+          key_version: 4,
+          kek_version: 2,
+          is_active: true,
+        },
+      ],
+    });
+
+    await revokeDevice("device_target", "security");
+
+    expect(mocks.resolveKekByVersion).toHaveBeenNthCalledWith(
+      1,
+      "workspace_1",
+      1,
+      expect.any(Object),
+    );
+    expect(mocks.resolveKekByVersion).toHaveBeenNthCalledWith(
+      2,
+      "workspace_1",
+      2,
+      expect.any(Object),
+    );
+    expect(mocks.resolveKekByVersion.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.unwrapDek.mock.invocationCallOrder[0],
+    );
+    expect(mocks.resolveKekByVersion.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.unwrapDek.mock.invocationCallOrder[1],
+    );
+    expect(mocks.wrapDek).toHaveBeenNthCalledWith(1, {
+      documentId: "document_1",
+      workspaceId: "workspace_1",
+      keyVersion: 3,
+    });
+    expect(mocks.wrapDek).toHaveBeenNthCalledWith(2, {
+      documentId: "document_1",
+      workspaceId: "workspace_1",
+      keyVersion: 4,
+    });
+    expect(mocks.rewrapDocumentKeyForKekRotation).toHaveBeenNthCalledWith(
+      1,
+      "document_1",
+      expect.objectContaining({ key_version: 3, new_kek_version: 2 }),
+    );
+    expect(mocks.rewrapDocumentKeyForKekRotation).toHaveBeenNthCalledWith(
+      2,
+      "document_1",
+      expect.objectContaining({ key_version: 4, new_kek_version: 2 }),
+    );
+    expect(mocks.rewrapDocumentKeyForKekRotation.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.completeKekRotation.mock.invocationCallOrder[0],
+    );
+    expect(mocks.completeKekRotation.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.acknowledgeWorkspaceWipeIfRequired.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not delete the old KEK when a document rewrap fails", async () => {
+    mocks.revoke.mockResolvedValueOnce({
+      revoked_device_id: "device_target",
+      revocation_mode: "security",
+      workspaces_needing_kek_rotation: [{ workspace_id: "workspace_1", current_kek_version: 1 }],
+    });
+    mocks.listDocuments.mockResolvedValueOnce({ documents: [{ id: "document_1" }] });
+    mocks.getDocumentKeys.mockResolvedValueOnce({
+      keys: [
+        {
+          encrypted_dek: "AA",
+          nonce: "AA",
+          key_version: 1,
+          kek_version: 1,
+          is_active: true,
+        },
+      ],
+    });
+    mocks.rewrapDocumentKeyForKekRotation.mockRejectedValueOnce(new Error("rewrap_failed"));
+
+    await expect(revokeDevice("device_target", "security")).rejects.toThrow(
+      "Device removal key rotation failed",
+    );
+    expect(mocks.deleteKekVersion).not.toHaveBeenCalled();
+    expect(mocks.completeKekRotation).not.toHaveBeenCalled();
+  });
+
+  it("reuses pending KEK material when completion is retried", async () => {
+    const rotation = [{ workspace_id: "workspace_1", current_kek_version: 1 }];
+    mocks.revoke.mockResolvedValue({
+      revoked_device_id: "device_target",
+      revocation_mode: "security",
+      workspaces_needing_kek_rotation: rotation,
+    });
+    mocks.resolveKek.mockResolvedValue({ found: false });
+    mocks.loadOfflineKekMetadata
+      .mockResolvedValueOnce({ keyVersion: 1 })
+      .mockResolvedValueOnce({ keyVersion: 2 });
+    mocks.restoreKekFromOffline.mockResolvedValueOnce({ restored: true, keyVersion: 2 });
+    mocks.completeKekRotation
+      .mockRejectedValueOnce(new Error("completion_transport_failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(revokeDevice("device_target", "security")).rejects.toThrow(
+      "Device removal key rotation failed",
+    );
+    await expect(revokeDevice("device_target", "security")).resolves.toEqual({ warning: null });
+
+    expect(mocks.generateKek).toHaveBeenCalledTimes(1);
+    expect(mocks.generateKek).toHaveBeenCalledWith("workspace_1", 2);
+    expect(mocks.storeKekForOffline).toHaveBeenCalledTimes(1);
+    expect(mocks.storeKekForOffline).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      keyVersion: 2,
+    });
+    expect(mocks.restoreKekFromOffline).toHaveBeenCalledTimes(1);
+    expect(mocks.setActiveKekVersion).toHaveBeenCalledTimes(1);
+    expect(mocks.setActiveKekVersion).toHaveBeenCalledWith("workspace_1", 2);
+    expect(mocks.completeKekRotation).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not regenerate missing KEK material for an active rotation", async () => {
+    mocks.revoke.mockResolvedValueOnce({
+      revoked_device_id: "device_target",
+      revocation_mode: "security",
+      workspaces_needing_kek_rotation: [{ workspace_id: "workspace_1", current_kek_version: 1 }],
+    });
+    mocks.startKekRotation.mockRejectedValueOnce(
+      new ApiError(409, { error: "kek_rotation_already_in_progress" }),
+    );
+    mocks.resolveKek.mockResolvedValueOnce({ found: false });
+    mocks.loadOfflineKekMetadata.mockResolvedValueOnce(null);
+
+    await expect(revokeDevice("device_target", "security")).rejects.toThrow(
+      "pending_kek_unavailable_for_active_rotation",
+    );
+
+    expect(mocks.generateKek).not.toHaveBeenCalled();
+    expect(mocks.storeKekForOffline).not.toHaveBeenCalled();
+    expect(mocks.persistWorkspaceKekForDevice).not.toHaveBeenCalled();
+    expect(mocks.completeKekRotation).not.toHaveBeenCalled();
   });
 });

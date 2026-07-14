@@ -4,6 +4,7 @@ defmodule RefMDWeb.DeviceRevocationRotationTest do
   alias RefMD.Auth
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
   alias RefMD.Devices.Device
+  alias RefMD.Documents.Document
   alias RefMD.Encryption.KeyDirectory
   alias RefMD.Encryption.KeyDirectory.{Payload, State}
   alias RefMD.Repo
@@ -25,6 +26,18 @@ defmodule RefMDWeb.DeviceRevocationRotationTest do
       workspace
       |> Ecto.Changeset.change(current_kek_version: 1, min_kek_version: 1)
       |> Repo.update!()
+
+    document =
+      Repo.insert!(%Document{
+        workspace_id: workspace.id,
+        created_by: user_id,
+        title: "Security rotation",
+        slug: "security-rotation-#{Ecto.UUID.generate()}",
+        doc_type: "document",
+        is_encrypted: false,
+        needs_dek_rotation: true,
+        dek_rotation_reason: "time_based"
+      })
 
     current_device = create_device(user_id)
     target_device = insert_device_fixture(user_id)
@@ -127,6 +140,8 @@ defmodule RefMDWeb.DeviceRevocationRotationTest do
     rotating_workspace = Workspaces.get_workspace(workspace.id)
     assert rotating_workspace.needs_kek_rotation
     assert rotating_workspace.kek_rotation_initiator_user_id == user_id
+    assert Repo.reload!(document).needs_dek_rotation
+    assert Repo.reload!(document).dek_rotation_reason == "security"
 
     start_body =
       kek_rotation_start_key_directory_append(

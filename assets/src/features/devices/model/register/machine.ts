@@ -34,6 +34,9 @@ export type DeviceRegistrationMachineEvent =
       dskUnavailableOAuth: boolean;
     }
   | {
+      type: "approval_started";
+    }
+  | {
       type: "approval_waiting";
       clientNonce: Uint8Array;
     }
@@ -145,8 +148,15 @@ export function transitionDeviceRegistrationState(
         dskUnavailableOAuth: event.needsPassword ? false : event.dskUnavailableOAuth,
         pendingKeysGenerated: event.needsPassword,
         postApprovalPersistence: false,
-        phase: event.needsPassword ? "needs_password" : state.phase,
+        phase: event.needsPassword ? "needs_password" : "approval_choice",
         passwordReentryError: null,
+      };
+
+    case "approval_started":
+      return {
+        ...state,
+        phase: "generating",
+        error: null,
       };
 
     case "approval_waiting":

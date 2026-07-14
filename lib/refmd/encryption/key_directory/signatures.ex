@@ -89,16 +89,32 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         },
         %{
           "event_type" => "workspace_invitation_redeemed",
+          "actor" => actor,
           "body" => next_body
         }
       )
-      when is_map(sender) and is_map(recipient) and is_map(next_body) do
-    recipient["user_id"] == next_body["redeemed_user_id"] and
-      sender["user_id"] == next_body["redeemed_user_id"] and
-      sender["device_id"] == next_body["redeemed_device_id"]
+      when is_map(sender) and is_map(recipient) and is_map(actor) and is_map(next_body) do
+    unknown_fragment_redeem_wrap?(sender, recipient, next_body) or
+      recipient_bound_redeem_wrap?(sender, recipient, actor, next_body)
   end
 
   def invitation_admission_wrap_event?(_, _), do: false
+
+  defp unknown_fragment_redeem_wrap?(sender, recipient, redeemed_body) do
+    recipient["user_id"] == redeemed_body["redeemed_user_id"] and
+      sender["user_id"] == redeemed_body["redeemed_user_id"] and
+      sender["device_id"] == redeemed_body["redeemed_device_id"]
+  end
+
+  defp recipient_bound_redeem_wrap?(sender, recipient, actor, redeemed_body) do
+    recipient["recipient_kind"] == "user_identity" and
+      recipient["user_id"] == redeemed_body["redeemed_user_id"] and
+      recipient["key_scope_kind"] == "user" and
+      recipient["key_scope_id"] == redeemed_body["redeemed_user_id"] and
+      sender["user_id"] == actor["user_id"] and
+      sender["device_id"] == actor["device_id"] and
+      sender["signing_key_id"] == actor["signing_key_id"]
+  end
 
   def verify_checkpoint_signatures!(payload, signatures, expected_signer_kind) do
     verify_checkpoint_signatures!(payload, signatures, expected_signer_kind, payload)
@@ -458,11 +474,29 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         checkpoint_payload
       ) do
     Map.get(signing_keys, signing_key_id) ||
-      if device_authorized_checkpoint_signer?(previous_payload, checkpoint_payload, signer) do
+      if device_authorized_checkpoint_signer?(previous_payload, checkpoint_payload, signer) or
+           identity_rotation_successor_signer?(
+             previous_payload,
+             checkpoint_payload,
+             signer
+           ) do
         Map.get(checkpoint_signing_keys, signing_key_id)
       end ||
       raise(ArgumentError, "key_directory_checkpoint_signer_unknown")
   end
+
+  defp identity_rotation_successor_signer?(
+         previous_payload,
+         %{"scope_kind" => "user"} = checkpoint_payload,
+         %{"signer_kind" => "identity", "signing_key_id" => signing_key_id}
+       )
+       when is_map(previous_payload) and is_binary(signing_key_id) do
+    identity_rotation_checkpoint?(checkpoint_payload) and
+      not key_entry_present?(previous_payload["identity_keys"], signing_key_id) and
+      key_entry_present?(checkpoint_payload["identity_keys"], signing_key_id)
+  end
+
+  defp identity_rotation_successor_signer?(_, _, _), do: false
 
   def checkpoint_signature_variant!(payload, signer),
     do: checkpoint_signature_variant!(payload, signer, nil)
@@ -705,7 +739,6 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         authorized_share_participant_keys
       )
       when event_type in [
-             "document_update_accepted",
              "document_write_session_admitted",
              "document_snapshot_accepted"
            ],

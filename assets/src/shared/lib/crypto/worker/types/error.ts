@@ -7,6 +7,7 @@ export type CryptoErrorCode =
   | "invalid_key"
   | "invalid_payload"
   | "key_not_found"
+  | "key_expired"
   | "tofu_hard_fail"
   | "internal_error";
 

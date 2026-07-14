@@ -7,6 +7,8 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
 
   schema "user_encrypted_identity_keys" do
     belongs_to :user, RefMD.Users.User, primary_key: true
+    field :key_version, :integer, primary_key: true, default: 1
+    field :lifecycle_state, :string, default: "current"
     field :encrypted_identity_hybrid_encryption_private_key_material, :binary
     field :identity_hybrid_encryption_private_key_material_nonce, :binary
     field :encryption_key_id, :string
@@ -23,6 +25,8 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
     key
     |> cast(attrs, [
       :user_id,
+      :key_version,
+      :lifecycle_state,
       :encrypted_identity_hybrid_encryption_private_key_material,
       :identity_hybrid_encryption_private_key_material_nonce,
       :encryption_key_id,
@@ -32,6 +36,8 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
     ])
     |> validate_required([
       :user_id,
+      :key_version,
+      :lifecycle_state,
       :encrypted_identity_hybrid_encryption_private_key_material,
       :identity_hybrid_encryption_private_key_material_nonce,
       :encryption_key_id,
@@ -40,6 +46,8 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
       :signing_key_id
     ])
     |> validate_encrypted_material(:encrypted_identity_hybrid_encryption_private_key_material)
+    |> validate_number(:key_version, greater_than: 0)
+    |> validate_inclusion(:lifecycle_state, ~w(current pending))
     |> validate_encrypted_material(:encrypted_identity_hybrid_signing_private_key_material)
     |> validate_nonce(:identity_hybrid_encryption_private_key_material_nonce)
     |> validate_nonce(:identity_hybrid_signing_private_key_material_nonce)

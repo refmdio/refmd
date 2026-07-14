@@ -22,6 +22,7 @@ interface PendingSnapshot {
 
 export interface AutoSyncHandle {
   dispose: () => void;
+  drain: () => Promise<void>;
   notifyLocalEdit: () => void;
   prepareWriteSession: () => Promise<boolean>;
   flush: () => void;

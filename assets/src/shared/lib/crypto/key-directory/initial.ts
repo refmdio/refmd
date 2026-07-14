@@ -4,6 +4,7 @@ import {
 } from "../hybrid-encryption";
 import { computeSigningKeyId } from "../signature";
 import type { HybridSigningPublicKeyMaterial } from "../signature-types";
+import type { CryptoWorkerClient } from "../worker/client";
 import { blake3Base64Url } from "../hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "../jcs";
 import {
@@ -242,6 +243,7 @@ export async function buildInitialUserKeyDirectoryBootstrap(input: {
   deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
   deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
   issuedAt?: string;
+  worker?: CryptoWorkerClient;
 }): Promise<InitialUserKeyDirectoryBootstrap> {
   const issuedAt = input.issuedAt ?? new Date().toISOString();
   const identitySigningKeyId = computeSigningKeyId(input.identityHybridSigningPublicKeyMaterial);
@@ -268,7 +270,13 @@ export async function buildInitialUserKeyDirectoryBootstrap(input: {
       ),
     },
   });
-  const signedUserIdentityEvent = await signEvent("identity", userIdentityEvent);
+  const signedUserIdentityEvent = await signEvent(
+    "identity",
+    userIdentityEvent,
+    undefined,
+    undefined,
+    input.worker,
+  );
   const userIdentityRef = eventRef("user", input.userId, userIdentityEvent);
 
   const userDeviceEvent = keyDirectoryEvent({
@@ -288,7 +296,13 @@ export async function buildInitialUserKeyDirectoryBootstrap(input: {
       encryption_key_id: deviceEncryptionKeyId,
     },
   });
-  const signedUserDeviceEvent = await signEvent("identity", userDeviceEvent);
+  const signedUserDeviceEvent = await signEvent(
+    "identity",
+    userDeviceEvent,
+    undefined,
+    undefined,
+    input.worker,
+  );
   const userDeviceRef = eventRef("user", input.userId, userDeviceEvent);
 
   const userCheckpointPayload = keyDirectoryCheckpoint({
@@ -316,6 +330,9 @@ export async function buildInitialUserKeyDirectoryBootstrap(input: {
     "identity",
     "identity_initial",
     userCheckpointPayload,
+    undefined,
+    undefined,
+    input.worker,
   );
 
   return {

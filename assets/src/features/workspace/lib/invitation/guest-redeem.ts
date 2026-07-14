@@ -3,22 +3,33 @@ import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { ApiError, authApi, workspacesApi, type components } from "@/shared/api";
 import { persistCurrentKeysWithDsk, persistDeviceId } from "@/shared/lib/auth/key-persistence";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
+import { persistGuestAuthBootstrap } from "./guest-auth-bootstrap";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
+import { verifyRecipientBoundAuthorizationSignature } from "@/shared/lib/crypto/signature";
+import { buildRecipientBoundAuthorizationTranscript } from "@/shared/lib/crypto/signature-key-directory-transcripts";
 import {
   advanceKeyDirectoryPinWithProof,
   getKeyDirectoryPin,
   hashKeyDirectoryCheckpointEnvelope,
-  rememberVerifiedKeyDirectoryLineage,
+  pinInitialKeyDirectoryCheckpoint,
+  rememberVerifiedKeyDirectoryLineageDurably,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import type { SignedKeyDirectoryEnvelope } from "@/shared/lib/anti-rollback/key-directory-pin/types";
+import { verifyWorkspaceSignedPqWrapOperation } from "@/shared/lib/anti-rollback/key-directory-pin/wrap-operation-proof";
 import { buildGuestInvitationRedeemedKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory/invitation-events";
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import { buildInitialUserKeyDirectoryBootstrap } from "@/shared/lib/crypto/key-directory/initial";
+import { getCryptoWorker, type CryptoWorkerClient } from "@/shared/lib/crypto/worker/client";
+import {
+  getScopedCryptoWorker,
+  terminateScopedCryptoWorker,
+} from "@/shared/lib/crypto/worker/scoped";
 import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
 import {
   readActiveGuestRedeemMaterial,
   readGuestRedeemMaterial,
+  forgetGuestRedeemMaterial,
   rememberGuestRedeemMaterial,
   type GuestRedeemMaterial,
 } from "./guest-material";
@@ -37,6 +48,23 @@ import {
   assertKeyDirectoryEnvelope,
   type KeyDirectoryEnvelope,
 } from "@/shared/lib/crypto/key-directory/types";
+import type { SignedPqWrapRecord } from "@/shared/lib/crypto/signed-pq-wrap";
+import {
+  assertWorkspacePinBootstrapEnvelope,
+  verifyAndInstallWorkspacePinBootstrap,
+} from "@/shared/lib/key-directory/workspace-pin-bootstrap";
+import {
+  consumeLocalDeliveryAttempt,
+  getApprovedGuestDeliveryAttempt,
+  InvitationDeliveryPendingError,
+  type DeliveryAttempt,
+} from "./delivery-attempt";
+import { persistRedeemedGuestWorkspaceKek } from "./guest-workspace-kek";
+import {
+  assertRecipientDeliveryAdmissionBindings,
+  recipientDeliveryOperationProof,
+  verifyRecipientDeliveryAdmission,
+} from "@/shared/lib/anti-rollback/key-directory-pin/recipient-delivery-admission";
 
 type RedeemResponse = components["schemas"]["RedeemGuestInvitationResponse"];
 export type GuestRedeemResult = RedeemResponse;
@@ -45,18 +73,79 @@ type GuestRedeemBody = Omit<
   components["schemas"]["RedeemGuestInvitationRequest"],
   "token" | "workspace_key_directory_checkpoint" | "workspace_key_directory_events"
 >;
-interface GuestInvitationLookupResult {
+type GuestInvitationLookupResult = Omit<
+  components["schemas"]["InvitationLookupResponse"],
+  "kind" | "workspace_id" | "scope_kind" | "scope_id" | "share_id" | "permission"
+> & {
   kind: "guest";
-  invitation_id: string;
   workspace_id: string;
   scope_kind: "workspace" | "document" | "folder" | "share";
   scope_id: string;
+  share_id: string | null;
   permission: "view" | "edit";
-  kek_version: number;
-  encrypted_bootstrap_package?: Record<string, unknown> | null;
-  workspace_key_directory_checkpoint: KeyDirectoryEnvelope;
-  workspace_key_directory_checkpoint_ancestry?: KeyDirectoryEnvelope[];
-  workspace_key_directory_event_ancestry?: KeyDirectoryEnvelope[];
+  key_version_context: GuestKeyVersionContext;
+};
+
+interface GuestKeyVersionContext {
+  workspace_kek_version: number | "NOT_APPLICABLE";
+  share_key_version: number | "NOT_APPLICABLE";
+  dek_version: number | "NOT_APPLICABLE";
+}
+
+function guestPackageKeyVersion(lookup: GuestInvitationLookupResult): number {
+  const context = lookup.key_version_context;
+  const version =
+    lookup.scope_kind === "workspace" ? context.workspace_kek_version : context.share_key_version;
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
+    throw new Error("Guest invitation key version context is malformed.");
+  }
+  return version;
+}
+
+function guestWorkspaceKekVersion(context: GuestKeyVersionContext): number {
+  const version = context.workspace_kek_version;
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
+    throw new Error("Guest invitation workspace key version is malformed.");
+  }
+  return version;
+}
+
+function guestShareVersion(value: number | "NOT_APPLICABLE", code: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new Error(code);
+  return value;
+}
+
+function guestShareMetadata(response: RedeemResponse) {
+  if (
+    !response.share_id ||
+    (response.share_scope_kind !== "document" && response.share_scope_kind !== "folder") ||
+    !response.share_scope_id
+  ) {
+    throw new Error("Guest invitation share scope is malformed.");
+  }
+  return {
+    shareId: response.share_id,
+    scopeKind: response.share_scope_kind,
+    scopeId: response.share_scope_id,
+    permission: response.permission,
+    shareKeyVersion: guestShareVersion(
+      response.key_version_context.share_key_version,
+      "Guest invitation share key version is malformed.",
+    ),
+    dekVersion: guestShareVersion(
+      response.key_version_context.dek_version,
+      "Guest invitation DEK version is malformed.",
+    ),
+  } as const;
+}
+
+async function restoreGuestShareKeyForResponse(
+  worker: ReturnType<typeof getCryptoWorker>,
+  response: RedeemResponse,
+): Promise<void> {
+  if (response.scope_kind === "workspace") return;
+  const restored = await worker.restoreGuestInvitationShareKey(guestShareMetadata(response));
+  if (!restored.restored) throw new Error("Guest invitation share key is unavailable.");
 }
 
 function signingPublicMaterialJson(
@@ -92,10 +181,11 @@ function findGuestInvitationCreatedEvent(
 
 async function assertGuestInvitationBootstrapMatchesCreatedEvent(params: {
   lookupToken: string;
-  bootstrapSecret: string;
+  bootstrapSecret: string | null;
   bootstrapPackage: Record<string, unknown>;
   plaintext: GuestInvitationBootstrapPlaintext;
   createdEvents: Record<string, unknown>[];
+  shareId: string | null;
 }): Promise<void> {
   const event = findGuestInvitationCreatedEvent(
     params.createdEvents,
@@ -104,6 +194,14 @@ async function assertGuestInvitationBootstrapMatchesCreatedEvent(params: {
   const payload = event.payload as Record<string, unknown> | undefined;
   const body = payload?.body as Record<string, unknown> | undefined;
   const redeemAuthority = body?.redeem_authority as Record<string, unknown> | undefined;
+  const aad = params.bootstrapPackage.aad as Record<string, unknown> | undefined;
+  const delivery = guestInvitationDeliveryBinding(params.bootstrapPackage);
+  const allowedShareIds =
+    params.plaintext.scope_kind === "workspace" ? [] : [stringField(params.shareId)];
+  const expectedAllowedShareIdsHash = blake3Base64Url(
+    canonicalizeStrictBytes({ allowed_share_ids: allowedShareIds } as StrictJsonValue),
+  );
+  const bodyKeyContext = body?.key_version_context as Record<string, unknown> | undefined;
   const expectedCapabilityContextHash = blake3Base64Url(
     canonicalizeStrictBytes({
       guest_invitation_id: params.plaintext.guest_invitation_id,
@@ -119,8 +217,25 @@ async function assertGuestInvitationBootstrapMatchesCreatedEvent(params: {
     body.scope_kind !== params.plaintext.scope_kind ||
     body.scope_id !== params.plaintext.scope_id ||
     body.permission !== params.plaintext.permission ||
-    body.bootstrap_key_commitment !==
-      (await invitationSecretCommitment(params.lookupToken, params.bootstrapSecret, "guest")) ||
+    body.allowed_share_ids_hash !== expectedAllowedShareIdsHash ||
+    bodyKeyContext?.workspace_kek_version !==
+      params.plaintext.key_version_context.workspace_kek_version ||
+    bodyKeyContext?.share_key_version !== params.plaintext.key_version_context.share_key_version ||
+    bodyKeyContext?.dek_version !== params.plaintext.key_version_context.dek_version ||
+    (delivery.deliveryMode === "unknown_fragment" &&
+      (!params.bootstrapSecret ||
+        body.bootstrap_key_commitment !==
+          (await invitationSecretCommitment(
+            params.lookupToken,
+            params.bootstrapSecret,
+            "guest",
+          )))) ||
+    body.delivery_mode !== delivery.deliveryMode ||
+    body.recipient_user_id !== recipientTranscriptValue(delivery.recipientUserId) ||
+    !sameStrings(body.recipient_device_ids, delivery.recipientDeviceIds) ||
+    aad?.delivery_mode !== delivery.deliveryMode ||
+    aad.recipient_user_id !== recipientTranscriptValue(delivery.recipientUserId) ||
+    !sameStrings(aad.recipient_device_ids, delivery.recipientDeviceIds) ||
     body.bootstrap_package_hash !==
       blake3Base64Url(canonicalizeStrictBytes(params.bootstrapPackage as StrictJsonValue)) ||
     body.bootstrap_suite_id !== "refmd-v2-invitation-bootstrap-xchacha20poly1305" ||
@@ -131,8 +246,50 @@ async function assertGuestInvitationBootstrapMatchesCreatedEvent(params: {
   }
 }
 
-async function ensureDskInWorker(): Promise<void> {
-  const worker = getCryptoWorker();
+function guestInvitationDeliveryBinding(bootstrapPackage: Record<string, unknown>): {
+  deliveryMode: "unknown_fragment" | "known_recipient";
+  recipientUserId: string | null;
+  recipientDeviceIds: string[];
+} {
+  const recipientWrap = bootstrapPackage.package_key_recipient_wrap as
+    | Record<string, unknown>
+    | undefined;
+  if (recipientWrap?.delivery_mode !== "known_recipient") {
+    return {
+      deliveryMode: "unknown_fragment",
+      recipientUserId: null,
+      recipientDeviceIds: [],
+    };
+  }
+  if (typeof recipientWrap.recipient_user_id !== "string" || !Array.isArray(recipientWrap.wraps)) {
+    throw new Error("guest_invitation_recipient_binding_invalid");
+  }
+  const records = recipientWrap.wraps as Record<string, unknown>[];
+  if (records.length === 0) throw new Error("guest_invitation_recipient_binding_invalid");
+  const recipientDeviceIds = records.map((record) => {
+    const resource = record.resource as Record<string, unknown> | undefined;
+    return stringField(resource?.recipient_device_id);
+  });
+  return {
+    deliveryMode: "known_recipient",
+    recipientUserId: recipientWrap.recipient_user_id,
+    recipientDeviceIds,
+  };
+}
+
+function sameStrings(value: unknown, expected: string[]): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === "string") &&
+    [...value].sort().join("\u0000") === [...expected].sort().join("\u0000")
+  );
+}
+
+function recipientTranscriptValue(value: string | null): string {
+  return value ?? "NOT_APPLICABLE";
+}
+
+async function ensureDskInWorker(worker: CryptoWorkerClient = getCryptoWorker()): Promise<void> {
   if (await worker.loadStoredDsk()) {
     return;
   }
@@ -140,12 +297,15 @@ async function ensureDskInWorker(): Promise<void> {
   await worker.generateDsk();
 }
 
-async function createGuestRedeemMaterial(guestUserId: string): Promise<GuestRedeemMaterial> {
-  const worker = getCryptoWorker();
+async function createGuestRedeemMaterial(
+  guestUserId: string,
+  worker: CryptoWorkerClient = getCryptoWorker(),
+): Promise<GuestRedeemMaterial> {
   const deviceId = crypto.randomUUID();
   await worker.setUserContext(guestUserId, deviceId);
   await worker.generateUmk();
   const identityPublic = await worker.generateIdentityKeys();
+  const encryptedIdentity = await worker.wrapIdentityKeysForServer(guestUserId);
   const devicePublic = await worker.generateDeviceKeys({ deviceId });
   const clientNonce = await worker.generateClientNonce();
   const pendingRegistrationChallengeHash = blake3Base64Url(
@@ -169,6 +329,15 @@ async function createGuestRedeemMaterial(guestUserId: string): Promise<GuestRede
   });
   const identityHybridSigningPublicKeyMaterial = identityPublic.hybridSigningPublicKeyMaterial;
   const deviceHybridSigningPublicKeyMaterial = devicePublic.hybridSigningPublicKeyMaterial;
+  const userKeyDirectory = await buildInitialUserKeyDirectoryBootstrap({
+    userId: guestUserId,
+    deviceId,
+    identityHybridSigningPublicKeyMaterial,
+    identityHybridEncryptionPublicKeyMaterial: identityPublic.hybridEncryptionPublicKeyMaterial,
+    deviceHybridSigningPublicKeyMaterial,
+    deviceHybridEncryptionPublicKeyMaterial: devicePublic.hybridEncryptionPublicKeyMaterial,
+    worker,
+  });
 
   const body: GuestRedeemBody = {
     guest_user_id: guestUserId,
@@ -178,11 +347,25 @@ async function createGuestRedeemMaterial(guestUserId: string): Promise<GuestRede
     identity_hybrid_encryption_public_key_material:
       identityPublic.hybridEncryptionPublicKeyMaterial,
     identity_hybrid_signing_public_key_material: identityPublic.hybridSigningPublicKeyMaterial,
+    encrypted_identity_hybrid_encryption_private_key_material: base64UrlEncode(
+      encryptedIdentity.encryptedHybridEncryptionPrivateKeyMaterial,
+    ),
+    identity_hybrid_encryption_private_key_material_nonce: base64UrlEncode(
+      encryptedIdentity.hybridEncryptionPrivateKeyMaterialNonce,
+    ),
+    encrypted_identity_hybrid_signing_private_key_material: base64UrlEncode(
+      encryptedIdentity.encryptedHybridSigningPrivateKeyMaterial,
+    ),
+    identity_hybrid_signing_private_key_material_nonce: base64UrlEncode(
+      encryptedIdentity.hybridSigningPrivateKeyMaterialNonce,
+    ),
     approval_signature: signature,
     client_nonce: base64UrlEncode(clientNonce),
     pending_registration_challenge_hash: pendingRegistrationChallengeHash,
     device_name: getDeviceName(),
     device_type: getDeviceType(),
+    user_key_directory_events: userKeyDirectory.userEvents,
+    user_key_directory_checkpoint: userKeyDirectory.userCheckpoint,
   };
 
   return {
@@ -198,27 +381,87 @@ async function createGuestRedeemMaterial(guestUserId: string): Promise<GuestRede
   };
 }
 
-async function buildGuestRedeemAdmission(
-  token: string,
+function guestTargetRegistration(
   material: GuestRedeemMaterial,
-): Promise<{
-  workspace_key_directory_events: KeyDirectoryEnvelope[];
-  workspace_key_directory_checkpoint: KeyDirectoryEnvelope;
+): components["schemas"]["InvitationDeliveryTargetRegistration"] {
+  const identityEncryption = material.body.identity_hybrid_encryption_public_key_material;
+  const identitySigning = material.body.identity_hybrid_signing_public_key_material;
+  const deviceEncryption = material.body.device_hybrid_encryption_public_key_material;
+  const deviceSigning = material.body.device_hybrid_signing_public_key_material;
+  const encryptedIdentityEncryption =
+    material.body.encrypted_identity_hybrid_encryption_private_key_material;
+  const identityEncryptionNonce =
+    material.body.identity_hybrid_encryption_private_key_material_nonce;
+  const encryptedIdentitySigning =
+    material.body.encrypted_identity_hybrid_signing_private_key_material;
+  const identitySigningNonce = material.body.identity_hybrid_signing_private_key_material_nonce;
+  if (
+    !identityEncryption ||
+    !identitySigning ||
+    !deviceEncryption ||
+    !deviceSigning ||
+    !encryptedIdentityEncryption ||
+    !identityEncryptionNonce ||
+    !encryptedIdentitySigning ||
+    !identitySigningNonce
+  ) {
+    throw new Error("Guest invitation registration keys are incomplete.");
+  }
+  return {
+    identity_hybrid_encryption_public_key_material: identityEncryption,
+    identity_hybrid_signing_public_key_material: identitySigning,
+    device_hybrid_encryption_public_key_material: deviceEncryption,
+    device_hybrid_signing_public_key_material: deviceSigning,
+    encrypted_identity_hybrid_encryption_private_key_material: encryptedIdentityEncryption,
+    identity_hybrid_encryption_private_key_material_nonce: identityEncryptionNonce,
+    encrypted_identity_hybrid_signing_private_key_material: encryptedIdentitySigning,
+    identity_hybrid_signing_private_key_material_nonce: identitySigningNonce,
+    user_key_directory_events: material.body.user_key_directory_events,
+    user_key_directory_checkpoint: material.body.user_key_directory_checkpoint,
+  };
+}
+
+interface PreparedGuestInvitationBootstrap {
+  lookup: GuestInvitationLookupResult;
+  delivery: ReturnType<typeof guestInvitationDeliveryBinding>;
   bootstrapPlaintext: GuestInvitationBootstrapPlaintext;
   baseCheckpoint: KeyDirectoryEnvelope;
   workspaceKeyDirectoryEventAncestry: KeyDirectoryEnvelope[];
-}> {
+}
+
+async function prepareGuestInvitationBootstrap(
+  token: string,
+  lookupOverride?: GuestInvitationLookupResult,
+): Promise<PreparedGuestInvitationBootstrap> {
   const lookupToken = invitationLookupToken(token);
   const bootstrapSecret = invitationBootstrapSecret(token);
-  if (!bootstrapSecret) throw new Error("This invitation link is missing guest key material.");
-  const lookup = (await workspacesApi.lookupInvitation(lookupToken)) as GuestInvitationLookupResult;
+  const lookup =
+    lookupOverride ??
+    ((await workspacesApi.lookupInvitation(lookupToken)) as GuestInvitationLookupResult);
   if (lookup.kind !== "guest" || !lookup.encrypted_bootstrap_package) {
     throw new Error("This guest invitation is missing workspace trust state.");
+  }
+  const delivery = guestInvitationDeliveryBinding(lookup.encrypted_bootstrap_package);
+  if (delivery.deliveryMode === "unknown_fragment" && !bootstrapSecret) {
+    throw new Error("This invitation link is missing guest key material.");
+  }
+  if (delivery.deliveryMode === "known_recipient") {
+    const auth = authState();
+    const device = deviceState();
+    if (
+      !auth ||
+      auth.user.accountType === "guest" ||
+      auth.user.id !== delivery.recipientUserId ||
+      !device ||
+      !delivery.recipientDeviceIds.includes(device.deviceId)
+    ) {
+      throw new Error("This guest invitation belongs to another account or device.");
+    }
   }
   const bootstrapPlaintext = assertGuestInvitationBootstrapPlaintext(
     await getCryptoWorker().unwrapKekFromInvitationBootstrap({
       bootstrap: lookup.encrypted_bootstrap_package,
-      bootstrapSecret,
+      ...(bootstrapSecret ? { bootstrapSecret } : {}),
     }),
   );
   if (
@@ -228,7 +471,7 @@ async function buildGuestRedeemAdmission(
     bootstrapPlaintext.scope_id !== lookup.scope_id ||
     bootstrapPlaintext.permission !== lookup.permission ||
     lookup.encrypted_bootstrap_package.workspace_id !== lookup.workspace_id ||
-    lookup.encrypted_bootstrap_package.key_version !== lookup.kek_version ||
+    lookup.encrypted_bootstrap_package.key_version !== guestPackageKeyVersion(lookup) ||
     !lookup.workspace_key_directory_checkpoint
   ) {
     throw new Error("Guest invitation key material is malformed.");
@@ -237,15 +480,13 @@ async function buildGuestRedeemAdmission(
     lookup.workspace_key_directory_checkpoint,
     "guest_invitation_workspace_key_directory_checkpoint_invalid",
   );
-  const workspaceKeyDirectoryCheckpointAncestry = (
-    lookup.workspace_key_directory_checkpoint_ancestry ?? []
-  ).map((entry) =>
-    assertKeyDirectoryEnvelope(entry, "guest_invitation_workspace_checkpoint_ancestry_invalid"),
-  );
-  const workspaceKeyDirectoryEventAncestry = (
-    lookup.workspace_key_directory_event_ancestry ?? []
-  ).map((entry) =>
-    assertKeyDirectoryEnvelope(entry, "guest_invitation_workspace_event_ancestry_invalid"),
+  const workspaceKeyDirectoryCheckpointAncestry =
+    lookup.workspace_key_directory_checkpoint_ancestry.map((entry) =>
+      assertKeyDirectoryEnvelope(entry, "guest_invitation_workspace_checkpoint_ancestry_invalid"),
+    );
+  const workspaceKeyDirectoryEventAncestry = lookup.workspace_key_directory_event_ancestry.map(
+    (entry) =>
+      assertKeyDirectoryEnvelope(entry, "guest_invitation_workspace_event_ancestry_invalid"),
   );
   await assertGuestInvitationBootstrapMatchesCreatedEvent({
     lookupToken,
@@ -253,20 +494,62 @@ async function buildGuestRedeemAdmission(
     bootstrapPackage: lookup.encrypted_bootstrap_package,
     plaintext: bootstrapPlaintext,
     createdEvents: workspaceKeyDirectoryEventAncestry,
+    shareId: lookup.share_id,
   });
-  await pinWorkspaceCheckpointFromBootstrap({
-    workspaceId: bootstrapPlaintext.workspace_id,
-    checkpointEnvelope: bootstrapPlaintext.workspace_key_directory_checkpoint,
-    workspaceKeyDirectoryEventAncestry,
-    workspacePinBootstrapHash: bootstrapPlaintext.workspace_pin_bootstrap_hash,
-    workspacePinBootstrap: bootstrapPlaintext.workspace_pin_bootstrap,
-  });
+  const existingWorkspacePin = await getKeyDirectoryPin("workspace", lookup.workspace_id);
+  const bootstrapCheckpoint = operationCheckpointFromEnvelope(
+    bootstrapPlaintext.workspace_key_directory_checkpoint,
+  );
+  const bootstrapAlreadyCovered =
+    existingWorkspacePin &&
+    (existingWorkspacePin.checkpointSequence > bootstrapCheckpoint.sequence ||
+      (existingWorkspacePin.checkpointSequence === bootstrapCheckpoint.sequence &&
+        existingWorkspacePin.checkpointHash === bootstrapCheckpoint.checkpointHash)) &&
+    existingWorkspacePin.eventHeadSequence >= bootstrapCheckpoint.coveredHeadSequence;
+  if (!bootstrapAlreadyCovered) {
+    await pinWorkspaceCheckpointFromBootstrap({
+      workspaceId: bootstrapPlaintext.workspace_id,
+      checkpointEnvelope: bootstrapPlaintext.workspace_key_directory_checkpoint,
+      workspaceKeyDirectoryEventAncestry,
+      workspacePinBootstrapHash: bootstrapPlaintext.workspace_pin_bootstrap_hash,
+      workspacePinBootstrap: bootstrapPlaintext.workspace_pin_bootstrap,
+    });
+  }
   const baseCheckpoint = await ensureWorkspaceCheckpointPinned({
     workspaceId: lookup.workspace_id,
     checkpointEnvelope: workspaceKeyDirectoryCheckpoint,
     checkpointAncestry: workspaceKeyDirectoryCheckpointAncestry,
     eventAncestry: workspaceKeyDirectoryEventAncestry,
   });
+  return {
+    lookup,
+    delivery,
+    bootstrapPlaintext,
+    baseCheckpoint,
+    workspaceKeyDirectoryEventAncestry,
+  };
+}
+
+async function buildGuestRedeemAdmission(
+  token: string,
+  material: GuestRedeemMaterial,
+  prepared?: PreparedGuestInvitationBootstrap,
+): Promise<{
+  workspace_key_directory_events: KeyDirectoryEnvelope[];
+  workspace_key_directory_checkpoint: KeyDirectoryEnvelope;
+  bootstrapPlaintext: GuestInvitationBootstrapPlaintext;
+  baseCheckpoint: KeyDirectoryEnvelope;
+  workspaceKeyDirectoryEventAncestry: KeyDirectoryEnvelope[];
+  deliveryMode: "unknown_fragment" | "known_recipient";
+}> {
+  const bootstrap = prepared ?? (await prepareGuestInvitationBootstrap(token));
+  const {
+    lookup,
+    delivery,
+    bootstrapPlaintext,
+    baseCheckpoint,
+    workspaceKeyDirectoryEventAncestry,
+  } = bootstrap;
   const append = await buildGuestInvitationRedeemedKeyDirectoryAppend({
     workspaceId: lookup.workspace_id,
     checkpointEnvelope: baseCheckpoint,
@@ -286,6 +569,9 @@ async function buildGuestRedeemAdmission(
     scopeKind: lookup.scope_kind,
     scopeId: lookup.scope_id,
     permission: lookup.permission,
+    recipientAccountUserId: delivery.recipientUserId,
+    recipientAccountDeviceId:
+      delivery.deliveryMode === "known_recipient" ? (deviceState()?.deviceId ?? null) : null,
   });
   return {
     workspace_key_directory_events: append.events,
@@ -293,6 +579,7 @@ async function buildGuestRedeemAdmission(
     bootstrapPlaintext,
     baseCheckpoint,
     workspaceKeyDirectoryEventAncestry: workspaceKeyDirectoryEventAncestry,
+    deliveryMode: delivery.deliveryMode,
   };
 }
 
@@ -312,7 +599,7 @@ async function ensureWorkspaceCheckpointPinned(params: {
     pin.eventHeadSequence === operationCheckpoint.coveredHeadSequence &&
     pin.eventHeadHash === operationCheckpoint.coveredHeadHash
   ) {
-    rememberVerifiedKeyDirectoryLineage({
+    await rememberVerifiedKeyDirectoryLineageDurably({
       scopeKind: "workspace",
       scopeId: params.workspaceId,
       checkpointEnvelope: params.checkpointEnvelope as unknown as SignedKeyDirectoryEnvelope,
@@ -328,6 +615,13 @@ async function ensureWorkspaceCheckpointPinned(params: {
     checkpointEnvelope: params.checkpointEnvelope,
     checkpointAncestry: params.checkpointAncestry,
     eventAncestry: params.eventAncestry,
+  });
+  await rememberVerifiedKeyDirectoryLineageDurably({
+    scopeKind: "workspace",
+    scopeId: params.workspaceId,
+    checkpointEnvelope: params.checkpointEnvelope as unknown as SignedKeyDirectoryEnvelope,
+    checkpointAncestry: params.checkpointAncestry as unknown as SignedKeyDirectoryEnvelope[],
+    eventAncestry: params.eventAncestry as unknown as SignedKeyDirectoryEnvelope[],
   });
   return params.checkpointEnvelope;
 }
@@ -355,6 +649,7 @@ function operationCheckpointFromEnvelope(checkpointEnvelope: KeyDirectoryEnvelop
   if (!payload || !covered) throw new Error("key_directory_checkpoint_invalid");
   return {
     sequence: numberField(payload.sequence),
+    checkpointHash: hashKeyDirectoryCheckpointEnvelope(checkpointEnvelope),
     coveredHeadSequence: numberField(covered.head_sequence),
     coveredHeadHash: stringField(covered.head_hash),
   };
@@ -389,7 +684,7 @@ async function restoreWorkerForGuestSession(
     userId: response.guest_user_id,
     deviceId: response.guest_device_id,
     deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
-    keyRestoreEndpointRef: me.key_restore_endpoint_ref ?? null,
+    keyRestoreEndpointRef: null,
   });
 
   const ready = await getCryptoWorker().isReady();
@@ -432,23 +727,28 @@ async function redeemGuestInvitationWithRebasedAdmission(
   token: string,
   lookupToken: string,
   material: GuestRedeemMaterial,
+  prepared?: PreparedGuestInvitationBootstrap,
 ): Promise<{
   admission: Awaited<ReturnType<typeof buildGuestRedeemAdmission>>;
   response: RedeemResponse;
 }> {
-  let admission = await buildGuestRedeemAdmission(token, material);
+  let admission = await buildGuestRedeemAdmission(token, material, prepared);
   const submit = () => {
     const {
       bootstrapPlaintext: _bootstrapPlaintext,
       baseCheckpoint: _baseCheckpoint,
       workspaceKeyDirectoryEventAncestry: _workspaceKeyDirectoryEventAncestry,
+      deliveryMode: _deliveryMode,
       ...redeemAdmission
     } = admission;
-    return workspacesApi.redeemGuestInvitation({
+    const body = {
       token: lookupToken,
       ...material.body,
       ...redeemAdmission,
-    });
+    };
+    return admission.deliveryMode === "known_recipient"
+      ? workspacesApi.redeemKnownGuestInvitation(body)
+      : workspacesApi.redeemGuestInvitation(body);
   };
 
   try {
@@ -457,35 +757,433 @@ async function redeemGuestInvitationWithRebasedAdmission(
     if (!(err instanceof ApiError && err.status === 422 && err.code === "invalid_key_directory")) {
       throw err;
     }
+    if (admission.deliveryMode === "known_recipient") throw err;
     admission = await buildGuestRedeemAdmission(token, material);
     return { admission, response: await submit() };
   }
 }
 
+interface KnownGuestDeliveryArtifacts {
+  authorization: Record<string, unknown>;
+  redeem_freshness_proof: Record<string, unknown>;
+  workspace_pin_bootstrap: Record<string, unknown>;
+  delivery_wrap: Record<string, unknown>;
+  workspace_key_directory_events: Record<string, unknown>[];
+  workspace_key_directory_intermediate_checkpoint: Record<string, unknown>;
+  workspace_key_directory_checkpoint: Record<string, unknown>;
+}
+
+async function reenterKnownRecipientGuestInvitation(params: {
+  token: string;
+  lookup: GuestInvitationLookupResult;
+  material: GuestRedeemMaterial;
+}): Promise<GuestRedeemResult> {
+  const { lookup, material } = params;
+  const response = await workspacesApi.redeemKnownGuestInvitation({
+    token: invitationLookupToken(params.token),
+    ...material.body,
+    workspace_key_directory_events:
+      lookup.workspace_key_directory_event_ancestry as components["schemas"]["RedeemGuestInvitationRequest"]["workspace_key_directory_events"],
+    workspace_key_directory_checkpoint:
+      lookup.workspace_key_directory_checkpoint as components["schemas"]["RedeemGuestInvitationRequest"]["workspace_key_directory_checkpoint"],
+  });
+  const checkpoint = assertKeyDirectoryEnvelope(
+    response.workspace_key_directory_checkpoint,
+    "guest_reentry_checkpoint_invalid",
+  );
+  await acceptGuestReentryCheckpoint({
+    workspaceId: response.workspace_id,
+    guestDeviceId: response.guest_device_id,
+    responseCheckpoint: checkpoint,
+  });
+  const me = await restoreWorkerForGuestSession(response, material);
+  await restoreGuestShareKeyForResponse(getCryptoWorker(), response);
+  await persistGuestAuthBootstrap(getCryptoWorker(), {
+    userId: response.guest_user_id,
+    email: me.email,
+    name: me.name,
+    deviceId: response.guest_device_id,
+    deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
+  });
+  await pinGuestUserKeyDirectory(response);
+  setGuestSession(response, material, me);
+  await rememberGuestRedeemMaterial(params.token, material);
+  return response satisfies GuestRedeemResult;
+}
+
+async function redeemKnownRecipientGuestInvitation(
+  token: string,
+  lookup: GuestInvitationLookupResult,
+): Promise<GuestRedeemResult> {
+  const auth = authState();
+  const accountDevice = deviceState();
+  let material = (await readGuestRedeemMaterial(token)) ?? (await readCurrentGuestRedeemMaterial());
+  if (
+    auth?.user.accountType === "guest" &&
+    accountDevice &&
+    material &&
+    auth.user.id === material.body.guest_user_id &&
+    accountDevice.deviceId === material.body.device_id
+  ) {
+    return reenterKnownRecipientGuestInvitation({ token, lookup, material });
+  }
+  if (
+    !auth ||
+    auth.user.accountType === "guest" ||
+    !accountDevice ||
+    lookup.recipient_user_id !== auth.user.id ||
+    !lookup.recipient_device_ids.includes(accountDevice.deviceId)
+  ) {
+    throw new Error("This guest invitation belongs to another account or device.");
+  }
+  const lookupToken = invitationLookupToken(token);
+  const scopedWorkerKey = `guest-invitation:${lookupToken}`;
+  const guestWorker = getScopedCryptoWorker(scopedWorkerKey);
+  try {
+    if (material) {
+      if (await guestWorker.isReady()) {
+        if ((await guestWorker.getDeviceId()) !== material.body.device_id) {
+          throw new Error("Guest invitation keys belong to another device.");
+        }
+      } else {
+        await ensureDskInWorker(guestWorker);
+        await guestWorker.setUserContext(material.body.guest_user_id, material.body.device_id);
+        const restored = await guestWorker.restoreGuestPendingKeysWithDsk({
+          storageKey: lookupToken,
+          userId: material.body.guest_user_id,
+          signingKeyId: material.publicKeys.deviceSigningKeyId,
+        });
+        if (!restored.restored) {
+          throw new Error("Guest invitation keys are not available on this device.");
+        }
+        await guestWorker.setInitialized();
+      }
+    } else {
+      await ensureDskInWorker(guestWorker);
+      material = await createGuestRedeemMaterial(crypto.randomUUID(), guestWorker);
+      await guestWorker.setInitialized();
+      await guestWorker.persistGuestPendingKeysWithDsk({
+        storageKey: lookupToken,
+        userId: material.body.guest_user_id,
+      });
+      await rememberGuestRedeemMaterial(token, material);
+    }
+
+    const targetRegistration = guestTargetRegistration(material);
+    const attempt = await getApprovedGuestDeliveryAttempt({
+      token,
+      lookup: lookup as components["schemas"]["InvitationLookupResponse"],
+      auth,
+      device: accountDevice,
+      target: {
+        userId: material.body.guest_user_id,
+        deviceId: material.body.device_id,
+        registration: targetRegistration,
+        registrationProof: {
+          approval_signature: material.body.approval_signature,
+          client_nonce: material.body.client_nonce,
+          pending_registration_challenge_hash: material.body.pending_registration_challenge_hash,
+          device_name: material.body.device_name,
+          device_type: material.body.device_type,
+        },
+      },
+    });
+    const artifacts = assertKnownGuestDeliveryArtifacts(attempt);
+    const baseCheckpoint = assertKeyDirectoryEnvelope(
+      lookup.workspace_key_directory_checkpoint,
+      "guest_invitation_workspace_key_directory_checkpoint_invalid",
+    );
+    const authorityEventAncestry = lookup.workspace_key_directory_event_ancestry.map((entry) =>
+      assertKeyDirectoryEnvelope(entry, "guest_invitation_workspace_event_invalid"),
+    );
+    await verifyKnownGuestAuthorization({
+      attempt,
+      artifacts,
+      baseCheckpoint,
+      authorityEventAncestry,
+    });
+
+    const intermediateCheckpoint = assertKeyDirectoryEnvelope(
+      artifacts.workspace_key_directory_intermediate_checkpoint,
+      "guest_invitation_intermediate_checkpoint_invalid",
+    );
+    const finalCheckpoint = assertKeyDirectoryEnvelope(
+      artifacts.workspace_key_directory_checkpoint,
+      "guest_invitation_final_checkpoint_invalid",
+    );
+    const events = artifacts.workspace_key_directory_events.map((entry) =>
+      assertKeyDirectoryEnvelope(entry, "guest_invitation_delivery_event_invalid"),
+    );
+    const recipientDeliveryAdmissionProof = {
+      attempt,
+      authorization: artifacts.authorization,
+      freshnessProof: artifacts.redeem_freshness_proof,
+      baseCheckpoint,
+      currentCheckpoint: finalCheckpoint,
+      authorityEventAncestry,
+      acceptedEventAncestry: events,
+    };
+    assertRecipientDeliveryAdmissionBindings(recipientDeliveryAdmissionProof);
+
+    const response = await workspacesApi.consumeGuestInvitationDeliveryAttempt(
+      attempt.redeem_attempt_id,
+      {
+        token: lookupToken,
+      },
+    );
+    consumeLocalDeliveryAttempt(token);
+    if (
+      !response.recipient_delivery_artifacts ||
+      hashValue(response.recipient_delivery_artifacts) !== hashValue(artifacts)
+    ) {
+      throw new Error("Guest invitation key delivery response is malformed.");
+    }
+
+    await advanceWorkspacePinWithAcceptedAppend({
+      workspaceId: response.workspace_id,
+      baseCheckpointEnvelope: baseCheckpoint,
+      acceptedCheckpointEnvelope: intermediateCheckpoint,
+      acceptedEventEnvelopes: events.slice(0, 2),
+      authorityEventAncestry,
+    });
+    await advanceWorkspacePinWithAcceptedAppend({
+      workspaceId: response.workspace_id,
+      baseCheckpointEnvelope: intermediateCheckpoint,
+      acceptedCheckpointEnvelope: finalCheckpoint,
+      acceptedEventEnvelopes: events.slice(2),
+      authorityEventAncestry: events.slice(0, 2),
+    });
+
+    const verifiedAdmission = await verifyRecipientDeliveryAdmission(
+      recipientDeliveryAdmissionProof,
+    );
+
+    const authorization = artifacts.authorization;
+    const deliveryWrap = artifacts.delivery_wrap as unknown as SignedPqWrapRecord;
+    const operationProof = recipientDeliveryOperationProof(verifiedAdmission, {
+      ...deliveryWrap,
+      workspace_key_directory_checkpoint: finalCheckpoint,
+      workspace_key_directory_checkpoint_ancestry: [baseCheckpoint, intermediateCheckpoint],
+      workspace_key_directory_event_ancestry: events,
+    });
+    await verifyWorkspaceSignedPqWrapOperation(response.workspace_id, operationProof);
+    const resource = deliveryWrap.resource as Record<string, unknown>;
+    const commonResourceValid =
+      resource.workspace_id === response.workspace_id &&
+      resource.guest_invitation_id === attempt.context_id &&
+      resource.guest_user_id === material.body.guest_user_id &&
+      resource.guest_device_id === material.body.device_id &&
+      resource.permission === lookup.permission;
+    if (!commonResourceValid) {
+      throw new Error("Guest invitation key delivery wrap is malformed.");
+    }
+    if (lookup.scope_kind === "workspace") {
+      if (
+        deliveryWrap.purpose !== "guest_invitation_workspace_kek_wrap" ||
+        resource.scope_kind !== "workspace" ||
+        resource.scope_id !== "none" ||
+        resource.kek_version !== lookup.key_version_context.workspace_kek_version
+      ) {
+        throw new Error("Guest invitation workspace key delivery wrap is malformed.");
+      }
+      await guestWorker.openRecipientBoundInvitationDeviceKekWrap({
+        operationProof,
+        recipientDeliveryAdmissionProof,
+        senderSigningPublicKeyMaterial: authorization.hybrid_signing_public_key_material as never,
+      });
+      await persistRedeemedGuestWorkspaceKek(guestWorker, {
+        userId: response.guest_user_id,
+        workspaceId: response.workspace_id,
+        keyVersion: guestWorkspaceKekVersion(lookup.key_version_context),
+      });
+    } else {
+      if (
+        deliveryWrap.purpose !== "guest_invitation_share_key_wrap" ||
+        !lookup.share_id ||
+        resource.share_id !== lookup.share_id ||
+        !["document", "folder"].includes(String(resource.scope_kind)) ||
+        (lookup.scope_kind !== "share" &&
+          (resource.scope_kind !== lookup.scope_kind || resource.scope_id !== lookup.scope_id)) ||
+        resource.share_key_version !== lookup.key_version_context.share_key_version ||
+        resource.dek_version !== lookup.key_version_context.dek_version
+      ) {
+        throw new Error("Guest invitation share key delivery wrap is malformed.");
+      }
+      await guestWorker.openSignedPqGuestInvitationShareKeyWrap({
+        operationProof,
+        recipientDeliveryAdmissionProof,
+        senderSigningPublicKeyMaterial: authorization.hybrid_signing_public_key_material as never,
+      });
+      await guestWorker.persistCurrentKeysWithDsk(response.guest_user_id);
+    }
+    await guestWorker.deleteGuestPendingKeysWithDsk(lookupToken);
+
+    const me = await restoreWorkerForGuestSession(response, material);
+    await restoreGuestShareKeyForResponse(getCryptoWorker(), response);
+    await persistGuestAuthBootstrap(getCryptoWorker(), {
+      userId: response.guest_user_id,
+      email: me.email,
+      name: me.name,
+      deviceId: response.guest_device_id,
+      deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
+    });
+    await pinGuestUserKeyDirectory(response);
+    setGuestSession(response, material, me);
+    await rememberGuestRedeemMaterial(token, material);
+    return response satisfies GuestRedeemResult;
+  } catch (error) {
+    if (!(error instanceof InvitationDeliveryPendingError) && material) {
+      consumeLocalDeliveryAttempt(token);
+      await guestWorker.deleteGuestPendingKeysWithDsk(lookupToken);
+      await forgetGuestRedeemMaterial(token, material);
+    }
+    throw error;
+  } finally {
+    terminateScopedCryptoWorker(scopedWorkerKey);
+  }
+}
+
+function assertKnownGuestDeliveryArtifacts(attempt: DeliveryAttempt): KnownGuestDeliveryArtifacts {
+  const value = attempt.approved_artifacts as Record<string, unknown>;
+  const required = [
+    "authorization",
+    "delivery_wrap",
+    "redeem_freshness_proof",
+    "workspace_key_directory_checkpoint",
+    "workspace_key_directory_events",
+    "workspace_key_directory_intermediate_checkpoint",
+    "workspace_pin_bootstrap",
+  ];
+  if (
+    !value ||
+    Object.keys(value).sort().join("\u0000") !== required.sort().join("\u0000") ||
+    !Array.isArray(value.workspace_key_directory_events)
+  ) {
+    throw new Error("Guest invitation key delivery artifacts are malformed.");
+  }
+  return value as unknown as KnownGuestDeliveryArtifacts;
+}
+
+async function verifyKnownGuestAuthorization(params: {
+  attempt: DeliveryAttempt;
+  artifacts: KnownGuestDeliveryArtifacts;
+  baseCheckpoint: KeyDirectoryEnvelope;
+  authorityEventAncestry: KeyDirectoryEnvelope[];
+}): Promise<void> {
+  const { attempt, artifacts, baseCheckpoint } = params;
+  const authorization = artifacts.authorization;
+  const payload = authorization.payload as Record<string, unknown>;
+  const freshness = artifacts.redeem_freshness_proof;
+  const checkpointPayload = baseCheckpoint.payload as Record<string, unknown>;
+  const coveredHead = checkpointPayload.covered_event_head as Record<string, unknown>;
+  if (
+    payload?.protocol !== "refmd.recipient-bound-authorization" ||
+    payload.redeem_attempt_id !== attempt.redeem_attempt_id ||
+    payload.context_kind !== "guest_invitation" ||
+    payload.context_id !== attempt.context_id ||
+    payload.resource_hash !== attempt.resource_hash ||
+    payload.recipient_redeem_nonce !== attempt.recipient_redeem_nonce ||
+    payload.recipient_nonce_state_hash !== attempt.recipient_nonce_state_hash ||
+    payload.live_redeem_challenge_hash !== attempt.live_redeem_challenge_hash ||
+    payload.redeem_freshness_proof_hash !== hashValue(freshness) ||
+    payload.current_checkpoint_sequence !== checkpointPayload.sequence ||
+    payload.current_checkpoint_hash !== hashKeyDirectoryCheckpointEnvelope(baseCheckpoint) ||
+    payload.current_event_head_sequence !== coveredHead.head_sequence ||
+    payload.current_event_head_hash !== coveredHead.head_hash
+  ) {
+    throw new Error("Guest invitation key delivery authorization is malformed.");
+  }
+  const publicMaterial = authorization.hybrid_signing_public_key_material as never;
+  const signingKeyId = stringField(authorization.signing_key_id);
+  const freshnessDevice = freshness.authoritative_device as Record<string, unknown>;
+  const transcript = buildRecipientBoundAuthorizationTranscript({
+    ownerId: stringField((publicMaterial as Record<string, unknown>).owner_id),
+    actorUserId: stringField(freshnessDevice.user_id),
+    actorDeviceId: stringField(freshnessDevice.device_id),
+    signingKeyId,
+    authorizationPayload: payload,
+  });
+  if (
+    hashValue(transcript) !== hashValue(authorization.transcript) ||
+    !verifyRecipientBoundAuthorizationSignature({
+      transcript,
+      signature: authorization.signature as never,
+      publicKeyMaterial: publicMaterial,
+    })
+  ) {
+    throw new Error("Guest invitation authorization signature is invalid.");
+  }
+  await verifyAndInstallWorkspacePinBootstrap({
+    workspaceId: attempt.workspace_id,
+    authenticatedWorkspacePinBootstrapHash: stringField(payload.workspace_pin_bootstrap_hash),
+    bootstrap: assertWorkspacePinBootstrapEnvelope(
+      artifacts.workspace_pin_bootstrap,
+      "workspace_pin_bootstrap_invalid",
+    ),
+    checkpointEnvelope: baseCheckpoint,
+    workspaceKeyDirectoryEventAncestry: params.authorityEventAncestry,
+    operationSequence: numberField(payload.not_after_event_sequence),
+  });
+}
+
+function hashValue(value: unknown): string {
+  return blake3Base64Url(canonicalizeStrictBytes(value as StrictJsonValue));
+}
+
 export async function redeemGuestInvitation(token: string) {
   const worker = getCryptoWorker();
-
+  const bootstrapSecret = invitationBootstrapSecret(token);
+  const lookupToken = invitationLookupToken(token);
+  const lookup = (await workspacesApi.lookupInvitation(lookupToken)) as GuestInvitationLookupResult;
+  if (lookup.kind !== "guest" || !lookup.encrypted_bootstrap_package) {
+    throw new Error("This guest invitation is missing workspace trust state.");
+  }
+  if (lookup.delivery_mode === "known_recipient") {
+    return redeemKnownRecipientGuestInvitation(token, lookup);
+  }
+  if (!bootstrapSecret) throw new Error("This invitation link is missing guest key material.");
   await worker.lock();
   await ensureDskInWorker();
-  const bootstrapSecret = invitationBootstrapSecret(token);
-  if (!bootstrapSecret) throw new Error("This invitation link is missing guest key material.");
-  const lookupToken = invitationLookupToken(token);
-
   const storedMaterial =
     (await readGuestRedeemMaterial(token)) ?? (await readCurrentGuestRedeemMaterial());
+  if (storedMaterial) {
+    await worker.init({
+      dsk: null,
+      useStoredDsk: true,
+      userId: storedMaterial.body.guest_user_id,
+      deviceId: storedMaterial.body.device_id,
+      deviceSigningKeyId: storedMaterial.publicKeys.deviceSigningKeyId,
+      keyRestoreEndpointRef: null,
+    });
+    if (!(await worker.isReady())) {
+      throw new Error("Guest keys are not available on this device.");
+    }
+  }
+  const prepared = await prepareGuestInvitationBootstrap(token, lookup);
+
   if (storedMaterial) {
     const { admission, response } = await redeemGuestInvitationWithRebasedAdmission(
       token,
       lookupToken,
       storedMaterial,
+      prepared,
     );
     const me = await restoreWorkerForGuestSession(response, storedMaterial);
+    await restoreGuestShareKeyForResponse(worker, response);
+    await persistGuestAuthBootstrap(worker, {
+      userId: response.guest_user_id,
+      email: me.email,
+      name: me.name,
+      deviceId: response.guest_device_id,
+      deviceSigningKeyId: storedMaterial.publicKeys.deviceSigningKeyId,
+    });
     await acceptGuestRedeemCheckpoint({
       response,
       admission,
       existingGuestDeviceId: response.guest_device_id,
       allowReentryCheckpoint: true,
     });
+    await pinGuestUserKeyDirectory(response);
     setGuestSession(response, storedMaterial, me);
     await rememberGuestRedeemMaterial(token, storedMaterial);
     return response satisfies GuestRedeemResult;
@@ -500,10 +1198,23 @@ export async function redeemGuestInvitation(token: string) {
     token,
     lookupToken,
     material,
+    prepared,
   );
 
   await worker.setUserContext(response.guest_user_id, response.guest_device_id);
-  await persistCurrentKeysWithDsk(response.guest_user_id);
+  if (response.scope_kind === "workspace") {
+    await persistRedeemedGuestWorkspaceKek(worker, {
+      userId: response.guest_user_id,
+      workspaceId: response.workspace_id,
+      keyVersion: guestWorkspaceKekVersion(response.key_version_context),
+    });
+  } else {
+    await worker.commitGuestInvitationShareKey({
+      invitationId: response.invitation_id,
+      ...guestShareMetadata(response),
+    });
+    await persistCurrentKeysWithDsk(response.guest_user_id);
+  }
 
   await worker.setInitialized();
   await acceptGuestRedeemCheckpoint({
@@ -515,9 +1226,47 @@ export async function redeemGuestInvitation(token: string) {
   const persistentMaterial: GuestRedeemMaterial = material;
   await rememberGuestRedeemMaterial(token, persistentMaterial);
   const me = await authApi.me();
+  await persistGuestAuthBootstrap(worker, {
+    userId: response.guest_user_id,
+    email: me.email,
+    name: me.name,
+    deviceId: response.guest_device_id,
+    deviceSigningKeyId: persistentMaterial.publicKeys.deviceSigningKeyId,
+  });
+  await pinGuestUserKeyDirectory(response);
   setGuestSession(response, persistentMaterial, me);
 
   return response satisfies GuestRedeemResult;
+}
+
+async function pinGuestUserKeyDirectory(response: RedeemResponse): Promise<void> {
+  const checkpoint = assertKeyDirectoryEnvelope(
+    response.user_key_directory_checkpoint,
+    "guest_user_key_directory_checkpoint_invalid",
+  );
+  const events = response.user_key_directory_events.map((entry) =>
+    assertKeyDirectoryEnvelope(entry, "guest_user_key_directory_event_invalid"),
+  );
+  const existing = await getKeyDirectoryPin("user", response.guest_user_id);
+  if (!existing) {
+    await pinInitialKeyDirectoryCheckpoint({
+      scopeKind: "user",
+      scopeId: response.guest_user_id,
+      eventEnvelopes: events,
+      checkpointEnvelope: checkpoint,
+    });
+    return;
+  }
+
+  const received = operationCheckpointFromEnvelope(checkpoint);
+  if (
+    existing.checkpointSequence !== received.sequence ||
+    existing.checkpointHash !== received.checkpointHash ||
+    existing.eventHeadSequence !== received.coveredHeadSequence ||
+    existing.eventHeadHash !== received.coveredHeadHash
+  ) {
+    throw new Error("guest_user_key_directory_pin_mismatch");
+  }
 }
 
 async function acceptGuestRedeemCheckpoint(params: {

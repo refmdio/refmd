@@ -481,7 +481,18 @@ async function inviteUser(page: Page, email: string): Promise<string> {
   await selectSettingsTab(page, "Workspace");
   await page.getByRole("button", { name: "Invite" }).click();
   await page.locator("#invite-email").fill(email);
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/workspaces\/[^/]+\/invitations$/.test(new URL(response.url()).pathname),
+  );
   await page.getByRole("button", { name: "Create Invitation" }).click();
+  const response = await createResponse;
+  if (!response.ok()) {
+    throw new Error(
+      `workspace invitation creation failed: ${response.status()} ${await response.text()}`,
+    );
+  }
   await expect(page.getByText("Invitation created")).toBeVisible({ timeout: 30_000 });
   const link = await page.locator('[role="dialog"] input[readonly]').inputValue();
   await page.getByRole("button", { name: "Done" }).click();
@@ -489,13 +500,24 @@ async function inviteUser(page: Page, email: string): Promise<string> {
   return link;
 }
 
-async function acceptInvitation(page: Page, link: string): Promise<Page> {
+async function acceptInvitation(page: Page, link: string, ownerPage: Page): Promise<Page> {
   await page.goto(link, { waitUntil: "domcontentloaded" });
 
   // Wait for the Accept button - crypto worker must be ready for it to appear
   const acceptButton = page.getByRole("button", { name: /accept invitation/i });
   await acceptButton.waitFor({ state: "visible", timeout: 30_000 });
   await acceptButton.click();
+
+  await expect(page.getByText("Workspace key delivery is waiting for approval.")).toBeVisible({
+    timeout: 30_000,
+  });
+  await openSettings(ownerPage);
+  await selectSettingsTab(ownerPage, "Workspace");
+  const approveButton = ownerPage.getByRole("button", { name: /approve key delivery/i }).first();
+  await approveButton.waitFor({ state: "visible", timeout: 30_000 });
+  await approveButton.click();
+  await expect(approveButton).toHaveCount(0, { timeout: 30_000 });
+  await page.getByRole("button", { name: "Retry" }).click();
 
   // After acceptance: wait for success or dashboard redirect.
   // The app shows "You've joined the workspace!" then auto-redirects to /dashboard after 2s.
@@ -549,8 +571,9 @@ async function setupSharedDocument(browser: Browser): Promise<{
   const emailB = await registerAccount(pageB, "Bob");
 
   const inviteLink = await inviteUser(pageA, emailB);
-  expect(inviteLink).toMatch(/\/invite#it=.+&ib=.+/);
-  pageB = await acceptInvitation(pageB, inviteLink);
+  expect(inviteLink).toMatch(/\/invite#it=.+/);
+  expect(inviteLink).not.toContain("&ib=");
+  pageB = await acceptInvitation(pageB, inviteLink, pageA);
   pageB = await openDocumentRoute(pageB, docId);
 
   return { ctxA, pageA, ctxB, pageB, docId };
@@ -563,6 +586,35 @@ async function closeContexts(contexts: Array<BrowserContext | undefined>): Promi
 }
 
 test.describe("Multi-User Awareness & Presence (4-23)", () => {
+  test("registered recipient invitation rejects a different account", async ({ browser }) => {
+    test.setTimeout(E2E_TIMEOUTS.extendedScenario);
+
+    const ownerContext = await newE2EContext(browser, { bypassCSP: true });
+    const recipientContext = await newE2EContext(browser, { bypassCSP: true });
+    const wrongContext = await newE2EContext(browser, { bypassCSP: true });
+    const ownerPage = await ownerContext.newPage();
+    const recipientPage = await recipientContext.newPage();
+    const wrongPage = await wrongContext.newPage();
+    try {
+      await registerAccount(ownerPage, "Invitation owner");
+      const recipientEmail = await registerAccount(recipientPage, "Invitation recipient");
+      await registerAccount(wrongPage, "Wrong recipient");
+
+      const inviteLink = await inviteUser(ownerPage, recipientEmail);
+      expect(inviteLink).not.toContain("&ib=");
+      await wrongPage.goto(inviteLink, { waitUntil: "domcontentloaded" });
+      const acceptButton = wrongPage.getByRole("button", { name: /accept invitation/i });
+      await acceptButton.waitFor({ state: "visible", timeout: 30_000 });
+      await acceptButton.click();
+      await expect(
+        wrongPage.getByText("This invitation belongs to another account or device."),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(wrongPage).not.toHaveURL(/\/dashboard/);
+    } finally {
+      await closeContexts([wrongContext, recipientContext, ownerContext]);
+    }
+  });
+
   test("invited user can accept the invitation and open the shared document", async ({
     browser,
   }) => {

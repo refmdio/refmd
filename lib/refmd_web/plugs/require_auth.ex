@@ -27,6 +27,7 @@ defmodule RefMDWeb.Plugs.RequireAuth do
 
     with token when is_binary(token) <- select_session_token(cookies, conn, opts),
          {:ok, auth_assigns} <- resolve_session_assigns(token, opts),
+         :ok <- require_identity_recovery_scope(auth_assigns, opts),
          :ok <- require_dbsc_bound_cookie(conn, cookies, Map.new(auth_assigns)) do
       Enum.reduce(auth_assigns, conn, fn {key, value}, acc -> assign(acc, key, value) end)
     else
@@ -121,15 +122,19 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   defp resolve_session_assigns(token, opts) do
     case Auth.get_valid_session_by_token_base64(token) do
       {:ok, session} ->
-        Auth.touch_session(session.id)
+        if valid_session_device?(session) do
+          Auth.touch_session(session.id)
 
-        {:ok,
-         [
-           current_user_id: session.user_id,
-           current_session: session,
-           device_verified: device_verified?(session),
-           session_kind: :user
-         ]}
+          {:ok,
+           [
+             current_user_id: session.user_id,
+             current_session: session,
+             device_verified: device_verified?(session),
+             session_kind: :user
+           ]}
+        else
+          {:error, :invalid_session_device}
+        end
 
       _ ->
         if Keyword.get(opts, :allow_share_participant, false) do
@@ -155,11 +160,25 @@ defmodule RefMDWeb.Plugs.RequireAuth do
     end
   end
 
+  defp require_identity_recovery_scope(auth_assigns, opts) do
+    session = Keyword.get(auth_assigns, :current_session)
+
+    if session && Map.get(session, :identity_recovery_required, false) &&
+         not Keyword.get(opts, :allow_identity_recovery, false) do
+      {:error, :identity_recovery_required}
+    else
+      :ok
+    end
+  end
+
   defp device_verified?(%{device_id: nil}), do: false
 
   defp device_verified?(%{device_id: device_id, user_id: user_id}) do
-    match?(%{user_id: ^user_id, revoked_at: nil}, Devices.get_device(device_id))
+    Devices.user_owns_active_device?(user_id, device_id)
   end
+
+  defp valid_session_device?(%{device_id: nil}), do: true
+  defp valid_session_device?(session), do: device_verified?(session)
 
   defp share_device_verified?(%{device_id: nil}), do: false
 

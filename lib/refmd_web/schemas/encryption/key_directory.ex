@@ -11,8 +11,8 @@ defmodule RefMDWeb.Schemas.DeviceKeyDeletionPayload do
       version: %Schema{type: :integer, enum: [1]},
       workspace_id: %Schema{type: :string, format: :uuid},
       device_id: %Schema{type: :string, format: :uuid},
-      rotation_kind: %Schema{type: :string, enum: ["kek"]},
-      scope_kind: %Schema{type: :string, enum: ["workspace"]},
+      rotation_kind: %Schema{type: :string, enum: ["kek", "dek"]},
+      scope_kind: %Schema{type: :string, enum: ["workspace", "document"]},
       scope_id: %Schema{type: :string, format: :uuid},
       old_key_version: %Schema{type: :integer, minimum: 1},
       rotation_completed_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
@@ -85,8 +85,8 @@ defmodule RefMDWeb.Schemas.DeviceKeyDeletionTranscript do
     additionalProperties: false,
     properties: %{
       workspace_id: %Schema{type: :string, format: :uuid},
-      rotation_kind: %Schema{type: :string, enum: ["kek"]},
-      scope_kind: %Schema{type: :string, enum: ["workspace"]},
+      rotation_kind: %Schema{type: :string, enum: ["kek", "dek"]},
+      scope_kind: %Schema{type: :string, enum: ["workspace", "document"]},
       scope_id: %Schema{type: :string, format: :uuid},
       old_key_version: %Schema{type: :integer, minimum: 1},
       rotation_completed_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
@@ -204,20 +204,132 @@ defmodule RefMDWeb.Schemas.OldKeyDeletionManifest do
   })
 end
 
-defmodule RefMDWeb.Schemas.RotationDeletionEvidence do
+defmodule RefMDWeb.Schemas.DocumentDekRotationCompletionManifest do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @new_key_record %Schema{
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      recipient_kind: %Schema{type: :string, enum: ["workspace_device"]},
+      recipient_id: %Schema{type: :string, format: :uuid},
+      wrap_id: %Schema{type: :string},
+      key_version: %Schema{type: :integer, minimum: 1},
+      wrap_hash: RefMDWeb.Schemas.Blake3Base64Url
+    },
+    required: [:recipient_kind, :recipient_id, :wrap_id, :key_version, :wrap_hash]
+  }
+
+  @rewritten_records %Schema{
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      snapshot_id: %Schema{type: :string, format: :uuid},
+      ciphertext_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      covered_update_start_clock: %Schema{type: :integer, minimum: 0},
+      covered_update_end_clock: %Schema{type: :integer, minimum: 0},
+      old_dek_update_hashes_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      new_dek_update_hashes_hash: RefMDWeb.Schemas.Blake3Base64Url
+    },
+    required: [
+      :snapshot_id,
+      :ciphertext_hash,
+      :covered_update_start_clock,
+      :covered_update_end_clock,
+      :old_dek_update_hashes_hash,
+      :new_dek_update_hashes_hash
+    ]
+  }
+
+  OpenApiSpex.schema(%{
+    title: "DocumentDekRotationCompletionManifest",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.rotation-completion-manifest"]},
+      version: %Schema{type: :integer, enum: [1]},
+      rotation_kind: %Schema{type: :string, enum: ["dek"]},
+      scope_kind: %Schema{type: :string, enum: ["document"]},
+      scope_id: %Schema{type: :string, format: :uuid},
+      old_key_version: %Schema{type: :integer, minimum: 1},
+      new_key_version: %Schema{type: :integer, minimum: 1},
+      started_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      new_key_records: %Schema{type: :array, items: @new_key_record},
+      rewritten_records: @rewritten_records,
+      deleted_wrap_ids_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      semantic_state_proof_hash: RefMDWeb.Schemas.Blake3Base64Url
+    },
+    required: [
+      :protocol,
+      :version,
+      :rotation_kind,
+      :scope_kind,
+      :scope_id,
+      :old_key_version,
+      :new_key_version,
+      :started_event_hash,
+      :new_key_records,
+      :rewritten_records,
+      :deleted_wrap_ids_hash,
+      :semantic_state_proof_hash
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.DocumentDekRotationDeletionManifest do
   alias OpenApiSpex.Schema
   require OpenApiSpex
 
   OpenApiSpex.schema(%{
-    title: "RotationDeletionEvidence",
+    title: "DocumentDekRotationDeletionManifest",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.old-key-deletion-manifest"]},
+      version: %Schema{type: :integer, enum: [1]},
+      rotation_kind: %Schema{type: :string, enum: ["dek"]},
+      scope_kind: %Schema{type: :string, enum: ["document"]},
+      scope_id: %Schema{type: :string, format: :uuid},
+      old_key_version: %Schema{type: :integer, minimum: 1},
+      rotation_completed_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      deleted_secret_ids_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      deleted_wrap_ids_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      active_device_deletion_proofs_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      wipe_required_device_ids_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      server_rejects_old_key_uploads_after_sequence: %Schema{type: :integer, minimum: 1}
+    },
+    required: [
+      :protocol,
+      :version,
+      :rotation_kind,
+      :scope_kind,
+      :scope_id,
+      :old_key_version,
+      :rotation_completed_event_hash,
+      :deleted_secret_ids_hash,
+      :deleted_wrap_ids_hash,
+      :active_device_deletion_proofs_hash,
+      :wipe_required_device_ids_hash,
+      :server_rejects_old_key_uploads_after_sequence
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.WorkspaceRotationDeletionEvidence do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceRotationDeletionEvidence",
     type: :object,
     additionalProperties: false,
     properties: %{
       old_key_deleted_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
       workspace_id: %Schema{type: :string, format: :uuid},
-      rotation_kind: %Schema{type: :string},
-      scope_kind: %Schema{type: :string},
-      scope_id: %Schema{type: :string},
+      rotation_kind: %Schema{type: :string, enum: ["kek"]},
+      scope_kind: %Schema{type: :string, enum: ["workspace"]},
+      scope_id: %Schema{type: :string, format: :uuid},
       old_key_version: %Schema{type: :integer, minimum: 1},
       deletion_manifest: RefMDWeb.Schemas.OldKeyDeletionManifest,
       device_key_deletion_proofs: %Schema{
@@ -227,6 +339,10 @@ defmodule RefMDWeb.Schemas.RotationDeletionEvidence do
           proofs: %Schema{type: :array, items: RefMDWeb.Schemas.DeviceKeyDeletionProof}
         },
         required: [:proofs]
+      },
+      wipe_required_device_ids: %Schema{
+        type: :array,
+        items: %Schema{type: :string, format: :uuid}
       }
     },
     required: [
@@ -237,7 +353,115 @@ defmodule RefMDWeb.Schemas.RotationDeletionEvidence do
       :scope_id,
       :old_key_version,
       :deletion_manifest,
-      :device_key_deletion_proofs
+      :device_key_deletion_proofs,
+      :wipe_required_device_ids
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.DocumentDekRotationDeletionEvidence do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "DocumentDekRotationDeletionEvidence",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      old_key_deleted_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      document_id: %Schema{type: :string, format: :uuid},
+      workspace_id: %Schema{type: :string, format: :uuid},
+      rotation_kind: %Schema{type: :string, enum: ["dek"]},
+      scope_kind: %Schema{type: :string, enum: ["document"]},
+      scope_id: %Schema{type: :string, format: :uuid},
+      old_key_version: %Schema{type: :integer, minimum: 1},
+      completion_manifest: RefMDWeb.Schemas.DocumentDekRotationCompletionManifest,
+      deletion_manifest: RefMDWeb.Schemas.DocumentDekRotationDeletionManifest,
+      device_key_deletion_proofs: %Schema{
+        type: :object,
+        additionalProperties: false,
+        properties: %{
+          proofs: %Schema{type: :array, items: RefMDWeb.Schemas.DeviceKeyDeletionProof}
+        },
+        required: [:proofs]
+      },
+      wipe_required_device_ids: %Schema{
+        type: :array,
+        items: %Schema{type: :string, format: :uuid}
+      }
+    },
+    required: [
+      :old_key_deleted_event_hash,
+      :document_id,
+      :workspace_id,
+      :rotation_kind,
+      :scope_kind,
+      :scope_id,
+      :old_key_version,
+      :completion_manifest,
+      :deletion_manifest,
+      :device_key_deletion_proofs,
+      :wipe_required_device_ids
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.IdentityRotationDeletionEvidence do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "IdentityRotationDeletionEvidence",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      old_key_deleted_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      user_id: %Schema{type: :string, format: :uuid},
+      rotation_kind: %Schema{type: :string, enum: ["identity"]},
+      scope_kind: %Schema{type: :string, enum: ["user"]},
+      scope_id: %Schema{type: :string, format: :uuid},
+      old_key_version: %Schema{type: :integer, minimum: 1},
+      deletion_manifest: RefMDWeb.Schemas.IdentityRotationDeletionManifest,
+      device_key_deletion_proofs: %Schema{
+        type: :object,
+        additionalProperties: false,
+        properties: %{
+          proofs: %Schema{
+            type: :array,
+            items: RefMDWeb.Schemas.SignedIdentityKeyDeletionProof
+          }
+        },
+        required: [:proofs]
+      },
+      wipe_required_device_ids: %Schema{
+        type: :array,
+        items: %Schema{type: :string, format: :uuid}
+      }
+    },
+    required: [
+      :old_key_deleted_event_hash,
+      :user_id,
+      :rotation_kind,
+      :scope_kind,
+      :scope_id,
+      :old_key_version,
+      :deletion_manifest,
+      :device_key_deletion_proofs,
+      :wipe_required_device_ids
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.RotationDeletionEvidence do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "RotationDeletionEvidence",
+    oneOf: [
+      %Schema{allOf: [RefMDWeb.Schemas.WorkspaceRotationDeletionEvidence]},
+      %Schema{allOf: [RefMDWeb.Schemas.DocumentDekRotationDeletionEvidence]},
+      %Schema{allOf: [RefMDWeb.Schemas.IdentityRotationDeletionEvidence]}
     ]
   })
 end
@@ -308,6 +532,7 @@ defmodule RefMDWeb.Schemas.LatestKeyDirectoryResponse do
       checkpoint: @key_directory_envelope_schema,
       checkpoint_ancestry: %Schema{type: :array, items: @key_directory_envelope_schema},
       event_ancestry: %Schema{type: :array, items: @key_directory_envelope_schema},
+      authority_event_ancestry: %Schema{type: :array, items: @key_directory_envelope_schema},
       events: %Schema{type: :array, items: @key_directory_envelope_schema},
       rotation_deletion_evidences: %Schema{
         type: :array,
@@ -319,6 +544,7 @@ defmodule RefMDWeb.Schemas.LatestKeyDirectoryResponse do
       :checkpoint,
       :checkpoint_ancestry,
       :event_ancestry,
+      :authority_event_ancestry,
       :events,
       :rotation_deletion_evidences,
       :pin

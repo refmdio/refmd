@@ -49,6 +49,7 @@ interface DeviceRegistrationFlowState {
   setReauthPassword: (value: string) => void;
   submitPasswordReentry: (event: Event) => Promise<void>;
   submitReauth: (event: Event) => Promise<void>;
+  beginApproval: () => Promise<void>;
   openRecovery: (event: MouseEvent) => void;
   backToLogin: () => void;
   reloadPage: () => void;
@@ -193,13 +194,29 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     if (prepared.decision.kind === "needs_password") {
       return;
     }
-    await createRegistrationAndWait(prepared.publicKeys);
+  };
+  const beginApproval = async () => {
+    const publicKeys = devicePublicKeys();
+    if (!publicKeys || phase() !== "approval_choice") return;
+    applyEvent({ type: "approval_started" });
+    try {
+      await createRegistrationAndWait(publicKeys);
+    } catch (approvalError) {
+      if (approvalError instanceof Error && approvalError.name === "AbortError") return;
+      applyEvent({
+        type: "flow_failed",
+        message: approvalError instanceof Error ? approvalError.message : "Setup failed",
+      });
+    }
   };
   const createRegistrationAndWait = async (publicKeys: DeviceRegistrationPublicKeys) => {
+    const auth = authState();
+    if (!auth) throw new Error("No session");
     registrationAbortController?.abort();
     const abortController = new AbortController();
     registrationAbortController = abortController;
     const result = await startRegistrationApproval({
+      userId: auth.user.id,
       publicKeys,
       identityHybridSigningPublicKeyMaterial: identityHybridSigningPublicKeyMaterial()!,
       signal: abortController.signal,
@@ -449,6 +466,7 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     setReauthPassword: (value) => patchMachine({ reauthPassword: value }),
     submitPasswordReentry,
     submitReauth,
+    beginApproval,
     openRecovery,
     backToLogin,
     reloadPage: () => window.location.reload(),

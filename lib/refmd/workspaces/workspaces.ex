@@ -5,6 +5,7 @@ defmodule RefMD.Workspaces do
 
   import Ecto.Query
 
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
 
   alias RefMD.Workspaces.{
@@ -18,6 +19,7 @@ defmodule RefMD.Workspaces do
   }
 
   alias RefMD.Workspaces.Guests
+  alias RefMD.Workspaces.InvitationDelivery
   alias RefMD.Workspaces.Invitations
   alias RefMD.Workspaces.Roles, as: WRoles
 
@@ -130,6 +132,52 @@ defmodule RefMD.Workspaces do
     }
   end
 
+  defdelegate create_invitation_delivery_attempt(
+                token_hash,
+                recipient_user_id,
+                recipient_device_id,
+                attrs
+              ),
+              to: InvitationDelivery,
+              as: :create_attempt
+
+  defdelegate get_invitation_delivery_attempt(attempt_id, recipient_user_id, recipient_device_id),
+    to: InvitationDelivery,
+    as: :get_recipient_attempt
+
+  defdelegate list_pending_invitation_delivery_attempts(workspace_id),
+    to: InvitationDelivery,
+    as: :list_pending_attempts
+
+  defdelegate approve_invitation_delivery_attempt(
+                workspace_id,
+                attempt_id,
+                actor_user_id,
+                actor_device_id,
+                artifacts
+              ),
+              to: InvitationDelivery,
+              as: :approve_attempt
+
+  defdelegate consume_workspace_invitation_delivery_attempt(
+                attempt_id,
+                token_hash,
+                recipient_user_id,
+                recipient_device_id
+              ),
+              to: InvitationDelivery,
+              as: :consume_workspace_attempt
+
+  defdelegate consume_guest_invitation_delivery_attempt(
+                attempt_id,
+                token_hash,
+                recipient_user_id,
+                recipient_device_id,
+                session_attrs
+              ),
+              to: InvitationDelivery,
+              as: :consume_guest_attempt
+
   defdelegate revoke_all_active_invitations(workspace_ids), to: RefMD.Workspaces.Invitations
   defdelegate revoke_all_active_guest_invitations(workspace_ids), to: RefMD.Workspaces.Guests
 
@@ -185,6 +233,10 @@ defmodule RefMD.Workspaces do
     to: RefMD.Workspaces.Guests,
     as: :authorize_permission
 
+  defdelegate authorize_workspace_guest_access(workspace_id, user_id),
+    to: RefMD.Workspaces.Guests,
+    as: :authorize_workspace_access
+
   defdelegate authorize_guest_document_create(workspace_id, user_id, doc_type, parent_id),
     to: RefMD.Workspaces.Guests,
     as: :authorize_document_create
@@ -212,6 +264,15 @@ defmodule RefMD.Workspaces do
   defdelegate redeem_guest_invitation(token_hash, device_attrs, session_attrs, key_directory),
     to: RefMD.Workspaces.Guests
 
+  defdelegate redeem_guest_invitation(
+                token_hash,
+                device_attrs,
+                session_attrs,
+                key_directory,
+                recipient_account
+              ),
+              to: RefMD.Workspaces.Guests
+
   defdelegate revoke_guest_grants(workspace_id, user_id), to: RefMD.Workspaces.Guests
   defdelegate guest_invites_enabled?(workspace_id), to: RefMD.Workspaces.Guests
 
@@ -235,10 +296,76 @@ defmodule RefMD.Workspaces do
   def get_workspace(id), do: Repo.get(Workspace, id)
 
   def update_workspace(%Workspace{} = workspace, attrs) do
+    if encrypted_workspace_metadata_update?(attrs) do
+      update_workspace_encrypted_metadata(workspace.id, attrs)
+    else
+      update_workspace_without_key_validation(workspace, attrs)
+    end
+  end
+
+  defp update_workspace_encrypted_metadata(workspace_id, attrs) do
+    Repo.transaction(fn ->
+      workspace =
+        from(w in Workspace, where: w.id == ^workspace_id, lock: "FOR UPDATE")
+        |> Repo.one!()
+
+      with :ok <- validate_workspace_metadata_key(workspace, attrs),
+           {:ok, updated} <- update_workspace_without_key_validation(workspace, attrs) do
+        updated
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp update_workspace_without_key_validation(workspace, attrs) do
     workspace
     |> Workspace.update_changeset(attrs)
     |> Repo.update()
     |> maybe_recompute_plugin_user_policy(attrs)
+  end
+
+  defp encrypted_workspace_metadata_update?(attrs) do
+    Enum.any?(
+      [
+        :encrypted_name,
+        :encrypted_name_nonce,
+        :encrypted_name_key_version,
+        :encrypted_description,
+        :encrypted_description_nonce,
+        :encrypted_description_key_version,
+        :encrypted_icon,
+        :encrypted_icon_nonce,
+        :encrypted_icon_key_version
+      ],
+      &Map.has_key?(attrs, &1)
+    )
+  end
+
+  defp validate_workspace_metadata_key(workspace, attrs) do
+    supplied_versions =
+      [
+        [:encrypted_name, :encrypted_name_nonce, :encrypted_name_key_version],
+        [
+          :encrypted_description,
+          :encrypted_description_nonce,
+          :encrypted_description_key_version
+        ],
+        [:encrypted_icon, :encrypted_icon_nonce, :encrypted_icon_key_version]
+      ]
+      |> Enum.filter(fn fields -> Enum.any?(fields, &Map.has_key?(attrs, &1)) end)
+      |> Enum.map(fn fields -> Map.get(attrs, List.last(fields)) end)
+
+    cond do
+      RotationPolicy.kek_overdue?(workspace) ->
+        {:error, :kek_rotation_required}
+
+      Enum.any?(supplied_versions, &(&1 != workspace.current_kek_version)) ->
+        {:error, :kek_rotation_required}
+
+      true ->
+        :ok
+    end
   end
 
   defp maybe_recompute_plugin_user_policy({:ok, workspace}, attrs) do
@@ -260,12 +387,16 @@ defmodule RefMD.Workspaces do
 
   def update_current_kek_version(workspace_id, version) do
     from(w in Workspace, where: w.id == ^workspace_id)
-    |> Repo.update_all(set: [current_kek_version: version])
+    |> Repo.update_all(
+      set: [current_kek_version: version, kek_rotation_due_at: RotationPolicy.next_kek_due_at()]
+    )
   end
 
   def initialize_kek_version(workspace_id) do
     from(w in Workspace, where: w.id == ^workspace_id and w.current_kek_version == 0)
-    |> Repo.update_all(set: [current_kek_version: 1])
+    |> Repo.update_all(
+      set: [current_kek_version: 1, kek_rotation_due_at: RotationPolicy.next_kek_due_at()]
+    )
   end
 
   def get_user_default_workspace(user_id) do
@@ -358,7 +489,13 @@ defmodule RefMD.Workspaces do
   defdelegate mark_kek_rotation_needed(workspace_ids, initiator_user_id),
     to: RefMD.Workspaces.KekRotation
 
-  defdelegate mark_dek_rotation_needed(workspace_ids), to: RefMD.Workspaces.KekRotation
+  defdelegate rotation_initiator_eligible?(workspace_id, initiator_user_id),
+    to: RefMD.Workspaces.KekRotation
+
+  defdelegate next_rotation_initiator(workspace_id), to: RefMD.Workspaces.KekRotation
+
+  defdelegate mark_dek_rotation_needed(workspace_ids, reason),
+    to: RefMD.Workspaces.KekRotation
 
   defdelegate start_kek_rotation(workspace_id, initiator_user_id, opts \\ []),
     to: RefMD.Workspaces.KekRotation
@@ -370,6 +507,14 @@ defmodule RefMD.Workspaces do
     to: RefMD.Workspaces.KekRotation
 
   defdelegate list_workspaces_needing_kek_rotation, to: RefMD.Workspaces.KekRotation
+
+  defdelegate workspace_wipe_requirement(workspace_id, device_id),
+    to: RefMD.Workspaces.KekRotation,
+    as: :wipe_requirement
+
+  defdelegate acknowledge_workspace_wipe(workspace_id, device_id, proof),
+    to: RefMD.Workspaces.KekRotation,
+    as: :acknowledge_wipe
 
   defdelegate rotation_deletion_evidences_by_event_hash(event_hashes),
     to: RefMD.Workspaces.KekRotation

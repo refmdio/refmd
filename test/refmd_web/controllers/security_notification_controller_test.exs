@@ -3,6 +3,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
 
   alias RefMD.Auth
   alias RefMD.Repo
+  alias RefMD.Security
   alias RefMD.Security.Notification
   alias RefMD.Users.User
 
@@ -11,7 +12,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     %{device: device, signing_private_key: signing_private_key} = create_device(user_id)
 
     notification =
-      Repo.insert!(%Notification{
+      insert_notification!(%{
         recipient_kind: "user",
         recipient_id: user_id,
         type: "plugin.consent_required",
@@ -22,7 +23,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
 
     other_user_id = create_user("security-notifications-other@example.com")
 
-    Repo.insert!(%Notification{
+    insert_notification!(%{
       recipient_kind: "user",
       recipient_id: other_user_id,
       type: "device.pending_approval",
@@ -51,7 +52,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     %{device: device, signing_private_key: signing_private_key} = create_device(user_id)
 
     notification =
-      Repo.insert!(%Notification{
+      insert_notification!(%{
         recipient_kind: "device",
         recipient_id: device.id,
         type: "plugin.runtime_revoked",
@@ -62,7 +63,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
 
     other_device_id = Ecto.UUID.generate()
 
-    Repo.insert!(%Notification{
+    insert_notification!(%{
       recipient_kind: "device",
       recipient_id: other_device_id,
       type: "plugin.runtime_disabled",
@@ -109,7 +110,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     %{device: device, signing_private_key: signing_private_key} = create_device(user_id)
 
     notification =
-      Repo.insert!(%Notification{
+      insert_notification!(%{
         recipient_kind: "user",
         recipient_id: user_id,
         type: "plugin.consent_required",
@@ -138,7 +139,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     %{device: device, signing_private_key: signing_private_key} = create_device(user_id)
 
     notification =
-      Repo.insert!(%Notification{
+      insert_notification!(%{
         recipient_kind: "user",
         recipient_id: user_id,
         type: "workspace.kek_rotation_needed",
@@ -200,6 +201,35 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     })
 
     user_id
+  end
+
+  defp insert_notification!(attrs) do
+    recipient_id = attrs.recipient_id
+
+    event = %{
+      class: "security_runtime",
+      type: attrs.type,
+      actor: %{
+        "user_id" => recipient_id,
+        "device_id" => nil,
+        "session_id" => nil,
+        "principal_kind" => attrs.recipient_kind,
+        "principal_id" => recipient_id
+      },
+      scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
+      resource: %{"kind" => attrs.recipient_kind, "id" => recipient_id, "version_hash" => nil},
+      action: %{"operation" => attrs.type, "result" => "completed", "reason_code" => nil},
+      sensitivity: Security.empty_sensitivity(),
+      correlation: %{
+        "request_id" => nil,
+        "capability_id" => nil,
+        "execution_context_id" => nil,
+        "authority_event_ref" => nil
+      }
+    }
+
+    {:ok, %{notifications: [notification]}} = Security.record_audit_event(event, [attrs])
+    notification
   end
 
   defp create_device(user_id) do

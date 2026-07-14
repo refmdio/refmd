@@ -12,6 +12,35 @@ import type {
 import type { DocumentState } from "../../model/document-state/types";
 import { handleSnapshotSaved, handleUpdateSaveFailed } from "./outbound-save";
 
+const mocks = vi.hoisted(() => ({
+  cacheDocumentState: vi.fn(async () => {}),
+  completeDekRotationAfterSnapshot: vi.fn(async () => {}),
+  deletePendingChanges: vi.fn(async () => {}),
+}));
+
+vi.mock("./bootstrap-key-rotation", () => ({
+  completeDekRotationAfterSnapshot: mocks.completeDekRotationAfterSnapshot,
+}));
+
+vi.mock("@/shared/lib/anti-rollback/document-state-pins", () => ({
+  buildDocumentStatePinKey: vi.fn(() => "pin"),
+  getDocumentStatePin: vi.fn(async () => null),
+  putDocumentStatePin: vi.fn(async () => {}),
+  updatePinFromState: vi.fn(() => ({})),
+}));
+
+vi.mock("@/shared/lib/offline/cache/manager/write", () => ({
+  cacheDocumentState: mocks.cacheDocumentState,
+}));
+
+vi.mock("@/shared/lib/offline/storage/store", () => ({
+  deletePendingChanges: mocks.deletePendingChanges,
+}));
+
+vi.mock("./outbound-publication", () => ({
+  queuePublicationSaveSync: vi.fn(),
+}));
+
 function documentState(overrides: Partial<DocumentState> = {}): DocumentState {
   return {
     stateKey: "state",
@@ -111,10 +140,36 @@ describe("handleUpdateSaveFailed", () => {
 });
 
 describe("handleSnapshotSaved", () => {
+  it("resumes DEK completion after reload from the current key version", async () => {
+    vi.clearAllMocks();
+    const state = documentState({
+      keyVersion: 2,
+      pendingRotationKeyVersion: null,
+      pendingRotationSnapshot: true,
+    });
+    installPendingSnapshot(state, "rotation snapshot\n");
+
+    await handleSnapshotSaved(snapshotAck(), state, "document-1");
+
+    expect(mocks.completeDekRotationAfterSnapshot).toHaveBeenCalledWith({
+      documentId: "document-1",
+      workspaceId: "workspace",
+      state,
+      oldKeyVersion: 1,
+      newKeyVersion: 2,
+    });
+    expect(mocks.cacheDocumentState).toHaveBeenCalledOnce();
+    expect(mocks.completeDekRotationAfterSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.cacheDocumentState.mock.invocationCallOrder[0]!,
+    );
+    expect(state.pendingRotationSnapshot).toBe(false);
+  });
+
   it("rebases the live document onto the accepted snapshot before the next edit", async () => {
     const state = documentState({
       autoSync: {
         dispose: vi.fn(),
+        drain: vi.fn(async () => {}),
         notifyLocalEdit: vi.fn(),
         prepareWriteSession: vi.fn(async () => true),
         flush: vi.fn(),
@@ -144,6 +199,7 @@ describe("handleSnapshotSaved", () => {
     const state = documentState({
       autoSync: {
         dispose: vi.fn(),
+        drain: vi.fn(async () => {}),
         notifyLocalEdit,
         prepareWriteSession: vi.fn(async () => true),
         flush: vi.fn(),

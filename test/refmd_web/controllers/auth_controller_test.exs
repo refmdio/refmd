@@ -6,9 +6,12 @@ defmodule RefMDWeb.AuthControllerTest do
   alias RefMD.Auth
   alias RefMD.Auth.DBSC
   alias RefMD.Auth.OAuth
-  alias RefMD.Crypto.Hash
+  alias RefMD.Crypto.{Hash, Signature}
+  alias RefMD.Devices.DeviceRegistration
   alias RefMD.Encryption
+  alias RefMD.Encryption.KeyDirectory
   alias RefMD.Repo
+  alias RefMD.Security
   alias RefMD.Users
   alias RefMD.Users.User
 
@@ -63,10 +66,6 @@ defmodule RefMDWeb.AuthControllerTest do
     user_id
   end
 
-  defp create_device(user_id) do
-    create_device_with_signing_key(user_id).device
-  end
-
   defp create_device_with_signing_key(user_id) do
     device_id = Ecto.UUID.generate()
     keys = hybrid_device_material(device_id)
@@ -111,7 +110,9 @@ defmodule RefMDWeb.AuthControllerTest do
 
   defp create_login_keys(user_id, auth_key \\ nil) do
     recovery = recovery_authorization_material(user_id)
-    identity_public_key = get_or_create_identity_public_key!(user_id)
+
+    {identity_public_key, identity_private, identity_encryption_public} =
+      get_or_create_identity_public_key!(user_id)
 
     {:ok, _master_key} =
       Encryption.create_user_encrypted_master_key(%{
@@ -139,6 +140,11 @@ defmodule RefMDWeb.AuthControllerTest do
         identity_hybrid_signing_private_key_material_nonce: <<12::192>>,
         signing_key_id: identity_public_key.signing_key_id
       })
+
+    %{
+      identity_private: identity_private,
+      identity_encryption_public: identity_encryption_public
+    }
   end
 
   defp create_oauth_master_key(user_id) do
@@ -174,10 +180,10 @@ defmodule RefMDWeb.AuthControllerTest do
             pending_registration_challenge_hash: Hash.blake3_base64url("challenge")
           })
 
-        identity_public_key
+        {identity_public_key, identity_private, encryption.public}
 
       identity_public_key ->
-        identity_public_key
+        {identity_public_key, nil, nil}
     end
   end
 
@@ -754,10 +760,101 @@ defmodule RefMDWeb.AuthControllerTest do
     assert %{"error" => "invalid_request_schema"} = json_response(conn, 422)
   end
 
+  test "login routes an identity-wipe-required device to current recovery registration", %{
+    conn: conn
+  } do
+    user_id = create_user("wipe-required-login@example.com")
+    auth_key = "wipe-required-auth-key"
+    create_login_keys(user_id, auth_key)
+    %{device: device} = create_device_with_signing_key(user_id)
+
+    device
+    |> Ecto.Changeset.change(identity_wipe_required_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    conn =
+      post(conn, "/api/auth/login", %{
+        "email" => "wipe-required-login@example.com",
+        "auth_key" => auth_key,
+        "device_id" => device.id
+      })
+
+    response = json_response(conn, 200)
+    refute response["device_verified"]
+    assert response["identity_recovery_required"]
+    refute Map.has_key?(response, "keys")
+
+    session = Repo.get!(RefMD.Auth.Session, response["session_id"])
+    assert session.identity_recovery_required
+
+    session_cookie = conn.resp_cookies["__Host-refmd-session"].value
+
+    restricted_conn =
+      conn
+      |> recycle_with_rate_limit_bypass()
+      |> put_req_header("cookie", "__Host-refmd-session=#{session_cookie}")
+      |> get("/api/settings")
+
+    assert json_response(restricted_conn, 401) == %{"error" => "unauthorized"}
+
+    allowed_conn =
+      conn
+      |> recycle_with_rate_limit_bypass()
+      |> put_req_header("cookie", "__Host-refmd-session=#{session_cookie}")
+      |> get("/api/auth/me")
+
+    assert json_response(allowed_conn, 200)["is_recovery"] == false
+
+    logout_conn =
+      allowed_conn
+      |> recycle_with_rate_limit_bypass()
+      |> put_req_header("cookie", "__Host-refmd-session=#{session_cookie}")
+      |> post("/api/auth/logout")
+
+    assert json_response(logout_conn, 200) == %{"ok" => true}
+    assert logout_conn.resp_cookies["__Host-refmd-session"].max_age == 0
+    assert {:error, _reason} = Auth.get_valid_session_by_token_base64(session_cookie)
+  end
+
+  test "websocket tokens reject sessions whose device requires identity wipe" do
+    user_id = create_user("wipe-required-websocket@example.com")
+    %{device: device} = create_device_with_signing_key(user_id)
+    {:ok, session, _token} = Auth.create_session(user_id, %{device_id: device.id})
+    ws_token = Auth.generate_ws_token(session.id)
+
+    assert {:ok, ^user_id, _session} = Auth.verify_ws_token(ws_token)
+
+    device
+    |> Ecto.Changeset.change(identity_wipe_required_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    assert {:error, :device_inactive} = Auth.verify_ws_token(ws_token)
+  end
+
   test "me returns only key restore metadata and key restore returns the key blob", %{conn: conn} do
     user_id = create_user("auth-controller@example.com")
-    device = create_device(user_id)
-    create_login_keys(user_id)
+    login_keys = create_login_keys(user_id)
+    device_material = create_device_with_signing_key(user_id)
+    device = device_material.device
+
+    key_directory =
+      initial_key_directory_bootstrap(
+        user_id,
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        login_keys.identity_private,
+        login_keys.identity_encryption_public,
+        device_material.signing_private_key,
+        device.hybrid_encryption_public_key_material
+      )
+
+    KeyDirectory.insert_signed_initial_scope!(
+      "user",
+      user_id,
+      key_directory.user_events,
+      key_directory.user_checkpoint,
+      checkpoint_signer_kind: "identity"
+    )
 
     conn = authed_conn(conn, user_id, device)
 
@@ -783,6 +880,179 @@ defmodule RefMDWeb.AuthControllerTest do
     assert restore_response["identity_encryption_key_id"]
     assert restore_response["encrypted_identity_hybrid_signing_private_key_material"]
     assert restore_response["identity_signing_key_id"]
+    assert restore_response["identity_rotation_due_at"]
+    assert restore_response["identity_key_checkpoint"]["payload"]["scope_kind"] == "user"
+  end
+
+  test "recovery bootstrap binds the verified user audit checkpoint", %{conn: conn} do
+    user_id = create_user("recovery-audit-checkpoint@example.com")
+    login_keys = create_login_keys(user_id)
+    device_material = create_device_with_signing_key(user_id)
+    device = device_material.device
+
+    key_directory =
+      initial_key_directory_bootstrap(
+        user_id,
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        login_keys.identity_private,
+        login_keys.identity_encryption_public,
+        device_material.signing_private_key,
+        device.hybrid_encryption_public_key_material
+      )
+
+    KeyDirectory.insert_signed_initial_scope!(
+      "user",
+      user_id,
+      key_directory.user_events,
+      key_directory.user_checkpoint,
+      checkpoint_signer_kind: "identity"
+    )
+
+    assert {:ok, %{audit_event: event}} =
+             Security.record_audit_event(%{
+               class: "authority",
+               type: "recovery.started",
+               actor: %{
+                 "user_id" => user_id,
+                 "device_id" => device.id,
+                 "session_id" => nil,
+                 "principal_kind" => "user",
+                 "principal_id" => user_id
+               },
+               scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
+               resource: %{"kind" => "user", "id" => user_id, "version_hash" => nil},
+               action: %{
+                 "operation" => "recovery.started",
+                 "result" => "completed",
+                 "reason_code" => nil
+               },
+               sensitivity: Security.empty_sensitivity(),
+               correlation: %{
+                 "request_id" => nil,
+                 "capability_id" => nil,
+                 "execution_context_id" => nil,
+                 "authority_event_ref" => nil
+               }
+             })
+
+    response =
+      conn
+      |> authed_conn(user_id, device)
+      |> get("/api/auth/recovery")
+      |> json_response(200)
+
+    assert %{
+             "chain_scope" => "user:" <> ^user_id,
+             "sequence" => event_sequence,
+             "event_hash" => event_hash,
+             "authority_checkpoint" => %{
+               "payload" => %{"scope_kind" => "user", "scope_id" => ^user_id},
+               "signatures" => signatures
+             }
+           } = response["candidate_user_audit_checkpoint"]
+
+    assert event_sequence == event.sequence
+    assert event_hash == event.event_hash
+    assert signatures != []
+  end
+
+  test "invalid recovery session rolls back its embedded target registration", %{conn: conn} do
+    user_id = create_user("recovery-target-rollback@example.com")
+    login_keys = create_login_keys(user_id)
+    source_device_material = create_device_with_signing_key(user_id)
+    source_device = source_device_material.device
+    identity = Encryption.get_user_identity_public_key(user_id)
+
+    key_directory =
+      initial_key_directory_bootstrap(
+        user_id,
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        login_keys.identity_private,
+        login_keys.identity_encryption_public,
+        source_device_material.signing_private_key,
+        source_device.hybrid_encryption_public_key_material
+      )
+
+    KeyDirectory.insert_signed_initial_scope!(
+      "user",
+      user_id,
+      key_directory.user_events,
+      key_directory.user_checkpoint,
+      checkpoint_signer_kind: "identity"
+    )
+
+    device_id = Ecto.UUID.generate()
+    signing = hybrid_device_material(device_id)
+    {x25519_public, _x25519_private} = :crypto.generate_key(:ecdh, :x25519)
+    encryption = hybrid_encryption_public_key_material("device", device_id, x25519_public)
+
+    invalid_signature =
+      Signature.__test_sign_hybrid_signature__(
+        "recovery_session",
+        Signature.build_recovery_session_transcript!(%{
+          user_id: user_id,
+          recipient_device_id: device_id,
+          pending_registration_id: device_id,
+          recovery_session_id: Ecto.UUID.generate(),
+          server_challenge_hash: Hash.blake3_base64url("wrong-challenge"),
+          recovered_identity_signing_key_id: identity.signing_key_id,
+          recovery_authorization_key_id: Hash.blake3_base64url("wrong-recovery-key"),
+          target_key_checkpoint_sequence: 1,
+          target_key_checkpoint_hash: Hash.blake3_base64url("wrong-target-checkpoint"),
+          candidate_user_checkpoint_sequence: 1,
+          candidate_user_checkpoint_hash: Hash.blake3_base64url("wrong-candidate-checkpoint"),
+          candidate_user_event_head_sequence: 1,
+          candidate_user_event_head_hash: Hash.blake3_base64url("wrong-candidate-event"),
+          candidate_user_audit_sequence: 1,
+          candidate_user_audit_hash: Hash.blake3_base64url("wrong-audit"),
+          recovery_capability_hash: Hash.blake3_base64url("wrong-capability"),
+          pending_registration_binding_hash: Hash.blake3_base64url("wrong-binding")
+        }),
+        login_keys.identity_private,
+        identity.hybrid_signing_public_key_material
+      )
+
+    params = %{
+      "email" => "recovery-target-rollback@example.com",
+      "recovery_session_id" => Ecto.UUID.generate(),
+      "challenge" => Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
+      "recovery_session_signature" => invalid_signature,
+      "recovery_authorization_key_id" => Hash.blake3_base64url("recovery-key"),
+      "recovery_authorization_proof" => invalid_signature,
+      "recovery_capability_hash" => Hash.blake3_base64url("capability"),
+      "recovery_session_transcript_hash" => Hash.blake3_base64url("session"),
+      "pending_registration_id" => device_id,
+      "recipient_device_id" => device_id,
+      "pending_registration_binding_hash" => Hash.blake3_base64url("binding"),
+      "target_key_checkpoint_sequence" => 1,
+      "target_key_checkpoint_hash" => Hash.blake3_base64url("target-checkpoint"),
+      "candidate_user_checkpoint_sequence" => 1,
+      "candidate_user_checkpoint_hash" => Hash.blake3_base64url("candidate-checkpoint"),
+      "candidate_user_event_head_sequence" => 1,
+      "candidate_user_event_head_hash" => Hash.blake3_base64url("candidate-event"),
+      "candidate_user_checkpoint" => key_directory.user_checkpoint,
+      "candidate_user_event_ancestry" => key_directory.user_events,
+      "candidate_user_audit_sequence" => 1,
+      "candidate_user_audit_hash" => Hash.blake3_base64url("audit"),
+      "target_device_registration" => %{
+        "device_id" => device_id,
+        "name" => "Recovered browser",
+        "device_type" => "browser",
+        "identity_signing_key_id" => identity.signing_key_id,
+        "device_hybrid_signing_public_key_material" => signing.public,
+        "device_signing_key_id" => signing.signing_key_id,
+        "device_hybrid_encryption_public_key_material" => encryption.public,
+        "device_encryption_key_id" => encryption.encryption_key_id,
+        "client_nonce" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+      }
+    }
+
+    response = conn |> post("/api/auth/recovery/session", params) |> json_response(401)
+
+    assert response["error"] == "invalid_or_expired_recovery_request"
+    assert Repo.get(DeviceRegistration, device_id) == nil
   end
 
   test "DBSC register stores a binding and returns session instructions", %{conn: conn} do

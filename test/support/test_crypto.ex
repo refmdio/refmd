@@ -1461,6 +1461,7 @@ defmodule RefMD.TestCrypto do
 
     attrs =
       attrs
+      |> put_test_share_key_versions(document.min_dek_version)
       |> Map.put(
         "authenticated_workspace_pin_bootstrap",
         test_workspace_pin_bootstrap!(document.workspace_id)
@@ -1506,6 +1507,7 @@ defmodule RefMD.TestCrypto do
         password_capability_secret_commitment: password_capability_secret_commitment,
         workspace_pin_bootstrap_hash:
           fetch_attr!(attrs, "authenticated_workspace_pin_bootstrap_hash"),
+        authenticated_bootstrap_source: "url-fragment",
         max_views: max_views,
         redeem_authority_policy: redeem_authority_policy
       })
@@ -1606,6 +1608,45 @@ defmodule RefMD.TestCrypto do
     |> Map.put("share_link_secret_backup_wraps", Enum.reverse(backup_wraps))
   end
 
+  defp put_test_share_key_versions(attrs, key_version) do
+    attrs
+    |> put_default_test_key_version(key_version)
+    |> update_test_folder_share_key_versions(key_version)
+  end
+
+  defp put_default_test_key_version(attrs, key_version) do
+    if Map.has_key?(attrs, "key_version") or Map.has_key?(attrs, :key_version) do
+      attrs
+    else
+      Map.put(attrs, "key_version", key_version)
+    end
+  end
+
+  defp update_test_folder_share_key_versions(attrs, key_version) do
+    cond do
+      Map.has_key?(attrs, "share_keys") ->
+        Map.update!(
+          attrs,
+          "share_keys",
+          &Enum.map(&1, fn entry ->
+            put_default_test_key_version(entry, key_version)
+          end)
+        )
+
+      Map.has_key?(attrs, :share_keys) ->
+        Map.update!(
+          attrs,
+          :share_keys,
+          &Enum.map(&1, fn entry ->
+            put_default_test_key_version(entry, key_version)
+          end)
+        )
+
+      true ->
+        attrs
+    end
+  end
+
   defp test_share_link_secret_backup_recipient_devices(workspace_id) do
     checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
 
@@ -1663,6 +1704,14 @@ defmodule RefMD.TestCrypto do
   end
 
   def with_test_share_scope_key_directory_append(%RefMD.Sharing.Share{} = share, attrs) do
+    with_test_share_scope_key_directory_append(share, attrs, nil)
+  end
+
+  def with_test_share_scope_key_directory_append(
+        %RefMD.Sharing.Share{} = share,
+        attrs,
+        base_checkpoint
+      ) do
     workspace_id = share_workspace_id!(share)
     ensure_test_workspace_actor_material!(workspace_id, share.created_by)
 
@@ -1701,10 +1750,19 @@ defmodule RefMD.TestCrypto do
         end)
       )
 
-    Map.merge(
-      attrs,
-      signed_workspace_key_directory_append(workspace_id, share.created_by, events)
-    )
+    append =
+      if base_checkpoint do
+        signed_workspace_key_directory_append_after(
+          workspace_id,
+          share.created_by,
+          base_checkpoint,
+          events
+        )
+      else
+        signed_workspace_key_directory_append(workspace_id, share.created_by, events)
+      end
+
+    Map.merge(attrs, append)
   end
 
   defp share_scope_entries(attrs, string_key, atom_key) do
@@ -1790,17 +1848,18 @@ defmodule RefMD.TestCrypto do
 
   defp share_scope_event_body(workspace_id, parent_share_id, event_type, entry, sequence)
        when is_map(entry) do
-    document_id = Map.get(entry, "document_id") || Map.get(entry, :document_id)
+    document_id = share_scope_entry_value(entry, "document_id", :document_id)
     document = document_for_share_scope(document_id)
+    key_version = share_scope_entry_value(entry, "key_version", :key_version, 1)
 
     base = %{
       "workspace_id" => workspace_id,
-      "share_id" => Map.get(entry, "share_id") || Map.get(entry, :share_id),
+      "share_id" => share_scope_entry_value(entry, "share_id", :share_id),
       "scope_kind" => (document && document.doc_type) || "document",
       "scope_id" => document_id || Ecto.UUID.generate(),
       "document_scope_hash" => document_scope_hash(workspace_id, document_id),
       "share_metadata_hash" => share_scope_metadata_hash(entry),
-      "share_key_version" => 1
+      "share_key_version" => key_version
     }
 
     case event_type do
@@ -1811,7 +1870,7 @@ defmodule RefMD.TestCrypto do
 
       "share_key_scope_replaced" ->
         base
-        |> Map.put("previous_share_key_version", 1)
+        |> Map.put("previous_share_key_version", max(key_version - 1, 1))
         |> Map.put("replaced_at_event_sequence", sequence)
     end
   end
@@ -1824,6 +1883,13 @@ defmodule RefMD.TestCrypto do
       %{"share_id" => nil, "document_id" => nil},
       sequence
     )
+  end
+
+  defp share_scope_entry_value(entry, string_key, atom_key, default \\ nil) do
+    case Map.get(entry, string_key) do
+      nil -> Map.get(entry, atom_key, default)
+      value -> value
+    end
   end
 
   defp scope_hashes(workspace_id, attrs, string_key, atom_key) do
@@ -1898,6 +1964,35 @@ defmodule RefMD.TestCrypto do
     end
   end
 
+  def test_dek_rotation_start_key_directory_append(
+        workspace_id,
+        actor_user_id,
+        document_id,
+        old_key_version,
+        new_key_version,
+        reason \\ "time_based"
+      ) do
+    ensure_test_workspace_actor_material!(workspace_id, actor_user_id)
+
+    signed_workspace_key_directory_append(workspace_id, actor_user_id, [
+      %{
+        "event_type" => "rotation_started",
+        "body" => fn sequence ->
+          %{
+            "event_type" => "rotation_started",
+            "rotation_kind" => "dek",
+            "scope_kind" => "document",
+            "scope_id" => document_id,
+            "old_key_version" => old_key_version,
+            "new_key_version" => new_key_version,
+            "not_before_event_sequence" => sequence,
+            "reason" => reason
+          }
+        end
+      }
+    ])
+  end
+
   defp signed_workspace_key_directory_append(workspace_id, actor_user_id, event_specs) do
     {actor_device, actor_private} = test_share_actor_device!(actor_user_id)
     actor_public = hybrid_signing_public_key_material(actor_private)
@@ -1935,6 +2030,68 @@ defmodule RefMD.TestCrypto do
       actor_private,
       Enum.reverse(events)
     )
+  end
+
+  defp signed_workspace_key_directory_append_after(
+         workspace_id,
+         actor_user_id,
+         %{"payload" => checkpoint_payload},
+         event_specs
+       ) do
+    {actor_device, actor_private} = test_share_actor_device!(actor_user_id)
+    actor_public = hybrid_signing_public_key_material(actor_private)
+    actor_signing_key_id = Signature.compute_signing_key_id!(actor_public)
+    actor = device_actor(actor_user_id, actor_device.id, actor_signing_key_id)
+    head = checkpoint_payload["covered_event_head"]
+
+    {events, _previous_hash, _sequence} =
+      Enum.reduce(
+        event_specs,
+        {[], head["head_hash"], head["head_sequence"]},
+        fn %{"event_type" => event_type, "body" => body}, {acc, previous_hash, sequence} ->
+          event_sequence = sequence + 1
+          body = if is_function(body, 1), do: body.(event_sequence), else: body
+
+          event =
+            key_directory_event(%{
+              "scope_kind" => "workspace",
+              "scope_id" => workspace_id,
+              "sequence" => event_sequence,
+              "event_type" => event_type,
+              "actor" => actor,
+              "previous_event_hash" => previous_hash,
+              "body" => body
+            })
+
+          {[event | acc], KeyDirectory.event_hash(event), event_sequence}
+        end
+      )
+
+    events = Enum.reverse(events)
+    last_event = List.last(events)
+
+    next_checkpoint_payload =
+      checkpoint_payload
+      |> Map.put("sequence", checkpoint_payload["sequence"] + 1)
+      |> Map.put(
+        "issued_at",
+        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+      )
+      |> Map.put("previous_checkpoint_hash", KeyDirectory.checkpoint_hash(checkpoint_payload))
+      |> Map.put("covered_event_head", event_head(last_event))
+      |> key_directory_checkpoint_payload!()
+
+    %{
+      "workspace_key_directory_events" =>
+        Enum.map(events, &signed_key_directory_event(&1, actor_private)),
+      "workspace_key_directory_checkpoint" =>
+        signed_key_directory_checkpoint(
+          next_checkpoint_payload,
+          "workspace_authorized",
+          actor_private,
+          actor_user_id
+        )
+    }
   end
 
   defp signed_workspace_key_directory_append_from_events(
@@ -2248,6 +2405,146 @@ defmodule RefMD.TestCrypto do
           actor_user_id
         )
     }
+  end
+
+  def signed_workspace_device_kek_request(
+        workspace_id,
+        sender_device,
+        sender_private,
+        target_device,
+        key_version
+      ) do
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+    sender_public = hybrid_signing_public_key_material(sender_private)
+    sender_signing_key_id = Signature.compute_signing_key_id!(sender_public)
+    checkpoint_hash = checkpoint.checkpoint_hash
+
+    sender =
+      device_actor(sender_device.user_id, sender_device.id, sender_signing_key_id)
+      |> Map.put("key_scope_kind", "workspace")
+      |> Map.put("key_scope_id", workspace_id)
+      |> Map.put("key_checkpoint_sequence", checkpoint.sequence)
+      |> Map.put("key_checkpoint_hash", checkpoint_hash)
+
+    recipient = %{
+      "recipient_kind" => "device",
+      "user_id" => target_device.user_id,
+      "device_id" => target_device.id,
+      "encryption_key_id" => target_device.encryption_key_id,
+      "key_scope_kind" => "workspace",
+      "key_scope_id" => workspace_id,
+      "key_checkpoint_sequence" => checkpoint.sequence,
+      "key_checkpoint_hash" => checkpoint_hash
+    }
+
+    attrs =
+      %{
+        wrap_protocol: "refmd.signed-pq-hybrid-wrap",
+        wrap_version: 1,
+        suite_id: @signed_pq_wrap_suite_id,
+        suite_rank: @suite_rank,
+        kem_id: 0x647A,
+        kdf_id: 0x0001,
+        aead_id: 0x0003,
+        purpose: "workspace_device_kek_wrap",
+        resource: %{
+          "workspace_id" => workspace_id,
+          "target_user_id" => target_device.user_id,
+          "target_device_id" => target_device.id,
+          "kek_version" => key_version
+        },
+        sender: sender,
+        recipient: recipient,
+        event_scope: %{"scope_kind" => "workspace", "scope_id" => workspace_id},
+        recipient_key_id: Encoding.decode_base64url!(target_device.encryption_key_id, 32),
+        sender_signing_key_id: Encoding.decode_base64url!(sender_signing_key_id, 32),
+        hpke_enc: :crypto.strong_rand_bytes(1120),
+        hpke_ciphertext: :crypto.strong_rand_bytes(48),
+        signature_protocol: @signature_protocol,
+        signature_version: @protocol_version,
+        signature_suite_id: @suite_id,
+        signature_suite_rank: @suite_rank,
+        operation_checkpoint_sequence: checkpoint.sequence,
+        operation_checkpoint_hash: Encoding.decode_base64url!(checkpoint_hash, 32),
+        operation_checkpoint_covered_head_sequence:
+          checkpoint.payload["covered_event_head"]["head_sequence"],
+        operation_checkpoint_covered_head_hash:
+          Encoding.decode_base64url!(
+            checkpoint.payload["covered_event_head"]["head_hash"],
+            32
+          ),
+        wrap_event_sequence: checkpoint.payload["covered_event_head"]["head_sequence"] + 1
+      }
+      |> put_signed_pq_wrap_hashes()
+
+    event =
+      key_directory_event(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => attrs.wrap_event_sequence,
+        "event_type" => "wrap_issued",
+        "actor" => attrs.sender,
+        "authority_boundary" => signed_pq_wrap_event_authority_boundary(attrs),
+        "previous_event_hash" =>
+          Encoding.encode_base64url(attrs.operation_checkpoint_covered_head_hash),
+        "body" => signed_pq_wrap_event_body(attrs)
+      })
+
+    signed_event = signed_key_directory_event(event, sender_private)
+
+    checkpoint_payload =
+      checkpoint.payload
+      |> Map.put("sequence", checkpoint.sequence + 1)
+      |> Map.put(
+        "issued_at",
+        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+      )
+      |> Map.put("previous_checkpoint_hash", checkpoint_hash)
+      |> Map.put("covered_event_head", event_head(event))
+      |> key_directory_checkpoint_payload!()
+
+    signed_checkpoint =
+      signed_key_directory_checkpoint(
+        checkpoint_payload,
+        "workspace_authorized",
+        sender_private,
+        sender_device.user_id
+      )
+
+    attrs
+    |> put_operation_checkpoint!(signed_checkpoint["payload"])
+    |> put_signed_pq_wrap_signature(sender_private, sender_public)
+    |> SignedPQ.response_fields()
+    |> Map.merge(%{
+      target_user_id: target_device.user_id,
+      device_id: target_device.id,
+      sender_device_id: sender_device.id,
+      key_version: key_version,
+      is_active: true,
+      workspace_key_directory_events: [signed_event],
+      workspace_key_directory_checkpoint: signed_checkpoint
+    })
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
+  def append_test_workspace_member_device!(workspace_id, user_id, device) do
+    {_member, role} = RefMD.Workspaces.get_member_with_role(workspace_id, user_id)
+
+    append_test_workspace_actor_material!(
+      workspace_id,
+      user_id,
+      role,
+      %{
+        user_id: user_id,
+        device_id: device.id,
+        signing_public: device.hybrid_signing_public_key_material,
+        encryption_public: device.hybrid_encryption_public_key_material,
+        encryption_key_id: device.encryption_key_id
+      },
+      Process.get({:test_workspace_signer_material, workspace_id}) ||
+        raise("test workspace signer material missing")
+    )
   end
 
   defp share_link_secret_backup_wrap(params) do
@@ -2587,21 +2884,91 @@ defmodule RefMD.TestCrypto do
     }
   end
 
-  def guest_invitation_created_key_directory_append(%{
-        workspace_id: workspace_id,
-        actor_user_id: actor_user_id,
-        actor_device_id: actor_device_id,
-        actor_private_material: actor_private_material,
-        invitation_id: invitation_id,
-        permission: permission,
-        kek_version: kek_version,
-        expires_at: expires_at,
-        bootstrap_key_commitment: bootstrap_key_commitment,
-        encrypted_bootstrap_package: _encrypted_bootstrap_package,
-        bootstrap_package_hash: bootstrap_package_hash,
-        capability_context_hash: capability_context_hash,
-        redeem_authority_private_material: redeem_authority_private_material
-      }) do
+  def workspace_member_role_changes_key_directory_append(
+        workspace_id,
+        actor_user_id,
+        actor_device_id,
+        actor_private_material,
+        changes
+      ) do
+    pin = KeyDirectory.current_pin("workspace", workspace_id)
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+    actor_public_material = hybrid_signing_public_key_material(actor_private_material)
+    actor_signing_key_id = Signature.compute_signing_key_id!(actor_public_material)
+    actor = device_actor(actor_user_id, actor_device_id, actor_signing_key_id)
+
+    {events, _sequence, _hash} =
+      Enum.reduce(changes, {[], pin.event_head_sequence, pin.event_head_hash}, fn change,
+                                                                                  {events,
+                                                                                   sequence,
+                                                                                   previous_hash} ->
+        sequence = sequence + 1
+
+        event =
+          key_directory_event(%{
+            "scope_kind" => "workspace",
+            "scope_id" => workspace_id,
+            "sequence" => sequence,
+            "event_type" => "member_role_changed",
+            "actor" => actor,
+            "previous_event_hash" => previous_hash,
+            "body" =>
+              change
+              |> Map.put("workspace_id", workspace_id)
+              |> Map.put("changed_at_event_sequence", sequence)
+          })
+
+        {events ++ [event], sequence, Hash.blake3_base64url(JCS.canonical_bytes!(event))}
+      end)
+
+    final_event = List.last(events)
+
+    checkpoint_payload =
+      key_directory_checkpoint_payload!(
+        checkpoint.payload
+        |> Map.put("sequence", checkpoint.sequence + 1)
+        |> Map.put(
+          "issued_at",
+          DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+        )
+        |> Map.put("previous_checkpoint_hash", checkpoint.checkpoint_hash)
+        |> Map.put("covered_event_head", event_head(final_event))
+      )
+
+    %{
+      "workspace_key_directory_events" =>
+        Enum.map(events, &signed_key_directory_event(&1, actor_private_material)),
+      "workspace_key_directory_checkpoint" =>
+        signed_key_directory_checkpoint(
+          checkpoint_payload,
+          "workspace_authorized",
+          actor_private_material,
+          actor_user_id
+        )
+    }
+  end
+
+  def guest_invitation_created_key_directory_append(attrs) do
+    workspace_id = Map.fetch!(attrs, :workspace_id)
+    actor_user_id = Map.fetch!(attrs, :actor_user_id)
+    actor_device_id = Map.fetch!(attrs, :actor_device_id)
+    actor_private_material = Map.fetch!(attrs, :actor_private_material)
+    invitation_id = Map.fetch!(attrs, :invitation_id)
+    permission = Map.fetch!(attrs, :permission)
+    expires_at = Map.fetch!(attrs, :expires_at)
+    bootstrap_key_commitment = Map.fetch!(attrs, :bootstrap_key_commitment)
+    bootstrap_package_hash = Map.fetch!(attrs, :bootstrap_package_hash)
+    capability_context_hash = Map.fetch!(attrs, :capability_context_hash)
+    redeem_authority_private_material = Map.fetch!(attrs, :redeem_authority_private_material)
+    scope_kind = Map.get(attrs, :scope_kind, "workspace")
+    scope_id = Map.get(attrs, :scope_id, "none")
+    share_id = Map.get(attrs, :share_id)
+    kek_version = Map.get(attrs, :kek_version)
+    share_key_version = Map.get(attrs, :share_key_version, "NOT_APPLICABLE")
+    dek_version = Map.get(attrs, :dek_version, "NOT_APPLICABLE")
+    delivery_mode = Map.get(attrs, :delivery_mode, "unknown_fragment")
+    recipient_user_id = Map.get(attrs, :recipient_user_id) || "NOT_APPLICABLE"
+    recipient_device_ids = Map.get(attrs, :recipient_device_ids, [])
     pin = KeyDirectory.current_pin("workspace", workspace_id)
     checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
     actor_public_material = hybrid_signing_public_key_material(actor_private_material)
@@ -2624,19 +2991,23 @@ defmodule RefMD.TestCrypto do
             context_hash(%{
               "guest_invitation_id" => invitation_id,
               "permission" => permission,
-              "scope_id" => "none",
-              "scope_kind" => "workspace",
+              "scope_id" => scope_id,
+              "scope_kind" => scope_kind,
               "workspace_id" => workspace_id
             }),
-          "scope_kind" => "workspace",
-          "scope_id" => "none",
+          "scope_kind" => scope_kind,
+          "scope_id" => scope_id,
           "permission" => permission,
+          "delivery_mode" => delivery_mode,
+          "recipient_user_id" => recipient_user_id,
+          "recipient_device_ids" => recipient_device_ids,
           "key_version_context" => %{
-            "workspace_kek_version" => kek_version,
-            "share_key_version" => "NOT_APPLICABLE",
-            "dek_version" => "NOT_APPLICABLE"
+            "workspace_kek_version" => kek_version || "NOT_APPLICABLE",
+            "share_key_version" => share_key_version,
+            "dek_version" => dek_version
           },
-          "allowed_share_ids_hash" => context_hash(%{"allowed_share_ids" => []}),
+          "allowed_share_ids_hash" =>
+            context_hash(%{"allowed_share_ids" => if(share_id, do: [share_id], else: [])}),
           "expires_event_sequence" => DateTime.to_unix(expires_at),
           "redeem_authority" => %{
             "signer_kind" => "invitation_redeem_authority",
@@ -2677,7 +3048,8 @@ defmodule RefMD.TestCrypto do
   def guest_invitation_redeemed_key_directory_append(
         invitation,
         device_attrs,
-        redeem_authority_private_material
+        redeem_authority_private_material,
+        recipient_account \\ nil
       ) do
     workspace_id = invitation.workspace_id
     pin = KeyDirectory.current_pin("workspace", workspace_id)
@@ -2730,6 +3102,10 @@ defmodule RefMD.TestCrypto do
           "scope_kind" => invitation.scope_kind,
           "scope_id" => invitation.scope_id || "none",
           "permission" => invitation.permission,
+          "recipient_account_user_id" =>
+            if(recipient_account, do: recipient_account.user_id, else: "NOT_APPLICABLE"),
+          "recipient_account_device_id" =>
+            if(recipient_account, do: recipient_account.device_id, else: "NOT_APPLICABLE"),
           "redeemed_at_event_sequence" => pin.event_head_sequence + 1
         }
       })
@@ -3443,6 +3819,183 @@ defmodule RefMD.TestCrypto do
     }
   end
 
+  def signed_document_dek_deletion_proof(
+        workspace_id,
+        document_id,
+        actor_user_id,
+        actor_device_id,
+        actor_private_material,
+        old_key_version,
+        rotation_completed_event_hash
+      ) do
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+    actor_public_material = hybrid_signing_public_key_material(actor_private_material)
+    signing_key_id = Signature.compute_signing_key_id!(actor_public_material)
+
+    payload = %{
+      "protocol" => "refmd.device-key-deletion-proof",
+      "version" => 1,
+      "workspace_id" => workspace_id,
+      "device_id" => actor_device_id,
+      "rotation_kind" => "dek",
+      "scope_kind" => "document",
+      "scope_id" => document_id,
+      "old_key_version" => old_key_version,
+      "rotation_completed_event_hash" => rotation_completed_event_hash,
+      "deleted_secret_ids_hash" =>
+        DeletionProofs.deleted_document_dek_secret_ids_hash(document_id, old_key_version),
+      "deleted_storage_classes" => @kek_deletion_storage_classes,
+      "local_cache_epoch" => 1,
+      "proof_nonce" => Encoding.encode_base64url(:crypto.strong_rand_bytes(32))
+    }
+
+    actor = %{
+      "signer_kind" => "workspace_device",
+      "user_id" => actor_user_id,
+      "device_id" => actor_device_id,
+      "signing_key_id" => signing_key_id,
+      "key_scope_kind" => "workspace",
+      "key_scope_id" => workspace_id,
+      "key_checkpoint_sequence" => checkpoint.sequence,
+      "key_checkpoint_hash" => checkpoint.checkpoint_hash
+    }
+
+    transcript = Signature.build_device_key_deletion_proof_transcript!(payload, actor)
+
+    %{
+      "payload" => payload,
+      "transcript" => transcript,
+      "signature" =>
+        sign_transcript(
+          actor_private_material,
+          actor_public_material,
+          "device_key_deletion_proof",
+          transcript
+        )
+    }
+  end
+
+  def dek_rotation_complete_key_directory_append(
+        workspace_id,
+        document_id,
+        actor_user_id,
+        actor_device_id,
+        actor_private_material,
+        materials,
+        opts \\ []
+      ) do
+    pin = KeyDirectory.current_pin("workspace", workspace_id)
+    checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
+    actor_public = hybrid_signing_public_key_material(actor_private_material)
+    signing_key_id = Signature.compute_signing_key_id!(actor_public)
+    actor = device_actor(actor_user_id, actor_device_id, signing_key_id)
+
+    completed_event =
+      key_directory_event(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => materials.completed_at_event_sequence,
+        "event_type" => "rotation_completed",
+        "actor" => actor,
+        "previous_event_hash" => pin.event_head_hash,
+        "body" => %{
+          "event_type" => "rotation_completed",
+          "rotation_kind" => "dek",
+          "scope_kind" => "document",
+          "scope_id" => document_id,
+          "old_key_version" => materials.old_key_version,
+          "new_key_version" => materials.new_key_version,
+          "completed_at_event_sequence" => materials.completed_at_event_sequence,
+          "completion_manifest_hash" => materials.completion_manifest_hash
+        }
+      })
+
+    completed_hash = KeyDirectory.event_hash(completed_event)
+
+    proofs =
+      Keyword.get_lazy(opts, :device_key_deletion_proofs, fn ->
+        [
+          signed_document_dek_deletion_proof(
+            workspace_id,
+            document_id,
+            actor_user_id,
+            actor_device_id,
+            actor_private_material,
+            materials.old_key_version,
+            completed_hash
+          )
+        ]
+      end)
+
+    wipe_ids = Keyword.get(opts, :wipe_required_device_ids, [])
+    proof_hashes = Enum.map(proofs, &Hash.blake3_base64url(JCS.canonical_bytes!(&1["payload"])))
+
+    deletion_manifest = %{
+      "protocol" => "refmd.old-key-deletion-manifest",
+      "version" => 1,
+      "rotation_kind" => "dek",
+      "scope_kind" => "document",
+      "scope_id" => document_id,
+      "old_key_version" => materials.old_key_version,
+      "rotation_completed_event_hash" => completed_hash,
+      "deleted_secret_ids_hash" => materials.deleted_secret_ids_hash,
+      "deleted_wrap_ids_hash" => materials.deleted_wrap_ids_hash,
+      "active_device_deletion_proofs_hash" =>
+        DeletionProofs.active_device_deletion_proofs_hash(proof_hashes),
+      "wipe_required_device_ids_hash" => DeletionProofs.wipe_required_device_ids_hash(wipe_ids),
+      "server_rejects_old_key_uploads_after_sequence" =>
+        materials.server_rejects_old_key_uploads_after_sequence
+    }
+
+    deleted_event =
+      key_directory_event(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => materials.deleted_at_event_sequence,
+        "event_type" => "old_key_deleted",
+        "actor" => actor,
+        "previous_event_hash" => completed_hash,
+        "body" => %{
+          "event_type" => "old_key_deleted",
+          "rotation_kind" => "dek",
+          "scope_kind" => "document",
+          "scope_id" => document_id,
+          "old_key_version" => materials.old_key_version,
+          "deleted_at_event_sequence" => materials.deleted_at_event_sequence,
+          "deletion_manifest_hash" =>
+            Hash.blake3_base64url(JCS.canonical_bytes!(deletion_manifest))
+        }
+      })
+
+    checkpoint_payload =
+      checkpoint.payload
+      |> Map.put("sequence", checkpoint.sequence + 1)
+      |> Map.put(
+        "issued_at",
+        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+      )
+      |> Map.put("previous_checkpoint_hash", checkpoint.checkpoint_hash)
+      |> Map.put("covered_event_head", event_head(deleted_event))
+      |> key_directory_checkpoint_payload!()
+
+    %{
+      "workspace_key_directory_events" =>
+        Enum.map(
+          [completed_event, deleted_event],
+          &signed_key_directory_event(&1, actor_private_material)
+        ),
+      "workspace_key_directory_checkpoint" =>
+        signed_key_directory_checkpoint(
+          checkpoint_payload,
+          "workspace_authorized",
+          actor_private_material,
+          actor_user_id
+        ),
+      "device_key_deletion_proofs" => proofs,
+      "wipe_required_device_ids" => wipe_ids
+    }
+  end
+
   defp kek_rotation_completion_manifest_hash(
          workspace_id,
          old_key_version,
@@ -3566,16 +4119,7 @@ defmodule RefMD.TestCrypto do
   end
 
   defp active_workspace_device_ids(workspace_id) do
-    from(m in RefMD.Workspaces.WorkspaceMember,
-      join: r in RefMD.Workspaces.WorkspaceRole,
-      on: r.id == m.role_id,
-      join: d in RefMD.Devices.Device,
-      on: d.user_id == m.user_id,
-      where: m.workspace_id == ^workspace_id and r.base_role != "guest" and is_nil(d.revoked_at),
-      order_by: [asc: d.id],
-      select: d.id
-    )
-    |> Repo.all()
+    DeletionProofs.active_workspace_device_ids(workspace_id)
   end
 
   defp encode_kek_manifest_hash(value) when is_binary(value) and byte_size(value) == 32,

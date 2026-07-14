@@ -6,7 +6,12 @@ import type {
   HybridEncryptionPrivateKeyMaterial,
   HybridEncryptionPublicKeyMaterial,
 } from "../../hybrid-encryption";
-import type { InitialAkeResponderPrekeyPrivate } from "../../initial-ake";
+import type {
+  InitialAkeInitiatorState,
+  InitialAkeResponderPrekeyPrivate,
+  InitialAkeResponderState,
+} from "../../initial-ake";
+import type { IdentityKeyPair } from "../../identity";
 
 export interface HybridSigningState {
   privateKeyMaterial: HybridSigningPrivateKeyMaterial;
@@ -25,6 +30,21 @@ export interface WorkerKeyState {
   identityHybridEncryptionPrivateKeyMaterial: HybridEncryptionPrivateKeyMaterial | null;
   identityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial | null;
   identityHybridSigningState: HybridSigningState | null;
+  pendingIdentitySuccessor: IdentityKeyPair | null;
+  identityRotationDueAtMs: number | null;
+  identityRotationActivation: {
+    previousEncryptionKeyId: string;
+    previousSigningKeyId: string;
+    successorEncryptionKeyId: string;
+    successorSigningKeyId: string;
+  } | null;
+  identityRotationFinalization: {
+    previousEncryptionKeyId: string;
+    previousSigningKeyId: string;
+    successorEncryptionKeyId: string;
+    successorSigningKeyId: string;
+  } | null;
+  identityRotationTrustedCheckpointPayload: Record<string, unknown> | null;
   recoveryAuthorizationHybridSigningState: HybridSigningState | null;
   deviceEcdhPrivate: Uint8Array | null;
   deviceEcdhPublic: Uint8Array | null;
@@ -33,6 +53,8 @@ export interface WorkerKeyState {
   deviceHybridSigningState: HybridSigningState | null;
   shareParticipantHybridSigningState: HybridSigningState | null;
   initialAkeResponderPrekeys: Map<string, InitialAkeResponderPrekeyPrivate>;
+  initialAkeInitiatorSessions: Map<string, InitialAkeInitiatorState>;
+  initialAkeResponderSessions: Map<string, InitialAkeResponderState>;
   invitationRedeemAuthorities: Map<string, HybridSigningPrivateKeyMaterial>;
   shareSecrets: Map<
     string,
@@ -54,6 +76,18 @@ export interface WorkerKeyState {
       keyVersion: number;
     }
   >;
+  guestShareKeys: Map<
+    string,
+    {
+      key: Uint8Array;
+      scopeKind: "document" | "folder";
+      scopeId: string;
+      permission: "view" | "edit";
+      shareKeyVersion: number;
+      dekVersion: number;
+    }
+  >;
+  pendingGuestInvitationShareKeys: Map<string, Uint8Array>;
   kekCache: Map<string, Map<number, { kek: Uint8Array; resolvedAt: number }>>;
   activeKekVersions: Map<string, number>;
   dekCache: Map<string, Map<number, Uint8Array>>;

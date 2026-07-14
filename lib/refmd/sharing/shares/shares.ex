@@ -8,6 +8,7 @@ defmodule RefMD.Sharing.Shares do
   alias RefMD.Crypto.Blake3
   alias RefMD.Documents.Document
   alias RefMD.Encryption
+  alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
   alias RefMD.Sharing.Shares.LinkSecretBackupWraps
 
@@ -54,6 +55,7 @@ defmodule RefMD.Sharing.Shares do
          {:ok, token_prefix} <- Input.fetch_token_prefix(attrs, share_slug),
          {:ok, encrypted_dek} <- Input.fetch_binary(attrs, :encrypted_dek),
          {:ok, nonce} <- Input.fetch_optional_binary(attrs, :nonce),
+         {:ok, key_version} <- Input.fetch_required_positive_integer(attrs, :key_version),
          {:ok, authorization_public_key_material} <-
            Input.fetch_authorization_public_key_material(attrs),
          {:ok, share_capability_secret_commitment} <-
@@ -123,6 +125,7 @@ defmodule RefMD.Sharing.Shares do
         password_protected: password_protected,
         encrypted_dek: encrypted_dek,
         nonce: nonce,
+        key_version: key_version,
         salt: salt,
         kdf_params: kdf_params,
         encrypted_auth_key: auth_key_wrap && auth_key_wrap.ciphertext,
@@ -173,7 +176,12 @@ defmodule RefMD.Sharing.Shares do
 
   defp create_share_tx(document, user_id, attrs) do
     Repo.transaction(fn ->
-      insert_share_records(document, user_id, attrs)
+      document = lock_share_document!(document.id)
+
+      case validate_current_share_key(document, attrs.key_version, :key_version) do
+        :ok -> insert_share_records(document, user_id, attrs)
+        {:error, reason} -> Repo.rollback(reason)
+      end
     end)
     |> normalize_transaction_result()
   end
@@ -197,7 +205,10 @@ defmodule RefMD.Sharing.Shares do
 
   defp create_folder_share_tx(folder, user_id, attrs) do
     Repo.transaction(fn ->
-      with :ok <- append_share_key_directory!(folder, attrs),
+      folder = lock_share_document!(folder.id)
+
+      with :ok <- validate_current_share_key(folder, attrs.key_version, :key_version),
+           :ok <- append_share_key_directory!(folder, attrs),
            {:ok, root_share} <- insert_share(folder, user_id, attrs),
            :ok <- LinkSecretBackupWraps.insert!(root_share, folder, attrs),
            {:ok, _share_key} <- insert_share_key(root_share, folder, attrs),
@@ -264,6 +275,7 @@ defmodule RefMD.Sharing.Shares do
     |> ShareKey.changeset(%{
       share_id: share.id,
       document_id: document.id,
+      key_version: attrs.key_version,
       encrypted_dek: attrs.encrypted_dek,
       nonce: attrs.nonce,
       salt: attrs.salt,
@@ -389,6 +401,7 @@ defmodule RefMD.Sharing.Shares do
       %ShareKey{} = share_key ->
         share_key
         |> ShareKey.changeset(%{
+          key_version: entry.key_version,
           encrypted_dek: entry.encrypted_dek,
           nonce: entry.nonce
         })
@@ -410,6 +423,7 @@ defmodule RefMD.Sharing.Shares do
       |> Map.merge(%{
         encrypted_dek: share_key_attrs.encrypted_dek,
         nonce: share_key_attrs.nonce,
+        key_version: share_key_attrs.key_version,
         password_protected: false,
         salt: nil,
         kdf_params: nil,
@@ -540,7 +554,7 @@ defmodule RefMD.Sharing.Shares do
   defp load_descendant_documents(rows) do
     document_ids = Enum.map(rows, fn [document_id] -> Ecto.UUID.load!(document_id) end)
 
-    from(d in Document, where: d.id in ^document_ids)
+    from(d in Document, where: d.id in ^document_ids, lock: "FOR UPDATE")
     |> Repo.all()
     |> Map.new(&{&1.id, &1})
   end
@@ -727,7 +741,13 @@ defmodule RefMD.Sharing.Shares do
          document_ids,
          share_ids
        ) do
-    with :ok <- validate_password_protected_share_key_nonce(root_share, share_key, :add_keys) do
+    with :ok <- validate_password_protected_share_key_nonce(root_share, share_key, :add_keys),
+         :ok <-
+           validate_current_share_key(
+             descendant_documents[share_key.document_id],
+             share_key.key_version,
+             :add_keys
+           ) do
       cond do
         is_nil(descendant_documents[share_key.document_id]) ->
           {:error, {:invalid_value, :add_keys}}
@@ -781,7 +801,13 @@ defmodule RefMD.Sharing.Shares do
 
       true ->
         with :ok <-
-               validate_password_protected_share_key_nonce(root_share, share_key, :replace_keys) do
+               validate_password_protected_share_key_nonce(root_share, share_key, :replace_keys),
+             :ok <-
+               validate_current_share_key(
+                 descendant_documents[share_key.document_id],
+                 share_key.key_version,
+                 :replace_keys
+               ) do
           validate_existing_folder_child_share(
             root_share.id,
             root_folder_id,
@@ -850,8 +876,10 @@ defmodule RefMD.Sharing.Shares do
          descendant_documents,
          expanded_exclusion_ids
        ) do
+    document = descendant_documents[share_key.document_id]
+
     cond do
-      is_nil(descendant_documents[share_key.document_id]) ->
+      is_nil(document) ->
         {:error, {:invalid_value, :share_keys}}
 
       MapSet.member?(expanded_exclusion_ids, share_key.document_id) ->
@@ -861,7 +889,23 @@ defmodule RefMD.Sharing.Shares do
         {:error, {:invalid_value, :share_keys}}
 
       true ->
-        :ok
+        validate_current_share_key(document, share_key.key_version, :share_keys)
+    end
+  end
+
+  defp lock_share_document!(document_id) do
+    from(d in Document, where: d.id == ^document_id, lock: "FOR UPDATE")
+    |> Repo.one!()
+  end
+
+  defp validate_current_share_key(nil, _key_version, field),
+    do: {:error, {:invalid_value, field}}
+
+  defp validate_current_share_key(%Document{} = document, key_version, field) do
+    cond do
+      RotationPolicy.dek_overdue?(document) -> {:error, :dek_rotation_required}
+      key_version != document.min_dek_version -> {:error, {:invalid_value, field}}
+      true -> :ok
     end
   end
 

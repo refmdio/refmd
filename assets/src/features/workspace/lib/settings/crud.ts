@@ -6,6 +6,7 @@ import {
 } from "@/shared/lib/crypto/workspace-kek-persistence";
 import { buildInitialWorkspaceKeyDirectoryBootstrap } from "@/shared/lib/crypto/key-directory/initial";
 import { pinInitialKeyDirectoryCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { verifyAndPinAuditCheckpoint } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 type UpdateWorkspaceInput = Parameters<typeof workspacesApi.update>[1];
 type UpdateWorkspaceFeaturesInput = Parameters<typeof workspacesApi.updateFeatures>[1];
@@ -54,6 +55,13 @@ export async function createWorkspaceWithInitialKek(
   if (!result.id) {
     return null;
   }
+  await pinInitialKeyDirectoryCheckpoint({
+    scopeKind: "workspace",
+    scopeId: result.id,
+    eventEnvelopes: initialDirectory.workspaceEvents,
+    checkpointEnvelope: initialDirectory.workspaceCheckpoint,
+  });
+  await verifyAndPinAuditCheckpoint(result.audit_checkpoint);
   const { keyVersion } = await worker.generateKek(result.id);
   await persistWorkspaceKekLocally({
     workspaceId: result.id,
@@ -64,12 +72,6 @@ export async function createWorkspaceWithInitialKek(
     isActive: true,
     keyDirectoryCheckpoint: initialDirectory.workspaceCheckpoint,
   });
-  await pinInitialKeyDirectoryCheckpoint({
-    scopeKind: "workspace",
-    scopeId: result.id,
-    eventEnvelopes: initialDirectory.workspaceEvents,
-    checkpointEnvelope: initialDirectory.workspaceCheckpoint,
-  });
   await persistWorkspaceKekForMember({
     workspaceId: result.id,
     userId: auth.user.id,
@@ -79,7 +81,6 @@ export async function createWorkspaceWithInitialKek(
       publicKeys.identityHybridEncryptionPublicKeyMaterial,
     keyVersion,
     rrpDeviceId: device.deviceId,
-    ignoreConflict: true,
   });
   return result.id;
 }

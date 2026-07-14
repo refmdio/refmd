@@ -84,6 +84,7 @@ defmodule RefMDWeb.DocumentShareController do
         "authenticated_workspace_pin_bootstrap",
         "encrypted_dek",
         "nonce",
+        "key_version",
         "share_keys",
         "exclusions",
         "salt",

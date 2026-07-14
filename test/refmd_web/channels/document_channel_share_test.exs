@@ -8,12 +8,17 @@ defmodule RefMDWeb.DocumentChannelShareTest do
   alias RefMD.Devices.Device
   alias RefMD.Documents
   alias RefMD.Documents.{Document, DocumentSignerKey, DocumentSnapshot, DocumentUpdate}
+  alias RefMD.Documents.Snapshots.ProofChain
+  alias RefMD.Encryption.DocumentEncryptedKey
   alias RefMD.Encryption.KeyDirectory
   alias RefMD.Encryption.KeyDirectory.{Checkpoint, Event}
   alias RefMD.Repo
   alias RefMD.Sharing
+  alias RefMD.Sharing.{ShareKey, ShareKeyHistory}
   alias RefMD.Users.User
   alias RefMD.Workspaces
+  alias RefMD.Workspaces.WorkspaceDeviceWipeRequirement
+  alias RefMDWeb.Channels.Document.Access
   alias RefMDWeb.Http.RrpSessionBinding
   alias RefMDWeb.Http.RrpTranscript
 
@@ -77,6 +82,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       "authorization_public_key_material" =>
         share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
       "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+      "key_version" => 1,
       "encrypted_dek" => :crypto.strong_rand_bytes(48),
       "nonce" => :crypto.strong_rand_bytes(24),
       "share_keys" =>
@@ -84,6 +90,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
           %{
             "share_id" => Ecto.UUID.generate(),
             "document_id" => document.id,
+            "key_version" => 1,
             "encrypted_dek" => :crypto.strong_rand_bytes(48),
             "nonce" => :crypto.strong_rand_bytes(24)
           }
@@ -271,9 +278,12 @@ defmodule RefMDWeb.DocumentChannelShareTest do
          signing_public_material,
          signing_private_material,
          share_id,
-         principal_id
+         principal_id,
+         opts \\ []
        ) do
     workspace_id = Sharing.share_workspace_id!(share_id)
+    pin = KeyDirectory.current_pin("workspace", workspace_id)
+    stale_head? = Keyword.get(opts, :stale_head, false)
 
     public_data = %{
       "docId" => document_id,
@@ -287,8 +297,13 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       "authorityPermissionVersion" => 1,
       "keyCheckpointSequence" => 1,
       "keyCheckpointHash" => Hash.blake3_base64url("checkpoint"),
-      "workspaceEventHeadSequence" => 1,
-      "workspaceEventHeadHash" => Hash.blake3_base64url("workspace-event-head")
+      "keyVersion" => Keyword.get(opts, :key_version, 1),
+      "workspaceEventHeadSequence" => if(stale_head?, do: 1, else: pin.event_head_sequence),
+      "workspaceEventHeadHash" =>
+        if(stale_head?,
+          do: Hash.blake3_base64url("workspace-event-head"),
+          else: pin.event_head_hash
+        )
     }
 
     ciphertext_b64 = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
@@ -503,6 +518,39 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       current_user_id: user_id,
       current_session: session
     })
+  end
+
+  test "workspace wipe-required user device is rejected by the document admission gate" do
+    owner_id = create_user("owner-wipe-required-admission@example.com")
+
+    {:ok, workspace} =
+      Workspaces.create_default_workspace(owner_id, "Wipe Required Admission Workspace")
+
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+    device = ensure_test_user_rrp_key_directory!(owner_id, Repo.get!(Device, signer.device_id))
+
+    %WorkspaceDeviceWipeRequirement{}
+    |> WorkspaceDeviceWipeRequirement.changeset(%{
+      workspace_id: workspace.id,
+      device_id: device.id,
+      required_kek_version: 2,
+      reason: "kek_rotation_deletion_proof_missing",
+      required_at: DateTime.utc_now()
+    })
+    |> Repo.insert!()
+
+    socket =
+      socket(RefMDWeb.UserSocket, nil, %{
+        current_user_id: owner_id,
+        device_id: device.id,
+        document: document
+      })
+
+    assert {:error, "device_wipe_required"} = Access.validate_device_active(socket)
   end
 
   defp user_join_params(
@@ -723,7 +771,7 @@ defmodule RefMDWeb.DocumentChannelShareTest do
     assert_reply ref, :error, %{reason: "permission_denied"}
   end
 
-  test "edit share participant stale-head ephemeral message is rejected" do
+  test "edit share participant ephemeral messages reject stale authority and overdue DEKs" do
     owner_id = create_user("owner-channel-share-stale-ephemeral@example.com")
 
     {:ok, workspace} =
@@ -789,12 +837,35 @@ defmodule RefMDWeb.DocumentChannelShareTest do
             participant_material.public,
             participant_material.private,
             created.share.id,
-            bootstrapped.participant.principal_id
+            bootstrapped.participant.principal_id,
+            stale_head: true
           )
         )
       )
 
     assert_reply ref, :error, %{reason: "ephemeral_workspace_head_mismatch"}
+
+    document
+    |> Ecto.Changeset.change(dek_rotation_due_at: DateTime.add(DateTime.utc_now(), -1, :second))
+    |> Repo.update!()
+
+    overdue_ref =
+      Phoenix.ChannelTest.push(
+        socket,
+        "ephemeral",
+        strict_channel_payload(
+          signed_ephemeral_payload(
+            document.id,
+            bootstrapped.participant.device_id,
+            participant_material.public,
+            participant_material.private,
+            created.share.id,
+            bootstrapped.participant.principal_id
+          )
+        )
+      )
+
+    assert_reply overdue_ref, :error, %{reason: "key_rotation_required"}
   end
 
   test "edit share participant durable update fails closed without workspace admission" do
@@ -1567,6 +1638,86 @@ defmodule RefMDWeb.DocumentChannelShareTest do
              Documents.save_snapshot(document.id, owner_id, attrs)
   end
 
+  test "successful rotation snapshot retains obsolete secrets until deletion proof" do
+    %{
+      document: document,
+      owner_id: owner_id,
+      signer: signer,
+      old_update: old_update,
+      expired_share_key: expired_share_key
+    } =
+      setup_rotation_snapshot_gc("rotation-snapshot-gc-success@example.com")
+
+    attrs = rotation_snapshot_attrs(document, owner_id, signer)
+
+    assert {:ok, %{snapshot_id: snapshot_id}} =
+             Documents.save_snapshot(document.id, owner_id, attrs)
+
+    assert Repo.get!(DocumentUpdate, old_update.id)
+    assert Repo.get_by(DocumentEncryptedKey, document_id: document.id, key_version: 1)
+    assert Repo.get_by(DocumentEncryptedKey, document_id: document.id, key_version: 2)
+    assert Repo.get_by(ShareKeyHistory, document_id: document.id, key_version: 1)
+    assert Repo.get!(ShareKey, expired_share_key.share_id)
+
+    rotated = Repo.get!(Document, document.id)
+    assert rotated.active_snapshot_id == snapshot_id
+    assert rotated.needs_rotation_snapshot
+  end
+
+  test "failed rotation snapshot preserves obsolete updates and DEKs" do
+    %{
+      document: document,
+      owner_id: owner_id,
+      signer: signer,
+      old_update: old_update,
+      expired_share_key: expired_share_key
+    } =
+      setup_rotation_snapshot_gc("rotation-snapshot-gc-failure@example.com")
+
+    attrs = rotation_snapshot_attrs(document, owner_id, signer)
+    invalid_attrs = %{attrs | parent_proof_hash: Hash.blake3_base64url("invalid-parent")}
+
+    assert {:error, :parent_mismatch, _recovery} =
+             Documents.save_snapshot(document.id, owner_id, invalid_attrs)
+
+    assert Repo.get!(DocumentUpdate, old_update.id)
+    assert Repo.get_by(DocumentEncryptedKey, document_id: document.id, key_version: 1)
+    assert Repo.get_by(DocumentEncryptedKey, document_id: document.id, key_version: 2)
+    assert Repo.get_by(ShareKeyHistory, document_id: document.id, key_version: 1)
+    assert Repo.get!(ShareKey, expired_share_key.share_id)
+    assert Repo.get!(Document, document.id).needs_rotation_snapshot
+  end
+
+  test "document update and snapshot reject future DEK versions" do
+    owner_id = create_user("future-document-dek-version@example.com")
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Future DEK Version")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+
+    update_attrs =
+      document
+      |> workspace_update_attrs(owner_id, signer, snapshot_id, workspace.id)
+      |> Map.put(:key_version, 2)
+      |> Map.put(:signature_verified, true)
+
+    assert {:error, :key_version_too_old} =
+             Documents.save_update(document.id, owner_id, update_attrs)
+
+    snapshot_attrs =
+      document
+      |> Repo.reload!()
+      |> rotation_snapshot_attrs(owner_id, signer)
+      |> Map.put(:key_version, 3)
+
+    assert {:error, :key_version_too_old, _recovery} =
+             Documents.save_snapshot(document.id, owner_id, snapshot_attrs)
+  end
+
   defp workspace_update_attrs(document, actor_user_id, signer, ref_snapshot_id, workspace_id) do
     ciphertext = <<13, 13, 13>>
     nonce = :crypto.strong_rand_bytes(24)
@@ -1913,11 +2064,6 @@ defmodule RefMDWeb.DocumentChannelShareTest do
 
   defp ensure_workspace_signer_device!(workspace_id, user_id, signer) do
     if is_nil(Repo.get(Device, signer.device_id)) do
-      {x25519_public, _} = :crypto.generate_key(:ecdh, :x25519)
-
-      encryption =
-        hybrid_encryption_public_key_material("device", signer.device_id, x25519_public)
-
       signing_key_id = Signature.compute_signing_key_id!(signer.signing_public)
       checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -1927,8 +2073,8 @@ defmodule RefMDWeb.DocumentChannelShareTest do
         user_id: user_id,
         name: "Workspace signer",
         device_type: "browser",
-        hybrid_encryption_public_key_material: encryption.public,
-        encryption_key_id: encryption.encryption_key_id,
+        hybrid_encryption_public_key_material: signer.encryption_public,
+        encryption_key_id: signer.encryption_key_id,
         hybrid_signing_public_key_material: signer.signing_public,
         signing_key_id: signing_key_id,
         approval_signature: %{},
@@ -2004,6 +2150,240 @@ defmodule RefMDWeb.DocumentChannelShareTest do
       key_checkpoint_sequence: 1,
       key_checkpoint_hash: key_checkpoint_hash,
       admission: minimal_document_operation_admission("document_snapshot_accepted", boundary)
+    }
+  end
+
+  defp setup_rotation_snapshot_gc(email) do
+    owner_id = create_user(email)
+    {:ok, workspace} = Workspaces.create_default_workspace(owner_id, "Rotation Snapshot GC")
+    {_member, role} = Workspaces.get_member_with_role(workspace.id, owner_id)
+    insert_test_workspace_key_directory!(workspace.id, owner_id, role.id)
+    document = create_document(workspace.id, owner_id, nil)
+    signer = Process.get({:test_workspace_signer_material, workspace.id})
+    ensure_workspace_signer_device!(workspace.id, owner_id, signer)
+
+    share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+    share_attrs = %{
+      "id" => Ecto.UUID.generate(),
+      "scope" => "document",
+      "share_slug" => share_slug,
+      "token_prefix" => String.slice(share_slug, 0, 4),
+      "permission" => "edit",
+      "password_protected" => false,
+      "authorization_public_key_material" =>
+        share_capability_public_key_material_for_slug(open_admission_key(), share_slug),
+      "share_capability_secret_commitment" => open_share_capability_secret_commitment(),
+      "authenticated_workspace_pin_bootstrap_hash" =>
+        test_workspace_pin_bootstrap_hash!(workspace.id),
+      "key_version" => 1,
+      "encrypted_dek" => :crypto.strong_rand_bytes(48),
+      "nonce" => :crypto.strong_rand_bytes(24),
+      "max_views" => 9_007_199_254_740_991,
+      "expires_event_sequence" => 9_007_199_254_740_991
+    }
+
+    assert {:ok, created_share} =
+             Sharing.create_share(
+               document,
+               owner_id,
+               with_test_share_security_artifacts(document, owner_id, share_attrs)
+             )
+
+    expired_share_slug = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+    expired_share_attrs =
+      Map.merge(share_attrs, %{
+        "id" => Ecto.UUID.generate(),
+        "share_slug" => expired_share_slug,
+        "token_prefix" => String.slice(expired_share_slug, 0, 4),
+        "authorization_public_key_material" =>
+          share_capability_public_key_material_for_slug(
+            open_admission_key(),
+            expired_share_slug
+          )
+      })
+
+    assert {:ok, expired_share} =
+             Sharing.create_share(
+               document,
+               owner_id,
+               with_test_share_security_artifacts(document, owner_id, expired_share_attrs)
+             )
+
+    expired_share.share
+    |> Ecto.Changeset.change(expires_event_sequence: 1)
+    |> Repo.update!()
+
+    expired_share_key = Repo.get!(ShareKey, expired_share.share.id)
+
+    snapshot_id = create_active_snapshot(document.id, owner_id)
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    document =
+      document
+      |> Ecto.Changeset.change(
+        min_dek_version: 2,
+        needs_rotation_snapshot: true,
+        dek_rotation_due_at: DateTime.add(now, 3600, :second)
+      )
+      |> Repo.update!()
+      |> Repo.reload!()
+
+    for {version, active?} <- [{1, false}, {2, true}] do
+      Repo.insert!(%DocumentEncryptedKey{
+        document_id: document.id,
+        key_version: version,
+        kek_version: 1,
+        encrypted_dek: :crypto.strong_rand_bytes(48),
+        nonce: :crypto.strong_rand_bytes(24),
+        is_active: active?,
+        created_at: now
+      })
+    end
+
+    share_key = Repo.get!(ShareKey, created_share.share.id)
+
+    Repo.insert!(%ShareKeyHistory{
+      share_id: share_key.share_id,
+      document_id: share_key.document_id,
+      key_version: share_key.key_version,
+      encrypted_dek: share_key.encrypted_dek,
+      nonce: share_key.nonce,
+      created_at: now
+    })
+
+    share_key
+    |> ShareKey.changeset(%{
+      key_version: 2,
+      encrypted_dek: :crypto.strong_rand_bytes(48),
+      nonce: :crypto.strong_rand_bytes(24)
+    })
+    |> Repo.update!()
+
+    signing_key_id = Signature.compute_signing_key_id!(signer.signing_public)
+
+    old_update =
+      Repo.insert!(%DocumentUpdate{
+        document_id: document.id,
+        snapshot_id: snapshot_id,
+        clock: 0,
+        version: 1,
+        signing_key_id: signing_key_id,
+        update_data: <<1, 2, 3>>,
+        nonce: :crypto.strong_rand_bytes(24),
+        key_version: 1,
+        update_hash: Hash.blake3_base64url("old-update-#{document.id}"),
+        hybrid_signature: %{},
+        owner_kind: "device",
+        owner_id: signer.device_id,
+        authority_kind: "workspace_device",
+        authority_id: workspace.id,
+        authority_context_key: signing_key_id,
+        authority_scope_id: workspace.id,
+        authority_permission_version: 1,
+        key_checkpoint_sequence: 1,
+        key_checkpoint_hash: Hash.blake3_base64url("checkpoint"),
+        admission_event_hash: Hash.blake3_base64url("admission-#{document.id}"),
+        write_session_counter: 1,
+        timestamp: System.system_time(:millisecond),
+        created_at: now
+      })
+
+    %{
+      document: document,
+      owner_id: owner_id,
+      signer: signer,
+      old_update: old_update,
+      expired_share_key: expired_share_key
+    }
+  end
+
+  defp rotation_snapshot_attrs(document, actor_user_id, signer) do
+    parent = Repo.get!(DocumentSnapshot, document.active_snapshot_id)
+    ciphertext = <<14, 14, 14>>
+    nonce = :crypto.strong_rand_bytes(24)
+    ciphertext_b64 = Base.url_encode64(ciphertext, padding: false)
+    nonce_b64 = Base.url_encode64(nonce, padding: false)
+    signing_key_id = Signature.compute_signing_key_id!(signer.signing_public)
+    checkpoint = KeyDirectory.current_checkpoint("workspace", document.workspace_id)
+
+    parent_proof_hash = ProofChain.compute_snapshot_proof_link_hash(parent)
+
+    public_data = %{
+      "docId" => document.id,
+      "signingKeyId" => signing_key_id,
+      "snapshotId" => Ecto.UUID.generate(),
+      "keyVersion" => 2,
+      "parentSnapshotId" => parent.id,
+      "parentProofHash" => parent_proof_hash,
+      "parentSnapshotUpdateClocks" => parent.clocks,
+      "ownerKind" => "device",
+      "ownerId" => signer.device_id,
+      "authorityKind" => "workspace_device",
+      "authorityId" => document.workspace_id,
+      "authorityContextKey" => signing_key_id,
+      "authorityScopeId" => document.workspace_id,
+      "authorityPermissionVersion" => 1,
+      "keyCheckpointSequence" => checkpoint.sequence,
+      "keyCheckpointHash" => checkpoint.checkpoint_hash
+    }
+
+    boundary = test_authority_boundary(public_data, "document_snapshot_accepted")
+
+    signature =
+      sign_document_snapshot(
+        signer.signing_private,
+        actor_user_id,
+        signer.device_id,
+        ciphertext_b64,
+        nonce_b64,
+        public_data,
+        boundary,
+        document.workspace_id
+      )
+
+    admission =
+      document_operation_admission(%{
+        workspace_id: document.workspace_id,
+        document_id: document.id,
+        user_id: actor_user_id,
+        device_id: signer.device_id,
+        private_material: signer.signing_private,
+        event_type: "document_snapshot_accepted",
+        operation_hash: Blake3.hash_base64url(ciphertext),
+        signature: signature,
+        key_version: 2,
+        min_dek_version: 2
+      })
+
+    [admission_event] = admission["workspaceKeyDirectoryEvents"]
+    admission_actor = admission_event["payload"]["actor"]
+
+    %{
+      snapshot_id: public_data["snapshotId"],
+      parent_snapshot_id: parent.id,
+      workspace_id: document.workspace_id,
+      data: ciphertext,
+      nonce: nonce,
+      key_version: 2,
+      hybrid_signature: signature,
+      signature_verified: true,
+      public_data: public_data,
+      parent_proof_hash: parent_proof_hash,
+      parent_snapshot_update_clocks: parent.clocks,
+      created_by_signing_key_id: signing_key_id,
+      owner_kind: "device",
+      owner_id: signer.device_id,
+      authority_kind: "workspace_device",
+      authority_id: document.workspace_id,
+      authority_context_key: signing_key_id,
+      authority_scope_id: document.workspace_id,
+      authority_permission_version: 1,
+      key_checkpoint_sequence: checkpoint.sequence,
+      key_checkpoint_hash: checkpoint.checkpoint_hash,
+      admission_actor: admission_actor,
+      admission: admission
     }
   end
 

@@ -5,6 +5,7 @@ defmodule RefMD.Users do
 
   import Ecto.Query
 
+  alias RefMD.Devices.Device
   alias RefMD.Encryption.UserEncryptedMasterKey
   alias RefMD.Repo
   alias RefMD.Users.{User, UserExternalAccount, UserSettings, UserShortcut}
@@ -14,6 +15,106 @@ defmodule RefMD.Users do
   def get_user_by_email(email) when is_binary(email) do
     Repo.get_by(User, email: String.downcase(email))
   end
+
+  def resolve_invitation_recipient(email) when is_binary(email) do
+    normalized_email = email |> String.trim() |> String.downcase()
+
+    case Repo.one(registered_invitation_recipient_query(normalized_email)) do
+      nil ->
+        {:ok, %{delivery_mode: "unknown_fragment", recipient_user_id: nil, devices: []}}
+
+      %User{encryption_setup_at: nil} ->
+        {:error, :recipient_delivery_unavailable}
+
+      %User{id: user_id} ->
+        user_id
+        |> invitation_recipient_devices_query()
+        |> Repo.all()
+        |> resolved_invitation_recipient(user_id)
+    end
+  end
+
+  def resolve_invitation_recipient(nil),
+    do: {:ok, %{delivery_mode: "unknown_fragment", recipient_user_id: nil, devices: []}}
+
+  def resolve_invitation_recipient(_email), do: {:error, :recipient_delivery_unavailable}
+
+  def validate_invitation_delivery_binding(email, mode, recipient_user_id, recipient_device_ids) do
+    with {:ok, recipient} <- resolve_invitation_recipient(email) do
+      validate_resolved_invitation_delivery(
+        recipient,
+        mode,
+        recipient_user_id,
+        recipient_device_ids
+      )
+    end
+  end
+
+  defp registered_invitation_recipient_query(email) do
+    from(u in User)
+    |> where([u], u.email == ^email)
+    |> where([u], u.account_type != "guest")
+  end
+
+  defp invitation_recipient_devices_query(user_id) do
+    from(d in Device, where: d.user_id == ^user_id)
+    |> where([d], is_nil(d.revoked_at))
+    |> where([d], not is_nil(d.encryption_key_id))
+    |> where([d], not is_nil(d.hybrid_encryption_public_key_material))
+    |> where([d], not is_nil(d.signing_key_id))
+    |> where([d], not is_nil(d.hybrid_signing_public_key_material))
+    |> where([d], not is_nil(d.key_checkpoint_sequence))
+    |> where([d], not is_nil(d.key_checkpoint_hash))
+    |> order_by([d], asc: d.created_at)
+  end
+
+  defp resolved_invitation_recipient([], _user_id),
+    do: {:error, :recipient_delivery_unavailable}
+
+  defp resolved_invitation_recipient(devices, user_id) do
+    {:ok,
+     %{
+       delivery_mode: "known_recipient",
+       recipient_user_id: user_id,
+       devices:
+         Enum.map(devices, fn device ->
+           %{
+             device_id: device.id,
+             encryption_key_id: device.encryption_key_id,
+             hybrid_encryption_public_key_material: device.hybrid_encryption_public_key_material,
+             signing_key_id: device.signing_key_id,
+             hybrid_signing_public_key_material: device.hybrid_signing_public_key_material,
+             key_checkpoint_sequence: device.key_checkpoint_sequence,
+             key_checkpoint_hash: device.key_checkpoint_hash
+           }
+         end)
+     }}
+  end
+
+  defp validate_resolved_invitation_delivery(
+         %{delivery_mode: "unknown_fragment"},
+         "unknown_fragment",
+         nil,
+         []
+       ),
+       do: :ok
+
+  defp validate_resolved_invitation_delivery(
+         %{delivery_mode: "known_recipient", recipient_user_id: user_id, devices: devices},
+         "known_recipient",
+         user_id,
+         device_ids
+       )
+       when is_list(device_ids) do
+    expected_ids = devices |> Enum.map(& &1.device_id) |> Enum.sort()
+
+    if Enum.sort(device_ids) == expected_ids,
+      do: :ok,
+      else: {:error, :recipient_delivery_mismatch}
+  end
+
+  defp validate_resolved_invitation_delivery(_, _, _, _),
+    do: {:error, :recipient_delivery_mismatch}
 
   def create_user(attrs) do
     %User{}

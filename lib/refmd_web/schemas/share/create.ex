@@ -9,10 +9,11 @@ defmodule RefMDWeb.Schemas.CreateFolderShareKeyItem do
     properties: %{
       share_id: %Schema{type: :string, format: :uuid},
       document_id: %Schema{type: :string, format: :uuid},
+      key_version: %Schema{type: :integer, minimum: 1},
       encrypted_dek: %Schema{type: :string},
       nonce: %Schema{type: :string}
     },
-    required: [:share_id, :document_id, :encrypted_dek, :nonce]
+    required: [:share_id, :document_id, :key_version, :encrypted_dek, :nonce]
   })
 end
 
@@ -31,10 +32,11 @@ defmodule RefMDWeb.Schemas.AddFolderShareKeyItem do
         description: "New child share ID generated before encryption"
       },
       document_id: %Schema{type: :string, format: :uuid},
+      key_version: %Schema{type: :integer, minimum: 1},
       encrypted_dek: %Schema{type: :string},
       nonce: %Schema{type: :string}
     },
-    required: [:share_id, :document_id, :encrypted_dek, :nonce]
+    required: [:share_id, :document_id, :key_version, :encrypted_dek, :nonce]
   })
 end
 
@@ -53,10 +55,11 @@ defmodule RefMDWeb.Schemas.ReplaceFolderShareKeyItem do
         description: "Existing child share ID whose key will be replaced"
       },
       document_id: %Schema{type: :string, format: :uuid},
+      key_version: %Schema{type: :integer, minimum: 1},
       encrypted_dek: %Schema{type: :string},
       nonce: %Schema{type: :string}
     },
-    required: [:share_id, :document_id, :encrypted_dek, :nonce]
+    required: [:share_id, :document_id, :key_version, :encrypted_dek, :nonce]
   })
 end
 
@@ -91,6 +94,7 @@ defmodule RefMDWeb.Schemas.CreateDocumentShareRequest do
       authenticated_workspace_pin_bootstrap: RefMDWeb.Schemas.WorkspacePinBootstrap,
       encrypted_dek: %Schema{type: :string},
       nonce: %Schema{type: :string},
+      key_version: %Schema{type: :integer, minimum: 1},
       salt: %Schema{type: :string},
       auth_key: %Schema{type: :string},
       kdf_params: %Schema{allOf: [RefMDWeb.Schemas.KdfParams]},
@@ -120,6 +124,7 @@ defmodule RefMDWeb.Schemas.CreateDocumentShareRequest do
       :authenticated_workspace_pin_bootstrap,
       :encrypted_dek,
       :nonce,
+      :key_version,
       :expires_event_sequence,
       :max_views,
       :share_link_secret_backup_wraps,
@@ -160,6 +165,7 @@ defmodule RefMDWeb.Schemas.CreateFolderShareRequest do
       authenticated_workspace_pin_bootstrap: RefMDWeb.Schemas.WorkspacePinBootstrap,
       encrypted_dek: %Schema{type: :string},
       nonce: %Schema{type: :string},
+      key_version: %Schema{type: :integer, minimum: 1},
       share_keys: %Schema{type: :array, items: RefMDWeb.Schemas.CreateFolderShareKeyItem},
       exclusions: %Schema{
         type: :array,
@@ -205,6 +211,7 @@ defmodule RefMDWeb.Schemas.CreateFolderShareRequest do
       :authenticated_workspace_pin_bootstrap,
       :encrypted_dek,
       :nonce,
+      :key_version,
       :share_keys,
       :expires_event_sequence,
       :max_views,

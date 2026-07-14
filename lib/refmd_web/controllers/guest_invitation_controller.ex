@@ -2,19 +2,50 @@ defmodule RefMDWeb.GuestInvitationController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias RefMD.Auth
   alias RefMD.Crypto
-  alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial, Signature}
+  alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial, JCS, Signature}
   alias RefMD.Encryption
+  alias RefMD.Users
   alias RefMD.Workspaces
   alias RefMDWeb.Plugs.RequireRBAC
   alias RefMDWeb.Schemas
 
   plug RequireRBAC,
        [permission: "guest:invite", not_member_status: :not_found]
-       when action in [:index, :create, :delete]
+       when action in [:index, :create, :delete, :resolve_recipient]
 
   @max_expires_days 30
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+
+  operation(:resolve_recipient,
+    summary: "Resolve a guest invitation recipient",
+    parameters: [
+      workspace_id: [in: :path, type: :string, required: true],
+      email: [in: :query, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"Recipient delivery", "application/json", Schemas.InvitationRecipientResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Recipient unavailable", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def resolve_recipient(conn, %{"email" => email}) when is_binary(email) do
+    if String.match?(email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/) do
+      case Users.resolve_invitation_recipient(email) do
+        {:ok, recipient} -> json(conn, recipient)
+        {:error, :recipient_delivery_unavailable} -> recipient_delivery_unavailable(conn)
+      end
+    else
+      conn |> put_status(:bad_request) |> json(%{error: "invalid_email"})
+    end
+  end
+
+  def resolve_recipient(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "invalid_email"})
+  end
 
   operation(:create,
     summary: "Create a guest invitation",
@@ -139,8 +170,82 @@ defmodule RefMDWeb.GuestInvitationController do
   )
 
   def redeem(conn, params) do
+    do_redeem(conn, params, nil)
+  end
+
+  operation(:redeem_known,
+    summary: "Redeem a recipient-bound guest invitation",
+    request_body:
+      {"Redeem known guest invitation params", "application/json",
+       Schemas.RedeemGuestInvitationRequest},
+    responses: [
+      ok:
+        {"Redeemed guest invitation", "application/json", Schemas.RedeemGuestInvitationResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Conflict", "application/json", Schemas.ErrorResponse},
+      gone: {"Gone", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def redeem_known(conn, params) do
+    recipient_account = %{
+      user_id: conn.assigns.current_user_id,
+      device_id: conn.assigns.rrp_device_id
+    }
+
+    do_redeem(conn, params, recipient_account)
+  end
+
+  operation(:consume_delivery_attempt,
+    summary: "Consume an approved guest invitation delivery attempt",
+    parameters: [attempt_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Delivery consume", "application/json", Schemas.ConsumeInvitationDeliveryAttemptRequest},
+    responses: [
+      ok:
+        {"Redeemed guest invitation", "application/json", Schemas.RedeemGuestInvitationResponse},
+      bad_request: {"Invalid", "application/json", Schemas.ErrorResponse},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
+      conflict: {"Conflict", "application/json", Schemas.ErrorResponse},
+      gone: {"Gone", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def consume_delivery_attempt(conn, %{"attempt_id" => attempt_id, "token" => token}) do
+    with {:ok, token_bytes} <- decode_token(token),
+         {:ok, token_hash} <- compute_token_hash(token_bytes),
+         {:ok, result} <-
+           Workspaces.consume_guest_invitation_delivery_attempt(
+             attempt_id,
+             token_hash,
+             conn.assigns.current_user_id,
+             conn.assigns.rrp_device_id,
+             %{
+               ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
+               user_agent: get_req_header(conn, "user-agent") |> List.first()
+             }
+           ) do
+      conn
+      |> set_session_cookie(result.session_token, false)
+      |> put_registration_header(:user, result.session)
+      |> json(serialize_redeem_result(result))
+    else
+      {:error, reason} -> handle_redeem_error(conn, reason)
+    end
+  end
+
+  def consume_delivery_attempt(conn, _params) do
+    conn |> put_status(:bad_request) |> json(%{error: "missing_token"})
+  end
+
+  defp do_redeem(conn, params, recipient_account) do
     with {:ok, validated} <- validate_redeem_params(params),
          {:ok, key_directory} <- require_workspace_key_directory(params),
+         key_directory = Map.put(key_directory, :recipient_account, recipient_account),
          {:ok, token_hash} <- compute_token_hash(validated.token),
          {:ok, result} <-
            Workspaces.redeem_guest_invitation(
@@ -150,7 +255,8 @@ defmodule RefMDWeb.GuestInvitationController do
                ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
                user_agent: get_req_header(conn, "user-agent") |> List.first()
              },
-             key_directory
+             key_directory,
+             recipient_account
            ) do
       conn
       |> set_session_cookie(result.session_token, false)
@@ -168,14 +274,19 @@ defmodule RefMDWeb.GuestInvitationController do
     bootstrap_package_key_recipient_wrap
     bootstrap_suite_id
     capability_context_hash
+    delivery_mode
     encrypted_bootstrap_package
     expires_at
     invitation_id
-    kek_version
+    invited_email
+    key_version_context
     max_redemptions
     permission
+    recipient_device_ids
+    recipient_user_id
     scope_id
     scope_kind
+    share_id
     token_hash
     token_prefix
     workspace_key_directory_checkpoint
@@ -196,8 +307,21 @@ defmodule RefMDWeb.GuestInvitationController do
          :ok <- validate_invitation_id(body_params["invitation_id"]),
          :ok <- validate_scope_kind(body_params["scope_kind"]),
          :ok <- validate_permission(body_params["permission"]),
+         :ok <- validate_optional_email(body_params["invited_email"]),
+         :ok <-
+           validate_delivery_binding(
+             body_params["invited_email"],
+             body_params["delivery_mode"],
+             body_params["recipient_user_id"],
+             body_params["recipient_device_ids"]
+           ),
          :ok <- validate_scope_id(body_params["scope_kind"], body_params["scope_id"]),
-         :ok <- validate_positive_integer(body_params["kek_version"], :invalid_kek_version),
+         :ok <- validate_share_id(body_params["scope_kind"], body_params["share_id"]),
+         {:ok, key_versions} <-
+           validate_key_version_context(
+             body_params["scope_kind"],
+             body_params["key_version_context"]
+           ),
          :ok <- validate_commitment(body_params["bootstrap_key_commitment"]),
          {:ok, _bootstrap_package_hash} <-
            validate_hash(body_params["bootstrap_package_hash"], :invalid_bootstrap_package_hash),
@@ -218,10 +342,12 @@ defmodule RefMDWeb.GuestInvitationController do
            validate_encrypted_bootstrap_package(
              body_params["encrypted_bootstrap_package"],
              workspace_id,
-             body_params["kek_version"],
+             key_versions.package_key_version,
              body_params["scope_kind"],
              body_params["scope_id"]
            ),
+         :ok <- validate_package_recipient_binding(body_params),
+         :ok <- validate_guest_bootstrap_request_binding(body_params),
          :ok <-
            validate_optional_positive_integer(
              body_params["max_redemptions"],
@@ -237,8 +363,15 @@ defmodule RefMDWeb.GuestInvitationController do
          token_prefix: body_params["token_prefix"],
          scope_kind: body_params["scope_kind"],
          scope_id: body_params["scope_id"],
+         share_id: body_params["share_id"],
          permission: body_params["permission"],
-         kek_version: body_params["kek_version"],
+         invited_email: body_params["invited_email"],
+         delivery_mode: body_params["delivery_mode"],
+         recipient_user_id: body_params["recipient_user_id"],
+         recipient_device_ids: body_params["recipient_device_ids"],
+         kek_version: key_versions.kek_version,
+         share_key_version: key_versions.share_key_version,
+         dek_version: key_versions.dek_version,
          bootstrap_key_commitment: body_params["bootstrap_key_commitment"],
          encrypted_bootstrap_package: body_params["encrypted_bootstrap_package"],
          bootstrap_package_hash: body_params["bootstrap_package_hash"],
@@ -268,10 +401,9 @@ defmodule RefMDWeb.GuestInvitationController do
          {:ok, device_x25519_public_key} <-
            encryption_material_x25519_public(device_hybrid_encryption_public_key_material),
          {:ok, identity_hybrid_encryption_public_key_material} <-
-           optional_identity_encryption_material(
+           validate_identity_encryption_material(
              params["identity_hybrid_encryption_public_key_material"],
-             params["guest_user_id"],
-             device_hybrid_encryption_public_key_material
+             params["guest_user_id"]
            ),
          {:ok, identity_x25519_public_key} <-
            encryption_material_x25519_public(identity_hybrid_encryption_public_key_material),
@@ -303,11 +435,43 @@ defmodule RefMDWeb.GuestInvitationController do
              params["device_id"]
            ),
          {:ok, identity_hybrid_signing_public_key_material} <-
-           optional_identity_signing_material(
+           validate_identity_signing_material(
              params["identity_hybrid_signing_public_key_material"],
-             params["guest_user_id"],
-             device_hybrid_signing_public_key_material
+             params["guest_user_id"]
            ),
+         {:ok, encrypted_identity_hybrid_encryption_private_key_material} <-
+           decode_base64url(
+             params["encrypted_identity_hybrid_encryption_private_key_material"],
+             :encrypted_identity_hybrid_encryption_private_key_material
+           ),
+         {:ok, identity_hybrid_encryption_private_key_material_nonce} <-
+           decode_base64url(
+             params["identity_hybrid_encryption_private_key_material_nonce"],
+             :identity_hybrid_encryption_private_key_material_nonce
+           ),
+         :ok <-
+           validate_byte_length(
+             identity_hybrid_encryption_private_key_material_nonce,
+             24,
+             :invalid_identity_hybrid_encryption_private_key_material_nonce_length
+           ),
+         {:ok, encrypted_identity_hybrid_signing_private_key_material} <-
+           decode_base64url(
+             params["encrypted_identity_hybrid_signing_private_key_material"],
+             :encrypted_identity_hybrid_signing_private_key_material
+           ),
+         {:ok, identity_hybrid_signing_private_key_material_nonce} <-
+           decode_base64url(
+             params["identity_hybrid_signing_private_key_material_nonce"],
+             :identity_hybrid_signing_private_key_material_nonce
+           ),
+         :ok <-
+           validate_byte_length(
+             identity_hybrid_signing_private_key_material_nonce,
+             24,
+             :invalid_identity_hybrid_signing_private_key_material_nonce_length
+           ),
+         :ok <- validate_user_key_directory(params),
          :ok <- validate_key_directory(params),
          :ok <- validate_optional_device_name(params["device_name"]),
          :ok <- validate_optional_device_type(params["device_type"]) do
@@ -322,6 +486,14 @@ defmodule RefMDWeb.GuestInvitationController do
          identity_hybrid_encryption_public_key_material:
            identity_hybrid_encryption_public_key_material,
          identity_hybrid_signing_public_key_material: identity_hybrid_signing_public_key_material,
+         encrypted_identity_hybrid_encryption_private_key_material:
+           encrypted_identity_hybrid_encryption_private_key_material,
+         identity_hybrid_encryption_private_key_material_nonce:
+           identity_hybrid_encryption_private_key_material_nonce,
+         encrypted_identity_hybrid_signing_private_key_material:
+           encrypted_identity_hybrid_signing_private_key_material,
+         identity_hybrid_signing_private_key_material_nonce:
+           identity_hybrid_signing_private_key_material_nonce,
          approval_signature: approval_signature,
          pending_registration_challenge_hash: pending_registration_challenge_hash,
          client_nonce: client_nonce,
@@ -331,6 +503,8 @@ defmodule RefMDWeb.GuestInvitationController do
            ),
          identity_signing_key_id:
            Signature.compute_signing_key_id!(identity_hybrid_signing_public_key_material),
+         user_key_directory_events: params["user_key_directory_events"],
+         user_key_directory_checkpoint: params["user_key_directory_checkpoint"],
          device_name: params["device_name"],
          device_type: params["device_type"]
        }}
@@ -342,6 +516,81 @@ defmodule RefMDWeb.GuestInvitationController do
     if extras == [], do: :ok, else: {:error, reason}
   end
 
+  defp validate_optional_email(nil), do: :ok
+
+  defp validate_optional_email(email) when is_binary(email) do
+    if String.match?(email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
+      do: :ok,
+      else: {:error, :invalid_email}
+  end
+
+  defp validate_optional_email(_email), do: {:error, :invalid_email}
+
+  defp validate_delivery_binding(email, mode, recipient_user_id, recipient_device_ids) do
+    Users.validate_invitation_delivery_binding(
+      email,
+      mode,
+      recipient_user_id,
+      recipient_device_ids
+    )
+  end
+
+  defp validate_package_recipient_binding(%{"delivery_mode" => "unknown_fragment"} = params) do
+    package_wrap = get_in(params, ["encrypted_bootstrap_package", "package_key_recipient_wrap"])
+    request_wrap = params["bootstrap_package_key_recipient_wrap"]
+
+    case package_wrap do
+      %{"nonce" => _, "ciphertext" => _} ->
+        if package_wrap == request_wrap,
+          do: :ok,
+          else: {:error, :recipient_delivery_mismatch}
+
+      _ ->
+        {:error, :recipient_delivery_mismatch}
+    end
+  end
+
+  defp validate_package_recipient_binding(%{"delivery_mode" => "known_recipient"} = params) do
+    wrap = get_in(params, ["encrypted_bootstrap_package", "package_key_recipient_wrap"])
+
+    if wrap == params["bootstrap_package_key_recipient_wrap"] and
+         wrap["recipient_user_id"] == params["recipient_user_id"] and
+         wrap["wraps"] == [],
+       do: :ok,
+       else: {:error, :recipient_delivery_mismatch}
+  end
+
+  defp validate_package_recipient_binding(_), do: {:error, :recipient_delivery_mismatch}
+
+  defp validate_guest_bootstrap_request_binding(params) do
+    package = params["encrypted_bootstrap_package"]
+    aad = package["aad"]
+
+    expected_scope_id =
+      if params["scope_kind"] == "workspace", do: "none", else: params["scope_id"]
+
+    expected_recipient_user_id = params["recipient_user_id"] || "NOT_APPLICABLE"
+
+    if Enum.all?([
+         aad["guest_invitation_id"] == params["invitation_id"],
+         aad["scope_kind"] == params["scope_kind"],
+         aad["scope_id"] == expected_scope_id,
+         aad["permission"] == params["permission"],
+         aad["key_version_context"] == params["key_version_context"],
+         aad["token_hash"] == params["token_hash"],
+         aad["delivery_mode"] == params["delivery_mode"],
+         aad["recipient_user_id"] == expected_recipient_user_id,
+         Enum.sort(aad["recipient_device_ids"] || []) ==
+           Enum.sort(params["recipient_device_ids"] || []),
+         Hash.blake3_base64url(JCS.canonical_bytes!(package)) ==
+           params["bootstrap_package_hash"]
+       ]),
+       do: :ok,
+       else: {:error, :invalid_encrypted_bootstrap_package}
+  rescue
+    _ -> {:error, :invalid_encrypted_bootstrap_package}
+  end
+
   defp serialize_invitation(invitation) do
     %{
       invitation_id: invitation.id,
@@ -349,9 +598,14 @@ defmodule RefMDWeb.GuestInvitationController do
       token_prefix: invitation.token_prefix,
       scope_kind: invitation.scope_kind,
       scope_id: invitation.scope_id,
+      share_id: invitation.share_id,
+      key_version_context: guest_invitation_key_version_context(invitation),
       permission: invitation.permission,
+      invited_email: invitation.invited_email,
+      delivery_mode: invitation.delivery_mode,
+      recipient_user_id: invitation.recipient_user_id,
+      recipient_device_ids: invitation.recipient_device_ids,
       invited_by: invitation.invited_by,
-      kek_version: invitation.kek_version,
       bootstrap_key_commitment: invitation.bootstrap_key_commitment,
       encrypted_bootstrap_package: invitation.encrypted_bootstrap_package,
       bootstrap_package_hash: invitation.bootstrap_package_hash,
@@ -367,21 +621,49 @@ defmodule RefMDWeb.GuestInvitationController do
     }
   end
 
+  defp guest_invitation_key_version_context(%{scope_kind: "workspace"} = invitation) do
+    %{
+      workspace_kek_version: invitation.kek_version,
+      share_key_version: "NOT_APPLICABLE",
+      dek_version: "NOT_APPLICABLE"
+    }
+  end
+
+  defp guest_invitation_key_version_context(invitation) do
+    %{
+      workspace_kek_version: "NOT_APPLICABLE",
+      share_key_version: invitation.share_key_version,
+      dek_version: invitation.dek_version
+    }
+  end
+
   defp serialize_redeem_result(result) do
+    user_pin = Encryption.current_user_key_directory_pin(result.guest_user_id)
+
     %{
       workspace_id: result.workspace_id,
       workspace_name: result.workspace_name,
       invitation_id: result.invitation_id,
       scope_kind: result.scope_kind,
       scope_id: result.scope_id,
+      share_id: result.share_id,
+      share_scope_kind: result.share_scope_kind,
+      share_scope_id: result.share_scope_id,
+      key_version_context: result.key_version_context,
       permission: result.permission,
       guest_user_id: result.guest_user_id,
       guest_device_id: result.guest_device_id,
-      kek_version: result.kek_version,
       workspace_key_directory_checkpoint:
         serialize_checkpoint(
           Encryption.current_workspace_key_directory_checkpoint(result.workspace_id)
-        )
+        ),
+      user_key_directory_checkpoint:
+        serialize_checkpoint(
+          Encryption.current_user_key_directory_checkpoint(result.guest_user_id)
+        ),
+      user_key_directory_events:
+        Auth.user_key_directory_event_ancestry(result.guest_user_id, user_pin),
+      recipient_delivery_artifacts: result[:recipient_delivery_artifacts]
     }
   end
 
@@ -464,11 +746,6 @@ defmodule RefMDWeb.GuestInvitationController do
   defp validate_identity_signing_material(_, _),
     do: {:error, :invalid_identity_hybrid_signing_public_key_material}
 
-  defp optional_identity_signing_material(nil, _user_id, fallback), do: {:ok, fallback}
-
-  defp optional_identity_signing_material(material, user_id, _fallback),
-    do: validate_identity_signing_material(material, user_id)
-
   defp validate_device_encryption_material(material, device_id)
        when is_map(material) and is_binary(device_id) do
     with :ok <- HybridEncryptionMaterial.assert_public_key_material!(material),
@@ -501,11 +778,6 @@ defmodule RefMDWeb.GuestInvitationController do
   defp validate_identity_encryption_material(_, _),
     do: {:error, :invalid_identity_hybrid_encryption_public_key_material}
 
-  defp optional_identity_encryption_material(nil, _user_id, fallback), do: {:ok, fallback}
-
-  defp optional_identity_encryption_material(material, user_id, _fallback),
-    do: validate_identity_encryption_material(material, user_id)
-
   defp encryption_material_x25519_public(material) do
     {:ok, HybridEncryptionMaterial.x25519_public!(material)}
   rescue
@@ -520,6 +792,15 @@ defmodule RefMDWeb.GuestInvitationController do
        do: :ok
 
   defp validate_key_directory(_params), do: {:error, :missing_key_directory}
+
+  defp validate_user_key_directory(%{
+         "user_key_directory_events" => events,
+         "user_key_directory_checkpoint" => checkpoint
+       })
+       when is_list(events) and is_map(checkpoint),
+       do: :ok
+
+  defp validate_user_key_directory(_params), do: {:error, :missing_key_directory}
 
   defp require_workspace_key_directory(params) do
     events = params["workspace_key_directory_events"]
@@ -581,12 +862,16 @@ defmodule RefMDWeb.GuestInvitationController do
          maintenance_wrap = package["package_key_maintenance_wrap"],
          true <- exact_keys?(package, guest_encrypted_bootstrap_package_keys(scope_kind)),
          true <- exact_keys?(encrypted_payload, ["ciphertext", "nonce"]),
-         true <- exact_keys?(recipient_wrap, ["ciphertext", "nonce"]),
+         :ok <-
+           validate_guest_recipient_wrap(recipient_wrap, aad, workspace_id, key_version),
          true <-
            exact_keys?(aad, [
              "guest_invitation_id",
              "key_version_context",
              "permission",
+             "delivery_mode",
+             "recipient_user_id",
+             "recipient_device_ids",
              "protocol",
              "scope_id",
              "scope_kind",
@@ -616,8 +901,7 @@ defmodule RefMDWeb.GuestInvitationController do
          true <- aad["scope_id"] == guest_bootstrap_scope_id(scope_kind, scope_kind_id),
          true <- aad["permission"] in ["view", "edit"],
          true <- is_binary(aad["token_hash"]),
-         :ok <- validate_base64url_bytes(recipient_wrap["nonce"], 24),
-         :ok <- validate_base64url_min_bytes(recipient_wrap["ciphertext"], 48),
+         :ok <- validate_guest_delivery_aad(aad),
          :ok <- validate_base64url_bytes(encrypted_payload["nonce"], 24),
          :ok <- validate_base64url_min_bytes(encrypted_payload["ciphertext"], 128),
          :ok <-
@@ -641,6 +925,77 @@ defmodule RefMDWeb.GuestInvitationController do
          _target_id
        ),
        do: {:error, :invalid_encrypted_bootstrap_package}
+
+  defp validate_guest_recipient_wrap(
+         %{"nonce" => nonce, "ciphertext" => ciphertext} = wrap,
+         _,
+         _,
+         _
+       ) do
+    with true <- exact_keys?(wrap, ["ciphertext", "nonce"]),
+         :ok <- validate_base64url_bytes(nonce, 24),
+         :ok <- validate_base64url_min_bytes(ciphertext, 48) do
+      :ok
+    else
+      _ -> {:error, :invalid_encrypted_bootstrap_package}
+    end
+  end
+
+  defp validate_guest_recipient_wrap(
+         %{
+           "delivery_mode" => "known_recipient",
+           "recipient_user_id" => recipient_user_id,
+           "sender_signing_public_key_material" => sender_public,
+           "wraps" => wraps
+         } = recipient_wrap,
+         aad,
+         workspace_id,
+         key_version
+       )
+       when is_binary(recipient_user_id) and wraps == [] and is_map(sender_public) do
+    with true <-
+           exact_keys?(recipient_wrap, [
+             "delivery_mode",
+             "recipient_user_id",
+             "sender_signing_public_key_material",
+             "wraps"
+           ]),
+         true <- recipient_user_id == aad["recipient_user_id"],
+         true <- aad["workspace_id"] == workspace_id,
+         true <-
+           guest_bootstrap_key_context_valid?(
+             aad["scope_kind"],
+             aad["key_version_context"],
+             key_version
+           ) do
+      :ok
+    else
+      _ -> {:error, :invalid_encrypted_bootstrap_package}
+    end
+  end
+
+  defp validate_guest_recipient_wrap(_, _, _, _),
+    do: {:error, :invalid_encrypted_bootstrap_package}
+
+  defp validate_guest_delivery_aad(%{
+         "delivery_mode" => "unknown_fragment",
+         "recipient_user_id" => "NOT_APPLICABLE",
+         "recipient_device_ids" => []
+       }),
+       do: :ok
+
+  defp validate_guest_delivery_aad(%{
+         "delivery_mode" => "known_recipient",
+         "recipient_user_id" => recipient_user_id,
+         "recipient_device_ids" => device_ids
+       })
+       when is_binary(recipient_user_id) and is_list(device_ids) and device_ids != [] do
+    if Enum.all?(device_ids, &is_binary/1) and Enum.uniq(device_ids) == device_ids,
+      do: :ok,
+      else: {:error, :invalid_encrypted_bootstrap_package}
+  end
+
+  defp validate_guest_delivery_aad(_), do: {:error, :invalid_encrypted_bootstrap_package}
 
   defp guest_bootstrap_scope_id("workspace", _scope_id), do: "none"
   defp guest_bootstrap_scope_id(_scope_kind, scope_id), do: scope_id
@@ -822,6 +1177,65 @@ defmodule RefMDWeb.GuestInvitationController do
 
   defp validate_scope_id(_scope, _id), do: {:error, :invalid_scope_id}
 
+  defp validate_share_id("workspace", nil), do: :ok
+
+  defp validate_share_id(scope, id) when scope in ["document", "folder", "share"],
+    do:
+      if(is_binary(id) and Regex.match?(@uuid_regex, id),
+        do: :ok,
+        else: {:error, :invalid_share_id}
+      )
+
+  defp validate_share_id(_scope, _id), do: {:error, :invalid_share_id}
+
+  defp validate_key_version_context(
+         "workspace",
+         %{
+           "workspace_kek_version" => kek_version,
+           "share_key_version" => "NOT_APPLICABLE",
+           "dek_version" => "NOT_APPLICABLE"
+         } = context
+       ) do
+    if exact_keys?(context, ["workspace_kek_version", "share_key_version", "dek_version"]) and
+         positive_integer?(kek_version) do
+      {:ok,
+       %{
+         package_key_version: kek_version,
+         kek_version: kek_version,
+         share_key_version: nil,
+         dek_version: nil
+       }}
+    else
+      {:error, :invalid_key_version_context}
+    end
+  end
+
+  defp validate_key_version_context(
+         scope,
+         %{
+           "workspace_kek_version" => "NOT_APPLICABLE",
+           "share_key_version" => share_key_version,
+           "dek_version" => dek_version
+         } = context
+       )
+       when scope in ["document", "folder", "share"] do
+    if exact_keys?(context, ["workspace_kek_version", "share_key_version", "dek_version"]) and
+         positive_integer?(share_key_version) and positive_integer?(dek_version) do
+      {:ok,
+       %{
+         package_key_version: share_key_version,
+         kek_version: nil,
+         share_key_version: share_key_version,
+         dek_version: dek_version
+       }}
+    else
+      {:error, :invalid_key_version_context}
+    end
+  end
+
+  defp validate_key_version_context(_scope, _context),
+    do: {:error, :invalid_key_version_context}
+
   defp validate_positive_integer(value, _error_atom) when is_integer(value) and value > 0, do: :ok
   defp validate_positive_integer(_value, error_atom), do: {:error, error_atom}
 
@@ -927,8 +1341,17 @@ defmodule RefMDWeb.GuestInvitationController do
   defp handle_create_error(conn, :invalid_encrypted_bootstrap_package),
     do: conn |> put_status(:bad_request) |> json(%{error: "invalid_encrypted_bootstrap_package"})
 
+  defp handle_create_error(conn, :recipient_delivery_mismatch),
+    do: conn |> put_status(:conflict) |> json(%{error: "recipient_delivery_mismatch"})
+
+  defp handle_create_error(conn, :recipient_delivery_unavailable),
+    do: recipient_delivery_unavailable(conn)
+
   defp handle_create_error(conn, reason),
     do: conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(reason)})
+
+  defp recipient_delivery_unavailable(conn),
+    do: conn |> put_status(:conflict) |> json(%{error: "recipient_delivery_unavailable"})
 
   defp handle_redeem_error(conn, :missing_token),
     do: conn |> put_status(:bad_request) |> json(%{error: "missing_token"})
@@ -962,6 +1385,18 @@ defmodule RefMDWeb.GuestInvitationController do
 
   defp handle_redeem_error(conn, :active_user_session),
     do: conn |> put_status(:conflict) |> json(%{error: "active_user_session"})
+
+  defp handle_redeem_error(conn, :recipient_mismatch),
+    do: conn |> put_status(:forbidden) |> json(%{error: "recipient_mismatch"})
+
+  defp handle_redeem_error(conn, :recipient_device_mismatch),
+    do: conn |> put_status(:forbidden) |> json(%{error: "recipient_device_mismatch"})
+
+  defp handle_redeem_error(conn, :recipient_device_revoked),
+    do: conn |> put_status(:gone) |> json(%{error: "recipient_device_revoked"})
+
+  defp handle_redeem_error(conn, :recipient_delivery_required),
+    do: conn |> put_status(:conflict) |> json(%{error: "recipient_delivery_required"})
 
   defp handle_redeem_error(conn, :kek_rotation_in_progress),
     do: conn |> put_status(:conflict) |> json(%{error: "kek_rotation_in_progress"})

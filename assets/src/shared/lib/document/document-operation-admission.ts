@@ -35,7 +35,6 @@ import type { DocumentOperationAdmission } from "@/shared/lib/ws/document-payloa
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 
 export type DocumentOperationEventType =
-  | "document_update_accepted"
   | "document_snapshot_accepted"
   | "document_write_session_admitted";
 
@@ -443,7 +442,7 @@ export function assertWriteSessionNotInvalidatedByEvents(params: {
         if (
           ownerKind === "device" &&
           body.user_id === actor.user_id &&
-          !baseRoleCanWriteDocument(body.base_role)
+          !roleChangeGrantsPermission(body, "document:write")
         ) {
           throw new Error("document_write_session_actor_write_denied");
         }
@@ -1013,8 +1012,10 @@ async function verifyAdmissionSignaturesIfNeeded(
   }
 }
 
-function baseRoleCanWriteDocument(role: unknown): boolean {
-  return role === "owner" || role === "admin" || role === "editor" || role === "guest";
+function roleChangeGrantsPermission(body: Record<string, unknown>, permission: string): boolean {
+  return (
+    Array.isArray(body.effective_permissions) && body.effective_permissions.includes(permission)
+  );
 }
 
 function dekFloorInvalidatesSession(

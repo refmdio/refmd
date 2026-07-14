@@ -1,21 +1,29 @@
 import {
   handleCacheKek,
+  handleCommitGuestInvitationShareKey,
   handleCreateSignedPqKekWrap,
   handleCreateSignedPqShareLinkSecretBackupWrap,
+  handleCreateSignedPqGuestInvitationShareKeyWrap,
   handleDeleteKekForOffline,
   handleDeleteOrphanedKeksForOffline,
   handleFinalizeSignedPqWrapOperationCheckpoint,
-  handleCreateInitialAkeKekDelivery,
-  handleCreateInitialAkeDeviceStateTransferDelivery,
-  handleCreateInitialAkeUmkDelivery,
+  handleBeginInitialAkeKekDelivery,
+  handleBeginInitialAkeDeviceStateTransferDelivery,
+  handleBeginInitialAkeUmkDelivery,
+  handleFinalizeInitialAkeDelivery,
+  handleDeleteKekVersion,
   handleGenerateInitialAkeResponderPrekey,
+  handleRespondToInitialAkeOffer,
   handleGenerateKek,
   handleOpenInitialAkeUmkDelivery,
   handleOpenInitialAkeKekDelivery,
   handleOpenInitialAkeDeviceStateTransferDelivery,
   handleOpenSignedPqDeviceKekWrap,
+  handleOpenRecipientBoundInvitationDeviceKekWrap,
   handleOpenSignedPqMemberKekWrap,
   handleOpenSignedPqShareLinkSecretBackupWrap,
+  handleOpenSignedPqGuestInvitationShareKeyWrap,
+  handleRestoreGuestInvitationShareKey,
   handleResolveKek,
   handleSetActiveKekVersion,
   handleUnwrapKekFromInvitationBootstrap,
@@ -35,21 +43,33 @@ export const kekRequestHandlers = {
     withCryptoOperationError("internal_error", () =>
       handleCreateSignedPqShareLinkSecretBackupWrap(state, payload),
     ),
+  "create-signed-pq-guest-invitation-share-key-wrap": (state, payload) =>
+    withCryptoOperationError("internal_error", () =>
+      handleCreateSignedPqGuestInvitationShareKeyWrap(state, payload),
+    ),
   "finalize-signed-pq-wrap-operation-checkpoint": (state, payload) =>
     withCryptoOperationError("internal_error", () =>
       handleFinalizeSignedPqWrapOperationCheckpoint(state, payload),
     ),
-  "create-initial-ake-umk-delivery": (state, payload) =>
+  "begin-initial-ake-umk-delivery": (state, payload) =>
     withCryptoOperationError("internal_error", () =>
-      handleCreateInitialAkeUmkDelivery(state, payload),
+      handleBeginInitialAkeUmkDelivery(state, payload),
     ),
-  "create-initial-ake-kek-delivery": (state, payload) =>
+  "begin-initial-ake-kek-delivery": (state, payload) =>
     withCryptoOperationError("internal_error", () =>
-      handleCreateInitialAkeKekDelivery(state, payload),
+      handleBeginInitialAkeKekDelivery(state, payload),
     ),
-  "create-initial-ake-device-state-transfer-delivery": (state, payload) =>
+  "begin-initial-ake-device-state-transfer-delivery": (state, payload) =>
     withCryptoOperationError("internal_error", () =>
-      handleCreateInitialAkeDeviceStateTransferDelivery(state, payload),
+      handleBeginInitialAkeDeviceStateTransferDelivery(state, payload),
+    ),
+  "respond-to-initial-ake-offer": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleRespondToInitialAkeOffer(state, payload),
+    ),
+  "finalize-initial-ake-delivery": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleFinalizeInitialAkeDelivery(state, payload),
     ),
   "generate-initial-ake-responder-prekey": (state, payload) =>
     withCryptoOperationError("internal_error", () =>
@@ -60,6 +80,10 @@ export const kekRequestHandlers = {
     withCryptoOperationError("decryption_failed", () =>
       handleOpenSignedPqDeviceKekWrap(state, payload),
     ),
+  "open-recipient-bound-invitation-device-kek-wrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleOpenRecipientBoundInvitationDeviceKekWrap(state, payload),
+    ),
   "open-signed-pq-member-kek-wrap": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
       handleOpenSignedPqMemberKekWrap(state, payload),
@@ -67,6 +91,18 @@ export const kekRequestHandlers = {
   "open-signed-pq-share-link-secret-backup-wrap": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
       handleOpenSignedPqShareLinkSecretBackupWrap(state, payload),
+    ),
+  "open-signed-pq-guest-invitation-share-key-wrap": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleOpenSignedPqGuestInvitationShareKeyWrap(state, payload),
+    ),
+  "restore-guest-invitation-share-key": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleRestoreGuestInvitationShareKey(state, payload),
+    ),
+  "commit-guest-invitation-share-key": (state, payload) =>
+    withCryptoOperationError("decryption_failed", () =>
+      handleCommitGuestInvitationShareKey(state, payload),
     ),
   "open-initial-ake-umk-delivery": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
@@ -82,6 +118,7 @@ export const kekRequestHandlers = {
     ),
   "resolve-kek": (state, payload) => handleResolveKek(state, payload),
   "set-active-kek-version": (state, payload) => handleSetActiveKekVersion(state, payload),
+  "delete-kek-version": (state, payload) => handleDeleteKekVersion(state, payload),
   "unwrap-kek-from-invitation-bootstrap": (state, payload) =>
     withCryptoOperationError("decryption_failed", () =>
       handleUnwrapKekFromInvitationBootstrap(state, payload),

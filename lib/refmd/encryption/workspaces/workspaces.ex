@@ -294,9 +294,18 @@ defmodule RefMD.Encryption.Workspaces do
   def operation_checkpoint_envelope(_), do: nil
 
   def operation_checkpoint_ancestry(%{operation_checkpoint_sequence: sequence} = key)
-      when is_integer(sequence) and sequence > 1 do
-    KeyDirectory.checkpoints_between("workspace", key.workspace_id, 1, sequence - 1)
-    |> Enum.map(&serialize_key_directory_checkpoint/1)
+      when is_integer(sequence) and sequence > 0 do
+    current = KeyDirectory.current_checkpoint("workspace", key.workspace_id)
+
+    if current do
+      KeyDirectory.checkpoints_between("workspace", key.workspace_id, 1, current.sequence)
+      |> Enum.reject(
+        &(&1.sequence == sequence && &1.checkpoint_hash == key.operation_checkpoint_hash)
+      )
+      |> Enum.map(&serialize_key_directory_checkpoint/1)
+    else
+      []
+    end
   end
 
   def operation_checkpoint_ancestry(_), do: []
@@ -394,13 +403,17 @@ defmodule RefMD.Encryption.Workspaces do
   end
 
   defp active_device?(device_id) do
-    from(d in RefMD.Devices.Device, where: d.id == ^device_id and is_nil(d.revoked_at))
+    from(d in RefMD.Devices.Device,
+      where:
+        d.id == ^device_id and is_nil(d.revoked_at) and
+          is_nil(d.identity_wipe_required_at)
+    )
     |> Repo.exists?()
   end
 
   defp active_device_record!(device_id) do
     case Devices.get_device(device_id) do
-      %{revoked_at: nil} = device -> device
+      %{revoked_at: nil, identity_wipe_required_at: nil} = device -> device
       _ -> raise ArgumentError, "device_inactive"
     end
   end

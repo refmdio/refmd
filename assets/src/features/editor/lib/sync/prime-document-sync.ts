@@ -27,7 +27,11 @@ export function primeDocumentSync(
       if (!state.initialized && !state.initPromise && !state.error) {
         state.initPromise = initializeDocumentSync(documentId, workspaceId, state);
       }
-      if (state.initPromise) await state.initPromise.catch(() => {});
+      if (state.initPromise) {
+        await state.initPromise.catch((error) => {
+          recordPrimeFailure(documentId, stateKey, error);
+        });
+      }
       recordSyncPerf("document_sync_prime_ready", {
         documentId,
         initialized: state.initialized,
@@ -80,7 +84,9 @@ export function primeDocumentContentPreview(
       }
 
       void initPromise
-        .catch(() => {})
+        .catch((error) => {
+          recordPrimeFailure(documentId, stateKey, error);
+        })
         .finally(() => {
           recordSyncPerf("document_sync_prime_ready", {
             documentId,
@@ -101,4 +107,12 @@ export function primeDocumentContentPreview(
       throw error;
     }
   })();
+}
+
+function recordPrimeFailure(documentId: string, stateKey: string, error: unknown): void {
+  recordSyncPerf("document_sync_prime_failed", {
+    documentId,
+    error: error instanceof Error ? error.message : String(error),
+    stateKey,
+  });
 }

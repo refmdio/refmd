@@ -1,4 +1,5 @@
 import { client, throwIfError, withUserRrpParams } from "./core";
+import { verifyAndPinAuditCheckpoint } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 
 type ApiResult = { data?: unknown; error?: unknown; response: Response };
 const apiGet = client.GET as unknown as (
@@ -19,6 +20,7 @@ export interface SecurityNotificationInfo {
   dismissed_at?: string | null;
   acted_at?: string | null;
   expires_at?: string | null;
+  audit_checkpoint: Record<string, unknown>;
 }
 
 interface SecurityNotificationEnvelope {
@@ -48,7 +50,13 @@ export const securityNotificationsApi = {
       }),
     ) as SecurityNotificationEnvelope;
 
-    return Array.isArray(envelope.notifications) ? envelope.notifications : [];
+    const notifications = Array.isArray(envelope.notifications) ? envelope.notifications : [];
+    await Promise.all(
+      notifications.map((notification) =>
+        verifyAndPinAuditCheckpoint(notification.audit_checkpoint),
+      ),
+    );
+    return notifications;
   },
   markRead: async (notificationId: string): Promise<SecurityNotificationInfo> => {
     const envelope = throwIfError(
@@ -57,6 +65,7 @@ export const securityNotificationsApi = {
       }),
     ) as SecurityNotificationEnvelope;
     if (!envelope.notification) throw new Error("security_notification_missing");
+    await verifyAndPinAuditCheckpoint(envelope.notification.audit_checkpoint);
     return envelope.notification;
   },
   dismiss: async (notificationId: string): Promise<SecurityNotificationInfo> => {
@@ -66,6 +75,7 @@ export const securityNotificationsApi = {
       }),
     ) as SecurityNotificationEnvelope;
     if (!envelope.notification) throw new Error("security_notification_missing");
+    await verifyAndPinAuditCheckpoint(envelope.notification.audit_checkpoint);
     return envelope.notification;
   },
 };

@@ -31,8 +31,11 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
       add :token_prefix, :text, null: false
       add :scope_kind, :text, null: false
       add :scope_id, :binary_id
+      add :share_id, references(:shares, type: :binary_id, on_delete: :restrict)
       add :permission, :text, null: false
-      add :kek_version, :integer, null: false
+      add :kek_version, :integer
+      add :share_key_version, :integer
+      add :dek_version, :integer
       add :bootstrap_key_commitment, :text
       add :encrypted_bootstrap_package, :map
       add :bootstrap_package_hash, :text
@@ -51,6 +54,7 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
     create unique_index(:guest_invitations, [:token_hash])
     create index(:guest_invitations, [:workspace_id])
     create index(:guest_invitations, [:scope_id])
+    create index(:guest_invitations, [:share_id])
     create index(:guest_invitations, [:invited_by])
 
     execute(
@@ -64,8 +68,31 @@ defmodule RefMD.Repo.Migrations.AddGuestInvitations do
     )
 
     execute(
-      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_kek_version_positive CHECK (kek_version > 0)",
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_kek_version_positive CHECK (kek_version IS NULL OR kek_version > 0)",
       "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_kek_version_positive"
+    )
+
+    execute(
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_share_key_version_positive CHECK (share_key_version IS NULL OR share_key_version > 0)",
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_share_key_version_positive"
+    )
+
+    execute(
+      "ALTER TABLE guest_invitations ADD CONSTRAINT guest_invitations_dek_version_positive CHECK (dek_version IS NULL OR dek_version > 0)",
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_dek_version_positive"
+    )
+
+    execute(
+      """
+      ALTER TABLE guest_invitations
+      ADD CONSTRAINT guest_invitations_key_context
+      CHECK (
+        (scope_kind = 'workspace' AND share_id IS NULL AND kek_version IS NOT NULL AND share_key_version IS NULL AND dek_version IS NULL)
+        OR
+        (scope_kind IN ('document', 'folder', 'share') AND share_id IS NOT NULL AND kek_version IS NULL AND share_key_version IS NOT NULL AND dek_version IS NOT NULL)
+      )
+      """,
+      "ALTER TABLE guest_invitations DROP CONSTRAINT guest_invitations_key_context"
     )
 
     execute(

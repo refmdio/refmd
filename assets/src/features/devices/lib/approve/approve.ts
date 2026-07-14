@@ -5,9 +5,16 @@ import type { components } from "@/shared/api/schema";
 import {
   advanceKeyDirectoryPinWithProof,
   hashKeyDirectoryCheckpointEnvelope,
+  lookupVerifiedKeyDirectoryCheckpointBodies,
+  lookupVerifiedKeyDirectoryEventBodies,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  getAuditCheckpointPin,
+  type AuditCheckpointPin,
+} from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import type { InitialAkeResponderConfirmation } from "@/shared/lib/crypto/initial-ake";
 import {
   canonicalizeStrict,
   canonicalizeStrictBytes,
@@ -17,15 +24,18 @@ import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybr
 import { buildDeviceKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory/device-events";
 import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
 import { verifySenderDeviceIdentityAndTofu } from "@/shared/lib/crypto/sender-device-verification";
-import {
-  assertWorkspaceSenderKeyAdmission,
-  installWorkspaceOperationCheckpointPin,
-} from "@/shared/lib/crypto/kek-resolver";
+import { assertWorkspaceSenderKeyAdmission } from "@/shared/lib/crypto/kek-resolver";
+import { verifyWorkspaceSignedPqWrapOperation } from "@/shared/lib/anti-rollback/key-directory-pin/wrap-operation-proof";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 type InitialAkeArtifactSchema = components["schemas"]["InitialAkeArtifact"];
 type InitialKeyDeliveryRecordSchema = components["schemas"]["InitialKeyDeliveryRecord"];
 type InitialAkeDeliveryPairSchema = components["schemas"]["InitialAkeDeliveryPair"];
+type InitialAkeResponseBundle = {
+  umk_distribution: InitialAkeResponderConfirmation;
+  trust_transfer: InitialAkeResponderConfirmation;
+  device_approval_kek_initial: Record<string, InitialAkeResponderConfirmation>;
+};
 
 interface PendingDeviceApprovalKeys {
   clientNonce: Uint8Array;
@@ -136,11 +146,24 @@ export async function approveDeviceRegistration(params: {
       };
     }),
   );
+  const userAuditPin = await getAuditCheckpointPin(`user:${auth.user.id}`);
+  if (!userAuditPin) throw new Error("user_audit_checkpoint_pin_required");
+  const workspaceAuditPins = await Promise.all(
+    workspaceAppends.map(async (append) => {
+      const pin = await getAuditCheckpointPin(`workspace:${append.workspace_id}`);
+      if (!pin) throw new Error("workspace_audit_checkpoint_pin_required");
+      return pin;
+    }),
+  );
   const trustStateBundle = buildTrustStateBundle({
     userId: auth.user.id,
     targetDeviceId: params.device.id,
+    userPreviousCheckpoint: userDirectory.checkpoint,
     userCheckpoint: userAppend.checkpoint,
+    userEvents: userAppend.events,
     workspaceAppends,
+    userAuditPin,
+    workspaceAuditPins,
   });
   const trustStateBundleHash = blake3Base64Url(
     canonicalizeStrictBytes(trustStateBundle as unknown as StrictJsonValue),
@@ -153,7 +176,7 @@ export async function approveDeviceRegistration(params: {
   params.onStepChange?.("distributing");
   const responderPrekeys = akeResponderPrekeys(params.device);
   const operationCheckpoint = operationCheckpointFromEnvelope(userAppend.checkpoint);
-  const initialDelivery = await worker.createInitialAkeUmkDelivery({
+  const initialOffer = await worker.beginInitialAkeUmkDelivery({
     userId: auth.user.id,
     senderDeviceId: currentDevice.deviceId,
     recipientDeviceId: params.device.id,
@@ -165,8 +188,8 @@ export async function approveDeviceRegistration(params: {
     keyEventHeadHash: operationCheckpoint.coveredHeadHash,
     pendingRegistrationBindingHash,
   });
-  const initialKeyDeliveryHash = blake3Base64Url(
-    canonicalizeStrictBytes(initialDelivery.initialKeyDelivery as unknown as StrictJsonValue),
+  const initialPendingDeliveryHash = blake3Base64Url(
+    canonicalizeStrictBytes(initialOffer.pending_delivery as unknown as StrictJsonValue),
   );
   const documentRollbackPinSetHash = blake3Base64Url(
     canonicalizeStrictBytes({
@@ -177,7 +200,7 @@ export async function approveDeviceRegistration(params: {
       })),
     } as unknown as StrictJsonValue),
   );
-  const trustDelivery = await worker.createInitialAkeDeviceStateTransferDelivery({
+  const trustOffer = await worker.beginInitialAkeDeviceStateTransferDelivery({
     deviceStateBundle: trustStateBundle,
     userId: auth.user.id,
     senderDeviceId: currentDevice.deviceId,
@@ -200,10 +223,13 @@ export async function approveDeviceRegistration(params: {
     documentRollbackPinSetHash,
     pendingRegistrationBindingHash,
   });
-  const trustTransferDeliveryHash = blake3Base64Url(
-    canonicalizeStrictBytes(trustDelivery.initialKeyDelivery as unknown as StrictJsonValue),
+  const trustPendingDeliveryHash = blake3Base64Url(
+    canonicalizeStrictBytes(trustOffer.pending_delivery as unknown as StrictJsonValue),
   );
-  const initialKekDeliveries: Record<string, InitialAkeDeliveryPairSchema> = {};
+  const kekOffers: Record<
+    string,
+    Awaited<ReturnType<typeof worker.beginInitialAkeKekDelivery>>
+  > = {};
   const deviceApprovalKekInitialDeliveryCommitments: components["schemas"]["DeviceApprovalKekInitialDeliveryCommitment"][] =
     [];
   for (const append of workspaceAppends) {
@@ -214,7 +240,7 @@ export async function approveDeviceRegistration(params: {
     });
     const kekPrekey = responderPrekeys.kekByWorkspace[append.workspace_id];
     if (!kekPrekey) throw new Error("initial_ake_kek_responder_prekey_missing");
-    const kekDelivery = await worker.createInitialAkeKekDelivery({
+    const kekOffer = await worker.beginInitialAkeKekDelivery({
       workspaceId: append.workspace_id,
       keyVersion,
       userId: auth.user.id,
@@ -231,25 +257,21 @@ export async function approveDeviceRegistration(params: {
       workspaceEventHeadHash: operationCheckpointFromEnvelope(append.checkpoint).coveredHeadHash,
       pendingRegistrationBindingHash,
     });
-    const deliveryRecordHash = blake3Base64Url(
-      canonicalizeStrictBytes(kekDelivery.initialKeyDelivery as unknown as StrictJsonValue),
+    const pendingDeliveryHash = blake3Base64Url(
+      canonicalizeStrictBytes(kekOffer.pending_delivery as unknown as StrictJsonValue),
     );
-    initialKekDeliveries[append.workspace_id] = initialAkeDeliveryPairWire({
-      initialAke: kekDelivery.initialAke as unknown as InitialAkeArtifactSchema,
-      initialKeyDelivery:
-        kekDelivery.initialKeyDelivery as unknown as InitialKeyDeliveryRecordSchema,
-    });
+    kekOffers[append.workspace_id] = kekOffer;
     deviceApprovalKekInitialDeliveryCommitments.push({
       purpose: "device_approval_kek_initial",
       variant: "device_approval_kek_initial",
       delivery_id: stringField(
-        (kekDelivery.initialKeyDelivery.metadata as Record<string, unknown>).delivery_id,
+        (kekOffer.pending_delivery.metadata as Record<string, unknown>).delivery_id,
       ),
       recipient_device_id: params.device.id,
       sender_device_id: currentDevice.deviceId,
       workspace_id: append.workspace_id,
       key_version: keyVersion,
-      delivery_record_hash: deliveryRecordHash,
+      delivery_record_hash: pendingDeliveryHash,
       key_checkpoint_hash: hashKeyDirectoryCheckpointEnvelope(append.checkpoint),
     });
   }
@@ -263,11 +285,11 @@ export async function approveDeviceRegistration(params: {
       purpose: "umk_distribution",
       variant: "umk_distribution",
       delivery_id: stringField(
-        (initialDelivery.initialKeyDelivery.metadata as Record<string, unknown>).delivery_id,
+        (initialOffer.pending_delivery.metadata as Record<string, unknown>).delivery_id,
       ),
       recipient_device_id: params.device.id,
       sender_device_id: currentDevice.deviceId,
-      delivery_record_hash: initialKeyDeliveryHash,
+      delivery_record_hash: initialPendingDeliveryHash,
       key_checkpoint_hash: operationCheckpoint.checkpointHash,
     };
   const trustTransferDeliveryCommitment: components["schemas"]["TrustTransferDeliveryCommitment"] =
@@ -275,19 +297,15 @@ export async function approveDeviceRegistration(params: {
       purpose: "trust_transfer",
       variant: "trust_transfer",
       ake_session_id: stringField(
-        (
-          (trustDelivery.initialAke.transcript as Record<string, unknown>).context as Record<
-            string,
-            unknown
-          >
-        ).operation_id,
+        ((trustOffer.transcript as Record<string, unknown>).context as Record<string, unknown>)
+          .operation_id,
       ),
       delivery_id: stringField(
-        (trustDelivery.initialKeyDelivery.metadata as Record<string, unknown>).delivery_id,
+        (trustOffer.pending_delivery.metadata as Record<string, unknown>).delivery_id,
       ),
       recipient_device_id: params.device.id,
       sender_device_id: currentDevice.deviceId,
-      delivery_record_hash: trustTransferDeliveryHash,
+      delivery_record_hash: trustPendingDeliveryHash,
       key_checkpoint_hash: operationCheckpoint.checkpointHash,
       document_rollback_pin_set_hash: documentRollbackPinSetHash,
     };
@@ -381,6 +399,11 @@ export async function approveDeviceRegistration(params: {
     approval_signature_surface: "device_approval",
     approval_signature: signature,
     approval_proof: approvalProof,
+    initial_ake_offers: {
+      umk_distribution: initialOffer,
+      trust_transfer: trustOffer,
+      device_approval_kek_initial: kekOffers,
+    },
     user_key_directory_events: userAppend.events,
     user_key_directory_checkpoint: userAppend.checkpoint,
     workspace_key_directory_appends: workspaceAppends.map(
@@ -391,6 +414,21 @@ export async function approveDeviceRegistration(params: {
       }),
     ),
   });
+  const responses = await retryInitialAkeResponses(params.device.id);
+  const initialDelivery = await worker.finalizeInitialAkeDelivery({
+    response: responses.umk_distribution,
+  });
+  const trustDelivery = await worker.finalizeInitialAkeDelivery({
+    response: responses.trust_transfer,
+  });
+  const initialKekDeliveries: Record<string, InitialAkeDeliveryPairSchema> = {};
+  for (const [workspaceId, response] of Object.entries(responses.device_approval_kek_initial)) {
+    const delivery = await worker.finalizeInitialAkeDelivery({ response });
+    initialKekDeliveries[workspaceId] = initialAkeDeliveryPairWire({
+      initialAke: delivery.initialAke as unknown as InitialAkeArtifactSchema,
+      initialKeyDelivery: delivery.initialKeyDelivery as unknown as InitialKeyDeliveryRecordSchema,
+    });
+  }
   await devicesApi.distributeUmk(params.device.id, currentDevice.deviceId, {
     initial_ake: initialDelivery.initialAke as unknown as InitialAkeArtifactSchema,
     initial_key_delivery:
@@ -430,23 +468,127 @@ export async function approveDeviceRegistration(params: {
 function buildTrustStateBundle(params: {
   userId: string;
   targetDeviceId: string;
+  userPreviousCheckpoint: Record<string, unknown>;
   userCheckpoint: Record<string, unknown>;
+  userEvents: Record<string, unknown>[];
   workspaceAppends: {
     workspace_id: string;
+    previousCheckpoint: Record<string, unknown>;
+    events: Record<string, unknown>[];
     checkpoint: Record<string, unknown>;
   }[];
+  userAuditPin: AuditCheckpointPin;
+  workspaceAuditPins: AuditCheckpointPin[];
 }): Record<string, unknown> {
+  const userLineage = buildTransferredKeyDirectoryLineage({
+    scopeKind: "user",
+    scopeId: params.userId,
+    auditPin: params.userAuditPin,
+    previousCheckpoint: params.userPreviousCheckpoint,
+    checkpoint: params.userCheckpoint,
+    events: params.userEvents,
+  });
   return {
     protocol: "refmd.trust-state-bundle",
     version: 1,
     purpose: "trust_transfer",
     user_id: params.userId,
     target_device_id: params.targetDeviceId,
-    user_checkpoint: params.userCheckpoint,
+    user_lineage: userLineage,
     workspace_checkpoints: params.workspaceAppends.map((append) => ({
       workspace_id: append.workspace_id,
-      checkpoint: append.checkpoint,
+      lineage: buildTransferredKeyDirectoryLineage({
+        scopeKind: "workspace",
+        scopeId: append.workspace_id,
+        auditPin:
+          params.workspaceAuditPins.find(
+            (pin) => pin.chainScope === `workspace:${append.workspace_id}`,
+          ) ??
+          (() => {
+            throw new Error("workspace_audit_checkpoint_pin_required");
+          })(),
+        previousCheckpoint: append.previousCheckpoint,
+        checkpoint: append.checkpoint,
+        events: append.events,
+      }),
     })),
+    user_audit_pin: params.userAuditPin,
+    workspace_audit_pins: params.workspaceAuditPins,
+  };
+}
+
+function buildTransferredKeyDirectoryLineage(params: {
+  scopeKind: "user" | "workspace";
+  scopeId: string;
+  auditPin: AuditCheckpointPin;
+  previousCheckpoint: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  events: Record<string, unknown>[];
+}): Record<string, unknown> {
+  const checkpointBySequence = new Map<number, Record<string, unknown>>();
+  for (const checkpoint of [
+    ...lookupVerifiedKeyDirectoryCheckpointBodies(params.scopeKind, params.scopeId),
+    params.previousCheckpoint,
+  ]) {
+    const checkpointRecord = checkpoint as unknown as Record<string, unknown>;
+    checkpointBySequence.set(
+      operationCheckpointFromEnvelope(checkpointRecord).sequence,
+      checkpointRecord,
+    );
+  }
+  const checkpoints = [...checkpointBySequence.values()].sort(
+    (left, right) =>
+      operationCheckpointFromEnvelope(left).sequence -
+      operationCheckpointFromEnvelope(right).sequence,
+  );
+  const anchor = checkpoints.find(
+    (checkpoint) =>
+      hashKeyDirectoryCheckpointEnvelope(checkpoint) === params.auditPin.authorityCheckpointHash,
+  );
+  if (!anchor) throw new Error("audit_checkpoint_authority_lineage_missing");
+
+  const anchorState = operationCheckpointFromEnvelope(anchor);
+  const previousState = operationCheckpointFromEnvelope(params.previousCheckpoint);
+  const candidateState = operationCheckpointFromEnvelope(params.checkpoint);
+  const checkpointAncestry = checkpoints.filter((checkpoint) => {
+    const sequence = operationCheckpointFromEnvelope(checkpoint).sequence;
+    return sequence >= anchorState.sequence && sequence <= previousState.sequence;
+  });
+  if (checkpointAncestry.length !== previousState.sequence - anchorState.sequence + 1) {
+    throw new Error("audit_checkpoint_authority_lineage_incomplete");
+  }
+
+  const eventBySequence = new Map<number, Record<string, unknown>>();
+  for (const event of [
+    ...lookupVerifiedKeyDirectoryEventBodies(params.scopeKind, params.scopeId),
+    ...params.events,
+  ]) {
+    if (!isRecord(event.payload)) throw new Error("key_directory_event_invalid");
+    eventBySequence.set(
+      numberField(event.payload.sequence),
+      event as unknown as Record<string, unknown>,
+    );
+  }
+  const events = [...eventBySequence.values()]
+    .filter((event) => {
+      const sequence = numberField((event.payload as Record<string, unknown>).sequence);
+      return (
+        sequence > anchorState.coveredHeadSequence && sequence <= candidateState.coveredHeadSequence
+      );
+    })
+    .sort(
+      (left, right) =>
+        numberField((left.payload as Record<string, unknown>).sequence) -
+        numberField((right.payload as Record<string, unknown>).sequence),
+    );
+  if (events.length !== candidateState.coveredHeadSequence - anchorState.coveredHeadSequence) {
+    throw new Error("audit_checkpoint_event_lineage_incomplete");
+  }
+
+  return {
+    checkpoint_ancestry: checkpointAncestry,
+    events,
+    checkpoint: params.checkpoint,
   };
 }
 
@@ -539,9 +681,9 @@ async function ensureWorkspaceKekCachedForInitialDelivery(params: {
     await encryptionApi.getWorkspaceKeysWithRrp(params.workspaceId, params.senderDeviceId);
   const activeKey = keys.find((key) => key.key_version === currentKekVersion);
   if (!activeKey) throw new Error("active_workspace_kek_missing");
-  const expectedOperationCheckpoint = await installWorkspaceOperationCheckpointPin(
+  await verifyWorkspaceSignedPqWrapOperation(
     params.workspaceId,
-    activeKey as Record<string, unknown>,
+    activeKey as unknown as Record<string, unknown>,
   );
   assertWorkspaceSenderKeyAdmission(params.workspaceId, activeKey as Record<string, unknown>);
   await verifySenderDeviceIdentityAndTofu({
@@ -552,10 +694,9 @@ async function ensureWorkspaceKekCachedForInitialDelivery(params: {
     expectedIdentityEcdhPublic: authState()?.identityEcdhPublic,
   });
   await worker.openSignedPqDeviceKekWrap({
-    record: activeKey as never,
+    operationProof: activeKey as unknown as Record<string, unknown>,
     senderSigningPublicKeyMaterial:
       activeKey.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
-    expectedOperationCheckpoint,
   });
   return currentKekVersion;
 }
@@ -664,6 +805,19 @@ function operationCheckpointFromEnvelope(checkpointEnvelope: Record<string, unkn
     coveredHeadSequence: numberField(covered.head_sequence),
     coveredHeadHash: stringField(covered.head_hash),
   };
+}
+
+async function retryInitialAkeResponses(deviceId: string): Promise<InitialAkeResponseBundle> {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const result = await devicesApi.getInitialAkeResponses(deviceId);
+      return result.responses as unknown as InitialAkeResponseBundle;
+    } catch (error) {
+      if (attempt === 59) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw new Error("initial_ake_responses_not_ready");
 }
 
 function numberField(value: unknown): number {

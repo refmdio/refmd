@@ -18,7 +18,10 @@ vi.mock("./primitives", async (importOriginal) => {
 });
 
 import { eventHash } from "./primitives";
-import { buildWorkspaceMemberRemovalKeyDirectoryAppend } from "./membership-events";
+import {
+  buildWorkspaceMemberRemovalKeyDirectoryAppend,
+  buildWorkspaceMemberRoleChangesKeyDirectoryAppend,
+} from "./membership-events";
 
 describe("workspace member removal key directory append", () => {
   it("revokes encryption keys before signing keys so the actor signature remains valid", async () => {
@@ -84,6 +87,88 @@ describe("workspace member removal key directory append", () => {
     expect(checkpointPayload.covered_event_head).toEqual({
       head_sequence: 13,
       head_hash: eventHash(payloads[2] ?? {}),
+    });
+  });
+});
+
+describe("workspace member role change key directory append", () => {
+  it("chains one canonical event per affected member into one checkpoint", async () => {
+    const checkpointEnvelope = {
+      payload: {
+        scope_kind: "workspace",
+        scope_id: "workspace-1",
+        sequence: 4,
+        covered_event_head: { head_sequence: 10, head_hash: "previous-head" },
+        identity_keys: [],
+        device_keys: [
+          {
+            key_id: "signing-key-1",
+            key_material: {
+              protocol: "refmd.hybrid-signing-key-material",
+              owner_kind: "device",
+              owner_id: "device-1",
+            },
+          },
+        ],
+        share_participant_keys: [],
+        revoked_key_ids: [],
+      },
+      signatures: [],
+    } as unknown as Parameters<
+      typeof buildWorkspaceMemberRoleChangesKeyDirectoryAppend
+    >[0]["checkpointEnvelope"];
+
+    const append = await buildWorkspaceMemberRoleChangesKeyDirectoryAppend({
+      workspaceId: "workspace-1",
+      actorUserId: "owner-1",
+      actorDeviceId: "device-1",
+      checkpointEnvelope,
+      changes: [
+        {
+          targetUserId: "member-1",
+          previousRoleId: "role-1",
+          previousBaseRole: "editor",
+          previousEffectivePermissions: ["document:write", "document:read"],
+          roleId: "role-2",
+          baseRole: "viewer",
+          effectivePermissions: ["document:read"],
+          permissionVersion: 2,
+        },
+        {
+          targetUserId: "member-2",
+          previousRoleId: "role-1",
+          previousBaseRole: "editor",
+          previousEffectivePermissions: ["document:read", "document:write"],
+          roleId: "role-1",
+          baseRole: "editor",
+          effectivePermissions: ["document:read"],
+          permissionVersion: 7,
+        },
+      ],
+    });
+
+    const payloads = append.events.map((event) => event.payload as Record<string, unknown>);
+    const firstBody = payloads[0]?.body as Record<string, unknown>;
+    const checkpointPayload = append.checkpoint.payload as Record<string, unknown>;
+    expect(payloads.map((payload) => payload.sequence)).toEqual([11, 12]);
+    expect(payloads[1]?.previous_event_hash).toBe(eventHash(payloads[0] ?? {}));
+    expect(firstBody.previous_effective_permissions).toEqual(["document:read", "document:write"]);
+    expect(firstBody.permission_version).toBe(2);
+    expect(Object.keys(firstBody).sort()).toEqual([
+      "base_role",
+      "changed_at_event_sequence",
+      "effective_permissions",
+      "permission_version",
+      "previous_base_role",
+      "previous_effective_permissions",
+      "previous_role_id",
+      "role_id",
+      "user_id",
+      "workspace_id",
+    ]);
+    expect(checkpointPayload.covered_event_head).toEqual({
+      head_sequence: 12,
+      head_hash: eventHash(payloads[1] ?? {}),
     });
   });
 });

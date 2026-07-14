@@ -2,7 +2,8 @@ defmodule RefMDWeb.EncryptionController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.{Devices, Encryption, Users, Workspaces}
+  alias RefMD.{Devices, Encryption, Security, Users, Workspaces}
+  alias RefMD.Encryption.RotationPolicy
   alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Schemas
 
@@ -27,6 +28,7 @@ defmodule RefMDWeb.EncryptionController do
 
     with :ok <- validate_sender_device_match(rrp_device_id, params["sender_device_id"]),
          {:ok, workspace} <- fetch_workspace(workspace_id),
+         :ok <- require_registered_workspace_key_sender(user_id),
          {:ok, sender_role} <- fetch_membership(workspace_id, user_id),
          :ok <- require_workspace_member(workspace_id, target_user_id),
          :ok <-
@@ -39,8 +41,7 @@ defmodule RefMDWeb.EncryptionController do
          :ok <- validate_key_version_range(params["key_version"], workspace, user_id),
          {:ok, sender_device} <- fetch_active_device(user_id, sender_device_id),
          {:ok, target_device} <- fetch_active_device(target_user_id, target_device_id),
-         :ok <- require_no_workspace_wipe_requirement(workspace_id, sender_device_id),
-         :ok <- require_no_workspace_wipe_requirement(workspace_id, target_device_id) do
+         :ok <- require_no_workspace_wipe_requirement(workspace_id, sender_device_id) do
       metadata = %{
         workspace_id: workspace_id,
         user_id: target_user_id,
@@ -99,7 +100,7 @@ defmodule RefMDWeb.EncryptionController do
     with :ok <- require_device_id(device_id),
          :ok <- validate_rrp_device_match(rrp_device_id, device_id),
          :ok <- validate_device_owned(user_id, device_id),
-         :ok <- require_membership(workspace_id, user_id),
+         :ok <- require_workspace_crypto_access(workspace_id, user_id, device_id),
          :ok <- require_no_workspace_wipe_requirement(workspace_id, device_id) do
       workspace = Workspaces.get_workspace(workspace_id)
       keys = Encryption.get_workspace_encrypted_keys(workspace_id, user_id, device_id)
@@ -139,7 +140,7 @@ defmodule RefMDWeb.EncryptionController do
   operation(:setup_complete,
     summary: "Mark encryption setup as complete",
     responses: [
-      ok: {"Setup complete", "application/json", Schemas.OkResponse}
+      ok: {"Setup complete", "application/json", Schemas.EncryptionSetupCompleteResponse}
     ]
   )
 
@@ -165,8 +166,32 @@ defmodule RefMDWeb.EncryptionController do
         conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_member_envelope"})
 
       true ->
-        Users.update_encryption_setup(user_id)
-        json(conn, %{ok: true})
+        complete_encryption_setup(conn, user_id, workspace_ids)
+    end
+  end
+
+  defp complete_encryption_setup(conn, user_id, workspace_ids) do
+    user_audit_checkpoint = Security.current_audit_checkpoint!("user:#{user_id}")
+
+    workspace_audit_checkpoints =
+      Enum.map(workspace_ids, fn workspace_id ->
+        %{
+          workspace_id: workspace_id,
+          audit_checkpoint: Security.current_audit_checkpoint!("workspace:#{workspace_id}")
+        }
+      end)
+
+    if is_map(user_audit_checkpoint) and
+         Enum.all?(workspace_audit_checkpoints, &is_map(&1.audit_checkpoint)) do
+      Users.update_encryption_setup(user_id)
+
+      json(conn, %{
+        ok: true,
+        user_audit_checkpoint: user_audit_checkpoint,
+        workspace_audit_checkpoints: workspace_audit_checkpoints
+      })
+    else
+      conn |> put_status(:unprocessable_entity) |> json(%{error: "audit_checkpoint_missing"})
     end
   end
 
@@ -179,23 +204,29 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp require_workspace_crypto_access(workspace_id, user_id) do
-    cond do
-      Workspaces.get_member_role(workspace_id, user_id) == nil ->
-        {:error, :forbidden, "not_a_member"}
-
-      Workspaces.guest_user?(user_id) and
-          Workspaces.authorize_guest_permission(workspace_id, user_id, "document:read", nil) !=
-            :ok ->
-        {:error, :forbidden, "permission_denied"}
-
-      true ->
-        :ok
+  defp require_workspace_crypto_access(workspace_id, user_id, device_id) do
+    if Workspaces.guest_user?(user_id) do
+      require_active_guest_device_access(workspace_id, user_id, device_id)
+    else
+      case Workspaces.get_member_role(workspace_id, user_id) do
+        role when is_binary(role) and role != "guest" -> :ok
+        _ -> {:error, :forbidden, "not_a_member"}
+      end
     end
   end
 
-  defp require_membership(workspace_id, user_id) do
-    require_workspace_crypto_access(workspace_id, user_id)
+  defp require_active_guest_device_access(workspace_id, user_id, device_id) do
+    if Workspaces.guest_user?(user_id) and
+         Workspaces.authorize_workspace_guest_access(workspace_id, user_id) == :ok and
+         Encryption.active_workspace_scope_guest_device_admitted?(
+           workspace_id,
+           user_id,
+           device_id
+         ) do
+      :ok
+    else
+      {:error, :forbidden, "not_a_member"}
+    end
   end
 
   defp require_no_workspace_wipe_requirement(workspace_id, device_id) do
@@ -211,11 +242,21 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
+  defp require_registered_workspace_key_sender(user_id) do
+    if Workspaces.guest_user?(user_id),
+      do: {:error, :forbidden, "forbidden"},
+      else: :ok
+  end
+
   defp require_workspace_member(workspace_id, user_id) do
-    case Workspaces.get_member_role(workspace_id, user_id) do
-      role when is_binary(role) and role != "guest" -> :ok
-      "guest" -> {:error, :forbidden, "forbidden"}
-      _ -> {:error, :forbidden, "target_not_a_member"}
+    if Workspaces.guest_user?(user_id) do
+      {:error, :forbidden, "forbidden"}
+    else
+      case Workspaces.get_member_role(workspace_id, user_id) do
+        role when is_binary(role) and role != "guest" -> :ok
+        "guest" -> {:error, :forbidden, "forbidden"}
+        _ -> {:error, :forbidden, "target_not_a_member"}
+      end
     end
   end
 
@@ -270,8 +311,11 @@ defmodule RefMDWeb.EncryptionController do
 
   defp fetch_active_device(user_id, device_id) when is_binary(device_id) do
     case Devices.get_device(device_id) do
-      %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
-      _ -> {:error, :forbidden, "invalid_device"}
+      %{user_id: ^user_id, revoked_at: nil, identity_wipe_required_at: nil} = device ->
+        {:ok, device}
+
+      _ ->
+        {:error, :forbidden, "invalid_device"}
     end
   end
 
@@ -282,7 +326,8 @@ defmodule RefMDWeb.EncryptionController do
     max = max_allowed_key_version(workspace, user_id, key_version)
 
     cond do
-      workspace.needs_kek_rotation and key_version != workspace.current_kek_version + 1 ->
+      RotationPolicy.kek_overdue?(workspace) and
+          key_version != workspace.current_kek_version + 1 ->
         {:error, :unprocessable_entity, "kek_rotation_required"}
 
       key_version < 1 ->
@@ -304,7 +349,7 @@ defmodule RefMDWeb.EncryptionController do
   defp max_allowed_key_version(%{current_kek_version: 0}, _user_id, _key_version), do: 1
 
   defp max_allowed_key_version(workspace, user_id, key_version) do
-    if workspace.needs_kek_rotation and
+    if RotationPolicy.kek_overdue?(workspace) and
          workspace.kek_rotation_initiator_user_id == user_id and
          key_version == workspace.current_kek_version + 1 do
       workspace.current_kek_version + 1

@@ -247,3 +247,43 @@ defmodule RefMDWeb.Schemas.KekRotationCompletionManifestResponse do
     ]
   })
 end
+
+defmodule RefMDWeb.Schemas.WorkspaceWipeRequirementResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceWipeRequirementResponse",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      workspace_id: %Schema{type: :string, format: :uuid},
+      required_kek_version: %Schema{type: :integer, minimum: 2},
+      old_key_version: %Schema{type: :integer, minimum: 1},
+      rotation_completed_event_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      deleted_secret_ids_hash: RefMDWeb.Schemas.Blake3Base64Url
+    },
+    required: [
+      :workspace_id,
+      :required_kek_version,
+      :old_key_version,
+      :rotation_completed_event_hash,
+      :deleted_secret_ids_hash
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.WorkspaceWipeAcknowledgementRequest do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceWipeAcknowledgementRequest",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      device_key_deletion_proof: RefMDWeb.Schemas.DeviceKeyDeletionProof
+    },
+    required: [:device_key_deletion_proof]
+  })
+end

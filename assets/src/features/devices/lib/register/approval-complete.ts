@@ -1,10 +1,21 @@
-import { authApi } from "@/shared/api";
+import { authApi, devicesApi } from "@/shared/api";
 import type { AuthState } from "@/entities/session";
 import { setCryptoWorkerReady, setFullSession } from "@/entities/session";
-import { installTransferredKeyDirectoryCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  advanceKeyDirectoryPinWithProof,
+  installTransferredKeyDirectoryCheckpoint,
+} from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import {
+  assertTransferredWorkspaceAuditPins,
+  installTransferredAuditCheckpointPin,
+} from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import { persistDeviceId, persistCurrentKeysWithDsk } from "@/shared/lib/auth/key-persistence";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import type {
+  InitialAkeOffer,
+  InitialAkeResponderConfirmation,
+} from "@/shared/lib/crypto/initial-ake";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import { verifySenderDeviceIdentityAndTofu } from "@/shared/lib/crypto/sender-device-verification";
 import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
@@ -12,7 +23,7 @@ import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signatu
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { loadPersistedDskIntoWorker } from "./session-keys";
 import { restoreWorkspaceKeks } from "./session-keks";
-import { retryGetUmk } from "./approval-support";
+import { retryGetInitialAkeOffers, retryGetUmk } from "./approval-support";
 import type { DeviceRegistrationPublicKeys } from "../../model/register/types";
 
 interface IdentityPublicKeys {
@@ -93,7 +104,6 @@ async function restoreApprovedDeviceSession(params: {
 
   await worker.setUserContext(auth.user.id, deviceId);
 
-  const umkData = await retryGetUmk(deviceId, 10, 2000, deviceId);
   const me = await authApi.me();
   const expectedIdentityHybridSigningPublicKeyMaterial =
     auth.identityHybridSigningPublicKeyMaterial ??
@@ -108,6 +118,46 @@ async function restoreApprovedDeviceSession(params: {
         | null
         | undefined,
     );
+
+  const exchange = await retryGetInitialAkeOffers(deviceId, 60, 500);
+  await verifySenderDeviceIdentityAndTofu({
+    sender: exchange,
+    senderUserId: auth.user.id,
+    expectedIdentityHybridSigningPublicKeyMaterial,
+    expectedIdentityEcdhPublic,
+  });
+  const offers = exchange.offers as unknown as {
+    umk_distribution: InitialAkeOffer;
+    trust_transfer: InitialAkeOffer;
+    device_approval_kek_initial: Record<string, InitialAkeOffer>;
+  };
+  const responses: {
+    umk_distribution: InitialAkeResponderConfirmation;
+    trust_transfer: InitialAkeResponderConfirmation;
+    device_approval_kek_initial: Record<string, InitialAkeResponderConfirmation>;
+  } = {
+    umk_distribution: await worker.respondToInitialAkeOffer({
+      offer: offers.umk_distribution,
+      senderSigningPublicKeyMaterial:
+        exchange.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
+    }),
+    trust_transfer: await worker.respondToInitialAkeOffer({
+      offer: offers.trust_transfer,
+      senderSigningPublicKeyMaterial:
+        exchange.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
+    }),
+    device_approval_kek_initial: {},
+  };
+  for (const [workspaceId, offer] of Object.entries(offers.device_approval_kek_initial)) {
+    responses.device_approval_kek_initial[workspaceId] = await worker.respondToInitialAkeOffer({
+      offer,
+      senderSigningPublicKeyMaterial:
+        exchange.sender_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial,
+    });
+  }
+  await devicesApi.submitInitialAkeResponses(deviceId, { responses });
+
+  const umkData = await retryGetUmk(deviceId, 10, 2000, deviceId);
 
   try {
     await verifySenderDeviceIdentityAndTofu({
@@ -179,12 +229,17 @@ async function restoreApprovedDeviceSession(params: {
   }
 
   if (identityPublicKeys) {
-    await restoreWorkspaceKeks(
+    const kekResults = await restoreWorkspaceKeks(
       auth.user.id,
       deviceId,
       identityPublicKeys.hybridSigningPublicKeyMaterial,
       identityPublicKeys.ecdhPublic,
     );
+    if (kekResults.failed.length > 0) {
+      throw new Error(
+        `approved_device_workspace_key_restore_failed:${kekResults.failed.join(",")}`,
+      );
+    }
   }
 
   const requiresPasswordReentry = !hasPersistedDsk && me.auth_type === "password";
@@ -257,29 +312,92 @@ async function installApprovedDeviceTrustStateBundle(params: {
     throw new Error("trust_state_bundle_hash_mismatch");
   }
 
-  if (!isRecord(params.trustStateBundle.user_checkpoint)) {
-    throw new Error("trust_state_bundle_user_checkpoint_invalid");
-  }
+  const userLineage = assertTransferredLineage(
+    params.trustStateBundle.user_lineage,
+    "trust_state_bundle_user_checkpoint_invalid",
+  );
   await installTransferredKeyDirectoryCheckpoint({
     scopeKind: "user",
     scopeId: params.userId,
-    checkpointEnvelope: params.trustStateBundle.user_checkpoint,
+    checkpointEnvelope: userLineage.checkpointAncestry[0]!,
+  });
+  await installTransferredAuditCheckpointPin(params.trustStateBundle.user_audit_pin);
+  await advanceKeyDirectoryPinWithProof({
+    scopeKind: "user",
+    scopeId: params.userId,
+    checkpointEnvelope: userLineage.checkpoint,
+    checkpointAncestry: userLineage.checkpointAncestry,
+    eventAncestry: userLineage.events,
   });
 
   const workspaceCheckpoints = params.trustStateBundle.workspace_checkpoints;
   if (!Array.isArray(workspaceCheckpoints)) {
     throw new Error("trust_state_bundle_workspace_checkpoints_invalid");
   }
-  for (const entry of workspaceCheckpoints) {
-    if (!isRecord(entry) || typeof entry.workspace_id !== "string" || !isRecord(entry.checkpoint)) {
+  const workspaceIds = workspaceCheckpoints.map((entry) => {
+    if (!isRecord(entry) || typeof entry.workspace_id !== "string" || !isRecord(entry.lineage)) {
       throw new Error("trust_state_bundle_workspace_checkpoint_invalid");
     }
+    return entry.workspace_id;
+  });
+  const workspaceAuditPins = assertTransferredWorkspaceAuditPins(
+    workspaceIds,
+    params.trustStateBundle.workspace_audit_pins,
+  );
+
+  for (const entry of workspaceCheckpoints) {
+    if (!isRecord(entry) || typeof entry.workspace_id !== "string" || !isRecord(entry.lineage)) {
+      throw new Error("trust_state_bundle_workspace_checkpoint_invalid");
+    }
+    const workspaceId = entry.workspace_id;
+    const auditPin = workspaceAuditPins.find(
+      (pin) => pin.chainScope === `workspace:${workspaceId}`,
+    );
+    if (!auditPin) throw new Error("trust_state_bundle_workspace_audit_pins_mismatch");
+    const lineage = assertTransferredLineage(
+      entry.lineage,
+      "trust_state_bundle_workspace_checkpoint_invalid",
+    );
     await installTransferredKeyDirectoryCheckpoint({
       scopeKind: "workspace",
-      scopeId: entry.workspace_id,
-      checkpointEnvelope: entry.checkpoint,
+      scopeId: workspaceId,
+      checkpointEnvelope: lineage.checkpointAncestry[0]!,
+    });
+    await installTransferredAuditCheckpointPin(auditPin);
+    await advanceKeyDirectoryPinWithProof({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      checkpointEnvelope: lineage.checkpoint,
+      checkpointAncestry: lineage.checkpointAncestry,
+      eventAncestry: lineage.events,
     });
   }
+}
+
+function assertTransferredLineage(
+  value: unknown,
+  errorCode: string,
+): {
+  checkpointAncestry: Record<string, unknown>[];
+  events: Record<string, unknown>[];
+  checkpoint: Record<string, unknown>;
+} {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.checkpoint_ancestry) ||
+    value.checkpoint_ancestry.length < 1 ||
+    !value.checkpoint_ancestry.every(isRecord) ||
+    !Array.isArray(value.events) ||
+    !value.events.every(isRecord) ||
+    !isRecord(value.checkpoint)
+  ) {
+    throw new Error(errorCode);
+  }
+  return {
+    checkpointAncestry: value.checkpoint_ancestry,
+    events: value.events,
+    checkpoint: value.checkpoint,
+  };
 }
 
 function deliveryResourceHash(delivery: unknown): string {
