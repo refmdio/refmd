@@ -133,4 +133,40 @@ describe("secure logout incomplete gate", () => {
       unregister();
     }
   });
+
+  it("locks and terminates workers before retry lifecycle callbacks", async () => {
+    const unregister = registerBeforeSessionCleanup(
+      () => {
+        expect(mocks.lock).toHaveBeenCalledOnce();
+        expect(mocks.terminateCryptoWorker).toHaveBeenCalledOnce();
+        expect(mocks.terminateAllScopedCryptoWorkers).toHaveBeenCalledOnce();
+      },
+      { scope: "secure" },
+    );
+
+    try {
+      await expect(retrySecureLogoutCleanup()).resolves.toBeUndefined();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("terminates workers before callbacks even when retry lock fails", async () => {
+    setSecureLogoutIncomplete(true);
+    mocks.lock.mockRejectedValueOnce(new Error("lock failed"));
+    const unregister = registerBeforeSessionCleanup(
+      () => {
+        expect(mocks.terminateCryptoWorker).toHaveBeenCalledOnce();
+        expect(mocks.terminateAllScopedCryptoWorkers).toHaveBeenCalledOnce();
+      },
+      { scope: "secure" },
+    );
+
+    try {
+      await expect(retrySecureLogoutCleanup()).rejects.toThrow("secure_logout_cleanup_incomplete");
+      expect(isSecureLogoutIncomplete()).toBe(true);
+    } finally {
+      unregister();
+    }
+  });
 });

@@ -317,10 +317,10 @@ defmodule RefMD.Auth do
          {:ok, recovery_capability_hash} <-
            verify_recovery_authorization_proof(master_key, user_id, proof, challenge_hash),
          true <- recovery_capability_hash == proof.recovery_capability_hash,
-         audit_checkpoint when is_map(audit_checkpoint) <-
-           Security.current_audit_checkpoint!("user:#{user_id}"),
-         true <- audit_checkpoint.sequence == proof.candidate_user_audit_sequence,
-         true <- audit_checkpoint.event_hash == proof.candidate_user_audit_hash,
+         audit_event_head when is_map(audit_event_head) <-
+           Security.current_verified_audit_event_head!("user:#{user_id}"),
+         true <- audit_event_head.sequence == proof.candidate_user_audit_sequence,
+         true <- audit_event_head.event_hash == proof.candidate_user_audit_hash,
          transcript <-
            Signature.build_recovery_session_transcript!(%{
              user_id: user_id,

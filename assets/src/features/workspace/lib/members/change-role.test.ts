@@ -4,11 +4,10 @@ const mocks = vi.hoisted(() => ({
   authState: vi.fn(),
   cryptoWorkerReady: vi.fn(),
   deviceState: vi.fn(),
-  listRoles: vi.fn(),
-  changeMemberRole: vi.fn(),
+  prepareMemberRoleChange: vi.fn(),
+  commitMemberRoleChange: vi.fn(),
+  createAuthorization: vi.fn(),
   fetchVerifiedKeyDirectory: vi.fn(),
-  buildAppend: vi.fn(),
-  advancePin: vi.fn(),
 }));
 
 vi.mock("@/entities/session", () => ({
@@ -27,8 +26,8 @@ vi.mock("@/shared/api", () => ({
     }
   },
   workspacesApi: {
-    listRoles: mocks.listRoles,
-    changeMemberRole: mocks.changeMemberRole,
+    prepareMemberRoleChange: mocks.prepareMemberRoleChange,
+    commitMemberRoleChange: mocks.commitMemberRoleChange,
   },
 }));
 
@@ -36,12 +35,12 @@ vi.mock("@/shared/lib/key-directory/fetch", () => ({
   fetchVerifiedKeyDirectory: mocks.fetchVerifiedKeyDirectory,
 }));
 
-vi.mock("@/shared/lib/crypto/key-directory/membership-events", () => ({
-  buildWorkspaceMemberRoleChangesKeyDirectoryAppend: mocks.buildAppend,
+vi.mock("@/shared/lib/crypto/workspace-authority-authorization", () => ({
+  createWorkspaceAuthorityAuthorization: mocks.createAuthorization,
 }));
 
-vi.mock("@/shared/lib/anti-rollback/key-directory-pin/pins", () => ({
-  advanceKeyDirectoryPinWithProof: mocks.advancePin,
+vi.mock("@/shared/lib/crypto/worker/client", () => ({
+  getCryptoWorker: () => ({}),
 }));
 
 import { changeWorkspaceMemberRoleWithKeyDirectory } from "./change-role";
@@ -52,26 +51,24 @@ describe("changeWorkspaceMemberRoleWithKeyDirectory", () => {
     mocks.authState.mockReturnValue({ user: { id: "owner" } });
     mocks.cryptoWorkerReady.mockReturnValue(true);
     mocks.deviceState.mockReturnValue({ deviceId: "owner-device" });
-    mocks.listRoles.mockResolvedValue({
-      roles: [
-        { id: "viewer", base_role: "viewer", permissions: [] },
-        { id: "editor", base_role: "editor", permissions: [] },
-      ],
-    });
     mocks.fetchVerifiedKeyDirectory.mockResolvedValue({ checkpoint: { payload: {} } });
-    mocks.buildAppend.mockResolvedValue({ events: [{}], checkpoint: { payload: {} } });
-    mocks.changeMemberRole.mockResolvedValue({
-      ok: true,
-      workspaces_needing_kek_rotation: [],
+    mocks.prepareMemberRoleChange.mockResolvedValue({ protocol: "intent" });
+    mocks.createAuthorization.mockResolvedValue({ protocol: "authorization" });
+    mocks.commitMemberRoleChange.mockResolvedValue({
+      status: "committed",
+      event_type: "workspace.member.role_changed",
+      workspace_id: "workspace",
+      workspace_key_directory_checkpoint_hash: "hash",
+      workspace_audit_checkpoint_hash: "hash",
+      permission_loss: false,
     });
-    mocks.advancePin.mockResolvedValue(undefined);
   });
 
   it("rebuilds once after a stale key-directory rejection", async () => {
     const ApiError = (await import("@/shared/api")).ApiError;
-    mocks.changeMemberRole
+    mocks.commitMemberRoleChange
       .mockRejectedValueOnce(new ApiError(422, { error: "invalid_key_directory" }))
-      .mockResolvedValueOnce({ ok: true, workspaces_needing_kek_rotation: [] });
+      .mockResolvedValueOnce({ status: "committed" });
 
     await changeWorkspaceMemberRoleWithKeyDirectory({
       workspaceId: "workspace",
@@ -82,15 +79,16 @@ describe("changeWorkspaceMemberRoleWithKeyDirectory", () => {
       roleId: "editor",
     });
 
-    expect(mocks.fetchVerifiedKeyDirectory).toHaveBeenCalledTimes(2);
-    expect(mocks.buildAppend).toHaveBeenCalledTimes(2);
-    expect(mocks.changeMemberRole).toHaveBeenCalledTimes(2);
-    expect(mocks.advancePin).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchVerifiedKeyDirectory).toHaveBeenCalledTimes(3);
+    expect(mocks.prepareMemberRoleChange).toHaveBeenCalledTimes(2);
+    expect(mocks.commitMemberRoleChange).toHaveBeenCalledTimes(2);
   });
 
   it("does not retry unrelated API failures", async () => {
     const ApiError = (await import("@/shared/api")).ApiError;
-    mocks.changeMemberRole.mockRejectedValue(new ApiError(403, { error: "permission_denied" }));
+    mocks.commitMemberRoleChange.mockRejectedValue(
+      new ApiError(403, { error: "permission_denied" }),
+    );
 
     await expect(
       changeWorkspaceMemberRoleWithKeyDirectory({
@@ -103,6 +101,6 @@ describe("changeWorkspaceMemberRoleWithKeyDirectory", () => {
       }),
     ).rejects.toThrow("permission_denied");
 
-    expect(mocks.changeMemberRole).toHaveBeenCalledTimes(1);
+    expect(mocks.commitMemberRoleChange).toHaveBeenCalledTimes(1);
   });
 });

@@ -10,9 +10,6 @@ vi.mock("@solidjs/router", () => ({
   ),
 }));
 
-const oauthMnemonic =
-  "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray";
-
 vi.mock("../../model/register/use-registration-flow", () => ({
   useDeviceRegistrationFlow: () => ({
     phase: () => "done",
@@ -22,9 +19,6 @@ vi.mock("../../model/register/use-registration-flow", () => ({
     devicePublicKeys: () => null,
     clientNonce: () => null,
     dskUnavailableOAuth: () => false,
-    oauthRecoveryMnemonic: () => oauthMnemonic,
-    oauthRecoveryKeyConfirmed: () => false,
-    oauthRecoveryKeyVisible: () => false,
     passwordReentryPassword: () => "",
     passwordReentryLoading: () => false,
     passwordReentryError: () => null,
@@ -40,10 +34,6 @@ vi.mock("../../model/register/use-registration-flow", () => ({
     reloadPage: vi.fn(),
     backToLogin: vi.fn(),
     openRecovery: vi.fn(),
-    toggleOAuthRecoveryKeyVisible: vi.fn(),
-    copyOAuthRecoveryKey: vi.fn(),
-    downloadOAuthRecoveryKey: vi.fn(),
-    confirmOAuthRecoveryKey: vi.fn(),
   }),
 }));
 
@@ -54,20 +44,13 @@ describe("DeviceRegistrationFlow", () => {
     document.body.replaceChildren();
   });
 
-  it("requires saving the OAuth first-device recovery key before continuing", () => {
+  it("renders the current device registration flow", () => {
     const root = document.createElement("div");
     document.body.append(root);
 
     const dispose = render(() => <DeviceRegistrationFlow />, root);
-    const continueButton = Array.from(document.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Continue",
-    );
-
-    expect(document.body.textContent).toContain("Recovery Key");
-    expect(document.body.textContent).toContain("24 words");
-    expect(document.body.textContent).toContain("OAuth login alone cannot recover");
-    if (!continueButton) throw new Error("Continue button not found");
-    expect(continueButton.disabled).toBe(true);
+    expect(document.body.textContent).toContain("New Device");
+    expect(document.body.textContent).toContain("Verify this device from an existing device");
 
     dispose();
   });

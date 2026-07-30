@@ -109,20 +109,61 @@ export async function pinInitialKeyDirectoryCheckpoint(params: {
   });
 }
 
-export async function installTransferredKeyDirectoryCheckpoint(params: {
+export async function verifyTransferredKeyDirectoryLineage(params: {
   scopeKind: "user" | "workspace";
   scopeId: string;
   checkpointEnvelope: Record<string, unknown>;
-}): Promise<void> {
-  const checkpoint = assertEnvelope(
-    params.checkpointEnvelope as unknown as Record<string, unknown>,
-  );
-  await verifyCheckpointSignatures(checkpoint, checkpoint.payload);
-  await installVerifiedTransferredKeyDirectoryCheckpoint({
+  checkpointAncestry: Record<string, unknown>[];
+  eventAncestry: Record<string, unknown>[];
+}): Promise<KeyDirectoryPin> {
+  const current = await getKeyDirectoryPin(params.scopeKind, params.scopeId);
+  const trustedCheckpointValue = params.checkpointAncestry[0];
+  if (!trustedCheckpointValue) throw new Error("key_directory_checkpoint_ancestry_required");
+  const trustedCheckpoint = assertEnvelope(trustedCheckpointValue);
+  await verifyCheckpointSignatures(trustedCheckpoint, trustedCheckpoint.payload);
+  await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
     scopeKind: params.scopeKind,
     scopeId: params.scopeId,
-    checkpointEnvelope: checkpoint,
+    trustedCheckpointEnvelope: trustedCheckpointValue,
+    checkpointEnvelope: params.checkpointEnvelope,
+    checkpointAncestry: params.checkpointAncestry,
+    eventAncestry: params.eventAncestry,
   });
+  const candidate = pinFromCheckpoint(
+    params.scopeKind,
+    params.scopeId,
+    assertEnvelope(params.checkpointEnvelope),
+  );
+  assertTransferredCandidateContinuesLocalPin(current, candidate, params.checkpointAncestry);
+  return candidate;
+}
+
+function assertTransferredCandidateContinuesLocalPin(
+  current: KeyDirectoryPin | null,
+  candidate: KeyDirectoryPin,
+  checkpointAncestry: Record<string, unknown>[],
+): void {
+  if (!current) return;
+  if (candidate.checkpointSequence < current.checkpointSequence) {
+    throw new Error("key_directory_checkpoint_rollback");
+  }
+  if (candidate.checkpointSequence === current.checkpointSequence) {
+    if (
+      candidate.checkpointHash !== current.checkpointHash ||
+      candidate.eventHeadHash !== current.eventHeadHash
+    ) {
+      throw new Error("key_directory_checkpoint_fork");
+    }
+    return;
+  }
+  const containsCurrent = checkpointAncestry.some((value) => {
+    const checkpoint = assertEnvelope(value);
+    return (
+      numberField(checkpoint.payload.sequence, "checkpoint_sequence_invalid") ===
+        current.checkpointSequence && checkpointHash(checkpoint) === current.checkpointHash
+    );
+  });
+  if (!containsCurrent) throw new Error("key_directory_checkpoint_fork");
 }
 
 export async function installVerifiedTransferredKeyDirectoryCheckpoint(params: {
@@ -140,15 +181,12 @@ export async function installVerifiedTransferredKeyDirectoryCheckpoint(params: {
     STORE_NAME,
     pin.pinKey,
     pin,
-    (existing) => {
-      if (!existing) return true;
-      return (
-        existing.checkpointHash === pin.checkpointHash &&
+    (existing) =>
+      !existing ||
+      (existing.checkpointHash === pin.checkpointHash &&
         existing.eventHeadHash === pin.eventHeadHash &&
         existing.checkpointSequence === pin.checkpointSequence &&
-        existing.eventHeadSequence === pin.eventHeadSequence
-      );
-    },
+        existing.eventHeadSequence === pin.eventHeadSequence),
   );
   if (!wrote) throw new Error("key_directory_pin_conflict");
   rememberVerifiedKeyDirectoryLineage({

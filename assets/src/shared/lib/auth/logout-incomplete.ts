@@ -20,8 +20,7 @@ export function isSecureLogoutIncomplete(): boolean {
 }
 
 export async function retrySecureLogoutCleanup(): Promise<void> {
-  const beforeCleanup = await runBeforeSessionCleanup({ secure: true });
-  let cleanupFailed = beforeCleanup.failures.length > 0;
+  let cleanupFailed = false;
 
   try {
     await getCryptoWorker().lock();
@@ -30,6 +29,9 @@ export async function retrySecureLogoutCleanup(): Promise<void> {
   }
   terminateCryptoWorker();
   terminateAllScopedCryptoWorkers();
+
+  const beforeCleanup = await runBeforeSessionCleanup({ secure: true });
+  cleanupFailed ||= beforeCleanup.failures.length > 0;
   resetPhoenixConnection();
   runSessionCleanup();
 

@@ -60,6 +60,39 @@ defmodule RefMD.Encryption.UserIdentityPublicKey do
     )
   end
 
+  def guest_changeset(key, attrs) do
+    key
+    |> cast(attrs, [
+      :user_id,
+      :key_version,
+      :lifecycle_state,
+      :rotation_due_at,
+      :needs_rotation,
+      :superseded_at,
+      :private_key_deletion_proof_hash,
+      :hybrid_encryption_public_key_material,
+      :encryption_key_id,
+      :hybrid_signing_public_key_material,
+      :signing_key_id
+    ])
+    |> validate_required([
+      :user_id,
+      :key_version,
+      :lifecycle_state,
+      :rotation_due_at,
+      :hybrid_encryption_public_key_material,
+      :hybrid_signing_public_key_material
+    ])
+    |> validate_number(:key_version, greater_than: 0)
+    |> validate_inclusion(:lifecycle_state, ~w(current pending historical))
+    |> validate_length(:private_key_deletion_proof_hash, is: 43)
+    |> validate_hybrid_encryption_material()
+    |> validate_hybrid_signing_material()
+    |> unique_constraint(:signing_key_id,
+      name: :user_identity_public_keys_signing_key_id_index
+    )
+  end
+
   defp validate_hybrid_encryption_material(changeset) do
     user_id = get_field(changeset, :user_id)
 

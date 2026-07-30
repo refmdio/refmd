@@ -8,53 +8,6 @@ defmodule RefMDWeb.KeyDirectoryController do
   alias RefMD.Workspaces
   alias RefMDWeb.Schemas
 
-  operation(:append,
-    summary: "Append workspace device or identity key admission events",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    request_body:
-      {"Key-directory append", "application/json", Schemas.KeyDirectoryAppendRequest,
-       required: true},
-    responses: [
-      ok: {"Appended", "application/json", Schemas.OkResponse},
-      bad_request: {"Invalid request", "application/json", Schemas.ErrorResponse},
-      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Invalid key directory", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  def append(conn, %{"workspace_id" => workspace_id} = params) do
-    user_id = conn.assigns.current_user_id
-    rrp_device_id = conn.assigns[:rrp_device_id]
-
-    with {:ok, events} <- require_append_events(params["events"]),
-         {:ok, checkpoint} <- require_append_checkpoint(params["checkpoint"]),
-         :ok <- authorize_workspace_append(workspace_id, user_id, rrp_device_id),
-         :ok <- reject_wipe_required_device(workspace_id, rrp_device_id),
-         {:ok, checkpoint_signer_kind} <-
-           Encryption.validate_workspace_key_directory_append(
-             events,
-             checkpoint,
-             workspace_id,
-             user_id,
-             rrp_device_id
-           ) do
-      case Encryption.append_workspace_key_directory(workspace_id, events, checkpoint,
-             checkpoint_signer_kind: checkpoint_signer_kind
-           ) do
-        :ok ->
-          json(conn, %{ok: true})
-
-        {:error, :invalid_key_directory} ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
-      end
-    else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
-    end
-  end
-
   operation(:latest_user,
     summary: "Get the latest pinned user key-directory checkpoint and ancestry",
     parameters: [
@@ -121,28 +74,6 @@ defmodule RefMDWeb.KeyDirectoryController do
     end
   end
 
-  defp fetch_workspace_role(workspace_id, user_id) do
-    case Workspaces.get_member_role(workspace_id, user_id) do
-      nil -> {:error, :forbidden, "key_directory_scope_forbidden"}
-      role -> {:ok, role}
-    end
-  end
-
-  defp authorize_workspace_append(workspace_id, user_id, device_id) do
-    if Workspaces.guest_user?(user_id) do
-      if guest_workspace_access?(workspace_id, user_id, device_id) do
-        :ok
-      else
-        {:error, :forbidden, "key_directory_scope_forbidden"}
-      end
-    else
-      case fetch_workspace_role(workspace_id, user_id) do
-        {:ok, role} -> require_workspace_key_authority(role)
-        {:error, :forbidden, _error} -> {:error, :forbidden, "key_directory_scope_forbidden"}
-      end
-    end
-  end
-
   defp share_participant_workspace_access?(conn, workspace_id) do
     share_id = conn.assigns[:current_share_id]
 
@@ -156,23 +87,6 @@ defmodule RefMDWeb.KeyDirectoryController do
       Workspaces.authorize_workspace_guest_access(workspace_id, user_id) == :ok and
       Encryption.active_workspace_scope_guest_device_admitted?(workspace_id, user_id, device_id)
   end
-
-  defp require_workspace_key_authority(role) when role in ~w(owner admin), do: :ok
-  defp require_workspace_key_authority(_), do: {:error, :forbidden, "forbidden"}
-
-  defp reject_wipe_required_device(_workspace_id, nil), do: :ok
-
-  defp reject_wipe_required_device(workspace_id, device_id) do
-    if Workspaces.workspace_device_wipe_required?(workspace_id, device_id),
-      do: {:error, :forbidden, "device_wipe_required"},
-      else: :ok
-  end
-
-  defp require_append_events(events) when is_list(events) and events != [], do: {:ok, events}
-  defp require_append_events(_), do: {:error, :bad_request, "events_required"}
-
-  defp require_append_checkpoint(checkpoint) when is_map(checkpoint), do: {:ok, checkpoint}
-  defp require_append_checkpoint(_), do: {:error, :bad_request, "checkpoint_required"}
 
   defp send_latest(conn, scope_kind, scope_id, params) do
     with {:ok, client_checkpoint_sequence} <-

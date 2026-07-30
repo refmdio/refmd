@@ -4,13 +4,17 @@ defmodule RefMD.TestCrypto do
   import Ecto.Query
 
   alias RefMD.Crypto.{Blake3, Encoding, Hash, HybridEncryptionMaterial, JCS, Signature}
+  alias RefMD.Crypto.Signature.Audit
   alias RefMD.Documents.Document
   alias RefMD.Encryption.KeyDirectory
   alias RefMD.Encryption.KeyDirectory.{Payload, PinBootstrap}
   alias RefMD.Encryption.Wraps.SignedPQ
   alias RefMD.Repo
+  alias RefMD.Security
+  alias RefMD.Security.{AuditChainEvent, CompoundAppend}
   alias RefMD.Sharing.Capability
   alias RefMD.TestCrypto.Native, as: TestCryptoNative
+  alias RefMD.Workspaces.AuthorityMutations.{Intent, Prepare}
   alias RefMD.Workspaces.KekRotation.DeletionProofs
   alias RefMDWeb.Http.RrpSessionBinding
   alias RefMDWeb.Http.RrpTranscript
@@ -40,6 +44,376 @@ defmodule RefMD.TestCrypto do
     "offline_cache",
     "pending_queue"
   ]
+
+  def install_signed_audit_genesis!(scope_kind, scope_id, signer_user_id, opts \\ [])
+      when scope_kind in ["user", "workspace"] do
+    {variant, owner_kind, owner_id, signer_device_id, event_types, subject_kind} =
+      case scope_kind do
+        "user" ->
+          {"user_identity", "identity", signer_user_id, nil,
+           ["user.account.genesis", "user.device.genesis_bootstrapped"], "account"}
+
+        "workspace" ->
+          device_id = Keyword.get(opts, :signer_device_id, Ecto.UUID.generate())
+          {"workspace_device", "device", device_id, device_id, ["workspace.genesis"], "workspace"}
+      end
+
+    private_material = hybrid_signing_private_key_material(owner_kind, owner_id)
+    public_material = hybrid_signing_public_key_material(private_material)
+
+    attrs =
+      Enum.map(event_types, fn event_type ->
+        test_audit_genesis_attrs(
+          scope_kind,
+          scope_id,
+          signer_user_id,
+          signer_device_id,
+          owner_kind,
+          subject_kind,
+          event_type
+        )
+      end)
+
+    event_hash =
+      attrs
+      |> Enum.with_index(1)
+      |> Enum.reduce("GENESIS", fn {event_attrs, sequence}, previous_hash ->
+        %{
+          event_id: event_attrs.event_id,
+          chain_scope_kind: scope_kind,
+          chain_scope_id: scope_id,
+          sequence: sequence,
+          previous_event_hash: previous_hash,
+          event_type: event_attrs.type,
+          event_body: event_attrs.event_body
+        }
+        |> AuditChainEvent.build!()
+        |> AuditChainEvent.hash!()
+      end)
+
+    event_type = List.last(event_types)
+    sequence = length(event_types)
+
+    payload =
+      %{
+        "protocol" => "refmd.signed-audit-checkpoint",
+        "version" => 1,
+        "chain_scope_kind" => scope_kind,
+        "chain_scope_id" => scope_id,
+        "sequence" => sequence,
+        "event_hash" => event_hash,
+        "signer_user_id" => signer_user_id,
+        "signing_key_id" => Signature.compute_signing_key_id!(public_material),
+        "authorization_checkpoint_scope_kind" => scope_kind,
+        "authorization_checkpoint_scope_id" => scope_id,
+        "authorization_checkpoint_sequence" => 0,
+        "authorization_checkpoint_hash" => "GENESIS",
+        "covered_event_class" => "authority",
+        "covered_event_type" => event_type
+      }
+      |> then(fn payload ->
+        if signer_device_id,
+          do: Map.put(payload, "signer_device_id", signer_device_id),
+          else: payload
+      end)
+
+    transcript = Audit.build_audit_checkpoint_transcript!(variant, owner_kind, owner_id, payload)
+
+    envelope = %{
+      "payload" => payload,
+      "signature" =>
+        Signature.__test_sign_hybrid_signature__(
+          "audit_checkpoint",
+          transcript,
+          private_material,
+          public_material
+        ),
+      "checkpoint_hash" => Audit.checkpoint_hash!(variant, payload)
+    }
+
+    authority = %{
+      chain_scope_kind: scope_kind,
+      chain_scope_id: scope_id,
+      signer_user_id: signer_user_id,
+      signer_device_id: signer_device_id,
+      public_key_material: public_material
+    }
+
+    {:ok, result} =
+      Security.record_signed_audit_events(attrs, envelope, [],
+        genesis_candidate_authority: authority
+      )
+
+    result
+  end
+
+  def workspace_authority_authorization!(intent, actor_private_material, command) do
+    [scope] = intent["scopes"]
+    [audit_event] = scope["candidate_events"]
+    [first_effect | _] = scope["candidate_key_directory_effects"]
+    actor = first_effect["event_payload"]["actor"]
+    audit_actor = audit_event["event_body"]["actor"]
+    public_material = hybrid_signing_public_key_material(actor_private_material)
+
+    prepared =
+      Prepare.validate!(
+        audit_actor["user_id"],
+        audit_actor["device_id"],
+        audit_event["event_type"],
+        command
+      )
+
+    audit_payload =
+      Intent.audit_checkpoint_payload(prepared, audit_event)
+
+    audit_transcript =
+      Audit.build_audit_checkpoint_transcript!(
+        "workspace_device",
+        "device",
+        actor["device_id"],
+        audit_payload
+      )
+
+    audit_signature =
+      Signature.__test_sign_hybrid_signature__(
+        "audit_checkpoint",
+        audit_transcript,
+        actor_private_material,
+        public_material
+      )
+
+    effect_authorizations =
+      Enum.map(scope["effect_signature_requirements"], fn requirement ->
+        transcript = workspace_authority_effect_transcript(requirement, scope, actor, prepared)
+
+        signature =
+          Signature.__test_sign_hybrid_signature__(
+            requirement["signing_purpose"],
+            transcript,
+            actor_private_material,
+            public_material
+          )
+
+        requirement
+        |> Map.take(~w(
+          authorization_kind requirement_order signer_key_id signing_purpose subject_hash
+          surface_variant
+        ))
+        |> Map.merge(%{"signature" => signature, "approval_proof" => "NONE"})
+      end)
+
+    %{
+      "protocol" => "refmd.audit.compound-append-authorization",
+      "version" => 1,
+      "compound_intent_id" => intent["compound_intent_id"],
+      "mutation_id" => intent["mutation_id"],
+      "intent_hash" => CompoundAppend.hash(intent),
+      "scope_signatures" => [
+        %{
+          "chain_scope_kind" => "workspace",
+          "chain_scope_id" => scope["chain_scope_id"],
+          "checkpoint_hash" => scope["checkpoint_payload_hash"],
+          "checkpoint_variant" => "workspace_device",
+          "signature" => audit_signature
+        }
+      ],
+      "effect_authorizations" => effect_authorizations
+    }
+  end
+
+  defp workspace_authority_effect_transcript(
+         %{"authorization_kind" => "key_directory_event"} = requirement,
+         scope,
+         actor,
+         _prepared
+       ) do
+    payload =
+      scope["candidate_key_directory_effects"]
+      |> Enum.at(requirement["requirement_order"] - 1)
+      |> Map.fetch!("event_payload")
+
+    Signature.build_key_directory_event_transcript!(
+      payload["event_type"],
+      "device",
+      actor["device_id"],
+      payload
+    )
+  end
+
+  defp workspace_authority_effect_transcript(
+         %{"authorization_kind" => "key_directory_checkpoint"},
+         scope,
+         actor,
+         prepared
+       ) do
+    signer = Intent.checkpoint_signer(prepared)
+
+    Signature.build_key_directory_checkpoint_transcript!(
+      "workspace_authorized",
+      "device",
+      actor["device_id"],
+      scope["candidate_key_directory_checkpoint_payload"],
+      signer
+    )
+  end
+
+  defp workspace_authority_effect_transcript(
+         %{"authorization_kind" => "pq_wrap", "pq_wrap_signing_input" => input},
+         _scope,
+         actor,
+         _prepared
+       ) do
+    Signature.build_pq_wrap_transcript!(
+      actor["device_id"],
+      input["actor"],
+      input["authority_boundary"],
+      input["subject_hashes"]
+    )
+  end
+
+  defp test_audit_genesis_attrs(
+         scope_kind,
+         scope_id,
+         signer_user_id,
+         signer_device_id,
+         owner_kind,
+         subject_kind,
+         event_type
+       ) do
+    %{
+      event_id: Ecto.UUID.generate(),
+      class: "authority",
+      type: event_type,
+      event_body: %{
+        "protocol" => "refmd.audit.high-risk-mutation",
+        "version" => 1,
+        "event_type" => event_type,
+        "mutation_id" => Ecto.UUID.generate(),
+        "chain_scope_kind" => scope_kind,
+        "chain_scope_id" => scope_id,
+        "actor" =>
+          if(owner_kind == "identity",
+            do: %{"kind" => "identity", "user_id" => signer_user_id},
+            else: %{
+              "kind" => "device",
+              "user_id" => signer_user_id,
+              "device_id" => signer_device_id
+            }
+          ),
+        "subject_kind" => subject_kind,
+        "subject_id" => scope_id,
+        "canonical_request_hash" => Hash.blake3_base64url("test-audit-genesis-request"),
+        "key_directory_effects_hash" => Hash.blake3_base64url("test-audit-genesis-effects")
+      },
+      actor: %{
+        "user_id" => signer_user_id,
+        "device_id" => signer_device_id,
+        "session_id" => nil,
+        "principal_kind" => "user",
+        "principal_id" => signer_user_id
+      },
+      scope: %{
+        "workspace_id" => if(scope_kind == "workspace", do: scope_id, else: nil),
+        "document_id" => nil,
+        "share_id" => nil
+      },
+      resource: %{"kind" => scope_kind, "id" => scope_id, "version_hash" => nil},
+      action: %{"operation" => event_type, "result" => "completed", "reason_code" => nil},
+      sensitivity: Security.empty_sensitivity(),
+      correlation: %{
+        "request_id" => nil,
+        "capability_id" => nil,
+        "execution_context_id" => nil,
+        "authority_event_ref" => nil
+      }
+    }
+  end
+
+  def recoverable_identity_secret_record(
+        user_id,
+        signing_key_id,
+        encryption_key_id,
+        signing_ciphertext,
+        signing_nonce,
+        encryption_ciphertext,
+        encryption_nonce,
+        opts \\ []
+      ) do
+    record_id = Keyword.get(opts, :id, Ecto.UUID.generate())
+    identity_key_epoch = Keyword.get(opts, :identity_key_epoch, 1)
+    previous_record_hash = Keyword.get(opts, :previous_record_hash, "GENESIS")
+    is_current = Keyword.get(opts, :is_current, true)
+
+    storage_scope = %{
+      "kind" => "user_identity_key",
+      "user_id" => user_id,
+      "identity_key_epoch" => identity_key_epoch
+    }
+
+    signing_aad_hash =
+      context_hash(%{
+        "protocol" => "refmd.hybrid-signing-private-key-material-encryption",
+        "version" => 1,
+        "purpose" => "identity_hybrid_signing_private_key_material",
+        "owner_kind" => "identity",
+        "owner_id" => user_id,
+        "signing_key_id" => signing_key_id,
+        "suite_id" => @suite_id,
+        "suite_rank" => @suite_rank,
+        "storage_scope" => storage_scope
+      })
+
+    encryption_aad_hash =
+      context_hash(%{
+        "protocol" => "refmd.hybrid-encryption-private-key-material-encryption",
+        "version" => 1,
+        "purpose" => "identity_hybrid_encryption_private_key_material",
+        "owner_kind" => "identity",
+        "owner_id" => user_id,
+        "encryption_key_id" => encryption_key_id,
+        "suite_id" => @hybrid_encryption_suite_id,
+        "suite_rank" => @suite_rank,
+        "storage_scope" => storage_scope
+      })
+
+    preimage = %{
+      "protocol" => "refmd.recoverable-identity-secret-record",
+      "version" => 1,
+      "record_id" => record_id,
+      "user_id" => user_id,
+      "identity_key_epoch" => identity_key_epoch,
+      "previous_record_hash" => previous_record_hash,
+      "signing_key_id" => signing_key_id,
+      "encryption_key_id" => encryption_key_id,
+      "signing_ciphertext_hash" => Hash.blake3_base64url(signing_ciphertext),
+      "signing_nonce_hash" => Hash.blake3_base64url(signing_nonce),
+      "signing_material_aad_hash" => signing_aad_hash,
+      "encryption_ciphertext_hash" => Hash.blake3_base64url(encryption_ciphertext),
+      "encryption_nonce_hash" => Hash.blake3_base64url(encryption_nonce),
+      "encryption_material_aad_hash" => encryption_aad_hash
+    }
+
+    %{
+      "id" => record_id,
+      "user_id" => user_id,
+      "identity_key_epoch" => identity_key_epoch,
+      "previous_record_hash" => previous_record_hash,
+      "encrypted_identity_hybrid_signing_private_key_material" =>
+        Encoding.encode_base64url(signing_ciphertext),
+      "identity_hybrid_signing_private_key_material_nonce" =>
+        Encoding.encode_base64url(signing_nonce),
+      "encrypted_identity_hybrid_encryption_private_key_material" =>
+        Encoding.encode_base64url(encryption_ciphertext),
+      "identity_hybrid_encryption_private_key_material_nonce" =>
+        Encoding.encode_base64url(encryption_nonce),
+      "signing_key_id" => signing_key_id,
+      "encryption_key_id" => encryption_key_id,
+      "signing_material_aad_hash" => signing_aad_hash,
+      "encryption_material_aad_hash" => encryption_aad_hash,
+      "record_hash" => context_hash(preimage),
+      "is_current" => is_current
+    }
+  end
 
   def hybrid_signing_private_key_material(owner_kind, owner_id) do
     hybrid_signing_private_key_material(owner_kind, owner_id, nil)
@@ -111,7 +485,7 @@ defmodule RefMD.TestCrypto do
   end
 
   def recovery_authorization_material(user_id) do
-    private = hybrid_signing_private_key_material("identity", user_id)
+    private = hybrid_signing_private_key_material("recovery_authorization", user_id)
     public = hybrid_signing_public_key_material(private)
 
     %{
@@ -992,25 +1366,46 @@ defmodule RefMD.TestCrypto do
         device_hybrid_encryption_public_key_material,
         client_nonce
       ) do
+    registration_challenge_hash = Hash.blake3_base64url("registration:" <> device_id)
+
+    sign_genesis_device_bootstrap(
+      identity_private_material,
+      device_id,
+      device_public_material,
+      nil,
+      device_hybrid_encryption_public_key_material,
+      client_nonce,
+      registration_challenge_hash
+    )
+  end
+
+  def sign_genesis_device_bootstrap(
+        identity_private_material,
+        device_id,
+        device_public_material,
+        _device_x25519_public,
+        device_hybrid_encryption_public_key_material,
+        client_nonce,
+        registration_challenge_hash
+      ) do
     user_id = identity_private_material["owner_id"]
     identity_public_material = hybrid_signing_public_key_material(identity_private_material)
-    registration_challenge_hash = Hash.blake3_base64url("registration:" <> device_id)
 
     user_identity_public_key_hash =
       Hash.blake3_base64url(JCS.canonical_bytes!(identity_public_material))
 
     transcript =
-      Signature.build_genesis_device_bootstrap_transcript!(%{
-        user_id: user_id,
-        device_id: device_id,
-        device_public_material: device_public_material,
-        device_hybrid_encryption_public_key_material:
-          device_hybrid_encryption_public_key_material,
-        client_nonce: Encoding.encode_base64url(client_nonce),
-        registration_challenge_hash: registration_challenge_hash,
-        identity_signing_key_id: Signature.compute_signing_key_id!(identity_public_material),
-        user_identity_public_key_hash: user_identity_public_key_hash
-      })
+      user_id
+      |> genesis_device_bootstrap_fixture_params(
+        device_id,
+        device_public_material,
+        device_hybrid_encryption_public_key_material,
+        client_nonce,
+        registration_challenge_hash,
+        identity_public_material,
+        user_identity_public_key_hash
+      )
+      |> Signature.build_genesis_device_bootstrap_transcript!()
 
     sign_transcript(
       identity_private_material,
@@ -1059,25 +1454,39 @@ defmodule RefMD.TestCrypto do
       Hash.blake3_base64url(JCS.canonical_bytes!(identity_public_material))
 
     transcript =
-      Signature.build_genesis_device_bootstrap_transcript!(%{
-        user_id: user_id,
-        device_id: device_id,
-        device_public_material: device_public_material,
-        device_hybrid_encryption_public_key_material:
-          device_hybrid_encryption_public_key_material,
-        client_nonce: Encoding.encode_base64url(client_nonce),
-        registration_challenge_hash: registration_challenge_hash,
-        identity_signing_key_id: Signature.compute_signing_key_id!(identity_public_material),
-        user_identity_public_key_hash: user_identity_public_key_hash
-      })
+      user_id
+      |> genesis_device_bootstrap_fixture_params(
+        device_id,
+        device_public_material,
+        device_hybrid_encryption_public_key_material,
+        client_nonce,
+        registration_challenge_hash,
+        identity_public_material,
+        user_identity_public_key_hash
+      )
+      |> Signature.build_genesis_device_bootstrap_transcript!()
+
+    fixture = genesis_device_bootstrap_fixture(device_id, user_id)
 
     Signature.build_device_approval_proof!(
       "genesis_device_bootstrap",
       transcript,
       %{
         "kind" => "genesis_device_bootstrap",
+        "registration_id" => device_id,
+        "compound_intent_id" => fixture.compound_intent_id,
+        "mutation_id" => fixture.mutation_id,
+        "genesis_compound_context_hash" => fixture.compound_context_hash,
+        "workspace_id" => user_id,
+        "owner_role_id" => user_id,
         "registration_challenge_hash" => registration_challenge_hash,
-        "user_identity_public_key_hash" => user_identity_public_key_hash
+        "user_identity_public_key_hash" => user_identity_public_key_hash,
+        "user_device_key_added_event_hash" => fixture.user_device_event_hash,
+        "workspace_device_key_added_event_hash" => fixture.workspace_device_event_hash,
+        "owner_member_added_event_hash" => fixture.owner_member_event_hash,
+        "workspace_member_envelope_commitment_hash" => fixture.member_envelope_hash,
+        "user_audit_checkpoint" => fixture.user_audit_checkpoint,
+        "workspace_audit_checkpoint" => fixture.workspace_audit_checkpoint
       },
       %{
         "approving_signing_key_id" => Signature.compute_signing_key_id!(identity_public_material),
@@ -1099,6 +1508,62 @@ defmodule RefMD.TestCrypto do
         "target_key_checkpoint_hash" => Hash.blake3_base64url("checkpoint:" <> device_id)
       }
     )
+  end
+
+  defp genesis_device_bootstrap_fixture_params(
+         user_id,
+         device_id,
+         device_public_material,
+         device_encryption_material,
+         client_nonce,
+         registration_challenge_hash,
+         identity_public_material,
+         user_identity_public_key_hash
+       ) do
+    fixture = genesis_device_bootstrap_fixture(device_id, user_id)
+
+    %{
+      registration_id: device_id,
+      compound_intent_id: fixture.compound_intent_id,
+      mutation_id: fixture.mutation_id,
+      genesis_compound_context_hash: fixture.compound_context_hash,
+      user_id: user_id,
+      workspace_id: user_id,
+      owner_role_id: user_id,
+      device_id: device_id,
+      device_public_material: device_public_material,
+      device_hybrid_encryption_public_key_material: device_encryption_material,
+      client_nonce: Encoding.encode_base64url(client_nonce),
+      registration_challenge_hash: registration_challenge_hash,
+      identity_signing_key_id: Signature.compute_signing_key_id!(identity_public_material),
+      user_identity_public_key_hash: user_identity_public_key_hash,
+      user_device_key_added_event_hash: fixture.user_device_event_hash,
+      workspace_device_key_added_event_hash: fixture.workspace_device_event_hash,
+      owner_member_added_event_hash: fixture.owner_member_event_hash,
+      workspace_member_envelope_commitment_hash: fixture.member_envelope_hash,
+      user_audit_checkpoint: fixture.user_audit_checkpoint,
+      workspace_audit_checkpoint: fixture.workspace_audit_checkpoint
+    }
+  end
+
+  defp genesis_device_bootstrap_fixture(device_id, user_id) do
+    %{
+      compound_intent_id: device_id,
+      mutation_id: device_id,
+      compound_context_hash: Hash.blake3_base64url("genesis-context:" <> device_id),
+      user_device_event_hash: Hash.blake3_base64url("user-device-event:" <> device_id),
+      workspace_device_event_hash: Hash.blake3_base64url("workspace-device-event:" <> device_id),
+      owner_member_event_hash: Hash.blake3_base64url("owner-member-event:" <> device_id),
+      member_envelope_hash: Hash.blake3_base64url("member-envelope:" <> device_id),
+      user_audit_checkpoint: %{
+        "sequence" => 2,
+        "checkpoint_hash" => Hash.blake3_base64url("user-audit:" <> user_id <> device_id)
+      },
+      workspace_audit_checkpoint: %{
+        "sequence" => 1,
+        "checkpoint_hash" => Hash.blake3_base64url("workspace-audit:" <> user_id <> device_id)
+      }
+    }
   end
 
   defp device_approval_transcript(
@@ -1218,6 +1683,55 @@ defmodule RefMD.TestCrypto do
     sign_transcript(private_material, public_material, "device_approval", transcript)
   end
 
+  def device_approval_signature_and_proof(
+        user_id,
+        approver_device_id,
+        device_id,
+        device_public_material,
+        device_hybrid_encryption_public_key_material,
+        client_nonce,
+        commitments,
+        binding_context
+      ) do
+    private_material = hybrid_signing_private_key_material("device", approver_device_id)
+    public_material = hybrid_signing_public_key_material(private_material)
+
+    transcript =
+      Signature.build_device_approval_transcript!(
+        user_id,
+        approver_device_id,
+        device_id,
+        device_public_material,
+        device_hybrid_encryption_public_key_material,
+        Encoding.encode_base64url(client_nonce),
+        Map.merge(commitments, binding_context)
+      )
+
+    surface_details = %{
+      "kind" => "device_approval",
+      "pending_registration_id" => device_id,
+      "pending_registration_challenge_hash" =>
+        Map.fetch!(binding_context, "pending_registration_challenge_hash"),
+      "trust_transfer_delivery_commitment" =>
+        Map.fetch!(commitments, "trust_transfer_delivery_commitment"),
+      "umk_distribution_delivery_commitment" =>
+        Map.fetch!(commitments, "umk_distribution_delivery_commitment"),
+      "device_approval_kek_initial_delivery_commitments" =>
+        Map.fetch!(commitments, "device_approval_kek_initial_delivery_commitments"),
+      "approving_device_key_directory_proof_hash" =>
+        Map.fetch!(binding_context, "approving_device_key_directory_proof_hash"),
+      "approved_device_registration_sas_hash" =>
+        Map.fetch!(binding_context, "approved_device_registration_sas_hash")
+    }
+
+    %{
+      signature:
+        sign_transcript(private_material, public_material, "device_approval", transcript),
+      proof:
+        Signature.build_device_approval_proof!("device_approval", transcript, surface_details)
+    }
+  end
+
   defp default_device_approval_binding_context(
          _user_id,
          approver_device_id,
@@ -1303,6 +1817,7 @@ defmodule RefMD.TestCrypto do
         "event_type" => "identity_key_added",
         "actor" => identity_actor(user_id, identity_signing_key_id),
         "body" => %{
+          "key_kind" => "signing",
           "key_id" => identity_signing_key_id,
           "key_material_hash" =>
             Hash.blake3_base64url(JCS.canonical_bytes!(identity_public_material))
@@ -1372,20 +1887,61 @@ defmodule RefMD.TestCrypto do
         }
       })
 
-    workspace_member_event =
+    workspace_identity_signing_event =
       key_directory_event(%{
         "scope_kind" => "workspace",
         "scope_id" => workspace_id,
         "sequence" => 2,
-        "event_type" => "member_added",
+        "event_type" => "identity_key_added",
         "actor" =>
           device_actor(user_id, device_private_material["owner_id"], device_signing_key_id),
         "previous_event_hash" => KeyDirectory.event_hash(workspace_device_event),
         "body" => %{
+          "key_kind" => "signing",
+          "key_id" => identity_signing_key_id,
+          "key_material_hash" =>
+            Hash.blake3_base64url(JCS.canonical_bytes!(identity_public_material))
+        }
+      })
+
+    identity_encryption_key_id =
+      HybridEncryptionMaterial.compute_key_id!(identity_hybrid_encryption_public_key_material)
+
+    workspace_identity_encryption_event =
+      key_directory_event(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => 3,
+        "event_type" => "identity_key_added",
+        "actor" =>
+          device_actor(user_id, device_private_material["owner_id"], device_signing_key_id),
+        "previous_event_hash" => KeyDirectory.event_hash(workspace_identity_signing_event),
+        "body" => %{
+          "key_kind" => "encryption",
+          "key_id" => identity_encryption_key_id,
+          "key_material_hash" =>
+            Hash.blake3_base64url(
+              JCS.canonical_bytes!(identity_hybrid_encryption_public_key_material)
+            )
+        }
+      })
+
+    workspace_member_event =
+      key_directory_event(%{
+        "scope_kind" => "workspace",
+        "scope_id" => workspace_id,
+        "sequence" => 4,
+        "event_type" => "member_added",
+        "actor" =>
+          device_actor(user_id, device_private_material["owner_id"], device_signing_key_id),
+        "previous_event_hash" => KeyDirectory.event_hash(workspace_identity_encryption_event),
+        "body" => %{
           "workspace_id" => workspace_id,
           "user_id" => user_id,
           "role_id" => workspace_owner_role_id,
-          "base_role" => "owner"
+          "base_role" => "owner",
+          "workspace_member_envelope_hash" =>
+            Hash.blake3_base64url("member-envelope:" <> workspace_id <> ":" <> user_id)
         }
       })
 
@@ -1398,6 +1954,16 @@ defmodule RefMD.TestCrypto do
         "authority_boundary" =>
           test_key_directory_checkpoint_authority_boundary(%{"sequence" => 1}),
         "covered_event_head" => event_head(workspace_member_event),
+        "identity_keys" => [
+          Payload.key_entry!(
+            identity_public_material,
+            event_ref("workspace", workspace_id, workspace_identity_signing_event)
+          ),
+          Payload.key_entry!(
+            identity_hybrid_encryption_public_key_material,
+            event_ref("workspace", workspace_id, workspace_identity_encryption_event)
+          )
+        ],
         "device_keys" => [
           Payload.key_entry!(
             device_public_material,
@@ -1423,6 +1989,8 @@ defmodule RefMD.TestCrypto do
         ),
       workspace_events: [
         signed_key_directory_event(workspace_device_event, device_private_material),
+        signed_key_directory_event(workspace_identity_signing_event, device_private_material),
+        signed_key_directory_event(workspace_identity_encryption_event, device_private_material),
         signed_key_directory_event(workspace_member_event, device_private_material)
       ],
       workspace_checkpoint:
@@ -1450,6 +2018,128 @@ defmodule RefMD.TestCrypto do
     do: event_ref(scope_kind, scope_id, event)
 
   def key_directory_event_head(event), do: event_head(event)
+
+  def device_approval_key_directory_append(
+        user_id,
+        target_device_id,
+        target_signing_public,
+        target_encryption_public,
+        identity_private,
+        sender_device_private,
+        workspace_ids
+      ) do
+    target_signing_key_id = Signature.compute_signing_key_id!(target_signing_public)
+    target_encryption_key_id = HybridEncryptionMaterial.compute_key_id!(target_encryption_public)
+
+    target = %{
+      user_id: user_id,
+      device_id: target_device_id,
+      signing_key_id: target_signing_key_id,
+      encryption_key_id: target_encryption_key_id,
+      signing_public: target_signing_public,
+      encryption_public: target_encryption_public
+    }
+
+    user_append =
+      device_key_added_append(
+        "user",
+        user_id,
+        target,
+        identity_private,
+        "identity_active"
+      )
+
+    workspace_appends =
+      Enum.map(workspace_ids, fn workspace_id ->
+        append =
+          device_key_added_append(
+            "workspace",
+            workspace_id,
+            target,
+            sender_device_private,
+            "workspace_authorized"
+          )
+
+        %{
+          "workspace_id" => workspace_id,
+          "events" => append.events,
+          "checkpoint" => append.checkpoint
+        }
+      end)
+
+    %{
+      "user_events" => user_append.events,
+      "user_checkpoint" => user_append.checkpoint,
+      "workspace_appends" => workspace_appends
+    }
+  end
+
+  defp device_key_added_append(
+         scope_kind,
+         scope_id,
+         target,
+         signer_private,
+         checkpoint_variant
+       ) do
+    pin = KeyDirectory.current_pin(scope_kind, scope_id)
+    current = KeyDirectory.current_checkpoint(scope_kind, scope_id)
+    signer_public = hybrid_signing_public_key_material(signer_private)
+    signer_key_id = Signature.compute_signing_key_id!(signer_public)
+
+    actor =
+      if scope_kind == "user" do
+        identity_actor(target.user_id, signer_key_id)
+      else
+        device_actor(target.user_id, signer_private["owner_id"], signer_key_id)
+      end
+
+    event =
+      key_directory_event(%{
+        "scope_kind" => scope_kind,
+        "scope_id" => scope_id,
+        "sequence" => pin.event_head_sequence + 1,
+        "event_type" => "device_key_added",
+        "actor" => actor,
+        "previous_event_hash" => pin.event_head_hash,
+        "body" => %{
+          "user_id" => target.user_id,
+          "device_id" => target.device_id,
+          "signing_key_id" => target.signing_key_id,
+          "encryption_key_id" => target.encryption_key_id
+        }
+      })
+
+    event_ref = event_ref(scope_kind, scope_id, event)
+
+    checkpoint_payload =
+      current.payload
+      |> Map.put("sequence", current.sequence + 1)
+      |> Map.put(
+        "issued_at",
+        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
+      )
+      |> Map.put("previous_checkpoint_hash", current.checkpoint_hash)
+      |> Map.put("covered_event_head", event_head(event))
+      |> Map.update!("device_keys", fn keys ->
+        keys ++
+          [
+            Payload.key_entry!(target.signing_public, event_ref),
+            Payload.key_entry!(target.encryption_public, event_ref)
+          ]
+      end)
+      |> key_directory_checkpoint_payload!()
+
+    %{
+      events: [signed_key_directory_event(event, signer_private)],
+      checkpoint:
+        signed_key_directory_checkpoint(
+          checkpoint_payload,
+          checkpoint_variant,
+          signer_private,
+          if(scope_kind == "workspace", do: target.user_id)
+        )
+    }
+  end
 
   def with_test_share_security_artifacts(attrs, %RefMD.Documents.Document{} = document, owner_id)
       when is_map(attrs) do
@@ -2229,7 +2919,9 @@ defmodule RefMD.TestCrypto do
           "workspace_id" => workspace_id,
           "user_id" => user_id,
           "role_id" => role.id,
-          "base_role" => role.base_role
+          "base_role" => role.base_role,
+          "workspace_member_envelope_hash" =>
+            Hash.blake3_base64url("test-member-envelope:#{workspace_id}:#{user_id}")
         }
       })
 
@@ -2858,6 +3550,65 @@ defmodule RefMD.TestCrypto do
         }
       })
 
+    workspace = RefMD.Repo.get!(RefMD.Workspaces.Workspace, workspace_id)
+
+    documents =
+      RefMD.Repo.all(
+        from(document in RefMD.Documents.Document,
+          where: document.workspace_id == ^workspace_id,
+          order_by: [asc: document.id]
+        )
+      )
+
+    rotation_specs =
+      [
+        %{
+          "rotation_kind" => "kek",
+          "scope_kind" => "workspace",
+          "scope_id" => workspace_id,
+          "old_key_version" => workspace.current_kek_version,
+          "new_key_version" => workspace.current_kek_version + 1
+        }
+      ] ++
+        Enum.map(documents, fn document ->
+          %{
+            "rotation_kind" => "dek",
+            "scope_kind" => "document",
+            "scope_id" => document.id,
+            "old_key_version" => document.min_dek_version,
+            "new_key_version" => document.min_dek_version + 1
+          }
+        end)
+
+    {rotation_events, _sequence, _previous_hash} =
+      Enum.reduce(
+        rotation_specs,
+        {[], member_removed_event["sequence"], KeyDirectory.event_hash(member_removed_event)},
+        fn spec, {events, previous_sequence, previous_hash} ->
+          sequence = previous_sequence + 1
+
+          event =
+            key_directory_event(%{
+              "scope_kind" => "workspace",
+              "scope_id" => workspace_id,
+              "sequence" => sequence,
+              "event_type" => "rotation_started",
+              "actor" => device_actor(actor_user_id, actor_device_id, actor_signing_key_id),
+              "previous_event_hash" => previous_hash,
+              "body" =>
+                spec
+                |> Map.put("event_type", "rotation_started")
+                |> Map.put("not_before_event_sequence", sequence)
+                |> Map.put("reason", "membership_change")
+            })
+
+          {[event | events], sequence, KeyDirectory.event_hash(event)}
+        end
+      )
+
+    events = [member_removed_event | Enum.reverse(rotation_events)]
+    last_event = List.last(events)
+
     checkpoint_payload =
       key_directory_checkpoint_payload!(
         checkpoint.payload
@@ -2867,13 +3618,12 @@ defmodule RefMD.TestCrypto do
           DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
         )
         |> Map.put("previous_checkpoint_hash", checkpoint.checkpoint_hash)
-        |> Map.put("covered_event_head", event_head(member_removed_event))
+        |> Map.put("covered_event_head", event_head(last_event))
       )
 
     %{
-      "workspace_key_directory_events" => [
-        signed_key_directory_event(member_removed_event, actor_private_material)
-      ],
+      "workspace_key_directory_events" =>
+        Enum.map(events, &signed_key_directory_event(&1, actor_private_material)),
       "workspace_key_directory_checkpoint" =>
         signed_key_directory_checkpoint(
           checkpoint_payload,

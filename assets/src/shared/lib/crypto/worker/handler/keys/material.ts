@@ -39,6 +39,7 @@ export function handleImportIdentityKeys(state: WorkerKeyState, payload: Handler
     },
     umk,
     userId,
+    payload.identityKeyEpoch as number,
   );
   handleSetIdentityRotationDeadline(state, payload);
   setIdentityFromDecrypted(state, identity);
@@ -107,6 +108,7 @@ export function handleImportIdentitySuccessor(
     },
     requireUmk(state),
     requireUserId(state),
+    payload.identityKeyEpoch as number,
   );
   const activeEncryptionKeyId = state.identityHybridEncryptionPublicKeyMaterial
     ? computeHybridEncryptionKeyId(state.identityHybridEncryptionPublicKeyMaterial)
@@ -156,6 +158,7 @@ export function handleRestoreActivatedIdentitySuccessor(
     },
     requireUmk(state),
     requireUserId(state),
+    payload.identityKeyEpoch as number,
   );
   const successorSigningKeyId = computeSigningKeyId(successor.hybridSigningPublicKeyMaterial);
   const previousEncryptionKeyId = payload.previousEncryptionKeyId as string;

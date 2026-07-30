@@ -230,6 +230,10 @@ defmodule RefMD.Workspaces.Invitations do
         recipient_user_id: i.recipient_user_id,
         recipient_device_ids: i.recipient_device_ids,
         kek_version: i.kek_version,
+        encrypted_bootstrap_package: i.encrypted_bootstrap_package,
+        bootstrap_package_hash: i.bootstrap_package_hash,
+        bootstrap_package_key_maintenance_wrap: i.bootstrap_package_key_maintenance_wrap,
+        bootstrap_suite_id: i.bootstrap_suite_id,
         is_used: i.is_used,
         expires_at: i.expires_at,
         created_at: i.created_at

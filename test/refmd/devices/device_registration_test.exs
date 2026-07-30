@@ -51,17 +51,62 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
     refute DeviceRegistration.changeset(%DeviceRegistration{}, reused).valid?
   end
 
+  test "changeset rejects legacy and mixed responder prekey freshness schemas" do
+    attrs = registration_attrs()
+
+    mixed =
+      update_in(attrs, [:ake_responder_prekeys, "umk_distribution", "payload"], fn payload ->
+        Map.put(payload, "issued_at_event_sequence", 1)
+      end)
+
+    legacy =
+      update_in(attrs, [:ake_responder_prekeys, "umk_distribution", "payload"], fn payload ->
+        payload
+        |> Map.drop(["issued_at_ms", "expires_at_ms"])
+        |> Map.merge(%{"issued_at_event_sequence" => 1, "expires_event_sequence" => 2})
+      end)
+
+    refute DeviceRegistration.changeset(%DeviceRegistration{}, mixed).valid?
+    refute DeviceRegistration.changeset(%DeviceRegistration{}, legacy).valid?
+  end
+
+  test "registration rejects signed timestamps that differ from the server-issued values" do
+    user = user_fixture()
+    session = session_fixture(user.id)
+
+    assert {:ok, freshness = %{challenge: challenge}} =
+             Devices.issue_registration_challenge(user.id, session)
+
+    assert {:error, :initial_ake_prekeys, :invalid_initial_ake_prekey_freshness, %{}} =
+             Devices.replace_user_device_registration(
+               user.id,
+               session.id,
+               registration_attrs(
+                 user_id: user.id,
+                 challenge: challenge,
+                 issued_at_ms: freshness.issued_at_ms + 1,
+                 expires_at_ms: freshness.expires_at_ms + 1
+               )
+             )
+  end
+
   test "registration challenge is consumed exactly once" do
     user = user_fixture()
     session = session_fixture(user.id)
 
-    assert {:ok, %{challenge: challenge}} = Devices.issue_registration_challenge(user.id, session)
+    assert {:ok, freshness = %{challenge: challenge}} =
+             Devices.issue_registration_challenge(user.id, session)
 
     assert {:ok, %{pending: pending}} =
              Devices.replace_user_device_registration(
                user.id,
                session.id,
-               registration_attrs(user_id: user.id, challenge: challenge)
+               registration_attrs(
+                 user_id: user.id,
+                 challenge: challenge,
+                 issued_at_ms: freshness.issued_at_ms,
+                 expires_at_ms: freshness.expires_at_ms
+               )
              )
 
     assert pending.user_id == user.id
@@ -87,7 +132,12 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
              Devices.replace_user_device_registration(
                user.id,
                session.id,
-               registration_attrs(user_id: user.id, challenge: challenge)
+               registration_attrs(
+                 user_id: user.id,
+                 challenge: challenge,
+                 issued_at_ms: freshness.issued_at_ms,
+                 expires_at_ms: freshness.expires_at_ms
+               )
              )
   end
 
@@ -105,7 +155,8 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
                registration_attrs(user_id: user.id)
              )
 
-    assert {:ok, %{challenge: challenge}} = Devices.issue_registration_challenge(user.id, session)
+    assert {:ok, freshness = %{challenge: challenge}} =
+             Devices.issue_registration_challenge(user.id, session)
 
     from(s in Session, where: s.id == ^session.id)
     |> Repo.update_all(
@@ -116,7 +167,12 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
              Devices.replace_user_device_registration(
                user.id,
                session.id,
-               registration_attrs(user_id: user.id, challenge: challenge)
+               registration_attrs(
+                 user_id: user.id,
+                 challenge: challenge,
+                 issued_at_ms: freshness.issued_at_ms,
+                 expires_at_ms: freshness.expires_at_ms
+               )
              )
   end
 
@@ -124,7 +180,8 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
     user = user_fixture()
     session = session_fixture(user.id)
 
-    assert {:ok, %{challenge: challenge}} = Devices.issue_registration_challenge(user.id, session)
+    assert {:ok, freshness = %{challenge: challenge}} =
+             Devices.issue_registration_challenge(user.id, session)
 
     parent = self()
 
@@ -137,7 +194,12 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
           Devices.replace_user_device_registration(
             user.id,
             session.id,
-            registration_attrs(user_id: user.id, challenge: challenge)
+            registration_attrs(
+              user_id: user.id,
+              challenge: challenge,
+              issued_at_ms: freshness.issued_at_ms,
+              expires_at_ms: freshness.expires_at_ms
+            )
           )
         end,
         max_concurrency: 2,
@@ -161,6 +223,8 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
     device_id = Keyword.get_lazy(opts, :device_id, &Ecto.UUID.generate/0)
     challenge = Keyword.get_lazy(opts, :challenge, fn -> :crypto.strong_rand_bytes(32) end)
     challenge_hash = Hash.blake3_base64url(challenge)
+    issued_at_ms = Keyword.get(opts, :issued_at_ms, 1_700_000_000_000)
+    expires_at_ms = Keyword.get(opts, :expires_at_ms, issued_at_ms + 300_000)
     private_material = hybrid_signing_private_key_material("device", device_id)
     public_material = hybrid_signing_public_key_material(private_material)
     {x25519_public, _private} = :crypto.generate_key(:ecdh, :x25519)
@@ -168,37 +232,23 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
     encryption_material =
       hybrid_encryption_public_key_material("device", device_id, x25519_public).public
 
+    prekey_context = %{
+      user_id: user_id,
+      device_id: device_id,
+      challenge: challenge,
+      issued_at_ms: issued_at_ms,
+      expires_at_ms: expires_at_ms,
+      private_material: private_material,
+      public_material: public_material
+    }
+
     prekeys = %{
       "umk_distribution" =>
-        responder_prekey(
-          "umk_distribution",
-          Ecto.UUID.generate(),
-          user_id,
-          device_id,
-          challenge,
-          private_material,
-          public_material
-        ),
+        responder_prekey("umk_distribution", Ecto.UUID.generate(), prekey_context),
       "trust_transfer" =>
-        responder_prekey(
-          "trust_transfer",
-          Ecto.UUID.generate(),
-          user_id,
-          device_id,
-          challenge,
-          private_material,
-          public_material
-        ),
+        responder_prekey("trust_transfer", Ecto.UUID.generate(), prekey_context),
       "device_approval_kek_initial:#{Ecto.UUID.generate()}" =>
-        responder_prekey(
-          "device_approval_kek_initial",
-          device_id,
-          user_id,
-          device_id,
-          challenge,
-          private_material,
-          public_material
-        )
+        responder_prekey("device_approval_kek_initial", device_id, prekey_context)
     }
 
     %{
@@ -241,15 +291,17 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
     |> Repo.insert!()
   end
 
-  defp responder_prekey(
-         purpose,
-         operation_id,
-         user_id,
-         device_id,
-         challenge,
-         private_material,
-         public_material
-       ) do
+  defp responder_prekey(purpose, operation_id, context) do
+    %{
+      user_id: user_id,
+      device_id: device_id,
+      challenge: challenge,
+      issued_at_ms: issued_at_ms,
+      expires_at_ms: expires_at_ms,
+      private_material: private_material,
+      public_material: public_material
+    } = context
+
     mlkem_public = :crypto.strong_rand_bytes(1184)
 
     payload = %{
@@ -265,8 +317,8 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
       "mlkem768_ephemeral_public" => Encoding.encode_base64url(mlkem_public),
       "mlkem768_ephemeral_public_hash" => Hash.blake3_base64url(mlkem_public),
       "operation_id" => operation_id,
-      "issued_at_event_sequence" => 1,
-      "expires_event_sequence" => 2,
+      "issued_at_ms" => issued_at_ms,
+      "expires_at_ms" => expires_at_ms,
       "server_challenge" => Encoding.encode_base64url(challenge)
     }
 
@@ -287,8 +339,8 @@ defmodule RefMD.Devices.DeviceRegistrationTest do
           "purpose" => purpose,
           "prekey_id" => payload["prekey_id"],
           "operation_id" => operation_id,
-          "issued_at_event_sequence" => 1,
-          "expires_event_sequence" => 2,
+          "issued_at_ms" => issued_at_ms,
+          "expires_at_ms" => expires_at_ms,
           "server_challenge" => payload["server_challenge"]
         }
       )

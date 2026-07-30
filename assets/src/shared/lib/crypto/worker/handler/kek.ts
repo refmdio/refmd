@@ -19,6 +19,8 @@ import {
   requireUmk,
 } from "./utils";
 import {
+  createGenesisWorkspaceMemberEnvelopePrecommit,
+  createSignedPqWrapPrecommit,
   createSignedPqWrap,
   finalizeSignedPqWrapOperationCheckpoint,
   openSignedPqWrap,
@@ -144,6 +146,11 @@ function deriveInvitationBootstrapRecipientKey(bootstrapSecret: string): Uint8Ar
 
 function invitationPackageAad(envelopeAad: Record<string, unknown>): Uint8Array {
   return canonicalizeStrictBytes(envelopeAad as StrictJsonValue);
+}
+
+function invitationRecipientWrapAad(envelopeAad: Record<string, unknown>): Uint8Array {
+  const { key_version_context: _keyVersionContext, ...stableAad } = envelopeAad;
+  return canonicalizeStrictBytes(stableAad as StrictJsonValue);
 }
 
 function assertInvitationCiphertext(value: unknown, code: string): Record<string, unknown> {
@@ -699,6 +706,42 @@ export function handleCreateSignedPqKekWrap(state: WorkerKeyState, p: HandlerPay
   });
 }
 
+export function handleCreatePqKekWrapPrecommit(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const workspaceId = assertString(p.workspaceId, "workspace_id_invalid");
+  const keyVersion = p.keyVersion as number;
+  const { kek } = requireKekForWorkspace(state, workspaceId, keyVersion);
+  return createSignedPqWrapPrecommit({
+    purpose: p.purpose as "workspace_device_kek_wrap" | "workspace_member_kek_wrap",
+    plaintext: kek,
+    recipientPublicKeyMaterial:
+      p.recipientPublicKeyMaterial as unknown as HybridEncryptionPublicKeyMaterial,
+    senderSigningPrivateKeyMaterial: requireDeviceHybridSigningPrivateKeyMaterial(state),
+    senderUserId: assertString(p.senderUserId, "sender_user_id_invalid"),
+    senderDeviceId: assertString(p.senderDeviceId, "sender_device_id_invalid"),
+    resource: p.resource as never,
+    eventScope: p.eventScope as never,
+    senderKeyCheckpoint: p.senderKeyCheckpoint as never,
+    recipientKeyCheckpoint: p.recipientKeyCheckpoint as never,
+  });
+}
+
+export function handleCreateGenesisWorkspaceMemberEnvelopePrecommit(
+  state: WorkerKeyState,
+  p: HandlerPayload,
+): unknown {
+  const workspaceId = assertString(p.workspaceId, "workspace_id_invalid");
+  const { kek } = requireKekForWorkspace(state, workspaceId, 1);
+  return createGenesisWorkspaceMemberEnvelopePrecommit({
+    plaintext: kek,
+    recipientPublicKeyMaterial:
+      p.recipientPublicKeyMaterial as unknown as HybridEncryptionPublicKeyMaterial,
+    senderSigningPrivateKeyMaterial: requireDeviceHybridSigningPrivateKeyMaterial(state),
+    userId: assertString(p.userId, "user_id_invalid"),
+    deviceId: assertString(p.deviceId, "device_id_invalid"),
+    workspaceId,
+  });
+}
+
 export function handleCreateSignedPqShareLinkSecretBackupWrap(
   state: WorkerKeyState,
   p: HandlerPayload,
@@ -828,11 +871,8 @@ export function handleGenerateInitialAkeResponderPrekey(
     userId: requiredString(p.userId, "user_id_invalid"),
     deviceId: requiredString(p.deviceId, "device_id_invalid"),
     serverChallenge: requiredString(p.serverChallenge, "server_challenge_invalid"),
-    issuedAtEventSequence: positiveInteger(
-      p.issuedAtEventSequence,
-      "issued_at_event_sequence_invalid",
-    ),
-    expiresEventSequence: positiveInteger(p.expiresEventSequence, "expires_event_sequence_invalid"),
+    issuedAtMs: positiveInteger(p.issuedAtMs, "issued_at_ms_invalid"),
+    expiresAtMs: positiveInteger(p.expiresAtMs, "expires_at_ms_invalid"),
     signingPrivateKeyMaterial: requireDeviceHybridSigningPrivateKeyMaterial(state),
   });
   state.initialAkeResponderPrekeys.set(
@@ -948,6 +988,8 @@ export function handleBeginInitialAkeDeviceStateTransferDelivery(
     keyEventHeadHash: p.keyEventHeadHash as string,
     workspacePinsHash: p.workspacePinsHash as string,
     documentRollbackPinSetHash: p.documentRollbackPinSetHash as string,
+    transferScopeHash: p.transferScopeHash as string,
+    auditCheckpointPinSetHash: p.auditCheckpointPinSetHash as string,
     pendingRegistrationBindingHash: p.pendingRegistrationBindingHash as string,
   });
   state.initialAkeInitiatorSessions.set(result.offer.transcript_hash, result.initiatorState);
@@ -1589,10 +1631,11 @@ function buildInvitationRecipientWrap(
     if (!context.bootstrapSecret) throw new Error("invitation_bootstrap_secret_invalid");
     const key = deriveInvitationBootstrapRecipientKey(context.bootstrapSecret);
     const nonce = randomBytes(24);
+    const recipientAad = invitationRecipientWrapAad(context.aad);
     return {
       nonce: base64UrlEncode(nonce),
       ciphertext: base64UrlEncode(
-        xchacha20poly1305(key, nonce, context.aadBytes).encrypt(context.packageKey),
+        xchacha20poly1305(key, nonce, recipientAad).encrypt(context.packageKey),
       ),
     };
   }
@@ -1647,7 +1690,7 @@ export function handleUnwrapKekFromInvitationBootstrap(
   if (recipientWrap.delivery_mode === "known_recipient") {
     throw new Error("invitation_recipient_bound_delivery_required");
   }
-  const packageKey = openUnknownInvitationRecipientWrap(bootstrapSecret, aadBytes, recipientWrap);
+  const packageKey = openUnknownInvitationRecipientWrap(bootstrapSecret, aad, recipientWrap);
   if (packageKey.length !== 32) throw new Error("invitation_bootstrap_package_key_invalid");
   const plaintext = parseJsonStrictBytes(
     xchacha20poly1305(
@@ -1691,14 +1734,114 @@ export function handleUnwrapKekFromInvitationBootstrap(
 
 function openUnknownInvitationRecipientWrap(
   bootstrapSecret: string | undefined,
-  aadBytes: Uint8Array,
+  aad: Record<string, unknown>,
   recipientWrap: Record<string, unknown>,
 ): Uint8Array {
   if (!bootstrapSecret) throw new Error("invitation_bootstrap_secret_invalid");
   const key = deriveInvitationBootstrapRecipientKey(bootstrapSecret);
-  return xchacha20poly1305(key, base64UrlDecode(recipientWrap.nonce as string), aadBytes).decrypt(
-    base64UrlDecode(recipientWrap.ciphertext as string),
+  return xchacha20poly1305(
+    key,
+    base64UrlDecode(recipientWrap.nonce as string),
+    invitationRecipientWrapAad(aad),
+  ).decrypt(base64UrlDecode(recipientWrap.ciphertext as string));
+}
+
+export function handleRewrapInvitationBootstrapForKekRotation(
+  state: WorkerKeyState,
+  p: HandlerPayload,
+): unknown {
+  const bootstrap = assertRecord(p.bootstrap, "invitation_bootstrap_package_invalid");
+  const workspaceId = assertString(p.workspaceId, "workspace_id_invalid");
+  const oldKeyVersion = assertPositiveInteger(
+    p.oldKeyVersion,
+    "invitation_bootstrap_old_key_version_invalid",
   );
+  const newKeyVersion = assertPositiveInteger(
+    p.newKeyVersion,
+    "invitation_bootstrap_new_key_version_invalid",
+  );
+  const parsed = assertInvitationBootstrapPackage(bootstrap);
+  if (
+    parsed.workspaceId !== workspaceId ||
+    parsed.keyVersion !== oldKeyVersion ||
+    newKeyVersion <= oldKeyVersion
+  ) {
+    throw new Error("invitation_bootstrap_rotation_binding_invalid");
+  }
+  if (
+    parsed.protocol !== workspaceInvitationBootstrapProtocol &&
+    parsed.aad.scope_kind !== "workspace"
+  ) {
+    throw new Error("invitation_bootstrap_not_kek_maintained");
+  }
+
+  const oldAadBytes = invitationPackageAad(parsed.aad);
+  const maintenanceWrap = assertInvitationMaintenanceWrap(bootstrap.package_key_maintenance_wrap);
+  const { kek: oldKek } = requireKekForWorkspace(state, workspaceId, oldKeyVersion);
+  const packageKey = xchacha20poly1305(
+    oldKek,
+    base64UrlDecode(maintenanceWrap.nonce as string),
+    oldAadBytes,
+  ).decrypt(base64UrlDecode(maintenanceWrap.ciphertext as string));
+  if (packageKey.length !== 32) throw new Error("invitation_bootstrap_package_key_invalid");
+
+  const plaintext = parseJsonStrictBytes(
+    xchacha20poly1305(
+      packageKey,
+      base64UrlDecode(parsed.encryptedPayload.nonce as string),
+      oldAadBytes,
+    ).decrypt(base64UrlDecode(parsed.encryptedPayload.ciphertext as string)),
+  ) as Record<string, unknown>;
+  const keyVersionContext = assertRecord(
+    parsed.aad.key_version_context,
+    "invitation_bootstrap_key_version_context_invalid",
+  );
+  const newAad = {
+    ...parsed.aad,
+    key_version_context: { ...keyVersionContext, workspace_kek_version: newKeyVersion },
+  };
+  const newAadBytes = invitationPackageAad(newAad);
+  const payloadNonce = randomBytes(24);
+  const { kek: newKek } = requireKekForWorkspace(state, workspaceId, newKeyVersion);
+  const nextPlaintext =
+    parsed.protocol === workspaceInvitationBootstrapProtocol
+      ? {
+          ...plaintext,
+          kek_version: newKeyVersion,
+          workspace_kek: base64UrlEncode(newKek),
+        }
+      : {
+          ...plaintext,
+          key_version_context: newAad.key_version_context,
+          workspace_kek: base64UrlEncode(newKek),
+        };
+  assertInvitationBootstrapPlaintext(nextPlaintext, {
+    protocol: parsed.protocol,
+    workspaceId,
+    keyVersion: newKeyVersion,
+    aad: newAad,
+  });
+  const nextMaintenanceWrap = wrapInvitationBootstrapPackageKey(
+    newKek,
+    newKeyVersion,
+    newAadBytes,
+    packageKey,
+  );
+
+  return {
+    ...bootstrap,
+    key_version: newKeyVersion,
+    aad: newAad,
+    encrypted_payload: {
+      nonce: base64UrlEncode(payloadNonce),
+      ciphertext: base64UrlEncode(
+        xchacha20poly1305(packageKey, payloadNonce, newAadBytes).encrypt(
+          canonicalizeStrictBytes(nextPlaintext as StrictJsonValue),
+        ),
+      ),
+    },
+    package_key_maintenance_wrap: nextMaintenanceWrap,
+  };
 }
 
 export function handleCacheKek(state: WorkerKeyState, p: HandlerPayload): unknown {

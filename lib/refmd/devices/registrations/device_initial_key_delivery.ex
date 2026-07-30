@@ -234,8 +234,27 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
 
     initial_delivery_metadata_values_match?(initial_ake, metadata, binding) and
       initial_delivery_metadata_hashes_match?(initial_ake, metadata) and
+      trust_transfer_pin_bindings_match?(initial_ake, metadata) and
       expected_metadata_matches?(metadata, expected)
   end
+
+  defp trust_transfer_pin_bindings_match?(
+         %{"purpose" => "trust_transfer"} = initial_ake,
+         metadata
+       ) do
+    context = get_in(initial_ake, ["transcript", "context"])
+    directory = get_in(initial_ake, ["transcript", "directory"])
+
+    is_map(context) and is_map(directory) and
+      metadata["transfer_scope_hash"] == context["transfer_scope_hash"] and
+      metadata["transfer_scope_hash"] == directory["transfer_scope_hash"] and
+      metadata["audit_checkpoint_pin_set_hash"] ==
+        context["audit_checkpoint_pin_set_hash"] and
+      metadata["audit_checkpoint_pin_set_hash"] ==
+        directory["audit_checkpoint_pin_set_hash"]
+  end
+
+  defp trust_transfer_pin_bindings_match?(_initial_ake, _metadata), do: true
 
   defp initial_delivery_metadata_values_match?(initial_ake, metadata, binding) do
     [
@@ -342,7 +361,12 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
        do:
          exact_keys?(
            metadata,
-           initial_delivery_common_metadata_keys() ++ ["document_rollback_pin_set_hash"]
+           initial_delivery_common_metadata_keys() ++
+             [
+               "audit_checkpoint_pin_set_hash",
+               "document_rollback_pin_set_hash",
+               "transfer_scope_hash"
+             ]
          )
 
   defp initial_key_delivery_metadata_keys_valid?("device_approval_kek_initial", metadata)
@@ -652,16 +676,23 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
       context["target_device_id"] == binding.target_device_id,
       context["target_payload_kind"] == "trust_state_bundle",
       context["trust_transfer_id"] == context["operation_id"],
-      context["transfer_scope_hash"] == trust_transfer_scope_hash(binding)
+      context["transfer_scope_hash"] == trust_transfer_scope_hash(binding),
+      is_binary(context["audit_checkpoint_pin_set_hash"])
     ])
   end
 
   defp trust_transfer_scope_hash(binding) do
     Hash.blake3_base64url(
       JCS.canonical_bytes!(%{
-        "user_id" => binding.user_id,
-        "source_device_id" => binding.sender_device_id,
-        "target_device_id" => binding.target_device_id
+        "protocol" => "refmd.trust-transfer-scope-set",
+        "version" => 1,
+        "owner_user_id" => binding.user_id,
+        "scope_keys" =>
+          ["user:#{binding.user_id}"] ++
+            (binding.params["initial_kek_deliveries"]
+             |> Map.keys()
+             |> Enum.sort()
+             |> Enum.map(&"workspace:#{&1}"))
       })
     )
   end
@@ -695,6 +726,7 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
 
   defp trust_transfer_context_keys do
     [
+      "audit_checkpoint_pin_set_hash",
       "challenge",
       "operation_id",
       "owner_user_id",
@@ -779,12 +811,14 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
 
   defp initial_ake_directory_valid?("trust_transfer", directory) when is_map(directory) do
     exact_directory_keys?(directory, [
+      "audit_checkpoint_pin_set_hash",
       "allowed_suite_ids_hash",
       "min_suite_rank",
       "suite_policy_version",
       "user_checkpoint_hash",
       "user_event_head_hash",
-      "workspace_pins_hash"
+      "workspace_pins_hash",
+      "transfer_scope_hash"
     ])
   end
 
@@ -873,7 +907,13 @@ defmodule RefMD.Devices.Registrations.DeviceInitialKeyDelivery do
     context = get_in(initial_ake, ["transcript", "context"])
 
     is_map(context) and commitment["ake_session_id"] == context["operation_id"] and
-      commitment["document_rollback_pin_set_hash"] == metadata["document_rollback_pin_set_hash"]
+      commitment["document_rollback_pin_set_hash"] == metadata["document_rollback_pin_set_hash"] and
+      commitment["transfer_scope_hash"] == metadata["transfer_scope_hash"] and
+      commitment["transfer_scope_hash"] == context["transfer_scope_hash"] and
+      commitment["audit_checkpoint_pin_set_hash"] ==
+        metadata["audit_checkpoint_pin_set_hash"] and
+      commitment["audit_checkpoint_pin_set_hash"] ==
+        context["audit_checkpoint_pin_set_hash"]
   end
 
   defp delivery_commitment_purpose_matches?(

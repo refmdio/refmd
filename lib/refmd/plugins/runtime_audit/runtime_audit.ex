@@ -28,8 +28,6 @@ defmodule RefMD.Plugins.RuntimeAudit do
                            "none",
                            "selection",
                            "block",
-                           "inline",
-                           "editor_context",
                            "active_document",
                            "selected_documents",
                            "workspace"
@@ -491,7 +489,9 @@ defmodule RefMD.Plugins.RuntimeAudit do
     keys = correlation |> Map.keys() |> MapSet.new()
 
     if MapSet.equal?(keys, @correlation_keys) and
-         Enum.all?(correlation, fn {_key, value} -> is_nil(value) or is_binary(value) end) do
+         Enum.all?(correlation, fn {_key, value} ->
+           is_nil(value) or (is_binary(value) and non_empty_string?(value))
+         end) do
       :ok
     else
       {:error, :plugin_runtime_audit_envelope_invalid}

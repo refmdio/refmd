@@ -4139,6 +4139,12 @@ defmodule RefMD.PluginsTest do
 
     workspace = create_workspace(user)
 
+    Repo.delete_all(
+      from(event in AuditEvent, where: event.chain_scope == ^"workspace:#{workspace.id}")
+    )
+
+    TestCrypto.install_signed_audit_genesis!("workspace", workspace.id, user.id)
+
     device_id = Ecto.UUID.generate()
     device_material = TestCrypto.hybrid_device_material(device_id)
     {device_x25519_public, _} = :crypto.generate_key(:ecdh, :x25519)
@@ -4322,7 +4328,9 @@ defmodule RefMD.PluginsTest do
           "workspace_id" => workspace_id,
           "user_id" => user_id,
           "role_id" => role.id,
-          "base_role" => role.base_role
+          "base_role" => role.base_role,
+          "workspace_member_envelope_hash" =>
+            Hash.blake3_base64url("test-member-envelope:#{workspace_id}:#{user_id}")
         }
       })
 

@@ -10,6 +10,7 @@ import {
 import { validateDeviceApprovalProofEnvelope } from "../../approval-proof-validation";
 import {
   buildDeviceApprovalTranscript,
+  buildAuditCheckpointTranscript,
   buildDeviceKeyDeletionProofTranscript,
   buildDeviceRevocationTranscript,
   buildDocumentSnapshotTranscript,
@@ -17,6 +18,7 @@ import {
   buildEditorEphemeralSessionTranscript,
   buildEditorEphemeralTranscript,
   buildGenesisDeviceBootstrapTranscript,
+  buildGenesisDeviceBootstrapTranscriptFromProof,
   buildKeyDirectoryCheckpointTranscript,
   buildKeyDirectoryEventTranscript,
   buildPluginBundleApprovalTranscript,
@@ -24,6 +26,7 @@ import {
   buildPluginNetworkProxyRequestTranscript,
   buildWorkspacePinBootstrapTranscript,
   buildPendingRegistrationBindingHash,
+  buildPqWrapTranscript,
   buildRrpTranscript,
   buildRecoveryDeviceApprovalTranscript,
   buildRecoveryAuthorizationProofTranscript,
@@ -39,6 +42,7 @@ import {
   publicKeyMaterialFromPrivate,
   shareCapabilityPublicKeyMaterialFromPrivate,
   signDeviceKeyDeletionProofSignature,
+  signAuditCheckpointSignature,
   signDocumentSnapshotSignature,
   signDocumentUpdateSignature,
   signEditorEphemeralSessionSignature,
@@ -49,6 +53,7 @@ import {
   signPluginBundleApprovalSignature,
   signPluginConsentEventSignature,
   signPluginNetworkProxyRequestSignature,
+  signPqWrapSignature,
   signWorkspacePinBootstrapSignature,
   signRecipientBoundAuthorizationSignature,
   signRecoveryAuthorizationProofSignature,
@@ -439,7 +444,13 @@ export function handleCreateGenesisDeviceBootstrapSignature(
   const deviceEcdhPublicKey = base64UrlEncode(p.deviceEcdhPublic as Uint8Array);
   const clientNonce = base64UrlEncode(p.clientNonce as Uint8Array);
   const transcript = buildGenesisDeviceBootstrapTranscript({
+    registrationId: p.registrationId as string,
+    compoundIntentId: p.compoundIntentId as string,
+    mutationId: p.mutationId as string,
+    genesisCompoundContextHash: p.genesisCompoundContextHash as string,
     ownerId: userId,
+    workspaceId: p.workspaceId as string,
+    ownerRoleId: p.ownerRoleId as string,
     deviceId,
     deviceHybridSigningPublicKeyMaterial: devicePublicMaterial,
     deviceEcdhPublicKey,
@@ -448,6 +459,18 @@ export function handleCreateGenesisDeviceBootstrapSignature(
     registrationChallengeHash: p.registrationChallengeHash as string,
     identitySigningKeyId: p.identitySigningKeyId as string,
     userIdentityPublicKeyHash: p.userIdentityPublicKeyHash as string,
+    userDeviceKeyAddedEventHash: p.userDeviceKeyAddedEventHash as string,
+    workspaceDeviceKeyAddedEventHash: p.workspaceDeviceKeyAddedEventHash as string,
+    ownerMemberAddedEventHash: p.ownerMemberAddedEventHash as string,
+    workspaceMemberEnvelopeCommitmentHash: p.workspaceMemberEnvelopeCommitmentHash as string,
+    userAuditCheckpoint: p.userAuditCheckpoint as {
+      sequence: number;
+      checkpoint_hash: string;
+    },
+    workspaceAuditCheckpoint: p.workspaceAuditCheckpoint as {
+      sequence: number;
+      checkpoint_hash: string;
+    },
   });
 
   const signature = signGenesisDeviceBootstrapSignature({
@@ -455,6 +478,55 @@ export function handleCreateGenesisDeviceBootstrapSignature(
     transcript,
   });
 
+  return signedSurfaceArtifact(privateMaterial, transcript, signature);
+}
+
+export function handleSignAuditCheckpoint(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const variant = p.variant as
+    | "user_identity"
+    | "user_device"
+    | "workspace_device"
+    | "workspace_guest_device";
+  const privateMaterial =
+    variant === "user_identity"
+      ? requireIdentityHybridSigningPrivateKeyMaterial(state)
+      : requireDeviceHybridSigningPrivateKeyMaterial(state);
+  const transcript = buildAuditCheckpointTranscript({
+    variant,
+    ownerKind: privateMaterial.owner_kind,
+    ownerId: privateMaterial.owner_id,
+    payload: p.payload as StrictJsonValue,
+  });
+  const signature = signAuditCheckpointSignature({
+    privateKeyMaterial: privateMaterial,
+    transcript,
+  });
+  return signedSurfaceArtifact(privateMaterial, transcript, signature);
+}
+
+export function handleSignGenesisPqWrap(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const privateMaterial = requireDeviceHybridSigningPrivateKeyMaterial(state);
+  const transcript = buildPqWrapTranscript({
+    authorityContext: "workspace_genesis",
+    ownerDeviceId: requireDeviceId(state),
+    actor: p.actor as StrictJsonValue,
+    authorityBoundary: p.authorityBoundary as StrictJsonValue,
+    subjectHashes: p.subjectHashes as StrictJsonValue,
+  });
+  const signature = signPqWrapSignature({ privateKeyMaterial: privateMaterial, transcript });
+  return signedSurfaceArtifact(privateMaterial, transcript, signature);
+}
+
+export function handleSignPqWrap(state: WorkerKeyState, p: HandlerPayload): unknown {
+  const privateMaterial = requireDeviceHybridSigningPrivateKeyMaterial(state);
+  const transcript = buildPqWrapTranscript({
+    authorityContext: "direct",
+    ownerDeviceId: requireDeviceId(state),
+    actor: p.actor as StrictJsonValue,
+    authorityBoundary: p.authorityBoundary as StrictJsonValue,
+    subjectHashes: p.subjectHashes as StrictJsonValue,
+  });
+  const signature = signPqWrapSignature({ privateKeyMaterial: privateMaterial, transcript });
   return signedSurfaceArtifact(privateMaterial, transcript, signature);
 }
 
@@ -558,15 +630,22 @@ export function handleCreateDeviceRevocationSignature(
   const userId = requireUserId(state);
   const deviceId = requireDeviceId(state);
   const publicMaterial = publicKeyMaterialFromPrivate(privateMaterial);
+  const actor = p.actor as Record<string, unknown> | undefined;
+  if (
+    !actor ||
+    actor.user_id !== userId ||
+    actor.device_id !== deviceId ||
+    actor.signing_key_id !== computeSigningKeyId(publicMaterial) ||
+    actor.key_scope_kind !== "user" ||
+    actor.key_scope_id !== userId
+  ) {
+    throw new Error("device_revocation_actor_mismatch");
+  }
 
   const transcript = buildDeviceRevocationTranscript({
-    ownerId: userId,
-    actorUserId: userId,
-    actorDeviceId: deviceId,
-    signingKeyId: computeSigningKeyId(publicMaterial),
-    revokedDeviceId: p.revokedDeviceId as string,
-    revocationMode: p.revocationMode as string,
-    revokedAtMs: p.revokedAtMs as number,
+    actor: p.actor as StrictJsonValue,
+    revokedDevice: p.revokedDevice as StrictJsonValue,
+    authorityBoundary: p.authorityBoundary as StrictJsonValue,
   });
   const signature = createDeviceRevocationSignature({
     privateKeyMaterial: privateMaterial,
@@ -615,6 +694,7 @@ function signOwnerKeyDirectoryCheckpoint(
   const signer = keyDirectoryCheckpointSignerAuthority(
     keyDirectorySigner(ownerKind, state, signingKeyId, p.shareId),
     checkpointPayload,
+    p.variant === "identity_initial" || p.variant === "workspace_initial",
   );
 
   const transcript = buildKeyDirectoryCheckpointTranscript({
@@ -624,9 +704,11 @@ function signOwnerKeyDirectoryCheckpoint(
       | "identity_active"
       | "identity_rotation"
       | "workspace_authorized"
+      | "workspace_invitation_self_admission"
       | "invitation_redeem_authority"
       | "share_participant_document_operation"
-      | "device_authorized",
+      | "security_device_revocation"
+      | "identity_self_envelope_rewrap",
     ownerKind: privateMaterial.owner_kind,
     ownerId: privateMaterial.owner_id,
     checkpointPayload: checkpointPayload as StrictJsonValue,
@@ -1376,20 +1458,15 @@ function verifyDeviceApprovalSurfaceProof(
       ? {
           signingPurpose: "genesis_device_bootstrap",
           publicKeyMaterial: identityPublicMaterial,
-          transcript: buildGenesisDeviceBootstrapTranscript({
+          transcript: buildGenesisDeviceBootstrapTranscriptFromProof({
             ownerId: identityPublicMaterial.owner_id,
             deviceId,
             deviceHybridSigningPublicKeyMaterial: devicePublicMaterial,
             deviceEcdhPublicKey,
             deviceHybridEncryptionPublicKeyMaterial,
             clientNonce,
-            registrationChallengeHash: (
-              context.surface_details as Record<string, unknown> | undefined
-            )?.registration_challenge_hash as string,
             identitySigningKeyId: context.approving_signing_key_id as string,
-            userIdentityPublicKeyHash: (
-              context.surface_details as Record<string, unknown> | undefined
-            )?.user_identity_public_key_hash as string,
+            surfaceDetails: context.surface_details,
           }),
         }
       : purpose === "device_approval"
@@ -1744,11 +1821,20 @@ function keyDirectorySigner(
 function keyDirectoryCheckpointSignerAuthority<T extends Record<string, unknown>>(
   signer: T,
   checkpointPayload: Record<string, unknown>,
+  genesis = false,
 ): T & {
   authorizing_checkpoint_sequence?: number;
   authorizing_checkpoint_hash?: string;
 } {
   const sequence = checkpointPayload.sequence;
+  if (genesis) {
+    if (sequence !== 1) throw new Error("key_directory_genesis_checkpoint_sequence_invalid");
+    return {
+      ...signer,
+      authorizing_checkpoint_sequence: 0,
+      authorizing_checkpoint_hash: "GENESIS",
+    };
+  }
   if (sequence === 1) return signer;
   if (typeof sequence !== "number" || !Number.isInteger(sequence) || sequence < 2) {
     throw new Error("key_directory_checkpoint_sequence_invalid");
@@ -1771,8 +1857,7 @@ function keyDirectoryEventSignerAuthority<T extends Record<string, unknown>>(
   eventPayload: Record<string, unknown>,
 ): T {
   const actor = eventPayload.actor;
-  const sequence = eventPayload.sequence;
-  if (!isRecord(actor) || sequence === 1) return signer;
+  if (!isRecord(actor)) return signer;
 
   const authorityKeys = [
     "key_scope_kind",

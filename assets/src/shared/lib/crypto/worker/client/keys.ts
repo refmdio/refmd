@@ -2,6 +2,7 @@ import { workerSend, type CryptoWorkerClientMethodContext } from "./shared";
 import type {
   DeviceHybridSigningPublicKeyMaterial,
   IdentityHybridSigningPublicKeyMaterial,
+  RecoveryAuthorizationHybridSigningPublicKeyMaterial,
 } from "../../signature";
 import type {
   DeviceHybridEncryptionPublicKeyMaterial,
@@ -38,6 +39,7 @@ export interface KeyWorkerClientMethods {
     encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
     hybridSigningPrivateKeyMaterialNonce: Uint8Array;
     signingKeyId: string;
+    identityKeyEpoch: number;
     rotationDueAt: string | null;
   }): Promise<{
     deviceEcdhPublic: Uint8Array;
@@ -67,6 +69,7 @@ export interface KeyWorkerClientMethods {
     encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
     hybridSigningPrivateKeyMaterialNonce: Uint8Array;
     signingKeyId: string;
+    identityKeyEpoch: number;
   }): Promise<{
     ecdhPublic: Uint8Array;
     encryptionKeyId: string;
@@ -80,6 +83,7 @@ export interface KeyWorkerClientMethods {
     encryptedHybridSigningPrivateKeyMaterial: Uint8Array;
     hybridSigningPrivateKeyMaterialNonce: Uint8Array;
     signingKeyId: string;
+    identityKeyEpoch: number;
     previousEncryptionKeyId: string;
     previousSigningKeyId: string;
   }): Promise<{
@@ -124,7 +128,7 @@ export interface KeyWorkerClientMethods {
     mnemonic: string;
     encryptedUmk: Uint8Array;
     nonce: Uint8Array;
-    recoveryAuthorizationPublicKey: IdentityHybridSigningPublicKeyMaterial;
+    recoveryAuthorizationPublicKey: RecoveryAuthorizationHybridSigningPublicKeyMaterial;
     recoveryAuthorizationKeyId: string;
   }>;
   deriveAuthKeys(params: {
@@ -141,7 +145,10 @@ export interface KeyWorkerClientMethods {
     nonce: Uint8Array;
     userId: string;
   }): Promise<void>;
-  wrapIdentityKeysForServer(userId: string): Promise<{
+  wrapIdentityKeysForServer(
+    userId: string,
+    identityKeyEpoch: number,
+  ): Promise<{
     encryptedHybridEncryptionPrivateKeyMaterial: Uint8Array;
     hybridEncryptionPrivateKeyMaterialNonce: Uint8Array;
     encryptionKeyId: string;
@@ -151,6 +158,7 @@ export interface KeyWorkerClientMethods {
   }>;
   wrapIdentitySuccessorForServer(
     userId: string,
+    identityKeyEpoch: number,
   ): ReturnType<KeyWorkerClientMethods["wrapIdentityKeysForServer"]>;
   persistCurrentKeysWithDsk(
     userId: string,
@@ -339,7 +347,7 @@ export const keyWorkerClientMethods: KeyWorkerClientMethods &
       mnemonic: string;
       encryptedUmk: Uint8Array;
       nonce: Uint8Array;
-      recoveryAuthorizationPublicKey: IdentityHybridSigningPublicKeyMaterial;
+      recoveryAuthorizationPublicKey: RecoveryAuthorizationHybridSigningPublicKeyMaterial;
       recoveryAuthorizationKeyId: string;
     };
   },
@@ -377,8 +385,11 @@ export const keyWorkerClientMethods: KeyWorkerClientMethods &
     await this[workerSend]("unwrap-umk-with-ruk", params);
   },
 
-  async wrapIdentityKeysForServer(userId) {
-    return (await this[workerSend]("wrap-identity-keys-for-server", { userId })) as {
+  async wrapIdentityKeysForServer(userId, identityKeyEpoch) {
+    return (await this[workerSend]("wrap-identity-keys-for-server", {
+      userId,
+      identityKeyEpoch,
+    })) as {
       encryptedHybridEncryptionPrivateKeyMaterial: Uint8Array;
       hybridEncryptionPrivateKeyMaterialNonce: Uint8Array;
       encryptionKeyId: string;
@@ -388,10 +399,11 @@ export const keyWorkerClientMethods: KeyWorkerClientMethods &
     };
   },
 
-  async wrapIdentitySuccessorForServer(userId) {
-    return (await this[workerSend]("wrap-identity-successor-for-server", { userId })) as Awaited<
-      ReturnType<KeyWorkerClientMethods["wrapIdentitySuccessorForServer"]>
-    >;
+  async wrapIdentitySuccessorForServer(userId, identityKeyEpoch) {
+    return (await this[workerSend]("wrap-identity-successor-for-server", {
+      userId,
+      identityKeyEpoch,
+    })) as Awaited<ReturnType<KeyWorkerClientMethods["wrapIdentitySuccessorForServer"]>>;
   },
 
   async persistCurrentKeysWithDsk(userId, options) {

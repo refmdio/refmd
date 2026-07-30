@@ -115,11 +115,9 @@ export interface WorkspaceMemberRemovalKeyDirectoryAppendInput {
   actorUserId: string;
   actorDeviceId: string;
   removedUserId: string;
+  currentKekVersion: number;
+  documents: Array<{ id: string; minDekVersion: number }>;
   checkpointEnvelope: KeyDirectoryEnvelope;
-  removedDeviceKeys: Array<{
-    signingKeyId: string;
-    encryptionKeyId: string;
-  }>;
 }
 
 export interface WorkspaceMemberRoleChangeKeyDirectoryAppendInput {
@@ -130,11 +128,8 @@ export interface WorkspaceMemberRoleChangeKeyDirectoryAppendInput {
     targetUserId: string;
     previousRoleId: string;
     previousBaseRole: string;
-    previousEffectivePermissions: string[];
     roleId: string;
     baseRole: string;
-    effectivePermissions: string[];
-    permissionVersion: number;
   }>;
   checkpointEnvelope: KeyDirectoryEnvelope;
 }

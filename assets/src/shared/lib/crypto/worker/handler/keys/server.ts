@@ -58,6 +58,7 @@ export function handleWrapIdentityKeysForServer(
     },
     umk,
     userId,
+    payload.identityKeyEpoch as number,
   );
 
   return {
@@ -80,5 +81,10 @@ export function handleWrapIdentitySuccessorForServer(
   if (!successor) {
     throw new CryptoOperationError("not_initialized", "Identity successor not available");
   }
-  return encryptIdentityKeys(successor, umk, payload.userId as string);
+  return encryptIdentityKeys(
+    successor,
+    umk,
+    payload.userId as string,
+    payload.identityKeyEpoch as number,
+  );
 }

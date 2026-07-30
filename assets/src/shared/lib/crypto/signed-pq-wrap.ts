@@ -227,6 +227,335 @@ export interface CreateSignedPqWrapParams {
   };
 }
 
+export type SignedPqWrapPrecommit = Pick<
+  SignedPqWrapRecord,
+  | "protocol"
+  | "protocol_version"
+  | "suite_id"
+  | "suite_rank"
+  | "purpose"
+  | "resource"
+  | "sender"
+  | "recipient"
+  | "event_scope"
+  | "hpke"
+>;
+
+export interface CreateSignedPqWrapPrecommitParams {
+  purpose: "workspace_device_kek_wrap" | "workspace_member_kek_wrap";
+  plaintext: Uint8Array;
+  recipientPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  senderSigningPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
+  senderUserId: string;
+  senderDeviceId: string;
+  resource: StrictJsonValue;
+  eventScope: SignedPqWrapEventScope;
+  senderKeyCheckpoint: {
+    sequence: number;
+    checkpointHash: string;
+  };
+  recipientKeyCheckpoint: {
+    scopeKind: "user" | "workspace" | "document" | "folder";
+    scopeId: string;
+    sequence: number;
+    checkpointHash: string;
+  };
+}
+
+export function createSignedPqWrapPrecommit(
+  params: CreateSignedPqWrapPrecommitParams,
+): SignedPqWrapPrecommit {
+  const resource = params.resource;
+  assertResourceSchema(params.purpose, resource);
+  assertHybridEncryptionPublicKeyMaterial(params.recipientPublicKeyMaterial);
+  const sender: SignedPqWrapSender = {
+    signer_kind: "device",
+    user_id: params.senderUserId,
+    device_id: params.senderDeviceId,
+    signing_key_id: computeSigningKeyId(
+      publicKeyMaterialFromPrivate(params.senderSigningPrivateKeyMaterial),
+    ),
+    key_scope_kind: params.eventScope.scope_kind,
+    key_scope_id: params.eventScope.scope_id,
+    key_checkpoint_sequence: params.senderKeyCheckpoint.sequence,
+    key_checkpoint_hash: params.senderKeyCheckpoint.checkpointHash,
+  };
+  const recipient = recipientForResource({
+    purpose: params.purpose,
+    resource,
+    encryption_key_id: computeHybridEncryptionKeyId(params.recipientPublicKeyMaterial),
+    key_scope_kind: params.recipientKeyCheckpoint.scopeKind,
+    key_scope_id: params.recipientKeyCheckpoint.scopeId,
+    key_checkpoint_sequence: params.recipientKeyCheckpoint.sequence,
+    key_checkpoint_hash: params.recipientKeyCheckpoint.checkpointHash,
+    owner_kind: params.recipientPublicKeyMaterial.owner_kind,
+    owner_id: params.recipientPublicKeyMaterial.owner_id,
+  });
+  const base = {
+    purpose: params.purpose,
+    resource,
+    sender,
+    recipient,
+    event_scope: params.eventScope,
+  };
+  const hpkeSender = nativeHpkeSetupSender({
+    publicKey: decodeBase64UrlStrict(params.recipientPublicKeyMaterial.hybrid_public, 1216),
+    info: hpkeInfo(base),
+  });
+  let senderConsumed = false;
+  let ciphertext: Uint8Array;
+  try {
+    ciphertext = nativeHpkeSeal({
+      contextHandle: hpkeSender.contextHandle,
+      aad: wrapAad(base, hpkeSender.enc),
+      plaintext: params.plaintext,
+    });
+    senderConsumed = true;
+  } finally {
+    if (!senderConsumed) discardNativeHpkeSender(hpkeSender.contextHandle);
+  }
+
+  return {
+    protocol: WRAP_PROTOCOL,
+    protocol_version: CURRENT_PROTOCOL_VERSION,
+    suite_id: SUITE_IDS.SIGNED_PQ_HYBRID_WRAP,
+    suite_rank: CURRENT_SUITE_RANK,
+    ...base,
+    hpke: {
+      mode: "base",
+      kem_id: KEM_ID,
+      kdf_id: KDF_ID,
+      aead_id: AEAD_ID,
+      enc: encodeBase64Url(hpkeSender.enc),
+      ciphertext: encodeBase64Url(ciphertext),
+    },
+  };
+}
+
+export interface GenesisWorkspaceMemberEnvelopePrecommit {
+  protocol: "refmd.workspace-member-envelope";
+  version: 1;
+  workspace_id: string;
+  target_user_id: string;
+  kek_version: 1;
+  target_identity_encryption_key_id: string;
+  target_identity_key_material_hash: string;
+  authorization_key_directory_checkpoint_sequence: 1;
+  authorization_key_directory_checkpoint_hash: "GENESIS";
+  wrap: {
+    protocol: typeof WRAP_PROTOCOL;
+    protocol_version: typeof CURRENT_PROTOCOL_VERSION;
+    suite_id: typeof SUITE_IDS.SIGNED_PQ_HYBRID_WRAP;
+    suite_rank: typeof CURRENT_SUITE_RANK;
+    purpose: "workspace_member_kek_wrap";
+    resource: WorkspaceMemberKekWrapResource;
+    sender: SignedPqWrapSender;
+    recipient: Extract<SignedPqWrapRecipient, { recipient_kind: "user_identity" }>;
+    event_scope: SignedPqWrapEventScope;
+    hpke: SignedPqWrapRecord["hpke"];
+  };
+}
+
+export interface GenesisWorkspaceMemberEnvelopeDerivedValues {
+  commitment: StrictJsonValue;
+  commitmentHash: string;
+  resourceHash: string;
+  wrapBodyHash: string;
+  hpkeInfoHash: string;
+  aadHash: string;
+  ciphertextHash: string;
+}
+
+export function deriveGenesisWorkspaceMemberEnvelopeValues(
+  precommit: GenesisWorkspaceMemberEnvelopePrecommit,
+): GenesisWorkspaceMemberEnvelopeDerivedValues {
+  const wrap = precommit.wrap;
+  const enc = decodeBase64UrlStrict(wrap.hpke.enc, ENCAPSULATED_BYTES);
+  const ciphertext = decodeBase64UrlStrict(wrap.hpke.ciphertext);
+  const resourceHash = blake3Base64Url(canonicalizeStrictBytes(wrap.resource));
+  const hpkeInfoHash = blake3Base64Url(hpkeInfo(wrap));
+  const aadHash = blake3Base64Url(wrapAad(wrap, enc));
+  const wrapBody = {
+    label: "RefMD PQ wrap body v1",
+    protocol: wrap.protocol,
+    version: CURRENT_PROTOCOL_VERSION,
+    suite_id: wrap.suite_id,
+    suite_rank: wrap.suite_rank,
+    purpose: wrap.purpose,
+    resource: wrap.resource,
+    sender: wrap.sender,
+    recipient: wrap.recipient,
+    event_scope: wrap.event_scope,
+    hpke: wrap.hpke,
+    hpke_info_hash: hpkeInfoHash,
+    aad_hash: aadHash,
+  } satisfies StrictJsonValue;
+  const commitment = {
+    protocol: "refmd.workspace-member-envelope-commitment",
+    version: CURRENT_PROTOCOL_VERSION,
+    workspace_id: precommit.workspace_id,
+    target_user_id: precommit.target_user_id,
+    kek_version: precommit.kek_version,
+    target_identity_encryption_key_id: precommit.target_identity_encryption_key_id,
+    target_identity_key_material_hash: precommit.target_identity_key_material_hash,
+    authorization_key_directory_checkpoint_sequence:
+      precommit.authorization_key_directory_checkpoint_sequence,
+    authorization_key_directory_checkpoint_hash:
+      precommit.authorization_key_directory_checkpoint_hash,
+    wrap_resource_hash: resourceHash,
+    sender_signing_key_id: wrap.sender.signing_key_id,
+    recipient_encryption_key_id: wrap.recipient.encryption_key_id,
+    hpke_enc_hash: blake3Base64Url(enc),
+    ciphertext_hash: blake3Base64Url(ciphertext),
+  } satisfies StrictJsonValue;
+
+  return {
+    commitment,
+    commitmentHash: blake3Base64Url(canonicalizeStrictBytes(commitment)),
+    resourceHash,
+    wrapBodyHash: blake3Base64Url(canonicalizeStrictBytes(wrapBody)),
+    hpkeInfoHash,
+    aadHash,
+    ciphertextHash: blake3Base64Url(ciphertext),
+  };
+}
+
+export function buildGenesisPqWrapSigningInput(params: {
+  precommit: GenesisWorkspaceMemberEnvelopePrecommit;
+  envelopeEventPayload: StrictJsonValue;
+  workspaceCheckpointHash: string;
+}): {
+  actor: StrictJsonValue;
+  authorityBoundary: StrictJsonValue;
+  subjectHashes: StrictJsonValue;
+} {
+  const event = asRecord(params.envelopeEventPayload);
+  const eventBody = asRecord(event.body);
+  const eventHash = blake3Base64Url(canonicalizeStrictBytes(params.envelopeEventPayload));
+  const values = deriveGenesisWorkspaceMemberEnvelopeValues(params.precommit);
+  return {
+    actor: params.precommit.wrap.sender,
+    authorityBoundary: {
+      scope_kind: "workspace",
+      scope_id: params.precommit.workspace_id,
+      event_hash: eventHash,
+      operation_checkpoint_sequence: 1,
+      operation_checkpoint_hash: params.workspaceCheckpointHash,
+      covered_event_head_sequence: positiveIntegerField(event.sequence),
+      covered_event_head_hash: eventHash,
+    },
+    subjectHashes: {
+      resource_hash: values.resourceHash,
+      wrap_body_hash: values.wrapBodyHash,
+      wrap_event_body_hash: blake3Base64Url(canonicalizeStrictBytes(eventBody as StrictJsonValue)),
+      wrap_event_hash: eventHash,
+      hpke_info_hash: values.hpkeInfoHash,
+      aad_hash: values.aadHash,
+    },
+  };
+}
+
+function positiveIntegerField(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error("genesis_workspace_member_envelope_event_sequence_invalid");
+  }
+  return value;
+}
+
+export function createGenesisWorkspaceMemberEnvelopePrecommit(params: {
+  plaintext: Uint8Array;
+  recipientPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  senderSigningPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
+  userId: string;
+  deviceId: string;
+  workspaceId: string;
+}): GenesisWorkspaceMemberEnvelopePrecommit {
+  assertHybridEncryptionPublicKeyMaterial(params.recipientPublicKeyMaterial);
+  const resource: WorkspaceMemberKekWrapResource = {
+    workspace_id: params.workspaceId,
+    target_user_id: params.userId,
+    kek_version: 1,
+  };
+  const sender: SignedPqWrapSender = {
+    signer_kind: "device",
+    user_id: params.userId,
+    device_id: params.deviceId,
+    signing_key_id: computeSigningKeyId(
+      publicKeyMaterialFromPrivate(params.senderSigningPrivateKeyMaterial),
+    ),
+    key_scope_kind: "workspace",
+    key_scope_id: params.workspaceId,
+    key_checkpoint_sequence: 0,
+    key_checkpoint_hash: "GENESIS",
+  };
+  const recipient: Extract<SignedPqWrapRecipient, { recipient_kind: "user_identity" }> = {
+    recipient_kind: "user_identity",
+    user_id: params.userId,
+    encryption_key_id: computeHybridEncryptionKeyId(params.recipientPublicKeyMaterial),
+    key_scope_kind: "workspace",
+    key_scope_id: params.workspaceId,
+    key_checkpoint_sequence: 0,
+    key_checkpoint_hash: "GENESIS",
+  };
+  const eventScope: SignedPqWrapEventScope = {
+    scope_kind: "workspace",
+    scope_id: params.workspaceId,
+  };
+  const wrapBase = {
+    purpose: "workspace_member_kek_wrap" as const,
+    resource,
+    sender,
+    recipient,
+    event_scope: eventScope,
+  };
+  const info = hpkeInfo(wrapBase);
+  const hpkeSender = nativeHpkeSetupSender({
+    publicKey: decodeBase64UrlStrict(params.recipientPublicKeyMaterial.hybrid_public, 1216),
+    info,
+  });
+  let senderConsumed = false;
+  let ciphertext: Uint8Array;
+  try {
+    ciphertext = nativeHpkeSeal({
+      contextHandle: hpkeSender.contextHandle,
+      aad: wrapAad(wrapBase, hpkeSender.enc),
+      plaintext: params.plaintext,
+    });
+    senderConsumed = true;
+  } finally {
+    if (!senderConsumed) discardNativeHpkeSender(hpkeSender.contextHandle);
+  }
+
+  return {
+    protocol: "refmd.workspace-member-envelope",
+    version: 1,
+    workspace_id: params.workspaceId,
+    target_user_id: params.userId,
+    kek_version: 1,
+    target_identity_encryption_key_id: recipient.encryption_key_id,
+    target_identity_key_material_hash: blake3Base64Url(
+      canonicalizeStrictBytes(params.recipientPublicKeyMaterial as unknown as StrictJsonValue),
+    ),
+    authorization_key_directory_checkpoint_sequence: 1,
+    authorization_key_directory_checkpoint_hash: "GENESIS",
+    wrap: {
+      protocol: WRAP_PROTOCOL,
+      protocol_version: CURRENT_PROTOCOL_VERSION,
+      suite_id: SUITE_IDS.SIGNED_PQ_HYBRID_WRAP,
+      suite_rank: CURRENT_SUITE_RANK,
+      ...wrapBase,
+      hpke: {
+        mode: "base",
+        kem_id: KEM_ID,
+        kdf_id: KDF_ID,
+        aead_id: AEAD_ID,
+        enc: encodeBase64Url(hpkeSender.enc),
+        ciphertext: encodeBase64Url(ciphertext),
+      },
+    },
+  };
+}
+
 export interface OpenSignedPqWrapParams {
   record: SignedPqWrapRecord;
   recipientPrivateKeyMaterial: HybridEncryptionPrivateKeyMaterial;

@@ -1,22 +1,24 @@
-import { base64UrlDecode, base64UrlEncode, randomBytes } from "@/shared/lib/crypto/encoding";
-import { blake3Base64Url } from "@/shared/lib/crypto/hash";
-import { TARGET_KDF_PARAMS } from "@/shared/lib/crypto/kdf-params";
-import {
-  persistWorkspaceKekForMember,
-  persistWorkspaceKekLocally,
-} from "@/shared/lib/crypto/workspace-kek-persistence";
-import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { authApi, devicesApi, encryptionApi } from "@/shared/api";
 import { persistDeviceId, persistCurrentKeysWithDsk } from "@/shared/lib/auth/key-persistence";
-import { setDeviceState, setCryptoWorkerReady } from "@/entities/session";
-import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
-import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
-import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
-import { buildInitialKeyDirectoryBootstrap } from "@/shared/lib/crypto/key-directory/initial";
 import { pinInitialKeyDirectoryCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { verifyAndPinSetupAuditCheckpoints } from "@/shared/lib/anti-rollback/setup-audit-checkpoints";
+import { setCryptoWorkerReady, setDeviceState } from "@/entities/session";
+import { getDeviceName, getDeviceType } from "@/shared/lib/device/metadata";
+import { base64UrlDecode, base64UrlEncode, randomBytes } from "@/shared/lib/crypto/encoding";
+import {
+  createGenesisCompoundAuthorization,
+  genesisAuditCheckpointHashes,
+  materializeGenesisKeyDirectoryBootstrap,
+} from "@/shared/lib/crypto/genesis-authorization";
+import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import type { HybridEncryptionPublicKeyMaterial } from "@/shared/lib/crypto/hybrid-encryption";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
-import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
+import { TARGET_KDF_PARAMS } from "@/shared/lib/crypto/kdf-params";
+import { buildRecoverableIdentitySecretRecord } from "@/shared/lib/crypto/recoverable-identity-secret-record";
+import type { HybridSigningPublicKeyMaterial } from "@/shared/lib/crypto/signature-types";
+import { currentSuitePolicy } from "@/shared/lib/crypto/suite";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+
 interface RegisterResult {
   userId: string;
   email: string;
@@ -35,158 +37,169 @@ interface RegisterResult {
   identityEcdhPublic: Uint8Array;
   workerReady: boolean;
 }
+
 export async function register(
   email: string,
   name: string,
   password: string,
 ): Promise<RegisterResult> {
   const worker = getCryptoWorker();
-  // Step 1: Generate salt and derive keys (PUK stored transiently in Worker)
   try {
     const salt = randomBytes(16);
-    const saltBase64 = base64UrlEncode(salt);
     const { authKey } = await worker.deriveAuthKeys({
       password,
       salt,
       kdfParams: TARGET_KDF_PARAMS,
     });
-    const authKeyBase64 = base64UrlEncode(authKey);
-    // Step 2: Pre-generate IDs and set Worker context
     const userId = crypto.randomUUID();
-    const deviceId = crypto.randomUUID();
-    await worker.setUserContext(userId, deviceId);
-    // Step 2b: Load or generate DSK in Worker (for key persistence later)
-    let hadDsk = false;
-    if (await worker.loadStoredDsk()) {
-      hadDsk = true;
-    } else {
-      try {
-        await worker.generateDsk();
-        hadDsk = true;
-      } catch {
-        // DSK unavailable
-      }
+    await worker.setUserContext(userId);
+    await ensureDsk(worker);
+
+    const registration = await authApi.register({
+      protocol: "refmd.password-account-registration",
+      version: 1,
+      reserved_user_id: userId,
+      email,
+      display_name: name,
+      auth_key_b64u: base64UrlEncode(authKey),
+      salt_b64u: base64UrlEncode(salt),
+      kdf_type: "argon2id",
+      kdf_params: {
+        memory_kib: TARGET_KDF_PARAMS.memory,
+        iterations: TARGET_KDF_PARAMS.iterations,
+        parallelism: TARGET_KDF_PARAMS.parallelism,
+      },
+    });
+    if (!registration.bootstrap_required || registration.reserved_user_id !== userId) {
+      throw new Error("genesis_registration_binding_invalid");
     }
-    // Step 3: Generate UMK (stays in Worker) and wrap with PUK
+
+    const deviceId = crypto.randomUUID();
+    const workspaceId = registration.reserved_workspace_id;
+    await worker.setUserContext(userId, deviceId);
     await worker.generateUmk();
     const umkWrapped = await worker.wrapUmkForServer(userId);
-    // Step 4: Generate recovery key (RUK stays in Worker, UMK wrapped internally)
     const recovery = await worker.generateRecoveryKey();
-    // Step 5: Generate identity keys and encrypt with UMK (all in Worker)
     const identityPublic = await worker.generateIdentityKeys();
-    const encryptedIdentity = await worker.wrapIdentityKeysForServer(userId);
-    // Step 6: Generate device keys (stays in Worker)
+    const encryptedIdentity = await worker.wrapIdentityKeysForServer(userId, 1);
     const devicePublic = await worker.generateDeviceKeys({ deviceId });
-    // Step 6b: Persist keys BEFORE server registration (crash safety)
-    if (hadDsk) {
-      await persistCurrentKeysWithDsk(userId);
-    }
     const clientNonce = await worker.generateClientNonce();
-    // Step 7: Register with server
-    const registerRes = await authApi.register({
-      user_id: userId,
-      email,
-      name,
-      auth_key: authKeyBase64,
-      salt: saltBase64,
-      encrypted_umk: base64UrlEncode(umkWrapped.encrypted),
-      umk_nonce: base64UrlEncode(umkWrapped.nonce),
-      kdf_params: TARGET_KDF_PARAMS,
-      recovery_encrypted_umk: base64UrlEncode(recovery.encryptedUmk),
-      recovery_nonce: base64UrlEncode(recovery.nonce),
-      recovery_authorization_public_material: recovery.recoveryAuthorizationPublicKey,
-      recovery_authorization_key_id: recovery.recoveryAuthorizationKeyId,
-      hybrid_encryption_public_key_material: identityPublic.hybridEncryptionPublicKeyMaterial,
-      hybrid_signing_public_key_material: identityPublic.hybridSigningPublicKeyMaterial,
-      encrypted_identity_hybrid_encryption_private_key_material: base64UrlEncode(
-        encryptedIdentity.encryptedHybridEncryptionPrivateKeyMaterial,
-      ),
-      identity_hybrid_encryption_private_key_material_nonce: base64UrlEncode(
-        encryptedIdentity.hybridEncryptionPrivateKeyMaterialNonce,
-      ),
-      encrypted_identity_hybrid_signing_private_key_material: base64UrlEncode(
-        encryptedIdentity.encryptedHybridSigningPrivateKeyMaterial,
-      ),
-      identity_hybrid_signing_private_key_material_nonce: base64UrlEncode(
-        encryptedIdentity.hybridSigningPrivateKeyMaterialNonce,
-      ),
-    });
-    const bootstrapChallenge = await devicesApi.bootstrapChallenge();
-    const pendingRegistrationChallengeHash = blake3Base64Url(
-      base64UrlDecode(bootstrapChallenge.registration_challenge),
-    );
-    const { signature: identitySignature } = await worker.createGenesisDeviceBootstrapSignature({
-      deviceEcdhPublic: devicePublic.ecdhPublic,
-      clientNonce,
-      registrationChallengeHash: pendingRegistrationChallengeHash,
-      identitySigningKeyId: computeSigningKeyId(identityPublic.hybridSigningPublicKeyMaterial),
-      userIdentityPublicKeyHash: blake3Base64Url(
-        canonicalizeStrictBytes(
-          identityPublic.hybridSigningPublicKeyMaterial as unknown as StrictJsonValue,
-        ),
-      ),
-    });
-    const initialKeyDirectory = await buildInitialKeyDirectoryBootstrap({
+    await worker.generateKek(workspaceId, 1);
+    const memberEnvelopePrecommit = await worker.createGenesisWorkspaceMemberEnvelopePrecommit({
+      workspaceId,
       userId,
-      workspaceId: registerRes.workspace_id,
-      workspaceOwnerRoleId: registerRes.workspace_owner_role_id,
       deviceId,
-      identityHybridSigningPublicKeyMaterial: identityPublic.hybridSigningPublicKeyMaterial,
-      identityHybridEncryptionPublicKeyMaterial: identityPublic.hybridEncryptionPublicKeyMaterial,
-      deviceHybridSigningPublicKeyMaterial: devicePublic.hybridSigningPublicKeyMaterial,
-      deviceHybridEncryptionPublicKeyMaterial: devicePublic.hybridEncryptionPublicKeyMaterial,
+      recipientPublicKeyMaterial: identityPublic.hybridEncryptionPublicKeyMaterial,
     });
-    const deviceCheckpoint = deviceCheckpointFromEnvelope(initialKeyDirectory.userCheckpoint);
-    // Step 7b: Bootstrap first device (dedicated endpoint)
-    const bootstrapRes = await devicesApi.bootstrap({
+    const challenge = await devicesApi.bootstrapChallenge();
+    const policy = currentSuitePolicy();
+    const recoverableIdentitySecretRecord = buildRecoverableIdentitySecretRecord({
+      id: crypto.randomUUID(),
+      userId,
+      identityKeyEpoch: 1,
+      previousRecordHash: "GENESIS",
+      encryptedSigningPrivateMaterial: encryptedIdentity.encryptedHybridSigningPrivateKeyMaterial,
+      signingPrivateMaterialNonce: encryptedIdentity.hybridSigningPrivateKeyMaterialNonce,
+      encryptedEncryptionPrivateMaterial:
+        encryptedIdentity.encryptedHybridEncryptionPrivateKeyMaterial,
+      encryptionPrivateMaterialNonce: encryptedIdentity.hybridEncryptionPrivateKeyMaterialNonce,
+      signingKeyId: encryptedIdentity.signingKeyId,
+      encryptionKeyId: encryptedIdentity.encryptionKeyId,
+      isCurrent: true,
+    });
+
+    const prepare = {
+      registration_id: registration.registration_id,
+      user_id: userId,
+      workspace_id: workspaceId,
+      owner_role_id: registration.reserved_workspace_role_ids.owner,
       name: getDeviceName(),
       device_type: getDeviceType(),
       device_id: deviceId,
-      identity_signing_key_id: computeSigningKeyId(identityPublic.hybridSigningPublicKeyMaterial),
-      identity_hybrid_signing_public_key_material: identityPublic.hybridSigningPublicKeyMaterial,
-      device_hybrid_signing_public_key_material: devicePublic.hybridSigningPublicKeyMaterial,
-      device_signing_key_id: devicePublic.signingKeyId,
-      device_hybrid_encryption_public_key_material: devicePublic.hybridEncryptionPublicKeyMaterial,
-      device_encryption_key_id: devicePublic.encryptionKeyId,
+      registration_challenge: challenge.registration_challenge,
       client_nonce: base64UrlEncode(clientNonce),
-      registration_challenge: bootstrapChallenge.registration_challenge,
-      identity_signature: identitySignature,
-      user_key_directory_events: initialKeyDirectory.userEvents,
-      user_key_directory_checkpoint: initialKeyDirectory.userCheckpoint,
-      workspace_key_directory_events: initialKeyDirectory.workspaceEvents,
-      workspace_key_directory_checkpoint: initialKeyDirectory.workspaceCheckpoint,
+      encrypted_umk: base64UrlEncode(umkWrapped.encrypted),
+      encrypted_umk_nonce: base64UrlEncode(umkWrapped.nonce),
+      identity_signing_key_id: encryptedIdentity.signingKeyId,
+      identity_encryption_key_id: encryptedIdentity.encryptionKeyId,
+      identity_hybrid_signing_public_key_material: identityPublic.hybridSigningPublicKeyMaterial,
+      identity_hybrid_encryption_public_key_material:
+        identityPublic.hybridEncryptionPublicKeyMaterial,
+      device_signing_key_id: devicePublic.signingKeyId,
+      device_encryption_key_id: devicePublic.encryptionKeyId,
+      device_hybrid_signing_public_key_material: devicePublic.hybridSigningPublicKeyMaterial,
+      device_hybrid_encryption_public_key_material: devicePublic.hybridEncryptionPublicKeyMaterial,
+      initial_suite_policy: {
+        suite_policy_version: policy.suite_policy_version,
+        min_suite_rank: policy.min_suite_rank,
+        allowed_suite_ids: policy.allowed_suite_ids,
+      },
+      recoverable_identity_secret_record: recoverableIdentitySecretRecord,
+      recovery_authorization: {
+        recovery_encrypted_umk: base64UrlEncode(recovery.encryptedUmk),
+        recovery_nonce: base64UrlEncode(recovery.nonce),
+        recovery_authorization_public_material: recovery.recoveryAuthorizationPublicKey,
+        recovery_authorization_key_id: recovery.recoveryAuthorizationKeyId,
+      },
+      workspace_member_envelope_precommit: memberEnvelopePrecommit,
+    } as unknown as StrictJsonValue;
+
+    const intent = await devicesApi.bootstrapIntent(prepare);
+    const authorization = await createGenesisCompoundAuthorization({
+      worker,
+      intent,
+      prepare,
+      registrationChallengeHash: blake3Base64Url(base64UrlDecode(challenge.registration_challenge)),
+      deviceEcdhPublic: devicePublic.ecdhPublic,
+      clientNonce,
     });
-    if (bootstrapRes.status !== "approved") {
-      throw new Error("device_bootstrap_not_approved");
+    const bootstrap = await devicesApi.bootstrap(authorization);
+    if (bootstrap.status !== "committed") throw new Error("genesis_commit_failed");
+    if (
+      bootstrap.user_id !== userId ||
+      bootstrap.device_id !== deviceId ||
+      bootstrap.workspace_id !== workspaceId
+    ) {
+      throw new Error("genesis_commit_binding_invalid");
     }
+
+    const keyDirectory = materializeGenesisKeyDirectoryBootstrap(intent, authorization);
     await pinInitialKeyDirectoryCheckpoint({
       scopeKind: "user",
       scopeId: userId,
-      eventEnvelopes: initialKeyDirectory.userEvents,
-      checkpointEnvelope: initialKeyDirectory.userCheckpoint,
+      eventEnvelopes: keyDirectory.userEvents,
+      checkpointEnvelope: keyDirectory.userCheckpoint,
     });
     await pinInitialKeyDirectoryCheckpoint({
       scopeKind: "workspace",
-      scopeId: registerRes.workspace_id,
-      eventEnvelopes: initialKeyDirectory.workspaceEvents,
-      checkpointEnvelope: initialKeyDirectory.workspaceCheckpoint,
+      scopeId: workspaceId,
+      eventEnvelopes: keyDirectory.workspaceEvents,
+      checkpointEnvelope: keyDirectory.workspaceCheckpoint,
     });
-    persistDeviceId(deviceId, userId);
-    await worker
-      .storeAuthBootstrap({
+    const setupCheckpoints = await encryptionApi.setupComplete();
+    const auditCheckpointHashes = genesisAuditCheckpointHashes(intent);
+    await verifyAndPinSetupAuditCheckpoints({
+      userId,
+      rrpDeviceId: deviceId,
+      checkpoints: setupCheckpoints,
+      genesisAuthority: {
         userId,
-        email,
-        name,
         deviceId,
-        deviceSigningKeyId: devicePublic.signingKeyId,
-        cachedAt: Date.now(),
-      })
-      .catch(() => {
-        // Auth bootstrap cache is a cold-start optimization; live session state remains authoritative.
-      });
-    await worker.setUserContext(userId, deviceId);
+        workspaceId,
+        userAuditCheckpointHash: auditCheckpointHashes.user,
+        workspaceAuditCheckpointHash: auditCheckpointHashes.workspace,
+        userKeyDirectoryCheckpointHash: checkpointRef(keyDirectory.userCheckpoint.payload).hash,
+        workspaceKeyDirectoryCheckpointHash: checkpointRef(keyDirectory.workspaceCheckpoint.payload)
+          .hash,
+      },
+    });
+
+    persistDeviceId(deviceId, userId);
+    await persistCurrentKeysWithDsk(userId);
+    await worker.storeKekForOffline({ workspaceId, keyVersion: 1 });
     await worker.setInitialized();
-    // Step 8: Establish RRP capability
+    const me = await authApi.me();
+    const deviceCheckpoint = checkpointRef(keyDirectory.userCheckpoint.payload);
     setDeviceState({
       deviceId,
       deviceSigningKeyId: devicePublic.signingKeyId,
@@ -195,42 +208,22 @@ export async function register(
       deviceHybridSigningPublicKeyMaterial: devicePublic.hybridSigningPublicKeyMaterial,
       deviceEcdhPublic: devicePublic.ecdhPublic,
     });
-    // Step 9: Generate KEK and save device envelope (RRP required)
-    await worker.generateKek(registerRes.workspace_id);
-    await persistWorkspaceKekLocally({
-      workspaceId: registerRes.workspace_id,
+    await worker.storeAuthBootstrap({
       userId,
+      email: me.email,
+      name: me.name,
       deviceId,
-      deviceHybridEncryptionPublicKeyMaterial: devicePublic.hybridEncryptionPublicKeyMaterial,
-      keyVersion: 1,
-      isActive: true,
-      keyDirectoryCheckpoint: initialKeyDirectory.workspaceCheckpoint,
-    });
-    await persistWorkspaceKekForMember({
-      workspaceId: registerRes.workspace_id,
-      userId,
-      senderDeviceId: deviceId,
-      targetUserId: userId,
-      targetIdentityHybridEncryptionPublicKeyMaterial:
-        identityPublic.hybridEncryptionPublicKeyMaterial,
-      keyVersion: 1,
-      rrpDeviceId: deviceId,
-      ignoreConflict: true,
-    });
-    // Step 10: Mark encryption setup complete
-    const setupAudit = await encryptionApi.setupComplete();
-    await verifyAndPinSetupAuditCheckpoints({
-      userId,
-      rrpDeviceId: deviceId,
-      checkpoints: setupAudit,
+      deviceSigningKeyId: devicePublic.signingKeyId,
+      cachedAt: Date.now(),
     });
     setCryptoWorkerReady(true);
+
     return {
       userId,
-      email: registerRes.user.email,
-      name: registerRes.user.name,
-      workspaceId: registerRes.workspace_id,
-      sessionId: registerRes.session_id,
+      email: me.email,
+      name: me.name,
+      workspaceId,
+      sessionId: me.session_id,
       deviceId,
       recoveryMnemonic: recovery.mnemonic,
       deviceSigningKeyId: devicePublic.signingKeyId,
@@ -244,22 +237,20 @@ export async function register(
       workerReady: true,
     };
   } finally {
-    await worker.clearTransientKeys().catch(() => {
-      // Transient registration keys expire with the worker/session and are regenerated on retry.
-    });
+    await worker.clearTransientKeys().catch(() => {});
   }
 }
 
-function deviceCheckpointFromEnvelope(envelope: { payload: Record<string, unknown> }): {
-  sequence: number;
-  hash: string;
-} {
-  const sequence = envelope.payload.sequence;
-  if (typeof sequence !== "number" || !Number.isInteger(sequence) || sequence < 1) {
+async function ensureDsk(worker: ReturnType<typeof getCryptoWorker>): Promise<void> {
+  if (!(await worker.loadStoredDsk())) await worker.generateDsk();
+}
+
+function checkpointRef(payload: Record<string, unknown>): { sequence: number; hash: string } {
+  if (typeof payload.sequence !== "number" || !Number.isSafeInteger(payload.sequence)) {
     throw new Error("device_key_checkpoint_invalid");
   }
   return {
-    sequence,
-    hash: blake3Base64Url(canonicalizeStrictBytes(envelope.payload as StrictJsonValue)),
+    sequence: payload.sequence,
+    hash: blake3Base64Url(canonicalizeStrictBytes(payload as StrictJsonValue)),
   };
 }

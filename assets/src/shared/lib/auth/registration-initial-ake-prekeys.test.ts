@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import {
-  generateRegistrationInitialAkeResponderPrekeys,
-  resolveRegistrationInitialAkeIssuedAtEventSequence,
-} from "./registration-initial-ake-prekeys";
+import { generateRegistrationInitialAkeResponderPrekeys } from "./registration-initial-ake-prekeys";
 import type { InitialAkeResponderPrekeyRecord } from "@/shared/lib/crypto/initial-ake";
 
 function prekey(label: string): InitialAkeResponderPrekeyRecord {
@@ -10,24 +7,6 @@ function prekey(label: string): InitialAkeResponderPrekeyRecord {
 }
 
 describe("registration initial AKE prekeys", () => {
-  it("prefers the server candidate event head over a local pin", () => {
-    expect(
-      resolveRegistrationInitialAkeIssuedAtEventSequence({
-        candidateUserEventHeadSequence: 7,
-        pinnedEventHeadSequence: 3,
-      }),
-    ).toBe(7);
-  });
-
-  it("falls back to the local pin, then genesis", () => {
-    expect(
-      resolveRegistrationInitialAkeIssuedAtEventSequence({
-        pinnedEventHeadSequence: 4,
-      }),
-    ).toBe(4);
-    expect(resolveRegistrationInitialAkeIssuedAtEventSequence({})).toBe(1);
-  });
-
   it("generates the full purpose-scoped prekey set for pending registration", async () => {
     const operationIds = ["umk-operation", "trust-operation"];
     const generateInitialAkeResponderPrekey = vi
@@ -43,7 +22,8 @@ describe("registration initial AKE prekeys", () => {
         deviceId: "device-1",
         workspaceIds: ["workspace-1", "workspace-2"],
         serverChallenge: "server-challenge",
-        issuedAtEventSequence: 9,
+        issuedAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_300_000,
         worker: { generateInitialAkeResponderPrekey },
         operationIdFactory: () => operationIds.shift()!,
       }),
@@ -62,8 +42,8 @@ describe("registration initial AKE prekeys", () => {
       deviceId: "device-1",
       purpose: "umk_distribution",
       serverChallenge: "server-challenge",
-      issuedAtEventSequence: 9,
-      expiresEventSequence: 10,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
     });
     expect(generateInitialAkeResponderPrekey).toHaveBeenNthCalledWith(2, {
       operationId: "trust-operation",
@@ -71,8 +51,8 @@ describe("registration initial AKE prekeys", () => {
       deviceId: "device-1",
       purpose: "trust_transfer",
       serverChallenge: "server-challenge",
-      issuedAtEventSequence: 9,
-      expiresEventSequence: 10,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
     });
     expect(generateInitialAkeResponderPrekey).toHaveBeenNthCalledWith(3, {
       operationId: "device-1",
@@ -80,8 +60,8 @@ describe("registration initial AKE prekeys", () => {
       deviceId: "device-1",
       purpose: "device_approval_kek_initial",
       serverChallenge: "server-challenge",
-      issuedAtEventSequence: 9,
-      expiresEventSequence: 10,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
     });
   });
 
@@ -104,7 +84,8 @@ describe("registration initial AKE prekeys", () => {
         deviceId: "device-1",
         workspaceIds: [],
         serverChallenge: "server-challenge",
-        issuedAtEventSequence: 1,
+        issuedAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_300_000,
         worker: { generateInitialAkeResponderPrekey },
       });
 

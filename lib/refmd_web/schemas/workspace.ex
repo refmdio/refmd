@@ -86,32 +86,90 @@ defmodule RefMDWeb.Schemas.WorkspacesListResponse do
   })
 end
 
-defmodule RefMDWeb.Schemas.CreateWorkspaceRequest do
+defmodule RefMDWeb.Schemas.WorkspaceGenesisCommand do
   alias OpenApiSpex.Schema
   require OpenApiSpex
 
   OpenApiSpex.schema(%{
-    title: "CreateWorkspaceRequest",
+    title: "WorkspaceGenesisCommand",
     type: :object,
+    additionalProperties: false,
     properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.workspace-genesis-command"]},
+      version: %Schema{type: :integer, enum: [1]},
       name: %Schema{type: :string, minLength: 1, maxLength: 100},
       workspace_id: %Schema{type: :string, format: :uuid},
-      workspace_owner_role_id: %Schema{type: :string, format: :uuid},
+      owner_role_id: %Schema{type: :string, format: :uuid},
       description: %Schema{type: :string, maxLength: 500, nullable: true},
       icon: %Schema{type: :string, nullable: true},
-      workspace_key_directory_events: %Schema{
-        type: :array,
-        items: RefMDWeb.Schemas.KeyDirectoryEnvelope
-      },
-      workspace_key_directory_checkpoint: RefMDWeb.Schemas.KeyDirectoryEnvelope
+      workspace_member_envelope_precommit:
+        RefMDWeb.Schemas.GenesisWorkspaceMemberEnvelopePrecommit
     },
     required: [
+      :protocol,
+      :version,
       :name,
       :workspace_id,
-      :workspace_owner_role_id,
-      :workspace_key_directory_events,
-      :workspace_key_directory_checkpoint
+      :owner_role_id,
+      :description,
+      :icon,
+      :workspace_member_envelope_precommit
     ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.WorkspaceGenesisAuthorization do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceGenesisAuthorization",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.audit.compound-append-authorization"]},
+      version: %Schema{type: :integer, enum: [1]},
+      compound_intent_id: %Schema{type: :string, format: :uuid},
+      mutation_id: %Schema{type: :string, format: :uuid},
+      intent_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      scope_signatures: %Schema{
+        type: :array,
+        minItems: 1,
+        maxItems: 1,
+        items: RefMDWeb.Schemas.GenesisScopeSignature
+      },
+      effect_authorizations: %Schema{
+        type: :array,
+        minItems: 1,
+        items: RefMDWeb.Schemas.GenesisEffectAuthorization
+      }
+    },
+    required: [
+      :protocol,
+      :version,
+      :compound_intent_id,
+      :mutation_id,
+      :intent_hash,
+      :scope_signatures,
+      :effect_authorizations
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.WorkspaceGenesisResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "WorkspaceGenesisResponse",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      status: %Schema{type: :string, enum: ["committed"]},
+      workspace_id: %Schema{type: :string, format: :uuid},
+      workspace_audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint
+    },
+    required: [:status, :workspace_id, :workspace_audit_checkpoint]
   })
 end
 

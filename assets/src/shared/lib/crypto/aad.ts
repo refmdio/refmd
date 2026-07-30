@@ -67,8 +67,11 @@ export function buildRecoveryUmkWrapAad(userId: string): Uint8Array {
 export function buildIdentityHybridEncryptionPrivateKeyMaterialAad(
   userId: string,
   encryptionKeyId: string,
+  identityKeyEpoch: number,
 ): Uint8Array {
-  return buildAad({
+  return canonicalizeAadBytes({
+    protocol: "refmd.hybrid-encryption-private-key-material-encryption",
+    version: 1,
     purpose: AAD_PURPOSE.IDENTITY_HYBRID_ENCRYPTION_PRIVATE_KEY_MATERIAL,
     owner_kind: "identity",
     owner_id: userId,
@@ -79,10 +82,15 @@ export function buildIdentityHybridEncryptionPrivateKeyMaterialAad(
     storage_scope: {
       kind: "user_identity_key",
       user_id: userId,
+      identity_key_epoch: identityKeyEpoch,
     },
   });
 }
-export function buildIdentitySigningAad(userId: string, signingKeyId: string): Uint8Array {
+export function buildIdentitySigningAad(
+  userId: string,
+  signingKeyId: string,
+  identityKeyEpoch: number,
+): Uint8Array {
   return buildHybridSigningPrivateMaterialAad({
     purpose: AAD_PURPOSE.IDENTITY_SIGNING,
     owner_kind: "identity",
@@ -91,6 +99,7 @@ export function buildIdentitySigningAad(userId: string, signingKeyId: string): U
     storage_scope: {
       kind: "user_identity_key",
       user_id: userId,
+      identity_key_epoch: identityKeyEpoch,
     },
   });
 }

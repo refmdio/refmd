@@ -113,24 +113,35 @@ export function buildKekOldKeyDeletionManifestHash(input: {
   wipeRequiredDeviceIds: string[];
   serverRejectsOldKeyUploadsAfterSequence: number;
 }): string {
-  return blake3Base64Url(
-    canonicalizeStrictBytes({
-      protocol: "refmd.old-key-deletion-manifest",
-      version: CURRENT_PROTOCOL_VERSION,
-      rotation_kind: "kek",
-      scope_kind: "workspace",
-      scope_id: input.workspaceId,
-      old_key_version: input.oldKeyVersion,
-      rotation_completed_event_hash: input.rotationCompletedEventHash,
-      deleted_secret_ids_hash: input.deletedSecretIdsHash,
-      deleted_wrap_ids_hash: input.deletedWrapIdsHash,
-      active_device_deletion_proofs_hash: activeDeviceDeletionProofsHash(
-        input.deviceKeyDeletionProofs,
-      ),
-      wipe_required_device_ids_hash: wipeRequiredDeviceIdsHash(input.wipeRequiredDeviceIds),
-      server_rejects_old_key_uploads_after_sequence: input.serverRejectsOldKeyUploadsAfterSequence,
-    }),
-  );
+  return blake3Base64Url(canonicalizeStrictBytes(buildKekOldKeyDeletionManifest(input)));
+}
+
+export function buildKekOldKeyDeletionManifest(input: {
+  workspaceId: string;
+  oldKeyVersion: number;
+  rotationCompletedEventHash: string;
+  deletedSecretIdsHash: string;
+  deletedWrapIdsHash: string;
+  deviceKeyDeletionProofs: Record<string, unknown>[];
+  wipeRequiredDeviceIds: string[];
+  serverRejectsOldKeyUploadsAfterSequence: number;
+}): StrictJsonValue {
+  return {
+    protocol: "refmd.old-key-deletion-manifest",
+    version: CURRENT_PROTOCOL_VERSION,
+    rotation_kind: "kek",
+    scope_kind: "workspace",
+    scope_id: input.workspaceId,
+    old_key_version: input.oldKeyVersion,
+    rotation_completed_event_hash: input.rotationCompletedEventHash,
+    deleted_secret_ids_hash: input.deletedSecretIdsHash,
+    deleted_wrap_ids_hash: input.deletedWrapIdsHash,
+    active_device_deletion_proofs_hash: activeDeviceDeletionProofsHash(
+      input.deviceKeyDeletionProofs,
+    ),
+    wipe_required_device_ids_hash: wipeRequiredDeviceIdsHash(input.wipeRequiredDeviceIds),
+    server_rejects_old_key_uploads_after_sequence: input.serverRejectsOldKeyUploadsAfterSequence,
+  };
 }
 
 function kekRotationCompletedEvent(

@@ -2,6 +2,7 @@ export type StrictJsonValue =
   | string
   | number
   | boolean
+  | null
   | StrictJsonValue[]
   | { readonly [key: string]: StrictJsonValue };
 
@@ -34,6 +35,7 @@ export function parseJsonStrictBytes(raw: Uint8Array): StrictJsonValue {
 }
 
 function canonicalizeValue(value: StrictJsonValue): string {
+  if (value === null) return "null";
   if (typeof value === "string") return quoteString(value);
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return canonicalizeInteger(value);
@@ -129,7 +131,7 @@ class StrictJsonParser {
     if (char === '"') return this.parseString();
     if (char === "t") return this.parseLiteral("true", true);
     if (char === "f") return this.parseLiteral("false", false);
-    if (char === "n") throw new Error("jcs_null_rejected");
+    if (char === "n") return this.parseLiteral("null", null);
     if (char >= "0" && char <= "9") return this.parseInteger();
     if (char === "-") throw new Error("jcs_negative_integer_rejected");
     throw new Error("json_unexpected_token");
@@ -247,7 +249,7 @@ class StrictJsonParser {
     return value;
   }
 
-  private parseLiteral<T extends boolean>(literal: string, value: T): T {
+  private parseLiteral<T extends boolean | null>(literal: string, value: T): T {
     if (this.raw.slice(this.index, this.index + literal.length) !== literal) {
       throw new Error("json_invalid_literal");
     }

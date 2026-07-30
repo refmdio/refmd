@@ -9,6 +9,56 @@ let sharedPage: Page;
 let email: string;
 const guestDocumentTitle = "Guest Workspace Document";
 
+async function guestRecoveryKeyNames(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const request = indexedDB.open("refmd-keys");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const transaction = db.transaction("keystore", "readonly");
+          const keysRequest = transaction.objectStore("keystore").getAllKeys();
+          keysRequest.onerror = () => reject(keysRequest.error);
+          transaction.oncomplete = () => {
+            db.close();
+            resolve(
+              keysRequest.result.filter(
+                (key): key is string =>
+                  typeof key === "string" &&
+                  (key.startsWith("guest-pending-keys:") ||
+                    key.startsWith("refmd-guest-redeem:") ||
+                    key.startsWith("refmd-guest-active:")),
+              ),
+            );
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      }),
+  );
+}
+
+async function auditCheckpointPinScopes(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const request = indexedDB.open("refmd-security");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const transaction = db.transaction("audit-checkpoint-pins", "readonly");
+          const keysRequest = transaction.objectStore("audit-checkpoint-pins").getAllKeys();
+          keysRequest.onerror = () => reject(keysRequest.error);
+          transaction.oncomplete = () => {
+            db.close();
+            resolve(keysRequest.result.filter((key): key is string => typeof key === "string"));
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      }),
+  );
+}
+
 test.describe.serial("Settings Dialog", () => {
   test.beforeAll(async ({ browser }) => {
     sharedPage = await (await newE2EContext(browser, { bypassCSP: true })).newPage();
@@ -371,10 +421,38 @@ test.describe.serial("Settings Dialog", () => {
     });
   });
 
+  test("signed audit checkpoint pins survive reload and settings reentry", async () => {
+    await sharedPage.reload({ waitUntil: "domcontentloaded" });
+    await expect(sharedPage).toHaveURL(/\/dashboard/);
+
+    await expect
+      .poll(() => auditCheckpointPinScopes(sharedPage), {
+        timeout: 30_000,
+        message: "signed user and workspace audit checkpoint pins were not retained",
+      })
+      .toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^user:/),
+          expect.stringMatching(/^workspace:/),
+        ]),
+      );
+
+    await openSettings(sharedPage);
+    await selectSettingsTab(sharedPage, "Security");
+    await expect(sharedPage.getByText("(this device)")).toBeVisible({ timeout: 5_000 });
+  });
+
   test("registered guest recipient redeems a recipient-bound invitation", async ({ browser }) => {
     test.setTimeout(E2E_TIMEOUTS.extendedScenario);
 
     const recipientContext = await newE2EContext(browser, { bypassCSP: true });
+    await recipientContext.addInitScript(() => {
+      window.__REFMD_E2E__ = true;
+      window.__refmdE2EClientLogs = [];
+      window.addEventListener("refmd:client-log", (event) => {
+        window.__refmdE2EClientLogs?.push((event as CustomEvent).detail);
+      });
+    });
     const recipientPage = await recipientContext.newPage();
     try {
       const recipientEmail = await registerAccount(recipientPage, "Known guest recipient");
@@ -435,7 +513,36 @@ test.describe.serial("Settings Dialog", () => {
       await approveButton.waitFor({ state: "visible", timeout: 30_000 });
       await approveButton.click();
       await expect(approveButton).toHaveCount(0, { timeout: 30_000 });
+      expect(await guestRecoveryKeyNames(recipientPage)).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^guest-pending-keys:/),
+          expect.stringMatching(/^refmd-guest-redeem:/),
+          expect.stringMatching(/^refmd-guest-active:/),
+        ]),
+      );
+
+      const consumePattern = "**/api/guest/invitations/delivery-attempts/*/consume";
+      let consumeRequestCount = 0;
+      let committedResponseDropped = false;
+      await recipientPage.route(consumePattern, async (route) => {
+        consumeRequestCount += 1;
+        if (committedResponseDropped) {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        expect(response.status()).toBe(200);
+        committedResponseDropped = true;
+        await route.abort("failed");
+      });
       await recipientPage.getByRole("button", { name: "Retry" }).click();
+      await expect
+        .poll(() => committedResponseDropped, {
+          timeout: 30_000,
+          message: "guest consume response was not intercepted after commit",
+        })
+        .toBe(true);
+      expect(consumeRequestCount).toBe(1);
       await expect
         .poll(
           async () => {
@@ -446,8 +553,12 @@ test.describe.serial("Settings Dialog", () => {
           { timeout: 60_000, message: "guest invitation redemption did not succeed" },
         )
         .toBe("redeemed");
+      await recipientPage.unroute(consumePattern);
 
-      await openDocument(recipientPage, guestDocumentTitle);
+      await openDocument(recipientPage, guestDocumentTitle).catch(async (error) => {
+        const clientLogs = await recipientPage.evaluate(() => window.__refmdE2EClientLogs ?? []);
+        throw new Error(`${String(error)}\nclientLogs=${JSON.stringify(clientLogs)}`);
+      });
       await recipientPage.reload({ waitUntil: "domcontentloaded" });
       await openDocument(recipientPage, guestDocumentTitle);
 
@@ -482,6 +593,115 @@ test.describe.serial("Settings Dialog", () => {
       recipientPage.off("request", recordReentryDeliveryRequest);
       expect(reentryDeliveryRequests).toEqual([]);
       await openDocument(recipientPage, guestDocumentTitle);
+    } finally {
+      await recipientContext.close();
+    }
+  });
+
+  test("lost guest consume response and session discard the single-use attempt", async ({
+    browser,
+  }) => {
+    test.setTimeout(E2E_TIMEOUTS.extendedScenario);
+
+    const recipientContext = await newE2EContext(browser, { bypassCSP: true });
+    const recipientPage = await recipientContext.newPage();
+    try {
+      const recipientEmail = await registerAccount(recipientPage, "Lost guest session recipient");
+      await openSettings(sharedPage);
+      await selectSettingsTab(sharedPage, "Workspace");
+      const guestInvitesSection = sharedPage.getByTestId("guest-invites-section");
+      if (
+        !(await guestInvitesSection
+          .getByRole("button", { name: "Invite Guest" })
+          .isVisible()
+          .catch(() => false))
+      ) {
+        const updateResponse = sharedPage.waitForResponse(
+          (response) =>
+            response.request().method() === "PATCH" &&
+            response.url().includes("/api/workspaces/") &&
+            !response.url().endsWith("/features"),
+        );
+        await guestInvitesSection.getByRole("group", { name: "Allow guest invites" }).click();
+        await guestInvitesSection.getByRole("button", { name: "Save" }).click();
+        await updateResponse;
+      }
+
+      await guestInvitesSection.getByRole("button", { name: "Invite Guest" }).click();
+      const dialog = sharedPage
+        .locator('[role="dialog"]')
+        .filter({ has: sharedPage.getByRole("heading", { name: "Invite Guest" }) });
+      await dialog.locator("#guest-email").fill(recipientEmail);
+      const createResponse = sharedPage.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.status() === 201 &&
+          /\/api\/workspaces\/[^/]+\/guest-invitations$/.test(response.url()),
+      );
+      await dialog.getByRole("button", { name: "Create Invitation" }).click();
+      await createResponse;
+      const link = await dialog.locator("input[readonly]").inputValue();
+
+      await recipientPage.goto(link, { waitUntil: "domcontentloaded" });
+      await recipientPage.getByRole("button", { name: "Continue as Guest" }).click();
+      await expect(
+        recipientPage.getByText("Workspace key delivery is waiting for approval."),
+      ).toBeVisible({ timeout: 30_000 });
+      await dialog.getByRole("button", { name: "Done" }).click();
+      const approveButton = guestInvitesSection
+        .getByRole("button", { name: "Approve key delivery" })
+        .first();
+      await approveButton.click();
+      await expect(approveButton).toHaveCount(0, { timeout: 30_000 });
+      expect(await guestRecoveryKeyNames(recipientPage)).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^guest-pending-keys:/),
+          expect.stringMatching(/^refmd-guest-redeem:/),
+          expect.stringMatching(/^refmd-guest-active:/),
+        ]),
+      );
+
+      const consumePattern = "**/api/guest/invitations/delivery-attempts/*/consume";
+      let consumeRequestCount = 0;
+      let committedResponseAndSessionDropped = false;
+      await recipientPage.route(consumePattern, async (route) => {
+        consumeRequestCount += 1;
+        const response = await route.fetch();
+        expect(response.status()).toBe(200);
+        await recipientContext.clearCookies();
+        committedResponseAndSessionDropped = true;
+        await route.abort("failed");
+      });
+
+      await recipientPage.getByRole("button", { name: "Retry" }).click();
+      await expect
+        .poll(() => committedResponseAndSessionDropped, {
+          timeout: 30_000,
+          message: "guest consume response and committed session were not dropped",
+        })
+        .toBe(true);
+      await expect
+        .poll(
+          () =>
+            recipientPage.evaluate(
+              () =>
+                Object.keys(localStorage).filter((key) =>
+                  key.startsWith("refmd-invitation-delivery-attempt:"),
+                ).length,
+            ),
+          { timeout: 30_000, message: "single-use guest delivery tuple was not discarded" },
+        )
+        .toBe(0);
+      await expect
+        .poll(() => guestRecoveryKeyNames(recipientPage), {
+          timeout: 30_000,
+          message: "guest pending keys or persisted redeem material were not discarded",
+        })
+        .toEqual([]);
+      await recipientPage.waitForTimeout(E2E_DELAYS.poll * 2);
+      expect(consumeRequestCount).toBe(1);
+      expect(recipientPage.url()).not.toContain("/dashboard");
+      await recipientPage.unroute(consumePattern);
     } finally {
       await recipientContext.close();
     }

@@ -22,6 +22,12 @@ defmodule RefMDWeb.ApiSpec do
             name: "__Host-refmd-session",
             description: "Authenticated user session cookie."
           },
+          "genesis_session" => %SecurityScheme{
+            type: "apiKey",
+            in: "cookie",
+            name: "__Host-refmd-genesis",
+            description: "Pending account genesis session cookie."
+          },
           "share_session" => %SecurityScheme{
             type: "apiKey",
             in: "cookie",
@@ -90,6 +96,7 @@ defmodule RefMDWeb.ApiSpec do
   @http_methods [:get, :put, :post, :delete, :options, :head, :patch, :trace]
   @public_route_security []
   @user_session_security [%{"user_session" => []}]
+  @genesis_session_security [%{"genesis_session" => []}]
   @share_session_security [%{"share_session" => []}]
   @mount_session_security [%{"mount_session" => []}]
   @user_or_share_session_security [%{"user_session" => []}, %{"share_session" => []}]
@@ -202,7 +209,6 @@ defmodule RefMDWeb.ApiSpec do
     {"/api/auth/me", :get} => @user_session_security,
     {"/api/auth/external-accounts", :get} => @user_session_security,
     {"/api/auth/key-restore", :get} => @user_session_security,
-    {"/api/auth/oauth/crypto-setup", :post} => @user_session_security,
     {"/api/auth/verify-key", :post} => @user_session_security,
     {"/api/auth/kdf-migration", :post} => @user_session_security,
     {"/api/auth/recovery", :get} => @user_session_security,
@@ -210,8 +216,9 @@ defmodule RefMDWeb.ApiSpec do
     {"/api/auth/dbsc/register", :post} => @user_session_security,
     {"/api/auth/dbsc/share/register", :post} => @share_session_security,
     {"/api/auth/dbsc/mount/register", :post} => @mount_session_security,
-    {"/api/devices/bootstrap/challenge", :post} => @user_session_security,
-    {"/api/devices/bootstrap", :post} => @user_session_security,
+    {"/api/devices/bootstrap/challenge", :post} => @genesis_session_security,
+    {"/api/devices/bootstrap/intent", :post} => @genesis_session_security,
+    {"/api/devices/bootstrap", :post} => @genesis_session_security,
     {"/api/devices/registrations/challenge", :post} => @user_session_security,
     {"/api/devices/registrations", :post} => @user_session_security,
     {"/api/devices/registrations", :get} => @user_session_security,

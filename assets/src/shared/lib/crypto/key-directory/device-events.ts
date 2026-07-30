@@ -157,7 +157,11 @@ export async function buildRecoveryWorkspaceDeviceKeyDirectoryAppend(
     shareParticipantKeys: checkpointShareParticipantKeys(checkpointPayload),
     revokedKeyIds: (checkpointPayload.revoked_key_ids as string[] | undefined) ?? [],
   });
-  const signedCheckpoint = await signCheckpoint("device", "device_authorized", checkpoint);
+  const signedCheckpoint = await signCheckpoint(
+    "device",
+    "workspace_invitation_self_admission",
+    checkpoint,
+  );
   return { events: [signedEvent], checkpoint: signedCheckpoint };
 }
 

@@ -137,6 +137,15 @@ defmodule RefMD.Encryption.KeyDirectory do
          opts
        ) do
     expected_signer_kind = Keyword.fetch!(opts, :checkpoint_signer_kind)
+
+    genesis_candidate_signing_key_id =
+      genesis_candidate_signing_key_id!(
+        scope_kind,
+        scope_id,
+        event_envelopes,
+        checkpoint_envelope
+      )
+
     verify_complete_replay!(scope_kind, scope_id, event_envelopes, checkpoint_envelope, opts)
 
     {events, _previous_event_hash} =
@@ -150,7 +159,12 @@ defmodule RefMD.Encryption.KeyDirectory do
         Assertions.assert_literal!(payload["scope_id"], scope_id, "event_scope_id_mismatch")
         Assertions.assert_literal!(payload["sequence"], expected_sequence, "event_sequence_gap")
         Envelope.assert_event_chain_link!(payload, previous_event_hash)
-        Signatures.verify_event_signatures!(payload, signatures, checkpoint_envelope)
+
+        Signatures.verify_event_signatures!(payload, signatures, checkpoint_envelope,
+          allow_inactive_signer:
+            genesis_candidate_event?(payload, genesis_candidate_signing_key_id)
+        )
+
         event = Store.insert_event!(payload, signatures)
 
         {[event | events], event.event_hash}
@@ -671,6 +685,14 @@ defmodule RefMD.Encryption.KeyDirectory do
       |> Map.put("share_participant_keys", [])
       |> Map.put("revoked_key_ids", [])
 
+    genesis_candidate_signing_key_id =
+      genesis_candidate_signing_key_id!(
+        scope_kind,
+        scope_id,
+        event_envelopes,
+        checkpoint_envelope
+      )
+
     authorized_share_participant_keys = State.share_participant_entries_by_id(checkpoint_payload)
 
     {verified_events, _previous_hash, _authority_state, replay_payload} =
@@ -708,10 +730,17 @@ defmodule RefMD.Encryption.KeyDirectory do
               checkpoint_payload,
               authorized_share_participant_keys
             )
+            |> add_genesis_candidate_authority(
+              payload,
+              checkpoint_payload,
+              genesis_candidate_signing_key_id
+            )
 
           Signatures.verify_event_signatures!(payload, signatures, signature_replay_payload,
             verify_semantics: false,
-            semantic_checkpoint_payload: checkpoint_payload
+            semantic_checkpoint_payload: checkpoint_payload,
+            allow_inactive_signer:
+              genesis_candidate_event?(payload, genesis_candidate_signing_key_id)
           )
 
           replay_payload =
@@ -765,6 +794,71 @@ defmodule RefMD.Encryption.KeyDirectory do
 
     :ok
   end
+
+  defp genesis_candidate_signing_key_id!(
+         "workspace",
+         scope_id,
+         [%{"payload" => %{"sequence" => 1, "actor" => actor}} | _],
+         checkpoint_envelope
+       ) do
+    case actor do
+      %{
+        "signer_kind" => "device",
+        "signing_key_id" => signing_key_id,
+        "key_scope_kind" => "workspace",
+        "key_scope_id" => ^scope_id,
+        "key_checkpoint_sequence" => 0,
+        "key_checkpoint_hash" => "GENESIS"
+      } ->
+        checkpoint_envelope
+        |> Envelope.payload!(:checkpoint)
+        |> State.key_entry_by_id!(signing_key_id)
+        |> get_in(["key_material", "owner_kind"])
+        |> Assertions.assert_literal!("device", "genesis_candidate_signer_kind_invalid")
+
+        signing_key_id
+
+      _ ->
+        nil
+    end
+  end
+
+  defp genesis_candidate_signing_key_id!(_scope_kind, _scope_id, _events, _checkpoint),
+    do: nil
+
+  defp genesis_candidate_event?(_payload, nil), do: false
+
+  defp genesis_candidate_event?(payload, signing_key_id) do
+    payload["actor"]["signing_key_id"] == signing_key_id and
+      payload["actor"]["key_checkpoint_sequence"] == 0 and
+      payload["actor"]["key_checkpoint_hash"] == "GENESIS"
+  end
+
+  defp add_genesis_candidate_authority(
+         replay_payload,
+         %{"event_type" => event_type} = payload,
+         checkpoint_payload,
+         signing_key_id
+       )
+       when event_type != "device_key_added" do
+    if genesis_candidate_event?(payload, signing_key_id) do
+      State.update_key_entries_if_missing!(
+        replay_payload,
+        "device_keys",
+        State.key_entry_by_id!(checkpoint_payload, signing_key_id)
+      )
+    else
+      replay_payload
+    end
+  end
+
+  defp add_genesis_candidate_authority(
+         replay_payload,
+         _payload,
+         _checkpoint_payload,
+         _signing_key_id
+       ),
+       do: replay_payload
 
   defp event_signature_replay_payload!(
          replay_payload,
@@ -876,6 +970,16 @@ defmodule RefMD.Encryption.KeyDirectory do
           checkpoint_sequence,
           checkpoint_hash
         )
+
+  @doc "Key-directory package boundary for the covered event head of an exact checkpoint."
+  def checkpoint_event_head(scope_kind, scope_id, checkpoint_sequence, checkpoint_hash),
+    do:
+      Store.checkpoint_event_head(
+        scope_kind,
+        scope_id,
+        checkpoint_sequence,
+        checkpoint_hash
+      )
 
   @doc "Key-directory package boundary for ordered event history lookup."
   def events_up_to(scope_kind, scope_id, head_sequence),

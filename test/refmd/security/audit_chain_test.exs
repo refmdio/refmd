@@ -3,10 +3,10 @@ defmodule RefMD.Security.AuditChainTest do
 
   import Ecto.Query
 
-  alias RefMD.Crypto.{Hash, JCS}
   alias RefMD.Repo
   alias RefMD.Security
-  alias RefMD.Security.AuditEvent
+  alias RefMD.Security.{AuditChainEvent, AuditEvent, SignedAuditCheckpoint}
+  alias RefMD.TestCrypto
   alias RefMD.Users.User
   alias RefMD.Workspaces
 
@@ -24,8 +24,8 @@ defmodule RefMD.Security.AuditChainTest do
     assert {:ok, %{sequence: 1, event_hash: event_hash}} =
              Security.verify_audit_chain(chain_scope)
 
-    assert %{chain_scope: ^chain_scope, sequence: 1, event_hash: ^event_hash} =
-             Security.current_audit_checkpoint!(chain_scope)
+    assert %{sequence: 1, event_hash: ^event_hash} =
+             Security.current_verified_audit_event_head!(chain_scope)
 
     assert [%AuditEvent{type: "workspace.created", sequence: 1}] =
              Repo.all(from(e in AuditEvent, where: e.chain_scope == ^chain_scope))
@@ -42,51 +42,21 @@ defmodule RefMD.Security.AuditChainTest do
 
     assert first.chain_scope == "user:#{user_id}"
     assert first.sequence == 1
-    assert is_nil(first.previous_event_hash)
+    assert first.previous_event_hash == "GENESIS"
     assert second.sequence == 2
     assert second.previous_event_hash == first.event_hash
 
     assert first.event_hash ==
-             Hash.blake3_base64url(
-               JCS.canonical_bytes!(
-                 compact(%{
-                   "protocol" => "refmd.security-audit-chain",
-                   "version" => 1,
-                   "chain_scope" => first.chain_scope,
-                   "sequence" => 1,
-                   "class" => first.class,
-                   "type" => first.type,
-                   "actor" => first.actor,
-                   "scope" => first.scope,
-                   "resource" => first.resource,
-                   "action" => first.action,
-                   "sensitivity" => first.sensitivity,
-                   "correlation" => first.correlation
-                 })
-               )
-             )
+             first
+             |> Map.from_struct()
+             |> AuditChainEvent.build!()
+             |> AuditChainEvent.hash!()
 
     assert {:ok, %{sequence: 2, event_hash: event_hash}} =
              Security.verify_audit_chain(first.chain_scope)
 
-    assert %{
-             chain_scope: first_chain_scope,
-             sequence: 2,
-             event_hash: ^event_hash,
-             authority_checkpoint: nil
-           } = Security.current_audit_checkpoint(first.chain_scope)
-
-    assert first_chain_scope == first.chain_scope
-
-    assert [first_ancestor, second_ancestor] =
-             Security.current_audit_checkpoint(first.chain_scope).ancestry
-
-    assert first_ancestor.protocol == "refmd.security-audit-chain"
-    assert first_ancestor.version == 1
-    assert first_ancestor.event_hash == first.event_hash
-    assert second_ancestor.protocol == "refmd.security-audit-chain"
-    assert second_ancestor.version == 1
-    assert second_ancestor.event_hash == second.event_hash
+    assert %{sequence: 2, event_hash: ^event_hash} =
+             Security.current_verified_audit_event_head(first.chain_scope)
   end
 
   test "serializes concurrent appends within one workspace scope" do
@@ -134,12 +104,15 @@ defmodule RefMD.Security.AuditChainTest do
            ) == 1
 
     assert_raise RuntimeError, "security audit chain verification failed", fn ->
-      Security.current_audit_checkpoint!(event.chain_scope)
+      Security.current_verified_audit_event_head!(event.chain_scope)
     end
   end
 
   test "notification payload binds the verified audit checkpoint and fails closed on tampering" do
     user_id = Ecto.UUID.generate()
+
+    %{signed_checkpoint: signed_checkpoint} =
+      TestCrypto.install_signed_audit_genesis!("user", user_id, user_id)
 
     assert {:ok, %{audit_event: event, notifications: [notification]}} =
              Security.record_audit_event(audit_attrs(user_id, "device.approved"), [
@@ -154,17 +127,45 @@ defmodule RefMD.Security.AuditChainTest do
              ])
 
     assert %{audit_checkpoint: checkpoint} = Security.notification_payload(notification)
-    assert checkpoint.chain_scope == event.chain_scope
-    assert checkpoint.sequence == event.sequence
-    assert checkpoint.event_hash == event.event_hash
+    assert checkpoint.signed_checkpoint == SignedAuditCheckpoint.envelope(signed_checkpoint)
+
+    assert checkpoint.current_event_head == %{
+             sequence: event.sequence,
+             event_hash: event.event_hash
+           }
+
+    assert [%{"sequence" => sequence, "event_hash" => event_hash}] = checkpoint.unsigned_tail
+    assert sequence == event.sequence
+    assert event_hash == event.event_hash
 
     Repo.update_all(from(e in AuditEvent, where: e.id == ^event.id),
       set: [type: "device.rejected"]
     )
 
-    assert_raise RuntimeError, "security audit chain verification failed", fn ->
+    assert_raise ArgumentError, fn ->
       Security.notification_payload(notification)
     end
+  end
+
+  test "required pending registration notification marking rolls back the terminal audit" do
+    user_id = Ecto.UUID.generate()
+    registration_id = Ecto.UUID.generate()
+
+    assert {:error, :pending_registration_notification_missing} =
+             Security.record_registration_approved(user_id, registration_id,
+               require_pending_notification: true
+             )
+
+    refute Repo.get_by(AuditEvent,
+             chain_scope: "user:#{user_id}",
+             type: "device.registration.approved"
+           )
+
+    refute Repo.get_by(RefMD.Security.Notification,
+             recipient_kind: "pending_registration",
+             recipient_id: registration_id,
+             type: "device.registration_approved"
+           )
   end
 
   test "rejects metadata outside the sensitive-data-free audit schema" do
@@ -188,7 +189,7 @@ defmodule RefMD.Security.AuditChainTest do
         "principal_id" => user_id
       },
       scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
-      resource: %{"kind" => "user", "id" => user_id, "version_hash" => nil},
+      resource: %{"kind" => "credential", "id" => user_id, "version_hash" => nil},
       action: %{"operation" => type, "result" => "completed", "reason_code" => nil},
       sensitivity: Security.empty_sensitivity(),
       correlation: %{
@@ -206,13 +207,4 @@ defmodule RefMD.Security.AuditChainTest do
     |> put_in([:resource, "kind"], "workspace")
     |> put_in([:resource, "id"], workspace_id)
   end
-
-  defp compact(%{} = value) do
-    value
-    |> Enum.reject(fn {_key, nested} -> is_nil(nested) end)
-    |> Map.new(fn {key, nested} -> {key, compact(nested)} end)
-  end
-
-  defp compact(value) when is_list(value), do: Enum.map(value, &compact/1)
-  defp compact(value), do: value
 end

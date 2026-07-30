@@ -57,6 +57,7 @@ describe("identity successor lifecycle", () => {
     expect(state.identityHybridSigningState!.signingKeyId).toBe(previousSigningKeyId);
     const wrapped = handleWrapIdentitySuccessorForServer(state, {
       userId: state.userId,
+      identityKeyEpoch: 2,
     }) as { encryptionKeyId: string };
     expect(wrapped.encryptionKeyId).toBe(successor.encryptionKeyId);
     const finalization = handleBeginIdentitySuccessorFinalization(state) as {
@@ -72,9 +73,9 @@ describe("identity successor lifecycle", () => {
     expect(() => requireIdentityEcdhPrivate(state)).toThrow(
       "Identity private key is blocked during rotation finalization",
     );
-    expect(() => handleWrapIdentityKeysForServer(state, { userId: state.userId })).toThrow(
-      "Identity private key is blocked during rotation finalization",
-    );
+    expect(() =>
+      handleWrapIdentityKeysForServer(state, { userId: state.userId, identityKeyEpoch: 1 }),
+    ).toThrow("Identity private key is blocked during rotation finalization");
 
     const result = handleActivateIdentitySuccessor(state) as {
       previousSigningKeyId: string;
@@ -99,9 +100,13 @@ describe("identity successor lifecycle", () => {
     state.umk = crypto.getRandomValues(new Uint8Array(32));
     handleGenerateIdentityKeys(state);
     handleGenerateIdentitySuccessor(state);
-    const encrypted = handleWrapIdentitySuccessorForServer(state, {
-      userId: state.userId,
-    }) as Parameters<typeof handleImportIdentitySuccessor>[1];
+    const encrypted = {
+      ...(handleWrapIdentitySuccessorForServer(state, {
+        userId: state.userId,
+        identityKeyEpoch: 2,
+      }) as Parameters<typeof handleImportIdentitySuccessor>[1]),
+      identityKeyEpoch: 2,
+    };
 
     handleBeginIdentitySuccessorFinalization(state);
     const first = handleActivateIdentitySuccessor(state);
@@ -134,9 +139,13 @@ describe("identity successor lifecycle", () => {
     );
     const previousSigningKeyId = source.identityHybridSigningState!.signingKeyId;
     handleGenerateIdentitySuccessor(source);
-    const encrypted = handleWrapIdentitySuccessorForServer(source, {
-      userId: source.userId,
-    }) as Parameters<typeof handleImportIdentityKeys>[1];
+    const encrypted = {
+      ...(handleWrapIdentitySuccessorForServer(source, {
+        userId: source.userId,
+        identityKeyEpoch: 2,
+      }) as Parameters<typeof handleImportIdentityKeys>[1]),
+      identityKeyEpoch: 2,
+    };
 
     const restored = createInitialState();
     restored.userId = source.userId;
@@ -469,7 +478,9 @@ describe("identity successor lifecycle", () => {
     const generated = handleGenerateIdentitySuccessor(source) as { encryptionKeyId: string };
     const encrypted = handleWrapIdentitySuccessorForServer(source, {
       userId: source.userId,
+      identityKeyEpoch: 2,
     }) as Parameters<typeof handleImportIdentitySuccessor>[1];
+    encrypted.identityKeyEpoch = 2;
 
     const restored = createInitialState();
     restored.userId = source.userId;

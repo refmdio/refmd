@@ -2,6 +2,7 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
   @moduledoc false
 
   alias RefMD.Crypto.{Hash, JCS}
+  alias RefMD.Crypto.Signature.Audit
   alias RefMD.Crypto.Signature.Core
   alias RefMD.Encryption.KeyDirectory.Replay
 
@@ -747,6 +748,47 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     Core.assert_map!(transcript["share_state"], "share_state_invalid")
   end
 
+  def validate_audit_checkpoint!(transcript, signing_purpose, owner_kind, owner_id) do
+    :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
+    Core.assert_map!(transcript["checkpoint"], "audit_checkpoint_invalid")
+    Core.assert_map!(transcript["signer"], "audit_checkpoint_signer_invalid")
+    Core.assert_map!(transcript["authority_boundary"], "audit_checkpoint_authority_invalid")
+    :ok
+  end
+
+  def validate_audit_checkpoint!(
+        transcript,
+        signing_purpose,
+        owner_kind,
+        owner_id,
+        semantic_context
+      ) do
+    :ok = validate_audit_checkpoint!(transcript, signing_purpose, owner_kind, owner_id)
+
+    payload =
+      required_context_map!(
+        semantic_context,
+        :checkpoint_payload,
+        "audit_checkpoint_context_missing"
+      )
+
+    expected_transcript =
+      Audit.build_audit_checkpoint_transcript!(
+        transcript["surface_variant"],
+        owner_kind,
+        owner_id,
+        payload
+      )
+
+    unless transcript == expected_transcript,
+      do: raise(ArgumentError, "audit_checkpoint_transcript_mismatch")
+
+    unless context_value(semantic_context, :authority_verified) == true,
+      do: raise(ArgumentError, "audit_checkpoint_authority_unverified")
+
+    :ok
+  end
+
   def validate_share_capability_authorization!(
         transcript,
         signing_purpose,
@@ -1182,7 +1224,7 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     :ok = validate_transcript!(transcript, signing_purpose, owner_kind, owner_id)
     Core.assert_map!(transcript["actor"], "actor_invalid")
     Core.assert_map!(transcript["authority_boundary"], "authority_boundary_invalid")
-    Core.assert_map!(transcript["revocation"], "revocation_invalid")
+    Core.assert_map!(transcript["revoked_device"], "revoked_device_invalid")
   end
 
   def validate_device_revocation!(
@@ -1215,8 +1257,20 @@ defmodule RefMD.Crypto.Signature.SemanticValidator do
     )
 
     assert_literal!(
-      transcript["revocation"]["device_id"],
+      transcript["revoked_device"]["device_id"],
       context_value(target, :id),
+      "device_revocation_target_mismatch"
+    )
+
+    assert_literal!(
+      transcript["revoked_device"]["signing_key_id"],
+      context_value(target, :signing_key_id),
+      "device_revocation_target_mismatch"
+    )
+
+    assert_literal!(
+      transcript["revoked_device"]["encryption_key_id"],
+      context_value(target, :encryption_key_id),
       "device_revocation_target_mismatch"
     )
   end

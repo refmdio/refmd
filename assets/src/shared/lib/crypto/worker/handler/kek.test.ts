@@ -40,6 +40,7 @@ import {
   handleOpenSignedPqGuestInvitationShareKeyWrap,
   handleOpenSignedPqDeviceKekWrap,
   handleOpenRecipientBoundInvitationDeviceKekWrap,
+  handleRewrapInvitationBootstrapForKekRotation,
   handleUnwrapKekFromInvitationBootstrap,
   handleWrapKekForInvitationBootstrap,
 } from "./kek";
@@ -139,8 +140,8 @@ describe("Initial AKE responder prekey boundary", () => {
           userId: crypto.randomUUID(),
           deviceId,
           serverChallenge: base64UrlEncode(randomBytes(32)),
-          issuedAtEventSequence: 1,
-          expiresEventSequence: 2,
+          issuedAtMs: 1_700_000_000_000,
+          expiresAtMs: 1_700_000_300_000,
         }),
       ).toThrow("responder_prekey_purpose_invalid");
       expect(state.initialAkeResponderPrekeys.size).toBe(0);
@@ -159,8 +160,8 @@ describe("Initial AKE responder prekey boundary", () => {
         userId: crypto.randomUUID(),
         deviceId,
         serverChallenge: base64UrlEncode(randomBytes(31)),
-        issuedAtEventSequence: 1,
-        expiresEventSequence: 2,
+        issuedAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_300_000,
       }),
     ).toThrow("invalid_base64url_decoded_length");
     expect(state.initialAkeResponderPrekeys.size).toBe(0);
@@ -210,6 +211,63 @@ function scopedGuestPlaintext() {
 }
 
 describe("invitation bootstrap package boundary", () => {
+  it("rewraps a workspace-scoped guest package from the old KEK to the new KEK", () => {
+    const issuerState = createInitialState();
+    const oldKek = randomBytes(32);
+    const newKek = randomBytes(32);
+    setCachedKek(issuerState, workspaceId, oldKek, 1);
+    setCachedKek(issuerState, workspaceId, newKek, 2);
+    setActiveKekVersion(issuerState, workspaceId, 2);
+    handleGenerateInvitationRedeemAuthority(issuerState, { invitationId: guestInvitationId });
+    const bootstrapSecret = base64UrlEncode(randomBytes(32));
+    const keyVersionContext = {
+      workspace_kek_version: 1,
+      share_key_version: "NOT_APPLICABLE",
+      dek_version: "NOT_APPLICABLE",
+    };
+    const aad = {
+      ...scopedGuestAad(),
+      scope_kind: "workspace",
+      scope_id: "none",
+      key_version_context: keyVersionContext,
+    };
+    const plaintext = {
+      ...scopedGuestPlaintext(),
+      scope_kind: "workspace",
+      scope_id: "none",
+      key_version_context: keyVersionContext,
+    };
+    const bootstrap = handleWrapKekForInvitationBootstrap(issuerState, {
+      protocol: "refmd.guest-invitation-bootstrap",
+      workspaceId,
+      keyVersion: 1,
+      bootstrapSecret,
+      aad,
+      plaintext,
+      redeemAuthorityInvitationId: guestInvitationId,
+    }) as Record<string, unknown>;
+
+    const updated = handleRewrapInvitationBootstrapForKekRotation(issuerState, {
+      bootstrap,
+      workspaceId,
+      oldKeyVersion: 1,
+      newKeyVersion: 2,
+    }) as Record<string, unknown>;
+    expect(updated.key_version).toBe(2);
+    expect(updated).toMatchObject({
+      aad: { key_version_context: { workspace_kek_version: 2 } },
+      package_key_maintenance_wrap: { key_version: 2 },
+    });
+
+    const recipientState = createInitialState();
+    handleUnwrapKekFromInvitationBootstrap(recipientState, {
+      bootstrap: updated,
+      bootstrapSecret,
+    });
+    expect(recipientState.activeKekVersions.get(workspaceId)).toBe(2);
+    expect(recipientState.kekCache.get(workspaceId)?.get(2)?.kek).toEqual(newKek);
+  });
+
   it("creates scoped capability packages and commits the share key only after guest binding", async () => {
     const issuerState = createInitialState();
     const shareKey = randomBytes(32);

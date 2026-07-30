@@ -48,6 +48,25 @@ defmodule RefMDWeb.Schemas.EncryptionSetupCompleteResponse do
   })
 end
 
+defmodule RefMDWeb.Schemas.SecurityAuditCheckpointsResponse do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "SecurityAuditCheckpointsResponse",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      user_audit_checkpoint: RefMDWeb.Schemas.AuditCheckpoint,
+      workspace_audit_checkpoints: %Schema{
+        type: :array,
+        items: RefMDWeb.Schemas.WorkspaceAuditCheckpoint
+      }
+    },
+    required: [:user_audit_checkpoint, :workspace_audit_checkpoints]
+  })
+end
+
 defmodule RefMDWeb.Schemas.CreateWorkspaceKeyRequest do
   alias OpenApiSpex.Schema
   require OpenApiSpex

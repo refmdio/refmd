@@ -1,5 +1,9 @@
 import { workerSend, type CryptoWorkerClientMethodContext } from "./shared";
-import type { SignedPqWrapRecord } from "../../signed-pq-wrap";
+import type {
+  GenesisWorkspaceMemberEnvelopePrecommit,
+  SignedPqWrapPrecommit,
+  SignedPqWrapRecord,
+} from "../../signed-pq-wrap";
 import type { HybridEncryptionPublicKeyMaterial } from "../../hybrid-encryption";
 import type { HybridSigningPublicKeyMaterial } from "../../signature";
 import type {
@@ -22,6 +26,35 @@ export interface KekWorkerClientMethods {
     workspaceId: string,
     keyVersion: number,
   ): Promise<{ memoryDeleted: boolean; offlineDeleted: boolean; keyVersion: number }>;
+  createGenesisWorkspaceMemberEnvelopePrecommit(params: {
+    workspaceId: string;
+    userId: string;
+    deviceId: string;
+    recipientPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+  }): Promise<GenesisWorkspaceMemberEnvelopePrecommit>;
+  createPqKekWrapPrecommit(params: {
+    purpose: "workspace_device_kek_wrap" | "workspace_member_kek_wrap";
+    workspaceId: string;
+    keyVersion: number;
+    recipientPublicKeyMaterial: HybridEncryptionPublicKeyMaterial;
+    senderUserId: string;
+    senderDeviceId: string;
+    resource: Record<string, unknown>;
+    eventScope: { scope_kind: "workspace"; scope_id: string };
+    senderKeyCheckpoint: { sequence: number; checkpointHash: string };
+    recipientKeyCheckpoint: {
+      scopeKind: "workspace";
+      scopeId: string;
+      sequence: number;
+      checkpointHash: string;
+    };
+  }): Promise<SignedPqWrapPrecommit>;
+  rewrapInvitationBootstrapForKekRotation(params: {
+    bootstrap: Record<string, unknown>;
+    workspaceId: string;
+    oldKeyVersion: number;
+    newKeyVersion: number;
+  }): Promise<Record<string, unknown>>;
   createSignedPqKekWrap(params: {
     purpose?:
       | "workspace_device_kek_wrap"
@@ -153,8 +186,8 @@ export interface KekWorkerClientMethods {
     deviceId: string;
     purpose: "umk_distribution" | "device_approval_kek_initial" | "trust_transfer";
     serverChallenge: string;
-    issuedAtEventSequence: number;
-    expiresEventSequence: number;
+    issuedAtMs: number;
+    expiresAtMs: number;
   }): Promise<InitialAkeResponderPrekeyRecord>;
   beginInitialAkeUmkDelivery(params: {
     userId: string;
@@ -198,6 +231,8 @@ export interface KekWorkerClientMethods {
     keyEventHeadHash: string;
     workspacePinsHash: string;
     documentRollbackPinSetHash: string;
+    transferScopeHash: string;
+    auditCheckpointPinSetHash: string;
     pendingRegistrationBindingHash: string;
   }): Promise<InitialAkeOffer>;
   respondToInitialAkeOffer(params: {
@@ -282,6 +317,27 @@ export const kekWorkerClientMethods: KekWorkerClientMethods &
       offlineDeleted: boolean;
       keyVersion: number;
     };
+  },
+
+  async createGenesisWorkspaceMemberEnvelopePrecommit(params) {
+    return (await this[workerSend](
+      "create-genesis-workspace-member-envelope-precommit",
+      params,
+    )) as GenesisWorkspaceMemberEnvelopePrecommit;
+  },
+
+  async createPqKekWrapPrecommit(params) {
+    return (await this[workerSend](
+      "create-pq-kek-wrap-precommit",
+      params,
+    )) as SignedPqWrapPrecommit;
+  },
+
+  async rewrapInvitationBootstrapForKekRotation(params) {
+    return (await this[workerSend](
+      "rewrap-invitation-bootstrap-for-kek-rotation",
+      params,
+    )) as Record<string, unknown>;
   },
 
   async createSignedPqKekWrap(params) {

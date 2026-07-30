@@ -4,18 +4,24 @@ defmodule RefMDWeb.KekRotationController do
 
   alias RefMD.{Devices, Encryption, Workspaces}
   alias RefMD.Encryption.RotationPolicy
+  alias RefMD.Workspaces.AuthorityMutations
   alias RefMDWeb.Payloads.DeviceIdentity
 
   alias RefMDWeb.Schemas
 
-  operation(:start_kek_rotation,
-    summary: "Start KEK rotation for a workspace (manual trigger)",
+  @rotation_parameters [
+    workspace_id: [in: :path, type: :string, required: true],
+    rotation_id: [in: :path, type: :string, required: true]
+  ]
+
+  operation(:start_kek_rotation_intent,
+    summary: "Prepare a compound KEK rotation start",
     parameters: [
       workspace_id: [in: :path, type: :string, required: true]
     ],
-    request_body: {"Start params", "application/json", Schemas.KekRotationStartRequest},
+    request_body: {"Start params", "application/json", Schemas.KekRotationStartIntentRequest},
     responses: [
-      ok: {"Rotation started", "application/json", Schemas.KekRotationStartResponse},
+      ok: {"Compound intent", "application/json", Schemas.CompoundAppendIntent},
       not_found: {"Workspace not found", "application/json", Schemas.ErrorResponse},
       forbidden: {"Not authorized", "application/json", Schemas.ErrorResponse},
       conflict: {"Rotation already in progress", "application/json", Schemas.ErrorResponse},
@@ -23,17 +29,26 @@ defmodule RefMDWeb.KekRotationController do
     ]
   )
 
-  def start_kek_rotation(conn, %{"workspace_id" => workspace_id} = params) do
+  def start_kek_rotation_intent(conn, %{"workspace_id" => workspace_id} = params) do
     user_id = conn.assigns.current_user_id
     base_role = Workspaces.get_member_role(workspace_id, user_id)
 
     if not Workspaces.guest_user?(user_id) and base_role in ~w(owner admin) do
-      case Workspaces.start_kek_rotation(workspace_id, user_id,
-             workspace_key_directory_events: params["workspace_key_directory_events"],
-             workspace_key_directory_checkpoint: params["workspace_key_directory_checkpoint"]
+      case AuthorityMutations.issue_intent(
+             user_id,
+             conn.assigns[:rrp_device_id],
+             "workspace.kek.rotation_started",
+             %{
+               "workspace_id" => workspace_id,
+               "old_key_version" => params["old_key_version"],
+               "new_key_version" => params["new_key_version"],
+               "reason" => params["reason"],
+               "rotation_id" => params["rotation_id"]
+             },
+             %{"events" => params["events"], "checkpoint" => params["checkpoint"]}
            ) do
-        {:ok, _} ->
-          json(conn, %{workspace_id: workspace_id, needs_kek_rotation: true})
+        {:ok, intent} ->
+          json(conn, intent)
 
         {:error, :not_found} ->
           conn |> put_status(:not_found) |> json(%{error: "workspace_not_found"})
@@ -46,85 +61,159 @@ defmodule RefMDWeb.KekRotationController do
 
         {:error, :invalid_key_directory} ->
           conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
+
+        {:error, error} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
       end
     else
       conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
     end
   end
 
-  operation(:complete_kek_rotation,
-    summary: "Complete KEK rotation for a workspace",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    request_body: {"Completion params", "application/json", Schemas.KekRotationCompleteRequest},
+  operation(:start_kek_rotation,
+    summary: "Commit a compound KEK rotation start",
+    parameters: [workspace_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Compound authorization", "application/json", Schemas.CompoundAppendAuthorization},
     responses: [
-      ok: {"Rotation completed", "application/json", Schemas.OkResponse},
+      ok: {"Committed mutation", "application/json", Schemas.WorkspaceAuthorityMutationResponse},
       forbidden: {"Not authorized", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Preconditions not met", "application/json", Schemas.ErrorResponse}
+      unprocessable_entity: {"Invalid mutation", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  operation(:prepare_kek_rotation_completion,
-    summary: "Prepare KEK rotation completion manifest hashes",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true],
-      new_kek_version: [in: :query, type: :integer, required: true]
-    ],
-    responses: [
-      ok:
-        {"Completion manifest hashes", "application/json",
-         Schemas.KekRotationCompletionManifestResponse},
-      forbidden: {"Not authorized", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Preconditions not met", "application/json", Schemas.ErrorResponse}
-    ]
-  )
+  def start_kek_rotation(conn, _params) do
+    case AuthorityMutations.commit(
+           conn.assigns.current_user_id,
+           conn.assigns[:rrp_device_id],
+           conn.body_params
+         ) do
+      {:ok, %{response: response}} ->
+        json(conn, response)
 
-  def prepare_kek_rotation_completion(conn, %{"workspace_id" => workspace_id} = params) do
-    user_id = conn.assigns.current_user_id
-
-    with {:ok, new_kek_version} <- parse_positive_integer(params["new_kek_version"]),
-         {:ok, workspace} <- fetch_workspace(workspace_id),
-         {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-         :ok <- require_rotation_authority(workspace, user_id, base_role),
-         :ok <- require_rotation_in_progress(workspace) do
-      envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
-
-      Workspaces.prepare_kek_rotation_completion(workspace_id, new_kek_version,
-        envelope_checks: envelope_checks
-      )
-      |> handle_rotation_completion_prepare(conn)
-    else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
+      {:error, error} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
     end
   end
 
-  def complete_kek_rotation(conn, %{"workspace_id" => workspace_id} = params) do
+  operation(:complete_kek_rotation_intent,
+    summary: "Prepare a compound KEK rotation completion",
+    parameters: @rotation_parameters,
+    request_body:
+      {"Completion pre-commit material", "application/json",
+       Schemas.KekRotationCompletionIntentRequest},
+    responses: [
+      ok: {"Compound intent", "application/json", Schemas.CompoundAppendIntent},
+      unprocessable_entity: {"Invalid completion", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def complete_kek_rotation_intent(conn, params) do
+    issue_rotation_intent(conn, params, "workspace.kek.rotation_completed", [
+      "old_key_version",
+      "new_key_version",
+      "device_wrap_precommits",
+      "member_envelope_precommits",
+      "workspace_invitation_updates",
+      "guest_invitation_updates"
+    ])
+  end
+
+  operation(:complete_kek_rotation,
+    summary: "Commit a compound KEK rotation completion",
+    parameters: @rotation_parameters,
+    request_body:
+      {"Compound authorization", "application/json", Schemas.CompoundAppendAuthorization},
+    responses: [
+      ok: {"Committed mutation", "application/json", Schemas.WorkspaceAuthorityMutationResponse},
+      unprocessable_entity: {"Invalid completion", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def complete_kek_rotation(conn, params), do: commit_rotation(conn, params)
+
+  operation(:delete_old_kek_intent,
+    summary: "Prepare a compound old KEK deletion",
+    parameters: @rotation_parameters,
+    request_body: {"Deletion proofs", "application/json", Schemas.KekOldKeyDeletionIntentRequest},
+    responses: [
+      ok: {"Compound intent", "application/json", Schemas.CompoundAppendIntent},
+      unprocessable_entity: {"Invalid deletion", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def delete_old_kek_intent(conn, params) do
+    issue_rotation_intent(conn, params, "workspace.kek.old_key_deleted", [
+      "old_key_version",
+      "deletion_manifest",
+      "device_key_deletion_proofs",
+      "wipe_required_device_ids"
+    ])
+  end
+
+  operation(:delete_old_kek,
+    summary: "Commit a compound old KEK deletion",
+    parameters: @rotation_parameters,
+    request_body:
+      {"Compound authorization", "application/json", Schemas.CompoundAppendAuthorization},
+    responses: [
+      ok: {"Committed mutation", "application/json", Schemas.WorkspaceAuthorityMutationResponse},
+      unprocessable_entity: {"Invalid deletion", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def delete_old_kek(conn, params), do: commit_rotation(conn, params)
+
+  defp issue_rotation_intent(conn, params, event_type, command_keys) do
     user_id = conn.assigns.current_user_id
-    new_kek_version = params["new_kek_version"]
+    workspace_id = params["workspace_id"]
 
-    if not is_integer(new_kek_version) or new_kek_version <= 0 do
-      conn |> put_status(:bad_request) |> json(%{error: "invalid_kek_version"})
-    else
-      with {:ok, workspace} <- fetch_workspace(workspace_id),
-           {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-           :ok <- require_rotation_authority(workspace, user_id, base_role),
-           :ok <- require_rotation_in_progress(workspace) do
-        envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
+    if not Workspaces.guest_user?(user_id) and
+         Workspaces.get_member_role(workspace_id, user_id) in ~w(owner admin) do
+      command =
+        conn.body_params
+        |> Map.take(command_keys)
+        |> Map.put("workspace_id", workspace_id)
+        |> Map.put("rotation_id", params["rotation_id"])
 
-        Workspaces.complete_kek_rotation(workspace_id, new_kek_version,
-          envelope_checks: envelope_checks,
-          workspace_key_directory_events: params["workspace_key_directory_events"],
-          workspace_key_directory_checkpoint: params["workspace_key_directory_checkpoint"],
-          device_key_deletion_proofs: params["device_key_deletion_proofs"] || [],
-          wipe_required_device_ids: params["wipe_required_device_ids"] || []
-        )
-        |> handle_rotation_completion(conn)
-      else
-        {:error, status, error} ->
-          conn |> put_status(status) |> json(%{error: error})
+      candidate = %{
+        "events" => conn.body_params["events"],
+        "checkpoint" => conn.body_params["checkpoint"]
+      }
+
+      case AuthorityMutations.issue_intent(
+             user_id,
+             conn.assigns[:rrp_device_id],
+             event_type,
+             command,
+             candidate
+           ) do
+        {:ok, intent} ->
+          json(conn, intent)
+
+        {:error, error} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
       end
+    else
+      conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
+    end
+  end
+
+  defp commit_rotation(conn, params) do
+    case AuthorityMutations.commit(
+           conn.assigns.current_user_id,
+           conn.assigns[:rrp_device_id],
+           conn.body_params,
+           %{
+             "workspace_id" => params["workspace_id"],
+             "rotation_id" => params["rotation_id"]
+           }
+         ) do
+      {:ok, %{response: response}} ->
+        json(conn, response)
+
+      {:error, error} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(error)})
     end
   end
 
@@ -317,13 +406,6 @@ defmodule RefMDWeb.KekRotationController do
     end
   end
 
-  defp fetch_membership(workspace_id, user_id) do
-    case Workspaces.get_member_role(workspace_id, user_id) do
-      nil -> {:error, :forbidden, "not_a_member"}
-      role -> {:ok, role}
-    end
-  end
-
   defp require_workspace_crypto_access(workspace_id, user_id, device_id) do
     if Workspaces.guest_user?(user_id) do
       require_active_guest_device_access(workspace_id, user_id, device_id)
@@ -347,34 +429,6 @@ defmodule RefMDWeb.KekRotationController do
       :ok
     else
       {:error, :forbidden, "not_a_member"}
-    end
-  end
-
-  defp parse_positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
-
-  defp parse_positive_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, ""} when parsed > 0 -> {:ok, parsed}
-      _ -> {:error, :bad_request, "invalid_kek_version"}
-    end
-  end
-
-  defp parse_positive_integer(_), do: {:error, :bad_request, "invalid_kek_version"}
-
-  defp require_rotation_in_progress(workspace) do
-    if workspace.needs_kek_rotation do
-      :ok
-    else
-      {:error, :unprocessable_entity, "not_in_rotation"}
-    end
-  end
-
-  defp require_rotation_authority(workspace, user_id, base_role) do
-    if not Workspaces.guest_user?(user_id) and
-         (workspace.kek_rotation_initiator_user_id == user_id or base_role in ~w(owner admin)) do
-      :ok
-    else
-      {:error, :forbidden, "forbidden"}
     end
   end
 
@@ -648,68 +702,4 @@ defmodule RefMDWeb.KekRotationController do
 
   defp operation_checkpoint_envelope(envelope),
     do: Encryption.member_envelope_operation_checkpoint_envelope(envelope)
-
-  defp build_envelope_checks(workspace_id, _user_id, new_kek_version) do
-    fn ->
-      cond do
-        not Encryption.all_workspace_member_devices_have_key?(workspace_id, new_kek_version) ->
-          {:error, :missing_device_envelopes}
-
-        not Encryption.all_members_have_envelope?(workspace_id, new_kek_version) ->
-          {:error, :missing_member_envelopes}
-
-        true ->
-          :ok
-      end
-    end
-  end
-
-  defp handle_rotation_completion(result, conn) do
-    case result do
-      :ok ->
-        json(conn, %{ok: true})
-
-      {:error, :not_in_rotation} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "not_in_rotation"})
-
-      {:error, :version_not_monotonic} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "version_not_monotonic"})
-
-      {:error, :not_found} ->
-        conn |> put_status(:not_found) |> json(%{error: "workspace_not_found"})
-
-      {:error, :missing_device_envelopes} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_device_envelopes"})
-
-      {:error, :missing_member_envelopes} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_member_envelopes"})
-
-      {:error, :invalid_key_directory} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
-
-      {:error, :old_key_references_remaining} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "old_key_references_remaining"})
-    end
-  end
-
-  defp handle_rotation_completion_prepare({:ok, materials}, conn) do
-    json(conn, %{
-      old_kek_version: materials.old_kek_version,
-      new_kek_version: materials.new_kek_version,
-      started_event_hash: materials.started_event_hash,
-      completed_at_event_sequence: materials.completed_at_event_sequence,
-      deleted_at_event_sequence: materials.deleted_at_event_sequence,
-      server_rejects_old_key_uploads_after_sequence:
-        materials.server_rejects_old_key_uploads_after_sequence,
-      completion_manifest_hash: materials.completion_manifest_hash,
-      deleted_secret_ids_hash: materials.deleted_secret_ids_hash,
-      deleted_wrap_ids_hash: materials.deleted_wrap_ids_hash
-    })
-  end
-
-  defp handle_rotation_completion_prepare({:error, reason}, conn) do
-    handle_rotation_completion({:error, reason}, conn)
-  end
 end

@@ -21,6 +21,7 @@ import {
   SIGNATURE_TRANSCRIPT_LABEL,
   SIGNATURE_TRANSCRIPT_PROTOCOL,
   SIGNING_PRIVATE_KEY_MATERIAL_PROTOCOL,
+  buildAuditCheckpointTranscript,
   buildDeviceApprovalTranscript,
   buildDeviceKeyDeletionProofTranscript,
   buildDeviceRevocationTranscript,
@@ -76,6 +77,7 @@ import {
   signResponderPrekeySignature,
   signShareParticipantDeviceAuthorizationSignature,
   signWorkspacePinBootstrapSignature,
+  signAuditCheckpointSignature,
   verifyDeviceApprovalSignature,
   verifyDeviceKeyDeletionProofSignature,
   verifyDeviceRevocationSignature,
@@ -102,6 +104,7 @@ import {
   verifyShareCapabilityAuthorizationSignature,
   verifyShareParticipantDeviceAuthorizationSignature,
   verifyWorkspacePinBootstrapSignature,
+  verifyAuditCheckpointSignature,
   shareCapabilityPublicKeyMaterialFromPrivate,
   signShareCapabilityAuthorizationSignature,
   type AnyHybridSigningPublicKeyMaterial,
@@ -142,6 +145,7 @@ function expectedActiveSigningSurfacePairs(): string[][] {
     "workspace_invitation_bootstrap_updated",
     "workspace_invitation_revoked",
     "workspace_invitation_redeemed",
+    "workspace_member_envelope_issued",
     "guest_invitation_created",
     "guest_invitation_bootstrap_updated",
     "guest_invitation_revoked",
@@ -174,15 +178,20 @@ function expectedActiveSigningSurfacePairs(): string[][] {
     ["recovery_session", "none"],
     ["recovery_authorization_proof", "none"],
     ["pin_gossip_statement", "none"],
+    ...["user_identity", "user_device", "workspace_device", "workspace_guest_device"].map(
+      (variant) => ["audit_checkpoint", variant],
+    ),
     ...[
       "identity_initial",
       "workspace_initial",
       "identity_active",
       "identity_rotation",
       "workspace_authorized",
+      "workspace_invitation_self_admission",
       "invitation_redeem_authority",
       "share_participant_document_operation",
-      "device_authorized",
+      "security_device_revocation",
+      "identity_self_envelope_rewrap",
     ].map((variant) => ["key_directory_checkpoint", variant]),
     ...keyDirectoryEvents.map((variant) => ["key_directory_event", variant]),
     ...[
@@ -424,6 +433,38 @@ describe("hybrid signature primitive", () => {
         transcript: keyDirectoryCheckpointTranscriptWithNullPreviousHash(),
       }),
     ).toThrow();
+  });
+
+  it("accepts only the exact Genesis authorizing checkpoint reference", () => {
+    const privateKeyMaterial = testPrivateKeyMaterial();
+    const transcript = keyDirectoryGenesisCheckpointTranscript();
+
+    expect(() =>
+      signKeyDirectoryCheckpointSignature({ privateKeyMaterial, transcript }),
+    ).not.toThrow();
+
+    const signer = (transcript as Record<string, StrictJsonValue>).signer as Record<
+      string,
+      StrictJsonValue
+    >;
+    expect(() =>
+      signKeyDirectoryCheckpointSignature({
+        privateKeyMaterial,
+        transcript: {
+          ...(transcript as Record<string, StrictJsonValue>),
+          signer: { ...signer, authorizing_checkpoint_hash: hash("not-genesis") },
+        },
+      }),
+    ).toThrow("signer_authorizing_checkpoint_reference_invalid");
+    expect(() =>
+      signKeyDirectoryCheckpointSignature({
+        privateKeyMaterial,
+        transcript: {
+          ...(transcript as Record<string, StrictJsonValue>),
+          signer: { ...signer, authorizing_checkpoint_sequence: 1 },
+        },
+      }),
+    ).toThrow("signer_authorizing_checkpoint_reference_invalid");
   });
 
   it("rejects downgrade-shaped signatures and key material", () => {
@@ -915,6 +956,33 @@ function buildSurfaceTranscript(
   publicKeyMaterial: AnyHybridSigningPublicKeyMaterial,
 ): StrictJsonValue {
   switch (surface.signing_purpose) {
+    case "audit_checkpoint": {
+      const userScope = surface.variant === "user_identity" || surface.variant === "user_device";
+      const identitySigner = surface.variant === "user_identity";
+      const payload: StrictJsonValue = {
+        protocol: "refmd.signed-audit-checkpoint",
+        version: CURRENT_PROTOCOL_VERSION,
+        chain_scope_kind: userScope ? "user" : "workspace",
+        chain_scope_id: testUuid(434),
+        sequence: 1,
+        event_hash: hash("audit-event"),
+        signer_user_id: identitySigner ? publicKeyMaterial.owner_id : testUuid(435),
+        ...(identitySigner ? {} : { signer_device_id: publicKeyMaterial.owner_id }),
+        signing_key_id: computeSigningKeyId(publicKeyMaterial),
+        authorization_checkpoint_scope_kind: userScope ? "user" : "workspace",
+        authorization_checkpoint_scope_id: testUuid(434),
+        authorization_checkpoint_sequence: 0,
+        authorization_checkpoint_hash: "GENESIS",
+        covered_event_class: "authority",
+        covered_event_type: userScope ? "user.account.genesis" : "workspace.genesis",
+      };
+      return buildAuditCheckpointTranscript({
+        variant: surface.variant as Parameters<typeof buildAuditCheckpointTranscript>[0]["variant"],
+        ownerKind: publicKeyMaterial.owner_kind,
+        ownerId: publicKeyMaterial.owner_id,
+        payload,
+      });
+    }
     case "pq_wrap":
       return buildPqWrapTranscript({
         ownerDeviceId: publicKeyMaterial.owner_id,
@@ -994,7 +1062,13 @@ function buildSurfaceTranscript(
         "genesis-device-encryption",
       );
       return buildGenesisDeviceBootstrapTranscript({
+        registrationId: testUuid(401),
+        compoundIntentId: testUuid(402),
+        mutationId: testUuid(403),
+        genesisCompoundContextHash: hash("genesis-compound-context"),
         ownerId: publicKeyMaterial.owner_id,
+        workspaceId: testUuid(404),
+        ownerRoleId: testUuid(405),
         deviceId: devicePublic.owner_id,
         deviceHybridSigningPublicKeyMaterial: devicePublic,
         deviceEcdhPublicKey: encodeBase64Url(deterministicBytes("genesis-ecdh", 32)),
@@ -1003,6 +1077,15 @@ function buildSurfaceTranscript(
         registrationChallengeHash: hash("challenge"),
         identitySigningKeyId: computeSigningKeyId(publicKeyMaterial),
         userIdentityPublicKeyHash: hash("identity"),
+        userDeviceKeyAddedEventHash: hash("user-device-key-added"),
+        workspaceDeviceKeyAddedEventHash: hash("workspace-device-key-added"),
+        ownerMemberAddedEventHash: hash("owner-member-added"),
+        workspaceMemberEnvelopeCommitmentHash: hash("workspace-member-envelope"),
+        userAuditCheckpoint: { sequence: 2, checkpoint_hash: hash("user-audit-checkpoint") },
+        workspaceAuditCheckpoint: {
+          sequence: 1,
+          checkpoint_hash: hash("workspace-audit-checkpoint"),
+        },
       });
     }
     case "device_approval": {
@@ -1160,13 +1243,25 @@ function buildSurfaceTranscript(
     }
     case "device_revocation":
       return buildDeviceRevocationTranscript({
-        ownerId: testUuid(417),
-        actorUserId: testUuid(417),
-        actorDeviceId: publicKeyMaterial.owner_id,
-        signingKeyId: computeSigningKeyId(publicKeyMaterial),
-        revokedDeviceId: testUuid(418),
-        revocationMode: "self_revocation",
-        revokedAtMs: 1_775_000_000_000,
+        actor: {
+          user_id: testUuid(417),
+          device_id: publicKeyMaterial.owner_id,
+          signing_key_id: computeSigningKeyId(publicKeyMaterial),
+          key_scope_kind: "user",
+          key_scope_id: testUuid(417),
+          key_checkpoint_sequence: 34,
+          key_checkpoint_hash: hash("actor-checkpoint"),
+        },
+        revokedDevice: {
+          user_id: testUuid(417),
+          device_id: testUuid(418),
+          encryption_key_id: hash("revoked-encryption-key"),
+          signing_key_id: hash("revoked-signing-key"),
+        },
+        authorityBoundary: {
+          revocation_event_sequence: 128,
+          revocation_event_hash: hash("revocation-event"),
+        },
       });
     case "recovery_session":
       return buildRecoverySessionTranscript({
@@ -1229,6 +1324,8 @@ function buildSurfaceTranscript(
 
 function signerForPurpose(signingPurpose: string): (params: SurfaceSignParams) => HybridSignature {
   switch (signingPurpose) {
+    case "audit_checkpoint":
+      return signAuditCheckpointSignature;
     case "pq_wrap":
       return signPqWrapSignature;
     case "key_directory_checkpoint":
@@ -1288,6 +1385,8 @@ function signerForPurpose(signingPurpose: string): (params: SurfaceSignParams) =
 
 function verifierForPurpose(signingPurpose: string): (params: SurfaceVerifyParams) => boolean {
   switch (signingPurpose) {
+    case "audit_checkpoint":
+      return verifyAuditCheckpointSignature;
     case "pq_wrap":
       return verifyPqWrapSignature;
     case "key_directory_checkpoint":
@@ -2137,6 +2236,39 @@ function keyDirectoryCheckpointTranscriptWithNullPreviousHash(): StrictJsonValue
   }) as Record<string, unknown>;
   (transcript.scope as Record<string, unknown>).previous_checkpoint_hash = null;
   return transcript as StrictJsonValue;
+}
+
+function keyDirectoryGenesisCheckpointTranscript(): StrictJsonValue {
+  const signingKeyId = computeSigningKeyId(publicKeyMaterialFromPrivate(testPrivateKeyMaterial()));
+  const signer = {
+    signer_kind: "device",
+    user_id: TEST_USER_ID,
+    device_id: TEST_DEVICE_ID,
+    signing_key_id: signingKeyId,
+    authorizing_checkpoint_sequence: 0,
+    authorizing_checkpoint_hash: "GENESIS",
+  } as const;
+  return buildKeyDirectoryCheckpointTranscript({
+    variant: "workspace_authorized",
+    ownerKind: "device",
+    ownerId: TEST_DEVICE_ID,
+    checkpointPayload: {
+      protocol: "refmd.key-directory.checkpoint",
+      version: 1,
+      scope_kind: "workspace",
+      scope_id: "workspace-1",
+      sequence: 1,
+      covered_event_head: {
+        head_sequence: 1,
+        head_hash: blake3Base64Url(enc.encode("event-head")),
+      },
+      allowed_suite_ids: [SUITE_IDS.HYBRID_SIGNATURE],
+      min_suite_rank: CURRENT_SUITE_RANK,
+      suite_policy_version: 1,
+      signer,
+    },
+    signer,
+  });
 }
 
 function seed(label: string): Uint8Array {

@@ -23,6 +23,10 @@ export type DeviceHybridSigningPublicKeyMaterial = HybridSigningPublicKeyMateria
   owner_kind: "device";
 };
 
+export type RecoveryAuthorizationHybridSigningPublicKeyMaterial = HybridSigningPublicKeyMaterial & {
+  owner_kind: "recovery_authorization";
+};
+
 export interface ShareCapabilitySigningPublicKeyMaterial {
   protocol: "refmd.hybrid-signing-key-material";
   version: typeof CURRENT_PROTOCOL_VERSION;

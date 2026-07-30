@@ -3,10 +3,8 @@ import { useNavigate, useLocation } from "@solidjs/router";
 import { authState, cryptoWorkerReady, deviceState, returnToLogin } from "@/entities/session";
 import { authApi } from "@/shared/api";
 import { resolvePostAuthRedirect } from "@/shared/lib/invite/redirect";
-import { formatRecoveryKeyFile } from "@/shared/lib/recovery/key-format";
 import { completeApprovedRegistration } from "../../lib/register/approval-complete";
 import { prepareNormalRegistration } from "../../lib/register/normal";
-import { completeOAuthFirstDeviceBootstrap } from "../../lib/register/oauth-first-device";
 import {
   createInitialDeviceRegistrationMachineState,
   transitionDeviceRegistrationState,
@@ -30,9 +28,6 @@ interface DeviceRegistrationFlowState {
   clientNonce: Accessor<Uint8Array | null>;
   identityHybridSigningPublicKeyMaterial: Accessor<HybridSigningPublicKeyMaterial | null>;
   dskUnavailableOAuth: Accessor<boolean>;
-  oauthRecoveryMnemonic: Accessor<string | null>;
-  oauthRecoveryKeyConfirmed: Accessor<boolean>;
-  oauthRecoveryKeyVisible: Accessor<boolean>;
   passwordReentryPassword: Accessor<string>;
   passwordReentryLoading: Accessor<boolean>;
   passwordReentryError: Accessor<string | null>;
@@ -41,10 +36,6 @@ interface DeviceRegistrationFlowState {
   reauthPassword: Accessor<string>;
   reauthLoading: Accessor<boolean>;
   reauthError: Accessor<string | null>;
-  toggleOAuthRecoveryKeyVisible: () => void;
-  copyOAuthRecoveryKey: () => Promise<void>;
-  downloadOAuthRecoveryKey: () => void;
-  confirmOAuthRecoveryKey: () => void;
   setPasswordReentryPassword: (value: string) => void;
   setReauthPassword: (value: string) => void;
   submitPasswordReentry: (event: Event) => Promise<void>;
@@ -59,12 +50,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
   const location = useLocation();
   const isRecoveryFromState = () => (location.state as Record<string, unknown>)?.recovery === true;
   const [machine, setMachine] = createSignal(createInitialDeviceRegistrationMachineState());
-  const [oauthRecoveryMnemonic, setOauthRecoveryMnemonic] = createSignal<string | null>(null);
-  const [oauthRecoveryRedirectPath, setOauthRecoveryRedirectPath] = createSignal<string | null>(
-    null,
-  );
-  const [oauthRecoveryKeyConfirmed, setOauthRecoveryKeyConfirmed] = createSignal(false);
-  const [oauthRecoveryKeyVisible, setOauthRecoveryKeyVisible] = createSignal(false);
   const [readyRedirectSuppressed, setReadyRedirectSuppressed] = createSignal(false);
   let disposeRegistrationWaiter: (() => void) | undefined;
   let registrationAbortController: AbortController | undefined;
@@ -110,7 +95,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
         hasDeviceId: Boolean(deviceState()?.deviceId),
         cryptoWorkerReady: cryptoWorkerReady(),
         readyRedirectSuppressed: readyRedirectSuppressed(),
-        oauthRecoveryMnemonic: oauthRecoveryMnemonic(),
       })
     ) {
       navigate(resolvePostAuthRedirect("/dashboard"), { replace: true });
@@ -129,7 +113,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
         hasDeviceId: Boolean(deviceState()?.deviceId),
         cryptoWorkerReady: cryptoWorkerReady(),
         readyRedirectSuppressed: false,
-        oauthRecoveryMnemonic: null,
       })
     ) {
       navigate(resolvePostAuthRedirect("/dashboard"), { replace: true });
@@ -161,28 +144,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
   });
   const startNormalRegistration = async (auth: NonNullable<ReturnType<typeof authState>>) => {
     const prepared = await prepareNormalRegistration(auth.user.id);
-    if (prepared.kind === "oauth_first_device_required") {
-      applyEvent({
-        type: "recovery_progress",
-        phase: "generating",
-        message: "Setting up account keys...",
-      });
-      const result = await completeOAuthFirstDeviceBootstrap({
-        auth,
-        completionRedirectPath: resolveCompletionRedirectPath("/dashboard"),
-      });
-      applyEvent({
-        type: "recovery_completed",
-        statusMessage: "Save your recovery key to finish setting up this account.",
-        dskUnavailableOAuth: result.dskUnavailableOAuth,
-      });
-      setOauthRecoveryMnemonic(result.recoveryMnemonic);
-      setOauthRecoveryRedirectPath(result.redirectPath);
-      setOauthRecoveryKeyConfirmed(false);
-      setOauthRecoveryKeyVisible(false);
-      return;
-    }
-
     applyEvent({
       type: "normal_registration_prepared",
       identityHybridSigningPublicKeyMaterial: prepared.identityHybridSigningPublicKeyMaterial,
@@ -405,41 +366,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
   const backToLogin = () => {
     void returnToLogin();
   };
-  const toggleOAuthRecoveryKeyVisible = () => {
-    setOauthRecoveryKeyVisible((visible) => !visible);
-  };
-  const copyOAuthRecoveryKey = async () => {
-    const mnemonic = oauthRecoveryMnemonic();
-    if (!mnemonic) return;
-
-    try {
-      await navigator.clipboard.writeText(mnemonic);
-      setOauthRecoveryKeyConfirmed(true);
-    } catch {
-      // Clipboard write may fail (permissions, insecure context).
-    }
-  };
-  const downloadOAuthRecoveryKey = () => {
-    const mnemonic = oauthRecoveryMnemonic();
-    if (!mnemonic) return;
-
-    const content = formatRecoveryKeyFile(mnemonic);
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "refmd-recovery-key.txt";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    setOauthRecoveryKeyConfirmed(true);
-  };
-  const confirmOAuthRecoveryKey = () => {
-    if (!oauthRecoveryKeyConfirmed()) return;
-    navigate(oauthRecoveryRedirectPath() || resolveCompletionRedirectPath("/dashboard"));
-  };
   return {
     phase,
     error,
@@ -447,9 +373,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     clientNonce,
     identityHybridSigningPublicKeyMaterial,
     dskUnavailableOAuth,
-    oauthRecoveryMnemonic,
-    oauthRecoveryKeyConfirmed,
-    oauthRecoveryKeyVisible,
     passwordReentryPassword,
     passwordReentryLoading,
     passwordReentryError,
@@ -458,10 +381,6 @@ export function useDeviceRegistrationFlow(): DeviceRegistrationFlowState {
     reauthPassword,
     reauthLoading,
     reauthError,
-    toggleOAuthRecoveryKeyVisible,
-    copyOAuthRecoveryKey,
-    downloadOAuthRecoveryKey,
-    confirmOAuthRecoveryKey,
     setPasswordReentryPassword: (value) => patchMachine({ passwordReentryPassword: value }),
     setReauthPassword: (value) => patchMachine({ reauthPassword: value }),
     submitPasswordReentry,

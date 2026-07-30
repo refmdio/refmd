@@ -47,6 +47,7 @@ config :refmd, Oban,
        {"*/15 * * * *", RefMD.Workers.CleanupSessions},
        {"*/30 * * * *", RefMD.Workers.CleanupPluginPackageStorage},
        {"*/5 * * * *", RefMD.Workers.MarkOverdueKeyRotations},
+       {"* * * * *", RefMD.Workers.DeliverSecurityMutationOutbox},
        {"0 * * * *", RefMD.Workers.KekRotationReminder},
        {"0 3 * * *", RefMD.Workers.CleanupInvitations}
      ]}

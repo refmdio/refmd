@@ -1,7 +1,11 @@
 import { clearDocumentKeyCache } from "@/entities/document";
 import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { authApi } from "@/shared/api";
-import { clearAllPersistedKeys, clearSessionData } from "@/shared/lib/auth/key-persistence";
+import {
+  clearAllPersistedKeys,
+  clearPlaintextActivityMetadata,
+  clearSessionData,
+} from "@/shared/lib/auth/key-persistence";
 import { clearStoredShareParticipantSessions } from "@/shared/lib/auth/share-participant-session-store";
 import { authState, clearSession, restoreSessionContext } from "@/entities/session";
 import { runBeforeSessionCleanup, runSessionCleanup } from "@/shared/lib/auth/session-cleanup";
@@ -23,18 +27,32 @@ export async function performLogout(keepCredentials: boolean): Promise<LogoutRes
   const shareScopedLogout = getPreferredSessionScope() === "share" && keepCredentials;
   const hasUserSession = !!authState();
   const worker = getCryptoWorker();
+  let logoutIncomplete = false;
+
+  if (!keepCredentials) {
+    if (!(await runLogoutStep(() => worker.lock()))) {
+      logoutIncomplete = true;
+    }
+    terminateCryptoWorker();
+    terminateAllScopedCryptoWorkers();
+  }
 
   const beforeCleanup = await runBeforeSessionCleanup({ secure: !keepCredentials });
-  let logoutIncomplete = beforeCleanup.failures.length > 0;
+  logoutIncomplete ||= beforeCleanup.failures.length > 0;
 
-  if (!(await runLogoutStep(() => worker.lock()))) {
-    logoutIncomplete = true;
+  if (keepCredentials) {
+    if (!(await runLogoutStep(() => worker.lock()))) {
+      logoutIncomplete = true;
+    }
+    terminateCryptoWorker();
+    terminateAllScopedCryptoWorkers();
   }
-  terminateCryptoWorker();
-  terminateAllScopedCryptoWorkers();
   resetPhoenixConnection();
 
   if (!shareScopedLogout) {
+    if (!(await runLogoutStep(clearPlaintextActivityMetadata))) {
+      logoutIncomplete = true;
+    }
     clearDocumentKeyCache();
     runSessionCleanup();
     clearSession();

@@ -7,6 +7,7 @@ export const SIGNATURE_TRANSCRIPT_LABEL = "RefMD hybrid signature transcript v1"
 export type SigningOwnerKind =
   | "identity"
   | "device"
+  | "recovery_authorization"
   | "share_capability"
   | "share_participant_device"
   | "invitation_redeem_authority";

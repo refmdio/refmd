@@ -34,6 +34,7 @@ defmodule RefMD.Encryption.KeyDirectory.Payload do
     "share_revoked",
     "signing_key_revoked",
     "suite_policy_changed",
+    "workspace_member_envelope_issued",
     "workspace_invitation_created",
     "workspace_invitation_bootstrap_updated",
     "workspace_invitation_revoked",

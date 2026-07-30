@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
   authState: vi.fn(),
   clearAllPersistedKeys: vi.fn(),
+  clearPlaintextActivityMetadata: vi.fn(),
   clearStoredShareParticipantSessions: vi.fn(),
   clearDocumentKeyCache: vi.fn(),
   clearSession: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/shared/api", () => ({
 
 vi.mock("@/shared/lib/auth/key-persistence", () => ({
   clearAllPersistedKeys: mocks.clearAllPersistedKeys,
+  clearPlaintextActivityMetadata: mocks.clearPlaintextActivityMetadata,
   clearSessionData: mocks.clearSessionData,
 }));
 
@@ -104,6 +106,7 @@ describe("logout", () => {
     expect(mocks.resetPhoenixConnection).toHaveBeenCalledTimes(1);
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
+    expect(mocks.clearPlaintextActivityMetadata).toHaveBeenCalledOnce();
     expect(mocks.clearStoredShareParticipantSessions).not.toHaveBeenCalled();
     expect(mocks.clearMountTrustAnchorsWithDsk).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: true });
@@ -124,6 +127,7 @@ describe("logout", () => {
     expect(mocks.clearStoredShareParticipantSessions).not.toHaveBeenCalled();
     expect(mocks.clearMountTrustAnchorsWithDsk).not.toHaveBeenCalled();
     expect(mocks.clearAllPersistedKeys).not.toHaveBeenCalled();
+    expect(mocks.clearPlaintextActivityMetadata).not.toHaveBeenCalled();
     expect(mocks.clearSessionData).not.toHaveBeenCalled();
     expect(mocks.clearSession).not.toHaveBeenCalled();
     expect(mocks.setCurrentWorkspaceId).not.toHaveBeenCalled();
@@ -306,7 +310,7 @@ describe("logout", () => {
     }
   });
 
-  it("waits for late pre-cleanup completion before returning from secure logout", async () => {
+  it("locks and terminates workers before waiting for secure pre-cleanup", async () => {
     let finishCleanup!: () => void;
     const unregister = registerBeforeSessionCleanup(
       () =>
@@ -320,15 +324,16 @@ describe("logout", () => {
 
     try {
       const logout = performLogout(false);
-      await Promise.resolve();
-      expect(mocks.terminateCryptoWorker).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1));
+      expect(mocks.lock).toHaveBeenCalledTimes(1);
+      expect(mocks.terminateAllScopedCryptoWorkers).toHaveBeenCalledTimes(1);
+      expect(mocks.clearSessionData).not.toHaveBeenCalled();
 
       finishCleanup();
       await expect(logout).resolves.toEqual({
         logoutIncomplete: false,
         redirectPath: "/auth/login",
       });
-      expect(mocks.terminateCryptoWorker).toHaveBeenCalledTimes(1);
       expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: false });
     } finally {
       unregister();

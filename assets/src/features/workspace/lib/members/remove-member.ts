@@ -1,10 +1,15 @@
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
 import { ApiError, workspacesApi, type components } from "@/shared/api";
 import { advanceKeyDirectoryPinWithProof } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
-import { buildWorkspaceMemberRemovalKeyDirectoryAppend } from "@/shared/lib/crypto/key-directory/membership-events";
+import {
+  createWorkspaceAuthorityAuthorization,
+  materializeWorkspaceAuthorityKeyDirectory,
+} from "@/shared/lib/crypto/workspace-authority-authorization";
+import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import type { StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
 
-type RemoveMemberResponse = components["schemas"]["RemoveMemberResponse"];
+type RemoveMemberResponse = components["schemas"]["WorkspaceAuthorityMutationResponse"];
 const KEY_DIRECTORY_APPEND_ATTEMPTS = 2;
 
 export async function removeWorkspaceMemberWithKeyDirectory(
@@ -18,37 +23,27 @@ export async function removeWorkspaceMemberWithKeyDirectory(
   }
 
   let directory: Awaited<ReturnType<typeof fetchVerifiedKeyDirectory>> | null = null;
-  let keyDirectoryAppend: Awaited<
-    ReturnType<typeof buildWorkspaceMemberRemovalKeyDirectoryAppend>
-  > | null = null;
+  let keyDirectoryAppend: ReturnType<typeof materializeWorkspaceAuthorityKeyDirectory> | null =
+    null;
   let response: RemoveMemberResponse | null = null;
 
   for (let attempt = 0; attempt < KEY_DIRECTORY_APPEND_ATTEMPTS; attempt += 1) {
-    const [nextDirectory, targetDevices] = await Promise.all([
-      fetchVerifiedKeyDirectory({
-        scopeKind: "workspace",
-        scopeId: workspaceId,
-        rrpDeviceId: currentDevice.deviceId,
-      }),
-      workspacesApi.listMemberDevices(workspaceId, targetUserId, false),
-    ]);
-    directory = nextDirectory;
-    keyDirectoryAppend = await buildWorkspaceMemberRemovalKeyDirectoryAppend({
-      workspaceId,
-      actorUserId: auth.user.id,
-      actorDeviceId: currentDevice.deviceId,
-      removedUserId: targetUserId,
-      checkpointEnvelope: directory.checkpoint,
-      removedDeviceKeys: targetDevices.devices.map((device) => ({
-        signingKeyId: device.signing_key_id,
-        encryptionKeyId: device.encryption_key_id,
-      })),
+    directory = await fetchVerifiedKeyDirectory({
+      scopeKind: "workspace",
+      scopeId: workspaceId,
+      rrpDeviceId: currentDevice.deviceId,
     });
     try {
-      response = (await workspacesApi.removeMember(workspaceId, targetUserId, {
-        workspace_key_directory_events: keyDirectoryAppend.events,
-        workspace_key_directory_checkpoint: keyDirectoryAppend.checkpoint,
-      })) as RemoveMemberResponse;
+      const intent = await workspacesApi.prepareMemberRemoval(workspaceId, targetUserId, {});
+      const authorization = await createWorkspaceAuthorityAuthorization({
+        worker: getCryptoWorker(),
+        intent: intent as unknown as StrictJsonValue,
+      });
+      keyDirectoryAppend = materializeWorkspaceAuthorityKeyDirectory(
+        intent as unknown as StrictJsonValue,
+        authorization,
+      );
+      response = await workspacesApi.commitMemberRemoval(workspaceId, targetUserId, authorization);
       break;
     } catch (error) {
       if (!isInvalidKeyDirectoryError(error) || attempt === KEY_DIRECTORY_APPEND_ATTEMPTS - 1) {
@@ -62,22 +57,20 @@ export async function removeWorkspaceMemberWithKeyDirectory(
   }
 
   if (targetUserId === auth.user.id) {
-    void advanceKeyDirectoryPinWithProof({
+    await advanceKeyDirectoryPinWithProof({
       scopeKind: "workspace",
       scopeId: workspaceId,
       checkpointEnvelope: keyDirectoryAppend.checkpoint,
       checkpointAncestry: [directory.checkpoint],
       eventAncestry: keyDirectoryAppend.events,
-    }).catch(() => undefined);
+    });
     return response as RemoveMemberResponse;
   }
 
-  await advanceKeyDirectoryPinWithProof({
+  await fetchVerifiedKeyDirectory({
     scopeKind: "workspace",
     scopeId: workspaceId,
-    checkpointEnvelope: keyDirectoryAppend.checkpoint,
-    checkpointAncestry: [directory.checkpoint],
-    eventAncestry: keyDirectoryAppend.events,
+    rrpDeviceId: currentDevice.deviceId,
   });
   return response as RemoveMemberResponse;
 }

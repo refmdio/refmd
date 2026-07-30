@@ -226,9 +226,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     password_props =
       openapi["components"]["schemas"]["RegenerateRecoveryKeyRequest"]["properties"]
 
-    assert register_props["recovery_authorization_public_material"] == %{
-             "$ref" => "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
-           }
+    refute Map.has_key?(register_props, "recovery_authorization_public_material")
 
     refute Map.has_key?(guest_props, "recovery_authorization_public_material")
 
@@ -372,7 +370,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
            ])
   end
 
-  test "device_authorized checkpoint surface is bound to device owners only" do
+  test "workspace invitation self-admission checkpoint is bound to candidate device owners" do
     previous_payload = %{
       "scope_kind" => "workspace",
       "device_keys" => []
@@ -387,7 +385,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
              checkpoint_payload,
              %{"signer_kind" => "device", "signing_key_id" => "new-device-signing-key"},
              previous_payload
-           ) == "device_authorized"
+           ) == "workspace_invitation_self_admission"
 
     assert_raise ArgumentError, "checkpoint_signer_kind_invalid", fn ->
       Signatures.checkpoint_signature_variant!(
@@ -1282,7 +1280,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       {"initiator_ake_commitment", "none"} => "yKREQZiYsh53w3Lhar0x231nXMbJewiFLTx3T29vsYU",
       {"key_directory_event", "old_key_deleted"} => "11BBwHRey50hdyHygrdZ8NkG2tlv4DL5yVhMKAz0F-o",
       {"rrp_request", "http_user_device"} => "sudfSoT4pHWNc23rGL5LRW_LMTP1pmGLgBVOtUWlW2A",
-      {"pq_wrap", "none"} => "xB-o8OD3A-OO3yd7nzVoX-FCThLgh5sHgCjbY_bPc-c"
+      {"pq_wrap", "none"} => "RHGHpMJjFecIlM_mqbAOQlm3BjgSqiM1nUiRqahFFNk"
     }
 
     actual_hashes =
@@ -1499,6 +1497,44 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       wrong_event = %{context | key_directory_events: []}
       assert {:error, _reason} = apply(SignedPQ, validator, [attrs, wrong_event])
     end)
+  end
+
+  test "signed PQ operation checkpoint binding rejects covered-head divergence" do
+    {attrs, _context} =
+      random_signed_pq_wrap_property_case("guest_invitation_workspace_kek_wrap")
+
+    checkpoint_hash = Encoding.encode_base64url(attrs.operation_checkpoint_hash)
+
+    checkpoint_payload = %{
+      "sequence" => attrs.operation_checkpoint_sequence,
+      "covered_event_head" => %{
+        "head_sequence" => attrs.operation_checkpoint_covered_head_sequence,
+        "head_hash" => Encoding.encode_base64url(attrs.operation_checkpoint_covered_head_hash)
+      }
+    }
+
+    assert :ok =
+             SignedPQ.validate_operation_checkpoint(attrs, checkpoint_payload, checkpoint_hash)
+
+    mismatched_sequence =
+      put_in(
+        checkpoint_payload,
+        ["covered_event_head", "head_sequence"],
+        attrs.operation_checkpoint_covered_head_sequence + 1
+      )
+
+    assert {:error, :operation_checkpoint_mismatch} =
+             SignedPQ.validate_operation_checkpoint(attrs, mismatched_sequence, checkpoint_hash)
+
+    mismatched_hash =
+      put_in(
+        checkpoint_payload,
+        ["covered_event_head", "head_hash"],
+        Hash.blake3_base64url("wrong-covered-head")
+      )
+
+    assert {:error, :operation_checkpoint_mismatch} =
+             SignedPQ.validate_operation_checkpoint(attrs, mismatched_hash, checkpoint_hash)
   end
 
   test "signed PQ wrap params reject unknown top-level fields before normalization" do
@@ -2204,6 +2240,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   defp semantic_fixture_profile({"key_directory_checkpoint", _}),
     do: :key_directory_checkpoint
 
+  defp semantic_fixture_profile({"audit_checkpoint", _}), do: :audit_checkpoint
   defp semantic_fixture_profile({"key_directory_event", _}), do: :key_directory_event
   defp semantic_fixture_profile({"rrp_request", _}), do: :rrp
   defp semantic_fixture_profile({"initial_key_delivery", _}), do: :initial_key_delivery
@@ -2296,6 +2333,14 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     {%{checkpoint_payload: payload},
      %{checkpoint_payload: Map.put(payload, "scope_id", "refmd.invalid.scope")},
      :key_directory_checkpoint_subject_hash_mismatch}
+  end
+
+  defp semantic_context_fixture(:audit_checkpoint, surface, _transcript, public) do
+    payload = audit_checkpoint_payload_fixture(surface, public)
+
+    {%{checkpoint_payload: payload, authority_verified: true},
+     %{checkpoint_payload: payload, authority_verified: false},
+     :audit_checkpoint_authority_unverified}
   end
 
   defp semantic_context_fixture(:key_directory_event, surface, _transcript, public) do
@@ -2487,7 +2532,11 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
         signing_key_id: transcript["actor"]["signing_key_id"],
         revoked_at: nil
       },
-      target_device: %{id: transcript["revocation"]["device_id"]}
+      target_device: %{
+        id: transcript["revoked_device"]["device_id"],
+        signing_key_id: transcript["revoked_device"]["signing_key_id"],
+        encryption_key_id: transcript["revoked_device"]["encryption_key_id"]
+      }
     }
 
     {context, put_in(context, [:signer, :revoked_at], DateTime.utc_now()),
@@ -2674,6 +2723,11 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
     ]
   end
 
+  defp production_builder_args(%{signing_purpose: "audit_checkpoint"} = surface, public) do
+    payload = audit_checkpoint_payload_fixture(surface, public)
+    [surface.variant, owner_kind(surface), owner_id(surface), payload]
+  end
+
   defp production_builder_args(
          %{signing_purpose: "key_directory_event", variant: variant},
          public
@@ -2762,7 +2816,13 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
     [
       %{
+        registration_id: "00000000-0000-4000-8000-000000000401",
+        compound_intent_id: "00000000-0000-4000-8000-000000000402",
+        mutation_id: "00000000-0000-4000-8000-000000000403",
+        genesis_compound_context_hash: Hash.blake3_base64url("genesis-compound-context"),
         user_id: public["owner_id"],
+        workspace_id: "00000000-0000-4000-8000-000000000404",
+        owner_role_id: "00000000-0000-4000-8000-000000000405",
         device_id: device_public["owner_id"],
         device_public_material: device_public,
         device_hybrid_encryption_public_key_material: encryption.public,
@@ -2770,7 +2830,21 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
           Base.url_encode64(deterministic_bytes("genesis-client-nonce", 16), padding: false),
         registration_challenge_hash: Hash.blake3_base64url("challenge"),
         identity_signing_key_id: Signature.compute_signing_key_id!(public),
-        user_identity_public_key_hash: Hash.blake3_base64url("identity")
+        user_identity_public_key_hash: Hash.blake3_base64url("identity"),
+        user_device_key_added_event_hash: Hash.blake3_base64url("user-device-key-added"),
+        workspace_device_key_added_event_hash:
+          Hash.blake3_base64url("workspace-device-key-added"),
+        owner_member_added_event_hash: Hash.blake3_base64url("owner-member-added"),
+        workspace_member_envelope_commitment_hash:
+          Hash.blake3_base64url("workspace-member-envelope"),
+        user_audit_checkpoint: %{
+          "sequence" => 2,
+          "checkpoint_hash" => Hash.blake3_base64url("user-audit-checkpoint")
+        },
+        workspace_audit_checkpoint: %{
+          "sequence" => 1,
+          "checkpoint_hash" => Hash.blake3_base64url("workspace-audit-checkpoint")
+        }
       }
     ]
   end
@@ -2896,13 +2970,29 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
   end
 
   defp production_builder_args(%{signing_purpose: "device_revocation"}, public) do
+    user_id = "00000000-0000-4000-8000-000000000417"
+
     [
-      "00000000-0000-4000-8000-000000000417",
       public["owner_id"],
-      Signature.compute_signing_key_id!(public),
-      "00000000-0000-4000-8000-000000000418",
-      "self_revocation",
-      1_775_000_000_000
+      %{
+        "user_id" => user_id,
+        "device_id" => public["owner_id"],
+        "signing_key_id" => Signature.compute_signing_key_id!(public),
+        "key_scope_kind" => "user",
+        "key_scope_id" => user_id,
+        "key_checkpoint_sequence" => 34,
+        "key_checkpoint_hash" => Hash.blake3_base64url("actor-checkpoint")
+      },
+      %{
+        "user_id" => user_id,
+        "device_id" => "00000000-0000-4000-8000-000000000418",
+        "encryption_key_id" => Hash.blake3_base64url("revoked-encryption"),
+        "signing_key_id" => Hash.blake3_base64url("revoked-signing")
+      },
+      %{
+        "revocation_event_sequence" => 128,
+        "revocation_event_hash" => Hash.blake3_base64url("revocation-event")
+      }
     ]
   end
 
@@ -3186,6 +3276,49 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "suite_policy_version" => 1
     }
   end
+
+  defp audit_checkpoint_payload_fixture(surface, public) do
+    user_id =
+      if surface.variant == "user_identity",
+        do: public["owner_id"],
+        else: "00000000-0000-4000-8000-000000000417"
+
+    scope_kind =
+      if surface.variant in ["user_identity", "user_device"], do: "user", else: "workspace"
+
+    scope_id = if scope_kind == "user", do: user_id, else: "00000000-0000-4000-8000-000000000401"
+
+    %{
+      "protocol" => "refmd.signed-audit-checkpoint",
+      "version" => 1,
+      "chain_scope_kind" => scope_kind,
+      "chain_scope_id" => scope_id,
+      "sequence" => 1,
+      "event_hash" => Hash.blake3_base64url("audit-event"),
+      "signer_user_id" => user_id,
+      "signing_key_id" => Signature.compute_signing_key_id!(public),
+      "authorization_checkpoint_scope_kind" => scope_kind,
+      "authorization_checkpoint_scope_id" => scope_id,
+      "authorization_checkpoint_sequence" => 0,
+      "authorization_checkpoint_hash" => "GENESIS",
+      "covered_event_class" => "authority",
+      "covered_event_type" => audit_checkpoint_event_type(surface.variant)
+    }
+    |> maybe_put_audit_device(surface, public)
+  end
+
+  defp maybe_put_audit_device(payload, %{variant: "user_identity"}, _public), do: payload
+
+  defp maybe_put_audit_device(payload, _surface, public) do
+    Map.put(payload, "signer_device_id", public["owner_id"])
+  end
+
+  defp audit_checkpoint_event_type("user_identity"), do: "user.account.genesis"
+  defp audit_checkpoint_event_type("user_device"), do: "user.device.approved"
+  defp audit_checkpoint_event_type("workspace_device"), do: "workspace.member.added"
+
+  defp audit_checkpoint_event_type("workspace_guest_device"),
+    do: "workspace.guest_invitation.redeemed.known_recipient"
 
   defp key_directory_event_payload_fixture(variant, public) do
     owner_id = public["owner_id"]
@@ -3686,6 +3819,7 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "rotation_started",
       "rotation_completed",
       "old_key_deleted",
+      "workspace_member_envelope_issued",
       "document_write_session_admitted",
       "document_write_state_changed",
       "document_snapshot_accepted"
@@ -3693,6 +3827,10 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
 
     [
       {"pq_wrap", "none"},
+      {"audit_checkpoint", "user_identity"},
+      {"audit_checkpoint", "user_device"},
+      {"audit_checkpoint", "workspace_device"},
+      {"audit_checkpoint", "workspace_guest_device"},
       {"workspace_pin_bootstrap", "none"},
       {"recipient_bound_authorization", "none"},
       {"share_capability_authorization", "none"},
@@ -3717,9 +3855,11 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
           "identity_active",
           "identity_rotation",
           "workspace_authorized",
+          "workspace_invitation_self_admission",
           "invitation_redeem_authority",
           "share_participant_document_operation",
-          "device_authorized"
+          "security_device_revocation",
+          "identity_self_envelope_rewrap"
         ],
         &{"key_directory_checkpoint", &1}
       ) ++
@@ -3757,9 +3897,11 @@ defmodule RefMD.Crypto.SecurityVectorGateTest do
       "identity_active",
       "identity_rotation",
       "workspace_authorized",
+      "workspace_invitation_self_admission",
       "invitation_redeem_authority",
       "share_participant_document_operation",
-      "device_authorized"
+      "security_device_revocation",
+      "identity_self_envelope_rewrap"
     ]
 
     [

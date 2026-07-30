@@ -17,6 +17,8 @@ defmodule RefMD.Encryption do
     to: Users,
     as: :create_identity_public_key
 
+  defdelegate create_guest_identity_public_key(attrs), to: Users
+
   defdelegate create_user_encrypted_master_key(attrs),
     to: Users,
     as: :create_encrypted_master_key

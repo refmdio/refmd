@@ -32,6 +32,132 @@ defmodule RefMDWeb.Schemas.UserInfo do
   })
 end
 
+defmodule RefMDWeb.Schemas.AuditCheckpointPayload do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @hash %Schema{type: :string, pattern: "^[A-Za-z0-9_-]{43}$", minLength: 43, maxLength: 43}
+
+  OpenApiSpex.schema(%{
+    title: "AuditCheckpointPayload",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.signed-audit-checkpoint"]},
+      version: %Schema{type: :integer, enum: [1]},
+      chain_scope_kind: %Schema{type: :string, enum: ["user", "workspace"]},
+      chain_scope_id: %Schema{type: :string, format: :uuid},
+      sequence: %Schema{type: :integer, minimum: 1},
+      event_hash: @hash,
+      previous_signed_checkpoint_sequence: %Schema{type: :integer, minimum: 1},
+      previous_signed_checkpoint_hash: @hash,
+      signer_user_id: %Schema{type: :string, format: :uuid},
+      signer_device_id: %Schema{type: :string, format: :uuid},
+      signing_key_id: @hash,
+      authorization_checkpoint_scope_kind: %Schema{
+        type: :string,
+        enum: ["user", "workspace"]
+      },
+      authorization_checkpoint_scope_id: %Schema{type: :string, format: :uuid},
+      authorization_checkpoint_sequence: %Schema{type: :integer, minimum: 0},
+      authorization_checkpoint_hash: %Schema{type: :string},
+      covered_event_class: %Schema{type: :string, enum: ["authority"]},
+      covered_event_type: %Schema{type: :string}
+    },
+    required: [
+      :protocol,
+      :version,
+      :chain_scope_kind,
+      :chain_scope_id,
+      :sequence,
+      :event_hash,
+      :signer_user_id,
+      :signing_key_id,
+      :authorization_checkpoint_scope_kind,
+      :authorization_checkpoint_scope_id,
+      :authorization_checkpoint_sequence,
+      :authorization_checkpoint_hash,
+      :covered_event_class,
+      :covered_event_type
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.SignedAuditCheckpoint do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @hash %Schema{type: :string, pattern: "^[A-Za-z0-9_-]{43}$", minLength: 43, maxLength: 43}
+
+  OpenApiSpex.schema(%{
+    title: "SignedAuditCheckpoint",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      payload: RefMDWeb.Schemas.AuditCheckpointPayload,
+      signature: RefMDWeb.Schemas.HybridSignature,
+      checkpoint_hash: @hash
+    },
+    required: [:payload, :signature, :checkpoint_hash]
+  })
+end
+
+defmodule RefMDWeb.Schemas.AuditEventEnvelope do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @hash %Schema{type: :string, pattern: "^[A-Za-z0-9_-]{43}$", minLength: 43, maxLength: 43}
+  @predecessor %Schema{type: :string, pattern: "^(GENESIS|[A-Za-z0-9_-]{43})$"}
+
+  OpenApiSpex.schema(%{
+    title: "AuditEventEnvelope",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      protocol: %Schema{type: :string, enum: ["refmd.audit.chain-event"]},
+      version: %Schema{type: :integer, enum: [1]},
+      event_id: %Schema{type: :string, format: :uuid},
+      chain_scope_kind: %Schema{type: :string, enum: ["user", "workspace"]},
+      chain_scope_id: %Schema{type: :string, format: :uuid},
+      sequence: %Schema{type: :integer, minimum: 1},
+      previous_event_hash: @predecessor,
+      event_hash: @hash,
+      event_type: %Schema{type: :string, minLength: 1},
+      event_body: %Schema{type: :object}
+    },
+    required: [
+      :protocol,
+      :version,
+      :event_id,
+      :chain_scope_kind,
+      :chain_scope_id,
+      :sequence,
+      :previous_event_hash,
+      :event_hash,
+      :event_type,
+      :event_body
+    ]
+  })
+end
+
+defmodule RefMDWeb.Schemas.AuditEventHead do
+  alias OpenApiSpex.Schema
+  require OpenApiSpex
+
+  @hash %Schema{type: :string, pattern: "^[A-Za-z0-9_-]{43}$", minLength: 43, maxLength: 43}
+
+  OpenApiSpex.schema(%{
+    title: "AuditEventHead",
+    type: :object,
+    additionalProperties: false,
+    properties: %{
+      sequence: %Schema{type: :integer, minimum: 1},
+      event_hash: @hash
+    },
+    required: [:sequence, :event_hash]
+  })
+end
+
 defmodule RefMDWeb.Schemas.AuditCheckpoint do
   alias OpenApiSpex.Schema
   require OpenApiSpex
@@ -41,13 +167,12 @@ defmodule RefMDWeb.Schemas.AuditCheckpoint do
     type: :object,
     additionalProperties: false,
     properties: %{
-      chain_scope: %Schema{type: :string},
-      sequence: %Schema{type: :integer, minimum: 1},
-      event_hash: %Schema{type: :string, pattern: "^[A-Za-z0-9_-]{43}$"},
-      ancestry: %Schema{type: :array, items: %Schema{type: :object}},
-      authority_checkpoint: %Schema{type: :object, nullable: true}
+      signed_checkpoint: RefMDWeb.Schemas.SignedAuditCheckpoint,
+      ancestry: %Schema{type: :array, items: RefMDWeb.Schemas.AuditEventEnvelope},
+      current_event_head: RefMDWeb.Schemas.AuditEventHead,
+      unsigned_tail: %Schema{type: :array, items: RefMDWeb.Schemas.AuditEventEnvelope}
     },
-    required: [:chain_scope, :sequence, :event_hash, :ancestry, :authority_checkpoint]
+    required: [:signed_checkpoint, :ancestry, :current_event_head, :unsigned_tail]
   })
 end
 
@@ -635,6 +760,7 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         :issued_at_ms,
         :kek_version,
         :key_id,
+        :key_kind,
         :key_material_hash,
         :key_version_context,
         :live_redeem_challenge_hash,
@@ -822,7 +948,11 @@ defmodule RefMDWeb.Schemas.KeyDirectoryEnvelope do
         "user_id",
         "device_id"
       ]),
-      event_schema.("identity_key_added", ["key_id", "key_material_hash"]),
+      strict_event_schema.(
+        "identity_key_added",
+        ["key_kind", "key_id", "key_material_hash"],
+        %{key_kind: %Schema{type: :string, enum: ["signing", "encryption"]}}
+      ),
       event_schema.("signing_key_revoked", ["key_id", "reason", "revoked_at_event_sequence"]),
       event_schema.("encryption_key_revoked", [
         "key_id",

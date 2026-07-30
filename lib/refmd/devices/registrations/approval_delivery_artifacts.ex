@@ -236,7 +236,13 @@ defmodule RefMD.Devices.Registrations.ApprovalDeliveryArtifacts do
   defp offer_purpose_commitment_matches?("trust_transfer", context, metadata, commitment) do
     commitment["ake_session_id"] == context["operation_id"] and
       commitment["document_rollback_pin_set_hash"] ==
-        metadata["document_rollback_pin_set_hash"]
+        metadata["document_rollback_pin_set_hash"] and
+      commitment["transfer_scope_hash"] == context["transfer_scope_hash"] and
+      commitment["transfer_scope_hash"] == metadata["transfer_scope_hash"] and
+      commitment["audit_checkpoint_pin_set_hash"] ==
+        context["audit_checkpoint_pin_set_hash"] and
+      commitment["audit_checkpoint_pin_set_hash"] ==
+        metadata["audit_checkpoint_pin_set_hash"]
   end
 
   defp offer_purpose_commitment_matches?(

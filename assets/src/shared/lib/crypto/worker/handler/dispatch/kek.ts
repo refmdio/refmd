@@ -1,6 +1,9 @@
 import {
   handleCacheKek,
   handleCommitGuestInvitationShareKey,
+  handleCreateGenesisWorkspaceMemberEnvelopePrecommit,
+  handleCreatePqKekWrapPrecommit,
+  handleRewrapInvitationBootstrapForKekRotation,
   handleCreateSignedPqKekWrap,
   handleCreateSignedPqShareLinkSecretBackupWrap,
   handleCreateSignedPqGuestInvitationShareKeyWrap,
@@ -37,6 +40,18 @@ import type { RequestHandlerTable } from "./shared";
 
 export const kekRequestHandlers = {
   "cache-kek": (state, payload) => handleCacheKek(state, payload),
+  "create-genesis-workspace-member-envelope-precommit": (state, payload) =>
+    withCryptoOperationError("internal_error", () =>
+      handleCreateGenesisWorkspaceMemberEnvelopePrecommit(state, payload),
+    ),
+  "create-pq-kek-wrap-precommit": (state, payload) =>
+    withCryptoOperationError("internal_error", () =>
+      handleCreatePqKekWrapPrecommit(state, payload),
+    ),
+  "rewrap-invitation-bootstrap-for-kek-rotation": (state, payload) =>
+    withCryptoOperationError("internal_error", () =>
+      handleRewrapInvitationBootstrapForKekRotation(state, payload),
+    ),
   "create-signed-pq-kek-wrap": (state, payload) =>
     withCryptoOperationError("internal_error", () => handleCreateSignedPqKekWrap(state, payload)),
   "create-signed-pq-share-link-secret-backup-wrap": (state, payload) =>

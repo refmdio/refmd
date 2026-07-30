@@ -45,6 +45,14 @@ defmodule RefMDWeb.Router do
     plug RefMDWeb.Plugs.VerifyOrigin
   end
 
+  pipeline :genesis_authenticated do
+    plug RefMDWeb.Plugs.RequireGenesisSession
+  end
+
+  pipeline :genesis_request do
+    plug RefMDWeb.Plugs.RequireGenesisRequest
+  end
+
   pipeline :require_recovery_or_rrp do
     plug RefMDWeb.Plugs.RequireAuth
     plug RefMDWeb.Plugs.RequireRecoveryOrRrp
@@ -72,7 +80,6 @@ defmodule RefMDWeb.Router do
     pipe_through [:api, :verify_origin]
 
     get "/salt", AuthController, :salt
-    post "/register", AuthController, :register
     post "/login", AuthController, :login
     get "/oauth/providers", AuthController, :oauth_providers
     post "/oauth/:provider/start", AuthController, :oauth_start
@@ -80,6 +87,20 @@ defmodule RefMDWeb.Router do
     post "/recovery/session", AuthController, :recovery_session
     post "/password-reset/request", PasswordController, :password_reset_request
     post "/password-reset/verify", PasswordController, :password_reset_verify
+  end
+
+  scope "/api/auth", RefMDWeb do
+    pipe_through [:api, :genesis_request]
+
+    post "/register", AuthController, :register
+  end
+
+  scope "/api", RefMDWeb do
+    pipe_through [:api, :genesis_request, :genesis_authenticated]
+
+    post "/devices/bootstrap/challenge", DeviceController, :bootstrap_challenge
+    post "/devices/bootstrap/intent", DeviceController, :bootstrap_intent
+    post "/devices/bootstrap", DeviceController, :bootstrap
   end
 
   scope "/api/auth", RefMDWeb do
@@ -209,14 +230,11 @@ defmodule RefMDWeb.Router do
     # Auth
     get "/auth/external-accounts", AuthController, :external_accounts
     get "/auth/key-restore", AuthController, :key_restore
-    post "/auth/oauth/crypto-setup", AuthController, :oauth_crypto_setup
     post "/auth/verify-key", AuthController, :verify_key
     post "/auth/kdf-migration", AuthController, :kdf_migration
     post "/auth/password-set", PasswordController, :password_set
 
-    # Device (bootstrap, registration, listing, status polling)
-    post "/devices/bootstrap/challenge", DeviceController, :bootstrap_challenge
-    post "/devices/bootstrap", DeviceController, :bootstrap
+    # Device registration, listing, and status polling
     get "/devices/registrations", DeviceController, :list_registrations
     get "/devices/registrations/:device_id/sas", DeviceController, :get_registration_sas
     delete "/devices/registrations/:device_id", DeviceController, :reject_registration
@@ -225,7 +243,8 @@ defmodule RefMDWeb.Router do
     # Encryption setup (initial, before RRP is possible)
     post "/encryption/setup-complete", EncryptionController, :setup_complete
 
-    # Workspace creation is session-authenticated; the request carries the signed initial directory.
+    # Workspace genesis is prepared before the signed atomic commit.
+    post "/workspaces/intent", WorkspaceController, :create_intent
     post "/workspaces", WorkspaceController, :create
 
     # Share mounts
@@ -328,7 +347,6 @@ defmodule RefMDWeb.Router do
            :delete
 
     # Key directory
-    post "/workspaces/:workspace_id/key-directory/append", KeyDirectoryController, :append
 
     # Documents
     get "/documents", DocumentController, :index
@@ -390,6 +408,7 @@ defmodule RefMDWeb.Router do
     delete "/workspaces/:workspace_id", WorkspaceController, :delete
 
     get "/security/notifications", SecurityNotificationController, :index
+    get "/security/audit-checkpoints", SecurityNotificationController, :audit_checkpoints
     patch "/security/notifications/:notification_id/read", SecurityNotificationController, :read
 
     patch "/security/notifications/:notification_id/dismiss",
@@ -484,6 +503,12 @@ defmodule RefMDWeb.Router do
     get "/workspaces/:workspace_id/members", MemberController, :index
     get "/workspaces/:workspace_id/members/:user_id/devices", MemberController, :devices
     get "/workspaces/:workspace_id/member-keys", MemberController, :identity_keys
+    post "/workspaces/:workspace_id/members/:user_id/role/intent", MemberController, :role_intent
+
+    post "/workspaces/:workspace_id/members/:user_id/removal/intent",
+         MemberController,
+         :removal_intent
+
     patch "/workspaces/:workspace_id/members/:user_id", MemberController, :update
     delete "/workspaces/:workspace_id/members/:user_id", MemberController, :delete
 
@@ -505,6 +530,7 @@ defmodule RefMDWeb.Router do
         :initial_ake_response_status
 
     patch "/devices/:device_id", DeviceController, :rename
+    post "/devices/:device_id/revocation/intent", DeviceController, :revocation_intent
     delete "/devices/:device_id", DeviceController, :revoke
 
     # UMK distribution (RRP required)
@@ -550,17 +576,29 @@ defmodule RefMDWeb.Router do
     get "/encryption/workspaces/:workspace_id/keys", EncryptionController, :get_workspace_keys
 
     # KEK Rotation
+    post "/encryption/workspaces/:workspace_id/kek-rotation/intent",
+         KekRotationController,
+         :start_kek_rotation_intent
+
     post "/encryption/workspaces/:workspace_id/kek-rotation",
          KekRotationController,
          :start_kek_rotation
 
-    get "/encryption/workspaces/:workspace_id/kek-rotation/completion-manifest",
-        KekRotationController,
-        :prepare_kek_rotation_completion
+    post "/encryption/workspaces/:workspace_id/rotations/:rotation_id/complete/intent",
+         KekRotationController,
+         :complete_kek_rotation_intent
 
-    post "/encryption/workspaces/:workspace_id/kek-rotation/complete",
+    post "/encryption/workspaces/:workspace_id/rotations/:rotation_id/complete",
          KekRotationController,
          :complete_kek_rotation
+
+    post "/encryption/workspaces/:workspace_id/rotations/:rotation_id/old-key-deletion/intent",
+         KekRotationController,
+         :delete_old_kek_intent
+
+    post "/encryption/workspaces/:workspace_id/rotations/:rotation_id/old-key-deletion",
+         KekRotationController,
+         :delete_old_kek
 
     get "/encryption/workspaces/:workspace_id/kek-rotation/wipe-requirement",
         KekRotationController,

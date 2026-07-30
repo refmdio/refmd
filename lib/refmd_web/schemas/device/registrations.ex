@@ -21,8 +21,8 @@ defmodule RefMDWeb.Schemas.CreateDeviceRegistrationRequest do
       mlkem768_ephemeral_public: %Schema{type: :string},
       mlkem768_ephemeral_public_hash: RefMDWeb.Schemas.Blake3Base64Url,
       operation_id: %Schema{type: :string, format: :uuid},
-      issued_at_event_sequence: %Schema{type: :integer},
-      expires_event_sequence: %Schema{type: :integer},
+      issued_at_ms: %Schema{type: :integer, minimum: 0},
+      expires_at_ms: %Schema{type: :integer, minimum: 0},
       server_challenge: %Schema{type: :string}
     },
     required: [
@@ -38,8 +38,8 @@ defmodule RefMDWeb.Schemas.CreateDeviceRegistrationRequest do
       :mlkem768_ephemeral_public,
       :mlkem768_ephemeral_public_hash,
       :operation_id,
-      :issued_at_event_sequence,
-      :expires_event_sequence,
+      :issued_at_ms,
+      :expires_at_ms,
       :server_challenge
     ]
   }
@@ -150,8 +150,8 @@ defmodule RefMDWeb.Schemas.DeviceRegistrationInfo do
       mlkem768_ephemeral_public: %Schema{type: :string},
       mlkem768_ephemeral_public_hash: RefMDWeb.Schemas.Blake3Base64Url,
       operation_id: %Schema{type: :string, format: :uuid},
-      issued_at_event_sequence: %Schema{type: :integer},
-      expires_event_sequence: %Schema{type: :integer},
+      issued_at_ms: %Schema{type: :integer, minimum: 0},
+      expires_at_ms: %Schema{type: :integer, minimum: 0},
       server_challenge: %Schema{type: :string}
     },
     required: [
@@ -167,8 +167,8 @@ defmodule RefMDWeb.Schemas.DeviceRegistrationInfo do
       :mlkem768_ephemeral_public,
       :mlkem768_ephemeral_public_hash,
       :operation_id,
-      :issued_at_event_sequence,
-      :expires_event_sequence,
+      :issued_at_ms,
+      :expires_at_ms,
       :server_challenge
     ]
   }

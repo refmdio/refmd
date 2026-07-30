@@ -156,9 +156,6 @@ defmodule RefMDWeb.EncryptionController do
       workspace_ids == [] ->
         conn |> put_status(:unprocessable_entity) |> json(%{error: "no_workspace"})
 
-      not Enum.all?(workspace_ids, &Encryption.user_has_active_kek?(&1, user_id)) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_kek_envelope"})
-
       not Enum.all?(workspaces, fn workspace ->
         workspace != nil and
             Encryption.member_has_envelope?(workspace.id, user_id, workspace.current_kek_version)
@@ -171,28 +168,23 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   defp complete_encryption_setup(conn, user_id, workspace_ids) do
-    user_audit_checkpoint = Security.current_audit_checkpoint!("user:#{user_id}")
+    user_audit_checkpoint = Security.current_signed_audit_checkpoint!("user", user_id)
 
     workspace_audit_checkpoints =
       Enum.map(workspace_ids, fn workspace_id ->
         %{
           workspace_id: workspace_id,
-          audit_checkpoint: Security.current_audit_checkpoint!("workspace:#{workspace_id}")
+          audit_checkpoint: Security.current_signed_audit_checkpoint!("workspace", workspace_id)
         }
       end)
 
-    if is_map(user_audit_checkpoint) and
-         Enum.all?(workspace_audit_checkpoints, &is_map(&1.audit_checkpoint)) do
-      Users.update_encryption_setup(user_id)
+    Users.update_encryption_setup(user_id)
 
-      json(conn, %{
-        ok: true,
-        user_audit_checkpoint: user_audit_checkpoint,
-        workspace_audit_checkpoints: workspace_audit_checkpoints
-      })
-    else
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "audit_checkpoint_missing"})
-    end
+    json(conn, %{
+      ok: true,
+      user_audit_checkpoint: user_audit_checkpoint,
+      workspace_audit_checkpoints: workspace_audit_checkpoints
+    })
   end
 
   # --- Validation helpers ---

@@ -4,7 +4,13 @@ defmodule RefMD.Encryption.UsersTest do
   alias RefMD.Crypto.{Hash, JCS, Signature}
   alias RefMD.Devices.Registrations.Materials
   alias RefMD.Encryption
-  alias RefMD.Encryption.{UserEncryptedIdentityKey, UserIdentityPublicKey}
+
+  alias RefMD.Encryption.{
+    RecoverableIdentitySecretRecord,
+    UserEncryptedIdentityKey,
+    UserIdentityPublicKey
+  }
+
   alias RefMD.Users.User
   alias RefMD.Workspaces
   alias RefMDWeb.Payloads.DeviceIdentity
@@ -170,10 +176,12 @@ defmodule RefMD.Encryption.UsersTest do
       |> Repo.update!()
 
       pending |> Ecto.Changeset.change(lifecycle_state: "current") |> Repo.update!()
-      Repo.get_by!(UserEncryptedIdentityKey, user_id: user_id, key_version: 1) |> Repo.delete!()
 
-      Repo.get_by!(UserEncryptedIdentityKey, user_id: user_id, key_version: 2)
-      |> Ecto.Changeset.change(lifecycle_state: "current")
+      Repo.get_by!(UserEncryptedIdentityKey, user_id: user_id, identity_key_epoch: 1)
+      |> Repo.delete!()
+
+      Repo.get_by!(UserEncryptedIdentityKey, user_id: user_id, identity_key_epoch: 2)
+      |> Ecto.Changeset.change(is_current: true)
       |> Repo.update!()
 
       assert %{key_version: 2, lifecycle_state: "current"} =
@@ -185,9 +193,9 @@ defmodule RefMD.Encryption.UsersTest do
 
       assert old_key.private_key_deletion_proof_hash == proof_hash
 
-      refute Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, key_version: 1)
+      refute Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, identity_key_epoch: 1)
 
-      assert %{key_version: 2, lifecycle_state: "current"} =
+      assert %{identity_key_epoch: 2, is_current: true} =
                Encryption.get_user_encrypted_identity_key(user_id)
 
       device_identity = %{
@@ -236,33 +244,40 @@ defmodule RefMD.Encryption.UsersTest do
       assert %{key_version: 1, lifecycle_state: "current"} =
                Encryption.get_user_identity_public_key(user_id)
 
-      assert %{key_version: 1} = Encryption.get_user_encrypted_identity_key(user_id)
-      assert %{key_version: 2} = Encryption.get_pending_user_encrypted_identity_key(user_id)
+      assert %{identity_key_epoch: 1} = Encryption.get_user_encrypted_identity_key(user_id)
+
+      assert %{identity_key_epoch: 2} =
+               Encryption.get_pending_user_encrypted_identity_key(user_id)
     end
 
-    test "durable activation makes fresh restore select only the successor" do
+    test "activation validates readiness without publishing the successor before finalization" do
       user_id = create_user!()
       current = create_identity_public_key!(user_id)
       {:ok, _} = Encryption.create_user_encrypted_identity_key(valid_identity_key_attrs(current))
       pending = insert_pending_identity!(user_id, 2)
 
-      assert {:ok, %{key_version: 2, deleted_key_version: 1}} =
+      assert {:ok, %{key_version: 2}} =
                Encryption.activate_user_identity_rotation(user_id, 2)
 
-      refute Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, key_version: 1)
-
-      assert %{key_version: 2, encryption_key_id: successor_key_id} =
+      assert %{identity_key_epoch: 1, encryption_key_id: current_key_id} =
                Encryption.get_user_encrypted_identity_key(user_id)
 
+      assert current_key_id == current.encryption_key_id
+
+      assert %{identity_key_epoch: 2, encryption_key_id: successor_key_id} =
+               Encryption.get_pending_user_encrypted_identity_key(user_id)
+
       assert successor_key_id == pending.encryption_key_id
-      assert Encryption.get_pending_user_encrypted_identity_key(user_id) == nil
 
       assert %{
-               encrypted_identity_key: %{key_version: 2, encryption_key_id: ^successor_key_id},
+               encrypted_identity_key: %{
+                 identity_key_epoch: 1,
+                 encryption_key_id: ^current_key_id
+               },
                identity_public_key: %{key_version: 1}
              } = Encryption.get_login_keys(user_id, nil)
 
-      assert %{pending_key_version: 2, finalization_started: true} =
+      assert %{pending_key_version: 2, finalization_started: false} =
                Encryption.user_identity_rotation_status(user_id)
 
       assert {:ok, %{key_version: 2}} =
@@ -286,12 +301,17 @@ defmodule RefMD.Encryption.UsersTest do
       assert {:ok, %{key_version: 2}} =
                Encryption.activate_user_identity_rotation(user_id, 2)
 
-      assert %{key_version: 2, encryption_key_id: successor_key_id} =
+      assert %{identity_key_epoch: 1, encryption_key_id: current_key_id} =
                Encryption.get_user_encrypted_identity_key(user_id)
+
+      assert current_key_id == current.encryption_key_id
+
+      assert %{identity_key_epoch: 2, encryption_key_id: successor_key_id} =
+               Encryption.get_pending_user_encrypted_identity_key(user_id)
 
       assert successor_key_id == pending.encryption_key_id
 
-      assert %{finalization_started: true, pending_key_version: 2} =
+      assert %{finalization_started: false, pending_key_version: 2} =
                Encryption.user_identity_rotation_status(user_id)
     end
 
@@ -299,11 +319,15 @@ defmodule RefMD.Encryption.UsersTest do
       user_id = create_user!("guest")
       current = create_identity_public_key!(user_id)
 
+      {:ok, encrypted_current} =
+        Encryption.create_user_encrypted_identity_key(valid_identity_key_attrs(current))
+
       current.public_key
       |> Ecto.Changeset.change(needs_rotation: true, rotation_due_at: DateTime.utc_now())
       |> Repo.update!()
 
       pending = insert_pending_identity!(user_id, 2)
+      Repo.delete!(encrypted_current)
 
       assert {:error, :identity_rotation_incomplete} =
                Encryption.activate_user_identity_rotation(user_id, pending.key_version)
@@ -311,7 +335,7 @@ defmodule RefMD.Encryption.UsersTest do
       assert %{key_version: 1, lifecycle_state: "current"} =
                Encryption.get_user_identity_public_key(user_id)
 
-      assert %{key_version: 2, lifecycle_state: "pending"} =
+      assert %{identity_key_epoch: 2, is_current: false} =
                Encryption.get_pending_user_encrypted_identity_key(user_id)
     end
   end
@@ -369,6 +393,7 @@ defmodule RefMD.Encryption.UsersTest do
   defp insert_pending_identity!(user_id, key_version) do
     material = build_identity_material(user_id, "rotation-#{key_version}")
     current = Encryption.get_user_identity_public_key(user_id)
+    encrypted_current = Encryption.get_user_encrypted_identity_key(user_id)
 
     public =
       %UserIdentityPublicKey{}
@@ -385,12 +410,16 @@ defmodule RefMD.Encryption.UsersTest do
 
     %UserEncryptedIdentityKey{}
     |> UserEncryptedIdentityKey.changeset(
-      valid_identity_key_attrs(%{
-        material
-        | encryption_key_id: public.encryption_key_id,
-          signing_key_id: public.signing_key_id
-      })
-      |> Map.merge(%{key_version: key_version, lifecycle_state: "pending"})
+      valid_identity_key_attrs(
+        %{
+          material
+          | encryption_key_id: public.encryption_key_id,
+            signing_key_id: public.signing_key_id
+        },
+        identity_key_epoch: key_version,
+        previous_record_hash: encrypted_current.record_hash,
+        is_current: false
+      )
     )
     |> Repo.insert!()
 
@@ -410,15 +439,26 @@ defmodule RefMD.Encryption.UsersTest do
     }
   end
 
-  defp valid_identity_key_attrs(identity) do
-    %{
+  defp valid_identity_key_attrs(identity, opts \\ []) do
+    expected = %{
       user_id: identity.user_id,
-      encrypted_identity_hybrid_encryption_private_key_material: <<1::128>>,
-      identity_hybrid_encryption_private_key_material_nonce: <<2::192>>,
+      identity_key_epoch: Keyword.get(opts, :identity_key_epoch, 1),
+      previous_record_hash: Keyword.get(opts, :previous_record_hash, "GENESIS"),
+      is_current: Keyword.get(opts, :is_current, true),
       encryption_key_id: identity.encryption_key_id,
-      encrypted_identity_hybrid_signing_private_key_material: <<3::128>>,
-      identity_hybrid_signing_private_key_material_nonce: <<4::192>>,
       signing_key_id: identity.signing_key_id
     }
+
+    identity.user_id
+    |> recoverable_identity_secret_record(
+      identity.signing_key_id,
+      identity.encryption_key_id,
+      <<3::128>>,
+      <<4::192>>,
+      <<1::128>>,
+      <<2::192>>,
+      opts
+    )
+    |> RecoverableIdentitySecretRecord.to_attrs!(expected)
   end
 end

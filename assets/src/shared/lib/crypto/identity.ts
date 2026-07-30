@@ -67,6 +67,7 @@ export function encryptIdentityKeys(
   keyPair: IdentityKeyPair,
   umk: Uint8Array,
   userId: string,
+  identityKeyEpoch: number,
 ): EncryptedIdentityKeys {
   const encryptionNonce = randomBytes(24);
   const signingNonce = randomBytes(24);
@@ -75,12 +76,12 @@ export function encryptIdentityKeys(
   const encryptionCipher = xchacha20poly1305(
     umk,
     encryptionNonce,
-    buildIdentityHybridEncryptionPrivateKeyMaterialAad(userId, encryptionKeyId),
+    buildIdentityHybridEncryptionPrivateKeyMaterialAad(userId, encryptionKeyId, identityKeyEpoch),
   );
   const signingCipher = xchacha20poly1305(
     umk,
     signingNonce,
-    buildIdentitySigningAad(userId, signingKeyId),
+    buildIdentitySigningAad(userId, signingKeyId, identityKeyEpoch),
   );
   return {
     encryptedHybridEncryptionPrivateKeyMaterial: encryptionCipher.encrypt(
@@ -104,16 +105,21 @@ export function decryptIdentityPrivateKeys(
   encrypted: EncryptedIdentityKeys,
   umk: Uint8Array,
   userId: string,
+  identityKeyEpoch: number,
 ): IdentityKeyPair {
   const encryptionCipher = xchacha20poly1305(
     umk,
     encrypted.hybridEncryptionPrivateKeyMaterialNonce,
-    buildIdentityHybridEncryptionPrivateKeyMaterialAad(userId, encrypted.encryptionKeyId),
+    buildIdentityHybridEncryptionPrivateKeyMaterialAad(
+      userId,
+      encrypted.encryptionKeyId,
+      identityKeyEpoch,
+    ),
   );
   const signingCipher = xchacha20poly1305(
     umk,
     encrypted.hybridSigningPrivateKeyMaterialNonce,
-    buildIdentitySigningAad(userId, encrypted.signingKeyId),
+    buildIdentitySigningAad(userId, encrypted.signingKeyId, identityKeyEpoch),
   );
   const decodedEncryptionPrivateMaterial = parseJsonStrictBytes(
     encryptionCipher.decrypt(encrypted.encryptedHybridEncryptionPrivateKeyMaterial),

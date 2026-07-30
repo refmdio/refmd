@@ -35,7 +35,6 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
     path === "/api/auth/kdf-migration" ||
     path === "/api/auth/recovery" ||
     path === "/api/auth/password-set" ||
-    path === "/api/auth/oauth/crypto-setup" ||
     path === "/api/auth/salt" ||
     path === "/api/auth/login" ||
     path === "/api/auth/register" ||
@@ -43,8 +42,14 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   ) {
     return true;
   }
-  // Device: bootstrap
-  if (path === "/api/devices/bootstrap") return true;
+  // Account genesis runs before a normal device-bound session exists.
+  if (
+    path === "/api/devices/bootstrap" ||
+    path === "/api/devices/bootstrap/challenge" ||
+    path === "/api/devices/bootstrap/intent"
+  ) {
+    return true;
+  }
   // Device: registration endpoints (session-only), EXCEPT POST .../approve (Recovery-or-RRP)
   if (path.startsWith("/api/devices/registrations")) {
     if (method === "POST" && path.endsWith("/approve")) return false;

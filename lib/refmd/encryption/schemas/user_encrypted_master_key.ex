@@ -61,7 +61,7 @@ defmodule RefMD.Encryption.UserEncryptedMasterKey do
         with true <- is_map(material),
              canonical when is_binary(canonical) <- JCS.canonical_bytes!(material),
              :ok <- Signature.assert_public_key_material!(material),
-             true <- material["owner_kind"] == "identity",
+             true <- material["owner_kind"] == "recovery_authorization",
              true <- is_nil(user_id) or material["owner_id"] == user_id,
              true <- is_nil(key_id) or Signature.compute_signing_key_id!(material) == key_id do
           []

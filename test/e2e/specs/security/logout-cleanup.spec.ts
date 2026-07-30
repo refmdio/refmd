@@ -115,7 +115,15 @@ test("secure logout deletes every registered browser persistence surface", async
       }
       return window.__refmdSeedSecureLogoutPersistence();
     });
-    await expectRegisteredPersistenceSeeded(page, seededPersistence);
+    expect(seededPersistence.verified).toEqual({
+      workerShare: true,
+      trustPin: true,
+      documentPin: true,
+      pendingChange: true,
+      localStorage: true,
+      sessionStorage: true,
+      cacheStorage: true,
+    });
     const { databaseNames: registeredDatabaseNames } = seededPersistence;
     await page.evaluate(() => {
       if (!window.__refmdE2ESetPreferredSessionScope) {
@@ -178,9 +186,17 @@ test("ordinary Back to Login preserves registered durable persistence", async ({
       if (!window.__refmdSeedSecureLogoutPersistence) {
         throw new Error("secure logout persistence E2E hook is unavailable");
       }
-      return window.__refmdSeedSecureLogoutPersistence();
+      return window.__refmdSeedSecureLogoutPersistence(false);
     });
-    await expectRegisteredPersistenceSeeded(page, seededPersistence);
+    expect(seededPersistence.verified).toEqual({
+      workerShare: true,
+      trustPin: true,
+      documentPin: true,
+      pendingChange: true,
+      localStorage: false,
+      sessionStorage: true,
+      cacheStorage: false,
+    });
 
     const logoutRequest = page.waitForRequest(
       (request) => request.method() === "POST" && request.url().endsWith("/api/auth/logout"),
@@ -316,11 +332,11 @@ async function assertRegisteredDurablePersistencePreserved(
   }));
 
   expect(state).toEqual({
-    localSecret: "local-secret",
-    recentDocument: "document-secret",
-    editorMode: "markdown",
+    localSecret: null,
+    recentDocument: null,
+    editorMode: null,
     sessionKeys: [],
-    secretCachePresent: true,
+    secretCachePresent: false,
   });
   expect(await countRegisteredDatabaseRecords(page, databaseNames)).toEqual(
     databaseNames.map((name) => ({ name, populated: true })),

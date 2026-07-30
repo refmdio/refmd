@@ -493,7 +493,7 @@ defmodule RefMD.Encryption.Members do
     parsed =
       Enum.reduce_while(envelopes, {:ok, []}, fn env, {:ok, acc} ->
         try do
-          attrs = workspace_member_envelope_attrs!(workspace_id, env)
+          attrs = prepare_member_envelope_record_attrs!(workspace_id, env)
 
           changeset =
             %WorkspaceMemberEnvelope{created_at: now}
@@ -627,13 +627,13 @@ defmodule RefMD.Encryption.Members do
     MapSet.subset?(member_ids, covered_member_ids)
   end
 
-  defp workspace_member_envelope_attrs!(workspace_id, %{wrap_protocol: _} = attrs) do
+  def prepare_member_envelope_record_attrs!(workspace_id, %{wrap_protocol: _} = attrs) do
     attrs = Map.merge(attrs, %{workspace_id: workspace_id})
     validate_member_envelope_attrs!(attrs)
     attrs
   end
 
-  defp workspace_member_envelope_attrs!(workspace_id, env) do
+  def prepare_member_envelope_record_attrs!(workspace_id, env) do
     attrs =
       Map.merge(SignedPQ.attrs_from_container_params!(env), %{
         workspace_id: workspace_id,
@@ -644,6 +644,12 @@ defmodule RefMD.Encryption.Members do
 
     validate_member_envelope_attrs!(attrs)
     attrs
+  end
+
+  def insert_compound_member_envelope!(attrs) when is_map(attrs) do
+    %WorkspaceMemberEnvelope{created_at: DateTime.utc_now()}
+    |> WorkspaceMemberEnvelope.changeset(attrs)
+    |> insert_envelope_or_rollback()
   end
 
   defp validate_member_envelope_attrs!(attrs) do

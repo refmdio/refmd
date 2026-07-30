@@ -11,7 +11,7 @@ import {
 import { validateDeviceApprovalProofEnvelope } from "../../approval-proof-validation";
 import {
   buildDeviceApprovalTranscript,
-  buildGenesisDeviceBootstrapTranscript,
+  buildGenesisDeviceBootstrapTranscriptFromProof,
   buildPendingRegistrationBindingHash,
   buildRecoveryDeviceApprovalTranscript,
   computeSigningKeyId,
@@ -127,20 +127,15 @@ function verifyDeviceApprovalSurface(
       ? {
           signingPurpose: "genesis_device_bootstrap",
           publicKeyMaterial: approvalIdentityPublicMaterial,
-          transcript: buildGenesisDeviceBootstrapTranscript({
+          transcript: buildGenesisDeviceBootstrapTranscriptFromProof({
             ownerId: identityPublicMaterial.owner_id,
             deviceId: device.deviceId,
             deviceHybridSigningPublicKeyMaterial: device.deviceHybridSigningPublicKeyMaterial,
             deviceEcdhPublicKey,
             deviceHybridEncryptionPublicKeyMaterial: device.deviceHybridEncryptionPublicKeyMaterial,
             clientNonce: device.clientNonce,
-            registrationChallengeHash: (
-              context.surface_details as Record<string, unknown> | undefined
-            )?.registration_challenge_hash as string,
             identitySigningKeyId: context.approving_signing_key_id as string,
-            userIdentityPublicKeyHash: (
-              context.surface_details as Record<string, unknown> | undefined
-            )?.user_identity_public_key_hash as string,
+            surfaceDetails: details,
           }),
         }
       : purpose === "device_approval"

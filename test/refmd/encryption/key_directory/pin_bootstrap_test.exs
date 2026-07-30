@@ -146,6 +146,7 @@ defmodule RefMD.Encryption.KeyDirectory.PinBootstrapTest do
           e.sequence < ^get_in(bootstrap, ["payload", "event_head_sequence"])
       )
       |> order_by([e], asc: e.sequence)
+      |> limit(1)
       |> Repo.one!()
 
     ancestor_bootstrap =

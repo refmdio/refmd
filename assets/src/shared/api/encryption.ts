@@ -1,5 +1,7 @@
 import { client, RRP_DEVICE_OVERRIDE_HEADER, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
+import type { StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import type { GenesisCompoundAuthorization } from "@/shared/lib/crypto/genesis-authorization";
 
 type RrpOverrideOptions = {
   rrpDeviceId?: string;
@@ -61,21 +63,6 @@ export const encryptionApi = {
       }),
     ),
 
-  appendWorkspaceKeyDirectory: async (
-    workspaceId: string,
-    body: components["schemas"]["KeyDirectoryAppendRequest"],
-    options?: RrpOverrideOptions & { ignoreConflict?: boolean },
-  ) => {
-    const result = await client.POST("/api/workspaces/{workspace_id}/key-directory/append", {
-      params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
-      body,
-      headers: rrpOverrideHeaders(options),
-    });
-
-    if (options?.ignoreConflict && result.response.status === 409) return undefined;
-    return throwIfError(result);
-  },
-
   getWorkspaceKeysWithRrp: async (
     workspaceId: string,
     deviceId: string,
@@ -120,30 +107,70 @@ export const encryptionApi = {
     );
   },
 
-  prepareKekRotationCompletion: async (workspaceId: string, newKekVersion: number) =>
+  prepareKekRotationCompletion: async (
+    workspaceId: string,
+    rotationId: string,
+    body: StrictJsonValue,
+  ) =>
     throwIfError(
-      await client.GET(
-        "/api/encryption/workspaces/{workspace_id}/kek-rotation/completion-manifest",
+      await client.POST(
+        "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/complete/intent",
         {
           params: withUserRrpParams({
-            path: { workspace_id: workspaceId },
-            query: { new_kek_version: newKekVersion },
+            path: { workspace_id: workspaceId, rotation_id: rotationId },
           }),
+          body: body as never,
         },
       ),
     ),
 
   completeKekRotation: async (
     workspaceId: string,
-    body: components["schemas"]["KekRotationCompleteRequest"],
+    rotationId: string,
+    body: GenesisCompoundAuthorization,
   ) => {
-    throwIfError(
-      await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation/complete", {
-        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
-        body,
-      }),
+    return throwIfError(
+      await client.POST(
+        "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/complete",
+        {
+          params: withUserRrpParams({
+            path: { workspace_id: workspaceId, rotation_id: rotationId },
+          }),
+          body: body as never,
+        },
+      ),
     );
   },
+
+  prepareOldKekDeletion: async (workspaceId: string, rotationId: string, body: StrictJsonValue) =>
+    throwIfError(
+      await client.POST(
+        "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/old-key-deletion/intent",
+        {
+          params: withUserRrpParams({
+            path: { workspace_id: workspaceId, rotation_id: rotationId },
+          }),
+          body: body as never,
+        },
+      ),
+    ),
+
+  deleteOldKek: async (
+    workspaceId: string,
+    rotationId: string,
+    body: GenesisCompoundAuthorization,
+  ) =>
+    throwIfError(
+      await client.POST(
+        "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/old-key-deletion",
+        {
+          params: withUserRrpParams({
+            path: { workspace_id: workspaceId, rotation_id: rotationId },
+          }),
+          body: body as never,
+        },
+      ),
+    ),
 
   getWorkspaceWipeRequirement: async (workspaceId: string) => {
     const result = await client.GET(
@@ -168,17 +195,25 @@ export const encryptionApi = {
       ),
     ),
 
-  startKekRotation: async (
+  prepareKekRotationStart: async (
     workspaceId: string,
-    body: components["schemas"]["KekRotationStartRequest"],
+    body: components["schemas"]["KekRotationStartIntentRequest"],
   ) => {
     return throwIfError(
-      await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation", {
+      await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation/intent", {
         params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
         body,
       }),
     );
   },
+
+  commitKekRotationStart: async (workspaceId: string, body: GenesisCompoundAuthorization) =>
+    throwIfError(
+      await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation", {
+        params: withUserRrpParams({ path: { workspace_id: workspaceId } }),
+        body: body as never,
+      }),
+    ),
 
   getMemberEnvelopeWithRrp: async (workspaceId: string, options?: RrpOverrideOptions) => {
     const result = await client.GET("/api/encryption/workspaces/{workspace_id}/member-envelope", {

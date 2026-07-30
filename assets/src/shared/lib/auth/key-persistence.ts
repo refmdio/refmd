@@ -28,6 +28,14 @@ export async function clearSessionData(
   }
 }
 
+export function clearPlaintextActivityMetadata(): void {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("recent-docs:") || key.startsWith("editor-mode:")) {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
 export async function clearAllPersistedKeys(): Promise<void> {
   sessionStorage.clear();
   for (const key of Object.keys(localStorage)) {

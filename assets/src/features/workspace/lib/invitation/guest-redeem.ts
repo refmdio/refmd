@@ -6,7 +6,7 @@ import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { persistGuestAuthBootstrap } from "./guest-auth-bootstrap";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
 import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
-import { computeSigningKeyId } from "@/shared/lib/crypto/signature";
+import { buildRecoverableIdentitySecretRecord } from "@/shared/lib/crypto/recoverable-identity-secret-record";
 import { verifyRecipientBoundAuthorizationSignature } from "@/shared/lib/crypto/signature";
 import { buildRecipientBoundAuthorizationTranscript } from "@/shared/lib/crypto/signature-key-directory-transcripts";
 import {
@@ -92,6 +92,28 @@ interface GuestKeyVersionContext {
   dek_version: number | "NOT_APPLICABLE";
 }
 
+interface KnownGuestCompletionSteps {
+  restoreWorker: () => Promise<MeResponse>;
+  restoreShareKey: () => Promise<void>;
+  persistAuthBootstrap: (me: MeResponse) => Promise<void>;
+  pinUserKeyDirectory: () => Promise<void>;
+  establishSession: (me: MeResponse) => void;
+  rememberRedeemMaterial: () => Promise<void>;
+  deletePendingKeys: () => Promise<void>;
+}
+
+export async function completeKnownGuestRedemption(
+  steps: KnownGuestCompletionSteps,
+): Promise<void> {
+  const me = await steps.restoreWorker();
+  await steps.restoreShareKey();
+  await steps.persistAuthBootstrap(me);
+  await steps.pinUserKeyDirectory();
+  steps.establishSession(me);
+  await steps.rememberRedeemMaterial();
+  await steps.deletePendingKeys();
+}
+
 function guestPackageKeyVersion(lookup: GuestInvitationLookupResult): number {
   const context = lookup.key_version_context;
   const version =
@@ -146,21 +168,6 @@ async function restoreGuestShareKeyForResponse(
   if (response.scope_kind === "workspace") return;
   const restored = await worker.restoreGuestInvitationShareKey(guestShareMetadata(response));
   if (!restored.restored) throw new Error("Guest invitation share key is unavailable.");
-}
-
-function signingPublicMaterialJson(
-  material: components["schemas"]["HybridSigningPublicKeyMaterial"],
-): StrictJsonValue {
-  return {
-    protocol: material.protocol,
-    version: material.version,
-    suite_id: material.suite_id,
-    suite_rank: material.suite_rank,
-    owner_kind: material.owner_kind,
-    owner_id: material.owner_id,
-    ed25519_public: material.ed25519_public,
-    mldsa65_public: material.mldsa65_public,
-  };
 }
 
 function findGuestInvitationCreatedEvent(
@@ -305,27 +312,22 @@ async function createGuestRedeemMaterial(
   await worker.setUserContext(guestUserId, deviceId);
   await worker.generateUmk();
   const identityPublic = await worker.generateIdentityKeys();
-  const encryptedIdentity = await worker.wrapIdentityKeysForServer(guestUserId);
+  const encryptedIdentity = await worker.wrapIdentityKeysForServer(guestUserId, 1);
   const devicePublic = await worker.generateDeviceKeys({ deviceId });
   const clientNonce = await worker.generateClientNonce();
-  const pendingRegistrationChallengeHash = blake3Base64Url(
-    canonicalizeStrictBytes({
-      device_id: deviceId,
-      guest_user_id: guestUserId,
-      kind: "guest_invitation_genesis_device_bootstrap",
-    } as StrictJsonValue),
-  );
-  const userIdentityPublicKeyHash = blake3Base64Url(
-    canonicalizeStrictBytes(
-      signingPublicMaterialJson(identityPublic.hybridSigningPublicKeyMaterial),
-    ),
-  );
-  const { signature } = await worker.createGenesisDeviceBootstrapSignature({
-    deviceEcdhPublic: devicePublic.ecdhPublic,
-    clientNonce,
-    registrationChallengeHash: pendingRegistrationChallengeHash,
-    identitySigningKeyId: computeSigningKeyId(identityPublic.hybridSigningPublicKeyMaterial),
-    userIdentityPublicKeyHash,
+  const recoverableIdentitySecretRecord = buildRecoverableIdentitySecretRecord({
+    id: crypto.randomUUID(),
+    userId: guestUserId,
+    identityKeyEpoch: 1,
+    previousRecordHash: "GENESIS",
+    encryptedSigningPrivateMaterial: encryptedIdentity.encryptedHybridSigningPrivateKeyMaterial,
+    signingPrivateMaterialNonce: encryptedIdentity.hybridSigningPrivateKeyMaterialNonce,
+    encryptedEncryptionPrivateMaterial:
+      encryptedIdentity.encryptedHybridEncryptionPrivateKeyMaterial,
+    encryptionPrivateMaterialNonce: encryptedIdentity.hybridEncryptionPrivateKeyMaterialNonce,
+    signingKeyId: encryptedIdentity.signingKeyId,
+    encryptionKeyId: encryptedIdentity.encryptionKeyId,
+    isCurrent: true,
   });
   const identityHybridSigningPublicKeyMaterial = identityPublic.hybridSigningPublicKeyMaterial;
   const deviceHybridSigningPublicKeyMaterial = devicePublic.hybridSigningPublicKeyMaterial;
@@ -347,21 +349,8 @@ async function createGuestRedeemMaterial(
     identity_hybrid_encryption_public_key_material:
       identityPublic.hybridEncryptionPublicKeyMaterial,
     identity_hybrid_signing_public_key_material: identityPublic.hybridSigningPublicKeyMaterial,
-    encrypted_identity_hybrid_encryption_private_key_material: base64UrlEncode(
-      encryptedIdentity.encryptedHybridEncryptionPrivateKeyMaterial,
-    ),
-    identity_hybrid_encryption_private_key_material_nonce: base64UrlEncode(
-      encryptedIdentity.hybridEncryptionPrivateKeyMaterialNonce,
-    ),
-    encrypted_identity_hybrid_signing_private_key_material: base64UrlEncode(
-      encryptedIdentity.encryptedHybridSigningPrivateKeyMaterial,
-    ),
-    identity_hybrid_signing_private_key_material_nonce: base64UrlEncode(
-      encryptedIdentity.hybridSigningPrivateKeyMaterialNonce,
-    ),
-    approval_signature: signature,
+    recoverable_identity_secret_record: recoverableIdentitySecretRecord,
     client_nonce: base64UrlEncode(clientNonce),
-    pending_registration_challenge_hash: pendingRegistrationChallengeHash,
     device_name: getDeviceName(),
     device_type: getDeviceType(),
     user_key_directory_events: userKeyDirectory.userEvents,
@@ -388,22 +377,13 @@ function guestTargetRegistration(
   const identitySigning = material.body.identity_hybrid_signing_public_key_material;
   const deviceEncryption = material.body.device_hybrid_encryption_public_key_material;
   const deviceSigning = material.body.device_hybrid_signing_public_key_material;
-  const encryptedIdentityEncryption =
-    material.body.encrypted_identity_hybrid_encryption_private_key_material;
-  const identityEncryptionNonce =
-    material.body.identity_hybrid_encryption_private_key_material_nonce;
-  const encryptedIdentitySigning =
-    material.body.encrypted_identity_hybrid_signing_private_key_material;
-  const identitySigningNonce = material.body.identity_hybrid_signing_private_key_material_nonce;
+  const recoverableIdentitySecretRecord = material.body.recoverable_identity_secret_record;
   if (
     !identityEncryption ||
     !identitySigning ||
     !deviceEncryption ||
     !deviceSigning ||
-    !encryptedIdentityEncryption ||
-    !identityEncryptionNonce ||
-    !encryptedIdentitySigning ||
-    !identitySigningNonce
+    !recoverableIdentitySecretRecord
   ) {
     throw new Error("Guest invitation registration keys are incomplete.");
   }
@@ -412,10 +392,7 @@ function guestTargetRegistration(
     identity_hybrid_signing_public_key_material: identitySigning,
     device_hybrid_encryption_public_key_material: deviceEncryption,
     device_hybrid_signing_public_key_material: deviceSigning,
-    encrypted_identity_hybrid_encryption_private_key_material: encryptedIdentityEncryption,
-    identity_hybrid_encryption_private_key_material_nonce: identityEncryptionNonce,
-    encrypted_identity_hybrid_signing_private_key_material: encryptedIdentitySigning,
-    identity_hybrid_signing_private_key_material_nonce: identitySigningNonce,
+    recoverable_identity_secret_record: recoverableIdentitySecretRecord,
     user_key_directory_events: material.body.user_key_directory_events,
     user_key_directory_checkpoint: material.body.user_key_directory_checkpoint,
   };
@@ -686,6 +663,7 @@ async function restoreWorkerForGuestSession(
     deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
     keyRestoreEndpointRef: null,
   });
+  await importGuestIdentityFromMaterial(getCryptoWorker(), material);
 
   const ready = await getCryptoWorker().isReady();
   if (!ready || material.body.guest_user_id !== response.guest_user_id) {
@@ -699,8 +677,19 @@ function setGuestSession(
   material: GuestRedeemMaterial,
   me: MeResponse,
 ): void {
-  setCryptoWorkerReady(true);
-  persistDeviceId(response.guest_device_id, response.guest_user_id);
+  setGuestIdentitySession(response.guest_user_id, response.guest_device_id, material, me);
+  setCurrentWorkspaceId(response.workspace_id);
+}
+
+function setGuestIdentitySession(
+  guestUserId: string,
+  guestDeviceId: string,
+  material: GuestRedeemMaterial,
+  me: MeResponse,
+  ready = true,
+): void {
+  setCryptoWorkerReady(ready);
+  persistDeviceId(guestDeviceId, guestUserId);
   setFullSession(
     {
       user: { id: me.user_id, email: me.email, name: me.name, accountType: "guest" },
@@ -711,7 +700,7 @@ function setGuestSession(
       expiresAt: me.expires_at,
     },
     {
-      deviceId: response.guest_device_id,
+      deviceId: guestDeviceId,
       deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
       deviceKeyCheckpointSequence: me.device_key_checkpoint_sequence ?? null,
       deviceKeyCheckpointHash: me.device_key_checkpoint_hash ?? null,
@@ -720,7 +709,6 @@ function setGuestSession(
       deviceEcdhPublic: base64UrlDecode(material.publicKeys.deviceEcdhPublic),
     },
   );
-  setCurrentWorkspaceId(response.workspace_id);
 }
 
 async function redeemGuestInvitationWithRebasedAdmission(
@@ -778,15 +766,24 @@ async function reenterKnownRecipientGuestInvitation(params: {
   lookup: GuestInvitationLookupResult;
   material: GuestRedeemMaterial;
 }): Promise<GuestRedeemResult> {
-  const { lookup, material } = params;
-  const response = await workspacesApi.redeemKnownGuestInvitation({
-    token: invitationLookupToken(params.token),
-    ...material.body,
-    workspace_key_directory_events:
-      lookup.workspace_key_directory_event_ancestry as components["schemas"]["RedeemGuestInvitationRequest"]["workspace_key_directory_events"],
-    workspace_key_directory_checkpoint:
-      lookup.workspace_key_directory_checkpoint as components["schemas"]["RedeemGuestInvitationRequest"]["workspace_key_directory_checkpoint"],
-  });
+  const { material } = params;
+  await restorePendingGuestKeysForReentry(params.token, material);
+  const stagedSession = await authApi.me();
+  if (
+    stagedSession.account_type !== "guest" ||
+    stagedSession.user_id !== material.body.guest_user_id ||
+    stagedSession.device_id !== material.body.device_id
+  ) {
+    throw new Error("Guest invitation session belongs to another account or device.");
+  }
+  setGuestIdentitySession(
+    material.body.guest_user_id,
+    material.body.device_id,
+    material,
+    stagedSession,
+    false,
+  );
+  const response = await requestKnownGuestReentry(params);
   const checkpoint = assertKeyDirectoryEnvelope(
     response.workspace_key_directory_checkpoint,
     "guest_reentry_checkpoint_invalid",
@@ -811,13 +808,66 @@ async function reenterKnownRecipientGuestInvitation(params: {
   return response satisfies GuestRedeemResult;
 }
 
+function requestKnownGuestReentry(params: {
+  token: string;
+  lookup: GuestInvitationLookupResult;
+  material: GuestRedeemMaterial;
+}): Promise<RedeemResponse> {
+  return workspacesApi.redeemKnownGuestInvitation({
+    token: invitationLookupToken(params.token),
+    ...params.material.body,
+    workspace_key_directory_events: params.lookup
+      .workspace_key_directory_event_ancestry as components["schemas"]["RedeemGuestInvitationRequest"]["workspace_key_directory_events"],
+    workspace_key_directory_checkpoint: params.lookup
+      .workspace_key_directory_checkpoint as components["schemas"]["RedeemGuestInvitationRequest"]["workspace_key_directory_checkpoint"],
+  });
+}
+
+async function restorePendingGuestKeysForReentry(
+  token: string,
+  material: GuestRedeemMaterial,
+): Promise<void> {
+  const worker = getCryptoWorker();
+  await worker.lock();
+  await ensureDskInWorker(worker);
+  await worker.setUserContext(material.body.guest_user_id, material.body.device_id);
+  const restored = await worker.restoreGuestPendingKeysWithDsk({
+    storageKey: invitationLookupToken(token),
+    userId: material.body.guest_user_id,
+    signingKeyId: material.publicKeys.deviceSigningKeyId,
+  });
+  if (restored.restored) {
+    await importGuestIdentityFromMaterial(worker, material);
+    await worker.setInitialized();
+    await worker.persistCurrentKeysWithDsk(material.body.guest_user_id);
+    return;
+  }
+
+  await worker.init({
+    dsk: null,
+    useStoredDsk: true,
+    userId: material.body.guest_user_id,
+    deviceId: material.body.device_id,
+    deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
+    keyRestoreEndpointRef: null,
+  });
+  await importGuestIdentityFromMaterial(worker, material);
+  if (!(await worker.isReady())) {
+    throw new Error("Guest invitation keys are not available on this device.");
+  }
+}
+
 async function redeemKnownRecipientGuestInvitation(
   token: string,
   lookup: GuestInvitationLookupResult,
 ): Promise<GuestRedeemResult> {
+  let material = (await readGuestRedeemMaterial(token)) ?? (await readCurrentGuestRedeemMaterial());
+  const serverGuestSession = material ? await getKnownGuestServerSession(material) : null;
+  if (serverGuestSession && material) {
+    return reenterKnownRecipientGuestInvitation({ token, lookup, material });
+  }
   const auth = authState();
   const accountDevice = deviceState();
-  let material = (await readGuestRedeemMaterial(token)) ?? (await readCurrentGuestRedeemMaterial());
   if (
     auth?.user.accountType === "guest" &&
     accountDevice &&
@@ -839,6 +889,8 @@ async function redeemKnownRecipientGuestInvitation(
   const lookupToken = invitationLookupToken(token);
   const scopedWorkerKey = `guest-invitation:${lookupToken}`;
   const guestWorker = getScopedCryptoWorker(scopedWorkerKey);
+  let consumeRequestStarted = false;
+  let consumeCompleted = false;
   try {
     if (material) {
       if (await guestWorker.isReady()) {
@@ -880,9 +932,7 @@ async function redeemKnownRecipientGuestInvitation(
         deviceId: material.body.device_id,
         registration: targetRegistration,
         registrationProof: {
-          approval_signature: material.body.approval_signature,
           client_nonce: material.body.client_nonce,
-          pending_registration_challenge_hash: material.body.pending_registration_challenge_hash,
           device_name: material.body.device_name,
           device_type: material.body.device_type,
         },
@@ -925,12 +975,40 @@ async function redeemKnownRecipientGuestInvitation(
     };
     assertRecipientDeliveryAdmissionBindings(recipientDeliveryAdmissionProof);
 
-    const response = await workspacesApi.consumeGuestInvitationDeliveryAttempt(
-      attempt.redeem_attempt_id,
-      {
-        token: lookupToken,
-      },
-    );
+    consumeRequestStarted = true;
+    let response: RedeemResponse;
+    try {
+      response = await workspacesApi.consumeGuestInvitationDeliveryAttempt(
+        attempt.redeem_attempt_id,
+        {
+          token: lookupToken,
+        },
+      );
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      const me = await authApi.me();
+      if (me.account_type !== "guest") throw error;
+      if (me.user_id !== material.body.guest_user_id || me.device_id !== material.body.device_id) {
+        throw new Error("Guest invitation session belongs to another account or device.");
+      }
+      await restorePendingGuestKeysForReentry(token, material);
+      setGuestIdentitySession(
+        material.body.guest_user_id,
+        material.body.device_id,
+        material,
+        me,
+        false,
+      );
+      consumeCompleted = true;
+      consumeLocalDeliveryAttempt(token);
+      const recovered = await requestKnownGuestReentry({ token, lookup, material });
+      response = {
+        ...recovered,
+        recipient_delivery_artifacts:
+          artifacts as unknown as components["schemas"]["ApproveInvitationDeliveryAttemptRequest"],
+      };
+    }
+    consumeCompleted = true;
     consumeLocalDeliveryAttempt(token);
     if (
       !response.recipient_delivery_artifacts ||
@@ -1016,23 +1094,32 @@ async function redeemKnownRecipientGuestInvitation(
       });
       await guestWorker.persistCurrentKeysWithDsk(response.guest_user_id);
     }
-    await guestWorker.deleteGuestPendingKeysWithDsk(lookupToken);
+    const redeemedMaterial = material;
+    if (!redeemedMaterial) throw new Error("Guest invitation material is unavailable.");
 
-    const me = await restoreWorkerForGuestSession(response, material);
-    await restoreGuestShareKeyForResponse(getCryptoWorker(), response);
-    await persistGuestAuthBootstrap(getCryptoWorker(), {
-      userId: response.guest_user_id,
-      email: me.email,
-      name: me.name,
-      deviceId: response.guest_device_id,
-      deviceSigningKeyId: material.publicKeys.deviceSigningKeyId,
+    await completeKnownGuestRedemption({
+      restoreWorker: () => restoreWorkerForGuestSession(response, redeemedMaterial),
+      restoreShareKey: () => restoreGuestShareKeyForResponse(getCryptoWorker(), response),
+      persistAuthBootstrap: (me) =>
+        persistGuestAuthBootstrap(getCryptoWorker(), {
+          userId: response.guest_user_id,
+          email: me.email,
+          name: me.name,
+          deviceId: response.guest_device_id,
+          deviceSigningKeyId: redeemedMaterial.publicKeys.deviceSigningKeyId,
+        }),
+      pinUserKeyDirectory: () => pinGuestUserKeyDirectory(response),
+      establishSession: (me) => setGuestSession(response, redeemedMaterial, me),
+      rememberRedeemMaterial: () => rememberGuestRedeemMaterial(token, redeemedMaterial),
+      deletePendingKeys: () => guestWorker.deleteGuestPendingKeysWithDsk(lookupToken),
     });
-    await pinGuestUserKeyDirectory(response);
-    setGuestSession(response, material, me);
-    await rememberGuestRedeemMaterial(token, material);
     return response satisfies GuestRedeemResult;
   } catch (error) {
-    if (!(error instanceof InvitationDeliveryPendingError) && material) {
+    if (!consumeRequestStarted && !(error instanceof InvitationDeliveryPendingError) && material) {
+      consumeLocalDeliveryAttempt(token);
+      await guestWorker.deleteGuestPendingKeysWithDsk(lookupToken);
+      await forgetGuestRedeemMaterial(token, material);
+    } else if (consumeRequestStarted && !consumeCompleted && material) {
       consumeLocalDeliveryAttempt(token);
       await guestWorker.deleteGuestPendingKeysWithDsk(lookupToken);
       await forgetGuestRedeemMaterial(token, material);
@@ -1041,6 +1128,43 @@ async function redeemKnownRecipientGuestInvitation(
   } finally {
     terminateScopedCryptoWorker(scopedWorkerKey);
   }
+}
+
+async function importGuestIdentityFromMaterial(
+  worker: CryptoWorkerClient,
+  material: GuestRedeemMaterial,
+): Promise<void> {
+  const secretRecord = material.body.recoverable_identity_secret_record;
+
+  await worker.importIdentityKeys({
+    encryptedHybridEncryptionPrivateKeyMaterial: base64UrlDecode(
+      secretRecord.encrypted_identity_hybrid_encryption_private_key_material,
+    ),
+    hybridEncryptionPrivateKeyMaterialNonce: base64UrlDecode(
+      secretRecord.identity_hybrid_encryption_private_key_material_nonce,
+    ),
+    encryptionKeyId: secretRecord.encryption_key_id,
+    encryptedHybridSigningPrivateKeyMaterial: base64UrlDecode(
+      secretRecord.encrypted_identity_hybrid_signing_private_key_material,
+    ),
+    hybridSigningPrivateKeyMaterialNonce: base64UrlDecode(
+      secretRecord.identity_hybrid_signing_private_key_material_nonce,
+    ),
+    signingKeyId: secretRecord.signing_key_id,
+    identityKeyEpoch: secretRecord.identity_key_epoch,
+    rotationDueAt: null,
+  });
+}
+
+async function getKnownGuestServerSession(
+  material: GuestRedeemMaterial,
+): Promise<MeResponse | null> {
+  const me = await authApi.me();
+  if (me.account_type !== "guest") return null;
+  if (me.user_id !== material.body.guest_user_id || me.device_id !== material.body.device_id) {
+    throw new Error("Guest invitation session belongs to another account or device.");
+  }
+  return me;
 }
 
 function assertKnownGuestDeliveryArtifacts(attempt: DeliveryAttempt): KnownGuestDeliveryArtifacts {

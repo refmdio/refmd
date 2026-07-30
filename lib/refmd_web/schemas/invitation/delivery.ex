@@ -10,10 +10,11 @@ defmodule RefMDWeb.Schemas.WorkspaceInvitationDeliveryTargetRegistration do
       identity_hybrid_encryption_public_key_material:
         RefMDWeb.Schemas.HybridEncryptionPublicKeyMaterial,
       identity_hybrid_signing_public_key_material:
-        RefMDWeb.Schemas.HybridSigningPublicKeyMaterial,
+        RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
       device_hybrid_encryption_public_key_material:
         RefMDWeb.Schemas.HybridEncryptionPublicKeyMaterial,
-      device_hybrid_signing_public_key_material: RefMDWeb.Schemas.HybridSigningPublicKeyMaterial
+      device_hybrid_signing_public_key_material:
+        RefMDWeb.Schemas.DeviceHybridSigningPublicKeyMaterial
     },
     required: [
       :identity_hybrid_encryption_public_key_material,
@@ -36,14 +37,12 @@ defmodule RefMDWeb.Schemas.GuestInvitationDeliveryTargetRegistration do
       identity_hybrid_encryption_public_key_material:
         RefMDWeb.Schemas.HybridEncryptionPublicKeyMaterial,
       identity_hybrid_signing_public_key_material:
-        RefMDWeb.Schemas.HybridSigningPublicKeyMaterial,
+        RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
       device_hybrid_encryption_public_key_material:
         RefMDWeb.Schemas.HybridEncryptionPublicKeyMaterial,
-      device_hybrid_signing_public_key_material: RefMDWeb.Schemas.HybridSigningPublicKeyMaterial,
-      encrypted_identity_hybrid_encryption_private_key_material: RefMDWeb.Schemas.Base64UrlBytes,
-      identity_hybrid_encryption_private_key_material_nonce: RefMDWeb.Schemas.Base64UrlBytes,
-      encrypted_identity_hybrid_signing_private_key_material: RefMDWeb.Schemas.Base64UrlBytes,
-      identity_hybrid_signing_private_key_material_nonce: RefMDWeb.Schemas.Base64UrlBytes,
+      device_hybrid_signing_public_key_material:
+        RefMDWeb.Schemas.DeviceHybridSigningPublicKeyMaterial,
+      recoverable_identity_secret_record: RefMDWeb.Schemas.RecoverableIdentitySecretRecord,
       user_key_directory_events: %Schema{
         type: :array,
         minItems: 1,
@@ -56,10 +55,7 @@ defmodule RefMDWeb.Schemas.GuestInvitationDeliveryTargetRegistration do
       :identity_hybrid_signing_public_key_material,
       :device_hybrid_encryption_public_key_material,
       :device_hybrid_signing_public_key_material,
-      :encrypted_identity_hybrid_encryption_private_key_material,
-      :identity_hybrid_encryption_private_key_material_nonce,
-      :encrypted_identity_hybrid_signing_private_key_material,
-      :identity_hybrid_signing_private_key_material_nonce,
+      :recoverable_identity_secret_record,
       :user_key_directory_events,
       :user_key_directory_checkpoint
     ]
@@ -87,16 +83,12 @@ defmodule RefMDWeb.Schemas.InvitationDeliveryTargetRegistrationProof do
     type: :object,
     additionalProperties: false,
     properties: %{
-      approval_signature: RefMDWeb.Schemas.HybridSignature,
       client_nonce: %Schema{type: :string},
-      pending_registration_challenge_hash: RefMDWeb.Schemas.Blake3Base64Url,
       device_name: %Schema{type: :string},
       device_type: %Schema{type: :string}
     },
     required: [
-      :approval_signature,
       :client_nonce,
-      :pending_registration_challenge_hash,
       :device_name,
       :device_type
     ]

@@ -13,6 +13,6 @@ normative purpose. Tests consume these checked-in bytes directly and must not
 regenerate normative expected values.
 
 `refmd-signed-pq-wrap-v1.json` is the RefMD signed PQ wrap golden vector for the
-approved design version 17 ADR-023. It fixes canonical preimages, hashes,
+approved design version 19 ADR-023. It fixes canonical preimages, hashes,
 hybrid signatures, HPKE output, plaintext opening, and executable negative
 mutations for the production validators.

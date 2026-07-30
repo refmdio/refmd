@@ -147,7 +147,13 @@ defmodule RefMD.Crypto.Signature.Device do
   defp maybe_put_rrp_resource!(payload, _variant, _resource), do: payload
 
   def build_genesis_device_bootstrap_transcript!(params) when is_map(params) do
+    registration_id = fetch_binary!(params, :registration_id)
+    compound_intent_id = fetch_binary!(params, :compound_intent_id)
+    mutation_id = fetch_binary!(params, :mutation_id)
+    genesis_compound_context_hash = fetch_binary!(params, :genesis_compound_context_hash)
     user_id = fetch_binary!(params, :user_id)
+    workspace_id = fetch_binary!(params, :workspace_id)
+    owner_role_id = fetch_binary!(params, :owner_role_id)
     device_id = fetch_binary!(params, :device_id)
     device_public_material = fetch_map!(params, :device_public_material)
 
@@ -158,6 +164,18 @@ defmodule RefMD.Crypto.Signature.Device do
     registration_challenge_hash = fetch_binary!(params, :registration_challenge_hash)
     identity_signing_key_id = fetch_binary!(params, :identity_signing_key_id)
     user_identity_public_key_hash = fetch_binary!(params, :user_identity_public_key_hash)
+    user_device_key_added_event_hash = fetch_binary!(params, :user_device_key_added_event_hash)
+
+    workspace_device_key_added_event_hash =
+      fetch_binary!(params, :workspace_device_key_added_event_hash)
+
+    owner_member_added_event_hash = fetch_binary!(params, :owner_member_added_event_hash)
+
+    workspace_member_envelope_commitment_hash =
+      fetch_binary!(params, :workspace_member_envelope_commitment_hash)
+
+    user_audit_checkpoint = fetch_audit_checkpoint_ref!(params, :user_audit_checkpoint)
+    workspace_audit_checkpoint = fetch_audit_checkpoint_ref!(params, :workspace_audit_checkpoint)
 
     surface = SigningSurface.get_active!("genesis_device_bootstrap", "none")
 
@@ -180,14 +198,26 @@ defmodule RefMD.Crypto.Signature.Device do
       |> Map.merge(%{
         "subject_protocol" => "refmd.genesis-device-bootstrap",
         "subject_version" => @protocol_version,
+        "registration_id" => registration_id,
+        "compound_intent_id" => compound_intent_id,
+        "mutation_id" => mutation_id,
+        "genesis_compound_context_hash" => genesis_compound_context_hash,
         "client_nonce" => client_nonce,
         "user_id" => user_id,
+        "workspace_id" => workspace_id,
+        "owner_role_id" => owner_role_id,
         "identity_signing_key_id" => identity_signing_key_id,
         "device_id" => device_id,
         "device_signing_key_id" => device_signing_key_id,
         "device_hybrid_encryption_public_key_material_hash" =>
           device_hybrid_encryption_public_key_material_hash,
         "device_encryption_key_id" => encryption_key_id,
+        "user_device_key_added_event_hash" => user_device_key_added_event_hash,
+        "workspace_device_key_added_event_hash" => workspace_device_key_added_event_hash,
+        "owner_member_added_event_hash" => owner_member_added_event_hash,
+        "workspace_member_envelope_commitment_hash" => workspace_member_envelope_commitment_hash,
+        "user_audit_checkpoint" => user_audit_checkpoint,
+        "workspace_audit_checkpoint" => workspace_audit_checkpoint,
         "bootstrap_authority" => bootstrap_authority
       })
 
@@ -209,6 +239,18 @@ defmodule RefMD.Crypto.Signature.Device do
     case Map.fetch!(params, key) do
       value when is_map(value) -> value
       _ -> raise ArgumentError, "genesis_device_bootstrap_transcript_invalid"
+    end
+  end
+
+  defp fetch_audit_checkpoint_ref!(params, key) do
+    case fetch_map!(params, key) do
+      %{"sequence" => sequence, "checkpoint_hash" => checkpoint_hash} = value
+      when map_size(value) == 2 and is_integer(sequence) and sequence > 0 and
+             is_binary(checkpoint_hash) ->
+        value
+
+      _ ->
+        raise ArgumentError, "genesis_device_bootstrap_transcript_invalid"
     end
   end
 
@@ -301,48 +343,67 @@ defmodule RefMD.Crypto.Signature.Device do
   def build_device_approval_transcript!(_, _, _, _, _, _, _),
     do: raise(ArgumentError, "device_approval_transcript_invalid")
 
-  def build_device_revocation_transcript!(
-        user_id,
-        actor_device_id,
-        signing_key_id,
-        revoked_device_id,
-        revocation_mode,
-        revoked_at_ms
-      )
-      when is_binary(user_id) and is_binary(actor_device_id) and is_binary(signing_key_id) and
-             is_binary(revoked_device_id) and is_binary(revocation_mode) and
-             is_integer(revoked_at_ms) do
+  def build_device_revocation_transcript!(owner_id, actor, revoked_device, authority_boundary)
+      when is_binary(owner_id) and is_map(actor) and is_map(revoked_device) and
+             is_map(authority_boundary) do
     surface = SigningSurface.get_active!("device_revocation", "none")
+    validate_device_revocation_subject!(owner_id, actor, revoked_device, authority_boundary)
 
     subject = %{
-      "actor" => %{
-        "device_id" => actor_device_id,
-        "signing_key_id" => signing_key_id,
-        "user_id" => user_id
-      },
-      "authority_boundary" => %{"user_id" => user_id},
-      "revocation" => %{
-        "device_id" => revoked_device_id,
-        "mode" => revocation_mode,
-        "revoked_at_ms" => revoked_at_ms
-      }
+      "actor" => actor,
+      "revoked_device" => revoked_device,
+      "authority_boundary" => authority_boundary
     }
 
     transcript =
-      transcript_base("device_revocation", surface, "device", actor_device_id)
+      transcript_base("device_revocation", surface, "device", owner_id)
       |> Map.merge(%{
         "subject_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(subject)),
-        "subject_protocol" => "refmd.device.revocation",
+        "subject_protocol" => "refmd.device-revocation",
         "subject_version" => @protocol_version,
         "actor" => subject["actor"],
         "authority_boundary" => subject["authority_boundary"],
-        "revocation" => subject["revocation"]
+        "revoked_device" => subject["revoked_device"]
       })
 
-    assert_transcript!(transcript, "device_revocation", "device", actor_device_id)
+    assert_transcript!(transcript, "device_revocation", "device", owner_id)
     transcript
   end
 
-  def build_device_revocation_transcript!(_, _, _, _, _, _),
+  def build_device_revocation_transcript!(_, _, _, _),
     do: raise(ArgumentError, "device_revocation_transcript_invalid")
+
+  defp validate_device_revocation_subject!(owner_id, actor, revoked_device, authority_boundary) do
+    assert_exact_keys!(actor, ~w(device_id key_checkpoint_hash key_checkpoint_sequence
+                                  key_scope_id key_scope_kind signing_key_id user_id))
+    assert_exact_keys!(revoked_device, ~w(device_id encryption_key_id signing_key_id user_id))
+    assert_exact_keys!(authority_boundary, ~w(revocation_event_hash revocation_event_sequence))
+
+    unless actor["device_id"] == owner_id and actor["key_scope_kind"] == "user" and
+             actor["key_scope_id"] == actor["user_id"] and
+             revoked_device["user_id"] == actor["user_id"] and
+             is_integer(actor["key_checkpoint_sequence"]) and actor["key_checkpoint_sequence"] > 0 and
+             is_integer(authority_boundary["revocation_event_sequence"]) and
+             authority_boundary["revocation_event_sequence"] > 0 do
+      raise ArgumentError, "device_revocation_transcript_invalid"
+    end
+
+    Enum.each(
+      [
+        actor["signing_key_id"],
+        actor["key_checkpoint_hash"],
+        revoked_device["encryption_key_id"],
+        revoked_device["signing_key_id"],
+        authority_boundary["revocation_event_hash"]
+      ],
+      &Hash.assert_blake3_base64url!/1
+    )
+
+    :ok
+  end
+
+  defp assert_exact_keys!(value, keys) do
+    unless Enum.sort(Map.keys(value)) == Enum.sort(keys),
+      do: raise(ArgumentError, "device_revocation_transcript_invalid")
+  end
 end

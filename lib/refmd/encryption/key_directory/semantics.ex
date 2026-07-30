@@ -200,11 +200,6 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
       sequence,
       "member_role_changed_sequence_mismatch"
     )
-
-    Assertions.assert_positive_integer!(
-      body["permission_version"],
-      "member_role_changed_permission_version_invalid"
-    )
   end
 
   def assert_event_semantics_against_checkpoint!(
@@ -285,6 +280,66 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
   end
 
   def assert_event_semantics_against_checkpoint!(
+        %{
+          "event_type" => "workspace_member_envelope_issued",
+          "scope_kind" => "workspace",
+          "scope_id" => scope_id,
+          "actor" => actor,
+          "body" => body
+        },
+        checkpoint_payload
+      ) do
+    Assertions.assert_literal!(
+      body["workspace_id"],
+      scope_id,
+      "workspace_member_envelope_scope_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["sender_user_id"],
+      actor["user_id"],
+      "workspace_member_envelope_sender_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["sender_device_id"],
+      actor["device_id"],
+      "workspace_member_envelope_sender_mismatch"
+    )
+
+    identity_entry =
+      key_entry_by_id!(checkpoint_payload, body["target_identity_encryption_key_id"])
+
+    identity_material = identity_entry["key_material"]
+
+    Assertions.assert_literal!(
+      identity_material["protocol"],
+      "refmd.hybrid-encryption-key-material",
+      "workspace_member_envelope_recipient_protocol_invalid"
+    )
+
+    Assertions.assert_literal!(
+      identity_material["owner_kind"],
+      "identity",
+      "workspace_member_envelope_recipient_kind_invalid"
+    )
+
+    Assertions.assert_literal!(
+      identity_material["owner_id"],
+      body["target_user_id"],
+      "workspace_member_envelope_recipient_owner_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      Hash.blake3_base64url(JCS.canonical_bytes!(identity_material)),
+      body["target_identity_key_material_hash"],
+      "workspace_member_envelope_recipient_material_mismatch"
+    )
+
+    assert_workspace_member_envelope_authority!(actor, body)
+  end
+
+  def assert_event_semantics_against_checkpoint!(
         %{"event_type" => event_type, "scope_kind" => "workspace", "scope_id" => scope_id} =
           payload,
         checkpoint_payload
@@ -353,6 +408,52 @@ defmodule RefMD.Encryption.KeyDirectory.Semantics do
   def assert_event_semantics_against_checkpoint!(payload, _checkpoint_payload) do
     raise ArgumentError,
           "key_directory_event_semantic_validator_missing:#{payload["event_type"]}"
+  end
+
+  defp assert_workspace_member_envelope_authority!(
+         %{
+           "key_checkpoint_sequence" => 0,
+           "key_checkpoint_hash" => "GENESIS"
+         },
+         body
+       ) do
+    Assertions.assert_literal!(
+      body["sender_key_checkpoint_sequence"],
+      0,
+      "workspace_member_envelope_sender_checkpoint_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["sender_key_checkpoint_hash"],
+      "GENESIS",
+      "workspace_member_envelope_sender_checkpoint_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["authorization_key_directory_checkpoint_sequence"],
+      1,
+      "workspace_member_envelope_authorization_checkpoint_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["authorization_key_directory_checkpoint_hash"],
+      "GENESIS",
+      "workspace_member_envelope_authorization_checkpoint_mismatch"
+    )
+  end
+
+  defp assert_workspace_member_envelope_authority!(actor, body) do
+    Assertions.assert_literal!(
+      body["sender_key_checkpoint_sequence"],
+      actor["key_checkpoint_sequence"],
+      "workspace_member_envelope_sender_checkpoint_mismatch"
+    )
+
+    Assertions.assert_literal!(
+      body["sender_key_checkpoint_hash"],
+      actor["key_checkpoint_hash"],
+      "workspace_member_envelope_sender_checkpoint_mismatch"
+    )
   end
 
   def assert_invitation_admission_wrap_event_semantics!(

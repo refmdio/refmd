@@ -51,9 +51,12 @@ defmodule RefMD.Security.AuditEvent do
     field :sensitivity, :map
     field :correlation, :map
     field :chain_scope, :string
+    field :chain_scope_kind, :string
+    field :chain_scope_id, :binary_id
     field :sequence, :integer
     field :previous_event_hash, :string
     field :event_hash, :string
+    field :event_body, :map
 
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at, updated_at: false)
   end
@@ -68,19 +71,24 @@ defmodule RefMD.Security.AuditEvent do
     :sensitivity,
     :correlation,
     :chain_scope,
+    :chain_scope_kind,
+    :chain_scope_id,
     :sequence,
-    :event_hash
+    :previous_event_hash,
+    :event_hash,
+    :event_body
   ]
-  @optional_fields [:previous_event_hash]
+  @optional_fields []
 
   def changeset(event, attrs) do
     event
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_inclusion(:class, @classes)
+    |> validate_inclusion(:chain_scope_kind, ["user", "workspace"])
     |> validate_number(:sequence, greater_than: 0)
     |> validate_format(:event_hash, ~r/^[A-Za-z0-9_-]{43}$/)
-    |> validate_format(:previous_event_hash, ~r/^[A-Za-z0-9_-]{43}$/)
+    |> validate_format(:previous_event_hash, ~r/^(GENESIS|[A-Za-z0-9_-]{43})$/)
     |> validate_action()
     |> validate_map_fields([:actor, :scope, :resource, :action, :sensitivity, :correlation])
     |> validate_allowed_metadata()

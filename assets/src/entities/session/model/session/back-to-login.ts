@@ -1,5 +1,8 @@
 import { authApi } from "@/shared/api";
-import { clearSessionData } from "@/shared/lib/auth/key-persistence";
+import {
+  clearPlaintextActivityMetadata,
+  clearSessionData,
+} from "@/shared/lib/auth/key-persistence";
 import { runBeforeSessionCleanup, runSessionCleanup } from "@/shared/lib/auth/session-cleanup";
 import { terminateCryptoWorker } from "@/shared/lib/crypto/worker/client";
 import { terminateAllScopedCryptoWorkers } from "@/shared/lib/crypto/worker/scoped";
@@ -21,6 +24,7 @@ export async function returnToLogin(): Promise<void> {
   terminateAllScopedCryptoWorkers();
   runSessionCleanup();
   clearSession();
+  clearPlaintextActivityMetadata();
   await clearSessionData({ preserveAuthBootstrap: true });
 
   window.location.replace("/auth/login");

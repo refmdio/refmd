@@ -152,6 +152,9 @@ export function verifyEventSemantics(
         throw new Error("member_added_scope_mismatch");
       }
       break;
+    case "workspace_member_envelope_issued":
+      assertWorkspaceMemberEnvelopeSemantics(event, checkpointPayload, body);
+      break;
     case "member_role_changed":
       assertMemberRoleChangeBody(body);
       if (body.workspace_id !== event.payload.scope_id) {
@@ -497,6 +500,7 @@ export function applyEventToCheckpointPayload(
     case "share_revoked":
     case "wrap_issued":
     case "workspace_invitation_bootstrap_updated":
+    case "workspace_member_envelope_issued":
       return replayPayload;
     case "workspace_invitation_redeemed":
       return removeTemporaryInvitationAuthority(
@@ -562,6 +566,68 @@ function assertKeyMaterialHash(
 ): void {
   const actual = blake3Base64Url(canonicalizeStrictBytes(entry.key_material as StrictJsonValue));
   if (expected !== actual) throw new Error(error);
+}
+
+function assertWorkspaceMemberEnvelopeSemantics(
+  event: SignedKeyDirectoryEnvelope,
+  checkpointPayload: Record<string, unknown>,
+  body: Record<string, unknown>,
+): void {
+  if (event.payload.scope_kind !== "workspace" || body.workspace_id !== event.payload.scope_id) {
+    throw new Error("workspace_member_envelope_scope_mismatch");
+  }
+  const actor = event.payload.actor;
+  if (
+    !isRecord(actor) ||
+    body.sender_user_id !== actor.user_id ||
+    body.sender_device_id !== actor.device_id
+  ) {
+    throw new Error("workspace_member_envelope_sender_mismatch");
+  }
+
+  const identityEntry = keyEntryById(
+    checkpointPayload,
+    stringField(
+      body.target_identity_encryption_key_id,
+      "target_identity_encryption_key_id_invalid",
+    ),
+  );
+  const identityMaterial = identityEntry.key_material;
+  if (
+    !isRecord(identityMaterial) ||
+    identityMaterial.protocol !== "refmd.hybrid-encryption-key-material"
+  ) {
+    throw new Error("workspace_member_envelope_recipient_protocol_invalid");
+  }
+  if (identityMaterial.owner_kind !== "identity") {
+    throw new Error("workspace_member_envelope_recipient_kind_invalid");
+  }
+  if (identityMaterial.owner_id !== body.target_user_id) {
+    throw new Error("workspace_member_envelope_recipient_owner_mismatch");
+  }
+  assertKeyMaterialHash(
+    identityEntry,
+    body.target_identity_key_material_hash,
+    "workspace_member_envelope_recipient_material_mismatch",
+  );
+
+  const genesisAuthority =
+    actor.key_checkpoint_sequence === 0 && actor.key_checkpoint_hash === "GENESIS";
+  const senderSequence = genesisAuthority ? 0 : actor.key_checkpoint_sequence;
+  const senderHash = genesisAuthority ? "GENESIS" : actor.key_checkpoint_hash;
+  if (
+    body.sender_key_checkpoint_sequence !== senderSequence ||
+    body.sender_key_checkpoint_hash !== senderHash
+  ) {
+    throw new Error("workspace_member_envelope_sender_checkpoint_mismatch");
+  }
+  if (
+    genesisAuthority &&
+    (body.authorization_key_directory_checkpoint_sequence !== 1 ||
+      body.authorization_key_directory_checkpoint_hash !== "GENESIS")
+  ) {
+    throw new Error("workspace_member_envelope_authorization_checkpoint_mismatch");
+  }
 }
 
 function assertWorkspaceScopedEvent(

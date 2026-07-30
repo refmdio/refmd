@@ -5,7 +5,7 @@ defmodule RefMD.Devices.Registrations do
 
   alias RefMD.Auth.Session
   alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
-  alias RefMD.Devices.{Device, DeviceEncryptedUMK, DeviceRegistration}
+  alias RefMD.Devices.{Device, DeviceEncryptedUMK, DeviceRegistration, PrekeyClock}
   alias RefMD.Encryption
   alias RefMD.Repo
   alias RefMD.Security
@@ -183,7 +183,12 @@ defmodule RefMD.Devices.Registrations do
     expires_at = DateTime.add(now, 5 * 60, :second)
 
     fn ->
-      consume_registration_challenge_step!(session_id, attrs.pending_registration_challenge_hash)
+      consume_registration_challenge_step!(
+        session_id,
+        attrs.pending_registration_challenge_hash,
+        attrs.ake_responder_prekeys
+      )
+
       ensure_device_id_available_step!(attrs.id)
       removed_ids = replace_user_pending_registrations_step!(user_id, now)
       pending = insert_replacement_device_registration_step!(attrs, now, expires_at)
@@ -205,11 +210,25 @@ defmodule RefMD.Devices.Registrations do
     end
   end
 
-  defp consume_registration_challenge_step!(session_id, challenge_hash) do
+  defp consume_registration_challenge_step!(session_id, challenge_hash, prekeys) do
     case consume_registration_challenge!(session_id, challenge_hash) do
-      {:ok, _} -> :ok
+      {:ok, session} -> validate_issued_prekey_freshness!(prekeys, session)
       {:error, reason} -> Repo.rollback({:registration_challenge, reason})
     end
+  end
+
+  defp validate_issued_prekey_freshness!(prekeys, session) do
+    issued_at_ms = session.pending_registration_prekey_issued_at_ms
+    expires_at_ms = session.pending_registration_prekey_expires_at_ms
+
+    valid =
+      is_integer(issued_at_ms) and is_integer(expires_at_ms) and
+        expires_at_ms == issued_at_ms + PrekeyClock.lifetime_ms() and
+        Enum.all?(prekeys, fn {_purpose, %{"payload" => payload}} ->
+          payload["issued_at_ms"] == issued_at_ms and payload["expires_at_ms"] == expires_at_ms
+        end)
+
+    if not valid, do: Repo.rollback({:initial_ake_prekeys, :invalid_initial_ake_prekey_freshness})
   end
 
   defp ensure_device_id_available_step!(device_id) do
@@ -256,17 +275,19 @@ defmodule RefMD.Devices.Registrations do
     now = DateTime.utc_now()
 
     case lock_session_registration_challenge(session_id) do
-      %Session{
+      session = %Session{
         pending_registration_challenge_hash: ^challenge_hash,
         pending_registration_challenge_expires_at: expires_at,
         pending_registration_challenge_consumed_at: nil
       }
       when not is_nil(expires_at) ->
-        if DateTime.compare(expires_at, now) == :gt do
-          consume_registration_challenge_row(session_id, challenge_hash, now)
-        else
-          {:error, :invalid_registration_challenge}
-        end
+        consume_unexpired_registration_challenge(
+          session,
+          session_id,
+          challenge_hash,
+          expires_at,
+          now
+        )
 
       _ ->
         {:error, :invalid_registration_challenge}
@@ -274,6 +295,23 @@ defmodule RefMD.Devices.Registrations do
   end
 
   defp consume_registration_challenge!(_, _), do: {:error, :invalid_registration_challenge}
+
+  defp consume_unexpired_registration_challenge(
+         session,
+         session_id,
+         challenge_hash,
+         expires_at,
+         now
+       ) do
+    if DateTime.compare(expires_at, now) == :gt do
+      case consume_registration_challenge_row(session_id, challenge_hash, now) do
+        {:ok, :consumed} -> {:ok, session}
+        error -> error
+      end
+    else
+      {:error, :invalid_registration_challenge}
+    end
+  end
 
   defp lock_session_registration_challenge(session_id) do
     from(s in Session,
@@ -410,38 +448,87 @@ defmodule RefMD.Devices.Registrations do
       when is_map(umk_attrs) and is_list(prekey_consumptions) do
     now = DateTime.utc_now()
 
-    Repo.transaction(fn ->
-      lock_user!(device_registration.user_id)
-
-      locked_registration =
-        from(dr in DeviceRegistration,
-          where: dr.id == ^device_registration.id and dr.expires_at > ^now,
-          lock: "FOR UPDATE"
-        )
-        |> Repo.one()
-
-      if is_nil(locked_registration) do
-        Repo.rollback(:invalid_device)
-      end
-
-      if is_nil(locked_registration.approval_signature) or
-           is_nil(locked_registration.approval_key_directory) do
-        Repo.rollback(:missing_pending_approval)
-      end
-
-      insert_pending_delivery_device!(locked_registration, umk_attrs, prekey_consumptions, now)
-    end)
-    |> case do
-      {:ok, device} ->
-        Security.record_device_registration_removed(device.user_id, device.id)
-        {:ok, device}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    device_registration
+    |> then(
+      &Repo.transaction(fn ->
+        finalize_pending_delivery_transaction!(&1, umk_attrs, prekey_consumptions, now)
+      end)
+    )
+    |> deliver_pending_delivery_result()
   end
 
   def finalize_pending_delivery(_, _, _), do: {:error, :invalid_device}
+
+  defp finalize_pending_delivery_transaction!(registration, umk_attrs, prekey_consumptions, now) do
+    lock_user!(registration.user_id)
+
+    locked_registration =
+      from(dr in DeviceRegistration,
+        where: dr.id == ^registration.id and dr.expires_at > ^now,
+        lock: "FOR UPDATE"
+      )
+      |> Repo.one()
+
+    if is_nil(locked_registration), do: Repo.rollback(:invalid_device)
+
+    if is_nil(locked_registration.approval_signature) or
+         is_nil(locked_registration.approval_key_directory),
+       do: Repo.rollback(:missing_pending_approval)
+
+    case validate_initial_ake_prekey_freshness(locked_registration, prekey_consumptions) do
+      :ok ->
+        device =
+          insert_pending_delivery_device!(
+            locked_registration,
+            umk_attrs,
+            prekey_consumptions,
+            now
+          )
+
+        {:completed, device, record_registration_approved!(device)}
+
+      {:error, reason} ->
+        {:rejected, reason}
+    end
+  end
+
+  defp deliver_pending_delivery_result({:ok, {:completed, device, security_record}}) do
+    Enum.each(security_record.notifications, &Security.broadcast_notification/1)
+    {:ok, device}
+  end
+
+  defp deliver_pending_delivery_result({:ok, {:rejected, reason}}), do: {:error, reason}
+  defp deliver_pending_delivery_result({:error, reason}), do: {:error, reason}
+
+  defp validate_initial_ake_prekey_freshness(locked_registration, prekey_consumptions) do
+    prekey_ids = Enum.map(prekey_consumptions, & &1.prekey_id)
+
+    sources =
+      from(p in "initial_ake_prekeys",
+        where:
+          p.prekey_id in ^prekey_ids and
+            p.device_registration_id == ^dump_uuid!(locked_registration.id) and
+            is_nil(p.consumed_at),
+        lock: "FOR UPDATE",
+        select: %{prekey_id: p.prekey_id, purpose: p.purpose, expires_at_ms: p.expires_at_ms}
+      )
+      |> Repo.all()
+
+    if length(sources) == length(prekey_consumptions) do
+      PrekeyClock.consume!(sources)
+    else
+      {:error, :initial_ake_prekey_reused}
+    end
+  end
+
+  defp record_registration_approved!(device) do
+    case Security.record_registration_approved(device.user_id, device.id,
+           require_pending_notification: true
+         ) do
+      {:ok, record} -> record
+      {:error, _reason} -> Repo.rollback(:security_audit_unavailable)
+    end
+  end
 
   defp insert_pending_delivery_device!(locked_registration, umk_attrs, prekey_consumptions, now) do
     locked_registration
@@ -529,25 +616,13 @@ defmodule RefMD.Devices.Registrations do
   defp insert_initial_ake_prekey_consumptions!(locked_registration, prekey_consumptions, now) do
     prekey_ids = Enum.map(prekey_consumptions, & &1.prekey_id)
 
-    current_user_event_sequence =
-      case current_user_event_sequence(locked_registration.user_id) do
-        {:ok, sequence} -> sequence
-        :error -> Repo.rollback(:key_directory_checkpoint_required)
-      end
-
     {source_count, _} =
       from(p in "initial_ake_prekeys",
-        where:
-          p.prekey_id in ^prekey_ids and
-            p.device_registration_id == ^dump_uuid!(locked_registration.id) and
-            is_nil(p.consumed_at) and
-            p.expires_event_sequence > ^current_user_event_sequence
+        where: p.prekey_id in ^prekey_ids and is_nil(p.consumed_at)
       )
       |> Repo.update_all(set: [consumed_at: now])
 
-    if source_count != length(prekey_consumptions) do
-      Repo.rollback(:initial_ake_prekey_reused)
-    end
+    if source_count != length(prekey_consumptions), do: Repo.rollback(:initial_ake_prekey_reused)
 
     prekey_rows =
       Enum.map(prekey_consumptions, fn row ->
@@ -594,20 +669,13 @@ defmodule RefMD.Devices.Registrations do
           purpose: payload["purpose"],
           user_id: dump_uuid!(registration.user_id),
           device_registration_id: dump_uuid!(registration.id),
-          issued_at_event_sequence: payload["issued_at_event_sequence"],
-          expires_event_sequence: payload["expires_event_sequence"],
+          issued_at_ms: payload["issued_at_ms"],
+          expires_at_ms: payload["expires_at_ms"],
           payload: payload,
           created_at: now
         }
       end
     end)
-  end
-
-  defp current_user_event_sequence(user_id) do
-    case Encryption.current_user_key_directory_pin(user_id) do
-      %{event_head_sequence: sequence} when is_integer(sequence) -> {:ok, sequence}
-      _ -> :error
-    end
   end
 
   defp dump_uuid!(value) when is_binary(value), do: Ecto.UUID.dump!(value)

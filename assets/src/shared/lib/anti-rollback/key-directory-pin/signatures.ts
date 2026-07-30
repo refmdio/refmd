@@ -158,7 +158,7 @@ export async function verifyCheckpointSignatures(
     const variant = checkpointSignatureVariant(checkpoint.payload, signer, previousPayload);
     const material =
       signingKeys.get(signingKeyId) ??
-      (variant === "device_authorized" || variant === "identity_rotation"
+      (variant === "workspace_invitation_self_admission" || variant === "identity_rotation"
         ? checkpointSigningKeys.get(signingKeyId)
         : undefined);
     if (!material) throw new Error("key_directory_checkpoint_signer_unknown");

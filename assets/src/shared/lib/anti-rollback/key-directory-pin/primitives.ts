@@ -183,9 +183,11 @@ export function checkpointSignatureVariant(
   | "identity_active"
   | "identity_rotation"
   | "workspace_authorized"
+  | "workspace_invitation_self_admission"
   | "invitation_redeem_authority"
   | "share_participant_document_operation"
-  | "device_authorized" {
+  | "security_device_revocation"
+  | "identity_self_envelope_rewrap" {
   if (
     payload.scope_kind === "user" &&
     payload.sequence === 1 &&
@@ -204,8 +206,8 @@ export function checkpointSignatureVariant(
     return "workspace_initial";
   }
   if (payload.scope_kind === "workspace" && signer.signer_kind === "device") {
-    return deviceAuthorizedCheckpointSigner(previousPayload, payload, signer)
-      ? "device_authorized"
+    return workspaceInvitationSelfAdmissionSigner(previousPayload, payload, signer)
+      ? "workspace_invitation_self_admission"
       : "workspace_authorized";
   }
   if (payload.scope_kind === "workspace" && signer.signer_kind === "share_participant_device") {
@@ -217,7 +219,7 @@ export function checkpointSignatureVariant(
   throw new Error("checkpoint_signer_kind_invalid");
 }
 
-function deviceAuthorizedCheckpointSigner(
+function workspaceInvitationSelfAdmissionSigner(
   previousPayload: Record<string, unknown> | undefined,
   checkpointPayload: Record<string, unknown>,
   signer: Record<string, unknown>,
@@ -326,6 +328,47 @@ export function assertKeyEntryActiveAtSequence(
       throw new Error("key_directory_signer_revoked");
     }
   }
+}
+
+export function genesisCandidateSigningKeyId(
+  scopeKind: "user" | "workspace",
+  scopeId: string,
+  events: SignedKeyDirectoryEnvelope[],
+  checkpointPayload: Record<string, unknown>,
+): string | null {
+  if (scopeKind !== "workspace") return null;
+  const firstEvent = events[0]?.payload;
+  const actor = firstEvent?.actor;
+  if (
+    firstEvent?.sequence !== 1 ||
+    !isRecord(actor) ||
+    actor.signer_kind !== "device" ||
+    actor.key_scope_kind !== "workspace" ||
+    actor.key_scope_id !== scopeId ||
+    actor.key_checkpoint_sequence !== 0 ||
+    actor.key_checkpoint_hash !== "GENESIS"
+  ) {
+    return null;
+  }
+
+  const signingKeyId = stringField(actor.signing_key_id, "signing_key_id_invalid");
+  const entry = keyEntryById(checkpointPayload, signingKeyId);
+  if (!isRecord(entry.key_material) || entry.key_material.owner_kind !== "device") {
+    throw new Error("genesis_candidate_signer_kind_invalid");
+  }
+  return signingKeyId;
+}
+
+export function isGenesisCandidateEvent(
+  payload: Record<string, unknown>,
+  signingKeyId: string | null,
+): boolean {
+  if (!signingKeyId || !isRecord(payload.actor)) return false;
+  return (
+    payload.actor.signing_key_id === signingKeyId &&
+    payload.actor.key_checkpoint_sequence === 0 &&
+    payload.actor.key_checkpoint_hash === "GENESIS"
+  );
 }
 
 export function assertSignerMatchesMaterial(

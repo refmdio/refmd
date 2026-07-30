@@ -1,5 +1,5 @@
 import { fetchVerifiedKeyDirectory } from "@/shared/lib/key-directory/fetch";
-import { verifyAndPinAuditCheckpoint } from "./audit-checkpoint-pin";
+import { verifyAndPinAuditCheckpoint, type GenesisAuditAuthority } from "./audit-checkpoint-pin";
 
 interface SetupAuditCheckpoints {
   user_audit_checkpoint: unknown;
@@ -13,6 +13,7 @@ export async function verifyAndPinSetupAuditCheckpoints(params: {
   userId: string;
   rrpDeviceId: string;
   checkpoints: SetupAuditCheckpoints;
+  genesisAuthority: GenesisAuditAuthority;
 }): Promise<void> {
   await Promise.all([
     fetchVerifiedKeyDirectory({
@@ -29,10 +30,14 @@ export async function verifyAndPinSetupAuditCheckpoints(params: {
     ),
   ]);
 
-  await verifyAndPinAuditCheckpoint(params.checkpoints.user_audit_checkpoint);
+  await verifyAndPinAuditCheckpoint(params.checkpoints.user_audit_checkpoint, {
+    genesisAuthority: params.genesisAuthority,
+  });
   await Promise.all(
     params.checkpoints.workspace_audit_checkpoints.map((entry) =>
-      verifyAndPinAuditCheckpoint(entry.audit_checkpoint),
+      verifyAndPinAuditCheckpoint(entry.audit_checkpoint, {
+        genesisAuthority: params.genesisAuthority,
+      }),
     ),
   );
 }

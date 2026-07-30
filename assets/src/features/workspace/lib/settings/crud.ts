@@ -1,13 +1,13 @@
-import { workspacesApi } from "@/shared/api";
+import { type components, workspacesApi } from "@/shared/api";
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
-import {
-  persistWorkspaceKekForMember,
-  persistWorkspaceKekLocally,
-} from "@/shared/lib/crypto/workspace-kek-persistence";
-import { buildInitialWorkspaceKeyDirectoryBootstrap } from "@/shared/lib/crypto/key-directory/initial";
 import { pinInitialKeyDirectoryCheckpoint } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import { verifyAndPinAuditCheckpoint } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
+import {
+  createWorkspaceGenesisAuthorization,
+  materializeWorkspaceGenesisKeyDirectory,
+} from "@/shared/lib/crypto/genesis-authorization";
+import type { StrictJsonValue } from "@/shared/lib/crypto/jcs";
 type UpdateWorkspaceInput = Parameters<typeof workspacesApi.update>[1];
 type UpdateWorkspaceFeaturesInput = Parameters<typeof workspacesApi.updateFeatures>[1];
 interface CreateWorkspaceInput {
@@ -35,54 +35,42 @@ export async function createWorkspaceWithInitialKek(
   }
   const workspaceId = crypto.randomUUID();
   const ownerRoleId = crypto.randomUUID();
-  const initialDirectory = await buildInitialWorkspaceKeyDirectoryBootstrap({
-    userId: auth.user.id,
+  await worker.generateKek(workspaceId, 1);
+  const precommit = await worker.createGenesisWorkspaceMemberEnvelopePrecommit({
     workspaceId,
-    workspaceOwnerRoleId: ownerRoleId,
+    userId: auth.user.id,
     deviceId: device.deviceId,
-    identityHybridSigningPublicKeyMaterial: publicKeys.identityHybridSigningPublicKeyMaterial,
-    identityHybridEncryptionPublicKeyMaterial: publicKeys.identityHybridEncryptionPublicKeyMaterial,
-    deviceHybridSigningPublicKeyMaterial: publicKeys.deviceHybridSigningPublicKeyMaterial,
-    deviceHybridEncryptionPublicKeyMaterial: publicKeys.deviceHybridEncryptionPublicKeyMaterial,
+    recipientPublicKeyMaterial: publicKeys.identityHybridEncryptionPublicKeyMaterial,
   });
-  const result = await workspacesApi.create({
-    ...data,
+  const command = {
+    protocol: "refmd.workspace-genesis-command" as const,
+    version: 1 as const,
+    name: data.name,
+    description: data.description ?? null,
+    icon: data.icon ?? null,
     workspace_id: workspaceId,
-    workspace_owner_role_id: ownerRoleId,
-    workspace_key_directory_events: initialDirectory.workspaceEvents,
-    workspace_key_directory_checkpoint: initialDirectory.workspaceCheckpoint,
-  });
-  if (!result.id) {
+    owner_role_id: ownerRoleId,
+    workspace_member_envelope_precommit: precommit,
+  };
+  const intent = (await workspacesApi.createIntent(
+    command as unknown as components["schemas"]["WorkspaceGenesisCommand"],
+  )) as unknown as StrictJsonValue;
+  const authorization = await createWorkspaceGenesisAuthorization({ worker, intent, precommit });
+  const result = await workspacesApi.create(
+    authorization as unknown as components["schemas"]["WorkspaceGenesisAuthorization"],
+  );
+  if (!result.workspace_id || result.workspace_id !== workspaceId) {
     return null;
   }
+  const initialDirectory = materializeWorkspaceGenesisKeyDirectory(intent, authorization);
   await pinInitialKeyDirectoryCheckpoint({
     scopeKind: "workspace",
-    scopeId: result.id,
+    scopeId: result.workspace_id,
     eventEnvelopes: initialDirectory.workspaceEvents,
     checkpointEnvelope: initialDirectory.workspaceCheckpoint,
   });
-  await verifyAndPinAuditCheckpoint(result.audit_checkpoint);
-  const { keyVersion } = await worker.generateKek(result.id);
-  await persistWorkspaceKekLocally({
-    workspaceId: result.id,
-    userId: auth.user.id,
-    deviceId: device.deviceId,
-    deviceHybridEncryptionPublicKeyMaterial: publicKeys.deviceHybridEncryptionPublicKeyMaterial,
-    keyVersion,
-    isActive: true,
-    keyDirectoryCheckpoint: initialDirectory.workspaceCheckpoint,
-  });
-  await persistWorkspaceKekForMember({
-    workspaceId: result.id,
-    userId: auth.user.id,
-    senderDeviceId: device.deviceId,
-    targetUserId: auth.user.id,
-    targetIdentityHybridEncryptionPublicKeyMaterial:
-      publicKeys.identityHybridEncryptionPublicKeyMaterial,
-    keyVersion,
-    rrpDeviceId: device.deviceId,
-  });
-  return result.id;
+  await verifyAndPinAuditCheckpoint(result.workspace_audit_checkpoint);
+  return result.workspace_id;
 }
 export async function getWorkspace(workspaceId: Parameters<typeof workspacesApi.get>[0]) {
   return workspacesApi.get(workspaceId);

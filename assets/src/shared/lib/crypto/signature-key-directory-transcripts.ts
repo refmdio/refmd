@@ -12,9 +12,11 @@ export function buildKeyDirectoryCheckpointTranscript(params: {
     | "identity_active"
     | "identity_rotation"
     | "workspace_authorized"
+    | "workspace_invitation_self_admission"
     | "invitation_redeem_authority"
     | "share_participant_document_operation"
-    | "device_authorized";
+    | "security_device_revocation"
+    | "identity_self_envelope_rewrap";
   ownerKind: SigningOwnerKind;
   ownerId: string;
   checkpointPayload: StrictJsonValue;
@@ -56,6 +58,7 @@ export function buildKeyDirectoryCheckpointTranscript(params: {
 }
 
 export function buildPqWrapTranscript(params: {
+  authorityContext?: "direct" | "workspace_genesis";
   ownerDeviceId: string;
   actor: StrictJsonValue;
   authorityBoundary: StrictJsonValue;
@@ -63,6 +66,7 @@ export function buildPqWrapTranscript(params: {
 }): StrictJsonValue {
   const surface = getActiveSigningSurface("pq_wrap", "none");
   return transcriptBase("pq_wrap", surface, "device", params.ownerDeviceId, {
+    authority_context: params.authorityContext ?? "direct",
     subject_protocol: "refmd.signed-pq-hybrid-wrap",
     subject_version: CURRENT_PROTOCOL_VERSION,
     subject_suite_id: SUITE_IDS.SIGNED_PQ_HYBRID_WRAP,
@@ -131,11 +135,19 @@ function keyDirectoryEventAuthorityBoundary(event: Record<string, unknown>): Str
   const sequence = numberValue(event.sequence, "sequence");
 
   if ("key_checkpoint_sequence" in actor && "key_checkpoint_hash" in actor) {
+    const checkpointSequence = numberValue(
+      actor.key_checkpoint_sequence,
+      "key_checkpoint_sequence",
+    );
+    const checkpointHash = requiredString(actor.key_checkpoint_hash);
+    if (checkpointSequence < 0 || (checkpointSequence === 0) !== (checkpointHash === "GENESIS")) {
+      throw new Error("key_directory_event_authority_boundary_invalid");
+    }
     return {
       scope_kind: scopeKind,
       scope_id: scopeId,
-      checkpoint_sequence: numberValue(actor.key_checkpoint_sequence, "key_checkpoint_sequence"),
-      checkpoint_hash: requiredString(actor.key_checkpoint_hash),
+      checkpoint_sequence: checkpointSequence,
+      checkpoint_hash: checkpointHash,
       required_authority: "event_type_authorized_actor",
     };
   }

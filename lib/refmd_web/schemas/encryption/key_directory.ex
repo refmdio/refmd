@@ -466,24 +466,6 @@ defmodule RefMDWeb.Schemas.RotationDeletionEvidence do
   })
 end
 
-defmodule RefMDWeb.Schemas.KeyDirectoryAppendRequest do
-  alias OpenApiSpex.Schema
-  require OpenApiSpex
-
-  @key_directory_envelope_schema %Schema{allOf: [RefMDWeb.Schemas.KeyDirectoryEnvelope]}
-
-  OpenApiSpex.schema(%{
-    title: "KeyDirectoryAppendRequest",
-    type: :object,
-    additionalProperties: false,
-    properties: %{
-      events: %Schema{type: :array, items: @key_directory_envelope_schema},
-      checkpoint: @key_directory_envelope_schema
-    },
-    required: [:events, :checkpoint]
-  })
-end
-
 defmodule RefMDWeb.Schemas.KeyDirectoryPin do
   alias OpenApiSpex.Schema
   require OpenApiSpex

@@ -13,6 +13,7 @@ defmodule RefMD.Encryption.KeyDirectory.Replay do
     "member_role_changed",
     "member_removed",
     "wrap_issued",
+    "workspace_member_envelope_issued",
     "rotation_started",
     "rotation_completed",
     "old_key_deleted",

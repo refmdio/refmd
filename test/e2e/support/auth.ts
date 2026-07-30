@@ -37,6 +37,13 @@ export async function registerAccountWithRecoveryPhrase(
 ): Promise<{ email: string; mnemonic: string }> {
   const email = testEmail();
 
+  await page.addInitScript(() => {
+    window.__refmdE2EClientLogs = [];
+    window.addEventListener("refmd:client-log", (event) => {
+      window.__refmdE2EClientLogs?.push((event as CustomEvent).detail);
+    });
+  });
+
   await openRegisterForm(page);
   const nameInput = page.locator("#name");
   await expect(nameInput).toBeVisible({ timeout: 60_000 });
@@ -46,10 +53,17 @@ export async function registerAccountWithRecoveryPhrase(
   await page.locator("#confirm-password").fill(TEST_PASSWORD);
   await page.locator('button[type="submit"]').click();
 
-  await expect(page.getByText("Recovery Key", { exact: true }))
-    .toBeVisible({
-      timeout: 180_000,
-    })
+  const recoveryKeyHeading = page.getByText("Recovery Key", { exact: true });
+  const registrationError = page.getByRole("alert");
+  await Promise.race([
+    expect(recoveryKeyHeading).toBeVisible({ timeout: 180_000 }),
+    registrationError.waitFor({ state: "visible", timeout: 180_000 }).then(async () => {
+      if (await recoveryKeyHeading.isVisible().catch(() => false)) return;
+      throw new Error(
+        `registration failed: ${(await registrationError.textContent())?.trim() ?? "unknown error"}`,
+      );
+    }),
+  ])
     .catch(async (error) => {
       const snapshot = await page
         .evaluate(() => ({
@@ -79,7 +93,26 @@ export async function registerAccountWithRecoveryPhrase(
 
   await expect(page).toHaveURL(/dashboard/, { timeout: 60_000 });
   try {
-    await waitForWorkspaceReady(page);
+    await Promise.race([
+      waitForWorkspaceReady(page),
+      page
+        .waitForFunction(
+          () =>
+            window.__refmdE2EClientLogs?.some(
+              (entry) =>
+                typeof entry === "object" &&
+                entry !== null &&
+                "message" in entry &&
+                entry.message === "workspace_verification_failed",
+            ) === true,
+          undefined,
+          { timeout: 120_000 },
+        )
+        .then(async () => {
+          const logs = await page.evaluate(() => window.__refmdE2EClientLogs ?? []);
+          throw new Error(`workspace verification failed: ${JSON.stringify(logs)}`);
+        }),
+    ]);
   } catch (error) {
     const diagnostics = await page.evaluate(() => ({
       clientLogs: window.__refmdE2EClientLogs ?? [],

@@ -4,11 +4,29 @@ defmodule RefMDWeb.Http.SessionCookies do
   alias RefMD.Auth.DBSC
 
   @user_session_cookie "__Host-refmd-session"
+  @genesis_session_cookie "__Host-refmd-genesis"
   @share_session_cookie "__Host-refmd-share-session"
   @mount_session_cookie "__Host-refmd-mount-session"
 
   def set_session_cookie(conn, token, remember_me) do
     put_session_cookie(conn, @user_session_cookie, token, remember_me)
+  end
+
+  def set_genesis_session_cookie(conn, token, max_age) when is_integer(max_age) and max_age > 0 do
+    Plug.Conn.put_resp_cookie(
+      conn,
+      @genesis_session_cookie,
+      Base.url_encode64(token, padding: false),
+      path: "/",
+      http_only: true,
+      secure: true,
+      same_site: "Strict",
+      max_age: max_age
+    )
+  end
+
+  def delete_genesis_session_cookie(conn) do
+    Plug.Conn.delete_resp_cookie(conn, @genesis_session_cookie, path: "/")
   end
 
   def set_share_session_cookie(conn, token, remember_me) do
@@ -34,6 +52,8 @@ defmodule RefMDWeb.Http.SessionCookies do
   def session_cookie_name("share_participant"), do: @share_session_cookie
   def session_cookie_name("mount"), do: @mount_session_cookie
   def session_cookie_name(_), do: @user_session_cookie
+
+  def genesis_cookie_name, do: @genesis_session_cookie
 
   def delete_session_cookie(conn) do
     Plug.Conn.delete_resp_cookie(conn, @user_session_cookie, path: "/")

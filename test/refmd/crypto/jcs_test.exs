@@ -31,6 +31,10 @@ defmodule RefMD.Crypto.JCSTest do
         {
           %{"control" => "\v\u001F"},
           ~s({"control":"\\u000b\\u001f"})
+        },
+        {
+          %{"nullable" => nil},
+          ~s({"nullable":null})
         }
       ]
 
@@ -41,7 +45,6 @@ defmodule RefMD.Crypto.JCSTest do
     end
 
     test "rejects non-strict values and raw JSON syntax" do
-      assert_raise ArgumentError, fn -> JCS.canonicalize!(%{"a" => nil}) end
       assert_raise ArgumentError, fn -> JCS.canonicalize!(%{"a" => -1}) end
       assert_raise ArgumentError, fn -> JCS.canonicalize!(%{"a" => 9_007_199_254_740_992}) end
       assert_raise ArgumentError, fn -> JCS.canonicalize!(%{"a" => 1.5}) end
@@ -50,7 +53,7 @@ defmodule RefMD.Crypto.JCSTest do
       assert_raise ArgumentError, fn -> JCS.parse_json_strict!(~s({"a":1e0})) end
       assert_raise ArgumentError, fn -> JCS.parse_json_strict!(~s({"a":-0})) end
       assert_raise ArgumentError, fn -> JCS.parse_json_strict!(~s({"a":"\\uD800"})) end
-      assert_raise ArgumentError, fn -> JCS.parse_json_strict!(~s({"a":null})) end
+      assert JCS.parse_json_strict!(~s({"a":null})) == %{"a" => nil}
     end
 
     test "strict raw JSON parser delegates JSON decoding while preserving strict profile" do

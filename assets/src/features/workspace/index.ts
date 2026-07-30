@@ -6,7 +6,6 @@ export { GuestInvitationDialog } from "./ui/guest-invitations/Dialog";
 export { GuestInvitationsSection } from "./ui/guest-invitations/Section";
 export { useGuestInvitationManagement } from "./model/guest-invitations/use-management";
 export { useWorkspaceMemberManagement } from "./model/members/use-management";
-export { distributeWorkspaceMemberEnvelopes } from "./lib/members/distribute-member-envelopes";
 export { WorkspaceMemberManagementDialogs } from "./ui/members/Dialogs";
 export { WorkspaceMembersSection } from "./ui/members/Section";
 export { useWorkspaceRoleManagement } from "./model/roles/use-management";

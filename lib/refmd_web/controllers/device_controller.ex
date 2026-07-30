@@ -3,9 +3,12 @@ defmodule RefMDWeb.DeviceController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Auth, Devices}
+  alias RefMD.Auth.Genesis.Commit, as: GenesisCommit
+  alias RefMD.Auth.Genesis.Intent, as: GenesisIntent
   alias RefMD.Crypto.{Encoding, Hash}
   alias RefMD.Security
 
+  alias RefMDWeb.Http.SessionCookies
   alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Payloads.DeviceRegistration, as: RegistrationPayload
   alias RefMDWeb.Schemas
@@ -13,28 +16,72 @@ defmodule RefMDWeb.DeviceController do
   operation(:bootstrap_challenge,
     summary: "Issue first-device bootstrap registration challenge",
     responses: [
-      ok: {"Registration challenge", "application/json", Schemas.RegistrationChallengeResponse},
+      ok:
+        {"Registration challenge", "application/json",
+         Schemas.BootstrapRegistrationChallengeResponse},
       conflict: {"Already has devices", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
   )
 
   def bootstrap_challenge(conn, _params) do
-    user_id = conn.assigns.current_user_id
-    session = conn.assigns.current_session
+    genesis = conn.assigns.pending_account_genesis
+    session = conn.assigns.pending_genesis_session
 
-    case Devices.issue_bootstrap_registration_challenge(user_id, session) do
+    case Auth.Genesis.issue_challenge(genesis, session) do
       {:ok, challenge} ->
-        json(conn, registration_challenge_response(challenge))
+        json(conn, %{
+          registration_challenge: Base.url_encode64(challenge.challenge, padding: false),
+          expires_in_seconds:
+            max(DateTime.diff(challenge.expires_at, DateTime.utc_now(), :second), 1)
+        })
 
-      {:error, :already_has_devices} ->
-        conn |> put_status(:conflict) |> json(%{error: "already_has_devices"})
+      {:error, :invalid_genesis_session} ->
+        conn |> put_status(:unauthorized) |> json(%{error: "invalid_genesis_session"})
+    end
+  end
 
-      {:error, :session_not_found} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "session_not_found"})
+  operation(:bootstrap_intent,
+    summary: "Prepare the account genesis compound append intent",
+    request_body: {
+      "Account genesis prepare request",
+      "application/json",
+      Schemas.AccountGenesisPrepareRequest
+    },
+    responses: [
+      ok: {"Compound append intent", "application/json", %OpenApiSpex.Schema{type: :object}},
+      conflict: {"Genesis state conflict", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
 
-      {:error, :identity_key_not_found} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "identity_key_not_found"})
+  def bootstrap_intent(conn, params) do
+    case GenesisIntent.issue!(
+           conn.assigns.pending_account_genesis,
+           conn.assigns.pending_genesis_session,
+           params
+         ) do
+      {:ok, intent} ->
+        json(conn, intent)
+
+      {:error, reason}
+      when reason in [
+             :invalid_genesis_challenge,
+             :genesis_intent_reuse,
+             :invalid_genesis_session
+           ] ->
+        conn |> put_status(:conflict) |> json(%{error: Atom.to_string(reason)})
+
+      {:error, reason} when is_binary(reason) ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: reason})
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_genesis_intent", details: format_errors(changeset)})
+
+      {:error, _reason} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_genesis_intent"})
     end
   end
 
@@ -55,95 +102,57 @@ defmodule RefMDWeb.DeviceController do
 
       {:error, :session_not_found} ->
         conn |> put_status(:unprocessable_entity) |> json(%{error: "session_not_found"})
+
+      {:error, :server_clock_regression} ->
+        conn |> put_status(:service_unavailable) |> json(%{error: "server_clock_regression"})
     end
   end
 
   operation(:bootstrap,
-    summary: "Bootstrap first device (first device only)",
+    summary: "Commit the account genesis compound authorization",
     request_body: {"Bootstrap params", "application/json", Schemas.BootstrapDeviceRequest},
     responses: [
       created: {"Bootstrapped device", "application/json", Schemas.BootstrapDeviceResponse},
-      conflict: {"Already has devices", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+      conflict: {"Genesis state conflict", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse},
+      service_unavailable:
+        {"Security audit unavailable", "application/json", Schemas.ErrorResponse}
     ]
   )
 
   def bootstrap(conn, params) do
-    user_id = conn.assigns.current_user_id
-
-    with material <- RegistrationPayload.decode_request_material!(params),
-         :ok <- Devices.validate_bootstrap_device_registration(user_id, material),
-         {:ok, identity_signature} <-
-           decode_hybrid_signature(
-             params["identity_signature"],
-             :identity_signature
-           ) do
-      if Devices.user_has_any_device_records?(user_id) do
-        conn |> put_status(:conflict) |> json(%{error: "already_has_devices"})
-      else
-        bootstrap_first_device(conn, params, user_id, material, identity_signature)
-      end
-    else
-      {:error, error} ->
-        {status, msg} = device_validation_error_response(error)
-        conn |> put_status(status) |> json(%{error: msg})
-    end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
-  end
-
-  defp bootstrap_first_device(conn, params, user_id, material, identity_signature) do
-    workspace = RefMD.Workspaces.get_user_default_workspace(user_id)
-
-    case Devices.bootstrap_first_device(
-           %{
-             user_id: user_id,
-             workspace_id: workspace && workspace.id,
-             id: material.device_id,
-             name: params["name"],
-             device_type: params["device_type"],
-             hybrid_encryption_public_key_material:
-               material.hybrid_encryption_public_key_material,
-             hybrid_signing_public_key_material: material.hybrid_signing_public_key_material,
-             client_nonce: material.client_nonce,
-             pending_registration_challenge_hash: registration_challenge_hash!(params),
-             key_directory: %{
-               user_events: params["user_key_directory_events"],
-               user_checkpoint: params["user_key_directory_checkpoint"],
-               workspace_events: params["workspace_key_directory_events"],
-               workspace_checkpoint: params["workspace_key_directory_checkpoint"]
-             }
-           },
-           identity_signature,
-           conn.assigns.current_session.id
+    case GenesisCommit.commit(
+           conn.assigns.pending_account_genesis,
+           conn.assigns.pending_genesis_session,
+           params
          ) do
-      {:ok, device} ->
-        Security.record_registration_approved(user_id, device.id)
-
+      {:ok, %{response: response, session_token: token}} ->
         conn
+        |> maybe_set_genesis_session(token)
+        |> SessionCookies.delete_genesis_session_cookie()
         |> put_status(:created)
-        |> json(%{status: "approved"})
+        |> json(response)
 
-      {:error, :invalid_signature} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_signature"})
+      {:error, reason}
+      when reason in [:invalid_genesis_session, :audit_checkpoint_intent_reuse] ->
+        conn |> put_status(:conflict) |> json(%{error: Atom.to_string(reason)})
 
       {:error, %Ecto.Changeset{} = changeset} ->
         conn
         |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_device", details: format_errors(changeset)})
+        |> json(%{error: "invalid_genesis_commit", details: format_errors(changeset)})
 
-      {:error, error} when is_atom(error) ->
+      {:error, reason} ->
         conn
         |> put_status(:unprocessable_entity)
-        |> json(%{error: Atom.to_string(error)})
+        |> json(%{error: to_string(reason)})
     end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
+
+  defp maybe_set_genesis_session(conn, token) when is_binary(token),
+    do: SessionCookies.set_session_cookie(conn, token, false)
+
+  defp maybe_set_genesis_session(conn, nil), do: conn
 
   operation(:create_registration,
     summary: "Create a device registration (2nd+ devices only)",
@@ -231,12 +240,29 @@ defmodule RefMDWeb.DeviceController do
     end
   end
 
-  defp validate_pending_registration_prekey(params, _session) do
-    if RegistrationPayload.valid_ake_responder_prekeys?(params["ake_responder_prekeys"]) do
+  defp validate_pending_registration_prekey(params, session) do
+    prekeys = params["ake_responder_prekeys"]
+
+    if RegistrationPayload.valid_ake_responder_prekeys?(prekeys) and
+         responder_prekey_freshness_matches_session?(prekeys, session) do
       :ok
     else
       {:error, :initial_ake_responder_prekey_required}
     end
+  end
+
+  defp responder_prekey_freshness_matches_session?(prekeys, session) do
+    issued_at_ms = session.pending_registration_prekey_issued_at_ms
+    expires_at_ms = session.pending_registration_prekey_expires_at_ms
+
+    is_integer(issued_at_ms) and is_integer(expires_at_ms) and
+      expires_at_ms == issued_at_ms + 300_000 and
+      prekeys
+      |> RegistrationPayload.normalize_ake_responder_prekeys()
+      |> Map.values()
+      |> Enum.all?(fn %{"payload" => payload} ->
+        payload["issued_at_ms"] == issued_at_ms and payload["expires_at_ms"] == expires_at_ms
+      end)
   end
 
   defp device_registration_attrs(
@@ -264,11 +290,15 @@ defmodule RefMDWeb.DeviceController do
 
   defp registration_challenge_response(%{
          challenge: challenge,
-         expires_in_seconds: expires_in_seconds
+         expires_in_seconds: expires_in_seconds,
+         issued_at_ms: issued_at_ms,
+         expires_at_ms: expires_at_ms
        }) do
     %{
       registration_challenge: Base.url_encode64(challenge, padding: false),
-      expires_in_seconds: expires_in_seconds
+      expires_in_seconds: expires_in_seconds,
+      issued_at_ms: issued_at_ms,
+      expires_at_ms: expires_at_ms
     }
   end
 
@@ -437,102 +467,61 @@ defmodule RefMDWeb.DeviceController do
     })
   end
 
-  operation(:revoke,
-    summary: "Revoke a device",
+  operation(:revocation_intent,
+    summary: "Prepare a device revocation compound append intent",
     parameters: [
       device_id: [in: :path, type: :string, required: true]
     ],
-    request_body: {"Revocation params", "application/json", Schemas.RevokeDeviceRequest},
+    request_body:
+      {"Device revocation command", "application/json", Schemas.DeviceRevocationCommand,
+       required: true},
     responses: [
-      ok: {"Revocation result", "application/json", Schemas.RevokeDeviceResponse},
+      ok: {"Compound append intent", "application/json", %OpenApiSpex.Schema{type: :object}},
       bad_request: {"Bad request", "application/json", Schemas.ErrorResponse},
-      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
-      not_found: {"Not found", "application/json", Schemas.ErrorResponse},
       conflict: {"Retire blocked", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  def revoke(conn, %{"device_id" => device_id} = params) do
+  def revocation_intent(conn, %{"device_id" => device_id} = command) do
     user_id = conn.assigns.current_user_id
-    rrp_device_id = conn.assigns[:rrp_device_id]
-    revocation_mode = params["revocation_mode"] || "security"
+    actor_device_id = conn.assigns.rrp_device_id
 
-    cond do
-      revocation_mode not in ~w(security retire) ->
-        conn |> put_status(:bad_request) |> json(%{error: "invalid_revocation_mode"})
+    case Devices.prepare_device_revocation(user_id, actor_device_id, device_id, command) do
+      {:ok, intent} ->
+        json(conn, intent)
 
-      device_id == rrp_device_id ->
-        conn |> put_status(:forbidden) |> json(%{error: "cannot_revoke_current_device"})
+      {:error, "retire_blocked_by_unbound_sessions"} ->
+        conn |> put_status(:conflict) |> json(%{error: "retire_blocked_by_unbound_sessions"})
 
-      not Devices.user_owns_active_device?(user_id, device_id) ->
-        conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-      not is_integer(params["revoked_at"]) ->
-        conn |> put_status(:bad_request) |> json(%{error: "invalid_revoked_at"})
-
-      true ->
-        do_revoke_device(
-          conn,
-          user_id,
-          rrp_device_id,
-          device_id,
-          revocation_mode,
-          params["revocation_signature"],
-          params["revoked_at"],
-          params
-        )
+      {:error, reason} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(reason)})
     end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
-  defp do_revoke_device(
-         conn,
-         user_id,
-         rrp_device_id,
-         device_id,
-         revocation_mode,
-         revocation_signature,
-         revoked_at_ms,
-         params
-       ) do
-    case Devices.revoke_device(
-           user_id,
+  operation(:revoke,
+    summary: "Commit an exact device revocation compound authorization",
+    parameters: [device_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Device revocation authorization", "application/json",
+       Schemas.DeviceRevocationAuthorization, required: true},
+    responses: [
+      ok: {"Revocation result", "application/json", Schemas.RevokeDeviceResponse},
+      unprocessable_entity: {"Revocation failed", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def revoke(conn, %{"device_id" => device_id} = authorization) do
+    case Devices.commit_device_revocation(
+           conn.assigns.current_user_id,
+           conn.assigns.rrp_device_id,
            device_id,
-           rrp_device_id,
-           revocation_mode,
-           revocation_signature,
-           revoked_at_ms,
-           %{
-             user_events: params["user_key_directory_events"],
-             user_checkpoint: params["user_key_directory_checkpoint"],
-             workspace_appends: params["workspace_key_directory_appends"]
-           }
+           Map.delete(authorization, "device_id")
          ) do
       {:ok, result} ->
-        json(conn, %{
-          revoked_device_id: device_id,
-          revocation_mode: revocation_mode,
-          workspaces_needing_kek_rotation:
-            Enum.map(result.workspaces_needing_kek_rotation, fn ws ->
-              %{workspace_id: ws.workspace_id, current_kek_version: ws.current_kek_version}
-            end)
-        })
+        conn |> put_status(result.status) |> json(result.response)
 
-      {:error, :retire_blocked_by_unbound_sessions} ->
-        conn
-        |> put_status(:conflict)
-        |> json(%{error: "retire_blocked_by_unbound_sessions"})
-
-      {:error, reason} when reason in [:inactive_revocation_signer, :invalid_signer_device] ->
-        conn |> put_status(:forbidden) |> json(%{error: Atom.to_string(reason)})
-
-      {:error, :invalid_signature} ->
-        conn |> put_status(:forbidden) |> json(%{error: "invalid_signature"})
-
-      {:error, _reason} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "revocation_failed"})
+      {:error, reason} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: inspect(reason)})
     end
   end
 
@@ -673,7 +662,10 @@ defmodule RefMDWeb.DeviceController do
   end
 
   defp device_validation_error_response(error) do
-    {:unprocessable_entity, Atom.to_string(error)}
+    case error do
+      :security_audit_unavailable -> {:service_unavailable, "security_audit_unavailable"}
+      _ -> {:unprocessable_entity, Atom.to_string(error)}
+    end
   end
 
   defp approve_owned_device_registration(conn, device_registration, id, params) do

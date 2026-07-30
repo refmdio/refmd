@@ -70,6 +70,8 @@ export function initialDeliveryAad(params: {
   senderHash: string;
   recipientHash: string;
   payloadMetadataHash: string;
+  transferScopeHash?: string;
+  auditCheckpointPinSetHash?: string;
 }): Uint8Array {
   return canonicalizeStrictBytes({
     protocol: DELIVERY_AAD_PROTOCOL,
@@ -84,6 +86,12 @@ export function initialDeliveryAad(params: {
     sender_hash: params.senderHash,
     recipient_hash: params.recipientHash,
     payload_metadata_hash: params.payloadMetadataHash,
+    ...(params.purpose === "trust_transfer"
+      ? {
+          transfer_scope_hash: params.transferScopeHash,
+          audit_checkpoint_pin_set_hash: params.auditCheckpointPinSetHash,
+        }
+      : {}),
     suite_id: SUITE_IDS.INITIAL_DELIVERY,
     suite_rank: CURRENT_SUITE_RANK,
   });
@@ -99,6 +107,8 @@ export function purposeContext(params: {
   targetKeyKind: string;
   targetKeyVersion: number;
   challenge: string;
+  transferScopeHash?: string;
+  auditCheckpointPinSetHash?: string;
 }): StrictJsonValue {
   if (params.purpose === "device_approval_kek_initial") {
     if (!params.workspaceId) throw new Error("workspace_id_required");
@@ -115,19 +125,17 @@ export function purposeContext(params: {
     };
   }
   if (params.purpose === "trust_transfer") {
+    if (!params.transferScopeHash || !params.auditCheckpointPinSetHash) {
+      throw new Error("trust_transfer_pin_binding_required");
+    }
     return {
       purpose: params.purpose,
       owner_user_id: params.userId,
       trust_transfer_id: params.operationId,
       source_device_id: params.senderDeviceId,
       target_device_id: params.recipientDeviceId,
-      transfer_scope_hash: blake3Base64Url(
-        canonicalizeStrictBytes({
-          user_id: params.userId,
-          source_device_id: params.senderDeviceId,
-          target_device_id: params.recipientDeviceId,
-        }),
-      ),
+      transfer_scope_hash: params.transferScopeHash,
+      audit_checkpoint_pin_set_hash: params.auditCheckpointPinSetHash,
       target_payload_kind: "trust_state_bundle",
       operation_id: params.operationId,
       challenge: params.challenge,
@@ -152,6 +160,8 @@ export function purposeDirectory(params: {
   workspaceCheckpointHash: string;
   workspaceEventHeadHash: string;
   workspacePinsHash?: string;
+  transferScopeHash?: string;
+  auditCheckpointPinSetHash?: string;
 }): StrictJsonValue {
   const policy = {
     suite_policy_version: 1,
@@ -176,11 +186,19 @@ export function purposeDirectory(params: {
     };
   }
   if (params.purpose === "trust_transfer") {
-    if (!params.workspacePinsHash) throw new Error("workspace_pins_hash_required");
+    if (
+      !params.workspacePinsHash ||
+      !params.transferScopeHash ||
+      !params.auditCheckpointPinSetHash
+    ) {
+      throw new Error("trust_transfer_pin_binding_required");
+    }
     return {
       user_checkpoint_hash: params.userCheckpointHash,
       user_event_head_hash: params.userEventHeadHash,
       workspace_pins_hash: params.workspacePinsHash,
+      transfer_scope_hash: params.transferScopeHash,
+      audit_checkpoint_pin_set_hash: params.auditCheckpointPinSetHash,
       ...policy,
     };
   }

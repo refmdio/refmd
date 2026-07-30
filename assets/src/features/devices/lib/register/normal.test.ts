@@ -69,14 +69,12 @@ describe("normal", () => {
     });
   });
 
-  it("routes OAuth sessions without identity material into first-device bootstrap", async () => {
+  it("rejects authenticated sessions without committed identity material", async () => {
     me.mockResolvedValueOnce({
       auth_type: null,
       identity_hybrid_signing_public_key_material: null,
     });
 
-    await expect(prepareNormalRegistration("user-1")).resolves.toEqual({
-      kind: "oauth_first_device_required",
-    });
+    await expect(prepareNormalRegistration("user-1")).rejects.toThrow("account_genesis_required");
   });
 });

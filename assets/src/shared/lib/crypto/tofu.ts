@@ -17,7 +17,7 @@ import {
 import { validateDeviceApprovalProofEnvelope } from "./approval-proof-validation";
 import {
   buildDeviceApprovalTranscript,
-  buildGenesisDeviceBootstrapTranscript,
+  buildGenesisDeviceBootstrapTranscriptFromProof,
   buildPendingRegistrationBindingHash,
   buildRecoveryDeviceApprovalTranscript,
   computeSigningKeyId,
@@ -213,16 +213,15 @@ function verifyDeviceIdentityHybridSignature(params: {
       ? {
           signingPurpose: "genesis_device_bootstrap",
           publicKeyMaterial: params.identityPublicMaterial,
-          transcript: buildGenesisDeviceBootstrapTranscript({
+          transcript: buildGenesisDeviceBootstrapTranscriptFromProof({
             ownerId: params.identityPublicMaterial.owner_id,
             deviceId: params.device.id,
             deviceHybridSigningPublicKeyMaterial: params.devicePublicMaterial,
             deviceEcdhPublicKey,
             deviceHybridEncryptionPublicKeyMaterial,
             clientNonce,
-            registrationChallengeHash: details?.registration_challenge_hash as string,
             identitySigningKeyId: proof.approving_signing_key_id as string,
-            userIdentityPublicKeyHash: details?.user_identity_public_key_hash as string,
+            surfaceDetails: details,
           }),
         }
       : purpose === "device_approval" && details?.kind === "device_approval"

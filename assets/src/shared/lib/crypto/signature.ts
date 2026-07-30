@@ -74,6 +74,12 @@ export function destroyHybridSigningPrivateKeyMaterial(
 
 export { KEY_DIRECTORY_EVENT_VARIANTS } from "./signature-transcript-schemas";
 export {
+  assertAuditCheckpointPayload,
+  auditCheckpointHash,
+  buildAuditCheckpointTranscript,
+  type AuditCheckpointVariant,
+} from "./signature-audit-transcript";
+export {
   SIGNATURE_TRANSCRIPT_LABEL,
   SIGNATURE_TRANSCRIPT_PROTOCOL,
   collaborationVariant,
@@ -85,6 +91,7 @@ export type {
   HybridSignature,
   IdentityHybridSigningPublicKeyMaterial,
   DeviceHybridSigningPublicKeyMaterial,
+  RecoveryAuthorizationHybridSigningPublicKeyMaterial,
   HybridSigningPrivateKeyMaterial,
   HybridSigningPublicKeyMaterial,
   AnyHybridSigningPublicKeyMaterial,
@@ -97,6 +104,7 @@ export {
   buildDeviceApprovalTranscript,
   buildDeviceRevocationTranscript,
   buildGenesisDeviceBootstrapTranscript,
+  buildGenesisDeviceBootstrapTranscriptFromProof,
   buildRrpTranscript,
 } from "./signature-device-transcripts";
 export {
@@ -554,6 +562,14 @@ export function signKeyDirectoryCheckpointSignature(
   params: SignSurfaceSignatureParams,
 ): HybridSignature {
   return signSurfaceSignature("key_directory_checkpoint", params);
+}
+
+export function signAuditCheckpointSignature(params: SignSurfaceSignatureParams): HybridSignature {
+  return signSurfaceSignature("audit_checkpoint", params);
+}
+
+export function verifyAuditCheckpointSignature(params: VerifySurfaceSignatureParams): boolean {
+  return verifySurfaceSignature("audit_checkpoint", params);
 }
 
 export function verifyKeyDirectoryCheckpointSignature(
@@ -1100,6 +1116,7 @@ function assertNestedOwnerExactFields(
     assertPlainObject(value, `${field}_invalid`);
     assertExactKeys(value, nestedExpectedKeys(transcript, field, value, [...keys]));
     assertNestedFieldValues(field, value);
+    assertAuthorizingCheckpointReference(field, value);
   }
 }
 
@@ -1120,6 +1137,24 @@ function nestedExpectedKeys(
   value: Record<string, unknown>,
   keys: string[],
 ): string[] {
+  if (
+    field === "checkpoint" &&
+    transcript.surface_id === "audit_checkpoint" &&
+    (transcript.authority_boundary as Record<string, unknown> | undefined)?.checkpoint_sequence ===
+      0
+  ) {
+    return keys.filter(
+      (key) =>
+        key !== "previous_signed_checkpoint_hash" && key !== "previous_signed_checkpoint_sequence",
+    );
+  }
+  if (
+    field === "signer" &&
+    transcript.surface_id === "audit_checkpoint" &&
+    transcript.surface_variant === "user_identity"
+  ) {
+    return keys.filter((key) => key !== "device_id");
+  }
   if (field === "scope" && isInitialKeyDirectoryCheckpoint(transcript)) {
     return keys.filter((key) => key !== "previous_checkpoint_hash");
   }
@@ -1238,6 +1273,26 @@ function assertNestedFieldValues(field: string, value: Record<string, unknown>):
       if (typeof nestedValue !== "string") {
         throw new Error(`${field}_${key}_invalid`);
       }
+    } else if (
+      field === "authority_boundary" &&
+      key === "checkpoint_hash" &&
+      nestedValue === "GENESIS"
+    ) {
+      continue;
+    } else if (
+      field === "authority_boundary" &&
+      key === "checkpoint_sequence" &&
+      nestedValue === 0
+    ) {
+      continue;
+    } else if (key === "key_checkpoint_hash" && nestedValue === "GENESIS") {
+      continue;
+    } else if (key === "key_checkpoint_sequence" && nestedValue === 0) {
+      continue;
+    } else if (key === "authorizing_checkpoint_hash" && nestedValue === "GENESIS") {
+      continue;
+    } else if (key === "authorizing_checkpoint_sequence" && nestedValue === 0) {
+      continue;
     } else if (key.startsWith("previous_") && key.endsWith("_hash") && nestedValue === "GENESIS") {
       continue;
     } else if (key === "source_url_hash" && nestedValue === "NO_SOURCE_URL") {
@@ -1288,6 +1343,18 @@ function assertNestedFieldValues(field: string, value: Record<string, unknown>):
   }
 }
 
+function assertAuthorizingCheckpointReference(field: string, value: Record<string, unknown>): void {
+  const hasSequence = "authorizing_checkpoint_sequence" in value;
+  const hasHash = "authorizing_checkpoint_hash" in value;
+  if (!hasSequence && !hasHash) return;
+
+  const sequence = value.authorizing_checkpoint_sequence;
+  const hash = value.authorizing_checkpoint_hash;
+  if (!hasSequence || !hasHash || (sequence === 0) !== (hash === "GENESIS")) {
+    throw new Error(`${field}_authorizing_checkpoint_reference_invalid`);
+  }
+}
+
 function publicDataBlake3Field(field: string, key: string): boolean {
   return field === "public_data" && (key === "keyCheckpointHash" || key === "updateHash");
 }
@@ -1317,6 +1384,7 @@ function assertOwnerKind(value: unknown): asserts value is SigningOwnerKind {
   if (
     value !== "identity" &&
     value !== "device" &&
+    value !== "recovery_authorization" &&
     value !== "share_capability" &&
     value !== "share_participant_device" &&
     value !== "invitation_redeem_authority"
@@ -1329,6 +1397,7 @@ function assertCanonicalOwnerId(ownerKind: SigningOwnerKind, ownerId: string): v
   if (
     (ownerKind === "identity" ||
       ownerKind === "device" ||
+      ownerKind === "recovery_authorization" ||
       ownerKind === "share_participant_device" ||
       ownerKind === "invitation_redeem_authority") &&
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(ownerId)

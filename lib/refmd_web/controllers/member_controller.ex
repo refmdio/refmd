@@ -3,18 +3,21 @@ defmodule RefMDWeb.MemberController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.{Devices, Encryption, Workspaces}
+  alias RefMD.Workspaces.AuthorityMutations
   alias RefMDWeb.Plugs.RequireRBAC
   alias RefMDWeb.Schemas
 
-  plug :validate_user_id when action in [:devices, :update, :delete]
+  plug :validate_user_id
+       when action in [:devices, :role_intent, :removal_intent, :update, :delete]
+
   plug :allow_guest_crypto_access when action in [:identity_keys, :devices]
 
   plug RequireRBAC, [permission: "member:list"] when action in [:index]
   plug RequireRBAC, [permission: :membership] when action in [:identity_keys, :devices]
-  plug RequireRBAC, [permission: "member:change_role"] when action in [:update]
+  plug RequireRBAC, [permission: "member:change_role"] when action in [:role_intent, :update]
 
   # DELETE uses manual RBAC check for self-removal bypass
-  plug RequireRBAC, [permission: :membership] when action in [:delete]
+  plug RequireRBAC, [permission: :membership] when action in [:removal_intent, :delete]
 
   @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
 
@@ -100,6 +103,63 @@ defmodule RefMDWeb.MemberController do
     end
   end
 
+  operation(:role_intent,
+    summary: "Prepare a compound member role mutation",
+    parameters: [
+      workspace_id: [in: :path, type: :string, required: true],
+      user_id: [in: :path, type: :string, required: true]
+    ],
+    request_body: {"Role mutation", "application/json", Schemas.MemberRoleIntentRequest},
+    responses: [
+      ok: {"Compound intent", "application/json", Schemas.CompoundAppendIntent},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Invalid mutation", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def role_intent(conn, %{"user_id" => target_user_id, "role_id" => new_role_id} = params) do
+    issue_member_intent(
+      conn,
+      "workspace.member.role_changed",
+      %{
+        "workspace_id" => conn.assigns.workspace_id,
+        "target_user_id" => target_user_id,
+        "new_role_id" => new_role_id
+      },
+      params
+    )
+  end
+
+  operation(:removal_intent,
+    summary: "Prepare a compound member removal",
+    parameters: [
+      workspace_id: [in: :path, type: :string, required: true],
+      user_id: [in: :path, type: :string, required: true]
+    ],
+    request_body: {"Removal mutation", "application/json", Schemas.MemberRemovalIntentRequest},
+    responses: [
+      ok: {"Compound intent", "application/json", Schemas.CompoundAppendIntent},
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      unprocessable_entity: {"Invalid mutation", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def removal_intent(conn, %{"user_id" => target_user_id} = params) do
+    actor_user_id = conn.assigns.current_user_id
+
+    if target_user_id == actor_user_id or
+         has_permission?(conn.assigns.workspace_role, "member:remove") do
+      issue_member_intent(
+        conn,
+        "workspace.member.removed",
+        %{"workspace_id" => conn.assigns.workspace_id, "target_user_id" => target_user_id},
+        params
+      )
+    else
+      conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
+    end
+  end
+
   # ── PATCH /api/workspaces/:workspace_id/members/:user_id
 
   operation(:update,
@@ -108,41 +168,21 @@ defmodule RefMDWeb.MemberController do
       workspace_id: [in: :path, type: :string, required: true],
       user_id: [in: :path, type: :string, required: true]
     ],
-    request_body: {"Role change", "application/json", Schemas.ChangeMemberRoleRequest},
+    request_body:
+      {"Compound authorization", "application/json", Schemas.CompoundAppendAuthorization},
     responses: [
-      ok: {"Updated member", "application/json", Schemas.ChangeMemberRoleResponse},
+      ok: {"Committed mutation", "application/json", Schemas.WorkspaceAuthorityMutationResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  def update(conn, %{"user_id" => target_user_id, "role_id" => new_role_id}) do
-    workspace_id = conn.assigns.workspace_id
-    actor_user_id = conn.assigns.current_user_id
-
-    case Workspaces.change_member_role(
-           workspace_id,
-           target_user_id,
-           new_role_id,
-           actor_user_id,
-           %{
-             workspace_events: conn.body_params["workspace_key_directory_events"],
-             workspace_checkpoint: conn.body_params["workspace_key_directory_checkpoint"]
-           }
-         ) do
-      {:ok, _member} ->
-        json(conn, %{
-          ok: true,
-          workspaces_needing_kek_rotation: workspace_rotation_info(workspace_id)
-        })
-
-      {:error, error} ->
-        handle_member_error(conn, error)
-    end
-  end
-
-  def update(conn, _params) do
-    conn |> put_status(:bad_request) |> json(%{error: "missing_role_id"})
+  def update(conn, %{"user_id" => target_user_id}) do
+    commit_member_mutation(conn, %{
+      "workspace_id" => conn.assigns.workspace_id,
+      "target_user_id" => target_user_id,
+      "mutation_kind" => "workspace.member.role_changed"
+    })
   end
 
   # ── DELETE /api/workspaces/:workspace_id/members/:user_id
@@ -153,26 +193,34 @@ defmodule RefMDWeb.MemberController do
       workspace_id: [in: :path, type: :string, required: true],
       user_id: [in: :path, type: :string, required: true]
     ],
-    request_body: {"Remove member params", "application/json", Schemas.RemoveMemberRequest},
+    request_body:
+      {"Compound authorization", "application/json", Schemas.CompoundAppendAuthorization},
     responses: [
-      ok: {"Removed", "application/json", Schemas.RemoveMemberResponse},
+      ok: {"Committed mutation", "application/json", Schemas.WorkspaceAuthorityMutationResponse},
       forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Last owner", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  def delete(conn, %{"user_id" => target_user_id} = params) do
-    workspace_id = conn.assigns.workspace_id
+  def delete(conn, %{"user_id" => target_user_id}) do
     actor_user_id = conn.assigns.current_user_id
 
     cond do
       # Self-removal: RRP required, RBAC bypassed
       target_user_id == actor_user_id ->
-        do_remove(conn, workspace_id, target_user_id, actor_user_id, params)
+        commit_member_mutation(conn, %{
+          "workspace_id" => conn.assigns.workspace_id,
+          "target_user_id" => target_user_id,
+          "mutation_kind" => "workspace.member.removed"
+        })
 
       # Other removal: requires member:remove permission
       has_permission?(conn.assigns.workspace_role, "member:remove") ->
-        do_remove(conn, workspace_id, target_user_id, actor_user_id, params)
+        commit_member_mutation(conn, %{
+          "workspace_id" => conn.assigns.workspace_id,
+          "target_user_id" => target_user_id,
+          "mutation_kind" => "workspace.member.removed"
+        })
 
       true ->
         conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
@@ -219,35 +267,34 @@ defmodule RefMDWeb.MemberController do
     })
   end
 
-  defp do_remove(conn, workspace_id, target_user_id, actor_user_id, params) do
-    case Workspaces.remove_member(workspace_id, target_user_id, actor_user_id, %{
-           workspace_events: params["workspace_key_directory_events"],
-           workspace_checkpoint: params["workspace_key_directory_checkpoint"]
-         }) do
-      {:ok, _member} ->
-        json(conn, %{
-          ok: true,
-          workspaces_needing_kek_rotation: workspace_rotation_info(workspace_id)
-        })
+  defp issue_member_intent(conn, event_type, command, _params) do
+    case AuthorityMutations.issue_intent(
+           conn.assigns.current_user_id,
+           conn.assigns[:rrp_device_id],
+           event_type,
+           command,
+           %{}
+         ) do
+      {:ok, intent} -> json(conn, intent)
+      {:error, error} -> handle_member_error(conn, error)
+    end
+  end
 
-      {:error, error} ->
-        handle_member_error(conn, error)
+  defp commit_member_mutation(conn, expected_binding) do
+    case AuthorityMutations.commit(
+           conn.assigns.current_user_id,
+           conn.assigns[:rrp_device_id],
+           conn.body_params,
+           expected_binding
+         ) do
+      {:ok, %{response: response}} -> json(conn, response)
+      {:error, error} -> handle_member_error(conn, error)
     end
   end
 
   defp has_permission?(role, permission) do
     perms = Workspaces.effective_permissions(role)
     MapSet.member?(perms, permission)
-  end
-
-  defp workspace_rotation_info(workspace_id) do
-    case Workspaces.get_workspace(workspace_id) do
-      %{needs_kek_rotation: true, current_kek_version: version} ->
-        [%{workspace_id: workspace_id, current_kek_version: version}]
-
-      _ ->
-        []
-    end
   end
 
   defp handle_member_error(conn, :cannot_modify_owner) do

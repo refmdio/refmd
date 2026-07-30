@@ -6,12 +6,11 @@ defmodule RefMD.Security do
   import Ecto.Query
 
   alias Phoenix.PubSub
-  alias RefMD.Crypto.{Hash, JCS}
+  alias RefMD.Crypto.Hash
   alias RefMD.Devices
-  alias RefMD.Encryption.KeyDirectory
   alias RefMD.Plugins.{PluginActivation, PluginApplication}
   alias RefMD.Repo
-  alias RefMD.Security.{AuditEvent, Notification}
+  alias RefMD.Security.{AuditChainEvent, AuditEvent, Notification, SignedAuditCheckpoints}
   alias RefMD.Workspaces
 
   @plugin_runtime_action_keys ~w(operation result reason_code)
@@ -21,9 +20,21 @@ defmodule RefMD.Security do
 
   def record_audit_event(attrs, notifications \\ [])
       when is_map(attrs) and is_list(notifications) do
+    event_type = Map.get(attrs, :type) || Map.get(attrs, "type")
+
+    if AuditChainEvent.high_risk_event_type?(event_type) do
+      {:error, :signed_audit_checkpoint_required}
+    else
+      do_record_audit_event(attrs, notifications)
+    end
+  end
+
+  defp do_record_audit_event(attrs, notifications) do
+    broadcast_after_commit? = not Repo.in_transaction?()
+
     case Repo.transaction(fn -> insert_audit_event_with_notifications(attrs, notifications) end) do
       {:ok, {audit_event, inserted}} ->
-        Enum.each(inserted, &broadcast_notification/1)
+        if broadcast_after_commit?, do: Enum.each(inserted, &broadcast_notification/1)
         {:ok, %{audit_event: audit_event, notifications: inserted}}
 
       {:error, reason} ->
@@ -31,20 +42,79 @@ defmodule RefMD.Security do
     end
   end
 
-  def current_audit_checkpoint(chain_scope) when is_binary(chain_scope) do
+  def record_signed_audit_events(attrs, signed_checkpoint, notifications \\ [], opts \\ [])
+      when is_list(attrs) and attrs != [] and is_map(signed_checkpoint) and
+             is_list(notifications) and
+             is_list(opts) do
+    broadcast_after_commit? = not Repo.in_transaction?()
+
+    Repo.transaction(fn ->
+      {audit_events, inserted} = insert_signed_audit_events(attrs, notifications)
+
+      checkpoint =
+        try do
+          SignedAuditCheckpoints.insert!(signed_checkpoint, opts)
+        rescue
+          error in ArgumentError -> Repo.rollback(error.message)
+          error in Ecto.InvalidChangesetError -> Repo.rollback(error.changeset)
+        end
+
+      %{
+        audit_events: audit_events,
+        signed_checkpoint: checkpoint,
+        notifications: inserted
+      }
+    end)
+    |> case do
+      {:ok, result} ->
+        if broadcast_after_commit?, do: Enum.each(result.notifications, &broadcast_notification/1)
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp insert_signed_audit_events(attrs, notifications) do
+    last_index = length(attrs) - 1
+
+    attrs
+    |> Enum.with_index()
+    |> Enum.reduce({[], []}, fn {event_attrs, index}, {events, inserted_notifications} ->
+      event_notifications = if index == last_index, do: notifications, else: []
+      {event, inserted} = insert_audit_event_with_notifications(event_attrs, event_notifications)
+      {[event | events], Enum.reverse(inserted, inserted_notifications)}
+    end)
+    |> then(fn {events, inserted} -> {Enum.reverse(events), Enum.reverse(inserted)} end)
+  end
+
+  def current_signed_audit_checkpoint(scope_kind, scope_id),
+    do: SignedAuditCheckpoints.bundle(scope_kind, scope_id)
+
+  def current_signed_audit_checkpoint!(scope_kind, scope_id) do
+    case current_signed_audit_checkpoint(scope_kind, scope_id) do
+      checkpoint when is_map(checkpoint) ->
+        checkpoint
+
+      {:error, :signed_audit_checkpoint_missing} ->
+        raise "signed security audit checkpoint is missing"
+    end
+  end
+
+  def current_verified_audit_event_head(chain_scope) when is_binary(chain_scope) do
     with {:ok, %{sequence: sequence, event_hash: event_hash}} <- verify_audit_chain(chain_scope),
          %AuditEvent{} = event <- latest_audit_event(chain_scope),
          true <- event.sequence == sequence and event.event_hash == event_hash do
-      audit_checkpoint(event)
+      %{sequence: event.sequence, event_hash: event.event_hash}
     else
       nil -> nil
       _ -> {:error, :audit_chain_invalid}
     end
   end
 
-  def current_audit_checkpoint!(chain_scope) when is_binary(chain_scope) do
-    case current_audit_checkpoint(chain_scope) do
-      checkpoint when is_map(checkpoint) -> checkpoint
+  def current_verified_audit_event_head!(chain_scope) when is_binary(chain_scope) do
+    case current_verified_audit_event_head(chain_scope) do
+      head when is_map(head) -> head
       nil -> nil
       {:error, :audit_chain_invalid} -> raise "security audit chain verification failed"
     end
@@ -55,11 +125,20 @@ defmodule RefMD.Security do
 
     checkpoint =
       case notification.audit_event do
-        %AuditEvent{chain_scope: chain_scope} -> current_audit_checkpoint!(chain_scope)
-        _ -> raise "security notification is missing its audit event"
+        %AuditEvent{chain_scope_kind: scope_kind, chain_scope_id: scope_id} ->
+          current_signed_audit_checkpoint!(scope_kind, scope_id)
+
+        _ ->
+          raise "security notification is missing its audit event"
       end
 
     Notification.payload(notification, checkpoint)
+  end
+
+  def notification_outbox_payload(%Notification{} = notification) do
+    notification
+    |> notification_payload()
+    |> string_keys()
   end
 
   def verify_audit_chain(chain_scope) when is_binary(chain_scope) do
@@ -71,11 +150,10 @@ defmodule RefMD.Security do
         )
       )
 
-    Enum.reduce_while(events, {:ok, nil, 0}, fn event, {:ok, previous_hash, sequence} ->
+    Enum.reduce_while(events, {:ok, "GENESIS", 0}, fn event, {:ok, previous_hash, sequence} ->
       expected_sequence = sequence + 1
 
-      if event.sequence == expected_sequence and event.previous_event_hash == previous_hash and
-           event.event_hash == audit_event_hash(event) do
+      if valid_audit_event?(event, expected_sequence, previous_hash) do
         {:cont, {:ok, event.event_hash, event.sequence}}
       else
         {:halt, {:error, :audit_chain_invalid}}
@@ -214,12 +292,25 @@ defmodule RefMD.Security do
         ]
       )
 
-    mark_device_pending_acted(user_id, registration_id)
-    result
+    case result do
+      {:ok, _record} ->
+        mark_device_pending_acted(user_id, registration_id, false)
+        result
+
+      {:error, _reason} ->
+        result
+    end
   end
 
-  def record_registration_approved(user_id, registration_id) do
-    record_registration_terminal(user_id, registration_id, "approved", "completed", nil)
+  def record_registration_approved(user_id, registration_id, opts \\ []) do
+    record_registration_terminal(
+      user_id,
+      registration_id,
+      "approved",
+      "completed",
+      nil,
+      opts
+    )
   end
 
   def record_initial_ake_offers_ready(user_id, registration_id) do
@@ -767,6 +858,13 @@ defmodule RefMD.Security do
     }
   end
 
+  defp string_keys(value) when is_map(value) do
+    Map.new(value, fn {key, nested} -> {to_string(key), string_keys(nested)} end)
+  end
+
+  defp string_keys(value) when is_list(value), do: Enum.map(value, &string_keys/1)
+  defp string_keys(value), do: value
+
   defp insert_notifications(repo, audit_event, notifications) do
     Enum.reduce_while(notifications, {:ok, []}, fn attrs, {:ok, acc} ->
       attrs =
@@ -796,25 +894,55 @@ defmodule RefMD.Security do
   defp insert_audit_event_with_notifications(attrs, notifications) do
     attrs = normalize_audit_attrs(attrs)
     chain_scope = audit_chain_scope(attrs)
+    [chain_scope_kind, chain_scope_id] = String.split(chain_scope, ":", parts: 2)
     lock_audit_chain!(chain_scope)
     ensure_audit_chain_valid!(chain_scope)
     previous = latest_audit_event(chain_scope, lock: true)
     sequence = if previous, do: previous.sequence + 1, else: 1
+    previous_event_hash = if previous, do: previous.event_hash, else: "GENESIS"
+    event_id = Map.get(attrs, :event_id, Ecto.UUID.generate())
+    created_at = DateTime.utc_now()
+
+    event_body =
+      Map.get(attrs, :event_body) || security_runtime_event_body(attrs, event_id, created_at)
 
     attrs =
       attrs
       |> Map.put(:chain_scope, chain_scope)
+      |> Map.put(:chain_scope_kind, chain_scope_kind)
+      |> Map.put(:chain_scope_id, chain_scope_id)
       |> Map.put(:sequence, sequence)
-      |> Map.put(:previous_event_hash, previous && previous.event_hash)
-      |> then(&Map.put(&1, :event_hash, audit_event_hash(&1)))
+      |> Map.put(:previous_event_hash, previous_event_hash)
+      |> Map.put(:event_body, event_body)
+      |> Map.put(:event_hash, Hash.blake3_base64url("audit-event-prevalidation"))
 
-    %AuditEvent{}
+    validate_audit_attrs_or_rollback!(attrs, event_id, created_at)
+
+    chain_event =
+      AuditChainEvent.build!(%{
+        event_id: event_id,
+        chain_scope_kind: chain_scope_kind,
+        chain_scope_id: chain_scope_id,
+        sequence: sequence,
+        previous_event_hash: previous_event_hash,
+        event_type: attrs.type,
+        event_body: event_body
+      })
+
+    attrs = Map.put(attrs, :event_hash, AuditChainEvent.hash!(chain_event))
+
+    %AuditEvent{id: event_id, created_at: created_at}
     |> AuditEvent.changeset(attrs)
     |> Repo.insert()
     |> case do
       {:ok, audit_event} -> insert_notifications_or_rollback(audit_event, notifications)
       {:error, changeset} -> Repo.rollback(changeset)
     end
+  end
+
+  defp validate_audit_attrs_or_rollback!(attrs, event_id, created_at) do
+    changeset = AuditEvent.changeset(%AuditEvent{id: event_id, created_at: created_at}, attrs)
+    if changeset.valid?, do: :ok, else: Repo.rollback(changeset)
   end
 
   defp lock_audit_chain!(chain_scope) do
@@ -840,52 +968,6 @@ defmodule RefMD.Security do
       if Keyword.get(opts, :lock, false), do: from(e in query, lock: "FOR UPDATE"), else: query
 
     Repo.one(query)
-  end
-
-  defp audit_checkpoint(event) do
-    %{
-      chain_scope: event.chain_scope,
-      sequence: event.sequence,
-      event_hash: event.event_hash,
-      ancestry: audit_checkpoint_ancestry(event.chain_scope),
-      authority_checkpoint: audit_authority_checkpoint(event.chain_scope)
-    }
-  end
-
-  defp audit_checkpoint_ancestry(chain_scope) do
-    Repo.all(
-      from(e in AuditEvent,
-        where: e.chain_scope == ^chain_scope,
-        order_by: [asc: e.sequence],
-        select: %{
-          protocol: "refmd.security-audit-chain",
-          version: 1,
-          chain_scope: e.chain_scope,
-          sequence: e.sequence,
-          previous_event_hash: e.previous_event_hash,
-          event_hash: e.event_hash,
-          class: e.class,
-          type: e.type,
-          actor: e.actor,
-          scope: e.scope,
-          resource: e.resource,
-          action: e.action,
-          sensitivity: e.sensitivity,
-          correlation: e.correlation
-        }
-      )
-    )
-  end
-
-  defp audit_authority_checkpoint(chain_scope) do
-    with [scope_kind, scope_id] <- String.split(chain_scope, ":", parts: 2),
-         true <- scope_kind in ["user", "workspace"],
-         checkpoint when not is_nil(checkpoint) <-
-           KeyDirectory.current_checkpoint(scope_kind, scope_id) do
-      %{payload: checkpoint.payload, signatures: checkpoint.signatures}
-    else
-      _ -> nil
-    end
   end
 
   defp audit_chain_scope(attrs) do
@@ -919,39 +1001,48 @@ defmodule RefMD.Security do
   defp audit_event_hash(%AuditEvent{} = event), do: audit_event_hash(Map.from_struct(event))
 
   defp audit_event_hash(attrs) do
-    preimage =
-      %{
-        "protocol" => "refmd.security-audit-chain",
-        "version" => 1,
-        "chain_scope" => field(attrs, :chain_scope),
-        "sequence" => field(attrs, :sequence),
-        "previous_event_hash" => field(attrs, :previous_event_hash),
-        "class" => field(attrs, :class),
-        "type" => field(attrs, :type),
-        "actor" => field(attrs, :actor),
-        "scope" => field(attrs, :scope),
-        "resource" => field(attrs, :resource),
-        "action" => field(attrs, :action),
-        "sensitivity" => field(attrs, :sensitivity),
-        "correlation" => field(attrs, :correlation)
-      }
-      |> compact_canonical_value()
-
-    Hash.blake3_base64url(JCS.canonical_bytes!(preimage))
+    attrs
+    |> AuditChainEvent.build!()
+    |> AuditChainEvent.hash!()
   end
 
-  defp field(attrs, key), do: Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
-
-  defp compact_canonical_value(%{} = value) do
-    value
-    |> Enum.reject(fn {_key, nested} -> is_nil(nested) end)
-    |> Map.new(fn {key, nested} -> {to_string(key), compact_canonical_value(nested)} end)
+  defp valid_audit_event?(event, expected_sequence, previous_hash) do
+    event.sequence == expected_sequence and event.previous_event_hash == previous_hash and
+      event.event_hash == audit_event_hash(event)
+  rescue
+    ArgumentError -> false
   end
 
-  defp compact_canonical_value(value) when is_list(value),
-    do: Enum.map(value, &compact_canonical_value/1)
+  defp security_runtime_event_body(attrs, event_id, created_at) do
+    %{
+      "protocol" => "refmd.security-audit-event",
+      "version" => 1,
+      "event_id" => event_id,
+      "class" => attrs.class,
+      "type" => attrs.type,
+      "actor" =>
+        exact_projection(
+          attrs.actor,
+          ~w(user_id device_id session_id principal_kind principal_id)
+        ),
+      "scope" => exact_projection(attrs.scope, ~w(workspace_id document_id share_id)),
+      "resource" => exact_projection(attrs.resource, ~w(kind id version_hash)),
+      "action" => exact_projection(attrs.action, ~w(operation result reason_code)),
+      "sensitivity" =>
+        exact_projection(
+          attrs.sensitivity,
+          ~w(plaintext_scope_kind plaintext_bytes egress_bytes storage_bytes)
+        ),
+      "correlation" =>
+        exact_projection(
+          attrs.correlation,
+          ~w(request_id capability_id execution_context_id authority_event_ref)
+        ),
+      "created_at" => DateTime.to_iso8601(created_at)
+    }
+  end
 
-  defp compact_canonical_value(value), do: value
+  defp exact_projection(value, keys), do: Map.new(keys, &{&1, Map.get(value, &1)})
 
   defp insert_notifications_or_rollback(audit_event, notifications) do
     case insert_notifications(Repo, audit_event, notifications) do
@@ -960,33 +1051,55 @@ defmodule RefMD.Security do
     end
   end
 
-  defp record_registration_terminal(user_id, registration_id, terminal, result, reason_code) do
-    result =
-      record_audit_event(
-        authority_event(%{
-          type: "device.registration.#{terminal}",
-          actor: user_actor(user_id, nil),
-          scope: empty_scope(),
-          resource: resource("device", registration_id, nil),
-          operation: "device.registration.#{terminal}",
-          result: result,
-          reason_code: reason_code,
-          correlation: empty_correlation()
-        }),
-        [
-          %{
-            recipient_kind: "pending_registration",
-            recipient_id: registration_id,
-            type: "device.registration_#{terminal}",
-            severity: if(terminal == "approved", do: "info", else: "warning"),
-            action_ref: %{device_id: registration_id},
-            dedupe_key: "device.registration_#{terminal}:#{registration_id}"
-          }
-        ]
-      )
+  defp record_registration_terminal(
+         user_id,
+         registration_id,
+         terminal,
+         result,
+         reason_code,
+         opts \\ []
+       ) do
+    broadcast_after_commit? = not Repo.in_transaction?()
+    require_pending? = Keyword.get(opts, :require_pending_notification, false)
 
-    mark_device_pending_acted(user_id, registration_id)
-    result
+    Repo.transaction(fn ->
+      with {:ok, record} <-
+             record_audit_event(
+               authority_event(%{
+                 type: "device.registration.#{terminal}",
+                 actor: user_actor(user_id, nil),
+                 scope: empty_scope(),
+                 resource: resource("device", registration_id, nil),
+                 operation: "device.registration.#{terminal}",
+                 result: result,
+                 reason_code: reason_code,
+                 correlation: empty_correlation()
+               }),
+               [
+                 %{
+                   recipient_kind: "pending_registration",
+                   recipient_id: registration_id,
+                   type: "device.registration_#{terminal}",
+                   severity: if(terminal == "approved", do: "info", else: "warning"),
+                   action_ref: %{device_id: registration_id},
+                   dedupe_key: "device.registration_#{terminal}:#{registration_id}"
+                 }
+               ]
+             ),
+           :ok <- mark_device_pending_acted(user_id, registration_id, require_pending?) do
+        record
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> case do
+      {:ok, record} ->
+        if broadcast_after_commit?, do: Enum.each(record.notifications, &broadcast_notification/1)
+        {:ok, record}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp event(class, attrs) do
@@ -1072,10 +1185,23 @@ defmodule RefMD.Security do
   defp plugin_resource(attrs) do
     %{
       "kind" => "plugin",
-      "id" => Map.get(attrs, :plugin_id),
+      "id" => plugin_resource_id(attrs),
       "version_hash" => Map.get(attrs, :bundle_hash)
     }
   end
+
+  defp plugin_resource_id(attrs) do
+    cond do
+      present_string?(Map.get(attrs, :plugin_id)) -> Map.fetch!(attrs, :plugin_id)
+      present_string?(Map.get(attrs, :id)) -> Map.fetch!(attrs, :id)
+      present_string?(Map.get(attrs, :archive_hash)) -> Map.fetch!(attrs, :archive_hash)
+      present_string?(Map.get(attrs, :bundle_hash)) -> Map.fetch!(attrs, :bundle_hash)
+      present_string?(Map.get(attrs, :source_kind)) -> Map.fetch!(attrs, :source_kind)
+      true -> raise ArgumentError, "plugin_audit_resource_id_required"
+    end
+  end
+
+  defp present_string?(value), do: is_binary(value) and value != ""
 
   defp resource(kind, id, version_hash) do
     %{"kind" => kind, "id" => id, "version_hash" => version_hash}
@@ -1195,20 +1321,23 @@ defmodule RefMD.Security do
     }
   end
 
-  defp mark_device_pending_acted(user_id, registration_id) do
+  defp mark_device_pending_acted(user_id, registration_id, require_pending?) do
     acted_at = DateTime.utc_now()
 
-    Repo.update_all(
-      from(n in Notification,
-        where:
-          n.recipient_kind == "user" and n.recipient_id == ^to_string(user_id) and
-            n.type == "device.pending_approval" and
-            n.dedupe_key == ^"device.pending_approval:#{registration_id}" and is_nil(n.acted_at)
-      ),
-      set: [acted_at: acted_at]
-    )
+    {updated, _rows} =
+      Repo.update_all(
+        from(n in Notification,
+          where:
+            n.recipient_kind == "user" and n.recipient_id == ^to_string(user_id) and
+              n.type == "device.pending_approval" and
+              n.dedupe_key == ^"device.pending_approval:#{registration_id}" and is_nil(n.acted_at)
+        ),
+        set: [acted_at: acted_at]
+      )
 
-    :ok
+    if require_pending? and updated != 1,
+      do: {:error, :pending_registration_notification_missing},
+      else: :ok
   end
 
   defp mark_plugin_consent_required_acted(event) do

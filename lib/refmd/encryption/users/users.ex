@@ -33,6 +33,18 @@ defmodule RefMD.Encryption.Users do
     |> Repo.insert()
   end
 
+  def create_guest_identity_public_key(attrs) do
+    attrs =
+      attrs
+      |> Map.put_new(:key_version, 1)
+      |> Map.put_new(:lifecycle_state, "current")
+      |> put_default_rotation_due_at()
+
+    %UserIdentityPublicKey{}
+    |> UserIdentityPublicKey.guest_changeset(attrs)
+    |> Repo.insert()
+  end
+
   def create_encrypted_master_key(attrs) do
     %UserEncryptedMasterKey{}
     |> UserEncryptedMasterKey.changeset(attrs)
@@ -40,11 +52,6 @@ defmodule RefMD.Encryption.Users do
   end
 
   def create_encrypted_identity_key(attrs) do
-    attrs =
-      attrs
-      |> Map.put_new(:key_version, 1)
-      |> Map.put_new(:lifecycle_state, "current")
-
     changeset =
       %UserEncryptedIdentityKey{}
       |> UserEncryptedIdentityKey.changeset(attrs)
@@ -98,15 +105,20 @@ defmodule RefMD.Encryption.Users do
   end
 
   def get_encrypted_identity_key(user_id) do
-    Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, lifecycle_state: "current")
+    Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, is_current: true)
   end
 
   def get_pending_encrypted_identity_key(user_id) do
-    Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, lifecycle_state: "pending")
+    from(k in UserEncryptedIdentityKey,
+      join: p in UserIdentityPublicKey,
+      on: p.user_id == k.user_id and p.key_version == k.identity_key_epoch,
+      where: k.user_id == ^user_id and p.lifecycle_state == "pending" and k.is_current == false
+    )
+    |> Repo.one()
   end
 
   def get_encrypted_identity_key_by_version(user_id, key_version) do
-    Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, key_version: key_version)
+    Repo.get_by(UserEncryptedIdentityKey, user_id: user_id, identity_key_epoch: key_version)
   end
 
   def get_identity_public_key(user_id, opts \\ []) do
@@ -142,7 +154,7 @@ defmodule RefMD.Encryption.Users do
     Map.merge(identity_key_status_fields(current, pending), %{
       finalization_started:
         not is_nil(pending) and not is_nil(encrypted_current) and
-          encrypted_current.key_version == pending.key_version,
+          encrypted_current.identity_key_epoch == pending.key_version,
       required_workspace_count: MapSet.size(required_targets),
       required_workspace_targets:
         required_targets
@@ -260,8 +272,8 @@ defmodule RefMD.Encryption.Users do
       |> UserEncryptedIdentityKey.changeset(
         encrypted_attrs
         |> Map.put(:user_id, user_id)
-        |> Map.put(:key_version, next_version)
-        |> Map.put(:lifecycle_state, "pending")
+        |> Map.put(:identity_key_epoch, next_version)
+        |> Map.put(:is_current, false)
         |> Map.put(:encryption_key_id, pending_public.encryption_key_id)
         |> Map.put(:signing_key_id, pending_public.signing_key_id)
       )
@@ -289,15 +301,14 @@ defmodule RefMD.Encryption.Users do
       current = lock_identity_key!(user_id, "current")
       pending = lock_identity_key!(user_id, "pending")
       ensure_identity_successor_activatable!(user_id, pending, key_version)
+      encrypted_current = get_encrypted_identity_key(user_id)
+      encrypted_pending = get_pending_encrypted_identity_key(user_id)
 
-      encrypted =
-        from(k in UserEncryptedIdentityKey,
-          where: k.user_id == ^user_id,
-          lock: "FOR UPDATE"
-        )
-        |> Repo.all()
+      unless encrypted_current && encrypted_current.identity_key_epoch == current.key_version &&
+               encrypted_pending && encrypted_pending.identity_key_epoch == pending.key_version,
+             do: Repo.rollback(:identity_rotation_incomplete)
 
-      activate_encrypted_identity_successor!(encrypted, current, pending)
+      %{key_version: pending.key_version}
     end)
   end
 
@@ -307,40 +318,6 @@ defmodule RefMD.Encryption.Users do
     if pending.key_version != key_version or not successor_envelopes_complete?(user_id, pending) do
       Repo.rollback(:identity_rotation_incomplete)
     end
-  end
-
-  defp activate_encrypted_identity_successor!(encrypted, current, pending) do
-    encrypted_current = Enum.find(encrypted, &(&1.lifecycle_state == "current"))
-    encrypted_pending = Enum.find(encrypted, &(&1.lifecycle_state == "pending"))
-
-    cond do
-      encrypted_successor_already_active?(encrypted_current, encrypted_pending, pending) ->
-        %{key_version: pending.key_version, deleted_key_version: current.key_version}
-
-      encrypted_successor_ready?(encrypted_current, encrypted_pending, current, pending) ->
-        Repo.delete!(encrypted_current)
-        promote_encrypted_successor!(encrypted_pending)
-
-        %{key_version: pending.key_version, deleted_key_version: current.key_version}
-
-      true ->
-        Repo.rollback(:identity_rotation_incomplete)
-    end
-  end
-
-  defp encrypted_successor_already_active?(current, pending_encrypted, pending_public) do
-    current && current.key_version == pending_public.key_version && is_nil(pending_encrypted)
-  end
-
-  defp encrypted_successor_ready?(current_encrypted, pending_encrypted, current, pending) do
-    current_encrypted && current_encrypted.key_version == current.key_version && pending_encrypted &&
-      pending_encrypted.key_version == pending.key_version
-  end
-
-  defp promote_encrypted_successor!(encrypted_successor) do
-    encrypted_successor
-    |> Ecto.Changeset.change(lifecycle_state: "current")
-    |> Repo.update!()
   end
 
   def finalize_identity_rotation(user_id, key_version, deletion_proof, key_directory)
@@ -451,14 +428,14 @@ defmodule RefMD.Encryption.Users do
     )
 
     from(k in UserEncryptedIdentityKey,
-      where: k.user_id == ^user_id and k.key_version == ^current.key_version
+      where: k.user_id == ^user_id and k.identity_key_epoch == ^current.key_version
     )
-    |> Repo.delete_all()
+    |> Repo.update_all(set: [is_current: false, updated_at: now])
 
     from(k in UserEncryptedIdentityKey,
-      where: k.user_id == ^user_id and k.key_version == ^pending.key_version
+      where: k.user_id == ^user_id and k.identity_key_epoch == ^pending.key_version
     )
-    |> Repo.update_all(set: [lifecycle_state: "current", updated_at: now])
+    |> Repo.update_all(set: [is_current: true, updated_at: now])
 
     %{key_version: pending.key_version, deleted_key_version: current.key_version}
   end

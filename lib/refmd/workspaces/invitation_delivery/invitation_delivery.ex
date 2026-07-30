@@ -9,6 +9,7 @@ defmodule RefMD.Workspaces.InvitationDelivery do
   alias RefMD.Encryption
   alias RefMD.Encryption.KeyDirectory.PinBootstrap
   alias RefMD.Encryption.KeyDirectory.Protocol, as: KeyDirectoryProtocol
+  alias RefMD.Encryption.RecoverableIdentitySecretRecord
   alias RefMD.Encryption.Wraps.SignedPQ
   alias RefMD.Repo
   alias RefMD.Sharing.Share
@@ -126,7 +127,8 @@ defmodule RefMD.Workspaces.InvitationDelivery do
                  attempt_id,
                  "workspace_invitation",
                  recipient_user_id,
-                 recipient_device_id
+                 recipient_device_id,
+                 ["approved"]
                ),
              :ok <- validate_attempt_token(attempt, token_hash),
              :ok <- validate_approved_head_current(attempt),
@@ -178,7 +180,8 @@ defmodule RefMD.Workspaces.InvitationDelivery do
                  attempt_id,
                  "guest_invitation",
                  recipient_user_id,
-                 recipient_device_id
+                 recipient_device_id,
+                 ["approved"]
                ),
              :ok <- validate_attempt_token(attempt, token_hash),
              :ok <- validate_approved_head_current(attempt),
@@ -267,7 +270,8 @@ defmodule RefMD.Workspaces.InvitationDelivery do
          attempt_id,
          context_kind,
          recipient_user_id,
-         recipient_device_id
+         recipient_device_id,
+         allowed_statuses
        ) do
     attempt =
       from(a in InvitationDeliveryAttempt,
@@ -280,10 +284,17 @@ defmodule RefMD.Workspaces.InvitationDelivery do
       |> Repo.one()
 
     cond do
-      is_nil(attempt) -> {:error, :not_found}
-      attempt.status != "approved" -> {:error, :delivery_attempt_not_approved}
-      expired?(attempt.expires_at) -> {:error, :delivery_attempt_expired}
-      true -> {:ok, attempt}
+      is_nil(attempt) ->
+        {:error, :not_found}
+
+      attempt.status not in allowed_statuses ->
+        {:error, :delivery_attempt_not_approved}
+
+      attempt.status == "approved" and expired?(attempt.expires_at) ->
+        {:error, :delivery_attempt_expired}
+
+      true ->
+        {:ok, attempt}
     end
   end
 
@@ -316,30 +327,20 @@ defmodule RefMD.Workspaces.InvitationDelivery do
 
     identity_signing_material = registration["identity_hybrid_signing_public_key_material"]
 
+    identity_encryption_key_id =
+      HybridEncryptionMaterial.compute_key_id!(identity_encryption_material)
+
+    identity_signing_key_id = Signature.compute_signing_key_id!(identity_signing_material)
+
     with {:ok, client_nonce} <- decode_client_nonce(proof["client_nonce"]),
-         {:ok, encrypted_identity_encryption} <-
-           decode_registration_bytes(
-             registration["encrypted_identity_hybrid_encryption_private_key_material"]
-           ),
-         {:ok, identity_encryption_nonce} <-
-           decode_registration_bytes(
-             registration["identity_hybrid_encryption_private_key_material_nonce"],
-             24
-           ),
-         {:ok, encrypted_identity_signing} <-
-           decode_registration_bytes(
-             registration["encrypted_identity_hybrid_signing_private_key_material"]
-           ),
-         {:ok, identity_signing_nonce} <-
-           decode_registration_bytes(
-             registration["identity_hybrid_signing_private_key_material_nonce"],
-             24
-           ),
-         true <- is_map(proof["approval_signature"]),
-         :ok <-
-           validate_hash_value(
-             proof["pending_registration_challenge_hash"],
-             :invalid_pending_registration_challenge
+         secret_record <-
+           RecoverableIdentitySecretRecord.to_attrs!(
+             registration["recoverable_identity_secret_record"],
+             %{
+               user_id: attempt.target_user_id,
+               signing_key_id: identity_signing_key_id,
+               encryption_key_id: identity_encryption_key_id
+             }
            ),
          true <- is_binary(proof["device_name"]),
          true <- is_binary(proof["device_type"]) do
@@ -349,28 +350,24 @@ defmodule RefMD.Workspaces.InvitationDelivery do
          device_id: attempt.target_device_id,
          identity_hybrid_encryption_public_key_material: identity_encryption_material,
          identity_hybrid_signing_public_key_material: identity_signing_material,
-         encrypted_identity_hybrid_encryption_private_key_material: encrypted_identity_encryption,
-         identity_hybrid_encryption_private_key_material_nonce: identity_encryption_nonce,
-         identity_encryption_key_id:
-           HybridEncryptionMaterial.compute_key_id!(identity_encryption_material),
-         encrypted_identity_hybrid_signing_private_key_material: encrypted_identity_signing,
-         identity_hybrid_signing_private_key_material_nonce: identity_signing_nonce,
-         identity_signing_key_id: Signature.compute_signing_key_id!(identity_signing_material),
+         recoverable_identity_secret_record: secret_record,
+         identity_encryption_key_id: identity_encryption_key_id,
+         identity_signing_key_id: identity_signing_key_id,
          device_hybrid_encryption_public_key_material:
            registration["device_hybrid_encryption_public_key_material"],
          device_hybrid_signing_public_key_material:
            registration["device_hybrid_signing_public_key_material"],
          user_key_directory_events: registration["user_key_directory_events"],
          user_key_directory_checkpoint: registration["user_key_directory_checkpoint"],
-         approval_signature: proof["approval_signature"],
          client_nonce: client_nonce,
-         pending_registration_challenge_hash: proof["pending_registration_challenge_hash"],
          device_name: proof["device_name"],
          device_type: proof["device_type"]
        }}
     else
       _ -> {:error, :invalid_guest_registration_proof}
     end
+  rescue
+    _ -> {:error, :invalid_guest_registration_proof}
   end
 
   defp decode_client_nonce(value) when is_binary(value) do
@@ -381,29 +378,6 @@ defmodule RefMD.Workspaces.InvitationDelivery do
   end
 
   defp decode_client_nonce(_), do: {:error, :invalid_guest_registration_proof}
-
-  defp decode_registration_bytes(value, expected_bytes \\ nil)
-
-  defp decode_registration_bytes(value, expected_bytes) when is_binary(value) do
-    bytes = Encoding.decode_base64url!(value, expected_bytes)
-
-    if bytes == <<>>,
-      do: {:error, :invalid_guest_registration},
-      else: {:ok, bytes}
-  rescue
-    ArgumentError -> {:error, :invalid_guest_registration}
-  end
-
-  defp decode_registration_bytes(_, _), do: {:error, :invalid_guest_registration}
-
-  defp validate_hash_value(value, _reason) when is_binary(value) do
-    Hash.assert_blake3_base64url!(value)
-    :ok
-  rescue
-    ArgumentError -> {:error, :invalid_guest_registration_proof}
-  end
-
-  defp validate_hash_value(_, _reason), do: {:error, :invalid_guest_registration_proof}
 
   defp validate_approver(attempt, actor_user_id, actor_device_id) do
     device = Repo.get(Device, actor_device_id)
@@ -445,6 +419,7 @@ defmodule RefMD.Workspaces.InvitationDelivery do
              freshness_proof,
              artifacts["workspace_pin_bootstrap"]
            ),
+         :ok <- validate_delivery_operation_checkpoint(artifacts),
          :ok <- validate_delivery_wrap(attempt, artifacts, authorization) do
       {:ok, authorization_id}
     else
@@ -468,6 +443,19 @@ defmodule RefMD.Workspaces.InvitationDelivery do
     else
       _ -> {:error, :invalid_delivery_approval}
     end
+  end
+
+  defp validate_delivery_operation_checkpoint(artifacts) do
+    attrs = SignedPQ.attrs_from_container_params!(artifacts["delivery_wrap"])
+    checkpoint_payload = artifacts["workspace_key_directory_checkpoint"]["payload"]
+    checkpoint_hash = KeyDirectoryProtocol.checkpoint_hash(checkpoint_payload)
+
+    case SignedPQ.validate_operation_checkpoint(attrs, checkpoint_payload, checkpoint_hash) do
+      :ok -> :ok
+      {:error, _reason} -> {:error, :invalid_delivery_operation_checkpoint}
+    end
+  rescue
+    _ -> {:error, :invalid_delivery_operation_checkpoint}
   end
 
   defp validate_freshness_proof(attempt, actor_user_id, actor_device_id, proof) do
@@ -737,8 +725,6 @@ defmodule RefMD.Workspaces.InvitationDelivery do
     payload = authorization["payload"]
     public_material = authorization["hybrid_signing_public_key_material"]
     context = attempt.context_snapshot
-    checkpoint_payload = artifacts["workspace_key_directory_checkpoint"]["payload"]
-    operation_checkpoint_hash = KeyDirectoryProtocol.checkpoint_hash(checkpoint_payload)
 
     expected_resource = %{
       "workspace_id" => attempt.workspace_id,
@@ -786,15 +772,6 @@ defmodule RefMD.Workspaces.InvitationDelivery do
              recipient_key_id: attempt.target_encryption_key_id,
              key_directory_events: artifacts["workspace_key_directory_events"]
            }),
-         true <- attrs.operation_checkpoint_sequence == checkpoint_payload["sequence"],
-         true <-
-           Encoding.encode_base64url(attrs.operation_checkpoint_hash) == operation_checkpoint_hash,
-         true <-
-           attrs.operation_checkpoint_covered_head_sequence ==
-             get_in(checkpoint_payload, ["covered_event_head", "head_sequence"]),
-         true <-
-           Encoding.encode_base64url(attrs.operation_checkpoint_covered_head_hash) ==
-             get_in(checkpoint_payload, ["covered_event_head", "head_hash"]),
          :ok <- SignedPQ.verify_signature(attrs, public_material) do
       :ok
     else
@@ -813,12 +790,10 @@ defmodule RefMD.Workspaces.InvitationDelivery do
     payload = authorization["payload"]
     public_material = authorization["hybrid_signing_public_key_material"]
     context = attempt.context_snapshot
-    checkpoint_payload = artifacts["workspace_key_directory_checkpoint"]["payload"]
 
     intermediate_payload =
       artifacts["workspace_key_directory_intermediate_checkpoint"]["payload"]
 
-    operation_checkpoint_hash = KeyDirectoryProtocol.checkpoint_hash(checkpoint_payload)
     intermediate_checkpoint_hash = KeyDirectoryProtocol.checkpoint_hash(intermediate_payload)
     redeemed = guest_redeemed_event!(artifacts["workspace_key_directory_events"])
 
@@ -859,9 +834,6 @@ defmodule RefMD.Workspaces.InvitationDelivery do
     }
 
     with :ok <- validate_guest_delivery_wrap(attrs, context["scope_kind"], validation_context),
-         true <- attrs.operation_checkpoint_sequence == checkpoint_payload["sequence"],
-         true <-
-           Encoding.encode_base64url(attrs.operation_checkpoint_hash) == operation_checkpoint_hash,
          :ok <- SignedPQ.verify_signature(attrs, public_material) do
       :ok
     else
@@ -1117,24 +1089,17 @@ defmodule RefMD.Workspaces.InvitationDelivery do
            fetch_map(registration, "identity_hybrid_encryption_public_key_material"),
          {:ok, identity_signing_material} <-
            fetch_map(registration, "identity_hybrid_signing_public_key_material"),
-         {:ok, _encrypted_identity_encryption} <-
-           decode_registration_bytes(
-             registration["encrypted_identity_hybrid_encryption_private_key_material"]
+         secret_record <-
+           RecoverableIdentitySecretRecord.to_attrs!(
+             registration["recoverable_identity_secret_record"],
+             %{
+               user_id: target_user_id,
+               signing_key_id: Signature.compute_signing_key_id!(identity_signing_material),
+               encryption_key_id:
+                 HybridEncryptionMaterial.compute_key_id!(identity_encryption_material)
+             }
            ),
-         {:ok, _identity_encryption_nonce} <-
-           decode_registration_bytes(
-             registration["identity_hybrid_encryption_private_key_material_nonce"],
-             24
-           ),
-         {:ok, _encrypted_identity_signing} <-
-           decode_registration_bytes(
-             registration["encrypted_identity_hybrid_signing_private_key_material"]
-           ),
-         {:ok, _identity_signing_nonce} <-
-           decode_registration_bytes(
-             registration["identity_hybrid_signing_private_key_material_nonce"],
-             24
-           ),
+         true <- is_map(secret_record),
          {:ok, user_events} <- fetch_list(registration, "user_key_directory_events"),
          {:ok, _user_checkpoint} <-
            fetch_map(registration, "user_key_directory_checkpoint"),
@@ -1142,7 +1107,7 @@ defmodule RefMD.Workspaces.InvitationDelivery do
          true <-
            Enum.sort(Map.keys(registration)) ==
              Enum.sort(
-               ~w(device_hybrid_encryption_public_key_material device_hybrid_signing_public_key_material encrypted_identity_hybrid_encryption_private_key_material encrypted_identity_hybrid_signing_private_key_material identity_hybrid_encryption_private_key_material_nonce identity_hybrid_encryption_public_key_material identity_hybrid_signing_private_key_material_nonce identity_hybrid_signing_public_key_material user_key_directory_checkpoint user_key_directory_events)
+               ~w(device_hybrid_encryption_public_key_material device_hybrid_signing_public_key_material identity_hybrid_encryption_public_key_material identity_hybrid_signing_public_key_material recoverable_identity_secret_record user_key_directory_checkpoint user_key_directory_events)
              ),
          :ok <- assert_encryption_material(encryption_material, "device", target_device_id),
          :ok <- assert_signing_material(signing_material, "device", target_device_id),
@@ -1154,6 +1119,8 @@ defmodule RefMD.Workspaces.InvitationDelivery do
       false -> {:error, :recipient_target_key_mismatch}
       {:error, reason} -> {:error, reason}
     end
+  rescue
+    _ -> {:error, :recipient_target_key_mismatch}
   end
 
   defp validate_recipient_target(

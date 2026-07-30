@@ -161,6 +161,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         "actor" => actor,
         "previous_event_hash" => current_pin.event_head_hash,
         "body" => %{
+          "key_kind" => "signing",
           "key_id" => successor_signing_key_id,
           "key_material_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(successor_public))
         }
@@ -545,34 +546,30 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
     end
   end
 
-  test "member role change body accepts only the canonical effective permission schema" do
+  test "member role change body accepts only the canonical role transition schema" do
     body = %{
       "workspace_id" => Ecto.UUID.generate(),
       "user_id" => Ecto.UUID.generate(),
       "previous_role_id" => Ecto.UUID.generate(),
       "previous_base_role" => "editor",
-      "previous_effective_permissions" => ["document:read", "document:write", "member:list"],
-      "role_id" => Ecto.UUID.generate(),
-      "base_role" => "viewer",
-      "effective_permissions" => ["document:read", "member:list"],
-      "permission_version" => 2,
+      "new_role_id" => Ecto.UUID.generate(),
+      "new_base_role" => "viewer",
       "changed_at_event_sequence" => 13
     }
 
     assert :ok = Body.assert!("member_role_changed", body)
 
     for invalid <- [
-          Map.delete(body, "permission_version"),
+          Map.delete(body, "new_role_id"),
           Map.put(body, "legacy_role", "viewer"),
-          Map.put(body, "effective_permissions", ["document:read", "document:read"]),
-          Map.put(body, "effective_permissions", ["member:list", "document:read"]),
-          Map.put(body, "effective_permissions", ["unknown:permission"])
+          Map.put(body, "base_role", "viewer"),
+          Map.put(body, "permission_version", 2)
         ] do
       assert_raise ArgumentError, fn -> Body.assert!("member_role_changed", invalid) end
     end
   end
 
-  test "member role changes replay exact effective permissions" do
+  test "member role changes replay the exact new base role" do
     state = %{
       Authority.empty_state()
       | members: %{"admin-user" => "admin", "member-user" => "editor"}
@@ -585,8 +582,8 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         "actor" => %{"signer_kind" => "device", "user_id" => "admin-user"},
         "body" => %{
           "user_id" => "member-user",
-          "base_role" => "editor",
-          "effective_permissions" => ["document:read"]
+          "previous_base_role" => "editor",
+          "new_base_role" => "viewer"
         }
       })
 
@@ -610,8 +607,8 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         "actor" => %{"signer_kind" => "device", "user_id" => "admin-user"},
         "body" => %{
           "user_id" => "admin-user",
-          "base_role" => "viewer",
-          "effective_permissions" => ["document:read", "member:list"]
+          "previous_base_role" => "admin",
+          "new_base_role" => "viewer"
         }
       })
     end
@@ -1348,6 +1345,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
         "actor" => identity_actor(user_id, new_identity_key_id),
         "previous_event_hash" => checkpoint.covered_event_head_hash,
         "body" => %{
+          "key_kind" => "signing",
           "key_id" => new_identity_key_id,
           "key_material_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(new_identity_public))
         }
@@ -1621,8 +1619,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
       user_id: user_id,
       workspace_id: workspace_id,
       bootstrap: bootstrap,
-      identity_private: identity_private,
-      device_private: device_private
+      identity_private: identity_private
     } =
       directory_fixture()
 
@@ -1637,53 +1634,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
 
     identity_public = hybrid_signing_public_key_material(identity_private)
     identity_signing_key_id = Signature.compute_signing_key_id!(identity_public)
-    device_id = device_private["owner_id"]
-
-    device_signing_entry =
-      device_key_entry!(checkpoint.payload, "refmd.hybrid-signing-key-material")
-
-    identity_event =
-      key_directory_event_payload!(%{
-        "scope_kind" => "workspace",
-        "scope_id" => workspace_id,
-        "sequence" => checkpoint.covered_event_head_sequence + 1,
-        "event_type" => "identity_key_added",
-        "actor" => workspace_device_actor(user_id, device_id, device_signing_entry["key_id"]),
-        "previous_event_hash" => checkpoint.covered_event_head_hash,
-        "body" => %{
-          "key_id" => identity_signing_key_id,
-          "key_material_hash" => Hash.blake3_base64url(JCS.canonical_bytes!(identity_public))
-        }
-      })
-
-    identity_event_ref = key_directory_event_ref("workspace", workspace_id, identity_event)
-
-    identity_checkpoint_payload =
-      key_directory_checkpoint_payload!(%{
-        "scope_kind" => "workspace",
-        "scope_id" => workspace_id,
-        "sequence" => checkpoint.sequence + 1,
-        "issued_at" =>
-          DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601(),
-        "previous_checkpoint_hash" => checkpoint.checkpoint_hash,
-        "covered_event_head" => key_directory_event_head(identity_event),
-        "identity_keys" => [Payload.key_entry!(identity_public, identity_event_ref)],
-        "device_keys" => checkpoint.payload["device_keys"]
-      })
-
-    %{checkpoint: identity_checkpoint} =
-      KeyDirectory.append_signed_scope!(
-        "workspace",
-        workspace_id,
-        [signed_key_directory_event_envelope(identity_event, device_private)],
-        signed_key_directory_checkpoint_envelope(
-          identity_checkpoint_payload,
-          "workspace_authorized",
-          device_private,
-          user_id
-        ),
-        checkpoint_signer_kind: "device"
-      )
+    identity_checkpoint = checkpoint
 
     recovered_device_id = Ecto.UUID.generate()
     recovered_device_private = hybrid_signing_private_key_material("device", recovered_device_id)
@@ -1737,7 +1688,7 @@ defmodule RefMD.Encryption.KeyDirectory.KeyDirectoryTest do
                [signed_key_directory_event_envelope(event, identity_private)],
                signed_key_directory_checkpoint_envelope(
                  checkpoint_payload,
-                 "device_authorized",
+                 "workspace_invitation_self_admission",
                  recovered_device_private,
                  user_id
                ),

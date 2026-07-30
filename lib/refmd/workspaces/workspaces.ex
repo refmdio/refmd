@@ -55,18 +55,6 @@ defmodule RefMD.Workspaces do
     |> Repo.exists?()
   end
 
-  defdelegate change_member_role(
-                workspace_id,
-                target_user_id,
-                new_role_id,
-                actor_user_id,
-                key_directory
-              ),
-              to: RefMD.Workspaces.Members
-
-  defdelegate remove_member(workspace_id, target_user_id, actor_user_id, key_directory),
-    to: RefMD.Workspaces.Members
-
   defdelegate permission_defined?(permission), to: RefMD.Workspaces.Roles.Authorization
 
   defdelegate effective_permissions(role), to: RefMD.Workspaces.Roles.Authorization
@@ -495,15 +483,6 @@ defmodule RefMD.Workspaces do
   defdelegate next_rotation_initiator(workspace_id), to: RefMD.Workspaces.KekRotation
 
   defdelegate mark_dek_rotation_needed(workspace_ids, reason),
-    to: RefMD.Workspaces.KekRotation
-
-  defdelegate start_kek_rotation(workspace_id, initiator_user_id, opts \\ []),
-    to: RefMD.Workspaces.KekRotation
-
-  defdelegate prepare_kek_rotation_completion(workspace_id, new_kek_version, opts \\ []),
-    to: RefMD.Workspaces.KekRotation
-
-  defdelegate complete_kek_rotation(workspace_id, new_kek_version, opts \\ []),
     to: RefMD.Workspaces.KekRotation
 
   defdelegate list_workspaces_needing_kek_rotation, to: RefMD.Workspaces.KekRotation

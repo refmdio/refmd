@@ -3,7 +3,6 @@ defmodule RefMDWeb.UmkController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Devices
-  alias RefMD.Security
   alias RefMDWeb.Payloads.DeviceIdentity
   alias RefMDWeb.Schemas
 
@@ -17,7 +16,9 @@ defmodule RefMDWeb.UmkController do
       created: {"UMK distributed", "application/json", Schemas.OkResponse},
       forbidden: {"Invalid device", "application/json", Schemas.ErrorResponse},
       conflict: {"UMK already distributed", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse},
+      service_unavailable:
+        {"Security audit unavailable", "application/json", Schemas.ErrorResponse}
     ]
   )
 
@@ -99,37 +100,33 @@ defmodule RefMDWeb.UmkController do
         params
       )
     end
-    |> case do
-      {:ok, _} ->
-        Security.record_registration_approved(user_id, target_device_id)
-        conn |> put_status(:created) |> json(%{ok: true})
-
-      {:error, %Ecto.Changeset{} = changeset} when changeset.errors != [] ->
-        handle_umk_changeset_error(conn, changeset)
-
-      {:error, :invalid_key_directory} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_key_directory"})
-
-      {:error, :missing_key_directory} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_key_directory"})
-
-      {:error, :invalid_initial_key_delivery} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_initial_key_delivery"})
-
-      {:error, :invalid_initial_ake_prekey} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_initial_ake_prekey"})
-
-      {:error, :initial_ake_prekey_reused} ->
-        conn |> put_status(:conflict) |> json(%{error: "initial_ake_prekey_reused"})
-
-      {:error, :invalid_device} ->
-        conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
-    end
+    |> distribute_result_response(conn)
   end
+
+  def distribute_result_response({:ok, _}, conn),
+    do: conn |> put_status(:created) |> json(%{ok: true})
+
+  def distribute_result_response({:error, %Ecto.Changeset{} = changeset}, conn)
+      when changeset.errors != [],
+      do: handle_umk_changeset_error(conn, changeset)
+
+  def distribute_result_response({:error, reason}, conn)
+      when reason in [
+             :invalid_key_directory,
+             :missing_key_directory,
+             :invalid_initial_key_delivery,
+             :invalid_initial_ake_prekey
+           ],
+      do: conn |> put_status(:unprocessable_entity) |> json(%{error: Atom.to_string(reason)})
+
+  def distribute_result_response({:error, :initial_ake_prekey_reused}, conn),
+    do: conn |> put_status(:conflict) |> json(%{error: "initial_ake_prekey_reused"})
+
+  def distribute_result_response({:error, :invalid_device}, conn),
+    do: conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
+
+  def distribute_result_response({:error, :security_audit_unavailable}, conn),
+    do: conn |> put_status(:service_unavailable) |> json(%{error: "security_audit_unavailable"})
 
   defp handle_umk_changeset_error(conn, changeset) do
     if has_unique_constraint_error?(changeset) do

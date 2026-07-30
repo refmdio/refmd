@@ -44,6 +44,8 @@ export async function startRegistrationApproval(
       userId: params.userId,
       deviceId: params.publicKeys.deviceId,
       serverChallenge: challenge.registration_challenge,
+      issuedAtMs: challenge.issued_at_ms,
+      expiresAtMs: challenge.expires_at_ms,
     });
     if (params.signal?.aborted) throw createAbortError();
     const registration = await devicesApi.createRegistration(

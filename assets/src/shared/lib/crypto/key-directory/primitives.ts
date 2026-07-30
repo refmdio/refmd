@@ -146,9 +146,11 @@ export async function signCheckpoint(
     | "identity_active"
     | "identity_rotation"
     | "workspace_authorized"
+    | "workspace_invitation_self_admission"
     | "invitation_redeem_authority"
     | "share_participant_document_operation"
-    | "device_authorized",
+    | "security_device_revocation"
+    | "identity_self_envelope_rewrap",
   payload: Record<string, unknown>,
   shareSlug?: string,
   shareId?: string,

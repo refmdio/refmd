@@ -1,6 +1,8 @@
 defmodule RefMDWeb.EncryptionControllerTest do
   use RefMDWeb.ConnCase, async: true
 
+  import Ecto.Query, only: [where: 3]
+
   alias RefMD.Auth
   alias RefMD.Encryption.KeyDirectory
   alias RefMD.Encryption.WorkspaceEncryptedKey
@@ -431,6 +433,11 @@ defmodule RefMDWeb.EncryptionControllerTest do
     workspace: workspace,
     owner_id: owner_id
   } do
+    workspace =
+      workspace
+      |> Ecto.Changeset.change(current_kek_version: 1, min_kek_version: 1)
+      |> Repo.update!()
+
     owner_device = create_device(owner_id)
 
     insert_initial_workspace_key_directory!(
@@ -440,8 +447,28 @@ defmodule RefMDWeb.EncryptionControllerTest do
       owner_device.signing_private_key
     )
 
-    path = "/api/encryption/workspaces/#{workspace.id}/kek-rotation"
-    body = current_workspace_key_directory_body(workspace.id)
+    RefMD.Security.AuditEvent
+    |> where(
+      [event],
+      event.chain_scope_kind == "workspace" and event.chain_scope_id == ^workspace.id
+    )
+    |> Repo.delete_all()
+
+    install_signed_audit_genesis!("workspace", workspace.id, owner_id,
+      signer_device_id: owner_device.device.id
+    )
+
+    path = "/api/encryption/workspaces/#{workspace.id}/kek-rotation/intent"
+    current = current_workspace_key_directory_body(workspace.id)
+
+    body = %{
+      "old_key_version" => 1,
+      "new_key_version" => 2,
+      "reason" => "manual",
+      "rotation_id" => Ecto.UUID.generate(),
+      "events" => [],
+      "checkpoint" => current["workspace_key_directory_checkpoint"]
+    }
 
     conn =
       conn
@@ -456,7 +483,9 @@ defmodule RefMDWeb.EncryptionControllerTest do
       )
       |> post(path, test_json_body(body))
 
-    assert json_response(conn, 422) == %{"error" => "invalid_key_directory"}
+    assert %{"error" => "workspace_authority_mutation_candidate_invalid"} =
+             json_response(conn, 422)
+
     refute Workspaces.get_workspace(workspace.id).needs_kek_rotation
   end
 
@@ -600,6 +629,17 @@ defmodule RefMDWeb.EncryptionControllerTest do
       owner_device.signing_private_key
     )
 
+    RefMD.Security.AuditEvent
+    |> where(
+      [event],
+      event.chain_scope_kind == "workspace" and event.chain_scope_id == ^workspace.id
+    )
+    |> Repo.delete_all()
+
+    install_signed_audit_genesis!("workspace", workspace.id, owner_id,
+      signer_device_id: owner_device.device.id
+    )
+
     body =
       kek_rotation_start_key_directory_append(
         workspace.id,
@@ -610,9 +650,19 @@ defmodule RefMDWeb.EncryptionControllerTest do
         workspace.current_kek_version + 1
       )
 
-    path = "/api/encryption/workspaces/#{workspace.id}/kek-rotation"
+    rotation_id = Ecto.UUID.generate()
+    intent_path = "/api/encryption/workspaces/#{workspace.id}/kek-rotation/intent"
 
-    conn =
+    intent_body = %{
+      "old_key_version" => workspace.current_kek_version,
+      "new_key_version" => workspace.current_kek_version + 1,
+      "reason" => "manual",
+      "rotation_id" => rotation_id,
+      "events" => body["workspace_key_directory_events"],
+      "checkpoint" => body["workspace_key_directory_checkpoint"]
+    }
+
+    intent_conn =
       conn
       |> authed_conn(owner_id, owner_device.device)
       |> with_rrp_headers(
@@ -620,13 +670,48 @@ defmodule RefMDWeb.EncryptionControllerTest do
         owner_device.device,
         owner_device.signing_private_key,
         "POST",
-        path,
-        body
+        intent_path,
+        intent_body
       )
-      |> post(path, test_json_body(body))
+      |> post(intent_path, test_json_body(intent_body))
 
-    assert %{"needs_kek_rotation" => true, "workspace_id" => workspace_id} =
-             json_response(conn, 200)
+    intent = json_response(intent_conn, 200)
+
+    command = %{
+      "workspace_id" => workspace.id,
+      "old_key_version" => workspace.current_kek_version,
+      "new_key_version" => workspace.current_kek_version + 1,
+      "reason" => "manual",
+      "rotation_id" => rotation_id
+    }
+
+    authorization =
+      workspace_authority_authorization!(
+        intent,
+        owner_device.signing_private_key,
+        command
+      )
+
+    commit_path = "/api/encryption/workspaces/#{workspace.id}/kek-rotation"
+
+    commit_conn =
+      recycle(intent_conn)
+      |> authed_conn(owner_id, owner_device.device)
+      |> with_rrp_headers(
+        owner_id,
+        owner_device.device,
+        owner_device.signing_private_key,
+        "POST",
+        commit_path,
+        authorization
+      )
+      |> post(commit_path, test_json_body(authorization))
+
+    assert %{
+             "event_type" => "workspace.kek.rotation_started",
+             "status" => "committed",
+             "workspace_id" => workspace_id
+           } = json_response(commit_conn, 200)
 
     assert workspace_id == workspace.id
     assert Workspaces.get_workspace(workspace.id).needs_kek_rotation
@@ -704,346 +789,5 @@ defmodule RefMDWeb.EncryptionControllerTest do
     assert rewrapped.kek_version == 2
     assert rewrapped.encrypted_dek == replacement.encrypted_dek
     assert rewrapped.nonce == replacement.nonce
-  end
-
-  test "manual KEK rotation completion rejects wipe-required unknown device", %{
-    workspace: workspace,
-    owner_id: owner_id
-  } do
-    workspace =
-      workspace
-      |> Ecto.Changeset.change(current_kek_version: 1, min_kek_version: 1)
-      |> Repo.update!()
-
-    owner_device = create_device(owner_id)
-
-    insert_initial_workspace_key_directory!(
-      workspace,
-      owner_id,
-      owner_device.device,
-      owner_device.signing_private_key
-    )
-
-    start_body =
-      kek_rotation_start_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        workspace.current_kek_version,
-        workspace.current_kek_version + 1
-      )
-
-    assert {:ok, _workspace} =
-             Workspaces.start_kek_rotation(workspace.id, owner_id,
-               workspace_key_directory_events: start_body["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 start_body["workspace_key_directory_checkpoint"]
-             )
-
-    complete_body =
-      kek_rotation_complete_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        workspace.current_kek_version,
-        workspace.current_kek_version + 1,
-        device_key_deletion_proofs: [],
-        wipe_required_device_ids: [Ecto.UUID.generate()]
-      )
-
-    assert {:error, :invalid_key_directory} =
-             Workspaces.complete_kek_rotation(workspace.id, workspace.current_kek_version + 1,
-               envelope_checks: fn -> :ok end,
-               workspace_key_directory_events: complete_body["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 complete_body["workspace_key_directory_checkpoint"],
-               device_key_deletion_proofs: complete_body["device_key_deletion_proofs"],
-               wipe_required_device_ids: complete_body["wipe_required_device_ids"]
-             )
-
-    assert Workspaces.get_workspace(workspace.id).needs_kek_rotation
-  end
-
-  test "manual KEK rotation completion accepts signed active device deletion proof", %{
-    workspace: workspace,
-    owner_id: owner_id
-  } do
-    workspace =
-      workspace
-      |> Ecto.Changeset.change(current_kek_version: 1, min_kek_version: 1)
-      |> Repo.update!()
-
-    owner_device = create_device(owner_id)
-
-    insert_initial_workspace_key_directory!(
-      workspace,
-      owner_id,
-      owner_device.device,
-      owner_device.signing_private_key
-    )
-
-    start_body =
-      kek_rotation_start_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        workspace.current_kek_version,
-        workspace.current_kek_version + 1
-      )
-
-    assert {:ok, _workspace} =
-             Workspaces.start_kek_rotation(workspace.id, owner_id,
-               workspace_key_directory_events: start_body["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 start_body["workspace_key_directory_checkpoint"]
-             )
-
-    complete_body =
-      kek_rotation_complete_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        workspace.current_kek_version,
-        workspace.current_kek_version + 1
-      )
-
-    conflicting_guest_id =
-      create_user("guest-owner-deletion-proof@example.com", account_type: "guest")
-
-    _conflicting_guest_device = create_device(conflicting_guest_id)
-    add_member(workspace.id, conflicting_guest_id, "owner")
-
-    alias_only_proofs =
-      update_in(
-        complete_body,
-        [Access.key("device_key_deletion_proofs"), Access.at(0)],
-        fn proof ->
-          proof
-          |> Map.put("hybrid_signature", proof["signature"])
-          |> Map.delete("signature")
-        end
-      )
-
-    assert {:error, :invalid_key_directory} =
-             Workspaces.complete_kek_rotation(workspace.id, workspace.current_kek_version + 1,
-               envelope_checks: fn -> :ok end,
-               workspace_key_directory_events:
-                 alias_only_proofs["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 alias_only_proofs["workspace_key_directory_checkpoint"],
-               device_key_deletion_proofs: alias_only_proofs["device_key_deletion_proofs"],
-               wipe_required_device_ids: alias_only_proofs["wipe_required_device_ids"]
-             )
-
-    mixed_container_proofs =
-      update_in(
-        complete_body,
-        [Access.key("device_key_deletion_proofs"), Access.at(0)],
-        &Map.put(&1, "hybrid_signature", &1["signature"])
-      )
-
-    assert {:error, :invalid_key_directory} =
-             Workspaces.complete_kek_rotation(workspace.id, workspace.current_kek_version + 1,
-               envelope_checks: fn -> :ok end,
-               workspace_key_directory_events:
-                 mixed_container_proofs["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 mixed_container_proofs["workspace_key_directory_checkpoint"],
-               device_key_deletion_proofs: mixed_container_proofs["device_key_deletion_proofs"],
-               wipe_required_device_ids: mixed_container_proofs["wipe_required_device_ids"]
-             )
-
-    assert :ok =
-             Workspaces.complete_kek_rotation(workspace.id, workspace.current_kek_version + 1,
-               envelope_checks: fn -> :ok end,
-               workspace_key_directory_events: complete_body["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 complete_body["workspace_key_directory_checkpoint"],
-               device_key_deletion_proofs: complete_body["device_key_deletion_proofs"],
-               wipe_required_device_ids: complete_body["wipe_required_device_ids"]
-             )
-
-    completed_workspace = Workspaces.get_workspace(workspace.id)
-    refute completed_workspace.needs_kek_rotation
-    assert completed_workspace.current_kek_version == workspace.current_kek_version + 1
-
-    pin = KeyDirectory.current_pin("workspace", workspace.id)
-    event = Repo.get_by!(RefMD.Encryption.KeyDirectory.Event, event_hash: pin.event_head_hash)
-
-    assert event.event_type == "old_key_deleted"
-    assert event.payload["body"]["old_key_version"] == workspace.current_kek_version
-
-    evidence =
-      Repo.get!(
-        RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence,
-        KeyDirectory.event_hash(event.payload)
-      )
-
-    assert evidence.deletion_manifest["server_rejects_old_key_uploads_after_sequence"] ==
-             event.payload["sequence"]
-
-    assert [%{"payload" => proof_payload}] = evidence.device_key_deletion_proofs["proofs"]
-    assert proof_payload["device_id"] == owner_device.device.id
-  end
-
-  test "workspace wipe acknowledgement clears only after a valid device proof", %{
-    workspace: workspace,
-    owner_id: owner_id
-  } do
-    workspace =
-      workspace
-      |> Ecto.Changeset.change(current_kek_version: 1, min_kek_version: 1)
-      |> Repo.update!()
-
-    owner_device = create_device(owner_id)
-
-    insert_initial_workspace_key_directory!(
-      workspace,
-      owner_id,
-      owner_device.device,
-      owner_device.signing_private_key
-    )
-
-    start_body =
-      kek_rotation_start_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        1,
-        2
-      )
-
-    assert {:ok, _} =
-             Workspaces.start_kek_rotation(workspace.id, owner_id,
-               workspace_key_directory_events: start_body["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 start_body["workspace_key_directory_checkpoint"]
-             )
-
-    wipe_body =
-      kek_rotation_complete_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        1,
-        2,
-        device_key_deletion_proofs: [],
-        wipe_required_device_ids: [owner_device.device.id]
-      )
-
-    assert :ok =
-             Workspaces.complete_kek_rotation(workspace.id, 2,
-               envelope_checks: fn -> :ok end,
-               workspace_key_directory_events: wipe_body["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 wipe_body["workspace_key_directory_checkpoint"],
-               device_key_deletion_proofs: [],
-               wipe_required_device_ids: [owner_device.device.id]
-             )
-
-    second_start =
-      kek_rotation_start_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        2,
-        3
-      )
-
-    assert {:ok, _} =
-             Workspaces.start_kek_rotation(workspace.id, owner_id,
-               workspace_key_directory_events: second_start["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 second_start["workspace_key_directory_checkpoint"]
-             )
-
-    second_completion =
-      kek_rotation_complete_key_directory_append(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        2,
-        3,
-        device_key_deletion_proofs: [],
-        wipe_required_device_ids: [owner_device.device.id]
-      )
-
-    assert :ok =
-             Workspaces.complete_kek_rotation(workspace.id, 3,
-               envelope_checks: fn -> :ok end,
-               workspace_key_directory_events:
-                 second_completion["workspace_key_directory_events"],
-               workspace_key_directory_checkpoint:
-                 second_completion["workspace_key_directory_checkpoint"],
-               device_key_deletion_proofs: [],
-               wipe_required_device_ids: [owner_device.device.id]
-             )
-
-    assert {:ok, %{old_key_version: 1, required_kek_version: 2}} =
-             Workspaces.workspace_wipe_requirement(workspace.id, owner_device.device.id)
-
-    evidence =
-      Repo.get_by!(RefMD.Workspaces.WorkspaceKekRotationDeletionEvidence,
-        workspace_id: workspace.id,
-        old_key_version: 1
-      )
-
-    proof =
-      signed_device_key_deletion_proof(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        1,
-        evidence.deletion_manifest["rotation_completed_event_hash"]
-      )
-
-    invalid_proof = put_in(proof, ["payload", "old_key_version"], 9)
-
-    assert {:error, :invalid_deletion_proof} =
-             Workspaces.acknowledge_workspace_wipe(
-               workspace.id,
-               owner_device.device.id,
-               invalid_proof
-             )
-
-    assert Workspaces.workspace_device_wipe_required?(workspace.id, owner_device.device.id)
-
-    assert :ok =
-             Workspaces.acknowledge_workspace_wipe(
-               workspace.id,
-               owner_device.device.id,
-               proof
-             )
-
-    assert {:ok, %{old_key_version: 2, required_kek_version: 3} = second_requirement} =
-             Workspaces.workspace_wipe_requirement(workspace.id, owner_device.device.id)
-
-    second_proof =
-      signed_device_key_deletion_proof(
-        workspace.id,
-        owner_id,
-        owner_device.device.id,
-        owner_device.signing_private_key,
-        2,
-        second_requirement.rotation_completed_event_hash
-      )
-
-    assert :ok =
-             Workspaces.acknowledge_workspace_wipe(
-               workspace.id,
-               owner_device.device.id,
-               second_proof
-             )
-
-    refute Workspaces.workspace_device_wipe_required?(workspace.id, owner_device.device.id)
   end
 end

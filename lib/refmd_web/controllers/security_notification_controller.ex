@@ -18,6 +18,15 @@ defmodule RefMDWeb.SecurityNotificationController do
     ]
   )
 
+  operation(:audit_checkpoints,
+    summary: "Get signed audit checkpoint proofs for the current user scopes",
+    responses: [
+      ok:
+        {"Signed audit checkpoint proofs", "application/json",
+         Schemas.SecurityAuditCheckpointsResponse}
+    ]
+  )
+
   operation(:read,
     summary: "Mark security notification read",
     parameters: [
@@ -55,6 +64,26 @@ defmodule RefMDWeb.SecurityNotificationController do
         |> put_status(:forbidden)
         |> json(%{error: reason})
     end
+  end
+
+  def audit_checkpoints(conn, _params) do
+    user_id = conn.assigns.current_user_id
+
+    workspace_audit_checkpoints =
+      user_id
+      |> Workspaces.get_discoverable_workspace_ids()
+      |> Enum.sort()
+      |> Enum.map(fn workspace_id ->
+        %{
+          workspace_id: workspace_id,
+          audit_checkpoint: Security.current_signed_audit_checkpoint!("workspace", workspace_id)
+        }
+      end)
+
+    json(conn, %{
+      user_audit_checkpoint: Security.current_signed_audit_checkpoint!("user", user_id),
+      workspace_audit_checkpoints: workspace_audit_checkpoints
+    })
   end
 
   def read(conn, %{"notification_id" => notification_id}) do

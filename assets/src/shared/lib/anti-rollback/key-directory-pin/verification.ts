@@ -23,6 +23,8 @@ import {
   assertCheckpointStateMatchesReplay,
   checkpointHash,
   eventHash,
+  genesisCandidateSigningKeyId,
+  isGenesisCandidateEvent,
   numberField,
 } from "./primitives";
 
@@ -92,6 +94,12 @@ export async function verifyInitialReplay(
     share_participant_keys: [],
     revoked_key_ids: [],
   };
+  const genesisSigningKeyId = genesisCandidateSigningKeyId(
+    scopeKind,
+    scopeId,
+    events,
+    checkpoint.payload,
+  );
 
   for (const event of events) {
     if (event.payload.scope_kind !== scopeKind || event.payload.scope_id !== scopeId) {
@@ -109,7 +117,9 @@ export async function verifyInitialReplay(
     }
     verifyEventSemantics(event, checkpoint.payload);
     rotationState = assertAndApplyRotationReplayState(rotationState, event);
-    await verifyEventSignatures(event, checkpoint.payload);
+    await verifyEventSignatures(event, checkpoint.payload, {
+      allowInactiveSigner: isGenesisCandidateEvent(event.payload, genesisSigningKeyId),
+    });
     replayPayload = applyEventToCheckpointPayload(replayPayload, event, checkpoint.payload);
     previousHash = eventHash(event);
     expectedSequence += 1;

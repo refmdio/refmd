@@ -13,24 +13,23 @@ import {
   publicKeyMaterialFromPrivate,
   SIGNING_PRIVATE_KEY_MATERIAL_PROTOCOL,
   type HybridSigningPrivateKeyMaterial,
-  type HybridSigningPublicKeyMaterial,
+  type RecoveryAuthorizationHybridSigningPublicKeyMaterial,
 } from "./signature";
 import { CURRENT_PROTOCOL_VERSION, CURRENT_SUITE_RANK, SUITE_IDS } from "./suite";
 interface RecoveryKeyData {
   mnemonic: string;
   ruk: Uint8Array;
-  recoveryAuthorizationPublicKey: HybridSigningPublicKeyMaterial;
+  recoveryAuthorizationPublicKey: RecoveryAuthorizationHybridSigningPublicKeyMaterial;
   recoveryAuthorizationKeyId: string;
 }
 export async function generateRecoveryKey(userId: string): Promise<RecoveryKeyData> {
   const mnemonic = generateMnemonic(wordlist, 256);
   const ruk = await deriveRukFromMnemonic(mnemonic);
   const authorization = deriveRecoveryAuthorizationKey(ruk, userId);
-  const publicMaterial = publicKeyMaterialFromPrivate(authorization.privateKeyMaterial);
   return {
     mnemonic,
     ruk,
-    recoveryAuthorizationPublicKey: publicMaterial,
+    recoveryAuthorizationPublicKey: authorization.publicKeyMaterial,
     recoveryAuthorizationKeyId: authorization.keyId,
   };
 }
@@ -59,7 +58,7 @@ export function deriveRecoveryAuthorizationKey(
   userId: string,
 ): {
   privateKeyMaterial: HybridSigningPrivateKeyMaterial;
-  publicKeyMaterial: HybridSigningPublicKeyMaterial;
+  publicKeyMaterial: RecoveryAuthorizationHybridSigningPublicKeyMaterial;
   keyId: string;
 } {
   const ed25519Private = hkdf(
@@ -81,7 +80,7 @@ export function deriveRecoveryAuthorizationKey(
   const privateKeyMaterial: HybridSigningPrivateKeyMaterial = {
     protocol: SIGNING_PRIVATE_KEY_MATERIAL_PROTOCOL,
     version: CURRENT_PROTOCOL_VERSION,
-    owner_kind: "identity",
+    owner_kind: "recovery_authorization",
     owner_id: userId,
     ed25519_private: encodeBase64Url(ed25519Private),
     ed25519_public: encodeBase64Url(ed25519Public),
@@ -90,7 +89,9 @@ export function deriveRecoveryAuthorizationKey(
     suite_id: SUITE_IDS.HYBRID_SIGNATURE,
     suite_rank: CURRENT_SUITE_RANK,
   };
-  const publicKeyMaterial = publicKeyMaterialFromPrivate(privateKeyMaterial);
+  const publicKeyMaterial = publicKeyMaterialFromPrivate(
+    privateKeyMaterial,
+  ) as RecoveryAuthorizationHybridSigningPublicKeyMaterial;
   return {
     privateKeyMaterial,
     publicKeyMaterial,

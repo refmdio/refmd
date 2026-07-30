@@ -2,11 +2,11 @@ defmodule RefMDWeb.AuthController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.{Auth, Devices, Encryption, Security, Sharing, Users, Workspaces}
+  alias RefMD.{Auth, Devices, Encryption, Security, Sharing, Users}
   alias RefMD.Auth.DBSC, as: AuthDBSC
+  alias RefMD.Auth.Genesis
   alias RefMD.Auth.OAuth
-  alias RefMD.Crypto
-  alias RefMD.Crypto.{Hash, HybridEncryptionMaterial, Signature}
+  alias RefMD.Crypto.Hash
   alias RefMDWeb.Http.RrpSessionBinding
   alias RefMDWeb.Http.RrpTranscript
   alias RefMDWeb.Http.SessionCookies
@@ -61,198 +61,35 @@ defmodule RefMDWeb.AuthController do
     ]
   )
 
-  def register(conn, %{"user_id" => user_id} = params) when is_binary(user_id) do
-    with {:ok, hybrid_encryption_public_key_material} <-
-           validate_identity_encryption_public_key_material(
-             params["hybrid_encryption_public_key_material"],
-             user_id
-           ),
-         {:ok, x25519_public_key} <-
-           identity_encryption_x25519_public_key(hybrid_encryption_public_key_material),
-         {:ok, hybrid_signing_public_key_material} <-
-           validate_identity_public_key_material(
-             params["hybrid_signing_public_key_material"],
-             user_id
-           ) do
-      cond do
-        not valid_uuid?(user_id) ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_user_id_format"})
+  def register(conn, params) do
+    case Genesis.begin_password_registration(params) do
+      {:ok, %{genesis: genesis, token: token}} ->
+        max_age = max(DateTime.diff(genesis.expires_at, DateTime.utc_now(), :second), 1)
 
-        byte_size(x25519_public_key) != 32 ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "invalid_hybrid_encryption_public_key_material"})
-
-        not Crypto.valid_x25519_public_key?(x25519_public_key) ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "invalid_hybrid_encryption_public_key_material"})
-
-        params["kdf_params"] != @target_kdf_params ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_kdf_params"})
-
-        true ->
-          register_with_validated_keys(
-            conn,
-            params,
-            user_id,
-            hybrid_encryption_public_key_material,
-            hybrid_signing_public_key_material
-          )
-      end
-    else
-      :error ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_required_key"})
-    end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
-  end
-
-  def register(conn, _params) do
-    conn |> put_status(:unprocessable_entity) |> json(%{error: "user_id_required"})
-  end
-
-  defp register_with_validated_keys(
-         conn,
-         params,
-         user_id,
-         hybrid_encryption_public_key_material,
-         hybrid_signing_public_key_material
-       ) do
-    do_register(
-      conn,
-      params,
-      user_id,
-      hybrid_encryption_public_key_material,
-      hybrid_signing_public_key_material
-    )
-  end
-
-  defp do_register(
-         conn,
-         params,
-         user_id,
-         hybrid_encryption_public_key_material,
-         hybrid_signing_public_key_material
-       ) do
-    RefMD.Repo.transaction(fn ->
-      user_attrs = %{email: String.downcase(params["email"]), name: params["name"]}
-      user_struct = %RefMD.Users.User{id: user_id}
-
-      with {:ok, user} <- Users.create_user_with_struct(user_struct, user_attrs),
-           {:ok, _settings} <- Users.create_user_settings(user.id),
-           {:ok, _master_key} <-
-             Encryption.create_user_encrypted_master_key(%{
-               user_id: user.id,
-               auth_type: "password",
-               encrypted_umk: decode_optional_binary(params["encrypted_umk"]),
-               umk_nonce: decode_optional_binary(params["umk_nonce"]),
-               salt: decode_optional_binary(params["salt"]),
-               kdf_type: "argon2id",
-               kdf_params: params["kdf_params"],
-               auth_key_hash: Bcrypt.hash_pwd_salt(params["auth_key"]),
-               recovery_encrypted_umk: decode_optional_binary(params["recovery_encrypted_umk"]),
-               recovery_nonce: decode_optional_binary(params["recovery_nonce"]),
-               recovery_authorization_public_material:
-                 params["recovery_authorization_public_material"],
-               recovery_authorization_key_id: params["recovery_authorization_key_id"]
-             }),
-           {:ok, identity_pub} <-
-             Encryption.create_user_identity_public_key(%{
-               user_id: user.id,
-               hybrid_encryption_public_key_material: hybrid_encryption_public_key_material,
-               hybrid_signing_public_key_material: hybrid_signing_public_key_material,
-               pending_registration_challenge_hash: unissued_registration_challenge_hash()
-             }),
-           {:ok, _identity_key} <-
-             Encryption.create_user_encrypted_identity_key(%{
-               user_id: user.id,
-               encrypted_identity_hybrid_encryption_private_key_material:
-                 decode_optional_binary(
-                   params["encrypted_identity_hybrid_encryption_private_key_material"]
-                 ),
-               identity_hybrid_encryption_private_key_material_nonce:
-                 decode_optional_binary(
-                   params["identity_hybrid_encryption_private_key_material_nonce"]
-                 ),
-               encryption_key_id: identity_pub.encryption_key_id,
-               encrypted_identity_hybrid_signing_private_key_material:
-                 decode_optional_binary(
-                   params["encrypted_identity_hybrid_signing_private_key_material"]
-                 ),
-               identity_hybrid_signing_private_key_material_nonce:
-                 decode_optional_binary(
-                   params["identity_hybrid_signing_private_key_material_nonce"]
-                 ),
-               signing_key_id: identity_pub.signing_key_id
-             }),
-           {:ok, workspace} <-
-             Workspaces.create_default_workspace(
-               user.id,
-               "#{params["name"] || "My"}'s Workspace"
-             ),
-           {_, owner_role} <- Workspaces.get_member_with_role(workspace.id, user.id),
-           {:ok, session, token} <-
-             Auth.create_session(user.id, %{
-               remember_me: false,
-               ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
-               user_agent: get_req_header(conn, "user-agent") |> List.first()
-             }) do
-        %{
-          user: user,
-          workspace: workspace,
-          owner_role: owner_role,
-          session: session,
-          token: token
-        }
-      else
-        {:error, reason} -> RefMD.Repo.rollback(reason)
-        nil -> RefMD.Repo.rollback(:workspace_owner_role_missing)
-      end
-    end)
-    |> case do
-      {:ok,
-       %{
-         user: user,
-         workspace: workspace,
-         owner_role: owner_role,
-         session: session,
-         token: token
-       }} ->
         conn
-        |> set_session_cookie(token, session.remember_me)
-        |> put_registration_header(:user, session)
+        |> SessionCookies.set_genesis_session_cookie(token, max_age)
         |> put_status(:created)
         |> json(%{
-          user: %{
-            id: user.id,
-            email: user.email,
-            name: user.name
-          },
-          workspace_id: workspace.id,
-          workspace_owner_role_id: owner_role.id,
-          session_id: session.id
+          bootstrap_required: true,
+          registration_id: genesis.registration_id,
+          reserved_user_id: genesis.reserved_user_id,
+          reserved_workspace_id: genesis.reserved_workspace_id,
+          reserved_workspace_role_ids: genesis.reserved_workspace_role_ids,
+          expires_at: genesis.expires_at
         })
 
       {:error, reason} ->
         conn
         |> put_status(:unprocessable_entity)
-        |> json(%{
-          error: "registration_failed",
-          details: format_errors(reason)
-        })
+        |> json(%{error: registration_error(reason)})
     end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
-  defp unissued_registration_challenge_hash do
-    32
-    |> :crypto.strong_rand_bytes()
-    |> Hash.blake3_base64url()
-  end
+  defp registration_error(:email_taken), do: "email_taken"
+  defp registration_error(:invalid_email), do: "invalid_email"
+  defp registration_error(:invalid_display_name), do: "invalid_display_name"
+  defp registration_error(:account_genesis_conflict), do: "account_genesis_conflict"
+  defp registration_error(_), do: "invalid_registration"
 
   operation(:login,
     summary: "Login with credentials",
@@ -411,38 +248,6 @@ defmodule RefMDWeb.AuthController do
 
   def oauth_callback(conn, _params) do
     conn |> put_status(:unauthorized) |> json(%{error: "invalid_oauth_callback"})
-  end
-
-  operation(:oauth_crypto_setup,
-    summary: "Initialize OAuth account encryption material",
-    request_body:
-      {"OAuth crypto setup params", "application/json", Schemas.OAuthCryptoSetupRequest},
-    responses: [
-      ok: {"OAuth crypto setup response", "application/json", Schemas.OAuthCryptoSetupResponse},
-      forbidden: {"OAuth crypto setup forbidden", "application/json", Schemas.ErrorResponse},
-      conflict: {"OAuth crypto setup conflict", "application/json", Schemas.ErrorResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  def oauth_crypto_setup(conn, params) do
-    user_id = conn.assigns.current_user_id
-    user = Users.get_user(user_id)
-    session = conn.assigns.current_session
-
-    case oauth_crypto_setup_state(user_id) do
-      :ready ->
-        setup_oauth_crypto(conn, params, user, session)
-
-      :already_initialized ->
-        send_oauth_crypto_setup_response(conn, user, session)
-
-      {:error, reason} ->
-        oauth_crypto_setup_error(conn, reason)
-    end
-  rescue
-    ArgumentError ->
-      conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
   operation(:dbsc_well_known,
@@ -664,6 +469,9 @@ defmodule RefMDWeb.AuthController do
       password_configured: password_master_key?(master_key)
     })
   end
+
+  defp password_master_key?(%{auth_type: "password"}), do: true
+  defp password_master_key?(_), do: false
 
   operation(:unlink_external_account,
     summary: "Unlink an external authentication provider",
@@ -1021,7 +829,7 @@ defmodule RefMDWeb.AuthController do
             },
             session_id: session.id,
             is_recovery: true,
-            audit_checkpoint: Security.current_audit_checkpoint!("user:#{user.id}")
+            audit_checkpoint: Security.current_signed_audit_checkpoint!("user", user.id)
           })
 
         {:error, _reason} ->
@@ -1318,223 +1126,6 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
-  defp setup_oauth_crypto(conn, params, user, session) do
-    with {:ok, hybrid_encryption_public_key_material} <-
-           validate_identity_encryption_public_key_material(
-             params["hybrid_encryption_public_key_material"],
-             user.id
-           ),
-         {:ok, x25519_public_key} <-
-           identity_encryption_x25519_public_key(hybrid_encryption_public_key_material),
-         {:ok, hybrid_signing_public_key_material} <-
-           validate_identity_public_key_material(
-             params["hybrid_signing_public_key_material"],
-             user.id
-           ) do
-      cond do
-        byte_size(x25519_public_key) != 32 ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "invalid_hybrid_encryption_public_key_material"})
-
-        not Crypto.valid_x25519_public_key?(x25519_public_key) ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "invalid_hybrid_encryption_public_key_material"})
-
-        true ->
-          create_oauth_crypto_material(
-            conn,
-            params,
-            user,
-            session,
-            hybrid_encryption_public_key_material,
-            hybrid_signing_public_key_material
-          )
-      end
-    else
-      :error ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_required_key"})
-    end
-  end
-
-  defp create_oauth_crypto_material(
-         conn,
-         params,
-         user,
-         session,
-         hybrid_encryption_public_key_material,
-         hybrid_signing_public_key_material
-       ) do
-    RefMD.Repo.transaction(fn ->
-      with nil <- Encryption.get_user_encrypted_master_key(user.id),
-           nil <- Encryption.get_user_identity_public_key(user.id),
-           nil <- Encryption.get_user_encrypted_identity_key(user.id),
-           {:ok, _master_key} <-
-             Encryption.create_user_encrypted_master_key(%{
-               user_id: user.id,
-               auth_type: "oauth",
-               recovery_encrypted_umk: decode_optional_binary(params["recovery_encrypted_umk"]),
-               recovery_nonce: decode_optional_binary(params["recovery_nonce"]),
-               recovery_authorization_public_material:
-                 params["recovery_authorization_public_material"],
-               recovery_authorization_key_id: params["recovery_authorization_key_id"]
-             }),
-           {:ok, identity_pub} <-
-             Encryption.create_user_identity_public_key(%{
-               user_id: user.id,
-               hybrid_encryption_public_key_material: hybrid_encryption_public_key_material,
-               hybrid_signing_public_key_material: hybrid_signing_public_key_material,
-               pending_registration_challenge_hash: unissued_registration_challenge_hash()
-             }),
-           {:ok, _identity_key} <-
-             Encryption.create_user_encrypted_identity_key(%{
-               user_id: user.id,
-               encrypted_identity_hybrid_encryption_private_key_material:
-                 decode_optional_binary(
-                   params["encrypted_identity_hybrid_encryption_private_key_material"]
-                 ),
-               identity_hybrid_encryption_private_key_material_nonce:
-                 decode_optional_binary(
-                   params["identity_hybrid_encryption_private_key_material_nonce"]
-                 ),
-               encryption_key_id: identity_pub.encryption_key_id,
-               encrypted_identity_hybrid_signing_private_key_material:
-                 decode_optional_binary(
-                   params["encrypted_identity_hybrid_signing_private_key_material"]
-                 ),
-               identity_hybrid_signing_private_key_material_nonce:
-                 decode_optional_binary(
-                   params["identity_hybrid_signing_private_key_material_nonce"]
-                 ),
-               signing_key_id: identity_pub.signing_key_id
-             }),
-           {:ok, workspace, owner_role} <- oauth_workspace_owner(user.id) do
-        %{workspace: workspace, owner_role: owner_role}
-      else
-        nil -> RefMD.Repo.rollback(:workspace_owner_role_missing)
-        {:error, reason} -> RefMD.Repo.rollback(reason)
-        _existing -> RefMD.Repo.rollback(:oauth_crypto_already_initialized)
-      end
-    end)
-    |> case do
-      {:ok, %{workspace: workspace, owner_role: owner_role}} ->
-        json(conn, oauth_crypto_setup_response(user, session, workspace, owner_role))
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_oauth_crypto_setup", details: format_errors(changeset)})
-
-      {:error, reason} ->
-        oauth_crypto_setup_error(conn, reason)
-    end
-  end
-
-  defp oauth_crypto_setup_state(user_id) do
-    material_state = %{
-      master_key: Encryption.get_user_encrypted_master_key(user_id),
-      identity_public_key: Encryption.get_user_identity_public_key(user_id),
-      identity_key: Encryption.get_user_encrypted_identity_key(user_id)
-    }
-
-    cond do
-      password_master_key?(material_state.master_key) ->
-        {:error, :not_oauth_user}
-
-      oauth_crypto_material_complete?(material_state) ->
-        :already_initialized
-
-      oauth_crypto_material_started?(material_state) ->
-        {:error, :oauth_crypto_partial_setup}
-
-      Users.get_user_external_accounts(user_id) == [] ->
-        {:error, :not_oauth_user}
-
-      true ->
-        :ready
-    end
-  end
-
-  defp password_master_key?(%{auth_type: "password"}), do: true
-  defp password_master_key?(_), do: false
-
-  defp oauth_crypto_material_complete?(%{
-         master_key: master_key,
-         identity_public_key: identity_public_key,
-         identity_key: identity_key
-       }) do
-    master_key != nil and identity_public_key != nil and identity_key != nil
-  end
-
-  defp oauth_crypto_material_started?(%{
-         master_key: master_key,
-         identity_public_key: identity_public_key,
-         identity_key: identity_key
-       }) do
-    master_key != nil or identity_public_key != nil or identity_key != nil
-  end
-
-  defp send_oauth_crypto_setup_response(conn, user, session) do
-    case oauth_workspace_owner(user.id) do
-      {:ok, workspace, owner_role} ->
-        json(conn, oauth_crypto_setup_response(user, session, workspace, owner_role))
-
-      {:error, reason} ->
-        oauth_crypto_setup_error(conn, reason)
-    end
-  end
-
-  defp oauth_workspace_owner(user_id) do
-    case Workspaces.get_user_default_workspace(user_id) do
-      nil ->
-        {:error, :workspace_missing}
-
-      workspace ->
-        case Workspaces.get_member_with_role(workspace.id, user_id) do
-          {_, owner_role} when not is_nil(owner_role) -> {:ok, workspace, owner_role}
-          _ -> {:error, :workspace_owner_role_missing}
-        end
-    end
-  end
-
-  defp oauth_crypto_setup_response(user, session, workspace, owner_role) do
-    %{
-      user: %{
-        id: user.id,
-        email: user.email,
-        name: user.name
-      },
-      workspace_id: workspace.id,
-      workspace_owner_role_id: owner_role.id,
-      session_id: session.id
-    }
-  end
-
-  defp oauth_crypto_setup_error(conn, :not_oauth_user) do
-    conn |> put_status(:forbidden) |> json(%{error: "not_oauth_user"})
-  end
-
-  defp oauth_crypto_setup_error(conn, :oauth_crypto_already_initialized) do
-    conn |> put_status(:conflict) |> json(%{error: "oauth_crypto_already_initialized"})
-  end
-
-  defp oauth_crypto_setup_error(conn, :oauth_crypto_partial_setup) do
-    conn |> put_status(:conflict) |> json(%{error: "oauth_crypto_partial_setup"})
-  end
-
-  defp oauth_crypto_setup_error(conn, :workspace_missing) do
-    conn |> put_status(:unprocessable_entity) |> json(%{error: "workspace_missing"})
-  end
-
-  defp oauth_crypto_setup_error(conn, :workspace_owner_role_missing) do
-    conn |> put_status(:unprocessable_entity) |> json(%{error: "workspace_owner_role_missing"})
-  end
-
-  defp oauth_crypto_setup_error(conn, _reason) do
-    conn |> put_status(:unprocessable_entity) |> json(%{error: "oauth_crypto_setup_failed"})
-  end
-
   defp oauth_redirect_uri(conn, provider) do
     configured_redirect_uri = oauth_configured_redirect_uri(provider)
 
@@ -1650,63 +1241,22 @@ defmodule RefMDWeb.AuthController do
     end
   end
 
-  @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
-
-  defp valid_uuid?(str) when is_binary(str), do: Regex.match?(@uuid_regex, str)
-
-  defp validate_identity_public_key_material(material, user_id) when is_map(material) do
-    with :ok <- Signature.assert_public_key_material!(material),
-         true <- material["owner_kind"] == "identity",
-         true <- material["owner_id"] == user_id do
-      {:ok, material}
-    else
-      _ -> :error
-    end
-  rescue
-    ArgumentError -> :error
-  end
-
-  defp validate_identity_public_key_material(_, _), do: :error
-
-  defp validate_identity_encryption_public_key_material(
-         material,
-         user_id
-       )
-       when is_map(material) do
-    with :ok <- HybridEncryptionMaterial.assert_public_key_material!(material),
-         true <- material["owner_kind"] == "identity",
-         true <- material["owner_id"] == user_id do
-      {:ok, material}
-    else
-      _ -> :error
-    end
-  rescue
-    ArgumentError -> :error
-  end
-
-  defp validate_identity_encryption_public_key_material(_, _), do: :error
-
-  defp identity_encryption_x25519_public_key(material) do
-    {:ok, HybridEncryptionMaterial.x25519_public!(material)}
-  rescue
-    ArgumentError -> :error
-  end
-
   defp format_login_keys(keys) do
     mk = keys.encrypted_master_key
     ik = keys.encrypted_identity_key
 
     result = %{
       encrypted_identity_hybrid_encryption_private_key_material:
-        encode_binary(ik && ik.encrypted_identity_hybrid_encryption_private_key_material),
+        encode_struct_binary(ik, :encrypted_identity_hybrid_encryption_private_key_material),
       identity_hybrid_encryption_private_key_material_nonce:
-        encode_binary(ik && ik.identity_hybrid_encryption_private_key_material_nonce),
-      identity_encryption_key_id: ik && ik.encryption_key_id,
+        encode_struct_binary(ik, :identity_hybrid_encryption_private_key_material_nonce),
+      identity_encryption_key_id: struct_field(ik, :encryption_key_id),
       encrypted_identity_hybrid_signing_private_key_material:
-        encode_binary(ik && ik.encrypted_identity_hybrid_signing_private_key_material),
+        encode_struct_binary(ik, :encrypted_identity_hybrid_signing_private_key_material),
       identity_hybrid_signing_private_key_material_nonce:
-        encode_binary(ik && ik.identity_hybrid_signing_private_key_material_nonce),
-      identity_signing_key_id: ik && ik.signing_key_id,
+        encode_struct_binary(ik, :identity_hybrid_signing_private_key_material_nonce),
+      identity_signing_key_id: struct_field(ik, :signing_key_id),
+      identity_key_epoch: struct_field(ik, :identity_key_epoch),
       identity_rotation_due_at: struct_field(keys.identity_public_key, :rotation_due_at),
       identity_key_checkpoint: key_directory_envelope(keys.identity_key_checkpoint)
     }
@@ -1755,6 +1305,7 @@ defmodule RefMDWeb.AuthController do
       identity_hybrid_signing_private_key_material_nonce:
         encode_struct_binary(identity_key, :identity_hybrid_signing_private_key_material_nonce),
       identity_signing_key_id: struct_field(identity_key, :signing_key_id),
+      identity_key_epoch: struct_field(identity_key, :identity_key_epoch),
       identity_rotation_due_at: struct_field(identity_public_key, :rotation_due_at),
       hybrid_encryption_public_key_material:
         struct_field(identity_public_key, :hybrid_encryption_public_key_material),
@@ -1775,7 +1326,7 @@ defmodule RefMDWeb.AuthController do
       candidate_user_event_ancestry: Auth.user_key_directory_event_ancestry(user_id, user_pin),
       candidate_user_rotation_deletion_evidences:
         Auth.user_identity_rotation_deletion_evidences(user_id, user_pin),
-      candidate_user_audit_checkpoint: Security.current_audit_checkpoint!("user:#{user_id}"),
+      candidate_user_audit_checkpoint: Security.current_signed_audit_checkpoint!("user", user_id),
       candidate_workspace_checkpoints: candidate_workspace_checkpoints(user_id)
     }
   end

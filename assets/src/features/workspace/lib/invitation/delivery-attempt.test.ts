@@ -20,6 +20,8 @@ import {
   getApprovedGuestDeliveryAttempt,
   InvitationDeliveryTerminalError,
 } from "./delivery-attempt";
+import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import { canonicalizeStrictBytes } from "@/shared/lib/crypto/jcs";
 
 const lookupToken = "lookup-token";
 const storageKey = `refmd-invitation-delivery-attempt:${lookupToken}`;
@@ -46,17 +48,26 @@ beforeEach(() => {
 });
 
 describe("known guest delivery attempt lifecycle", () => {
-  it.each(["consumed", "expired"] as const)(
-    "rejects a %s initial attempt and clears its local tuple",
-    async (status) => {
-      apiMocks.get.mockResolvedValue({ status });
+  it("rejects an expired initial attempt and clears its local tuple", async () => {
+    apiMocks.get.mockResolvedValue({ status: "expired" });
 
-      await expect(getAttempt()).rejects.toBeInstanceOf(InvitationDeliveryTerminalError);
+    await expect(getAttempt()).rejects.toBeInstanceOf(InvitationDeliveryTerminalError);
 
-      expect(localStorage.getItem(storageKey)).toBeNull();
-      expect(apiMocks.create).not.toHaveBeenCalled();
-    },
-  );
+    expect(localStorage.getItem(storageKey)).toBeNull();
+    expect(apiMocks.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a consumed attempt and clears its local tuple", async () => {
+    const attempt = matchingAttempt("consumed");
+    apiMocks.get.mockResolvedValue(attempt);
+
+    await expect(getAttempt()).rejects.toThrow(
+      "Guest invitation key delivery attempt was already consumed.",
+    );
+
+    expect(localStorage.getItem(storageKey)).toBeNull();
+    expect(apiMocks.create).not.toHaveBeenCalled();
+  });
 
   it("clears the local tuple when the server no longer has the attempt", async () => {
     apiMocks.get.mockRejectedValue(new Error("not_found"));
@@ -67,6 +78,30 @@ describe("known guest delivery attempt lifecycle", () => {
     expect(apiMocks.create).not.toHaveBeenCalled();
   });
 });
+
+function matchingAttempt(status: "approved" | "consumed") {
+  return {
+    redeem_attempt_id: "66666666-6666-4666-8666-666666666666",
+    context_kind: "guest_invitation",
+    context_id: invitationId,
+    recipient_user_id: accountUserId,
+    recipient_device_id: accountDeviceId,
+    target_user_id: guestUserId,
+    target_device_id: guestDeviceId,
+    recipient_redeem_nonce: "nonce",
+    live_redeem_challenge_hash: "challenge",
+    recipient_nonce_state_hash: blake3Base64Url(
+      canonicalizeStrictBytes({
+        redeem_attempt_id: "66666666-6666-4666-8666-666666666666",
+        recipient_redeem_nonce: "nonce",
+        recipient_device_id: accountDeviceId,
+        context_id: invitationId,
+      }),
+    ),
+    status,
+    approved_artifacts: { authorization: {} },
+  };
+}
 
 function getAttempt() {
   return getApprovedGuestDeliveryAttempt({

@@ -66,6 +66,96 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
   def assert_workspace_admin_authority!(_, _, _),
     do: raise(ArgumentError, "workspace_admin_authority_invalid")
 
+  @audit_workspace_admin_events ~w(
+    workspace.member.added
+    workspace.member.removed
+    workspace.member.role_changed
+    workspace.invitation.created
+    workspace.invitation.revoked
+    workspace.guest_invitation.created
+    workspace.guest_invitation.revoked
+    workspace.guest_grant.revoked
+    workspace.guest_device.revoked
+    workspace.kek.rotation_started
+    workspace.kek.rotation_completed
+    workspace.kek.old_key_deleted
+    workspace.suite_policy.changed
+  )
+
+  @audit_share_management_events ~w(
+    workspace.share.created
+    workspace.share.metadata_updated
+    workspace.share.key_scope_added
+    workspace.share.key_scope_replaced
+    workspace.share.key_scope_removed
+    workspace.share.exclusion_changed
+    workspace.share.revoked
+  )
+
+  @audit_document_rotation_events ~w(
+    workspace.dek.rotation_started
+    workspace.dek.rotation_completed
+    workspace.dek.old_key_deleted
+  )
+
+  @audit_active_member_events ~w(
+    workspace.security_device_revocation.applied
+    workspace.identity_self_envelope_rewrap.completed
+  )
+
+  def assert_audit_checkpoint_authority!(
+        workspace_id,
+        event_head_sequence,
+        event_type,
+        %{"signer_kind" => "device", "user_id" => user_id}
+      ) do
+    assert_audit_authority_inputs!(workspace_id, event_head_sequence, event_type, user_id)
+    state = workspace_authority_state(workspace_id, event_head_sequence)
+    role = Map.get(state.members, user_id)
+
+    authorized? =
+      case audit_authority_kind(event_type) do
+        :workspace_admin ->
+          permission_granted?(role, :workspace_admin)
+
+        :share_management ->
+          permission_granted?(role, :document_manage_share) or
+            permission_granted?(role, :workspace_admin)
+
+        :document_rotation ->
+          permission_granted?(role, :document_archive)
+
+        :active_member ->
+          permission_granted?(role, :active_member)
+
+        :unknown ->
+          false
+      end
+
+    if authorized?, do: :ok, else: raise(ArgumentError, "audit_checkpoint_authority_unverified")
+  end
+
+  def assert_audit_checkpoint_authority!(_, _, _, _),
+    do: raise(ArgumentError, "audit_checkpoint_authority_unverified")
+
+  defp assert_audit_authority_inputs!(workspace_id, event_head_sequence, event_type, user_id)
+       when is_binary(workspace_id) and is_integer(event_head_sequence) and
+              event_head_sequence >= 0 and is_binary(event_type) and is_binary(user_id),
+       do: :ok
+
+  defp assert_audit_authority_inputs!(_, _, _, _),
+    do: raise(ArgumentError, "audit_checkpoint_authority_unverified")
+
+  defp audit_authority_kind(event_type) do
+    cond do
+      event_type in @audit_workspace_admin_events -> :workspace_admin
+      event_type in @audit_share_management_events -> :share_management
+      event_type in @audit_document_rotation_events -> :document_rotation
+      event_type in @audit_active_member_events -> :active_member
+      true -> :unknown
+    end
+  end
+
   def active_workspace_scope_guest_device_admitted?(
         workspace_id,
         event_head_sequence,
@@ -255,7 +345,8 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
               "device_key_added",
               "signing_key_revoked",
               "encryption_key_revoked",
-              "wrap_issued"
+              "wrap_issued",
+              "workspace_member_envelope_issued"
             ],
        do: :active_member
 
@@ -310,7 +401,7 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
          %{event_type: "member_role_changed", payload: %{"body" => body}},
          state
        ) do
-    put_member_authority(state, body["user_id"], body["base_role"], body["effective_permissions"])
+    put_member_role(state, body["user_id"], body["new_base_role"])
   end
 
   defp apply_authority_event(
@@ -497,16 +588,6 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
 
   defp put_member_role(state, _user_id, _role), do: state
 
-  defp put_member_authority(state, user_id, role, permissions)
-       when is_binary(user_id) and is_binary(role) and is_list(permissions),
-       do:
-         put_in(state, [:members, user_id], %{
-           base_role: role,
-           permissions: MapSet.new(permissions)
-         })
-
-  defp put_member_authority(state, _user_id, _role, _permissions), do: state
-
   defp put_key_owner(state, key_id, %{user_id: user_id, device_id: device_id})
        when is_binary(key_id) and is_binary(user_id) and is_binary(device_id) do
     Map.update(state, :key_owners, %{key_id => %{user_id: user_id, device_id: device_id}}, fn
@@ -675,10 +756,10 @@ defmodule RefMD.Encryption.KeyDirectory.Authority do
          %{
            "event_type" => "member_role_changed",
            "actor" => %{"signer_kind" => "device", "user_id" => user_id},
-           "body" => %{"user_id" => user_id, "effective_permissions" => permissions}
+           "body" => %{"user_id" => user_id, "new_base_role" => base_role}
          }
        ) do
-    unless is_list(permissions) and "workspace:admin" in permissions do
+    unless base_role in ["owner", "admin"] do
       raise ArgumentError, "member_role_change_candidate_signer_ineligible"
     end
 

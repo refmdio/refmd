@@ -62,7 +62,10 @@ export async function rotateCurrentUserIdentity(): Promise<RotationStatus> {
       oldKeyVersion: status.current_key_version!,
       newKeyVersion: (status.current_key_version ?? 0) + 1,
     });
-    const encrypted = await worker.wrapIdentitySuccessorForServer(auth.user.id);
+    const encrypted = await worker.wrapIdentitySuccessorForServer(
+      auth.user.id,
+      (status.current_key_version ?? 0) + 1,
+    );
     try {
       status = await encryptionApi.prepareIdentityRotation(
         {
@@ -381,13 +384,17 @@ async function restorePendingSuccessor(
   const encryptionNonce = status.pending_identity_hybrid_encryption_private_key_material_nonce;
   const encryptedSigning = status.pending_encrypted_identity_hybrid_signing_private_key_material;
   const signingNonce = status.pending_identity_hybrid_signing_private_key_material_nonce;
+  const identityKeyEpoch = status.pending_key_version;
   if (
     !encryptedEncryption ||
     !encryptionNonce ||
     !encryptedSigning ||
     !signingNonce ||
     !status.pending_encryption_key_id ||
-    !status.pending_signing_key_id
+    !status.pending_signing_key_id ||
+    typeof identityKeyEpoch !== "number" ||
+    !Number.isSafeInteger(identityKeyEpoch) ||
+    identityKeyEpoch < 1
   ) {
     throw new Error("identity_rotation_pending_material_incomplete");
   }
@@ -398,6 +405,7 @@ async function restorePendingSuccessor(
     encryptedHybridSigningPrivateKeyMaterial: base64UrlDecode(encryptedSigning),
     hybridSigningPrivateKeyMaterialNonce: base64UrlDecode(signingNonce),
     signingKeyId: status.pending_signing_key_id,
+    identityKeyEpoch,
   };
   if (finalizationStarted) {
     if (!status.current_encryption_key_id || !status.current_signing_key_id) {

@@ -173,6 +173,28 @@ defmodule RefMD.Encryption.KeyDirectory.Store do
 
   def active_key_material_at_checkpoint(_, _, _, _, _), do: {:error, :not_found}
 
+  def checkpoint_event_head(
+        scope_kind,
+        scope_id,
+        checkpoint_sequence,
+        checkpoint_hash
+      )
+      when scope_kind in @valid_scope_kinds and is_binary(scope_id) and
+             is_integer(checkpoint_sequence) and checkpoint_sequence > 0 and
+             is_binary(checkpoint_hash) do
+    case Repo.get_by(Checkpoint,
+           scope_kind: scope_kind,
+           scope_id: scope_id,
+           sequence: checkpoint_sequence,
+           checkpoint_hash: checkpoint_hash
+         ) do
+      %Checkpoint{covered_event_head_sequence: sequence} -> {:ok, sequence}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  def checkpoint_event_head(_, _, _, _), do: {:error, :not_found}
+
   def initial_checkpoint_pin!(%Checkpoint{sequence: 1} = checkpoint),
     do: checkpoint_pin(checkpoint)
 

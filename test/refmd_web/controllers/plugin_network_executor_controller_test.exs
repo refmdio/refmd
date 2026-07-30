@@ -740,7 +740,13 @@ defmodule RefMDWeb.PluginNetworkExecutorControllerTest do
       Security.record_audit_event(%{
         class: "security_runtime",
         type: "plugin.network.requested",
-        actor: %{"user_id" => user_id, "device_id" => device_id},
+        actor: %{
+          "user_id" => user_id,
+          "device_id" => device_id,
+          "session_id" => nil,
+          "principal_kind" => "user",
+          "principal_id" => user_id
+        },
         scope: %{
           "workspace_id" => application.workspace_id,
           "document_id" => nil,

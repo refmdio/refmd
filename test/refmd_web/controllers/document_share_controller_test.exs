@@ -957,7 +957,7 @@ defmodule RefMDWeb.DocumentShareControllerTest do
         "add_keys" => nil
       })
 
-    assert %{"error" => "invalid_strict_json"} = json_response(conn, 422)
+    assert %{"error" => "invalid_request_schema"} = json_response(conn, 422)
   end
 
   test "rejects folder share key updates for invalid scope and targets", %{

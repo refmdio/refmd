@@ -35,7 +35,7 @@ test("offline device acknowledges KEK wipe and reenters with the current key", a
   const wipeResponses: Array<{ method: string; path: string; status: number; body: string }> = [];
   owner.on("response", async (response) => {
     const path = new URL(response.url()).pathname;
-    if (!path.includes("/kek-rotation")) return;
+    if (!path.includes("/kek-rotation") && !path.includes("/rotations/")) return;
     kekResponses.push({
       method: response.request().method(),
       path,
@@ -232,7 +232,9 @@ async function revokeTargetAndCompleteRotations(
   const kekCompletion = owner.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      new URL(response.url()).pathname.endsWith("/kek-rotation/complete"),
+      /\/api\/encryption\/workspaces\/[^/]+\/rotations\/[^/]+\/complete$/.test(
+        new URL(response.url()).pathname,
+      ),
     { timeout: 90_000 },
   );
   const workspaceWipeAcknowledgement = owner.waitForResponse(

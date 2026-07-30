@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { clearAllPersistedKeys } from "./key-persistence";
+import { clearAllPersistedKeys, clearPlaintextActivityMetadata } from "./key-persistence";
 
 describe("key persistence secure cleanup", () => {
   const openedDbs: string[] = [];
@@ -78,6 +78,20 @@ describe("key persistence secure cleanup", () => {
       ["refmd-keys", "refmd-trust", "refmd-offline", "refmd-security"].sort(),
     );
     expect(deletedCaches.sort()).toEqual(["refmd-app-cache", "third-party-cache"].sort());
+  });
+
+  it("deletes plaintext activity metadata for ordinary logout", () => {
+    localStorage.setItem("refmd-device-id:user", "device-id");
+    localStorage.setItem("recent-docs:workspace", "document-id");
+    localStorage.setItem("editor-mode:document", "markdown");
+    localStorage.setItem("unrelated", "keep");
+
+    clearPlaintextActivityMetadata();
+
+    expect(localStorage.getItem("refmd-device-id:user")).toBe("device-id");
+    expect(localStorage.getItem("recent-docs:workspace")).toBeNull();
+    expect(localStorage.getItem("editor-mode:document")).toBeNull();
+    expect(localStorage.getItem("unrelated")).toBe("keep");
   });
 });
 

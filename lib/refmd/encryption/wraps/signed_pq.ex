@@ -373,6 +373,30 @@ defmodule RefMD.Encryption.Wraps.SignedPQ do
     )
   end
 
+  def validate_operation_checkpoint(attrs, checkpoint_payload, checkpoint_hash)
+      when is_map(attrs) and is_map(checkpoint_payload) and is_binary(checkpoint_hash) do
+    covered_head = Map.get(checkpoint_payload, "covered_event_head", %{})
+
+    with :ok <- expect(attrs.operation_checkpoint_sequence == checkpoint_payload["sequence"]),
+         :ok <- expect(encode_binary(attrs.operation_checkpoint_hash) == checkpoint_hash),
+         :ok <-
+           expect(
+             attrs.operation_checkpoint_covered_head_sequence == covered_head["head_sequence"]
+           ),
+         :ok <-
+           expect(
+             encode_binary(attrs.operation_checkpoint_covered_head_hash) ==
+               covered_head["head_hash"]
+           ) do
+      :ok
+    else
+      {:error, _} -> {:error, :operation_checkpoint_mismatch}
+    end
+  end
+
+  def validate_operation_checkpoint(_attrs, _checkpoint_payload, _checkpoint_hash),
+    do: {:error, :operation_checkpoint_mismatch}
+
   defp validate_scoped_wrap(attrs, context, purpose, error_reason) do
     with :ok <- validate_common(attrs),
          :ok <- expect(attrs.purpose == purpose),

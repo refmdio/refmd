@@ -4,15 +4,17 @@ defmodule RefMD.Workspaces.InvitationRecipientTest do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias RefMD.Crypto.{Hash, JCS, Signature}
+  alias RefMD.Crypto.{Encoding, Hash, JCS, Signature}
   alias RefMD.Devices.Device
   alias RefMD.Encryption
+  alias RefMD.Encryption.KeyDirectory.PinBootstrap
   alias RefMD.Encryption.RotationPolicy
   alias RefMD.Encryption.UserIdentityPublicKey
+  alias RefMD.Encryption.Wraps.SignedPQ
   alias RefMD.Repo
   alias RefMD.Users.User
   alias RefMD.Workspaces
-  alias RefMD.Workspaces.{WorkspaceInvitation, WorkspaceMember}
+  alias RefMD.Workspaces.{InvitationDeliveryAttempt, WorkspaceInvitation, WorkspaceMember}
 
   test "known workspace invitation accepts only the bound active recipient device" do
     Sandbox.unboxed_run(Repo, fn ->
@@ -214,6 +216,113 @@ defmodule RefMD.Workspaces.InvitationRecipientTest do
     end)
   end
 
+  test "guest delivery approval rolls back when covered checkpoint head diverges" do
+    Sandbox.unboxed_run(Repo, fn ->
+      owner = insert_user("guest-wrap-owner")
+      recipient = insert_user("guest-wrap-recipient")
+      {:ok, workspace} = Workspaces.create_default_workspace(owner.id, "Guest Wrap Binding")
+
+      owner_role =
+        Repo.get_by!(Workspaces.WorkspaceRole, workspace_id: workspace.id, base_role: "owner")
+
+      owner_device = insert_device(owner.id)
+      recipient_device = insert_device(recipient.id)
+      insert_workspace_key_directory!(workspace.id, owner, owner_device, owner_role.id)
+
+      attempt =
+        %InvitationDeliveryAttempt{}
+        |> InvitationDeliveryAttempt.create_changeset(%{
+          id: Ecto.UUID.generate(),
+          workspace_id: workspace.id,
+          context_kind: "guest_invitation",
+          context_id: Ecto.UUID.generate(),
+          recipient_user_id: recipient.id,
+          recipient_device_id: recipient_device.id,
+          target_user_id: recipient.id,
+          target_device_id: recipient_device.id,
+          target_encryption_key_id: recipient_device.encryption_key_id,
+          target_registration: %{"fixture" => "guest-wrap-binding"},
+          target_registration_proof: %{"fixture" => "guest-wrap-binding"},
+          recipient_redeem_nonce: Hash.blake3_base64url("guest-wrap-redeem-nonce"),
+          live_redeem_challenge_hash: Hash.blake3_base64url("guest-wrap-live-challenge"),
+          recipient_nonce_state_hash: Hash.blake3_base64url("guest-wrap-nonce-state"),
+          request_binding_hash: Hash.blake3_base64url("guest-wrap-request-binding"),
+          resource_hash: Hash.blake3_base64url("guest-wrap-resource"),
+          context_snapshot: %{
+            "scope_kind" => "workspace",
+            "scope_id" => "none",
+            "permission" => "view",
+            "kek_version" => 1
+          },
+          status: "pending",
+          expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+        })
+        |> Repo.insert!()
+
+      checkpoint = Encryption.current_workspace_key_directory_checkpoint(workspace.id)
+      checkpoint_payload = checkpoint.payload
+      checkpoint_hash = checkpoint.checkpoint_hash
+      covered_head = checkpoint_payload["covered_event_head"]
+      freshness_proof = authoritative_freshness_proof(attempt, owner, owner_device, checkpoint)
+      workspace_pin_bootstrap = test_workspace_pin_bootstrap!(workspace.id)
+
+      authorization =
+        recipient_bound_authorization(
+          attempt,
+          owner,
+          owner_device,
+          checkpoint,
+          freshness_proof,
+          workspace_pin_bootstrap
+        )
+
+      mismatches = [
+        {covered_head["head_sequence"] + 1, covered_head["head_hash"]},
+        {covered_head["head_sequence"], Hash.blake3_base64url("wrong-covered-head")}
+      ]
+
+      for {covered_sequence, covered_hash} <- mismatches do
+        artifacts = %{
+          "authorization" => authorization,
+          "delivery_wrap" =>
+            guest_delivery_wrap_container(
+              checkpoint_payload["sequence"],
+              checkpoint_hash,
+              covered_sequence,
+              covered_hash
+            ),
+          "redeem_freshness_proof" => freshness_proof,
+          "workspace_key_directory_checkpoint" => %{
+            "payload" => checkpoint_payload,
+            "signatures" => checkpoint.signatures
+          },
+          "workspace_key_directory_events" => [],
+          "workspace_key_directory_intermediate_checkpoint" => %{},
+          "workspace_pin_bootstrap" => workspace_pin_bootstrap
+        }
+
+        assert {:error, :invalid_delivery_operation_checkpoint} =
+                 Workspaces.approve_invitation_delivery_attempt(
+                   workspace.id,
+                   attempt.id,
+                   owner.id,
+                   owner_device.id,
+                   artifacts
+                 )
+
+        reloaded = Repo.get!(InvitationDeliveryAttempt, attempt.id)
+        assert reloaded.status == "pending"
+        assert is_nil(reloaded.authorization_id)
+        assert is_nil(reloaded.approved_artifacts)
+        assert is_nil(reloaded.approved_at)
+      end
+
+      Repo.delete!(workspace)
+      Repo.delete!(owner)
+      Repo.delete!(recipient)
+    end)
+  end
+
   test "member gossip quorum requires distinct authorized users and exact proof hashes" do
     Sandbox.unboxed_run(Repo, fn ->
       owner = insert_user("gossip-quorum-owner")
@@ -392,6 +501,137 @@ defmodule RefMD.Workspaces.InvitationRecipientTest do
       name: label,
       account_type: "registered"
     })
+  end
+
+  defp guest_delivery_wrap_container(
+         checkpoint_sequence,
+         checkpoint_hash,
+         covered_head_sequence,
+         covered_head_hash
+       ) do
+    signing_key_id = :crypto.strong_rand_bytes(32)
+    recipient_key_id = :crypto.strong_rand_bytes(32)
+
+    %{
+      wrap_protocol: "refmd.signed-pq-hybrid-wrap",
+      wrap_version: 1,
+      suite_id:
+        "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65",
+      suite_rank: 1000,
+      kem_id: 0x647A,
+      kdf_id: 0x0001,
+      aead_id: 0x0003,
+      purpose: "guest_invitation_workspace_kek_wrap",
+      resource: %{},
+      sender: %{},
+      recipient: %{},
+      event_scope: %{},
+      wrap_event_sequence: covered_head_sequence,
+      wrap_event_hash: :crypto.strong_rand_bytes(32),
+      wrap_event_body_hash: :crypto.strong_rand_bytes(32),
+      operation_checkpoint_sequence: checkpoint_sequence,
+      operation_checkpoint_hash: Encoding.decode_base64url!(checkpoint_hash, 32),
+      operation_checkpoint_covered_head_sequence: covered_head_sequence,
+      operation_checkpoint_covered_head_hash: Encoding.decode_base64url!(covered_head_hash, 32),
+      hpke_enc: :crypto.strong_rand_bytes(1120),
+      hpke_ciphertext: :crypto.strong_rand_bytes(48),
+      transcript_hash: :crypto.strong_rand_bytes(32),
+      signature_protocol: "refmd.hybrid-signature",
+      signature_version: 1,
+      signature_suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65",
+      signature_suite_rank: 1000,
+      sender_signing_key_id: signing_key_id,
+      recipient_key_id: recipient_key_id,
+      ed25519_signature: :crypto.strong_rand_bytes(64),
+      mldsa65_signature: :crypto.strong_rand_bytes(3309)
+    }
+    |> SignedPQ.response_fields()
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
+  defp authoritative_freshness_proof(attempt, owner, owner_device, checkpoint) do
+    %{
+      "protocol" => "refmd.redeem-freshness-proof",
+      "version" => 1,
+      "proof_kind" => "authoritative_device_live",
+      "workspace_id" => attempt.workspace_id,
+      "current_event_head_sequence" => checkpoint.covered_event_head_sequence,
+      "current_event_head_hash" => checkpoint.covered_event_head_hash,
+      "current_checkpoint_hash" => checkpoint.checkpoint_hash,
+      "recipient_redeem_nonce" => attempt.recipient_redeem_nonce,
+      "live_redeem_challenge_hash" => attempt.live_redeem_challenge_hash,
+      "authoritative_device" => %{
+        "user_id" => owner.id,
+        "device_id" => owner_device.id
+      }
+    }
+  end
+
+  defp recipient_bound_authorization(
+         attempt,
+         owner,
+         owner_device,
+         checkpoint,
+         freshness_proof,
+         workspace_pin_bootstrap
+       ) do
+    private_material = hybrid_signing_private_key_material("device", owner_device.id)
+    public_material = hybrid_signing_public_key_material(private_material)
+    signing_key_id = Signature.compute_signing_key_id!(public_material)
+
+    payload = %{
+      "protocol" => "refmd.recipient-bound-authorization",
+      "version" => 1,
+      "authorization_id" => Ecto.UUID.generate(),
+      "redeem_attempt_id" => attempt.id,
+      "workspace_id" => attempt.workspace_id,
+      "context_kind" => attempt.context_kind,
+      "context_id" => attempt.context_id,
+      "resource_hash" => attempt.resource_hash,
+      "recipient" => %{
+        "recipient_kind" => "guest",
+        "recipient_principal_id" => attempt.target_user_id,
+        "recipient_device_id" => attempt.target_device_id,
+        "encryption_key_id" => attempt.target_encryption_key_id
+      },
+      "workspace_pin_bootstrap_hash" =>
+        PinBootstrap.hash!(attempt.workspace_id, workspace_pin_bootstrap),
+      "current_checkpoint_sequence" => checkpoint.sequence,
+      "current_checkpoint_hash" => checkpoint.checkpoint_hash,
+      "current_event_head_sequence" => checkpoint.covered_event_head_sequence,
+      "current_event_head_hash" => checkpoint.covered_event_head_hash,
+      "redeem_authority_signing_key_id" => signing_key_id,
+      "recipient_redeem_nonce" => attempt.recipient_redeem_nonce,
+      "recipient_nonce_state_hash" => attempt.recipient_nonce_state_hash,
+      "live_redeem_challenge_hash" => attempt.live_redeem_challenge_hash,
+      "redeem_freshness_proof_hash" =>
+        Hash.blake3_base64url(JCS.canonical_bytes!(freshness_proof)),
+      "not_after_event_sequence" => checkpoint.covered_event_head_sequence + 1
+    }
+
+    transcript =
+      Signature.build_recipient_bound_authorization_transcript!(
+        owner_device.id,
+        owner.id,
+        owner_device.id,
+        signing_key_id,
+        payload
+      )
+
+    %{
+      "payload" => payload,
+      "transcript" => transcript,
+      "signature" =>
+        Signature.__test_sign_hybrid_signature__(
+          "recipient_bound_authorization",
+          transcript,
+          private_material,
+          public_material
+        ),
+      "signing_key_id" => signing_key_id,
+      "hybrid_signing_public_key_material" => public_material
+    }
   end
 
   defp insert_device(user_id) do

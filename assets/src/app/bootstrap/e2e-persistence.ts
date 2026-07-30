@@ -15,7 +15,7 @@ const SECURE_CLEANUP_RETRY_ATTEMPTS_KEY = "e2e-secure-cleanup-retry-attempts";
 
 declare global {
   interface Window {
-    __refmdSeedSecureLogoutPersistence?: () => Promise<{
+    __refmdSeedSecureLogoutPersistence?: (includeSecureOnlySurfaces?: boolean) => Promise<{
       databaseNames: readonly string[];
       verified: Record<string, boolean>;
     }>;
@@ -40,7 +40,7 @@ export function installSecureLogoutPersistenceE2EHook(): void {
   };
   registerRetryingSecureCleanupE2EHook();
 
-  window.__refmdSeedSecureLogoutPersistence = async () => {
+  window.__refmdSeedSecureLogoutPersistence = async (includeSecureOnlySurfaces = true) => {
     const worker = getCryptoWorker();
     if (!(await worker.loadStoredDsk())) throw new Error("secure_logout_e2e_dsk_unavailable");
 
@@ -98,12 +98,14 @@ export function installSecureLogoutPersistenceE2EHook(): void {
       updatedAtMs: Date.now(),
     });
 
-    localStorage.setItem("refmd-e2e-secret", "local-secret");
     localStorage.setItem("recent-docs:e2e", "document-secret");
     localStorage.setItem("editor-mode:e2e", "markdown");
     sessionStorage.setItem("refmd-e2e-session", "session-secret");
-    const cache = await caches.open("refmd-e2e-cache");
-    await cache.put("/e2e-secret", new Response("cache-secret"));
+    if (includeSecureOnlySurfaces) {
+      localStorage.setItem("refmd-e2e-secret", "local-secret");
+      const cache = await caches.open("refmd-e2e-cache");
+      await cache.put("/e2e-secret", new Response("cache-secret"));
+    }
 
     const [shareAnchor, documentPin, pendingChange, consentPin] = await Promise.all([
       worker.loadShareSessionTrustAnchorWithDsk("secure-logout-e2e-share"),
@@ -127,9 +129,11 @@ export function installSecureLogoutPersistenceE2EHook(): void {
         trustPin: consentPin?.latestEventHash === "secure-logout-e2e-consent-hash",
         documentPin: documentPin?.latestSnapshotId === "secure-logout-e2e-snapshot",
         pendingChange: pendingChange?.writeId === "secure-logout-e2e-write",
-        localStorage: localStorage.getItem("refmd-e2e-secret") === "local-secret",
+        localStorage:
+          includeSecureOnlySurfaces && localStorage.getItem("refmd-e2e-secret") === "local-secret",
         sessionStorage: sessionStorage.getItem("refmd-e2e-session") === "session-secret",
-        cacheStorage: (await caches.keys()).includes("refmd-e2e-cache"),
+        cacheStorage:
+          includeSecureOnlySurfaces && (await caches.keys()).includes("refmd-e2e-cache"),
       },
     };
   };

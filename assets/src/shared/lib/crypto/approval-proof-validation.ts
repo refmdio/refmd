@@ -32,9 +32,21 @@ const APPROVAL_PROOF_KEYS = [
 ] as const;
 
 const GENESIS_DETAILS_KEYS = [
+  "compound_intent_id",
+  "genesis_compound_context_hash",
   "kind",
+  "mutation_id",
+  "owner_member_added_event_hash",
+  "owner_role_id",
+  "registration_id",
   "registration_challenge_hash",
+  "user_audit_checkpoint",
+  "user_device_key_added_event_hash",
   "user_identity_public_key_hash",
+  "workspace_audit_checkpoint",
+  "workspace_device_key_added_event_hash",
+  "workspace_id",
+  "workspace_member_envelope_commitment_hash",
 ] as const;
 
 const DEVICE_APPROVAL_DETAILS_KEYS = [

@@ -32,6 +32,7 @@ defmodule RefMD.Crypto.Signature do
   @allowed_owner_kind_values MapSet.new([
                                "identity",
                                "device",
+                               "recovery_authorization",
                                "invitation_redeem_authority",
                                "share_capability",
                                "share_participant_device"
@@ -64,6 +65,13 @@ defmodule RefMD.Crypto.Signature do
                             :approval_proof_invalid,
                             :approval_signature_surface_invalid,
                             :approving_device_key_directory_proof_hash_invalid,
+                            :audit_checkpoint_authority_unverified,
+                            :audit_checkpoint_literal_invalid,
+                            :audit_checkpoint_payload_invalid,
+                            :audit_checkpoint_payload_keys_invalid,
+                            :audit_checkpoint_scope_mismatch,
+                            :audit_checkpoint_transcript_invalid,
+                            :audit_checkpoint_transcript_mismatch,
                             :authority_boundary_invalid,
                             :authority_invalid,
                             :authorization_invalid,
@@ -455,12 +463,10 @@ defmodule RefMD.Crypto.Signature do
               to: Device
 
   defdelegate build_device_revocation_transcript!(
-                user_id,
-                actor_device_id,
-                signing_key_id,
-                revoked_device_id,
-                revocation_mode,
-                revoked_at_ms
+                owner_id,
+                actor,
+                revoked_device,
+                authority_boundary
               ),
               to: Device
 
@@ -489,6 +495,15 @@ defmodule RefMD.Crypto.Signature do
                 actor,
                 authority_boundary,
                 subject_hashes
+              ),
+              to: KeyDirectory
+
+  defdelegate build_pq_wrap_transcript!(
+                owner_device_id,
+                actor,
+                authority_boundary,
+                subject_hashes,
+                authority_context
               ),
               to: KeyDirectory
 

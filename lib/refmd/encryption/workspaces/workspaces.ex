@@ -136,6 +136,13 @@ defmodule RefMD.Encryption.Workspaces do
     |> Map.merge(metadata)
   end
 
+  def insert_compound_device_key_wrap!(attrs) when is_map(attrs) do
+    case create(attrs) do
+      {:ok, key} -> key
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   def validate_device_key_wrap(attrs, context, sender_device, target_device, key_directory_events) do
     key_checkpoint = key_checkpoint_context!(attrs, context)
 

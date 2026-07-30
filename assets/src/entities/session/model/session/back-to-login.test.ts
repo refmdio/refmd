@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   authState: vi.fn(),
+  clearPlaintextActivityMetadata: vi.fn(),
   clearSession: vi.fn(),
   clearSessionData: vi.fn(),
   logout: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/shared/api", () => ({ authApi: { logout: mocks.logout } }));
 vi.mock("@/shared/lib/auth/key-persistence", () => ({
+  clearPlaintextActivityMetadata: mocks.clearPlaintextActivityMetadata,
   clearSessionData: mocks.clearSessionData,
 }));
 vi.mock("@/shared/lib/auth/session-cleanup", () => ({
@@ -55,6 +57,7 @@ describe("ordinary return to login", () => {
     expect(mocks.terminateAllScopedCryptoWorkers).toHaveBeenCalledOnce();
     expect(mocks.runSessionCleanup).toHaveBeenCalledOnce();
     expect(mocks.clearSession).toHaveBeenCalledOnce();
+    expect(mocks.clearPlaintextActivityMetadata).toHaveBeenCalledOnce();
     expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: true });
   });
 
@@ -64,6 +67,7 @@ describe("ordinary return to login", () => {
     await returnToLogin();
 
     expect(mocks.clearSession).toHaveBeenCalledOnce();
+    expect(mocks.clearPlaintextActivityMetadata).toHaveBeenCalledOnce();
     expect(mocks.clearSessionData).toHaveBeenCalledWith({ preserveAuthBootstrap: true });
   });
 });

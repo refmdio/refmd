@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
+import { blake3Base64Url } from "@/shared/lib/crypto/hash";
+import { canonicalizeStrictBytes, type StrictJsonValue } from "@/shared/lib/crypto/jcs";
 import type { SignedKeyDirectoryEnvelope } from "./types";
 import {
   assertAndApplyRotationReplayState,
@@ -70,6 +72,41 @@ describe("member role change replay semantics", () => {
   });
 });
 
+describe("workspace member envelope replay semantics", () => {
+  it("accepts the Genesis envelope authority and rejects a mismatched sender", () => {
+    const material = {
+      protocol: "refmd.hybrid-encryption-key-material",
+      version: 1,
+      owner_kind: "identity",
+      owner_id: USER_ID,
+    };
+    const checkpoint = {
+      identity_keys: [
+        {
+          key_id: "identity-encryption-key",
+          key_material: material,
+          valid_from: {},
+        },
+      ],
+    };
+    const event = workspaceMemberEnvelopeEvent(
+      blake3Base64Url(canonicalizeStrictBytes(material as StrictJsonValue)),
+    );
+
+    expect(() => verifyEventSemantics(event, checkpoint)).not.toThrow();
+    const mismatched = {
+      ...event,
+      payload: {
+        ...event.payload,
+        body: { ...(event.payload.body as Record<string, unknown>), sender_device_id: "other" },
+      },
+    };
+    expect(() => verifyEventSemantics(mismatched, checkpoint)).toThrow(
+      "workspace_member_envelope_sender_mismatch",
+    );
+  });
+});
+
 function memberRoleChangeEvent(): SignedKeyDirectoryEnvelope {
   return {
     payload: {
@@ -90,6 +127,40 @@ function memberRoleChangeEvent(): SignedKeyDirectoryEnvelope {
         effective_permissions: ["document:read", "member:list"],
         permission_version: 2,
         changed_at_event_sequence: 13,
+      },
+    },
+    signatures: [],
+  } as unknown as SignedKeyDirectoryEnvelope;
+}
+
+function workspaceMemberEnvelopeEvent(materialHash: string): SignedKeyDirectoryEnvelope {
+  return {
+    payload: {
+      protocol: "refmd.key-directory-event",
+      version: 1,
+      scope_kind: "workspace",
+      scope_id: "22222222-2222-4222-8222-222222222222",
+      sequence: 6,
+      event_type: "workspace_member_envelope_issued",
+      actor: {
+        signer_kind: "device",
+        user_id: USER_ID,
+        device_id: "33333333-3333-4333-8333-333333333333",
+        signing_key_id: "device-signing-key",
+        key_checkpoint_sequence: 0,
+        key_checkpoint_hash: "GENESIS",
+      },
+      body: {
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        sender_user_id: USER_ID,
+        sender_device_id: "33333333-3333-4333-8333-333333333333",
+        target_user_id: USER_ID,
+        target_identity_encryption_key_id: "identity-encryption-key",
+        target_identity_key_material_hash: materialHash,
+        sender_key_checkpoint_sequence: 0,
+        sender_key_checkpoint_hash: "GENESIS",
+        authorization_key_directory_checkpoint_sequence: 1,
+        authorization_key_directory_checkpoint_hash: "GENESIS",
       },
     },
     signatures: [],

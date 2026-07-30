@@ -7,53 +7,35 @@ defmodule RefMDWeb.Schemas.RegisterRequest do
     type: :object,
     additionalProperties: false,
     properties: %{
-      user_id: %Schema{
-        type: :string,
-        format: :uuid,
-        description: "Client-generated UUID for AAD binding"
-      },
+      protocol: %Schema{type: :string, enum: ["refmd.password-account-registration"]},
+      version: %Schema{type: :integer, enum: [1]},
+      reserved_user_id: %Schema{type: :string, format: :uuid},
       email: %Schema{type: :string, format: :email},
-      name: %Schema{type: :string},
-      auth_key: %Schema{type: :string},
-      salt: %Schema{type: :string},
-      encrypted_umk: %Schema{type: :string},
-      umk_nonce: %Schema{type: :string},
-      kdf_params: RefMDWeb.Schemas.KdfParams,
-      recovery_encrypted_umk: %Schema{type: :string},
-      recovery_nonce: %Schema{type: :string},
-      recovery_authorization_public_material:
-        RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
-      recovery_authorization_key_id: %Schema{type: :string},
-      hybrid_encryption_public_key_material:
-        RefMDWeb.Schemas.IdentityHybridEncryptionPublicKeyMaterial,
-      hybrid_signing_public_key_material: RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
-      encrypted_identity_hybrid_encryption_private_key_material:
-        RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
-      identity_hybrid_encryption_private_key_material_nonce:
-        RefMDWeb.Schemas.EncryptedMaterialNonce,
-      encrypted_identity_hybrid_signing_private_key_material:
-        RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
-      identity_hybrid_signing_private_key_material_nonce: RefMDWeb.Schemas.EncryptedMaterialNonce
+      display_name: %Schema{type: :string},
+      auth_key_b64u: %Schema{type: :string},
+      salt_b64u: %Schema{type: :string},
+      kdf_type: %Schema{type: :string, enum: ["argon2id"]},
+      kdf_params: %Schema{
+        type: :object,
+        additionalProperties: false,
+        properties: %{
+          memory_kib: %Schema{type: :integer, minimum: 1},
+          iterations: %Schema{type: :integer, minimum: 1},
+          parallelism: %Schema{type: :integer, minimum: 1}
+        },
+        required: [:memory_kib, :iterations, :parallelism]
+      }
     },
     required: [
-      :user_id,
+      :protocol,
+      :version,
+      :reserved_user_id,
       :email,
-      :name,
-      :auth_key,
-      :salt,
-      :encrypted_umk,
-      :umk_nonce,
-      :kdf_params,
-      :recovery_encrypted_umk,
-      :recovery_nonce,
-      :recovery_authorization_public_material,
-      :recovery_authorization_key_id,
-      :hybrid_encryption_public_key_material,
-      :hybrid_signing_public_key_material,
-      :encrypted_identity_hybrid_encryption_private_key_material,
-      :identity_hybrid_encryption_private_key_material_nonce,
-      :encrypted_identity_hybrid_signing_private_key_material,
-      :identity_hybrid_signing_private_key_material_nonce
+      :display_name,
+      :auth_key_b64u,
+      :salt_b64u,
+      :kdf_type,
+      :kdf_params
     ]
   })
 end
@@ -65,79 +47,32 @@ defmodule RefMDWeb.Schemas.RegisterResponse do
   OpenApiSpex.schema(%{
     title: "RegisterResponse",
     type: :object,
-    properties: %{
-      user: RefMDWeb.Schemas.UserInfo,
-      workspace_id: %Schema{type: :string, format: :uuid},
-      workspace_owner_role_id: %Schema{type: :string, format: :uuid},
-      session_id: %Schema{type: :string, format: :uuid}
-    },
-    required: [
-      :user,
-      :workspace_id,
-      :workspace_owner_role_id,
-      :session_id
-    ]
-  })
-end
-
-defmodule RefMDWeb.Schemas.OAuthCryptoSetupRequest do
-  alias OpenApiSpex.Schema
-  require OpenApiSpex
-
-  OpenApiSpex.schema(%{
-    title: "OAuthCryptoSetupRequest",
-    type: :object,
     additionalProperties: false,
     properties: %{
-      recovery_encrypted_umk: %Schema{type: :string},
-      recovery_nonce: %Schema{type: :string},
-      recovery_authorization_public_material:
-        RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
-      recovery_authorization_key_id: %Schema{type: :string},
-      hybrid_encryption_public_key_material:
-        RefMDWeb.Schemas.IdentityHybridEncryptionPublicKeyMaterial,
-      hybrid_signing_public_key_material: RefMDWeb.Schemas.IdentityHybridSigningPublicKeyMaterial,
-      encrypted_identity_hybrid_encryption_private_key_material:
-        RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
-      identity_hybrid_encryption_private_key_material_nonce:
-        RefMDWeb.Schemas.EncryptedMaterialNonce,
-      encrypted_identity_hybrid_signing_private_key_material:
-        RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
-      identity_hybrid_signing_private_key_material_nonce: RefMDWeb.Schemas.EncryptedMaterialNonce
+      bootstrap_required: %Schema{type: :boolean, enum: [true]},
+      registration_id: %Schema{type: :string, format: :uuid},
+      reserved_user_id: %Schema{type: :string, format: :uuid},
+      reserved_workspace_id: %Schema{type: :string, format: :uuid},
+      reserved_workspace_role_ids: %Schema{
+        type: :object,
+        additionalProperties: false,
+        properties: %{
+          owner: %Schema{type: :string, format: :uuid},
+          admin: %Schema{type: :string, format: :uuid},
+          editor: %Schema{type: :string, format: :uuid},
+          viewer: %Schema{type: :string, format: :uuid}
+        },
+        required: [:owner, :admin, :editor, :viewer]
+      },
+      expires_at: %Schema{type: :string, format: :"date-time"}
     },
     required: [
-      :recovery_encrypted_umk,
-      :recovery_nonce,
-      :recovery_authorization_public_material,
-      :recovery_authorization_key_id,
-      :hybrid_encryption_public_key_material,
-      :hybrid_signing_public_key_material,
-      :encrypted_identity_hybrid_encryption_private_key_material,
-      :identity_hybrid_encryption_private_key_material_nonce,
-      :encrypted_identity_hybrid_signing_private_key_material,
-      :identity_hybrid_signing_private_key_material_nonce
-    ]
-  })
-end
-
-defmodule RefMDWeb.Schemas.OAuthCryptoSetupResponse do
-  alias OpenApiSpex.Schema
-  require OpenApiSpex
-
-  OpenApiSpex.schema(%{
-    title: "OAuthCryptoSetupResponse",
-    type: :object,
-    properties: %{
-      user: RefMDWeb.Schemas.UserInfo,
-      workspace_id: %Schema{type: :string, format: :uuid},
-      workspace_owner_role_id: %Schema{type: :string, format: :uuid},
-      session_id: %Schema{type: :string, format: :uuid}
-    },
-    required: [
-      :user,
-      :workspace_id,
-      :workspace_owner_role_id,
-      :session_id
+      :bootstrap_required,
+      :registration_id,
+      :reserved_user_id,
+      :reserved_workspace_id,
+      :reserved_workspace_role_ids,
+      :expires_at
     ]
   })
 end

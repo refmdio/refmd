@@ -19,6 +19,8 @@ defmodule RefMD.Auth.Session do
     field :pending_registration_challenge_hash, :string
     field :pending_registration_challenge_expires_at, :utc_datetime_usec
     field :pending_registration_challenge_consumed_at, :utc_datetime_usec
+    field :pending_registration_prekey_issued_at_ms, :integer
+    field :pending_registration_prekey_expires_at_ms, :integer
     field :target_key_checkpoint_sequence, :integer
     field :target_key_checkpoint_hash, :string
     field :candidate_user_checkpoint_sequence, :integer
@@ -53,6 +55,8 @@ defmodule RefMD.Auth.Session do
       :pending_registration_challenge_hash,
       :pending_registration_challenge_expires_at,
       :pending_registration_challenge_consumed_at,
+      :pending_registration_prekey_issued_at_ms,
+      :pending_registration_prekey_expires_at_ms,
       :target_key_checkpoint_sequence,
       :target_key_checkpoint_hash,
       :candidate_user_checkpoint_sequence,

@@ -3,19 +3,21 @@ defmodule RefMD.Workspaces.Members do
 
   import Ecto.Query
 
-  alias RefMD.{Devices, Encryption}
+  alias RefMD.Documents.Document
   alias RefMD.Repo
   alias RefMD.Workspaces.KekRotation
 
   alias RefMD.Workspaces.{
+    GuestInvitation,
+    InvitationDeliveryAttempt,
     Workspace,
+    WorkspaceInvitation,
     WorkspaceMember,
     WorkspaceRole,
     WorkspaceRolePermission
   }
 
   alias RefMD.Workspaces.Guests, as: WGuests
-  alias RefMD.Workspaces.Invitations, as: WInvitations
 
   def list_workspace_member_user_ids(workspace_id) do
     from(wm in WorkspaceMember,
@@ -129,99 +131,79 @@ defmodule RefMD.Workspaces.Members do
     |> Repo.all()
   end
 
-  def change_member_role(workspace_id, target_user_id, new_role_id, actor_user_id, key_directory) do
-    Repo.transaction(fn ->
-      owner_rows = lock_owner_rows(workspace_id)
-      target_member = lock_member!(workspace_id, target_user_id)
+  def prepare_role_change!(workspace_id, target_user_id, new_role_id, actor_user_id) do
+    owner_rows = lock_owner_rows(workspace_id)
+    target_member = lock_member!(workspace_id, target_user_id)
 
-      new_role =
-        case Repo.get(WorkspaceRole, new_role_id) do
-          nil -> nil
-          r -> Repo.preload(r, :permissions)
-        end
-
-      ctx = %{
-        actor_role: fetch_role_for_user(workspace_id, actor_user_id),
-        target_role: fetch_role_for_user(workspace_id, target_user_id),
-        new_role: new_role,
-        target_member: target_member,
-        owner_count: count_owners(owner_rows)
-      }
-
-      with :ok <- check_rbac_permission(ctx.actor_role, "member:change_role"),
-           :ok <- validate_role_change(ctx, workspace_id) do
-        append_member_role_change_key_directory!(
-          workspace_id,
-          target_user_id,
-          ctx.target_role,
-          ctx.new_role,
-          ctx.target_member.permission_version + 1,
-          key_directory
-        )
-
-        previous_permissions = effective_permissions(ctx.target_role)
-        effective_permissions = effective_permissions(ctx.new_role)
-        permission_loss? = not MapSet.subset?(previous_permissions, effective_permissions)
-
-        read_loss? =
-          MapSet.member?(previous_permissions, "document:read") and
-            not MapSet.member?(effective_permissions, "document:read")
-
-        member = do_change_role(workspace_id, target_user_id, new_role_id)
-
-        maybe_mark_role_change_rotation!(
-          read_loss?,
-          workspace_id,
-          target_user_id,
-          actor_user_id
-        )
-
-        %{member: member, permission_loss?: permission_loss?}
-      else
-        {:error, reason} -> Repo.rollback(reason)
+    new_role =
+      case Repo.get(WorkspaceRole, new_role_id) do
+        nil -> nil
+        role -> Repo.preload(role, :permissions)
       end
-    end)
-    |> case do
-      {:ok, %{member: member, permission_loss?: permission_loss?}} ->
-        if permission_loss?, do: disconnect_member_sessions(target_user_id)
-        {:ok, member}
 
-      {:error, reason} ->
-        {:error, reason}
+    ctx = %{
+      actor_role: fetch_role_for_user(workspace_id, actor_user_id),
+      target_role: fetch_role_for_user(workspace_id, target_user_id),
+      new_role: new_role,
+      target_member: target_member,
+      owner_count: count_owners(owner_rows)
+    }
+
+    with :ok <- check_rbac_permission(ctx.actor_role, "member:change_role"),
+         :ok <- validate_role_change(ctx, workspace_id) do
+      ctx
+    else
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
-  def remove_member(workspace_id, target_user_id, actor_user_id, key_directory) do
-    Repo.transaction(fn ->
-      lock_workspace_row(workspace_id)
-      owner_rows = lock_owner_rows(workspace_id)
-      target_role = fetch_role_for_user(workspace_id, target_user_id)
+  def apply_role_change!(workspace_id, target_user_id, new_role_id, actor_user_id) do
+    ctx = prepare_role_change!(workspace_id, target_user_id, new_role_id, actor_user_id)
+    previous_permissions = effective_permissions(ctx.target_role)
+    next_permissions = effective_permissions(ctx.new_role)
+    permission_loss? = not MapSet.subset?(previous_permissions, next_permissions)
 
-      case validate_removal(
-             workspace_id,
-             target_user_id,
-             actor_user_id,
-             target_role,
-             owner_rows
-           ) do
-        :ok ->
-          append_member_removal_key_directory!(workspace_id, target_user_id, key_directory)
+    member = do_change_role(workspace_id, target_user_id, new_role_id)
+    %{member: member, permission_loss?: permission_loss?}
+  end
 
-          member = do_remove_member(workspace_id, target_user_id)
-          revoke_removed_member_invitations(workspace_id, target_user_id)
+  def prepare_removal!(workspace_id, target_user_id, actor_user_id) do
+    workspace = lock_workspace_row(workspace_id)
+    owner_rows = lock_owner_rows(workspace_id)
+    target_role = fetch_role_for_user(workspace_id, target_user_id)
+    documents = lock_workspace_documents(workspace_id)
 
-          KekRotation.mark_membership_rotation_needed!(
-            workspace_id,
-            rotation_initiator(workspace_id, target_user_id, actor_user_id)
-          )
+    {workspace_invitations, guest_invitations} =
+      lock_removal_invitations(workspace_id, target_user_id)
 
-          member
+    case validate_removal(workspace_id, target_user_id, actor_user_id, target_role, owner_rows) do
+      :ok ->
+        %{
+          target_role: target_role,
+          owner_user_ids: owner_rows,
+          workspace: workspace,
+          documents: documents,
+          workspace_invitations: workspace_invitations,
+          guest_invitations: guest_invitations
+        }
 
-        {:error, reason} ->
-          Repo.rollback(reason)
-      end
-    end)
-    |> normalize_transaction_result()
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  def apply_removal!(workspace_id, target_user_id, actor_user_id) do
+    ctx = prepare_removal!(workspace_id, target_user_id, actor_user_id)
+    member = do_remove_member(workspace_id, target_user_id)
+    revoke_removal_invitations!(ctx)
+    WGuests.revoke_guest_grants(workspace_id, target_user_id)
+
+    KekRotation.mark_membership_rotation_needed!(
+      workspace_id,
+      rotation_initiator(workspace_id, target_user_id, actor_user_id)
+    )
+
+    member
   end
 
   # ── Private Helpers ─────────────────────────────
@@ -291,20 +273,102 @@ defmodule RefMD.Workspaces.Members do
     KekRotation.next_rotation_initiator(workspace_id)
   end
 
-  defp revoke_removed_member_invitations(workspace_id, target_user_id) do
-    WGuests.revoke_guest_grants(workspace_id, target_user_id)
+  defp lock_removal_invitations(workspace_id, target_user_id) do
+    now = DateTime.utc_now()
+    target_email = Repo.get!(RefMD.Users.User, target_user_id).email
+    dependent_contexts = removal_invitation_contexts(workspace_id, target_user_id)
 
-    case get_user_email(target_user_id) do
-      nil -> :ok
-      email -> WInvitations.revoke_invitations_for_email(workspace_id, email)
-    end
+    {
+      lock_workspace_removal_invitations(
+        workspace_id,
+        target_user_id,
+        target_email,
+        now,
+        context_ids(dependent_contexts, "workspace_invitation")
+      ),
+      lock_guest_removal_invitations(
+        workspace_id,
+        target_user_id,
+        target_email,
+        now,
+        context_ids(dependent_contexts, "guest_invitation")
+      )
+    }
   end
 
-  defp get_user_email(user_id) do
-    case Repo.get(RefMD.Users.User, user_id) do
-      nil -> nil
-      user -> user.email
-    end
+  defp removal_invitation_contexts(workspace_id, target_user_id) do
+    target_device_ids =
+      from(device in RefMD.Devices.Device,
+        where: device.user_id == ^target_user_id,
+        select: device.id
+      )
+      |> Repo.all()
+
+    from(attempt in InvitationDeliveryAttempt,
+      where:
+        attempt.workspace_id == ^workspace_id and
+          attempt.recipient_device_id in ^target_device_ids and
+          attempt.status in ["pending", "approved"],
+      select: {attempt.context_kind, attempt.context_id}
+    )
+    |> Repo.all()
+  end
+
+  defp lock_workspace_removal_invitations(
+         workspace_id,
+         target_user_id,
+         target_email,
+         now,
+         context_ids
+       ) do
+    from(invitation in WorkspaceInvitation,
+      where:
+        invitation.workspace_id == ^workspace_id and is_nil(invitation.revoked_at) and
+          invitation.is_used == false and invitation.expires_at > ^now and
+          (invitation.invited_by == ^target_user_id or
+             invitation.recipient_user_id == ^target_user_id or
+             invitation.invited_email == ^target_email or invitation.id in ^context_ids),
+      order_by: [asc: invitation.id],
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+  end
+
+  defp lock_guest_removal_invitations(
+         workspace_id,
+         target_user_id,
+         target_email,
+         now,
+         context_ids
+       ) do
+    from(invitation in GuestInvitation,
+      where:
+        invitation.workspace_id == ^workspace_id and is_nil(invitation.revoked_at) and
+          invitation.redemption_count < invitation.max_redemptions and
+          invitation.expires_at > ^now and
+          (invitation.invited_by == ^target_user_id or
+             invitation.recipient_user_id == ^target_user_id or
+             invitation.invited_email == ^target_email or invitation.id in ^context_ids),
+      order_by: [asc: invitation.id],
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+  end
+
+  defp context_ids(contexts, kind) do
+    for {^kind, context_id} <- contexts, do: context_id
+  end
+
+  defp revoke_removal_invitations!(ctx) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    workspace_ids = Enum.map(ctx.workspace_invitations, & &1.id)
+    guest_ids = Enum.map(ctx.guest_invitations, & &1.id)
+
+    from(invitation in WorkspaceInvitation, where: invitation.id in ^workspace_ids)
+    |> Repo.update_all(set: [revoked_at: now])
+
+    from(invitation in GuestInvitation, where: invitation.id in ^guest_ids)
+    |> Repo.update_all(set: [revoked_at: now])
   end
 
   defp rotation_initiator(workspace_id, target_user_id, actor_user_id) do
@@ -313,16 +377,6 @@ defmodule RefMD.Workspaces.Members do
     else
       actor_user_id
     end
-  end
-
-  defp maybe_mark_role_change_rotation!(false, _workspace_id, _target_user_id, _actor_user_id),
-    do: :ok
-
-  defp maybe_mark_role_change_rotation!(true, workspace_id, target_user_id, actor_user_id) do
-    KekRotation.mark_membership_rotation_needed!(
-      workspace_id,
-      rotation_initiator(workspace_id, target_user_id, actor_user_id)
-    )
   end
 
   defp check_rbac_permission(nil, _permission), do: {:error, :actor_not_member}
@@ -346,10 +400,18 @@ defmodule RefMD.Workspaces.Members do
   defp lock_workspace_row(workspace_id) do
     from(w in Workspace,
       where: w.id == ^workspace_id,
-      lock: "FOR UPDATE",
-      select: w.id
+      lock: "FOR UPDATE"
     )
     |> Repo.one!()
+  end
+
+  defp lock_workspace_documents(workspace_id) do
+    from(document in Document,
+      where: document.workspace_id == ^workspace_id,
+      order_by: [asc: document.id],
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
   end
 
   defp lock_member!(workspace_id, user_id) do
@@ -380,71 +442,6 @@ defmodule RefMD.Workspaces.Members do
 
   defp count_owners(owner_user_ids), do: length(owner_user_ids)
 
-  defp append_member_role_change_key_directory!(
-         workspace_id,
-         target_user_id,
-         previous_role,
-         new_role,
-         permission_version,
-         %{
-           workspace_events: workspace_events,
-           workspace_checkpoint: workspace_checkpoint
-         }
-       )
-       when is_list(workspace_events) and is_map(workspace_checkpoint) do
-    assert_member_role_change_append!(
-      workspace_events,
-      workspace_id,
-      target_user_id,
-      previous_role,
-      new_role,
-      permission_version
-    )
-
-    Encryption.append_workspace_key_directory!(
-      workspace_id,
-      workspace_events,
-      workspace_checkpoint,
-      checkpoint_signer_kind: "device"
-    )
-  rescue
-    _ -> Repo.rollback(:invalid_key_directory)
-  end
-
-  defp append_member_role_change_key_directory!(_, _, _, _, _, _),
-    do: Repo.rollback(:missing_key_directory)
-
-  defp assert_member_role_change_append!(
-         [%{"payload" => %{"event_type" => "member_role_changed", "body" => body}}],
-         workspace_id,
-         target_user_id,
-         previous_role,
-         new_role,
-         permission_version
-       ) do
-    expected = %{
-      "workspace_id" => workspace_id,
-      "user_id" => target_user_id,
-      "previous_role_id" => previous_role.id,
-      "previous_base_role" => previous_role.base_role,
-      "previous_effective_permissions" => canonical_effective_permissions(previous_role),
-      "role_id" => new_role.id,
-      "base_role" => new_role.base_role,
-      "effective_permissions" => canonical_effective_permissions(new_role),
-      "permission_version" => permission_version
-    }
-
-    unless Map.take(body, Map.keys(expected)) == expected do
-      raise ArgumentError, "key_directory_member_role_changed_event_mismatch"
-    end
-  end
-
-  defp assert_member_role_change_append!(_, _, _, _, _, _),
-    do: raise(ArgumentError, "key_directory_member_role_changed_event_mismatch")
-
-  defp canonical_effective_permissions(role),
-    do: role |> effective_permissions() |> MapSet.to_list() |> Enum.sort()
-
   defp effective_permissions(role), do: RefMD.Workspaces.effective_permissions(role)
 
   def disconnect_member_sessions(user_id) do
@@ -457,118 +454,6 @@ defmodule RefMD.Workspaces.Members do
         payload: %{}
       }
     )
-  end
-
-  defp append_member_removal_key_directory!(
-         workspace_id,
-         target_user_id,
-         %{
-           workspace_events: workspace_events,
-           workspace_checkpoint: workspace_checkpoint
-         }
-       )
-       when is_list(workspace_events) and is_map(workspace_checkpoint) do
-    assert_member_removal_append!(workspace_events, workspace_id, target_user_id)
-    assert_member_removal_revocations!(workspace_events, workspace_id, target_user_id)
-
-    Encryption.append_workspace_key_directory!(
-      workspace_id,
-      workspace_events,
-      workspace_checkpoint,
-      checkpoint_signer_kind: "device"
-    )
-  rescue
-    _ -> Repo.rollback(:invalid_key_directory)
-  end
-
-  defp append_member_removal_key_directory!(_, _, _), do: Repo.rollback(:missing_key_directory)
-
-  defp assert_member_removal_append!(
-         [
-           %{"payload" => %{"event_type" => "member_removed", "body" => body}} | revocation_events
-         ],
-         workspace_id,
-         target_user_id
-       ) do
-    expected_member_removed = %{
-      "workspace_id" => workspace_id,
-      "user_id" => target_user_id
-    }
-
-    unless Map.take(body, ["workspace_id", "user_id"]) == expected_member_removed do
-      raise ArgumentError, "key_directory_member_removed_event_mismatch"
-    end
-
-    actual_revocations =
-      revocation_events
-      |> Enum.map(fn %{"payload" => %{"event_type" => type, "body" => body}} ->
-        {type, body["key_id"], body["reason"]}
-      end)
-      |> Enum.sort()
-
-    valid_types = ["signing_key_revoked", "encryption_key_revoked"]
-
-    if Enum.all?(actual_revocations, fn {type, key_id, reason} ->
-         type in valid_types and is_binary(key_id) and reason == "member_removed"
-       end),
-       do: :ok,
-       else: raise(ArgumentError, "key_directory_member_key_revocation_mismatch")
-  end
-
-  defp assert_member_removal_append!(_, _, _),
-    do: raise(ArgumentError, "key_directory_member_removed_event_mismatch")
-
-  defp assert_member_removal_revocations!(
-         [
-           %{"payload" => %{"event_type" => "member_removed"}} | revocation_events
-         ],
-         workspace_id,
-         target_user_id
-       ) do
-    actual =
-      revocation_events
-      |> Enum.map(fn %{"payload" => %{"event_type" => type, "body" => body}} ->
-        {type, body["key_id"]}
-      end)
-      |> Enum.sort()
-
-    expected =
-      target_user_id
-      |> Devices.get_user_devices(include_revoked: false)
-      |> Enum.filter(&workspace_checkpoint_device_keys_present?(workspace_id, &1))
-      |> Enum.flat_map(fn device ->
-        [
-          {"signing_key_revoked", device.signing_key_id},
-          {"encryption_key_revoked", device.encryption_key_id}
-        ]
-      end)
-      |> Enum.sort()
-
-    if actual == expected do
-      :ok
-    else
-      raise ArgumentError, "key_directory_member_key_revocation_mismatch"
-    end
-  end
-
-  defp assert_member_removal_revocations!(_, _, _),
-    do: raise(ArgumentError, "key_directory_member_key_revocation_mismatch")
-
-  defp workspace_checkpoint_device_keys_present?(workspace_id, device) do
-    match?(
-      {:ok, _},
-      Encryption.active_workspace_key_material_in_current_checkpoint(
-        workspace_id,
-        device.signing_key_id
-      )
-    ) and
-      match?(
-        {:ok, _},
-        Encryption.active_workspace_key_material_in_current_checkpoint(
-          workspace_id,
-          device.encryption_key_id
-        )
-      )
   end
 
   defp do_change_role(workspace_id, user_id, new_role_id) do
@@ -596,7 +481,4 @@ defmodule RefMD.Workspaces.Members do
     Repo.delete!(member)
     member
   end
-
-  defp normalize_transaction_result({:ok, result}), do: {:ok, result}
-  defp normalize_transaction_result({:error, reason}), do: {:error, reason}
 end

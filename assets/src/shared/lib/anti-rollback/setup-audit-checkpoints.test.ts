@@ -8,6 +8,15 @@ const fetchVerifiedKeyDirectory = vi.fn(async (params: { scopeKind: string; scop
 const verifyAndPinAuditCheckpoint = vi.fn(async (checkpoint: { id: string }) => {
   calls.push(`pin:${checkpoint.id}`);
 });
+const genesisAuthority = {
+  userId: "user-one",
+  deviceId: "device-one",
+  workspaceId: "workspace-one",
+  userAuditCheckpointHash: "user-audit-hash",
+  workspaceAuditCheckpointHash: "workspace-audit-hash",
+  userKeyDirectoryCheckpointHash: "user-key-directory-hash",
+  workspaceKeyDirectoryCheckpointHash: "workspace-key-directory-hash",
+};
 
 vi.mock("@/shared/lib/key-directory/fetch", () => ({ fetchVerifiedKeyDirectory }));
 vi.mock("./audit-checkpoint-pin", () => ({ verifyAndPinAuditCheckpoint }));
@@ -32,6 +41,7 @@ describe("setup audit checkpoints", () => {
           { workspace_id: "workspace-two", audit_checkpoint: { id: "workspace-audit-two" } },
         ],
       },
+      genesisAuthority,
     });
 
     expect(calls).toEqual([
@@ -61,6 +71,7 @@ describe("setup audit checkpoints", () => {
           user_audit_checkpoint: { id: "user-audit" },
           workspace_audit_checkpoints: [],
         },
+        genesisAuthority,
       }),
     ).rejects.toThrow("key_directory_fetch_failed");
     expect(verifyAndPinAuditCheckpoint).not.toHaveBeenCalled();

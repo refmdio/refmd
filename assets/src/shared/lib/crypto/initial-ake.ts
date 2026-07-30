@@ -48,8 +48,8 @@ const X25519_PUBLIC_BYTES = 32;
 const MLKEM_PUBLIC_BYTES = 1184;
 const MLKEM_CIPHERTEXT_BYTES = 1088;
 const RESPONDER_PREKEY_PAYLOAD_KEYS = [
-  "expires_event_sequence",
-  "issued_at_event_sequence",
+  "expires_at_ms",
+  "issued_at_ms",
   "mlkem768_ephemeral_public",
   "mlkem768_ephemeral_public_hash",
   "operation_id",
@@ -219,6 +219,7 @@ const INITIAL_AKE_APPROVAL_CONTEXT_KEYS = [
   "workspace_id",
 ] as const;
 const INITIAL_AKE_TRUST_CONTEXT_KEYS = [
+  "audit_checkpoint_pin_set_hash",
   "challenge",
   "operation_id",
   "owner_user_id",
@@ -245,11 +246,13 @@ const INITIAL_AKE_APPROVAL_DIRECTORY_KEYS = [
   "workspace_checkpoint_hash",
 ] as const;
 const INITIAL_AKE_TRUST_DIRECTORY_KEYS = [
+  "audit_checkpoint_pin_set_hash",
   "allowed_suite_ids_hash",
   "min_suite_rank",
   "suite_policy_version",
   "user_checkpoint_hash",
   "user_event_head_hash",
+  "transfer_scope_hash",
   "workspace_pins_hash",
 ] as const;
 export type { InitialAkePurpose } from "./initial-ake-types";
@@ -290,8 +293,8 @@ export function generateInitialAkeResponderPrekey(params: {
   userId: string;
   deviceId: string;
   serverChallenge: string;
-  issuedAtEventSequence: number;
-  expiresEventSequence: number;
+  issuedAtMs: number;
+  expiresAtMs: number;
   signingPrivateKeyMaterial: HybridSigningPrivateKeyMaterial;
 }): {
   record: InitialAkeResponderPrekeyRecord;
@@ -325,8 +328,8 @@ export function generateInitialAkeResponderPrekey(params: {
     mlkem768_ephemeral_public: encodeBase64Url(mlkem.publicKey),
     mlkem768_ephemeral_public_hash: blake3Base64Url(mlkem.publicKey),
     operation_id: params.operationId,
-    issued_at_event_sequence: params.issuedAtEventSequence,
-    expires_event_sequence: params.expiresEventSequence,
+    issued_at_ms: params.issuedAtMs,
+    expires_at_ms: params.expiresAtMs,
     server_challenge: params.serverChallenge,
   } as const;
   const signature = signResponderPrekeySignature({
@@ -347,8 +350,8 @@ export function generateInitialAkeResponderPrekey(params: {
         purpose: params.purpose,
         prekey_id: prekeyId,
         operation_id: params.operationId,
-        issued_at_event_sequence: payload.issued_at_event_sequence,
-        expires_event_sequence: payload.expires_event_sequence,
+        issued_at_ms: payload.issued_at_ms,
+        expires_at_ms: payload.expires_at_ms,
         server_challenge: payload.server_challenge,
       },
     }),
@@ -419,16 +422,13 @@ export function verifyInitialAkeResponderPrekey(params: {
   if (x25519Public.length !== X25519_PUBLIC_BYTES) {
     throw new Error("responder_prekey_x25519_invalid");
   }
-  const issuedAtEventSequence = numberField(
-    payload.issued_at_event_sequence,
-    "responder_prekey_issued_sequence_invalid",
-  );
-  const expiresEventSequence = numberField(
-    payload.expires_event_sequence,
-    "responder_prekey_expires_sequence_invalid",
-  );
-  if (issuedAtEventSequence >= expiresEventSequence) {
-    throw new Error("responder_prekey_sequence_invalid");
+  const issuedAtMs = numberField(payload.issued_at_ms, "responder_prekey_issued_at_invalid");
+  const expiresAtMs = numberField(payload.expires_at_ms, "responder_prekey_expires_at_invalid");
+  if (!Number.isSafeInteger(issuedAtMs) || !Number.isSafeInteger(expiresAtMs) || issuedAtMs < 0) {
+    throw new Error("responder_prekey_freshness_invalid");
+  }
+  if (expiresAtMs !== issuedAtMs + 300_000) {
+    throw new Error("responder_prekey_lifetime_invalid");
   }
   const purpose = stringField(payload.purpose, "responder_prekey_purpose_invalid");
   if (
@@ -454,8 +454,8 @@ export function verifyInitialAkeResponderPrekey(params: {
       purpose,
       prekey_id: stringField(payload.prekey_id, "responder_prekey_id_invalid"),
       operation_id: stringField(payload.operation_id, "responder_prekey_operation_invalid"),
-      issued_at_event_sequence: issuedAtEventSequence,
-      expires_event_sequence: expiresEventSequence,
+      issued_at_ms: issuedAtMs,
+      expires_at_ms: expiresAtMs,
       server_challenge: serverChallenge,
     },
   });
@@ -494,6 +494,8 @@ export function beginInitialAkeUmkDelivery(params: {
   workspaceEventHeadHash?: string;
   workspacePinsHash?: string;
   documentRollbackPinSetHash?: string;
+  transferScopeHash?: string;
+  auditCheckpointPinSetHash?: string;
   pendingRegistrationBindingHash: string;
 }): { offer: InitialAkeOffer; initiatorState: InitialAkeInitiatorState } {
   const purpose = params.purpose ?? "umk_distribution";
@@ -542,6 +544,8 @@ export function beginInitialAkeUmkDelivery(params: {
       targetKeyKind: keyKind,
       targetKeyVersion: keyVersion,
       challenge: stringField(prekey.server_challenge, "server_challenge_invalid"),
+      transferScopeHash: params.transferScopeHash,
+      auditCheckpointPinSetHash: params.auditCheckpointPinSetHash,
     });
     const contextRecord = context as Record<string, unknown>;
     const directory = purposeDirectory({
@@ -551,6 +555,8 @@ export function beginInitialAkeUmkDelivery(params: {
       workspaceCheckpointHash: params.workspaceCheckpointHash ?? params.keyCheckpointHash,
       workspaceEventHeadHash: params.workspaceEventHeadHash ?? params.keyEventHeadHash,
       workspacePinsHash: params.workspacePinsHash,
+      transferScopeHash: params.transferScopeHash,
+      auditCheckpointPinSetHash: params.auditCheckpointPinSetHash,
     });
     const commitmentPayload = {
       protocol: COMMITMENT_PROTOCOL,
@@ -675,6 +681,12 @@ export function beginInitialAkeUmkDelivery(params: {
       ...(params.documentRollbackPinSetHash
         ? { document_rollback_pin_set_hash: params.documentRollbackPinSetHash }
         : {}),
+      ...(purpose === "trust_transfer"
+        ? {
+            transfer_scope_hash: params.transferScopeHash,
+            audit_checkpoint_pin_set_hash: params.auditCheckpointPinSetHash,
+          }
+        : {}),
       ...(params.workspaceId ? { workspace_id: params.workspaceId } : {}),
       key_version: keyVersion,
       payload_kind: payloadKind,
@@ -696,6 +708,8 @@ export function beginInitialAkeUmkDelivery(params: {
       payloadMetadataHash: blake3Base64Url(
         canonicalizeStrictBytes(metadata as unknown as StrictJsonValue),
       ),
+      transferScopeHash: params.transferScopeHash,
+      auditCheckpointPinSetHash: params.auditCheckpointPinSetHash,
     });
     const ciphertext = xchacha20poly1305(deliveryKey, nonce, aadBase).encrypt(plaintext);
     const aead = {
@@ -766,10 +780,14 @@ export function beginInitialAkeDeviceStateTransferDelivery(
   > & {
     deviceStateBundle: StrictJsonValue;
     documentRollbackPinSetHash: string;
+    transferScopeHash: string;
+    auditCheckpointPinSetHash: string;
   },
 ) {
   if (!params.documentRollbackPinSetHash)
     throw new Error("document_rollback_pin_set_hash_required");
+  if (!params.transferScopeHash || !params.auditCheckpointPinSetHash)
+    throw new Error("trust_transfer_pin_binding_required");
   const plaintext = canonicalizeStrictBytes(params.deviceStateBundle);
   return beginInitialAkeUmkDelivery({
     ...params,
@@ -779,6 +797,8 @@ export function beginInitialAkeDeviceStateTransferDelivery(
     payloadKind: "trust_state_bundle",
     keyKind: "trust_state_bundle",
     documentRollbackPinSetHash: params.documentRollbackPinSetHash,
+    transferScopeHash: params.transferScopeHash,
+    auditCheckpointPinSetHash: params.auditCheckpointPinSetHash,
   });
 }
 
@@ -1040,6 +1060,7 @@ function validateInitialAkeOffer(
   );
   assertInitialAkeContextKeys(purpose, context);
   assertInitialAkeDirectoryKeys(purpose, directory);
+  assertTrustTransferPinBindings(purpose, context, directory);
   if (
     transcript.protocol !== AKE_PROTOCOL ||
     transcript.version !== CURRENT_PROTOCOL_VERSION ||
@@ -1194,6 +1215,7 @@ export function openInitialAkeUmkDelivery(params: {
   );
   assertInitialAkeContextKeys(purpose, contextRecord);
   assertInitialAkeDirectoryKeys(purpose, directoryRecord);
+  assertTrustTransferPinBindings(purpose, contextRecord, directoryRecord);
   const commitment = params.initialAke.initiator_commitment;
   const commitmentRecord = assertRecord(commitment, "initiator_commitment_invalid");
   assertExactKeys(commitmentRecord, INITIATOR_COMMITMENT_KEYS, "initiator_commitment_invalid");
@@ -1322,6 +1344,16 @@ export function openInitialAkeUmkDelivery(params: {
     throw new Error("initial_delivery_authority_invalid");
   }
   assertInitialDeliveryMetadataKeys(purpose, metadata);
+  if (purpose === "trust_transfer") {
+    if (
+      metadata.transfer_scope_hash !== contextRecord.transfer_scope_hash ||
+      metadata.transfer_scope_hash !== directoryRecord.transfer_scope_hash ||
+      metadata.audit_checkpoint_pin_set_hash !== contextRecord.audit_checkpoint_pin_set_hash ||
+      metadata.audit_checkpoint_pin_set_hash !== directoryRecord.audit_checkpoint_pin_set_hash
+    ) {
+      throw new Error("trust_transfer_pin_binding_mismatch");
+    }
+  }
   if (
     delivery.initial_delivery_suite_id !== SUITE_IDS.INITIAL_DELIVERY ||
     delivery.initial_delivery_suite_rank !== CURRENT_SUITE_RANK ||
@@ -1416,6 +1448,17 @@ export function openInitialAkeUmkDelivery(params: {
     payloadMetadataHash: blake3Base64Url(
       canonicalizeStrictBytes(pendingMetadata(metadata) as StrictJsonValue),
     ),
+    transferScopeHash:
+      purpose === "trust_transfer"
+        ? stringField(metadata.transfer_scope_hash, "transfer_scope_hash_invalid")
+        : undefined,
+    auditCheckpointPinSetHash:
+      purpose === "trust_transfer"
+        ? stringField(
+            metadata.audit_checkpoint_pin_set_hash,
+            "audit_checkpoint_pin_set_hash_invalid",
+          )
+        : undefined,
   });
   try {
     return xchacha20poly1305(
@@ -1469,7 +1512,12 @@ function assertInitialDeliveryMetadataKeys(
 ): void {
   const purposeKeys =
     purpose === "trust_transfer"
-      ? [...INITIAL_DELIVERY_COMMON_METADATA_KEYS, "document_rollback_pin_set_hash"]
+      ? [
+          ...INITIAL_DELIVERY_COMMON_METADATA_KEYS,
+          "audit_checkpoint_pin_set_hash",
+          "document_rollback_pin_set_hash",
+          "transfer_scope_hash",
+        ]
       : purpose === "device_approval_kek_initial"
         ? [...INITIAL_DELIVERY_COMMON_METADATA_KEYS, "workspace_id"]
         : INITIAL_DELIVERY_COMMON_METADATA_KEYS;
@@ -1500,4 +1548,18 @@ function assertInitialAkeDirectoryKeys(
         ? INITIAL_AKE_APPROVAL_DIRECTORY_KEYS
         : INITIAL_AKE_UMK_DIRECTORY_KEYS;
   assertExactKeys(directory, keys, "initial_ake_directory_invalid");
+}
+
+function assertTrustTransferPinBindings(
+  purpose: InitialAkePurpose,
+  context: Record<string, unknown>,
+  directory: Record<string, unknown>,
+): void {
+  if (purpose !== "trust_transfer") return;
+  if (
+    context.transfer_scope_hash !== directory.transfer_scope_hash ||
+    context.audit_checkpoint_pin_set_hash !== directory.audit_checkpoint_pin_set_hash
+  ) {
+    throw new Error("trust_transfer_pin_binding_mismatch");
+  }
 }

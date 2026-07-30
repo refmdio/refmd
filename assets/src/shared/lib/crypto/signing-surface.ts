@@ -14,6 +14,7 @@ export interface ActiveSigningSurface {
 export type SemanticValidator =
   | "ake_commitment"
   | "ake_prekey"
+  | "audit_checkpoint"
   | "device_approval"
   | "device_revocation"
   | "document_admission"
@@ -52,6 +53,34 @@ const ACTIVE_SURFACE_OWNER_KINDS = new Map<string, readonly SigningOwnerKind[]>(
 
 const ACTIVE_SIGNING_SURFACES = [
   surface("pq_wrap", "pq_wrap", "refmd.wrap.pq_wrap", "none", OWNER_DEVICE),
+  surface(
+    "audit_checkpoint",
+    "audit_checkpoint",
+    "refmd.audit.checkpoint.user_identity",
+    "user_identity",
+    OWNER_IDENTITY,
+  ),
+  surface(
+    "audit_checkpoint",
+    "audit_checkpoint",
+    "refmd.audit.checkpoint.user_device",
+    "user_device",
+    OWNER_DEVICE,
+  ),
+  surface(
+    "audit_checkpoint",
+    "audit_checkpoint",
+    "refmd.audit.checkpoint.workspace_device",
+    "workspace_device",
+    OWNER_DEVICE,
+  ),
+  surface(
+    "audit_checkpoint",
+    "audit_checkpoint",
+    "refmd.audit.checkpoint.workspace_guest_device",
+    "workspace_guest_device",
+    OWNER_DEVICE,
+  ),
   ...[
     { variant: "identity_initial", owners: OWNER_IDENTITY },
     { variant: "workspace_initial", owners: OWNER_DEVICE },
@@ -66,7 +95,9 @@ const ACTIVE_SIGNING_SURFACES = [
       variant: "share_participant_document_operation",
       owners: OWNER_SHARE_PARTICIPANT_DEVICE,
     },
-    { variant: "device_authorized", owners: OWNER_DEVICE },
+    { variant: "workspace_invitation_self_admission", owners: OWNER_DEVICE },
+    { variant: "security_device_revocation", owners: OWNER_DEVICE },
+    { variant: "identity_self_envelope_rewrap", owners: OWNER_DEVICE },
   ].map(({ variant, owners }) =>
     surface(
       "key_directory_checkpoint",
@@ -98,6 +129,7 @@ const ACTIVE_SIGNING_SURFACES = [
     "workspace_invitation_bootstrap_updated",
     "workspace_invitation_revoked",
     "workspace_invitation_redeemed",
+    "workspace_member_envelope_issued",
     "guest_invitation_created",
     "guest_invitation_bootstrap_updated",
     "guest_invitation_revoked",
@@ -384,6 +416,7 @@ function assertRegisteredInventoryEntry(entry: ActiveSigningSurface): void {
 
 function semanticValidatorName(entry: ActiveSigningSurface): SemanticValidator {
   if (entry.signing_purpose === "pq_wrap") return "pq_wrap";
+  if (entry.signing_purpose === "audit_checkpoint") return "audit_checkpoint";
   if (entry.signing_purpose === "workspace_pin_bootstrap") return "workspace_pin_bootstrap";
   if (entry.signing_purpose === "key_directory_checkpoint") return "key_directory_checkpoint";
   if (entry.signing_purpose === "key_directory_event") return "key_directory_event";

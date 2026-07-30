@@ -29,6 +29,7 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
     "workspace_invitation_bootstrap_updated",
     "workspace_invitation_revoked",
     "workspace_invitation_redeemed",
+    "workspace_member_envelope_issued",
     "guest_invitation_created",
     "guest_invitation_bootstrap_updated",
     "guest_invitation_revoked",
@@ -67,9 +68,11 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
              "identity_active",
              "identity_rotation",
              "workspace_authorized",
+             "workspace_invitation_self_admission",
              "invitation_redeem_authority",
              "share_participant_document_operation",
-             "device_authorized"
+             "security_device_revocation",
+             "identity_self_envelope_rewrap"
            ] and
              is_binary(owner_kind) and is_binary(owner_id) and is_map(checkpoint_payload) do
     surface = SigningSurface.get_active!("key_directory_checkpoint", variant)
@@ -216,11 +219,14 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   defp event_authority_boundary_for_actor!(actor, scope_kind, scope_id, _sequence, _event_type)
        when is_map_key(actor, "key_checkpoint_sequence") and
               is_map_key(actor, "key_checkpoint_hash") do
+    {checkpoint_sequence, checkpoint_hash} =
+      checkpoint_authority_ref!(actor["key_checkpoint_sequence"], actor["key_checkpoint_hash"])
+
     %{
       "scope_kind" => scope_kind,
       "scope_id" => scope_id,
-      "checkpoint_sequence" => required_integer!(actor["key_checkpoint_sequence"]),
-      "checkpoint_hash" => required_string!(actor["key_checkpoint_hash"]),
+      "checkpoint_sequence" => checkpoint_sequence,
+      "checkpoint_hash" => checkpoint_hash,
       "required_authority" => "event_type_authorized_actor"
     }
   end
@@ -259,6 +265,15 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   defp required_integer!(_),
     do: raise(ArgumentError, "key_directory_transcript_required_field_missing")
 
+  defp checkpoint_authority_ref!(0, "GENESIS"), do: {0, "GENESIS"}
+
+  defp checkpoint_authority_ref!(sequence, hash)
+       when is_integer(sequence) and sequence >= 1 and is_binary(hash) and hash != "GENESIS",
+       do: {sequence, hash}
+
+  defp checkpoint_authority_ref!(_, _),
+    do: raise(ArgumentError, "key_directory_event_authority_boundary_invalid")
+
   def build_workspace_pin_bootstrap_transcript!(owner_device_id, workspace_id, bootstrap)
       when is_binary(owner_device_id) and is_binary(workspace_id) and is_map(bootstrap) do
     surface = SigningSurface.get_active!("workspace_pin_bootstrap", "none")
@@ -294,9 +309,23 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
   def build_workspace_pin_bootstrap_transcript!(_, _, _),
     do: raise(ArgumentError, "workspace_pin_bootstrap_transcript_invalid")
 
-  def build_pq_wrap_transcript!(owner_device_id, actor, authority_boundary, subject_hashes)
+  def build_pq_wrap_transcript!(
+        owner_device_id,
+        actor,
+        authority_boundary,
+        subject_hashes,
+        authority_context \\ "direct"
+      )
+
+  def build_pq_wrap_transcript!(
+        owner_device_id,
+        actor,
+        authority_boundary,
+        subject_hashes,
+        authority_context
+      )
       when is_binary(owner_device_id) and is_map(actor) and is_map(authority_boundary) and
-             is_map(subject_hashes) do
+             is_map(subject_hashes) and authority_context in ["direct", "workspace_genesis"] do
     surface = SigningSurface.get_active!("pq_wrap", "none")
 
     transcript =
@@ -307,6 +336,7 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
         "subject_suite_id" =>
           "refmd-v2-draft-ietf-hpke-pq-04-mlkem768-x25519-hkdfsha256-chacha20poly1305-ed25519-mldsa65",
         "subject_suite_rank" => @suite_rank,
+        "authority_context" => authority_context,
         "actor" => actor,
         "authority_boundary" => authority_boundary,
         "subject_hashes" => subject_hashes
@@ -316,7 +346,7 @@ defmodule RefMD.Crypto.Signature.KeyDirectory do
     transcript
   end
 
-  def build_pq_wrap_transcript!(_, _, _, _),
+  def build_pq_wrap_transcript!(_, _, _, _, _),
     do: raise(ArgumentError, "pq_wrap_transcript_invalid")
 
   def build_initial_key_delivery_transcript!(

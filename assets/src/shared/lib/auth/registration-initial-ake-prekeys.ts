@@ -1,5 +1,4 @@
-import { authApi, encryptionApi } from "@/shared/api";
-import { getKeyDirectoryPin } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
+import { encryptionApi } from "@/shared/api";
 import type { InitialAkeResponderPrekeyRecord } from "@/shared/lib/crypto/initial-ake";
 import { getCryptoWorker } from "@/shared/lib/crypto/worker/client";
 
@@ -19,20 +18,9 @@ interface InitialAkePrekeyWorker {
     deviceId: string;
     purpose: "umk_distribution" | "device_approval_kek_initial" | "trust_transfer";
     serverChallenge: string;
-    issuedAtEventSequence: number;
-    expiresEventSequence: number;
+    issuedAtMs: number;
+    expiresAtMs: number;
   }): Promise<InitialAkeResponderPrekeyRecord>;
-}
-
-export function resolveRegistrationInitialAkeIssuedAtEventSequence(input: {
-  candidateUserEventHeadSequence?: number | null;
-  pinnedEventHeadSequence?: number | null;
-}): number {
-  if (typeof input.candidateUserEventHeadSequence === "number") {
-    return input.candidateUserEventHeadSequence;
-  }
-
-  return input.pinnedEventHeadSequence ?? 1;
 }
 
 export async function generateRegistrationInitialAkeResponderPrekeys(params: {
@@ -40,11 +28,14 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
   deviceId: string;
   workspaceIds: string[];
   serverChallenge: string;
-  issuedAtEventSequence: number;
+  issuedAtMs: number;
+  expiresAtMs: number;
   worker: InitialAkePrekeyWorker;
   operationIdFactory?: () => string;
 }): Promise<RegistrationInitialAkeResponderPrekeys> {
-  const expiresEventSequence = params.issuedAtEventSequence + 1;
+  if (params.expiresAtMs !== params.issuedAtMs + 300_000) {
+    throw new Error("responder_prekey_lifetime_invalid");
+  }
   const nextOperationId = params.operationIdFactory ?? (() => crypto.randomUUID());
   const umkDistribution = await params.worker.generateInitialAkeResponderPrekey({
     operationId: nextOperationId(),
@@ -52,8 +43,8 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
     deviceId: params.deviceId,
     purpose: "umk_distribution",
     serverChallenge: params.serverChallenge,
-    issuedAtEventSequence: params.issuedAtEventSequence,
-    expiresEventSequence,
+    issuedAtMs: params.issuedAtMs,
+    expiresAtMs: params.expiresAtMs,
   });
   const trustTransfer = await params.worker.generateInitialAkeResponderPrekey({
     operationId: nextOperationId(),
@@ -61,8 +52,8 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
     deviceId: params.deviceId,
     purpose: "trust_transfer",
     serverChallenge: params.serverChallenge,
-    issuedAtEventSequence: params.issuedAtEventSequence,
-    expiresEventSequence,
+    issuedAtMs: params.issuedAtMs,
+    expiresAtMs: params.expiresAtMs,
   });
   const deviceApprovalKekInitial: RegistrationInitialAkeResponderPrekeys["device_approval_kek_initial"] =
     [];
@@ -75,8 +66,8 @@ export async function generateRegistrationInitialAkeResponderPrekeys(params: {
         deviceId: params.deviceId,
         purpose: "device_approval_kek_initial",
         serverChallenge: params.serverChallenge,
-        issuedAtEventSequence: params.issuedAtEventSequence,
-        expiresEventSequence,
+        issuedAtMs: params.issuedAtMs,
+        expiresAtMs: params.expiresAtMs,
       }),
     });
   }
@@ -92,21 +83,18 @@ export async function prepareRegistrationInitialAkeResponderPrekeys(params: {
   userId: string;
   deviceId: string;
   serverChallenge: string;
+  issuedAtMs: number;
+  expiresAtMs: number;
 }): Promise<RegistrationInitialAkeResponderPrekeys> {
-  const me = await authApi.me();
   const { workspace_ids: workspaceIds } = await encryptionApi.getWorkspaceIds();
-  const userKeyDirectoryPin = await getKeyDirectoryPin("user", params.userId);
-  const issuedAtEventSequence = resolveRegistrationInitialAkeIssuedAtEventSequence({
-    candidateUserEventHeadSequence: me.candidate_user_event_head_sequence,
-    pinnedEventHeadSequence: userKeyDirectoryPin?.eventHeadSequence,
-  });
 
   return generateRegistrationInitialAkeResponderPrekeys({
     userId: params.userId,
     deviceId: params.deviceId,
     workspaceIds,
     serverChallenge: params.serverChallenge,
-    issuedAtEventSequence,
+    issuedAtMs: params.issuedAtMs,
+    expiresAtMs: params.expiresAtMs,
     worker: getCryptoWorker(),
   });
 }

@@ -31,9 +31,11 @@ type KeyDirectoryCheckpointVariant =
   | "identity_active"
   | "identity_rotation"
   | "workspace_authorized"
+  | "workspace_invitation_self_admission"
   | "invitation_redeem_authority"
   | "share_participant_document_operation"
-  | "device_authorized";
+  | "security_device_revocation"
+  | "identity_self_envelope_rewrap";
 
 interface KeyDirectorySignedArtifact {
   signer: Record<string, string>;
@@ -117,11 +119,37 @@ export interface SignWorkerClientMethods {
     deviceApprovalKekInitialDeliveryCommitments: Record<string, unknown>[];
   }): Promise<SignedSurfaceArtifact>;
   createGenesisDeviceBootstrapSignature(params: {
+    registrationId: string;
+    compoundIntentId: string;
+    mutationId: string;
+    genesisCompoundContextHash: string;
+    workspaceId: string;
+    ownerRoleId: string;
     deviceEcdhPublic: Uint8Array;
     clientNonce: Uint8Array;
     registrationChallengeHash: string;
     identitySigningKeyId: string;
     userIdentityPublicKeyHash: string;
+    userDeviceKeyAddedEventHash: string;
+    workspaceDeviceKeyAddedEventHash: string;
+    ownerMemberAddedEventHash: string;
+    workspaceMemberEnvelopeCommitmentHash: string;
+    userAuditCheckpoint: { sequence: number; checkpoint_hash: string };
+    workspaceAuditCheckpoint: { sequence: number; checkpoint_hash: string };
+  }): Promise<SignedSurfaceArtifact>;
+  signAuditCheckpoint(params: {
+    variant: "user_identity" | "user_device" | "workspace_device" | "workspace_guest_device";
+    payload: StrictJsonValue;
+  }): Promise<SignedSurfaceArtifact>;
+  signGenesisPqWrap(params: {
+    actor: StrictJsonValue;
+    authorityBoundary: StrictJsonValue;
+    subjectHashes: StrictJsonValue;
+  }): Promise<SignedSurfaceArtifact>;
+  signPqWrap(params: {
+    actor: StrictJsonValue;
+    authorityBoundary: StrictJsonValue;
+    subjectHashes: StrictJsonValue;
   }): Promise<SignedSurfaceArtifact>;
   createRecoveryDeviceApprovalSignature(params: {
     deviceEcdhPublic: Uint8Array;
@@ -137,9 +165,9 @@ export interface SignWorkerClientMethods {
     targetKeyCheckpointHash: string;
   }): Promise<SignedSurfaceArtifact>;
   createDeviceRevocationSignature(params: {
-    revokedDeviceId: string;
-    revocationMode: "security" | "retire";
-    revokedAtMs: number;
+    actor: StrictJsonValue;
+    revokedDevice: StrictJsonValue;
+    authorityBoundary: StrictJsonValue;
   }): Promise<SignedSurfaceArtifact>;
   signDeviceKeyDeletionProof(params: {
     payload: Record<string, unknown>;
@@ -400,6 +428,18 @@ export const signWorkerClientMethods: SignWorkerClientMethods &
       "create-genesis-device-bootstrap-signature",
       params,
     )) as SignedSurfaceArtifact;
+  },
+
+  async signAuditCheckpoint(params) {
+    return (await this[workerSend]("sign-audit-checkpoint", params)) as SignedSurfaceArtifact;
+  },
+
+  async signGenesisPqWrap(params) {
+    return (await this[workerSend]("sign-genesis-pq-wrap", params)) as SignedSurfaceArtifact;
+  },
+
+  async signPqWrap(params) {
+    return (await this[workerSend]("sign-pq-wrap", params)) as SignedSurfaceArtifact;
   },
 
   async createRecoveryDeviceApprovalSignature(params) {

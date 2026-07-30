@@ -14,6 +14,7 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
   alias RefMD.Workspaces.KekRotation.DeletionProofs
 
   alias RefMD.Workspaces.{
+    InvitationDeliveryAttempt,
     WorkspaceDeviceWipeRequirement,
     WorkspaceGuestGrant,
     WorkspaceKekRotationDeletionEvidence,
@@ -189,24 +190,7 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
         attrs.identity_hybrid_encryption_public_key_material,
       identity_hybrid_signing_public_key_material:
         attrs.identity_hybrid_signing_public_key_material,
-      encrypted_identity_hybrid_encryption_private_key_material:
-        Base.url_encode64(attrs.encrypted_identity_hybrid_encryption_private_key_material,
-          padding: false
-        ),
-      identity_hybrid_encryption_private_key_material_nonce:
-        Base.url_encode64(attrs.identity_hybrid_encryption_private_key_material_nonce,
-          padding: false
-        ),
-      encrypted_identity_hybrid_signing_private_key_material:
-        Base.url_encode64(attrs.encrypted_identity_hybrid_signing_private_key_material,
-          padding: false
-        ),
-      identity_hybrid_signing_private_key_material_nonce:
-        Base.url_encode64(attrs.identity_hybrid_signing_private_key_material_nonce,
-          padding: false
-        ),
-      approval_signature: attrs.approval_signature,
-      pending_registration_challenge_hash: attrs.pending_registration_challenge_hash,
+      recoverable_identity_secret_record: attrs.recoverable_identity_secret_record,
       client_nonce: Base.url_encode64(attrs.client_nonce, padding: false),
       user_key_directory_events: attrs.user_key_directory_events,
       user_key_directory_checkpoint: attrs.user_key_directory_checkpoint,
@@ -217,10 +201,7 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
     for field <- [
           :identity_hybrid_encryption_public_key_material,
           :identity_hybrid_signing_public_key_material,
-          :encrypted_identity_hybrid_encryption_private_key_material,
-          :identity_hybrid_encryption_private_key_material_nonce,
-          :encrypted_identity_hybrid_signing_private_key_material,
-          :identity_hybrid_signing_private_key_material_nonce
+          :recoverable_identity_secret_record
         ] do
       response = post(recycle(conn), "/api/guest/redeem", Map.delete(body, field))
 
@@ -242,6 +223,19 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
     assert {:ok, first} = redeem_guest_invitation(invitation_ctx, attrs)
     assert first.guest_user_id == attrs.guest_user_id
     assert first.guest_device_id == attrs.device_id
+    guest_device = Repo.get!(Device, first.guest_device_id)
+    guest_identity = Encryption.get_user_identity_public_key(first.guest_user_id)
+    user_checkpoint_payload = attrs.user_key_directory_checkpoint["payload"]
+
+    assert guest_device.approval_signature == nil
+    assert guest_device.approval_signature_surface == nil
+    assert guest_device.approval_proof == nil
+    assert guest_device.key_checkpoint_sequence == user_checkpoint_payload["sequence"]
+
+    assert guest_device.key_checkpoint_hash ==
+             Hash.blake3_base64url(JCS.canonical_bytes!(user_checkpoint_payload))
+
+    assert guest_identity.pending_registration_challenge_hash == nil
     assert encrypted_identity = Encryption.get_user_encrypted_identity_key(attrs.guest_user_id)
     assert encrypted_identity.encryption_key_id == attrs.identity_encryption_key_id
     assert encrypted_identity.signing_key_id == attrs.identity_signing_key_id
@@ -710,6 +704,59 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
              )
   end
 
+  test "consumed known-recipient delivery cannot be replayed" do
+    workspace_ctx = guest_workspace()
+    token_hash = token_hash()
+    invitation_ctx = guest_invitation!(workspace_ctx, max_redemptions: 1, token_hash: token_hash)
+    attrs = guest_redeem_attrs()
+
+    assert {:ok, first} = redeem_guest_invitation(invitation_ctx, attrs)
+
+    invitation =
+      invitation_ctx.invitation
+      |> Ecto.Changeset.change(%{
+        delivery_mode: "known_recipient",
+        recipient_user_id: workspace_ctx.owner_id,
+        recipient_device_ids: [workspace_ctx.owner_device_id]
+      })
+      |> Repo.update!()
+
+    attempt =
+      consumed_guest_delivery_attempt!(workspace_ctx, invitation, attrs, first)
+
+    counts_before = %{
+      devices: Repo.aggregate(Device, :count),
+      grants: Repo.aggregate(WorkspaceGuestGrant, :count),
+      redemptions: Repo.reload!(invitation).redemption_count,
+      users: Repo.aggregate(User, :count)
+    }
+
+    assert {:error, :delivery_attempt_not_approved} =
+             Workspaces.consume_guest_invitation_delivery_attempt(
+               attempt.id,
+               token_hash,
+               workspace_ctx.owner_id,
+               workspace_ctx.owner_device_id,
+               %{}
+             )
+
+    assert {:error, :not_found} =
+             Workspaces.consume_guest_invitation_delivery_attempt(
+               attempt.id,
+               token_hash,
+               first.guest_user_id,
+               first.guest_device_id,
+               %{}
+             )
+
+    assert %{
+             devices: Repo.aggregate(Device, :count),
+             grants: Repo.aggregate(WorkspaceGuestGrant, :count),
+             redemptions: Repo.reload!(invitation).redemption_count,
+             users: Repo.aggregate(User, :count)
+           } == counts_before
+  end
+
   defp insert_scoped_guest_share!(document_id, owner_id) do
     share_id = Ecto.UUID.generate()
     token_hash = Hash.blake3_base64url("scoped-guest-share:" <> share_id)
@@ -816,38 +863,14 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
              "error" => "key_directory_scope_forbidden"
            }
 
-    latest_event =
-      KeyDirectory.events_after_until(
-        "workspace",
-        workspace_id,
-        checkpoint.covered_event_head_sequence - 1,
-        checkpoint.covered_event_head_sequence
-      )
-      |> List.last()
-
     append_path = "/api/workspaces/#{workspace_id}/key-directory/append"
-
-    append_body = %{
-      "events" => [%{"payload" => latest_event.payload, "signatures" => latest_event.signatures}],
-      "checkpoint" => %{"payload" => checkpoint.payload, "signatures" => checkpoint.signatures}
-    }
 
     append_response =
       recycle(conn)
       |> authed_conn(guest.guest_user_id, guest.guest_device_id)
-      |> put_test_rrp_headers(
-        guest.guest_user_id,
-        device,
-        attrs.device_signing_private_key,
-        "POST",
-        append_path,
-        append_body
-      )
-      |> post(append_path, test_json_body(append_body))
+      |> post(append_path)
 
-    assert json_response(append_response, 403) == %{
-             "error" => "key_directory_scope_forbidden"
-           }
+    assert append_response.status == 404
 
     wipe_path = "/api/encryption/workspaces/#{workspace_id}/kek-rotation/wipe-requirement"
 
@@ -900,15 +923,21 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
     device = Repo.get!(Device, guest.guest_device_id)
     checkpoint = KeyDirectory.current_checkpoint("workspace", workspace_id)
 
+    rotation_id = Ecto.UUID.generate()
+
     directory_body = %{
-      "workspace_key_directory_events" => [],
-      "workspace_key_directory_checkpoint" => %{
+      "old_key_version" => 1,
+      "new_key_version" => 2,
+      "reason" => "manual",
+      "rotation_id" => rotation_id,
+      "events" => [],
+      "checkpoint" => %{
         "payload" => checkpoint.payload,
         "signatures" => checkpoint.signatures
       }
     }
 
-    start_path = "/api/encryption/workspaces/#{workspace_id}/kek-rotation"
+    start_path = "/api/encryption/workspaces/#{workspace_id}/kek-rotation/intent"
 
     start_response =
       recycle(conn)
@@ -925,35 +954,17 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
 
     assert json_response(start_response, 403) == %{"error" => "forbidden"}
 
-    manifest_path =
-      "/api/encryption/workspaces/#{workspace_id}/kek-rotation/completion-manifest"
+    complete_path =
+      "/api/encryption/workspaces/#{workspace_id}/rotations/#{rotation_id}/complete/intent"
 
-    manifest_query = URI.encode_query(%{"new_kek_version" => 2})
-
-    manifest_response =
-      recycle(conn)
-      |> authed_conn(guest.guest_user_id, guest.guest_device_id)
-      |> put_test_rrp_headers(
-        guest.guest_user_id,
-        device,
-        attrs.device_signing_private_key,
-        "GET",
-        manifest_path,
-        "",
-        manifest_query
-      )
-      |> get(manifest_path <> "?" <> manifest_query)
-
-    assert json_response(manifest_response, 403) == %{"error" => "forbidden"}
-
-    complete_path = "/api/encryption/workspaces/#{workspace_id}/kek-rotation/complete"
-
-    complete_body =
-      Map.merge(directory_body, %{
-        "new_kek_version" => 2,
-        "device_key_deletion_proofs" => [],
-        "wipe_required_device_ids" => []
-      })
+    complete_body = %{
+      "old_key_version" => 1,
+      "new_key_version" => 2,
+      "device_wrap_precommits" => [],
+      "member_envelope_precommits" => [],
+      "workspace_invitation_updates" => [],
+      "guest_invitation_updates" => []
+    }
 
     complete_response =
       recycle(conn)
@@ -1298,16 +1309,25 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
       hybrid_encryption_public_key_material("device", device_id, device_x25519_public)
 
     client_nonce = :crypto.strong_rand_bytes(16)
-    pending_registration_challenge_hash = Hash.blake3_base64url("registration:" <> device_id)
+    encrypted_identity_encryption = :crypto.strong_rand_bytes(48)
+    identity_encryption_nonce = :crypto.strong_rand_bytes(24)
+    encrypted_identity_signing = :crypto.strong_rand_bytes(48)
+    identity_signing_nonce = :crypto.strong_rand_bytes(24)
 
-    approval_signature =
-      sign_genesis_device_bootstrap(
-        identity_private,
-        device_id,
-        device_signing.public,
-        device_x25519_public,
-        device_encryption.public,
-        client_nonce
+    identity_encryption_key_id =
+      HybridEncryptionMaterial.compute_key_id!(identity_encryption.public)
+
+    identity_signing_key_id = Signature.compute_signing_key_id!(identity_public)
+
+    recoverable_identity_secret_record =
+      recoverable_identity_secret_record(
+        guest_user_id,
+        identity_signing_key_id,
+        identity_encryption_key_id,
+        encrypted_identity_signing,
+        identity_signing_nonce,
+        encrypted_identity_encryption,
+        identity_encryption_nonce
       )
 
     key_directory =
@@ -1328,22 +1348,76 @@ defmodule RefMDWeb.GuestInvitationControllerTest do
       device_hybrid_signing_public_key_material: device_signing.public,
       identity_hybrid_encryption_public_key_material: identity_encryption.public,
       identity_hybrid_signing_public_key_material: identity_public,
-      encrypted_identity_hybrid_encryption_private_key_material: :crypto.strong_rand_bytes(48),
-      identity_hybrid_encryption_private_key_material_nonce: :crypto.strong_rand_bytes(24),
-      encrypted_identity_hybrid_signing_private_key_material: :crypto.strong_rand_bytes(48),
-      identity_hybrid_signing_private_key_material_nonce: :crypto.strong_rand_bytes(24),
-      identity_encryption_key_id:
-        HybridEncryptionMaterial.compute_key_id!(identity_encryption.public),
-      identity_signing_key_id: Signature.compute_signing_key_id!(identity_public),
-      approval_signature: approval_signature,
+      recoverable_identity_secret_record: recoverable_identity_secret_record,
+      identity_encryption_key_id: identity_encryption_key_id,
+      identity_signing_key_id: identity_signing_key_id,
       client_nonce: client_nonce,
-      pending_registration_challenge_hash: pending_registration_challenge_hash,
       user_key_directory_events: key_directory.user_events,
       user_key_directory_checkpoint: key_directory.user_checkpoint,
       device_signing_private_key: device_signing.private,
       device_name: "Guest Browser",
       device_type: "browser"
     }
+  end
+
+  defp consumed_guest_delivery_attempt!(workspace_ctx, invitation, attrs, first) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    encode = &Base.url_encode64(&1, padding: false)
+
+    registration = %{
+      "identity_hybrid_encryption_public_key_material" =>
+        attrs.identity_hybrid_encryption_public_key_material,
+      "identity_hybrid_signing_public_key_material" =>
+        attrs.identity_hybrid_signing_public_key_material,
+      "recoverable_identity_secret_record" => attrs.recoverable_identity_secret_record,
+      "device_hybrid_encryption_public_key_material" =>
+        attrs.device_hybrid_encryption_public_key_material,
+      "device_hybrid_signing_public_key_material" =>
+        attrs.device_hybrid_signing_public_key_material,
+      "user_key_directory_events" => attrs.user_key_directory_events,
+      "user_key_directory_checkpoint" => attrs.user_key_directory_checkpoint
+    }
+
+    proof = %{
+      "client_nonce" => encode.(attrs.client_nonce),
+      "device_name" => attrs.device_name,
+      "device_type" => attrs.device_type
+    }
+
+    %InvitationDeliveryAttempt{}
+    |> InvitationDeliveryAttempt.create_changeset(%{
+      id: Ecto.UUID.generate(),
+      workspace_id: workspace_ctx.workspace.id,
+      context_kind: "guest_invitation",
+      context_id: invitation.id,
+      recipient_user_id: workspace_ctx.owner_id,
+      recipient_device_id: workspace_ctx.owner_device_id,
+      target_user_id: first.guest_user_id,
+      target_device_id: first.guest_device_id,
+      target_encryption_key_id:
+        HybridEncryptionMaterial.compute_key_id!(
+          attrs.device_hybrid_encryption_public_key_material
+        ),
+      target_registration: registration,
+      target_registration_proof: proof,
+      recipient_redeem_nonce: Hash.blake3_base64url("redeem-nonce"),
+      live_redeem_challenge_hash: Hash.blake3_base64url("live-challenge"),
+      recipient_nonce_state_hash: Hash.blake3_base64url("nonce-state"),
+      request_binding_hash: Hash.blake3_base64url("request-binding"),
+      resource_hash: Hash.blake3_base64url("resource"),
+      context_snapshot: %{"token_hash" => invitation.token_hash},
+      status: "pending",
+      expires_at: DateTime.add(now, 300, :second)
+    })
+    |> Repo.insert!()
+    |> Ecto.Changeset.change(%{
+      approved_artifacts: %{},
+      approved_at: now,
+      authorization_id: Ecto.UUID.generate(),
+      consumed_at: now,
+      status: "consumed"
+    })
+    |> Repo.update!()
   end
 
   defp token_hash do

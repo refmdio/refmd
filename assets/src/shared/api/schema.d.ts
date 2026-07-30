@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a workspace genesis compound append intent */
+        post: operations["post_api_workspaces_intent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mounts/{mount_id}/documents/{document_token}/bootstrap": {
         parameters: {
             query?: never;
@@ -141,6 +158,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a compound KEK rotation start */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_kek_rotation_intent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -204,6 +238,23 @@ export interface paths {
         get: operations["get_api_auth_key_restore"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/complete/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a compound KEK rotation completion */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_complete_intent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -364,6 +415,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/security/audit-checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get signed audit checkpoint proofs for the current user scopes */
+        get: operations["get_api_security_audit_checkpoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
         parameters: {
             query?: never;
@@ -373,7 +441,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Start KEK rotation for a workspace (manual trigger) */
+        /** Commit a compound KEK rotation start */
         post: operations["post_api_encryption_workspaces_by_workspace_id_kek_rotation"];
         delete?: never;
         options?: never;
@@ -604,6 +672,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/{device_id}/revocation/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a device revocation compound append intent */
+        post: operations["post_api_devices_by_device_id_revocation_intent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shares/d/{document_token}/bootstrap": {
         parameters: {
             query?: never;
@@ -666,23 +751,6 @@ export interface paths {
         put?: never;
         /** Promote an approved plugin bundle candidate */
         post: operations["post_api_plugin_candidates_by_candidate_id_approval"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/oauth/crypto-setup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Initialize OAuth account encryption material */
-        post: operations["post_api_auth_oauth_crypto_setup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -855,6 +923,23 @@ export interface paths {
         put?: never;
         /** Create a document or folder */
         post: operations["post_api_documents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/old-key-deletion/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a compound old KEK deletion */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_old_key_deletion_intent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1265,7 +1350,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Bootstrap first device (first device only) */
+        /** Commit the account genesis compound authorization */
         post: operations["post_api_devices_bootstrap"];
         delete?: never;
         options?: never;
@@ -1557,6 +1642,40 @@ export interface paths {
         get: operations["get_api_workspaces_by_workspace_id_invitations_recipient"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/bootstrap/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare the account genesis compound append intent */
+        post: operations["post_api_devices_bootstrap_intent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members/{user_id}/removal/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a compound member removal */
+        post: operations["post_api_workspaces_by_workspace_id_members_by_user_id_removal_intent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1898,23 +2017,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces/{workspace_id}/key-directory/append": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Append workspace device or identity key admission events */
-        post: operations["post_api_workspaces_by_workspace_id_key_directory_append"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/auth/password/setup": {
         parameters: {
             query?: never;
@@ -2138,6 +2240,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/members/{user_id}/role/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare a compound member role mutation */
+        post: operations["post_api_workspaces_by_workspace_id_members_by_user_id_role_intent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/dbsc/mount/register": {
         parameters: {
             query?: never;
@@ -2207,6 +2326,23 @@ export interface paths {
         patch: operations["patch_api_settings"];
         trace?: never;
     };
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/old-key-deletion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commit a compound old KEK deletion */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_old_key_deletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{device_id}": {
         parameters: {
             query?: never;
@@ -2217,7 +2353,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke a device */
+        /** Commit an exact device revocation compound authorization */
         delete: operations["delete_api_devices_by_device_id"];
         options?: never;
         head?: never;
@@ -2238,40 +2374,6 @@ export interface paths {
         post?: never;
         /** Delete encrypted plugin record storage */
         delete: operations["delete_api_workspaces_by_workspace_id_plugin_runtime_by_application_id_records_by_surface_by_record_id"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Complete KEK rotation for a workspace */
-        post: operations["post_api_encryption_workspaces_by_workspace_id_kek_rotation_complete"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/encryption/workspaces/{workspace_id}/kek-rotation/completion-manifest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Prepare KEK rotation completion manifest hashes */
-        get: operations["get_api_encryption_workspaces_by_workspace_id_kek_rotation_completion_manifest"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2305,6 +2407,23 @@ export interface paths {
         get: operations["get_api_encryption_documents_by_document_id_keys_rotation_targets"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commit a compound KEK rotation completion */
+        post: operations["post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_complete"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2576,6 +2695,19 @@ export interface components {
             initial_ake: components["schemas"]["InitialAkeArtifact"];
             initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
         };
+        /** WorkspaceAuthorityMutationResponse */
+        WorkspaceAuthorityMutationResponse: {
+            /** @enum {string} */
+            event_type: "workspace.member.role_changed" | "workspace.member.removed" | "workspace.kek.rotation_started" | "workspace.kek.rotation_completed" | "workspace.kek.old_key_deleted";
+            permission_loss: boolean;
+            /** @enum {string} */
+            status: "committed";
+            workspace_audit_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_key_directory_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
+        };
         /** PluginActivationUpdateRequest */
         PluginActivationUpdateRequest: {
             enabled?: boolean;
@@ -2613,22 +2745,57 @@ export interface components {
         };
         /** RegisterResponse */
         RegisterResponse: {
+            /** @enum {boolean} */
+            bootstrap_required: true;
+            /** Format: date-time */
+            expires_at: string;
             /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfo"];
+            registration_id: string;
             /** Format: uuid */
-            workspace_id: string;
+            reserved_user_id: string;
             /** Format: uuid */
-            workspace_owner_role_id: string;
+            reserved_workspace_id: string;
+            reserved_workspace_role_ids: {
+                /** Format: uuid */
+                admin: string;
+                /** Format: uuid */
+                editor: string;
+                /** Format: uuid */
+                owner: string;
+                /** Format: uuid */
+                viewer: string;
+            };
         };
         /** Base64UrlBytes */
         Base64UrlBytes: string;
-        /** ChangeMemberRoleRequest */
-        ChangeMemberRoleRequest: {
+        /** AuditCheckpointPayload */
+        AuditCheckpointPayload: {
+            authorization_checkpoint_hash: string;
             /** Format: uuid */
-            role_id: string;
-            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            authorization_checkpoint_scope_id: string;
+            /** @enum {string} */
+            authorization_checkpoint_scope_kind: "user" | "workspace";
+            authorization_checkpoint_sequence: number;
+            /** Format: uuid */
+            chain_scope_id: string;
+            /** @enum {string} */
+            chain_scope_kind: "user" | "workspace";
+            /** @enum {string} */
+            covered_event_class: "authority";
+            covered_event_type: string;
+            event_hash: string;
+            previous_signed_checkpoint_hash?: string;
+            previous_signed_checkpoint_sequence?: number;
+            /** @enum {string} */
+            protocol: "refmd.signed-audit-checkpoint";
+            sequence: number;
+            /** Format: uuid */
+            signer_device_id?: string;
+            /** Format: uuid */
+            signer_user_id: string;
+            signing_key_id: string;
+            /** @enum {integer} */
+            version: 1;
         };
         /** ShareMountConflictResponse */
         ShareMountConflictResponse: {
@@ -2649,11 +2816,10 @@ export interface components {
         };
         /** AuditCheckpoint */
         AuditCheckpoint: {
-            ancestry: Record<string, never>[];
-            authority_checkpoint: Record<string, never> | null;
-            chain_scope: string;
-            event_hash: string;
-            sequence: number;
+            ancestry: components["schemas"]["AuditEventEnvelope"][];
+            current_event_head: components["schemas"]["AuditEventHead"];
+            signed_checkpoint: components["schemas"]["SignedAuditCheckpoint"];
+            unsigned_tail: components["schemas"]["AuditEventEnvelope"][];
         };
         /** ShareCapabilitySigningPublicKeyMaterial */
         ShareCapabilitySigningPublicKeyMaterial: {
@@ -2695,6 +2861,14 @@ export interface components {
             plugin_network_proxy?: components["schemas"]["PluginNetworkProxyRegistration"];
             /** @enum {string} */
             theme?: "light" | "dark" | "system";
+        };
+        /** WorkspaceGenesisResponse */
+        WorkspaceGenesisResponse: {
+            /** @enum {string} */
+            status: "committed";
+            workspace_audit_checkpoint: components["schemas"]["AuditCheckpoint"];
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -2777,11 +2951,6 @@ export interface components {
             path: string[];
             reason: string;
         };
-        /** KeyDirectoryAppendRequest */
-        KeyDirectoryAppendRequest: {
-            checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            events: components["schemas"]["KeyDirectoryEnvelope"][];
-        };
         /** AcceptInvitationResponse */
         AcceptInvitationResponse: {
             encrypted_bootstrap_package?: components["schemas"]["WorkspaceInvitationBootstrapPackage"] | null;
@@ -2810,6 +2979,25 @@ export interface components {
             document_id: string;
             /** Format: uuid */
             share_id: string;
+        };
+        /** RecoverableIdentitySecretRecord */
+        RecoverableIdentitySecretRecord: {
+            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"];
+            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"];
+            encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            encryption_material_aad_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            id: string;
+            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            identity_key_epoch: number;
+            is_current: boolean;
+            previous_record_hash: string;
+            record_hash: components["schemas"]["Blake3Base64Url"];
+            signing_key_id: components["schemas"]["Blake3Base64Url"];
+            signing_material_aad_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            user_id: string;
         };
         /** GuestInvitationsListResponse */
         GuestInvitationsListResponse: {
@@ -3021,6 +3209,13 @@ export interface components {
             workspace_key_directory_intermediate_checkpoint?: components["schemas"]["KeyDirectoryEnvelope"] | null;
             workspace_pin_bootstrap: components["schemas"]["WorkspacePinBootstrap"];
         };
+        /** GenesisRecoveryAuthorization */
+        GenesisRecoveryAuthorization: {
+            recovery_authorization_key_id: components["schemas"]["Blake3Base64Url"];
+            recovery_authorization_public_material: components["schemas"]["GenesisRecoveryAuthorizationPublicKeyMaterial"];
+            recovery_encrypted_umk: string;
+            recovery_nonce: components["schemas"]["EncryptedMaterialNonce"];
+        };
         /** RecipientBoundAuthorization */
         RecipientBoundAuthorization: {
             hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
@@ -3183,17 +3378,17 @@ export interface components {
             created_at?: string;
             manifest_hash: string;
             consent_head_hash?: string;
-            execution_context_id?: string;
+            execution_context_id?: string | null;
             package_id: string;
-            request_id?: string;
+            request_id?: string | null;
             resource_ref?: {
-                block_id?: string;
+                block_id?: string | null;
                 context_range?: {
                     anchor: number;
                     head: number;
                 };
-                document_id?: string;
-                editor_id?: string;
+                document_id?: string | null;
+                editor_id?: string | null;
                 max_bytes?: number;
                 max_documents?: number;
                 selected_document_ids?: string[];
@@ -3208,17 +3403,17 @@ export interface components {
             result?: "allow" | "deny";
             type: string;
             correlation?: {
-                authority_event_ref: string;
-                capability_id: string;
-                execution_context_id: string;
+                authority_event_ref: string | null;
+                capability_id: string | null;
+                execution_context_id: string | null;
                 request_body?: string;
-                request_id: string | {
+                request_id: (string | null) | {
                     nested?: string;
                 };
             };
             scope?: {
-                document_id: string;
-                share_id: string;
+                document_id: string | null;
+                share_id: string | null;
                 /** Format: uuid */
                 workspace_id: string;
             };
@@ -3242,28 +3437,28 @@ export interface components {
                 id: string;
                 /** @enum {string} */
                 kind: "plugin" | "credential" | "network_endpoint" | "document";
-                version_hash: string;
+                version_hash: string | null;
             };
             state_head_hash?: string;
             actor?: {
-                device_id: string;
-                principal_id: string;
+                device_id: string | null;
+                principal_id: string | null;
                 /** @enum {string} */
                 principal_kind: "user" | "share_participant" | "system" | "worker";
-                session_id: string;
-                user_id: string;
+                session_id: string | null;
+                user_id: string | null;
             };
             action?: {
                 content?: string;
                 credential_handle_used?: boolean | string;
                 endpoint_id?: string;
-                fallback_reason?: string;
+                fallback_reason?: string | null;
                 method?: string;
                 operation: string;
                 payload?: string;
-                proxy_id?: string;
+                proxy_id?: string | null;
                 raw?: string;
-                reason_code?: string;
+                reason_code?: string | null;
                 request_body?: string;
                 request_bytes?: number | string;
                 response_bytes?: number | string;
@@ -3274,7 +3469,7 @@ export interface components {
                 target_path?: string;
             };
             event_id?: string;
-            context_kind?: string;
+            context_kind?: string | null;
             capability_id?: string;
             reasonCode?: string;
             consent_epoch: number;
@@ -3289,6 +3484,21 @@ export interface components {
             status: "active";
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** WorkspaceGenesisCommand */
+        WorkspaceGenesisCommand: {
+            description: string | null;
+            icon: string | null;
+            name: string;
+            /** Format: uuid */
+            owner_role_id: string;
+            /** @enum {string} */
+            protocol: "refmd.workspace-genesis-command";
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_member_envelope_precommit: components["schemas"]["GenesisWorkspaceMemberEnvelopePrecommit"];
         };
         /** ReplaceFolderShareKeyItem */
         ReplaceFolderShareKeyItem: {
@@ -3309,8 +3519,8 @@ export interface components {
                 device_approval_kek_initial: {
                     prekey: {
                         payload: {
-                            expires_event_sequence: number;
-                            issued_at_event_sequence: number;
+                            expires_at_ms: number;
+                            issued_at_ms: number;
                             mlkem768_ephemeral_public: string;
                             mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
                             /** Format: uuid */
@@ -3340,8 +3550,8 @@ export interface components {
                 }[];
                 trust_transfer: {
                     payload: {
-                        expires_event_sequence: number;
-                        issued_at_event_sequence: number;
+                        expires_at_ms: number;
+                        issued_at_ms: number;
                         mlkem768_ephemeral_public: string;
                         mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
                         /** Format: uuid */
@@ -3368,8 +3578,8 @@ export interface components {
                 };
                 umk_distribution: {
                     payload: {
-                        expires_event_sequence: number;
-                        issued_at_event_sequence: number;
+                        expires_at_ms: number;
+                        issued_at_ms: number;
                         mlkem768_ephemeral_public: string;
                         mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
                         /** Format: uuid */
@@ -3415,11 +3625,6 @@ export interface components {
         DocumentWriteStateRequest: {
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
-        };
-        /** RemoveMemberResponse */
-        RemoveMemberResponse: {
-            ok: boolean;
-            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
         };
         /** LogoutRequest */
         LogoutRequest: {
@@ -3480,6 +3685,7 @@ export interface components {
         };
         /** InitialAkeTrustTransferContext */
         InitialAkeTrustTransferContext: {
+            audit_checkpoint_pin_set_hash: string;
             challenge: string;
             operation_id: string;
             /** Format: uuid */
@@ -3614,6 +3820,13 @@ export interface components {
         RecoveryChallengeResponse: {
             challenge: string;
         };
+        /** DeviceRevocationCommand */
+        DeviceRevocationCommand: {
+            /** Format: uuid */
+            device_id: string;
+            /** @enum {string} */
+            revocation_mode: "security" | "retire";
+        };
         /** UpdateShareRequest */
         UpdateShareRequest: {
             expires_event_sequence?: number;
@@ -3743,10 +3956,20 @@ export interface components {
                 };
             }[];
         };
+        /** SecurityAuditCheckpointsResponse */
+        SecurityAuditCheckpointsResponse: {
+            user_audit_checkpoint: components["schemas"]["AuditCheckpoint"];
+            workspace_audit_checkpoints: components["schemas"]["WorkspaceAuditCheckpoint"][];
+        };
         /** ShareVerificationDirectory */
         ShareVerificationDirectory: {
             share_participant_devices: components["schemas"]["ShareVerificationParticipantDevice"][];
             workspace_devices: components["schemas"]["ShareVerificationWorkspaceDevice"][];
+        };
+        /** AuditEventHead */
+        AuditEventHead: {
+            event_hash: string;
+            sequence: number;
         };
         /** MemberDevicesResponse */
         MemberDevicesResponse: {
@@ -3780,6 +4003,7 @@ export interface components {
         /** InitialAkePendingDeliveryMetadata */
         InitialAkePendingDeliveryMetadata: {
             ake_transcript_hash: string;
+            audit_checkpoint_pin_set_hash?: string;
             context_hash: string;
             /** Format: uuid */
             delivery_id: string;
@@ -3801,6 +4025,7 @@ export interface components {
             suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
             /** @enum {integer} */
             suite_rank: 1000;
+            transfer_scope_hash?: string;
             /** Format: uuid */
             workspace_id?: string;
         };
@@ -3819,7 +4044,30 @@ export interface components {
         };
         /** BootstrapDeviceResponse */
         BootstrapDeviceResponse: {
-            status: string;
+            /** Format: uuid */
+            device_id: string;
+            /** @enum {string} */
+            status: "committed";
+            user_audit_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            user_id: string;
+            workspace_audit_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** WorkspaceGenesisAuthorization */
+        WorkspaceGenesisAuthorization: {
+            /** Format: uuid */
+            compound_intent_id: string;
+            effect_authorizations: components["schemas"]["GenesisEffectAuthorization"][];
+            intent_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            mutation_id: string;
+            /** @enum {string} */
+            protocol: "refmd.audit.compound-append-authorization";
+            scope_signatures: components["schemas"]["GenesisScopeSignature"][];
+            /** @enum {integer} */
+            version: 1;
         };
         /** PluginConsentEventRequest */
         PluginConsentEventRequest: {
@@ -4108,22 +4356,6 @@ export interface components {
             workspace_id: string;
             workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
         };
-        /** RevokeDeviceRequest */
-        RevokeDeviceRequest: {
-            /** @enum {string} */
-            revocation_mode?: "security" | "retire";
-            revocation_signature: components["schemas"]["HybridSignature"];
-            /** @description Unix timestamp in milliseconds */
-            revoked_at: number;
-            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
-            workspace_key_directory_appends: {
-                checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-                events: components["schemas"]["KeyDirectoryEnvelope"][];
-                /** Format: uuid */
-                workspace_id: string;
-            }[];
-        };
         /** WorkspaceKeysResponse */
         WorkspaceKeysResponse: {
             current_kek_version: number;
@@ -4209,10 +4441,14 @@ export interface components {
         };
         /** InvitationListItem */
         InvitationListItem: {
+            bootstrap_package_hash: components["schemas"]["Blake3Base64Url"];
+            bootstrap_package_key_maintenance_wrap: components["schemas"]["InvitationBootstrapMaintenanceWrap"];
+            bootstrap_suite_id: string;
             /** Format: date-time */
             created_at: string;
             /** @enum {string} */
             delivery_mode: "unknown_fragment" | "known_recipient";
+            encrypted_bootstrap_package: components["schemas"]["WorkspaceInvitationBootstrapPackage"];
             /** Format: date-time */
             expires_at?: string | null;
             /** Format: uuid */
@@ -4232,6 +4468,23 @@ export interface components {
             token_prefix: string;
             /** Format: uuid */
             workspace_id: string;
+        };
+        /** CompoundAppendIntent */
+        CompoundAppendIntent: {
+            /** Format: uuid */
+            challenge_id: string;
+            /** Format: uuid */
+            compound_intent_id: string;
+            /** Format: date-time */
+            expires_at: string;
+            key_directory_effects_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            mutation_id: string;
+            /** @enum {string} */
+            protocol: "refmd.audit.compound-append-intent";
+            scopes: Record<string, never>[];
+            /** @enum {integer} */
+            version: 1;
         };
         /** ShareExclusionsResponse */
         ShareExclusionsResponse: {
@@ -4455,6 +4708,8 @@ export interface components {
                 };
                 body: {
                     key_id: string;
+                    /** @enum {string} */
+                    key_kind: "signing" | "encryption";
                     key_material_hash: string;
                 };
                 /** @enum {string} */
@@ -4523,6 +4778,8 @@ export interface components {
                 };
                 body: {
                     key_id: string;
+                    /** @enum {string} */
+                    key_kind: "signing" | "encryption";
                     key_material_hash: string;
                 };
                 /** @enum {string} */
@@ -10464,11 +10721,6 @@ export interface components {
             sender_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
             wraps: components["schemas"]["HybridKeyWrapFields"][];
         };
-        /** ChangeMemberRoleResponse */
-        ChangeMemberRoleResponse: {
-            ok: boolean;
-            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
-        };
         /** PluginApplicationApplyRequest */
         PluginApplicationApplyRequest: {
             /** Format: uuid */
@@ -10530,11 +10782,6 @@ export interface components {
             /** Format: uuid */
             document_id: string;
         };
-        /** KekRotationStartRequest */
-        KekRotationStartRequest: {
-            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
-        };
         /** ApprovalDeliveryCommitments */
         ApprovalDeliveryCommitments: {
             device_approval_kek_initial_delivery_commitments: components["schemas"]["DeviceApprovalKekInitialDeliveryCommitment"][];
@@ -10555,6 +10802,68 @@ export interface components {
         DocumentKeysResponse: {
             keys: components["schemas"]["DocumentKeyResponse"][];
         };
+        /** KekRotationCompletionIntentRequest */
+        KekRotationCompletionIntentRequest: {
+            device_wrap_precommits: {
+                /** Format: uuid */
+                sender_device_id?: string;
+                /** Format: uuid */
+                target_device_id: string;
+                /** Format: uuid */
+                target_user_id: string;
+                wrap: components["schemas"]["PqWrapPrecommit"];
+            }[];
+            guest_invitation_updates: {
+                bootstrap_package_hash: components["schemas"]["Blake3Base64Url"];
+                bootstrap_package_key_maintenance_wrap: Record<string, never>;
+                bootstrap_package_key_maintenance_wrap_hash: components["schemas"]["Blake3Base64Url"];
+                bootstrap_suite_id: string;
+                encrypted_bootstrap_package: Record<string, never>;
+                /** Format: uuid */
+                guest_invitation_id?: string;
+                /** Format: uuid */
+                invitation_id?: string;
+                kek_version: number;
+                key_version_context: Record<string, never>;
+                previous_bootstrap_package_hash: components["schemas"]["Blake3Base64Url"];
+                scope_id?: string;
+                scope_kind?: string;
+            }[];
+            member_envelope_precommits: {
+                authorization_key_directory_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+                authorization_key_directory_checkpoint_sequence: number;
+                kek_version: number;
+                /** @enum {string} */
+                protocol: "refmd.workspace-member-envelope";
+                target_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+                target_identity_key_material_hash: components["schemas"]["Blake3Base64Url"];
+                /** Format: uuid */
+                target_user_id: string;
+                /** @enum {integer} */
+                version: 1;
+                /** Format: uuid */
+                workspace_id: string;
+                wrap: components["schemas"]["PqWrapPrecommit"];
+            }[];
+            new_key_version: number;
+            old_key_version: number;
+            workspace_invitation_updates: {
+                bootstrap_package_hash: components["schemas"]["Blake3Base64Url"];
+                bootstrap_package_key_maintenance_wrap: Record<string, never>;
+                bootstrap_package_key_maintenance_wrap_hash: components["schemas"]["Blake3Base64Url"];
+                bootstrap_suite_id: string;
+                encrypted_bootstrap_package: Record<string, never>;
+                /** Format: uuid */
+                guest_invitation_id?: string;
+                /** Format: uuid */
+                invitation_id?: string;
+                kek_version: number;
+                key_version_context: Record<string, never>;
+                previous_bootstrap_package_hash: components["schemas"]["Blake3Base64Url"];
+                scope_id?: string;
+                scope_kind?: string;
+            }[];
+        };
         /** InitialAkeResponsesRequest */
         InitialAkeResponsesRequest: {
             responses: components["schemas"]["InitialAkeResponseBundle"];
@@ -10569,6 +10878,8 @@ export interface components {
             nonce: string;
             plugin_id: string;
         };
+        /** MemberRemovalIntentRequest */
+        MemberRemovalIntentRequest: Record<string, never>;
         /** ShareMountBootstrapRequest */
         ShareMountBootstrapRequest: {
             authenticated_workspace_pin_bootstrap_hash: components["schemas"]["Blake3Base64Url"];
@@ -10601,6 +10912,17 @@ export interface components {
         /** WorkspaceIdsResponse */
         WorkspaceIdsResponse: {
             workspace_ids: string[];
+        };
+        /** KekRotationStartIntentRequest */
+        KekRotationStartIntentRequest: {
+            checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
+            events: components["schemas"]["KeyDirectoryEnvelope"][];
+            new_key_version: number;
+            old_key_version: number;
+            /** @enum {string} */
+            reason: "manual";
+            /** Format: uuid */
+            rotation_id: string;
         };
         /** ReorderDocumentRequest */
         ReorderDocumentRequest: {
@@ -10672,7 +10994,6 @@ export interface components {
         };
         /** RedeemGuestInvitationRequest */
         RedeemGuestInvitationRequest: {
-            approval_signature: components["schemas"]["HybridSignature"];
             client_nonce: string;
             device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
             device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
@@ -10680,15 +11001,11 @@ export interface components {
             device_id: string;
             device_name?: string | null;
             device_type?: string | null;
-            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"];
-            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"];
             /** Format: uuid */
             guest_user_id: string;
-            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
             identity_hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
-            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
             identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
-            pending_registration_challenge_hash: string;
+            recoverable_identity_secret_record: components["schemas"]["RecoverableIdentitySecretRecord"];
             token: string;
             user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
@@ -10700,34 +11017,16 @@ export interface components {
             current_key_version: number;
             targets: components["schemas"]["DocumentKeyRotationTarget"][];
         };
-        /** KekRotationCompletionManifestResponse */
-        KekRotationCompletionManifestResponse: {
-            completed_at_event_sequence: number;
-            completion_manifest_hash: string;
-            deleted_at_event_sequence: number;
-            deleted_secret_ids_hash: string;
-            deleted_wrap_ids_hash: string;
-            new_kek_version: number;
-            old_kek_version: number;
-            server_rejects_old_key_uploads_after_sequence: number;
-            started_event_hash: string;
-        };
-        /** CreateWorkspaceRequest */
-        CreateWorkspaceRequest: {
-            description?: string | null;
-            icon?: string | null;
-            name: string;
-            /** Format: uuid */
-            workspace_id: string;
-            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
-            /** Format: uuid */
-            workspace_owner_role_id: string;
-        };
         /** PasswordResetRequestBody */
         PasswordResetRequestBody: {
             /** Format: email */
             email: string;
+        };
+        /** GenesisSuitePolicy */
+        GenesisSuitePolicy: {
+            allowed_suite_ids: string[];
+            min_suite_rank: number;
+            suite_policy_version: number;
         };
         /** ShareCanonicalBootstrapRequest */
         ShareCanonicalBootstrapRequest: {
@@ -10785,6 +11084,38 @@ export interface components {
             new_recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
             new_recovery_encrypted_umk: string;
             new_recovery_nonce: string;
+        };
+        /** AccountGenesisPrepareRequest */
+        AccountGenesisPrepareRequest: {
+            client_nonce: string;
+            device_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
+            /** Format: uuid */
+            device_id: string;
+            device_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            device_type: "browser" | "desktop" | "mobile";
+            encrypted_umk: string;
+            encrypted_umk_nonce: components["schemas"]["EncryptedMaterialNonce"];
+            identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            identity_hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
+            initial_suite_policy: components["schemas"]["GenesisSuitePolicy"];
+            name: string;
+            /** Format: uuid */
+            owner_role_id: string;
+            recoverable_identity_secret_record: components["schemas"]["RecoverableIdentitySecretRecord"];
+            recovery_authorization: components["schemas"]["GenesisRecoveryAuthorization"];
+            registration_challenge: string;
+            /** Format: uuid */
+            registration_id: string;
+            /** Format: uuid */
+            user_id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_member_envelope_precommit: components["schemas"]["GenesisWorkspaceMemberEnvelopePrecommit"];
         };
         /** DocumentKeyRotationTarget */
         DocumentKeyRotationTarget: {
@@ -11184,14 +11515,32 @@ export interface components {
         InitialAkeResponsesResponse: {
             responses: components["schemas"]["InitialAkeResponseBundle"];
         };
+        /** AuditEventEnvelope */
+        AuditEventEnvelope: {
+            /** Format: uuid */
+            chain_scope_id: string;
+            /** @enum {string} */
+            chain_scope_kind: "user" | "workspace";
+            event_body: Record<string, never>;
+            event_hash: string;
+            /** Format: uuid */
+            event_id: string;
+            event_type: string;
+            previous_event_hash: string;
+            /** @enum {string} */
+            protocol: "refmd.audit.chain-event";
+            sequence: number;
+            /** @enum {integer} */
+            version: 1;
+        };
         /** CreateDeviceRegistrationRequest */
         CreateDeviceRegistrationRequest: {
             ake_responder_prekeys: {
                 device_approval_kek_initial: {
                     prekey: {
                         payload: {
-                            expires_event_sequence: number;
-                            issued_at_event_sequence: number;
+                            expires_at_ms: number;
+                            issued_at_ms: number;
                             mlkem768_ephemeral_public: string;
                             mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
                             /** Format: uuid */
@@ -11221,8 +11570,8 @@ export interface components {
                 }[];
                 trust_transfer: {
                     payload: {
-                        expires_event_sequence: number;
-                        issued_at_event_sequence: number;
+                        expires_at_ms: number;
+                        issued_at_ms: number;
                         mlkem768_ephemeral_public: string;
                         mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
                         /** Format: uuid */
@@ -11249,8 +11598,8 @@ export interface components {
                 };
                 umk_distribution: {
                     payload: {
-                        expires_event_sequence: number;
-                        issued_at_event_sequence: number;
+                        expires_at_ms: number;
+                        issued_at_ms: number;
                         mlkem768_ephemeral_public: string;
                         mlkem768_ephemeral_public_hash: components["schemas"]["Blake3Base64Url"];
                         /** Format: uuid */
@@ -11320,8 +11669,10 @@ export interface components {
         /** InitialAkeTrustTransferDirectory */
         InitialAkeTrustTransferDirectory: {
             allowed_suite_ids_hash: string;
+            audit_checkpoint_pin_set_hash: string;
             min_suite_rank: number;
             suite_policy_version: number;
+            transfer_scope_hash: string;
             user_checkpoint_hash: string;
             user_event_head_hash: string;
             workspace_pins_hash: string;
@@ -11400,103 +11751,10 @@ export interface components {
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
-        /** KekRotationCompleteRequest */
-        KekRotationCompleteRequest: {
-            device_key_deletion_proofs: {
-                payload: {
-                    deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
-                    deleted_storage_classes: ("crypto_worker_state" | "indexeddb_cache" | "local_encrypted_key_store" | "offline_cache" | "pending_queue")[];
-                    /** Format: uuid */
-                    device_id: string;
-                    local_cache_epoch: number;
-                    old_key_version: number;
-                    proof_nonce: string;
-                    /** @enum {string} */
-                    protocol: "refmd.device-key-deletion-proof";
-                    rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
-                    /** @enum {string} */
-                    rotation_kind: "kek";
-                    /** Format: uuid */
-                    scope_id: string;
-                    /** @enum {string} */
-                    scope_kind: "workspace";
-                    /** @enum {integer} */
-                    version: 1;
-                    /** Format: uuid */
-                    workspace_id: string;
-                };
-                signature: components["schemas"]["HybridSignature"];
-                transcript: {
-                    actor: {
-                        /** Format: uuid */
-                        device_id: string;
-                        key_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
-                        key_checkpoint_sequence: number;
-                        /** Format: uuid */
-                        key_scope_id: string;
-                        /** @enum {string} */
-                        key_scope_kind: "workspace";
-                        /** @enum {string} */
-                        signer_kind: "workspace_device";
-                        signing_key_id: components["schemas"]["Blake3Base64Url"];
-                        /** Format: uuid */
-                        user_id: string;
-                    };
-                    authority_boundary: {
-                        deleted_secret_ids_hash: components["schemas"]["Blake3Base64Url"];
-                        deleted_storage_classes_hash: components["schemas"]["Blake3Base64Url"];
-                        old_key_version: number;
-                        rotation_completed_event_hash: components["schemas"]["Blake3Base64Url"];
-                        /** @enum {string} */
-                        rotation_kind: "kek";
-                        /** Format: uuid */
-                        scope_id: string;
-                        /** @enum {string} */
-                        scope_kind: "workspace";
-                        /** Format: uuid */
-                        workspace_id: string;
-                    };
-                    /** @enum {string} */
-                    label: "RefMD hybrid signature transcript v1";
-                    /** Format: uuid */
-                    owner_id: string;
-                    /** @enum {string} */
-                    owner_kind: "device";
-                    /** @enum {string} */
-                    protocol: "refmd.hybrid-signature-transcript";
-                    signature_suite_id: string;
-                    signature_suite_rank: number;
-                    /** @enum {string} */
-                    signing_purpose: "device_key_deletion_proof";
-                    subject_hash: components["schemas"]["Blake3Base64Url"];
-                    /** @enum {string} */
-                    subject_protocol: "refmd.device-key-deletion-proof";
-                    /** @enum {integer} */
-                    subject_version: 1;
-                    /** @enum {string} */
-                    surface_id: "device_key_deletion_proof";
-                    /** @enum {string} */
-                    surface_variant: "device_key_deletion_proof";
-                    transcript_owner: string;
-                    /** @enum {integer} */
-                    version: 1;
-                };
-            }[];
-            new_kek_version: number;
-            wipe_required_device_ids: string[];
-            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
-        };
         /** InitialKeyDeliveryArtifact */
         InitialKeyDeliveryArtifact: {
             initial_ake: components["schemas"]["InitialAkeArtifact"];
             initial_key_delivery: components["schemas"]["InitialKeyDeliveryRecord"];
-        };
-        /** KekRotationStartResponse */
-        KekRotationStartResponse: {
-            needs_kek_rotation: boolean;
-            /** Format: uuid */
-            workspace_id: string;
         };
         /** PasswordSetRequest */
         PasswordSetRequest: {
@@ -11504,6 +11762,13 @@ export interface components {
             new_encrypted_umk: string;
             new_salt: string;
             new_umk_nonce: string;
+        };
+        /** KekOldKeyDeletionIntentRequest */
+        KekOldKeyDeletionIntentRequest: {
+            deletion_manifest: components["schemas"]["OldKeyDeletionManifest"];
+            device_key_deletion_proofs: components["schemas"]["DeviceKeyDeletionProof"][];
+            old_key_version: number;
+            wipe_required_device_ids: string[];
         };
         /** ExternalAccountsResponse */
         ExternalAccountsResponse: {
@@ -12105,6 +12370,20 @@ export interface components {
             trust_transfer_initial_delivery: components["schemas"]["InitialKeyDeliveryArtifact"];
             umk_distribution_initial_delivery: components["schemas"]["InitialKeyDeliveryArtifact"];
         };
+        /** DeviceRevocationAuthorization */
+        DeviceRevocationAuthorization: {
+            /** Format: uuid */
+            compound_intent_id: string;
+            effect_authorizations: components["schemas"]["DeviceRevocationEffectAuthorization"][];
+            intent_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            mutation_id: string;
+            /** @enum {string} */
+            protocol: "refmd.audit.compound-append-authorization";
+            scope_signatures: components["schemas"]["GenesisScopeSignature"][];
+            /** @enum {integer} */
+            version: 1;
+        };
         /** RecoveryChallengeRequest */
         RecoveryChallengeRequest: {
             /** Format: email */
@@ -12112,6 +12391,20 @@ export interface components {
         };
         /** XChaCha20Poly1305Nonce */
         XChaCha20Poly1305Nonce: string;
+        /** CompoundAppendAuthorization */
+        CompoundAppendAuthorization: {
+            /** Format: uuid */
+            compound_intent_id: string;
+            effect_authorizations: components["schemas"]["DeviceRevocationEffectAuthorization"][];
+            intent_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            mutation_id: string;
+            /** @enum {string} */
+            protocol: "refmd.audit.compound-append-authorization";
+            scope_signatures: components["schemas"]["GenesisScopeSignature"][];
+            /** @enum {integer} */
+            version: 1;
+        };
         /** InvitationResponse */
         InvitationResponse: components["schemas"]["InvitationListItem"];
         /** ShareMountCreateResponse */
@@ -12237,6 +12530,19 @@ export interface components {
             nonce: string;
             publicData: components["schemas"]["ShareInitialSnapshotPublicData"];
             signature: components["schemas"]["HybridSignature"];
+        };
+        /** GenesisEffectAuthorization */
+        GenesisEffectAuthorization: {
+            /** @enum {string} */
+            approval_proof: "NONE";
+            /** @enum {string} */
+            authorization_kind: "key_directory_event" | "key_directory_checkpoint" | "pq_wrap" | "genesis_device_bootstrap";
+            requirement_order: number;
+            signature: components["schemas"]["HybridSignature"];
+            signer_key_id: components["schemas"]["Blake3Base64Url"];
+            signing_purpose: string;
+            subject_hash: components["schemas"]["Blake3Base64Url"];
+            surface_variant: string;
         };
         /** DocumentResponse */
         DocumentResponse: {
@@ -12394,6 +12700,11 @@ export interface components {
             bootstrap_required: boolean;
             share_token_hash: string;
         };
+        /** BootstrapRegistrationChallengeResponse */
+        BootstrapRegistrationChallengeResponse: {
+            expires_in_seconds: number;
+            registration_challenge: string;
+        };
         /** InitialAkeTranscriptInitiator */
         InitialAkeTranscriptInitiator: {
             /** Format: uuid */
@@ -12451,6 +12762,23 @@ export interface components {
             };
             trust_transfer: components["schemas"]["InitialAkeResponderConfirmation"];
             umk_distribution: components["schemas"]["InitialAkeResponderConfirmation"];
+        };
+        /** GenesisRecoveryAuthorizationPublicKeyMaterial */
+        GenesisRecoveryAuthorizationPublicKeyMaterial: {
+            ed25519_public: string;
+            mldsa65_public: string;
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            owner_kind: "recovery_authorization";
+            /** @enum {string} */
+            protocol: "refmd.hybrid-signing-key-material";
+            /** @enum {string} */
+            suite_id: "refmd-v2-hybrid-signature-ed25519-mldsa65";
+            /** @enum {integer} */
+            suite_rank: 1000;
+            /** @enum {integer} */
+            version: 1;
         };
         /** WorkspaceInvitationBootstrapAad */
         WorkspaceInvitationBootstrapAad: {
@@ -12583,7 +12911,9 @@ export interface components {
         };
         /** RegistrationChallengeResponse */
         RegistrationChallengeResponse: {
+            expires_at_ms: number;
             expires_in_seconds: number;
+            issued_at_ms: number;
             registration_challenge: string;
         };
         /** InitialKeyDeliveryApprovalRecord */
@@ -12636,6 +12966,32 @@ export interface components {
             /** @enum {integer} */
             version: 1;
         };
+        /** PqWrapPrecommit */
+        PqWrapPrecommit: {
+            event_scope: Record<string, never>;
+            hpke: {
+                /** @enum {integer} */
+                aead_id: 3;
+                ciphertext: string;
+                enc: string;
+                /** @enum {integer} */
+                kdf_id: 1;
+                /** @enum {integer} */
+                kem_id: 25722;
+                /** @enum {string} */
+                mode: "base";
+            };
+            /** @enum {string} */
+            protocol: "refmd.signed-pq-hybrid-wrap";
+            /** @enum {integer} */
+            protocol_version: 1;
+            purpose: string;
+            recipient: Record<string, never>;
+            resource: Record<string, never>;
+            sender: Record<string, never>;
+            suite_id: string;
+            suite_rank: number;
+        };
         /** UpdateShareMountRequest */
         UpdateShareMountRequest: {
             /** Format: uuid */
@@ -12683,6 +13039,94 @@ export interface components {
             version: 1;
             wipe_required_device_ids_hash: components["schemas"]["Blake3Base64Url"];
         };
+        /** GenesisWorkspaceMemberEnvelopePrecommit */
+        GenesisWorkspaceMemberEnvelopePrecommit: {
+            /** @enum {string} */
+            authorization_key_directory_checkpoint_hash: "GENESIS";
+            /** @enum {integer} */
+            authorization_key_directory_checkpoint_sequence: 1;
+            /** @enum {integer} */
+            kek_version: 1;
+            /** @enum {string} */
+            protocol: "refmd.workspace-member-envelope";
+            target_identity_encryption_key_id: components["schemas"]["Blake3Base64Url"];
+            target_identity_key_material_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            target_user_id: string;
+            /** @enum {integer} */
+            version: 1;
+            /** Format: uuid */
+            workspace_id: string;
+            wrap: {
+                event_scope: {
+                    /** Format: uuid */
+                    scope_id: string;
+                    /** @enum {string} */
+                    scope_kind: "workspace";
+                };
+                hpke: {
+                    /** @enum {integer} */
+                    aead_id: 3;
+                    ciphertext: string;
+                    enc: string;
+                    /** @enum {integer} */
+                    kdf_id: 1;
+                    /** @enum {integer} */
+                    kem_id: 25722;
+                    /** @enum {string} */
+                    mode: "base";
+                };
+                /** @enum {string} */
+                protocol: "refmd.signed-pq-hybrid-wrap";
+                /** @enum {integer} */
+                protocol_version: 1;
+                /** @enum {string} */
+                purpose: "workspace_member_kek_wrap";
+                recipient: {
+                    encryption_key_id: components["schemas"]["Blake3Base64Url"];
+                    /** @enum {string} */
+                    key_checkpoint_hash: "GENESIS";
+                    /** @enum {integer} */
+                    key_checkpoint_sequence: 0;
+                    /** Format: uuid */
+                    key_scope_id: string;
+                    /** @enum {string} */
+                    key_scope_kind: "workspace";
+                    /** @enum {string} */
+                    recipient_kind: "user_identity";
+                    /** Format: uuid */
+                    user_id: string;
+                };
+                resource: {
+                    /** @enum {integer} */
+                    kek_version: 1;
+                    /** Format: uuid */
+                    target_user_id: string;
+                    /** Format: uuid */
+                    workspace_id: string;
+                };
+                sender: {
+                    /** Format: uuid */
+                    device_id: string;
+                    /** @enum {string} */
+                    key_checkpoint_hash: "GENESIS";
+                    /** @enum {integer} */
+                    key_checkpoint_sequence: 0;
+                    /** Format: uuid */
+                    key_scope_id: string;
+                    /** @enum {string} */
+                    key_scope_kind: "workspace";
+                    /** @enum {string} */
+                    signer_kind: "device";
+                    signing_key_id: components["schemas"]["Blake3Base64Url"];
+                    /** Format: uuid */
+                    user_id: string;
+                };
+                suite_id: string;
+                /** @enum {integer} */
+                suite_rank: 1000;
+            };
+        };
         /** DeviceHybridSigningPublicKeyMaterial */
         DeviceHybridSigningPublicKeyMaterial: {
             ed25519_public: string;
@@ -12699,6 +13143,11 @@ export interface components {
             /** @enum {integer} */
             version: 1;
         };
+        /** MemberRoleIntentRequest */
+        MemberRoleIntentRequest: {
+            /** Format: uuid */
+            role_id: string;
+        };
         /** UmkDistributionDeliveryCommitment */
         UmkDistributionDeliveryCommitment: {
             delivery_id: string;
@@ -12710,16 +13159,6 @@ export interface components {
             sender_device_id: string;
             /** @enum {string} */
             variant: "umk_distribution";
-        };
-        /** OAuthCryptoSetupResponse */
-        OAuthCryptoSetupResponse: {
-            /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfo"];
-            /** Format: uuid */
-            workspace_id: string;
-            /** Format: uuid */
-            workspace_owner_role_id: string;
         };
         /** DocumentKeyResponse */
         DocumentKeyResponse: {
@@ -12834,6 +13273,7 @@ export interface components {
             identity_encryption_key_id?: string;
             identity_hybrid_encryption_private_key_material_nonce?: components["schemas"]["EncryptedMaterialNonce"];
             identity_hybrid_signing_private_key_material_nonce?: components["schemas"]["EncryptedMaterialNonce"];
+            identity_key_epoch: number;
             /** Format: date-time */
             identity_rotation_due_at: string | null;
             identity_signing_key_id?: components["schemas"]["Blake3Base64Url"];
@@ -12925,11 +13365,9 @@ export interface components {
         };
         /** InvitationDeliveryTargetRegistrationProof */
         InvitationDeliveryTargetRegistrationProof: {
-            approval_signature: components["schemas"]["HybridSignature"];
             client_nonce: string;
             device_name: string;
             device_type: string;
-            pending_registration_challenge_hash: components["schemas"]["Blake3Base64Url"];
         };
         /** RecipientBoundAuthorizationRecipient */
         RecipientBoundAuthorizationRecipient: {
@@ -12990,6 +13428,11 @@ export interface components {
         /** WorkspaceRotationInfo */
         WorkspaceRotationInfo: {
             current_kek_version: number;
+            /** Format: uuid */
+            kek_rotation_initiator_user_id: string | null;
+            pending_kek_version: number | null;
+            /** Format: uuid */
+            rotation_id: string | null;
             /** Format: uuid */
             workspace_id: string;
         };
@@ -13159,6 +13602,12 @@ export interface components {
             workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
+        /** SignedAuditCheckpoint */
+        SignedAuditCheckpoint: {
+            checkpoint_hash: string;
+            payload: components["schemas"]["AuditCheckpointPayload"];
+            signature: components["schemas"]["HybridSignature"];
+        };
         /** SaveMemberEnvelopesRequest */
         SaveMemberEnvelopesRequest: {
             envelopes: components["schemas"]["MemberEnvelopeItem"][];
@@ -13249,9 +13698,9 @@ export interface components {
         /** WorkspaceInvitationDeliveryTargetRegistration */
         WorkspaceInvitationDeliveryTargetRegistration: {
             device_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
-            device_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
             identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
-            identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
         };
         /** WorkspaceInvitationBootstrapPackage */
         WorkspaceInvitationBootstrapPackage: {
@@ -13344,6 +13793,7 @@ export interface components {
         /** TrustTransferDeliveryCommitment */
         TrustTransferDeliveryCommitment: {
             ake_session_id: string;
+            audit_checkpoint_pin_set_hash: components["schemas"]["Blake3Base64Url"];
             delivery_id: string;
             delivery_record_hash: components["schemas"]["Blake3Base64Url"];
             document_rollback_pin_set_hash: components["schemas"]["Blake3Base64Url"];
@@ -13352,6 +13802,7 @@ export interface components {
             purpose: "trust_transfer";
             recipient_device_id: string;
             sender_device_id: string;
+            transfer_scope_hash: components["schemas"]["Blake3Base64Url"];
             /** @enum {string} */
             variant: "trust_transfer";
         };
@@ -13386,11 +13837,29 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** DeviceRevocationEffectAuthorization */
+        DeviceRevocationEffectAuthorization: {
+            /** @enum {string} */
+            approval_proof: "NONE";
+            /** @enum {string} */
+            authorization_kind: "key_directory_event" | "key_directory_checkpoint" | "device_revocation" | "pq_wrap";
+            requirement_order: number;
+            signature: components["schemas"]["HybridSignature"];
+            signer_key_id: components["schemas"]["Blake3Base64Url"];
+            signing_purpose: string;
+            subject_hash: components["schemas"]["Blake3Base64Url"];
+            surface_variant: string;
+        };
         /** RevokeDeviceResponse */
         RevokeDeviceResponse: {
-            revocation_mode: string;
+            /** @enum {string} */
+            revocation_mode: "security" | "retire";
             /** Format: uuid */
             revoked_device_id: string;
+            /** @enum {string} */
+            status: "committed";
+            user_audit_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            user_key_directory_checkpoint_hash: components["schemas"]["Blake3Base64Url"];
             workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
         };
         /** CreateDocumentShareRequest */
@@ -13496,23 +13965,17 @@ export interface components {
         };
         /** BootstrapDeviceRequest */
         BootstrapDeviceRequest: {
-            client_nonce: string;
-            device_encryption_key_id: string;
-            device_hybrid_encryption_public_key_material: components["schemas"]["DeviceHybridEncryptionPublicKeyMaterial"];
-            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
             /** Format: uuid */
-            device_id: string;
-            device_signing_key_id: components["schemas"]["Blake3Base64Url"];
-            device_type: string;
-            identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
-            identity_signature: components["schemas"]["HybridSignature"];
-            identity_signing_key_id: components["schemas"]["Blake3Base64Url"];
-            name: string;
-            registration_challenge: string;
-            user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
-            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
+            compound_intent_id: string;
+            effect_authorizations: components["schemas"]["GenesisEffectAuthorization"][];
+            intent_hash: components["schemas"]["Blake3Base64Url"];
+            /** Format: uuid */
+            mutation_id: string;
+            /** @enum {string} */
+            protocol: "refmd.audit.compound-append-authorization";
+            scope_signatures: components["schemas"]["GenesisScopeSignature"][];
+            /** @enum {integer} */
+            version: 1;
         };
         /** MemberDeviceInfo */
         MemberDeviceInfo: {
@@ -13532,11 +13995,6 @@ export interface components {
             /** Format: date-time */
             revoked_at?: string | null;
             signing_key_id: components["schemas"]["Blake3Base64Url"];
-        };
-        /** RemoveMemberRequest */
-        RemoveMemberRequest: {
-            workspace_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
-            workspace_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
         /** ShareMountFolderResponse */
         ShareMountFolderResponse: {
@@ -13562,6 +14020,17 @@ export interface components {
         MembersListResponse: {
             members: components["schemas"]["MemberInfo"][];
         };
+        /** GenesisScopeSignature */
+        GenesisScopeSignature: {
+            /** Format: uuid */
+            chain_scope_id: string;
+            /** @enum {string} */
+            chain_scope_kind: "user" | "workspace";
+            checkpoint_hash: components["schemas"]["Blake3Base64Url"];
+            /** @enum {string} */
+            checkpoint_variant: "user_identity" | "user_device" | "workspace_device" | "workspace_guest_device";
+            signature: components["schemas"]["HybridSignature"];
+        };
         /** CreateShareRequest */
         CreateShareRequest: components["schemas"]["CreateDocumentShareRequest"] | components["schemas"]["CreateFolderShareRequest"];
         /** GuestInvitationResponse */
@@ -13586,6 +14055,7 @@ export interface components {
             invited_by: string;
             /** Format: email */
             invited_email?: string | null;
+            kek_version: number | null;
             key_version_context: components["schemas"]["GuestInvitationKeyVersionContext"];
             max_redemptions?: number | null;
             /** @enum {string} */
@@ -13648,29 +14118,24 @@ export interface components {
         };
         /** RegisterRequest */
         RegisterRequest: {
-            auth_key: string;
+            auth_key_b64u: string;
+            display_name: string;
             /** Format: email */
             email: string;
-            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
-            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
-            encrypted_umk: string;
-            hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
-            hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
-            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
-            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
-            kdf_params: components["schemas"]["KdfParams"];
-            name: string;
-            recovery_authorization_key_id: string;
-            recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
-            recovery_encrypted_umk: string;
-            recovery_nonce: string;
-            salt: string;
-            umk_nonce: string;
-            /**
-             * Format: uuid
-             * @description Client-generated UUID for AAD binding
-             */
-            user_id: string;
+            kdf_params: {
+                iterations: number;
+                memory_kib: number;
+                parallelism: number;
+            };
+            /** @enum {string} */
+            kdf_type: "argon2id";
+            /** @enum {string} */
+            protocol: "refmd.password-account-registration";
+            /** Format: uuid */
+            reserved_user_id: string;
+            salt_b64u: string;
+            /** @enum {integer} */
+            version: 1;
         };
         /** InitialAkeUmkDirectory */
         InitialAkeUmkDirectory: {
@@ -13679,19 +14144,6 @@ export interface components {
             suite_policy_version: number;
             user_checkpoint_hash: string;
             user_event_head_hash: string;
-        };
-        /** OAuthCryptoSetupRequest */
-        OAuthCryptoSetupRequest: {
-            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
-            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["EncryptedIdentityHybridPrivateKeyMaterial"];
-            hybrid_encryption_public_key_material: components["schemas"]["IdentityHybridEncryptionPublicKeyMaterial"];
-            hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
-            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
-            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["EncryptedMaterialNonce"];
-            recovery_authorization_key_id: string;
-            recovery_authorization_public_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
-            recovery_encrypted_umk: string;
-            recovery_nonce: string;
         };
         /** IdentityRotationDeletionEvidence */
         IdentityRotationDeletionEvidence: {
@@ -13746,13 +14198,10 @@ export interface components {
         /** GuestInvitationDeliveryTargetRegistration */
         GuestInvitationDeliveryTargetRegistration: {
             device_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
-            device_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
-            encrypted_identity_hybrid_encryption_private_key_material: components["schemas"]["Base64UrlBytes"];
-            encrypted_identity_hybrid_signing_private_key_material: components["schemas"]["Base64UrlBytes"];
-            identity_hybrid_encryption_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
+            device_hybrid_signing_public_key_material: components["schemas"]["DeviceHybridSigningPublicKeyMaterial"];
             identity_hybrid_encryption_public_key_material: components["schemas"]["HybridEncryptionPublicKeyMaterial"];
-            identity_hybrid_signing_private_key_material_nonce: components["schemas"]["Base64UrlBytes"];
-            identity_hybrid_signing_public_key_material: components["schemas"]["HybridSigningPublicKeyMaterial"];
+            identity_hybrid_signing_public_key_material: components["schemas"]["IdentityHybridSigningPublicKeyMaterial"];
+            recoverable_identity_secret_record: components["schemas"]["RecoverableIdentitySecretRecord"];
             user_key_directory_checkpoint: components["schemas"]["KeyDirectoryEnvelope"];
             user_key_directory_events: components["schemas"]["KeyDirectoryEnvelope"][];
         };
@@ -13874,6 +14323,7 @@ export interface components {
         /** InitialKeyDeliveryTrustTransferMetadata */
         InitialKeyDeliveryTrustTransferMetadata: {
             ake_transcript_hash: string;
+            audit_checkpoint_pin_set_hash: string;
             context_hash: string;
             /** Format: uuid */
             delivery_id: string;
@@ -13896,6 +14346,7 @@ export interface components {
             suite_id: "refmd-v2-initial-delivery-xchacha20poly1305";
             /** @enum {integer} */
             suite_rank: 1000;
+            transfer_scope_hash: string;
         };
         /** DocumentDekRotationDeletionManifest */
         DocumentDekRotationDeletionManifest: {
@@ -13952,6 +14403,49 @@ export interface operations {
                 };
             };
             /** @description OAuth start failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Workspace genesis command */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceGenesisCommand"];
+            };
+        };
+        responses: {
+            /** @description Compound append intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -14352,6 +14846,78 @@ export interface operations {
             };
         };
     };
+    post_api_encryption_workspaces_by_workspace_id_kek_rotation_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Start params */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KekRotationStartIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description Compound intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompoundAppendIntent"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rotation already in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid key directory */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_auth_login: {
         parameters: {
             query?: never;
@@ -14518,6 +15084,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Security audit unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     get_api_auth_key_restore: {
@@ -14549,6 +15124,52 @@ export interface operations {
             };
             /** @description Device is not verified */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_complete_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                rotation_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Completion pre-commit material */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KekRotationCompletionIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description Compound intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompoundAppendIntent"];
+                };
+            };
+            /** @description Invalid completion */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15097,6 +15718,35 @@ export interface operations {
             };
         };
     };
+    get_api_security_audit_checkpoints: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed audit checkpoint proofs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityAuditCheckpointsResponse"];
+                };
+            };
+        };
+    };
     post_api_encryption_workspaces_by_workspace_id_kek_rotation: {
         parameters: {
             query?: never;
@@ -15115,20 +15765,20 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Start params */
+        /** @description Compound authorization */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["KekRotationStartRequest"];
+                "application/json": components["schemas"]["CompoundAppendAuthorization"];
             };
         };
         responses: {
-            /** @description Rotation started */
+            /** @description Committed mutation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KekRotationStartResponse"];
+                    "application/json": components["schemas"]["WorkspaceAuthorityMutationResponse"];
                 };
             };
             /** @description Not authorized */
@@ -15140,25 +15790,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Workspace not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Rotation already in progress */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Invalid key directory */
+            /** @description Invalid mutation */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -15915,6 +16547,60 @@ export interface operations {
             };
         };
     };
+    post_api_devices_by_device_id_revocation_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Device revocation command */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceRevocationCommand"];
+            };
+        };
+        responses: {
+            /** @description Compound append intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Retire blocked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_shares_d_by_document_token_bootstrap: {
         parameters: {
             query?: never;
@@ -16070,58 +16756,6 @@ export interface operations {
             };
             /** @description Pinned state mismatch */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_api_auth_oauth_crypto_setup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description OAuth crypto setup params */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OAuthCryptoSetupRequest"];
-            };
-        };
-        responses: {
-            /** @description OAuth crypto setup response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OAuthCryptoSetupResponse"];
-                };
-            };
-            /** @description OAuth crypto setup forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description OAuth crypto setup conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16688,6 +17322,52 @@ export interface operations {
                 };
             };
             /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_old_key_deletion_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                rotation_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Deletion proofs */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KekOldKeyDeletionIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description Compound intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompoundAppendIntent"];
+                };
+            };
+            /** @description Invalid deletion */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -17952,7 +18632,7 @@ export interface operations {
                     "application/json": components["schemas"]["BootstrapDeviceResponse"];
                 };
             };
-            /** @description Already has devices */
+            /** @description Genesis state conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17963,6 +18643,15 @@ export interface operations {
             };
             /** @description Validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Security audit unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18174,7 +18863,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrationChallengeResponse"];
+                    "application/json": components["schemas"]["BootstrapRegistrationChallengeResponse"];
                 };
             };
             /** @description Already has devices */
@@ -18738,6 +19427,104 @@ export interface operations {
             };
             /** @description Recipient unavailable */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_devices_bootstrap_intent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Account genesis prepare request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountGenesisPrepareRequest"];
+            };
+        };
+        responses: {
+            /** @description Compound append intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Genesis state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_workspaces_by_workspace_id_members_by_user_id_removal_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Removal mutation */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRemovalIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description Compound intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompoundAppendIntent"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid mutation */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20166,20 +20953,20 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        /** @description Workspace params */
+        /** @description Compound authorization */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+                "application/json": components["schemas"]["WorkspaceGenesisAuthorization"];
             };
         };
         responses: {
-            /** @description Created workspace */
+            /** @description Committed workspace genesis */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkspaceResponse"];
+                    "application/json": components["schemas"]["WorkspaceGenesisResponse"];
                 };
             };
             /** @description Validation error */
@@ -20295,69 +21082,6 @@ export interface operations {
                 };
             };
             /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_api_workspaces_by_workspace_id_key_directory_append: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description RRP signing device id. */
-                "x-refmd-rrp-device-id": string;
-                /** @description Strict base64url RRP challenge. */
-                "x-refmd-rrp-challenge": string;
-                /** @description Base64url encoded canonical RRP signature transport. */
-                "x-refmd-rrp-signature-transport": string;
-                /** @description RRP actor variant. */
-                "x-refmd-rrp-actor-variant": "user_device";
-            };
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Key-directory append */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KeyDirectoryAppendRequest"];
-            };
-        };
-        responses: {
-            /** @description Appended */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Invalid key directory */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -20621,20 +21345,20 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Remove member params */
+        /** @description Compound authorization */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RemoveMemberRequest"];
+                "application/json": components["schemas"]["CompoundAppendAuthorization"];
             };
         };
         responses: {
-            /** @description Removed */
+            /** @description Committed mutation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RemoveMemberResponse"];
+                    "application/json": components["schemas"]["WorkspaceAuthorityMutationResponse"];
                 };
             };
             /** @description Forbidden */
@@ -20676,20 +21400,20 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Role change */
+        /** @description Compound authorization */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+                "application/json": components["schemas"]["CompoundAppendAuthorization"];
             };
         };
         responses: {
-            /** @description Updated member */
+            /** @description Committed mutation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangeMemberRoleResponse"];
+                    "application/json": components["schemas"]["WorkspaceAuthorityMutationResponse"];
                 };
             };
             /** @description Forbidden */
@@ -21189,6 +21913,61 @@ export interface operations {
             };
         };
     };
+    post_api_workspaces_by_workspace_id_members_by_user_id_role_intent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Role mutation */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description Compound intent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompoundAppendIntent"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid mutation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_api_auth_dbsc_mount_register: {
         parameters: {
             query?: never;
@@ -21359,6 +22138,52 @@ export interface operations {
             };
         };
     };
+    post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_old_key_deletion: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                rotation_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Compound authorization */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompoundAppendAuthorization"];
+            };
+        };
+        responses: {
+            /** @description Committed mutation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceAuthorityMutationResponse"];
+                };
+            };
+            /** @description Invalid deletion */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     delete_api_devices_by_device_id: {
         parameters: {
             query?: never;
@@ -21377,10 +22202,10 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Revocation params */
+        /** @description Device revocation authorization */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RevokeDeviceRequest"];
+                "application/json": components["schemas"]["DeviceRevocationAuthorization"];
             };
         };
         responses: {
@@ -21393,35 +22218,8 @@ export interface operations {
                     "application/json": components["schemas"]["RevokeDeviceResponse"];
                 };
             };
-            /** @description Bad request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Retire blocked */
-            409: {
+            /** @description Revocation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21605,111 +22403,6 @@ export interface operations {
             };
         };
     };
-    post_api_encryption_workspaces_by_workspace_id_kek_rotation_complete: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description RRP signing device id. */
-                "x-refmd-rrp-device-id": string;
-                /** @description Strict base64url RRP challenge. */
-                "x-refmd-rrp-challenge": string;
-                /** @description Base64url encoded canonical RRP signature transport. */
-                "x-refmd-rrp-signature-transport": string;
-                /** @description RRP actor variant. */
-                "x-refmd-rrp-actor-variant": "user_device";
-            };
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Completion params */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KekRotationCompleteRequest"];
-            };
-        };
-        responses: {
-            /** @description Rotation completed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Not authorized */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Preconditions not met */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    get_api_encryption_workspaces_by_workspace_id_kek_rotation_completion_manifest: {
-        parameters: {
-            query: {
-                new_kek_version: number;
-            };
-            header: {
-                /** @description RRP signing device id. */
-                "x-refmd-rrp-device-id": string;
-                /** @description Strict base64url RRP challenge. */
-                "x-refmd-rrp-challenge": string;
-                /** @description Base64url encoded canonical RRP signature transport. */
-                "x-refmd-rrp-signature-transport": string;
-                /** @description RRP actor variant. */
-                "x-refmd-rrp-actor-variant": "user_device";
-            };
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Completion manifest hashes */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KekRotationCompletionManifestResponse"];
-                };
-            };
-            /** @description Not authorized */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Preconditions not met */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     post_api_plugin_candidates: {
         parameters: {
             query?: never;
@@ -21797,6 +22490,52 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_complete: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description RRP signing device id. */
+                "x-refmd-rrp-device-id": string;
+                /** @description Strict base64url RRP challenge. */
+                "x-refmd-rrp-challenge": string;
+                /** @description Base64url encoded canonical RRP signature transport. */
+                "x-refmd-rrp-signature-transport": string;
+                /** @description RRP actor variant. */
+                "x-refmd-rrp-actor-variant": "user_device";
+            };
+            path: {
+                workspace_id: string;
+                rotation_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Compound authorization */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompoundAppendAuthorization"];
+            };
+        };
+        responses: {
+            /** @description Committed mutation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceAuthorityMutationResponse"];
+                };
+            };
+            /** @description Invalid completion */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

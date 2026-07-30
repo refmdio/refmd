@@ -62,6 +62,57 @@
         "title": "InitialAkeDeliveryPair",
         "type": "object"
       },
+      "WorkspaceAuthorityMutationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "event_type": {
+            "enum": [
+              "workspace.member.role_changed",
+              "workspace.member.removed",
+              "workspace.kek.rotation_started",
+              "workspace.kek.rotation_completed",
+              "workspace.kek.old_key_deleted"
+            ],
+            "type": "string"
+          },
+          "permission_loss": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "committed"
+            ],
+            "type": "string"
+          },
+          "workspace_audit_checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_key_directory_checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "workspaces_needing_kek_rotation": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceRotationInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "event_type",
+          "workspace_id",
+          "workspace_key_directory_checkpoint_hash",
+          "workspace_audit_checkpoint_hash",
+          "permission_loss",
+          "workspaces_needing_kek_rotation"
+        ],
+        "title": "WorkspaceAuthorityMutationResponse",
+        "type": "object"
+      },
       "PluginActivationUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -209,27 +260,64 @@
       "RegisterResponse": {
         "additionalProperties": false,
         "properties": {
-          "session_id": {
+          "bootstrap_required": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "registration_id": {
             "format": "uuid",
             "type": "string"
           },
-          "user": {
-            "$ref": "#/components/schemas/UserInfo"
-          },
-          "workspace_id": {
+          "reserved_user_id": {
             "format": "uuid",
             "type": "string"
           },
-          "workspace_owner_role_id": {
+          "reserved_workspace_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "reserved_workspace_role_ids": {
+            "additionalProperties": false,
+            "properties": {
+              "admin": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "editor": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "owner": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "viewer": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "owner",
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "user",
-          "workspace_id",
-          "workspace_owner_role_id",
-          "session_id"
+          "bootstrap_required",
+          "registration_id",
+          "reserved_user_id",
+          "reserved_workspace_id",
+          "reserved_workspace_role_ids",
+          "expires_at"
         ],
         "title": "RegisterResponse",
         "type": "object"
@@ -239,29 +327,111 @@
         "title": "Base64UrlBytes",
         "type": "string"
       },
-      "ChangeMemberRoleRequest": {
+      "AuditCheckpointPayload": {
         "additionalProperties": false,
         "properties": {
-          "role_id": {
+          "authorization_checkpoint_hash": {
+            "type": "string"
+          },
+          "authorization_checkpoint_scope_id": {
             "format": "uuid",
             "type": "string"
           },
-          "workspace_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+          "authorization_checkpoint_scope_kind": {
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "type": "string"
           },
-          "workspace_key_directory_events": {
-            "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-            },
-            "type": "array"
+          "authorization_checkpoint_sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chain_scope_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "chain_scope_kind": {
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "covered_event_class": {
+            "enum": [
+              "authority"
+            ],
+            "type": "string"
+          },
+          "covered_event_type": {
+            "type": "string"
+          },
+          "event_hash": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "previous_signed_checkpoint_hash": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "previous_signed_checkpoint_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.signed-audit-checkpoint"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signer_device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signer_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signing_key_id": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
           }
         },
         "required": [
-          "role_id",
-          "workspace_key_directory_events",
-          "workspace_key_directory_checkpoint"
+          "protocol",
+          "version",
+          "chain_scope_kind",
+          "chain_scope_id",
+          "sequence",
+          "event_hash",
+          "signer_user_id",
+          "signing_key_id",
+          "authorization_checkpoint_scope_kind",
+          "authorization_checkpoint_scope_id",
+          "authorization_checkpoint_sequence",
+          "authorization_checkpoint_hash",
+          "covered_event_class",
+          "covered_event_type"
         ],
-        "title": "ChangeMemberRoleRequest",
+        "title": "AuditCheckpointPayload",
         "type": "object"
       },
       "ShareMountConflictResponse": {
@@ -327,34 +497,28 @@
         "properties": {
           "ancestry": {
             "items": {
-              "additionalProperties": false,
-              "type": "object"
+              "$ref": "#/components/schemas/AuditEventEnvelope"
             },
             "type": "array"
           },
-          "authority_checkpoint": {
-            "additionalProperties": false,
-            "nullable": true,
-            "type": "object"
+          "current_event_head": {
+            "$ref": "#/components/schemas/AuditEventHead"
           },
-          "chain_scope": {
-            "type": "string"
+          "signed_checkpoint": {
+            "$ref": "#/components/schemas/SignedAuditCheckpoint"
           },
-          "event_hash": {
-            "pattern": "^[A-Za-z0-9_-]{43}$",
-            "type": "string"
-          },
-          "sequence": {
-            "minimum": 1,
-            "type": "integer"
+          "unsigned_tail": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEventEnvelope"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "chain_scope",
-          "sequence",
-          "event_hash",
+          "signed_checkpoint",
           "ancestry",
-          "authority_checkpoint"
+          "current_event_head",
+          "unsigned_tail"
         ],
         "title": "AuditCheckpoint",
         "type": "object"
@@ -502,6 +666,31 @@
           }
         },
         "title": "UpdateSettingsRequest",
+        "type": "object"
+      },
+      "WorkspaceGenesisResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "committed"
+            ],
+            "type": "string"
+          },
+          "workspace_audit_checkpoint": {
+            "$ref": "#/components/schemas/AuditCheckpoint"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "workspace_id",
+          "workspace_audit_checkpoint"
+        ],
+        "title": "WorkspaceGenesisResponse",
         "type": "object"
       },
       "ErrorResponse": {
@@ -823,34 +1012,6 @@
         "title": "ErrorDetail",
         "type": "object"
       },
-      "KeyDirectoryAppendRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "checkpoint": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-              }
-            ]
-          },
-          "events": {
-            "items": {
-              "allOf": [
-                {
-                  "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-                }
-              ]
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "events",
-          "checkpoint"
-        ],
-        "title": "KeyDirectoryAppendRequest",
-        "type": "object"
-      },
       "AcceptInvitationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -957,6 +1118,74 @@
           "document_id"
         ],
         "title": "ShareChildListItem",
+        "type": "object"
+      },
+      "RecoverableIdentitySecretRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "encrypted_identity_hybrid_encryption_private_key_material": {
+            "$ref": "#/components/schemas/Base64UrlBytes"
+          },
+          "encrypted_identity_hybrid_signing_private_key_material": {
+            "$ref": "#/components/schemas/Base64UrlBytes"
+          },
+          "encryption_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "encryption_material_aad_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "identity_hybrid_encryption_private_key_material_nonce": {
+            "$ref": "#/components/schemas/Base64UrlBytes"
+          },
+          "identity_hybrid_signing_private_key_material_nonce": {
+            "$ref": "#/components/schemas/Base64UrlBytes"
+          },
+          "identity_key_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "previous_record_hash": {
+            "type": "string"
+          },
+          "record_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "signing_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "signing_material_aad_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "identity_key_epoch",
+          "previous_record_hash",
+          "encrypted_identity_hybrid_signing_private_key_material",
+          "identity_hybrid_signing_private_key_material_nonce",
+          "encrypted_identity_hybrid_encryption_private_key_material",
+          "identity_hybrid_encryption_private_key_material_nonce",
+          "signing_key_id",
+          "encryption_key_id",
+          "signing_material_aad_hash",
+          "encryption_material_aad_hash",
+          "record_hash",
+          "is_current"
+        ],
+        "title": "RecoverableIdentitySecretRecord",
         "type": "object"
       },
       "GuestInvitationsListResponse": {
@@ -1757,6 +1986,32 @@
         "title": "ApproveInvitationDeliveryAttemptRequest",
         "type": "object"
       },
+      "GenesisRecoveryAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "recovery_authorization_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "recovery_authorization_public_material": {
+            "$ref": "#/components/schemas/GenesisRecoveryAuthorizationPublicKeyMaterial"
+          },
+          "recovery_encrypted_umk": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "recovery_nonce": {
+            "$ref": "#/components/schemas/EncryptedMaterialNonce"
+          }
+        },
+        "required": [
+          "recovery_encrypted_umk",
+          "recovery_nonce",
+          "recovery_authorization_key_id",
+          "recovery_authorization_public_material"
+        ],
+        "title": "GenesisRecoveryAuthorization",
+        "type": "object"
+      },
       "RecipientBoundAuthorization": {
         "additionalProperties": false,
         "properties": {
@@ -2390,6 +2645,8 @@
             "type": "string"
           },
           "execution_context_id": {
+            "minLength": 1,
+            "nullable": true,
             "type": "string"
           },
           "package_id": {
@@ -2397,12 +2654,16 @@
             "type": "string"
           },
           "request_id": {
+            "minLength": 1,
+            "nullable": true,
             "type": "string"
           },
           "resource_ref": {
             "additionalProperties": false,
             "properties": {
               "block_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "context_range": {
@@ -2424,9 +2685,13 @@
                 "type": "object"
               },
               "document_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "editor_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "max_bytes": {
@@ -2485,12 +2750,18 @@
             "additionalProperties": false,
             "properties": {
               "authority_event_ref": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "capability_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "execution_context_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "request_body": {
@@ -2499,6 +2770,8 @@
               "request_id": {
                 "oneOf": [
                   {
+                    "minLength": 1,
+                    "nullable": true,
                     "type": "string"
                   },
                   {
@@ -2525,9 +2798,13 @@
             "additionalProperties": false,
             "properties": {
               "document_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "share_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "workspace_id": {
@@ -2610,6 +2887,8 @@
                 "type": "string"
               },
               "version_hash": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               }
             },
@@ -2628,9 +2907,13 @@
             "additionalProperties": false,
             "properties": {
               "device_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "principal_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "principal_kind": {
@@ -2643,9 +2926,13 @@
                 "type": "string"
               },
               "session_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "user_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               }
             },
@@ -2678,6 +2965,8 @@
                 "type": "string"
               },
               "fallback_reason": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "method": {
@@ -2690,12 +2979,16 @@
                 "type": "string"
               },
               "proxy_id": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "raw": {
                 "type": "string"
               },
               "reason_code": {
+                "minLength": 1,
+                "nullable": true,
                 "type": "string"
               },
               "request_body": {
@@ -2753,6 +3046,8 @@
             "type": "string"
           },
           "context_kind": {
+            "minLength": 1,
+            "nullable": true,
             "type": "string"
           },
           "capability_id": {
@@ -2814,6 +3109,60 @@
         "title": "ShareMountFolderMountSummary",
         "type": "object"
       },
+      "WorkspaceGenesisCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "icon": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_role_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.workspace-genesis-command"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_member_envelope_precommit": {
+            "$ref": "#/components/schemas/GenesisWorkspaceMemberEnvelopePrecommit"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "name",
+          "workspace_id",
+          "owner_role_id",
+          "description",
+          "icon",
+          "workspace_member_envelope_precommit"
+        ],
+        "title": "WorkspaceGenesisCommand",
+        "type": "object"
+      },
       "ReplaceFolderShareKeyItem": {
         "additionalProperties": false,
         "properties": {
@@ -2865,10 +3214,12 @@
                             "payload": {
                               "additionalProperties": false,
                               "properties": {
-                                "expires_event_sequence": {
+                                "expires_at_ms": {
+                                  "minimum": 0,
                                   "type": "integer"
                                 },
-                                "issued_at_event_sequence": {
+                                "issued_at_ms": {
+                                  "minimum": 0,
                                   "type": "integer"
                                 },
                                 "mlkem768_ephemeral_public": {
@@ -2942,8 +3293,8 @@
                                 "mlkem768_ephemeral_public",
                                 "mlkem768_ephemeral_public_hash",
                                 "operation_id",
-                                "issued_at_event_sequence",
-                                "expires_event_sequence",
+                                "issued_at_ms",
+                                "expires_at_ms",
                                 "server_challenge"
                               ],
                               "type": "object"
@@ -2977,10 +3328,12 @@
                       "payload": {
                         "additionalProperties": false,
                         "properties": {
-                          "expires_event_sequence": {
+                          "expires_at_ms": {
+                            "minimum": 0,
                             "type": "integer"
                           },
-                          "issued_at_event_sequence": {
+                          "issued_at_ms": {
+                            "minimum": 0,
                             "type": "integer"
                           },
                           "mlkem768_ephemeral_public": {
@@ -3054,8 +3407,8 @@
                           "mlkem768_ephemeral_public",
                           "mlkem768_ephemeral_public_hash",
                           "operation_id",
-                          "issued_at_event_sequence",
-                          "expires_event_sequence",
+                          "issued_at_ms",
+                          "expires_at_ms",
                           "server_challenge"
                         ],
                         "type": "object"
@@ -3076,10 +3429,12 @@
                       "payload": {
                         "additionalProperties": false,
                         "properties": {
-                          "expires_event_sequence": {
+                          "expires_at_ms": {
+                            "minimum": 0,
                             "type": "integer"
                           },
-                          "issued_at_event_sequence": {
+                          "issued_at_ms": {
+                            "minimum": 0,
                             "type": "integer"
                           },
                           "mlkem768_ephemeral_public": {
@@ -3153,8 +3508,8 @@
                           "mlkem768_ephemeral_public",
                           "mlkem768_ephemeral_public_hash",
                           "operation_id",
-                          "issued_at_event_sequence",
-                          "expires_event_sequence",
+                          "issued_at_ms",
+                          "expires_at_ms",
                           "server_challenge"
                         ],
                         "type": "object"
@@ -3255,26 +3610,6 @@
           "workspace_key_directory_checkpoint"
         ],
         "title": "DocumentWriteStateRequest",
-        "type": "object"
-      },
-      "RemoveMemberResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "workspaces_needing_kek_rotation": {
-            "items": {
-              "$ref": "#/components/schemas/WorkspaceRotationInfo"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "ok",
-          "workspaces_needing_kek_rotation"
-        ],
-        "title": "RemoveMemberResponse",
         "type": "object"
       },
       "LogoutRequest": {
@@ -3484,6 +3819,9 @@
       "InitialAkeTrustTransferContext": {
         "additionalProperties": false,
         "properties": {
+          "audit_checkpoint_pin_set_hash": {
+            "type": "string"
+          },
           "challenge": {
             "type": "string"
           },
@@ -3528,6 +3866,7 @@
           "source_device_id",
           "target_device_id",
           "transfer_scope_hash",
+          "audit_checkpoint_pin_set_hash",
           "target_payload_kind",
           "operation_id",
           "challenge"
@@ -3982,6 +4321,28 @@
           "challenge"
         ],
         "title": "RecoveryChallengeResponse",
+        "type": "object"
+      },
+      "DeviceRevocationCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revocation_mode": {
+            "enum": [
+              "security",
+              "retire"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "revocation_mode"
+        ],
+        "title": "DeviceRevocationCommand",
         "type": "object"
       },
       "UpdateShareRequest": {
@@ -4464,6 +4825,26 @@
         "title": "WorkspacePinBootstrap",
         "type": "object"
       },
+      "SecurityAuditCheckpointsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "user_audit_checkpoint": {
+            "$ref": "#/components/schemas/AuditCheckpoint"
+          },
+          "workspace_audit_checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceAuditCheckpoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "user_audit_checkpoint",
+          "workspace_audit_checkpoints"
+        ],
+        "title": "SecurityAuditCheckpointsResponse",
+        "type": "object"
+      },
       "ShareVerificationDirectory": {
         "additionalProperties": false,
         "properties": {
@@ -4485,6 +4866,27 @@
           "share_participant_devices"
         ],
         "title": "ShareVerificationDirectory",
+        "type": "object"
+      },
+      "AuditEventHead": {
+        "additionalProperties": false,
+        "properties": {
+          "event_hash": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "event_hash"
+        ],
+        "title": "AuditEventHead",
         "type": "object"
       },
       "MemberDevicesResponse": {
@@ -4613,6 +5015,9 @@
           "ake_transcript_hash": {
             "type": "string"
           },
+          "audit_checkpoint_pin_set_hash": {
+            "type": "string"
+          },
           "context_hash": {
             "type": "string"
           },
@@ -4670,28 +5075,31 @@
             ],
             "type": "integer"
           },
+          "transfer_scope_hash": {
+            "type": "string"
+          },
           "workspace_id": {
             "format": "uuid",
             "type": "string"
           }
         },
         "required": [
-          "signing_key_id",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
+          "signing_key_id",
           "key_version",
-          "sender_device_id",
           "resource_hash",
+          "context_hash",
+          "sender_device_id",
           "suite_rank",
           "suite_id",
+          "key_checkpoint_hash",
           "initiator_commitment_hash",
-          "context_hash",
           "delivery_id",
-          "ake_transcript_hash",
-          "recipient_challenge_hash",
+          "recipient_encryption_key_id",
           "payload_kind",
-          "key_kind"
+          "key_kind",
+          "ake_transcript_hash",
+          "recipient_challenge_hash"
         ],
         "title": "InitialAkePendingDeliveryMetadata",
         "type": "object"
@@ -4770,14 +5178,94 @@
       "BootstrapDeviceResponse": {
         "additionalProperties": false,
         "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
           "status": {
+            "enum": [
+              "committed"
+            ],
+            "type": "string"
+          },
+          "user_audit_checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_audit_checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "workspace_id": {
+            "format": "uuid",
             "type": "string"
           }
         },
         "required": [
-          "status"
+          "status",
+          "user_id",
+          "device_id",
+          "workspace_id",
+          "user_audit_checkpoint_hash",
+          "workspace_audit_checkpoint_hash"
         ],
         "title": "BootstrapDeviceResponse",
+        "type": "object"
+      },
+      "WorkspaceGenesisAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "compound_intent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "effect_authorizations": {
+            "items": {
+              "$ref": "#/components/schemas/GenesisEffectAuthorization"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "intent_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "mutation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.audit.compound-append-authorization"
+            ],
+            "type": "string"
+          },
+          "scope_signatures": {
+            "items": {
+              "$ref": "#/components/schemas/GenesisScopeSignature"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "type": "array"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "compound_intent_id",
+          "mutation_id",
+          "intent_hash",
+          "scope_signatures",
+          "effect_authorizations"
+        ],
+        "title": "WorkspaceGenesisAuthorization",
         "type": "object"
       },
       "PluginConsentEventRequest": {
@@ -4979,23 +5467,23 @@
           }
         },
         "required": [
-          "signing_key_id",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
+          "signing_key_id",
           "key_version",
-          "sender_device_id",
           "resource_hash",
+          "context_hash",
+          "sender_device_id",
           "suite_rank",
           "suite_id",
+          "key_checkpoint_hash",
           "initiator_commitment_hash",
-          "context_hash",
           "delivery_id",
+          "recipient_encryption_key_id",
+          "payload_kind",
+          "key_kind",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
-          "payload_kind",
-          "key_kind",
           "workspace_id"
         ],
         "title": "InitialKeyDeliveryApprovalMetadata",
@@ -5839,70 +6327,6 @@
         "title": "RecipientBoundAuthorizationPayload",
         "type": "object"
       },
-      "RevokeDeviceRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "revocation_mode": {
-            "enum": [
-              "security",
-              "retire"
-            ],
-            "type": "string"
-          },
-          "revocation_signature": {
-            "$ref": "#/components/schemas/HybridSignature"
-          },
-          "revoked_at": {
-            "description": "Unix timestamp in milliseconds",
-            "type": "integer"
-          },
-          "user_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-          },
-          "user_key_directory_events": {
-            "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-            },
-            "type": "array"
-          },
-          "workspace_key_directory_appends": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "checkpoint": {
-                  "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-                },
-                "events": {
-                  "items": {
-                    "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-                  },
-                  "type": "array"
-                },
-                "workspace_id": {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "workspace_id",
-                "events",
-                "checkpoint"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "revocation_signature",
-          "revoked_at",
-          "user_key_directory_events",
-          "user_key_directory_checkpoint",
-          "workspace_key_directory_appends"
-        ],
-        "title": "RevokeDeviceRequest",
-        "type": "object"
-      },
       "WorkspaceKeysResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6218,6 +6642,15 @@
       "InvitationListItem": {
         "additionalProperties": false,
         "properties": {
+          "bootstrap_package_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "bootstrap_package_key_maintenance_wrap": {
+            "$ref": "#/components/schemas/InvitationBootstrapMaintenanceWrap"
+          },
+          "bootstrap_suite_id": {
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -6228,6 +6661,9 @@
               "known_recipient"
             ],
             "type": "string"
+          },
+          "encrypted_bootstrap_package": {
+            "$ref": "#/components/schemas/WorkspaceInvitationBootstrapPackage"
           },
           "expires_at": {
             "format": "date-time",
@@ -6290,10 +6726,70 @@
           "delivery_mode",
           "recipient_device_ids",
           "kek_version",
+          "encrypted_bootstrap_package",
+          "bootstrap_package_hash",
+          "bootstrap_package_key_maintenance_wrap",
+          "bootstrap_suite_id",
           "is_used",
           "created_at"
         ],
         "title": "InvitationListItem",
+        "type": "object"
+      },
+      "CompoundAppendIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "compound_intent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "key_directory_effects_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "mutation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.audit.compound-append-intent"
+            ],
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "compound_intent_id",
+          "mutation_id",
+          "challenge_id",
+          "expires_at",
+          "key_directory_effects_hash",
+          "scopes"
+        ],
+        "title": "CompoundAppendIntent",
         "type": "object"
       },
       "ShareExclusionsResponse": {
@@ -7292,6 +7788,13 @@
                                 "pattern": "^[A-Za-z0-9_-]{43}$",
                                 "type": "string"
                               },
+                              "key_kind": {
+                                "enum": [
+                                  "signing",
+                                  "encryption"
+                                ],
+                                "type": "string"
+                              },
                               "key_material_hash": {
                                 "maxLength": 43,
                                 "minLength": 43,
@@ -7300,6 +7803,7 @@
                               }
                             },
                             "required": [
+                              "key_kind",
                               "key_id",
                               "key_material_hash"
                             ],
@@ -7600,6 +8104,13 @@
                                 "pattern": "^[A-Za-z0-9_-]{43}$",
                                 "type": "string"
                               },
+                              "key_kind": {
+                                "enum": [
+                                  "signing",
+                                  "encryption"
+                                ],
+                                "type": "string"
+                              },
                               "key_material_hash": {
                                 "maxLength": 43,
                                 "minLength": 43,
@@ -7608,6 +8119,7 @@
                               }
                             },
                             "required": [
+                              "key_kind",
                               "key_id",
                               "key_material_hash"
                             ],
@@ -34796,26 +35308,6 @@
         "title": "InvitationKnownRecipientWrap",
         "type": "object"
       },
-      "ChangeMemberRoleResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "workspaces_needing_kek_rotation": {
-            "items": {
-              "$ref": "#/components/schemas/WorkspaceRotationInfo"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "ok",
-          "workspaces_needing_kek_rotation"
-        ],
-        "title": "ChangeMemberRoleResponse",
-        "type": "object"
-      },
       "PluginApplicationApplyRequest": {
         "additionalProperties": false,
         "properties": {
@@ -35015,26 +35507,6 @@
         "title": "ShareMountTarget",
         "type": "object"
       },
-      "KekRotationStartRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "workspace_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-          },
-          "workspace_key_directory_events": {
-            "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "workspace_key_directory_events",
-          "workspace_key_directory_checkpoint"
-        ],
-        "title": "KekRotationStartRequest",
-        "type": "object"
-      },
       "ApprovalDeliveryCommitments": {
         "additionalProperties": false,
         "properties": {
@@ -35110,6 +35582,241 @@
         "title": "DocumentKeysResponse",
         "type": "object"
       },
+      "KekRotationCompletionIntentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "device_wrap_precommits": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "sender_device_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "target_device_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "target_user_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "wrap": {
+                  "$ref": "#/components/schemas/PqWrapPrecommit"
+                }
+              },
+              "required": [
+                "target_user_id",
+                "target_device_id",
+                "wrap"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "guest_invitation_updates": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_package_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "bootstrap_package_key_maintenance_wrap": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "bootstrap_package_key_maintenance_wrap_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "bootstrap_suite_id": {
+                  "type": "string"
+                },
+                "encrypted_bootstrap_package": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "guest_invitation_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "invitation_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "kek_version": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "key_version_context": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "previous_bootstrap_package_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "scope_id": {
+                  "type": "string"
+                },
+                "scope_kind": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kek_version",
+                "encrypted_bootstrap_package",
+                "bootstrap_package_hash",
+                "previous_bootstrap_package_hash",
+                "bootstrap_package_key_maintenance_wrap",
+                "bootstrap_package_key_maintenance_wrap_hash",
+                "key_version_context",
+                "bootstrap_suite_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "member_envelope_precommits": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "authorization_key_directory_checkpoint_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "authorization_key_directory_checkpoint_sequence": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "kek_version": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "protocol": {
+                  "enum": [
+                    "refmd.workspace-member-envelope"
+                  ],
+                  "type": "string"
+                },
+                "target_identity_encryption_key_id": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "target_identity_key_material_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "target_user_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "version": {
+                  "enum": [
+                    1
+                  ],
+                  "type": "integer"
+                },
+                "workspace_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "wrap": {
+                  "$ref": "#/components/schemas/PqWrapPrecommit"
+                }
+              },
+              "required": [
+                "protocol",
+                "version",
+                "workspace_id",
+                "target_user_id",
+                "kek_version",
+                "target_identity_encryption_key_id",
+                "target_identity_key_material_hash",
+                "authorization_key_directory_checkpoint_sequence",
+                "authorization_key_directory_checkpoint_hash",
+                "wrap"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "new_key_version": {
+            "minimum": 2,
+            "type": "integer"
+          },
+          "old_key_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workspace_invitation_updates": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bootstrap_package_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "bootstrap_package_key_maintenance_wrap": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "bootstrap_package_key_maintenance_wrap_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "bootstrap_suite_id": {
+                  "type": "string"
+                },
+                "encrypted_bootstrap_package": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "guest_invitation_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "invitation_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "kek_version": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "key_version_context": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "previous_bootstrap_package_hash": {
+                  "$ref": "#/components/schemas/Blake3Base64Url"
+                },
+                "scope_id": {
+                  "type": "string"
+                },
+                "scope_kind": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kek_version",
+                "encrypted_bootstrap_package",
+                "bootstrap_package_hash",
+                "previous_bootstrap_package_hash",
+                "bootstrap_package_key_maintenance_wrap",
+                "bootstrap_package_key_maintenance_wrap_hash",
+                "key_version_context",
+                "bootstrap_suite_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "old_key_version",
+          "new_key_version",
+          "device_wrap_precommits",
+          "member_envelope_precommits",
+          "workspace_invitation_updates",
+          "guest_invitation_updates"
+        ],
+        "title": "KekRotationCompletionIntentRequest",
+        "type": "object"
+      },
       "InitialAkeResponsesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -35160,6 +35867,12 @@
           "key_version"
         ],
         "title": "PluginRecordWriteRequest",
+        "type": "object"
+      },
+      "MemberRemovalIntentRequest": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "MemberRemovalIntentRequest",
         "type": "object"
       },
       "ShareMountBootstrapRequest": {
@@ -35269,6 +35982,48 @@
           "workspace_ids"
         ],
         "title": "WorkspaceIdsResponse",
+        "type": "object"
+      },
+      "KekRotationStartIntentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+            },
+            "type": "array"
+          },
+          "new_key_version": {
+            "minimum": 2,
+            "type": "integer"
+          },
+          "old_key_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "manual"
+            ],
+            "type": "string"
+          },
+          "rotation_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_key_version",
+          "new_key_version",
+          "reason",
+          "rotation_id",
+          "events",
+          "checkpoint"
+        ],
+        "title": "KekRotationStartIntentRequest",
         "type": "object"
       },
       "ReorderDocumentRequest": {
@@ -35503,9 +36258,6 @@
       "RedeemGuestInvitationRequest": {
         "additionalProperties": false,
         "properties": {
-          "approval_signature": {
-            "$ref": "#/components/schemas/HybridSignature"
-          },
           "client_nonce": {
             "type": "string"
           },
@@ -35527,30 +36279,18 @@
             "nullable": true,
             "type": "string"
           },
-          "encrypted_identity_hybrid_encryption_private_key_material": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
-          },
-          "encrypted_identity_hybrid_signing_private_key_material": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
-          },
           "guest_user_id": {
             "format": "uuid",
             "type": "string"
           },
-          "identity_hybrid_encryption_private_key_material_nonce": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
-          },
           "identity_hybrid_encryption_public_key_material": {
             "$ref": "#/components/schemas/IdentityHybridEncryptionPublicKeyMaterial"
-          },
-          "identity_hybrid_signing_private_key_material_nonce": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
           },
           "identity_hybrid_signing_public_key_material": {
             "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
           },
-          "pending_registration_challenge_hash": {
-            "type": "string"
+          "recoverable_identity_secret_record": {
+            "$ref": "#/components/schemas/RecoverableIdentitySecretRecord"
           },
           "token": {
             "type": "string"
@@ -35582,12 +36322,7 @@
           "device_hybrid_signing_public_key_material",
           "identity_hybrid_encryption_public_key_material",
           "identity_hybrid_signing_public_key_material",
-          "encrypted_identity_hybrid_encryption_private_key_material",
-          "identity_hybrid_encryption_private_key_material_nonce",
-          "encrypted_identity_hybrid_signing_private_key_material",
-          "identity_hybrid_signing_private_key_material_nonce",
-          "approval_signature",
-          "pending_registration_challenge_hash",
+          "recoverable_identity_secret_record",
           "client_nonce",
           "user_key_directory_events",
           "user_key_directory_checkpoint",
@@ -35618,96 +36353,6 @@
         "title": "DocumentKeyRotationTargetsResponse",
         "type": "object"
       },
-      "KekRotationCompletionManifestResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "completed_at_event_sequence": {
-            "type": "integer"
-          },
-          "completion_manifest_hash": {
-            "type": "string"
-          },
-          "deleted_at_event_sequence": {
-            "type": "integer"
-          },
-          "deleted_secret_ids_hash": {
-            "type": "string"
-          },
-          "deleted_wrap_ids_hash": {
-            "type": "string"
-          },
-          "new_kek_version": {
-            "type": "integer"
-          },
-          "old_kek_version": {
-            "type": "integer"
-          },
-          "server_rejects_old_key_uploads_after_sequence": {
-            "type": "integer"
-          },
-          "started_event_hash": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "old_kek_version",
-          "new_kek_version",
-          "started_event_hash",
-          "completed_at_event_sequence",
-          "deleted_at_event_sequence",
-          "server_rejects_old_key_uploads_after_sequence",
-          "completion_manifest_hash",
-          "deleted_secret_ids_hash",
-          "deleted_wrap_ids_hash"
-        ],
-        "title": "KekRotationCompletionManifestResponse",
-        "type": "object"
-      },
-      "CreateWorkspaceRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "description": {
-            "maxLength": 500,
-            "nullable": true,
-            "type": "string"
-          },
-          "icon": {
-            "nullable": true,
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 100,
-            "minLength": 1,
-            "type": "string"
-          },
-          "workspace_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "workspace_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-          },
-          "workspace_key_directory_events": {
-            "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-            },
-            "type": "array"
-          },
-          "workspace_owner_role_id": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "workspace_id",
-          "workspace_owner_role_id",
-          "workspace_key_directory_events",
-          "workspace_key_directory_checkpoint"
-        ],
-        "title": "CreateWorkspaceRequest",
-        "type": "object"
-      },
       "PasswordResetRequestBody": {
         "additionalProperties": false,
         "properties": {
@@ -35720,6 +36365,34 @@
           "email"
         ],
         "title": "PasswordResetRequestBody",
+        "type": "object"
+      },
+      "GenesisSuitePolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_suite_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "min_suite_rank": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "suite_policy_version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "suite_policy_version",
+          "min_suite_rank",
+          "allowed_suite_ids"
+        ],
+        "title": "GenesisSuitePolicy",
         "type": "object"
       },
       "ShareCanonicalBootstrapRequest": {
@@ -35937,6 +36610,121 @@
           "new_recovery_authorization_key_id"
         ],
         "title": "RegenerateRecoveryKeyRequest",
+        "type": "object"
+      },
+      "AccountGenesisPrepareRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_nonce": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "device_encryption_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "device_hybrid_encryption_public_key_material": {
+            "$ref": "#/components/schemas/DeviceHybridEncryptionPublicKeyMaterial"
+          },
+          "device_hybrid_signing_public_key_material": {
+            "$ref": "#/components/schemas/DeviceHybridSigningPublicKeyMaterial"
+          },
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "device_signing_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "device_type": {
+            "enum": [
+              "browser",
+              "desktop",
+              "mobile"
+            ],
+            "type": "string"
+          },
+          "encrypted_umk": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "encrypted_umk_nonce": {
+            "$ref": "#/components/schemas/EncryptedMaterialNonce"
+          },
+          "identity_encryption_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "identity_hybrid_encryption_public_key_material": {
+            "$ref": "#/components/schemas/IdentityHybridEncryptionPublicKeyMaterial"
+          },
+          "identity_hybrid_signing_public_key_material": {
+            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
+          },
+          "identity_signing_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "initial_suite_policy": {
+            "$ref": "#/components/schemas/GenesisSuitePolicy"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_role_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "recoverable_identity_secret_record": {
+            "$ref": "#/components/schemas/RecoverableIdentitySecretRecord"
+          },
+          "recovery_authorization": {
+            "$ref": "#/components/schemas/GenesisRecoveryAuthorization"
+          },
+          "registration_challenge": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_member_envelope_precommit": {
+            "$ref": "#/components/schemas/GenesisWorkspaceMemberEnvelopePrecommit"
+          }
+        },
+        "required": [
+          "registration_id",
+          "registration_challenge",
+          "user_id",
+          "workspace_id",
+          "owner_role_id",
+          "name",
+          "device_type",
+          "device_id",
+          "encrypted_umk",
+          "encrypted_umk_nonce",
+          "recoverable_identity_secret_record",
+          "identity_hybrid_signing_public_key_material",
+          "identity_signing_key_id",
+          "identity_hybrid_encryption_public_key_material",
+          "identity_encryption_key_id",
+          "device_hybrid_signing_public_key_material",
+          "device_signing_key_id",
+          "device_hybrid_encryption_public_key_material",
+          "device_encryption_key_id",
+          "recovery_authorization",
+          "initial_suite_policy",
+          "workspace_member_envelope_precommit",
+          "client_nonce"
+        ],
+        "title": "AccountGenesisPrepareRequest",
         "type": "object"
       },
       "DocumentKeyRotationTarget": {
@@ -37616,6 +38404,74 @@
         "title": "InitialAkeResponsesResponse",
         "type": "object"
       },
+      "AuditEventEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "chain_scope_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "chain_scope_kind": {
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "event_body": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "event_hash": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_type": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "previous_event_hash": {
+            "pattern": "^(GENESIS|[A-Za-z0-9_-]{43})$",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.audit.chain-event"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "event_id",
+          "chain_scope_kind",
+          "chain_scope_id",
+          "sequence",
+          "previous_event_hash",
+          "event_hash",
+          "event_type",
+          "event_body"
+        ],
+        "title": "AuditEventEnvelope",
+        "type": "object"
+      },
       "CreateDeviceRegistrationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -37632,10 +38488,12 @@
                         "payload": {
                           "additionalProperties": false,
                           "properties": {
-                            "expires_event_sequence": {
+                            "expires_at_ms": {
+                              "minimum": 0,
                               "type": "integer"
                             },
-                            "issued_at_event_sequence": {
+                            "issued_at_ms": {
+                              "minimum": 0,
                               "type": "integer"
                             },
                             "mlkem768_ephemeral_public": {
@@ -37709,8 +38567,8 @@
                             "mlkem768_ephemeral_public",
                             "mlkem768_ephemeral_public_hash",
                             "operation_id",
-                            "issued_at_event_sequence",
-                            "expires_event_sequence",
+                            "issued_at_ms",
+                            "expires_at_ms",
                             "server_challenge"
                           ],
                           "type": "object"
@@ -37744,10 +38602,12 @@
                   "payload": {
                     "additionalProperties": false,
                     "properties": {
-                      "expires_event_sequence": {
+                      "expires_at_ms": {
+                        "minimum": 0,
                         "type": "integer"
                       },
-                      "issued_at_event_sequence": {
+                      "issued_at_ms": {
+                        "minimum": 0,
                         "type": "integer"
                       },
                       "mlkem768_ephemeral_public": {
@@ -37821,8 +38681,8 @@
                       "mlkem768_ephemeral_public",
                       "mlkem768_ephemeral_public_hash",
                       "operation_id",
-                      "issued_at_event_sequence",
-                      "expires_event_sequence",
+                      "issued_at_ms",
+                      "expires_at_ms",
                       "server_challenge"
                     ],
                     "type": "object"
@@ -37843,10 +38703,12 @@
                   "payload": {
                     "additionalProperties": false,
                     "properties": {
-                      "expires_event_sequence": {
+                      "expires_at_ms": {
+                        "minimum": 0,
                         "type": "integer"
                       },
-                      "issued_at_event_sequence": {
+                      "issued_at_ms": {
+                        "minimum": 0,
                         "type": "integer"
                       },
                       "mlkem768_ephemeral_public": {
@@ -37920,8 +38782,8 @@
                       "mlkem768_ephemeral_public",
                       "mlkem768_ephemeral_public_hash",
                       "operation_id",
-                      "issued_at_event_sequence",
-                      "expires_event_sequence",
+                      "issued_at_ms",
+                      "expires_at_ms",
                       "server_challenge"
                     ],
                     "type": "object"
@@ -38092,11 +38954,17 @@
           "allowed_suite_ids_hash": {
             "type": "string"
           },
+          "audit_checkpoint_pin_set_hash": {
+            "type": "string"
+          },
           "min_suite_rank": {
             "type": "integer"
           },
           "suite_policy_version": {
             "type": "integer"
+          },
+          "transfer_scope_hash": {
+            "type": "string"
           },
           "user_checkpoint_hash": {
             "type": "string"
@@ -38112,6 +38980,8 @@
           "user_checkpoint_hash",
           "user_event_head_hash",
           "workspace_pins_hash",
+          "transfer_scope_hash",
+          "audit_checkpoint_pin_set_hash",
           "suite_policy_version",
           "min_suite_rank",
           "allowed_suite_ids_hash"
@@ -38438,336 +39308,6 @@
         "title": "DekRotationCompletionRequest",
         "type": "object"
       },
-      "KekRotationCompleteRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "device_key_deletion_proofs": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "payload": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "deleted_secret_ids_hash": {
-                      "$ref": "#/components/schemas/Blake3Base64Url"
-                    },
-                    "deleted_storage_classes": {
-                      "items": {
-                        "enum": [
-                          "crypto_worker_state",
-                          "indexeddb_cache",
-                          "local_encrypted_key_store",
-                          "offline_cache",
-                          "pending_queue"
-                        ],
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    "device_id": {
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "local_cache_epoch": {
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "old_key_version": {
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    "proof_nonce": {
-                      "type": "string"
-                    },
-                    "protocol": {
-                      "enum": [
-                        "refmd.device-key-deletion-proof"
-                      ],
-                      "type": "string"
-                    },
-                    "rotation_completed_event_hash": {
-                      "$ref": "#/components/schemas/Blake3Base64Url"
-                    },
-                    "rotation_kind": {
-                      "enum": [
-                        "kek"
-                      ],
-                      "type": "string"
-                    },
-                    "scope_id": {
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "scope_kind": {
-                      "enum": [
-                        "workspace"
-                      ],
-                      "type": "string"
-                    },
-                    "version": {
-                      "enum": [
-                        1
-                      ],
-                      "type": "integer"
-                    },
-                    "workspace_id": {
-                      "format": "uuid",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "protocol",
-                    "version",
-                    "workspace_id",
-                    "device_id",
-                    "rotation_kind",
-                    "scope_kind",
-                    "scope_id",
-                    "old_key_version",
-                    "rotation_completed_event_hash",
-                    "deleted_secret_ids_hash",
-                    "deleted_storage_classes",
-                    "local_cache_epoch",
-                    "proof_nonce"
-                  ],
-                  "type": "object"
-                },
-                "signature": {
-                  "$ref": "#/components/schemas/HybridSignature"
-                },
-                "transcript": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "actor": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "device_id": {
-                          "format": "uuid",
-                          "type": "string"
-                        },
-                        "key_checkpoint_hash": {
-                          "$ref": "#/components/schemas/Blake3Base64Url"
-                        },
-                        "key_checkpoint_sequence": {
-                          "minimum": 1,
-                          "type": "integer"
-                        },
-                        "key_scope_id": {
-                          "format": "uuid",
-                          "type": "string"
-                        },
-                        "key_scope_kind": {
-                          "enum": [
-                            "workspace"
-                          ],
-                          "type": "string"
-                        },
-                        "signer_kind": {
-                          "enum": [
-                            "workspace_device"
-                          ],
-                          "type": "string"
-                        },
-                        "signing_key_id": {
-                          "$ref": "#/components/schemas/Blake3Base64Url"
-                        },
-                        "user_id": {
-                          "format": "uuid",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "signer_kind",
-                        "user_id",
-                        "device_id",
-                        "signing_key_id",
-                        "key_scope_kind",
-                        "key_scope_id",
-                        "key_checkpoint_sequence",
-                        "key_checkpoint_hash"
-                      ],
-                      "type": "object"
-                    },
-                    "authority_boundary": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "deleted_secret_ids_hash": {
-                          "$ref": "#/components/schemas/Blake3Base64Url"
-                        },
-                        "deleted_storage_classes_hash": {
-                          "$ref": "#/components/schemas/Blake3Base64Url"
-                        },
-                        "old_key_version": {
-                          "minimum": 1,
-                          "type": "integer"
-                        },
-                        "rotation_completed_event_hash": {
-                          "$ref": "#/components/schemas/Blake3Base64Url"
-                        },
-                        "rotation_kind": {
-                          "enum": [
-                            "kek"
-                          ],
-                          "type": "string"
-                        },
-                        "scope_id": {
-                          "format": "uuid",
-                          "type": "string"
-                        },
-                        "scope_kind": {
-                          "enum": [
-                            "workspace"
-                          ],
-                          "type": "string"
-                        },
-                        "workspace_id": {
-                          "format": "uuid",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "workspace_id",
-                        "rotation_kind",
-                        "scope_kind",
-                        "scope_id",
-                        "old_key_version",
-                        "rotation_completed_event_hash",
-                        "deleted_secret_ids_hash",
-                        "deleted_storage_classes_hash"
-                      ],
-                      "type": "object"
-                    },
-                    "label": {
-                      "enum": [
-                        "RefMD hybrid signature transcript v1"
-                      ],
-                      "type": "string"
-                    },
-                    "owner_id": {
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "owner_kind": {
-                      "enum": [
-                        "device"
-                      ],
-                      "type": "string"
-                    },
-                    "protocol": {
-                      "enum": [
-                        "refmd.hybrid-signature-transcript"
-                      ],
-                      "type": "string"
-                    },
-                    "signature_suite_id": {
-                      "type": "string"
-                    },
-                    "signature_suite_rank": {
-                      "type": "integer"
-                    },
-                    "signing_purpose": {
-                      "enum": [
-                        "device_key_deletion_proof"
-                      ],
-                      "type": "string"
-                    },
-                    "subject_hash": {
-                      "$ref": "#/components/schemas/Blake3Base64Url"
-                    },
-                    "subject_protocol": {
-                      "enum": [
-                        "refmd.device-key-deletion-proof"
-                      ],
-                      "type": "string"
-                    },
-                    "subject_version": {
-                      "enum": [
-                        1
-                      ],
-                      "type": "integer"
-                    },
-                    "surface_id": {
-                      "enum": [
-                        "device_key_deletion_proof"
-                      ],
-                      "type": "string"
-                    },
-                    "surface_variant": {
-                      "enum": [
-                        "device_key_deletion_proof"
-                      ],
-                      "type": "string"
-                    },
-                    "transcript_owner": {
-                      "type": "string"
-                    },
-                    "version": {
-                      "enum": [
-                        1
-                      ],
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "label",
-                    "protocol",
-                    "version",
-                    "transcript_owner",
-                    "surface_id",
-                    "surface_variant",
-                    "signing_purpose",
-                    "owner_kind",
-                    "owner_id",
-                    "signature_suite_id",
-                    "signature_suite_rank",
-                    "subject_hash",
-                    "subject_protocol",
-                    "subject_version",
-                    "actor",
-                    "authority_boundary"
-                  ],
-                  "type": "object"
-                }
-              },
-              "required": [
-                "payload",
-                "transcript",
-                "signature"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "new_kek_version": {
-            "type": "integer"
-          },
-          "wipe_required_device_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "workspace_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-          },
-          "workspace_key_directory_events": {
-            "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "new_kek_version",
-          "workspace_key_directory_events",
-          "workspace_key_directory_checkpoint",
-          "device_key_deletion_proofs",
-          "wipe_required_device_ids"
-        ],
-        "title": "KekRotationCompleteRequest",
-        "type": "object"
-      },
       "InitialKeyDeliveryArtifact": {
         "additionalProperties": false,
         "properties": {
@@ -38783,24 +39323,6 @@
           "initial_key_delivery"
         ],
         "title": "InitialKeyDeliveryArtifact",
-        "type": "object"
-      },
-      "KekRotationStartResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "needs_kek_rotation": {
-            "type": "boolean"
-          },
-          "workspace_id": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "workspace_id",
-          "needs_kek_rotation"
-        ],
-        "title": "KekRotationStartResponse",
         "type": "object"
       },
       "PasswordSetRequest": {
@@ -38826,6 +39348,39 @@
           "new_umk_nonce"
         ],
         "title": "PasswordSetRequest",
+        "type": "object"
+      },
+      "KekOldKeyDeletionIntentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deletion_manifest": {
+            "$ref": "#/components/schemas/OldKeyDeletionManifest"
+          },
+          "device_key_deletion_proofs": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceKeyDeletionProof"
+            },
+            "type": "array"
+          },
+          "old_key_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "wipe_required_device_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "old_key_version",
+          "deletion_manifest",
+          "device_key_deletion_proofs",
+          "wipe_required_device_ids"
+        ],
+        "title": "KekOldKeyDeletionIntentRequest",
         "type": "object"
       },
       "ExternalAccountsResponse": {
@@ -41270,6 +41825,60 @@
         "title": "ApprovalDeliveryArtifacts",
         "type": "object"
       },
+      "DeviceRevocationAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "compound_intent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "effect_authorizations": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceRevocationEffectAuthorization"
+            },
+            "minItems": 4,
+            "type": "array"
+          },
+          "intent_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "mutation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.audit.compound-append-authorization"
+            ],
+            "type": "string"
+          },
+          "scope_signatures": {
+            "items": {
+              "$ref": "#/components/schemas/GenesisScopeSignature"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "type": "array"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "compound_intent_id",
+          "mutation_id",
+          "intent_hash",
+          "scope_signatures",
+          "effect_authorizations"
+        ],
+        "title": "DeviceRevocationAuthorization",
+        "type": "object"
+      },
       "RecoveryChallengeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -41290,6 +41899,60 @@
         "pattern": "^[A-Za-z0-9_-]{32}$",
         "title": "XChaCha20Poly1305Nonce",
         "type": "string"
+      },
+      "CompoundAppendAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "compound_intent_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "effect_authorizations": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceRevocationEffectAuthorization"
+            },
+            "minItems": 2,
+            "type": "array"
+          },
+          "intent_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "mutation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.audit.compound-append-authorization"
+            ],
+            "type": "string"
+          },
+          "scope_signatures": {
+            "items": {
+              "$ref": "#/components/schemas/GenesisScopeSignature"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "type": "array"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "compound_intent_id",
+          "mutation_id",
+          "intent_hash",
+          "scope_signatures",
+          "effect_authorizations"
+        ],
+        "title": "CompoundAppendAuthorization",
+        "type": "object"
       },
       "InvitationResponse": {
         "allOf": [
@@ -41803,6 +42466,59 @@
           "publicData"
         ],
         "title": "ShareInitialDocumentSnapshot",
+        "type": "object"
+      },
+      "GenesisEffectAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_proof": {
+            "enum": [
+              "NONE"
+            ],
+            "type": "string"
+          },
+          "authorization_kind": {
+            "enum": [
+              "key_directory_event",
+              "key_directory_checkpoint",
+              "pq_wrap",
+              "genesis_device_bootstrap"
+            ],
+            "type": "string"
+          },
+          "requirement_order": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          },
+          "signer_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "signing_purpose": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "subject_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "surface_variant": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_order",
+          "authorization_kind",
+          "signing_purpose",
+          "surface_variant",
+          "subject_hash",
+          "signer_key_id",
+          "signature",
+          "approval_proof"
+        ],
+        "title": "GenesisEffectAuthorization",
         "type": "object"
       },
       "DocumentResponse": {
@@ -42396,6 +43112,23 @@
         "title": "ShareDocumentBootstrapRequiredResponse",
         "type": "object"
       },
+      "BootstrapRegistrationChallengeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in_seconds": {
+            "type": "integer"
+          },
+          "registration_challenge": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_challenge",
+          "expires_in_seconds"
+        ],
+        "title": "BootstrapRegistrationChallengeResponse",
+        "type": "object"
+      },
       "InitialAkeTranscriptInitiator": {
         "additionalProperties": false,
         "properties": {
@@ -42602,6 +43335,69 @@
           "device_approval_kek_initial"
         ],
         "title": "InitialAkeResponseBundle",
+        "type": "object"
+      },
+      "GenesisRecoveryAuthorizationPublicKeyMaterial": {
+        "additionalProperties": false,
+        "properties": {
+          "ed25519_public": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "mldsa65_public": {
+            "maxLength": 2603,
+            "minLength": 2603,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "owner_kind": {
+            "enum": [
+              "recovery_authorization"
+            ],
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.hybrid-signing-key-material"
+            ],
+            "type": "string"
+          },
+          "suite_id": {
+            "enum": [
+              "refmd-v2-hybrid-signature-ed25519-mldsa65"
+            ],
+            "type": "string"
+          },
+          "suite_rank": {
+            "enum": [
+              1000
+            ],
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "owner_kind",
+          "owner_id",
+          "suite_id",
+          "suite_rank",
+          "ed25519_public",
+          "mldsa65_public"
+        ],
+        "title": "GenesisRecoveryAuthorizationPublicKeyMaterial",
         "type": "object"
       },
       "WorkspaceInvitationBootstrapAad": {
@@ -43094,7 +43890,15 @@
       "RegistrationChallengeResponse": {
         "additionalProperties": false,
         "properties": {
+          "expires_at_ms": {
+            "minimum": 0,
+            "type": "integer"
+          },
           "expires_in_seconds": {
+            "type": "integer"
+          },
+          "issued_at_ms": {
+            "minimum": 0,
             "type": "integer"
           },
           "registration_challenge": {
@@ -43103,7 +43907,9 @@
         },
         "required": [
           "registration_challenge",
-          "expires_in_seconds"
+          "expires_in_seconds",
+          "issued_at_ms",
+          "expires_at_ms"
         ],
         "title": "RegistrationChallengeResponse",
         "type": "object"
@@ -43312,6 +44118,106 @@
         "title": "InitialKeyDeliveryTrustTransferRecord",
         "type": "object"
       },
+      "PqWrapPrecommit": {
+        "additionalProperties": false,
+        "properties": {
+          "event_scope": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "hpke": {
+            "additionalProperties": false,
+            "properties": {
+              "aead_id": {
+                "enum": [
+                  3
+                ],
+                "type": "integer"
+              },
+              "ciphertext": {
+                "type": "string"
+              },
+              "enc": {
+                "type": "string"
+              },
+              "kdf_id": {
+                "enum": [
+                  1
+                ],
+                "type": "integer"
+              },
+              "kem_id": {
+                "enum": [
+                  25722
+                ],
+                "type": "integer"
+              },
+              "mode": {
+                "enum": [
+                  "base"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode",
+              "kem_id",
+              "kdf_id",
+              "aead_id",
+              "enc",
+              "ciphertext"
+            ],
+            "type": "object"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.signed-pq-hybrid-wrap"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "recipient": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "resource": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "sender": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "suite_id": {
+            "type": "string"
+          },
+          "suite_rank": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "protocol_version",
+          "suite_id",
+          "suite_rank",
+          "purpose",
+          "resource",
+          "sender",
+          "recipient",
+          "event_scope",
+          "hpke"
+        ],
+        "title": "PqWrapPrecommit",
+        "type": "object"
+      },
       "UpdateShareMountRequest": {
         "additionalProperties": false,
         "properties": {
@@ -43481,6 +44387,311 @@
         "title": "OldKeyDeletionManifest",
         "type": "object"
       },
+      "GenesisWorkspaceMemberEnvelopePrecommit": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization_key_directory_checkpoint_hash": {
+            "enum": [
+              "GENESIS"
+            ],
+            "type": "string"
+          },
+          "authorization_key_directory_checkpoint_sequence": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "kek_version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.workspace-member-envelope"
+            ],
+            "type": "string"
+          },
+          "target_identity_encryption_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "target_identity_key_material_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "target_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "wrap": {
+            "additionalProperties": false,
+            "properties": {
+              "event_scope": {
+                "additionalProperties": false,
+                "properties": {
+                  "scope_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "scope_kind": {
+                    "enum": [
+                      "workspace"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scope_kind",
+                  "scope_id"
+                ],
+                "type": "object"
+              },
+              "hpke": {
+                "additionalProperties": false,
+                "properties": {
+                  "aead_id": {
+                    "enum": [
+                      3
+                    ],
+                    "type": "integer"
+                  },
+                  "ciphertext": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "enc": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kdf_id": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  "kem_id": {
+                    "enum": [
+                      25722
+                    ],
+                    "type": "integer"
+                  },
+                  "mode": {
+                    "enum": [
+                      "base"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode",
+                  "kem_id",
+                  "kdf_id",
+                  "aead_id",
+                  "enc",
+                  "ciphertext"
+                ],
+                "type": "object"
+              },
+              "protocol": {
+                "enum": [
+                  "refmd.signed-pq-hybrid-wrap"
+                ],
+                "type": "string"
+              },
+              "protocol_version": {
+                "enum": [
+                  1
+                ],
+                "type": "integer"
+              },
+              "purpose": {
+                "enum": [
+                  "workspace_member_kek_wrap"
+                ],
+                "type": "string"
+              },
+              "recipient": {
+                "additionalProperties": false,
+                "properties": {
+                  "encryption_key_id": {
+                    "$ref": "#/components/schemas/Blake3Base64Url"
+                  },
+                  "key_checkpoint_hash": {
+                    "enum": [
+                      "GENESIS"
+                    ],
+                    "type": "string"
+                  },
+                  "key_checkpoint_sequence": {
+                    "enum": [
+                      0
+                    ],
+                    "type": "integer"
+                  },
+                  "key_scope_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "key_scope_kind": {
+                    "enum": [
+                      "workspace"
+                    ],
+                    "type": "string"
+                  },
+                  "recipient_kind": {
+                    "enum": [
+                      "user_identity"
+                    ],
+                    "type": "string"
+                  },
+                  "user_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "recipient_kind",
+                  "user_id",
+                  "encryption_key_id",
+                  "key_scope_kind",
+                  "key_scope_id",
+                  "key_checkpoint_sequence",
+                  "key_checkpoint_hash"
+                ],
+                "type": "object"
+              },
+              "resource": {
+                "additionalProperties": false,
+                "properties": {
+                  "kek_version": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  "target_user_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "workspace_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "workspace_id",
+                  "target_user_id",
+                  "kek_version"
+                ],
+                "type": "object"
+              },
+              "sender": {
+                "additionalProperties": false,
+                "properties": {
+                  "device_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "key_checkpoint_hash": {
+                    "enum": [
+                      "GENESIS"
+                    ],
+                    "type": "string"
+                  },
+                  "key_checkpoint_sequence": {
+                    "enum": [
+                      0
+                    ],
+                    "type": "integer"
+                  },
+                  "key_scope_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "key_scope_kind": {
+                    "enum": [
+                      "workspace"
+                    ],
+                    "type": "string"
+                  },
+                  "signer_kind": {
+                    "enum": [
+                      "device"
+                    ],
+                    "type": "string"
+                  },
+                  "signing_key_id": {
+                    "$ref": "#/components/schemas/Blake3Base64Url"
+                  },
+                  "user_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "signer_kind",
+                  "user_id",
+                  "device_id",
+                  "signing_key_id",
+                  "key_scope_kind",
+                  "key_scope_id",
+                  "key_checkpoint_sequence",
+                  "key_checkpoint_hash"
+                ],
+                "type": "object"
+              },
+              "suite_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "suite_rank": {
+                "enum": [
+                  1000
+                ],
+                "type": "integer"
+              }
+            },
+            "required": [
+              "protocol",
+              "protocol_version",
+              "suite_id",
+              "suite_rank",
+              "purpose",
+              "resource",
+              "sender",
+              "recipient",
+              "event_scope",
+              "hpke"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "protocol",
+          "version",
+          "workspace_id",
+          "target_user_id",
+          "kek_version",
+          "target_identity_encryption_key_id",
+          "target_identity_key_material_hash",
+          "authorization_key_directory_checkpoint_sequence",
+          "authorization_key_directory_checkpoint_hash",
+          "wrap"
+        ],
+        "title": "GenesisWorkspaceMemberEnvelopePrecommit",
+        "type": "object"
+      },
       "DeviceHybridSigningPublicKeyMaterial": {
         "additionalProperties": false,
         "properties": {
@@ -43544,6 +44755,20 @@
         "title": "DeviceHybridSigningPublicKeyMaterial",
         "type": "object"
       },
+      "MemberRoleIntentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "role_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id"
+        ],
+        "title": "MemberRoleIntentRequest",
+        "type": "object"
+      },
       "UmkDistributionDeliveryCommitment": {
         "additionalProperties": false,
         "properties": {
@@ -43585,34 +44810,6 @@
           "key_checkpoint_hash"
         ],
         "title": "UmkDistributionDeliveryCommitment",
-        "type": "object"
-      },
-      "OAuthCryptoSetupResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "session_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "user": {
-            "$ref": "#/components/schemas/UserInfo"
-          },
-          "workspace_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "workspace_owner_role_id": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user",
-          "workspace_id",
-          "workspace_owner_role_id",
-          "session_id"
-        ],
-        "title": "OAuthCryptoSetupResponse",
         "type": "object"
       },
       "DocumentKeyResponse": {
@@ -43907,23 +45104,23 @@
           }
         },
         "required": [
-          "signing_key_id",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
+          "signing_key_id",
           "key_version",
-          "sender_device_id",
           "resource_hash",
+          "context_hash",
+          "sender_device_id",
           "suite_rank",
           "suite_id",
+          "key_checkpoint_hash",
           "initiator_commitment_hash",
-          "context_hash",
           "delivery_id",
+          "recipient_encryption_key_id",
+          "payload_kind",
+          "key_kind",
           "ake_transcript_hash",
           "recipient_challenge_hash",
-          "key_confirmation_hash",
-          "payload_kind",
-          "key_kind"
+          "key_confirmation_hash"
         ],
         "title": "InitialKeyDeliveryMetadata",
         "type": "object"
@@ -44037,6 +45234,10 @@
           "identity_hybrid_signing_private_key_material_nonce": {
             "$ref": "#/components/schemas/EncryptedMaterialNonce"
           },
+          "identity_key_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "identity_rotation_due_at": {
             "format": "date-time",
             "nullable": true,
@@ -44055,6 +45256,7 @@
         "required": [
           "recovery_encrypted_umk",
           "recovery_nonce",
+          "identity_key_epoch",
           "identity_rotation_due_at",
           "candidate_user_rotation_deletion_evidences"
         ],
@@ -44360,9 +45562,6 @@
       "InvitationDeliveryTargetRegistrationProof": {
         "additionalProperties": false,
         "properties": {
-          "approval_signature": {
-            "$ref": "#/components/schemas/HybridSignature"
-          },
           "client_nonce": {
             "type": "string"
           },
@@ -44371,15 +45570,10 @@
           },
           "device_type": {
             "type": "string"
-          },
-          "pending_registration_challenge_hash": {
-            "$ref": "#/components/schemas/Blake3Base64Url"
           }
         },
         "required": [
-          "approval_signature",
           "client_nonce",
-          "pending_registration_challenge_hash",
           "device_name",
           "device_type"
         ],
@@ -44594,6 +45788,21 @@
           "current_kek_version": {
             "type": "integer"
           },
+          "kek_rotation_initiator_user_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "pending_kek_version": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "rotation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
           "workspace_id": {
             "format": "uuid",
             "type": "string"
@@ -44601,7 +45810,10 @@
         },
         "required": [
           "workspace_id",
-          "current_kek_version"
+          "current_kek_version",
+          "kek_rotation_initiator_user_id",
+          "rotation_id",
+          "pending_kek_version"
         ],
         "title": "WorkspaceRotationInfo",
         "type": "object"
@@ -45375,6 +46587,30 @@
         "title": "CreateWorkspaceKeyRequest",
         "type": "object"
       },
+      "SignedAuditCheckpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_hash": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/AuditCheckpointPayload"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          }
+        },
+        "required": [
+          "payload",
+          "signature",
+          "checkpoint_hash"
+        ],
+        "title": "SignedAuditCheckpoint",
+        "type": "object"
+      },
       "SaveMemberEnvelopesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -45710,13 +46946,13 @@
             "$ref": "#/components/schemas/HybridEncryptionPublicKeyMaterial"
           },
           "device_hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/HybridSigningPublicKeyMaterial"
+            "$ref": "#/components/schemas/DeviceHybridSigningPublicKeyMaterial"
           },
           "identity_hybrid_encryption_public_key_material": {
             "$ref": "#/components/schemas/HybridEncryptionPublicKeyMaterial"
           },
           "identity_hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/HybridSigningPublicKeyMaterial"
+            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
           }
         },
         "required": [
@@ -46087,6 +47323,9 @@
           "ake_session_id": {
             "type": "string"
           },
+          "audit_checkpoint_pin_set_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
           "delivery_id": {
             "type": "string"
           },
@@ -46111,6 +47350,9 @@
           "sender_device_id": {
             "type": "string"
           },
+          "transfer_scope_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
           "variant": {
             "enum": [
               "trust_transfer"
@@ -46127,7 +47369,9 @@
           "sender_device_id",
           "delivery_record_hash",
           "key_checkpoint_hash",
-          "document_rollback_pin_set_hash"
+          "document_rollback_pin_set_hash",
+          "transfer_scope_hash",
+          "audit_checkpoint_pin_set_hash"
         ],
         "title": "TrustTransferDeliveryCommitment",
         "type": "object"
@@ -46234,15 +47478,84 @@
         "title": "AuthoritativeDeviceLiveFreshnessProof",
         "type": "object"
       },
+      "DeviceRevocationEffectAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_proof": {
+            "enum": [
+              "NONE"
+            ],
+            "type": "string"
+          },
+          "authorization_kind": {
+            "enum": [
+              "key_directory_event",
+              "key_directory_checkpoint",
+              "device_revocation",
+              "pq_wrap"
+            ],
+            "type": "string"
+          },
+          "requirement_order": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          },
+          "signer_key_id": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "signing_purpose": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "subject_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "surface_variant": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_order",
+          "authorization_kind",
+          "signing_purpose",
+          "surface_variant",
+          "subject_hash",
+          "signer_key_id",
+          "signature",
+          "approval_proof"
+        ],
+        "title": "DeviceRevocationEffectAuthorization",
+        "type": "object"
+      },
       "RevokeDeviceResponse": {
         "additionalProperties": false,
         "properties": {
           "revocation_mode": {
+            "enum": [
+              "security",
+              "retire"
+            ],
             "type": "string"
           },
           "revoked_device_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "status": {
+            "enum": [
+              "committed"
+            ],
+            "type": "string"
+          },
+          "user_audit_checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "user_key_directory_checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
           },
           "workspaces_needing_kek_rotation": {
             "items": {
@@ -46252,8 +47565,11 @@
           }
         },
         "required": [
+          "status",
           "revoked_device_id",
           "revocation_mode",
+          "user_key_directory_checkpoint_hash",
+          "user_audit_checkpoint_hash",
           "workspaces_needing_kek_rotation"
         ],
         "title": "RevokeDeviceResponse",
@@ -46684,79 +48000,53 @@
       "BootstrapDeviceRequest": {
         "additionalProperties": false,
         "properties": {
-          "client_nonce": {
-            "type": "string"
-          },
-          "device_encryption_key_id": {
-            "type": "string"
-          },
-          "device_hybrid_encryption_public_key_material": {
-            "$ref": "#/components/schemas/DeviceHybridEncryptionPublicKeyMaterial"
-          },
-          "device_hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/DeviceHybridSigningPublicKeyMaterial"
-          },
-          "device_id": {
+          "compound_intent_id": {
             "format": "uuid",
             "type": "string"
           },
-          "device_signing_key_id": {
-            "$ref": "#/components/schemas/Blake3Base64Url"
-          },
-          "device_type": {
-            "type": "string"
-          },
-          "identity_hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
-          },
-          "identity_signature": {
-            "$ref": "#/components/schemas/HybridSignature"
-          },
-          "identity_signing_key_id": {
-            "$ref": "#/components/schemas/Blake3Base64Url"
-          },
-          "name": {
-            "type": "string"
-          },
-          "registration_challenge": {
-            "type": "string"
-          },
-          "user_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-          },
-          "user_key_directory_events": {
+          "effect_authorizations": {
             "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+              "$ref": "#/components/schemas/GenesisEffectAuthorization"
             },
+            "minItems": 1,
             "type": "array"
           },
-          "workspace_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+          "intent_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
           },
-          "workspace_key_directory_events": {
+          "mutation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "refmd.audit.compound-append-authorization"
+            ],
+            "type": "string"
+          },
+          "scope_signatures": {
             "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
+              "$ref": "#/components/schemas/GenesisScopeSignature"
             },
+            "maxItems": 2,
+            "minItems": 2,
             "type": "array"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
           }
         },
         "required": [
-          "name",
-          "device_id",
-          "device_type",
-          "identity_signing_key_id",
-          "identity_hybrid_signing_public_key_material",
-          "device_hybrid_signing_public_key_material",
-          "device_signing_key_id",
-          "device_hybrid_encryption_public_key_material",
-          "device_encryption_key_id",
-          "client_nonce",
-          "registration_challenge",
-          "identity_signature",
-          "user_key_directory_events",
-          "user_key_directory_checkpoint",
-          "workspace_key_directory_events",
-          "workspace_key_directory_checkpoint"
+          "protocol",
+          "version",
+          "compound_intent_id",
+          "mutation_id",
+          "intent_hash",
+          "scope_signatures",
+          "effect_authorizations"
         ],
         "title": "BootstrapDeviceRequest",
         "type": "object"
@@ -46828,26 +48118,6 @@
           "created_at"
         ],
         "title": "MemberDeviceInfo",
-        "type": "object"
-      },
-      "RemoveMemberRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "workspace_key_directory_checkpoint": {
-            "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-          },
-          "workspace_key_directory_events": {
-            "items": {
-              "$ref": "#/components/schemas/KeyDirectoryEnvelope"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "workspace_key_directory_events",
-          "workspace_key_directory_checkpoint"
-        ],
-        "title": "RemoveMemberRequest",
         "type": "object"
       },
       "ShareMountFolderResponse": {
@@ -46939,6 +48209,46 @@
         "title": "MembersListResponse",
         "type": "object"
       },
+      "GenesisScopeSignature": {
+        "additionalProperties": false,
+        "properties": {
+          "chain_scope_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "chain_scope_kind": {
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "type": "string"
+          },
+          "checkpoint_hash": {
+            "$ref": "#/components/schemas/Blake3Base64Url"
+          },
+          "checkpoint_variant": {
+            "enum": [
+              "user_identity",
+              "user_device",
+              "workspace_device",
+              "workspace_guest_device"
+            ],
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/HybridSignature"
+          }
+        },
+        "required": [
+          "chain_scope_kind",
+          "chain_scope_id",
+          "checkpoint_hash",
+          "checkpoint_variant",
+          "signature"
+        ],
+        "title": "GenesisScopeSignature",
+        "type": "object"
+      },
       "CreateShareRequest": {
         "oneOf": [
           {
@@ -47005,6 +48315,11 @@
             "format": "email",
             "nullable": true,
             "type": "string"
+          },
+          "kek_version": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           },
           "key_version_context": {
             "$ref": "#/components/schemas/GuestInvitationKeyVersionContext"
@@ -47077,6 +48392,7 @@
           "delivery_mode",
           "recipient_device_ids",
           "invited_by",
+          "kek_version",
           "bootstrap_key_commitment",
           "encrypted_bootstrap_package",
           "bootstrap_package_hash",
@@ -47246,83 +48562,75 @@
       "RegisterRequest": {
         "additionalProperties": false,
         "properties": {
-          "auth_key": {
+          "auth_key_b64u": {
+            "type": "string"
+          },
+          "display_name": {
             "type": "string"
           },
           "email": {
             "format": "email",
             "type": "string"
           },
-          "encrypted_identity_hybrid_encryption_private_key_material": {
-            "$ref": "#/components/schemas/EncryptedIdentityHybridPrivateKeyMaterial"
-          },
-          "encrypted_identity_hybrid_signing_private_key_material": {
-            "$ref": "#/components/schemas/EncryptedIdentityHybridPrivateKeyMaterial"
-          },
-          "encrypted_umk": {
-            "type": "string"
-          },
-          "hybrid_encryption_public_key_material": {
-            "$ref": "#/components/schemas/IdentityHybridEncryptionPublicKeyMaterial"
-          },
-          "hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
-          },
-          "identity_hybrid_encryption_private_key_material_nonce": {
-            "$ref": "#/components/schemas/EncryptedMaterialNonce"
-          },
-          "identity_hybrid_signing_private_key_material_nonce": {
-            "$ref": "#/components/schemas/EncryptedMaterialNonce"
-          },
           "kdf_params": {
-            "$ref": "#/components/schemas/KdfParams"
+            "additionalProperties": false,
+            "properties": {
+              "iterations": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "memory_kib": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "parallelism": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "memory_kib",
+              "iterations",
+              "parallelism"
+            ],
+            "type": "object"
           },
-          "name": {
+          "kdf_type": {
+            "enum": [
+              "argon2id"
+            ],
             "type": "string"
           },
-          "recovery_authorization_key_id": {
+          "protocol": {
+            "enum": [
+              "refmd.password-account-registration"
+            ],
             "type": "string"
           },
-          "recovery_authorization_public_material": {
-            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
-          },
-          "recovery_encrypted_umk": {
-            "type": "string"
-          },
-          "recovery_nonce": {
-            "type": "string"
-          },
-          "salt": {
-            "type": "string"
-          },
-          "umk_nonce": {
-            "type": "string"
-          },
-          "user_id": {
-            "description": "Client-generated UUID for AAD binding",
+          "reserved_user_id": {
             "format": "uuid",
             "type": "string"
+          },
+          "salt_b64u": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
           }
         },
         "required": [
-          "user_id",
+          "protocol",
+          "version",
+          "reserved_user_id",
           "email",
-          "name",
-          "auth_key",
-          "salt",
-          "encrypted_umk",
-          "umk_nonce",
-          "kdf_params",
-          "recovery_encrypted_umk",
-          "recovery_nonce",
-          "recovery_authorization_public_material",
-          "recovery_authorization_key_id",
-          "hybrid_encryption_public_key_material",
-          "hybrid_signing_public_key_material",
-          "encrypted_identity_hybrid_encryption_private_key_material",
-          "identity_hybrid_encryption_private_key_material_nonce",
-          "encrypted_identity_hybrid_signing_private_key_material",
-          "identity_hybrid_signing_private_key_material_nonce"
+          "display_name",
+          "auth_key_b64u",
+          "salt_b64u",
+          "kdf_type",
+          "kdf_params"
         ],
         "title": "RegisterRequest",
         "type": "object"
@@ -47354,55 +48662,6 @@
           "allowed_suite_ids_hash"
         ],
         "title": "InitialAkeUmkDirectory",
-        "type": "object"
-      },
-      "OAuthCryptoSetupRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "encrypted_identity_hybrid_encryption_private_key_material": {
-            "$ref": "#/components/schemas/EncryptedIdentityHybridPrivateKeyMaterial"
-          },
-          "encrypted_identity_hybrid_signing_private_key_material": {
-            "$ref": "#/components/schemas/EncryptedIdentityHybridPrivateKeyMaterial"
-          },
-          "hybrid_encryption_public_key_material": {
-            "$ref": "#/components/schemas/IdentityHybridEncryptionPublicKeyMaterial"
-          },
-          "hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
-          },
-          "identity_hybrid_encryption_private_key_material_nonce": {
-            "$ref": "#/components/schemas/EncryptedMaterialNonce"
-          },
-          "identity_hybrid_signing_private_key_material_nonce": {
-            "$ref": "#/components/schemas/EncryptedMaterialNonce"
-          },
-          "recovery_authorization_key_id": {
-            "type": "string"
-          },
-          "recovery_authorization_public_material": {
-            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
-          },
-          "recovery_encrypted_umk": {
-            "type": "string"
-          },
-          "recovery_nonce": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "recovery_encrypted_umk",
-          "recovery_nonce",
-          "recovery_authorization_public_material",
-          "recovery_authorization_key_id",
-          "hybrid_encryption_public_key_material",
-          "hybrid_signing_public_key_material",
-          "encrypted_identity_hybrid_encryption_private_key_material",
-          "identity_hybrid_encryption_private_key_material_nonce",
-          "encrypted_identity_hybrid_signing_private_key_material",
-          "identity_hybrid_signing_private_key_material_nonce"
-        ],
-        "title": "OAuthCryptoSetupRequest",
         "type": "object"
       },
       "IdentityRotationDeletionEvidence": {
@@ -47578,25 +48837,16 @@
             "$ref": "#/components/schemas/HybridEncryptionPublicKeyMaterial"
           },
           "device_hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/HybridSigningPublicKeyMaterial"
-          },
-          "encrypted_identity_hybrid_encryption_private_key_material": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
-          },
-          "encrypted_identity_hybrid_signing_private_key_material": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
-          },
-          "identity_hybrid_encryption_private_key_material_nonce": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
+            "$ref": "#/components/schemas/DeviceHybridSigningPublicKeyMaterial"
           },
           "identity_hybrid_encryption_public_key_material": {
             "$ref": "#/components/schemas/HybridEncryptionPublicKeyMaterial"
           },
-          "identity_hybrid_signing_private_key_material_nonce": {
-            "$ref": "#/components/schemas/Base64UrlBytes"
-          },
           "identity_hybrid_signing_public_key_material": {
-            "$ref": "#/components/schemas/HybridSigningPublicKeyMaterial"
+            "$ref": "#/components/schemas/IdentityHybridSigningPublicKeyMaterial"
+          },
+          "recoverable_identity_secret_record": {
+            "$ref": "#/components/schemas/RecoverableIdentitySecretRecord"
           },
           "user_key_directory_checkpoint": {
             "$ref": "#/components/schemas/KeyDirectoryEnvelope"
@@ -47614,10 +48864,7 @@
           "identity_hybrid_signing_public_key_material",
           "device_hybrid_encryption_public_key_material",
           "device_hybrid_signing_public_key_material",
-          "encrypted_identity_hybrid_encryption_private_key_material",
-          "identity_hybrid_encryption_private_key_material_nonce",
-          "encrypted_identity_hybrid_signing_private_key_material",
-          "identity_hybrid_signing_private_key_material_nonce",
+          "recoverable_identity_secret_record",
           "user_key_directory_events",
           "user_key_directory_checkpoint"
         ],
@@ -48089,6 +49336,9 @@
           "ake_transcript_hash": {
             "type": "string"
           },
+          "audit_checkpoint_pin_set_hash": {
+            "type": "string"
+          },
           "context_hash": {
             "type": "string"
           },
@@ -48148,27 +49398,32 @@
               1000
             ],
             "type": "integer"
+          },
+          "transfer_scope_hash": {
+            "type": "string"
           }
         },
         "required": [
-          "signing_key_id",
-          "key_checkpoint_hash",
           "recipient_device_id",
-          "recipient_encryption_key_id",
+          "signing_key_id",
           "key_version",
-          "sender_device_id",
           "resource_hash",
+          "context_hash",
+          "sender_device_id",
           "suite_rank",
           "suite_id",
+          "key_checkpoint_hash",
           "initiator_commitment_hash",
-          "context_hash",
           "delivery_id",
+          "recipient_encryption_key_id",
+          "payload_kind",
+          "key_kind",
           "ake_transcript_hash",
           "recipient_challenge_hash",
           "key_confirmation_hash",
-          "payload_kind",
-          "key_kind",
-          "document_rollback_pin_set_hash"
+          "document_rollback_pin_set_hash",
+          "transfer_scope_hash",
+          "audit_checkpoint_pin_set_hash"
         ],
         "title": "InitialKeyDeliveryTrustTransferMetadata",
         "type": "object"
@@ -48247,6 +49502,12 @@
       }
     },
     "securitySchemes": {
+      "genesis_session": {
+        "description": "Pending account genesis session cookie.",
+        "in": "cookie",
+        "name": "__Host-refmd-genesis",
+        "type": "apiKey"
+      },
       "mount_session": {
         "description": "Mount password session cookie.",
         "in": "cookie",
@@ -48370,6 +49631,101 @@
         },
         "security": [],
         "summary": "Start OAuth authorization code flow",
+        "tags": []
+      }
+    },
+    "/api/workspaces/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceGenesisCommand"
+              }
+            }
+          },
+          "description": "Workspace genesis command",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Compound append intent"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a workspace genesis compound append intent",
         "tags": []
       }
     },
@@ -49107,6 +50463,139 @@
         "tags": []
       }
     },
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_encryption_workspaces_by_workspace_id_kek_rotation_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KekRotationStartIntentRequest"
+              }
+            }
+          },
+          "description": "Start params",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompoundAppendIntent"
+                }
+              }
+            },
+            "description": "Compound intent"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not authorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Workspace not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rotation already in progress"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid key directory"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a compound KEK rotation start",
+        "tags": []
+      }
+    },
     "/api/auth/login": {
       "post": {
         "callbacks": {},
@@ -49390,6 +50879,16 @@
               }
             },
             "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Security audit unavailable"
           }
         },
         "security": [
@@ -49448,6 +50947,118 @@
           }
         ],
         "summary": "Get current device key restore payload",
+        "tags": []
+      }
+    },
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/complete/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_complete_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "rotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KekRotationCompletionIntentRequest"
+              }
+            }
+          },
+          "description": "Completion pre-commit material",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompoundAppendIntent"
+                }
+              }
+            },
+            "description": "Compound intent"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid completion"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a compound KEK rotation completion",
         "tags": []
       }
     },
@@ -50440,6 +52051,79 @@
         "tags": []
       }
     },
+    "/api/security/audit-checkpoints": {
+      "get": {
+        "callbacks": {},
+        "operationId": "get_api_security_audit_checkpoints",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecurityAuditCheckpointsResponse"
+                }
+              }
+            },
+            "description": "Signed audit checkpoint proofs"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Get signed audit checkpoint proofs for the current user scopes",
+        "tags": []
+      }
+    },
     "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
       "post": {
         "callbacks": {},
@@ -50501,11 +52185,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/KekRotationStartRequest"
+                "$ref": "#/components/schemas/CompoundAppendAuthorization"
               }
             }
           },
-          "description": "Start params",
+          "description": "Compound authorization",
           "required": true
         },
         "responses": {
@@ -50513,11 +52197,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KekRotationStartResponse"
+                  "$ref": "#/components/schemas/WorkspaceAuthorityMutationResponse"
                 }
               }
             },
-            "description": "Rotation started"
+            "description": "Committed mutation"
           },
           "403": {
             "content": {
@@ -50529,26 +52213,6 @@
             },
             "description": "Not authorized"
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Workspace not found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Rotation already in progress"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -50557,7 +52221,7 @@
                 }
               }
             },
-            "description": "Invalid key directory"
+            "description": "Invalid mutation"
           }
         },
         "security": [
@@ -50569,7 +52233,7 @@
             "user_session": []
           }
         ],
-        "summary": "Start KEK rotation for a workspace (manual trigger)",
+        "summary": "Commit a compound KEK rotation start",
         "tags": []
       }
     },
@@ -51992,6 +53656,120 @@
         "tags": []
       }
     },
+    "/api/devices/{device_id}/revocation/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_devices_by_device_id_revocation_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRevocationCommand"
+              }
+            }
+          },
+          "description": "Device revocation command",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Compound append intent"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Retire blocked"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a device revocation compound append intent",
+        "tags": []
+      }
+    },
     "/api/shares/d/{document_token}/bootstrap": {
       "post": {
         "callbacks": {},
@@ -52305,73 +54083,6 @@
           }
         ],
         "summary": "Promote an approved plugin bundle candidate",
-        "tags": []
-      }
-    },
-    "/api/auth/oauth/crypto-setup": {
-      "post": {
-        "callbacks": {},
-        "operationId": "post_api_auth_oauth_crypto_setup",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OAuthCryptoSetupRequest"
-              }
-            }
-          },
-          "description": "OAuth crypto setup params",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OAuthCryptoSetupResponse"
-                }
-              }
-            },
-            "description": "OAuth crypto setup response"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "OAuth crypto setup forbidden"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "OAuth crypto setup conflict"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Validation error"
-          }
-        },
-        "security": [
-          {
-            "user_session": []
-          }
-        ],
-        "summary": "Initialize OAuth account encryption material",
         "tags": []
       }
     },
@@ -53512,6 +55223,118 @@
           }
         ],
         "summary": "Create a document or folder",
+        "tags": []
+      }
+    },
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/old-key-deletion/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_old_key_deletion_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "rotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KekOldKeyDeletionIntentRequest"
+              }
+            }
+          },
+          "description": "Deletion proofs",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompoundAppendIntent"
+                }
+              }
+            },
+            "description": "Compound intent"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid deletion"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a compound old KEK deletion",
         "tags": []
       }
     },
@@ -56185,7 +58008,7 @@
                 }
               }
             },
-            "description": "Already has devices"
+            "description": "Genesis state conflict"
           },
           "422": {
             "content": {
@@ -56196,14 +58019,24 @@
               }
             },
             "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Security audit unavailable"
           }
         },
         "security": [
           {
-            "user_session": []
+            "genesis_session": []
           }
         ],
-        "summary": "Bootstrap first device (first device only)",
+        "summary": "Commit the account genesis compound authorization",
         "tags": []
       }
     },
@@ -56550,7 +58383,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegistrationChallengeResponse"
+                  "$ref": "#/components/schemas/BootstrapRegistrationChallengeResponse"
                 }
               }
             },
@@ -56579,7 +58412,7 @@
         },
         "security": [
           {
-            "user_session": []
+            "genesis_session": []
           }
         ],
         "summary": "Issue first-device bootstrap registration challenge",
@@ -57710,6 +59543,186 @@
           }
         ],
         "summary": "Resolve a workspace invitation recipient",
+        "tags": []
+      }
+    },
+    "/api/devices/bootstrap/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_devices_bootstrap_intent",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountGenesisPrepareRequest"
+              }
+            }
+          },
+          "description": "Account genesis prepare request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Compound append intent"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Genesis state conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "genesis_session": []
+          }
+        ],
+        "summary": "Prepare the account genesis compound append intent",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/members/{user_id}/removal/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_members_by_user_id_removal_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRemovalIntentRequest"
+              }
+            }
+          },
+          "description": "Removal mutation",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompoundAppendIntent"
+                }
+              }
+            },
+            "description": "Compound intent"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid mutation"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a compound member removal",
         "tags": []
       }
     },
@@ -60431,11 +62444,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+                "$ref": "#/components/schemas/WorkspaceGenesisAuthorization"
               }
             }
           },
-          "description": "Workspace params",
+          "description": "Compound authorization",
           "required": true
         },
         "responses": {
@@ -60443,11 +62456,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
+                  "$ref": "#/components/schemas/WorkspaceGenesisResponse"
                 }
               }
             },
-            "description": "Created workspace"
+            "description": "Committed workspace genesis"
           },
           "422": {
             "content": {
@@ -60689,129 +62702,6 @@
           }
         ],
         "summary": "Create a share for a document",
-        "tags": []
-      }
-    },
-    "/api/workspaces/{workspace_id}/key-directory/append": {
-      "post": {
-        "callbacks": {},
-        "operationId": "post_api_workspaces_by_workspace_id_key_directory_append",
-        "parameters": [
-          {
-            "description": "RRP signing device id.",
-            "in": "header",
-            "name": "x-refmd-rrp-device-id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Strict base64url RRP challenge.",
-            "in": "header",
-            "name": "x-refmd-rrp-challenge",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Base64url encoded canonical RRP signature transport.",
-            "in": "header",
-            "name": "x-refmd-rrp-signature-transport",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
-            }
-          },
-          {
-            "description": "RRP actor variant.",
-            "in": "header",
-            "name": "x-refmd-rrp-actor-variant",
-            "required": true,
-            "schema": {
-              "enum": [
-                "user_device"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeyDirectoryAppendRequest"
-              }
-            }
-          },
-          "description": "Key-directory append",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OkResponse"
-                }
-              }
-            },
-            "description": "Appended"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid key directory"
-          }
-        },
-        "security": [
-          {
-            "rrp_actor_variant": [],
-            "rrp_challenge": [],
-            "rrp_device": [],
-            "rrp_signature": [],
-            "user_session": []
-          }
-        ],
-        "summary": "Append workspace device or identity key admission events",
         "tags": []
       }
     },
@@ -61297,11 +63187,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RemoveMemberRequest"
+                "$ref": "#/components/schemas/CompoundAppendAuthorization"
               }
             }
           },
-          "description": "Remove member params",
+          "description": "Compound authorization",
           "required": true
         },
         "responses": {
@@ -61309,11 +63199,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RemoveMemberResponse"
+                  "$ref": "#/components/schemas/WorkspaceAuthorityMutationResponse"
                 }
               }
             },
-            "description": "Removed"
+            "description": "Committed mutation"
           },
           "403": {
             "content": {
@@ -61417,11 +63307,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ChangeMemberRoleRequest"
+                "$ref": "#/components/schemas/CompoundAppendAuthorization"
               }
             }
           },
-          "description": "Role change",
+          "description": "Compound authorization",
           "required": true
         },
         "responses": {
@@ -61429,11 +63319,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChangeMemberRoleResponse"
+                  "$ref": "#/components/schemas/WorkspaceAuthorityMutationResponse"
                 }
               }
             },
-            "description": "Updated member"
+            "description": "Committed mutation"
           },
           "403": {
             "content": {
@@ -62462,6 +64352,128 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/members/{user_id}/role/intent": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_workspaces_by_workspace_id_members_by_user_id_role_intent",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRoleIntentRequest"
+              }
+            }
+          },
+          "description": "Role mutation",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompoundAppendIntent"
+                }
+              }
+            },
+            "description": "Compound intent"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid mutation"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Prepare a compound member role mutation",
+        "tags": []
+      }
+    },
     "/api/auth/dbsc/mount/register": {
       "post": {
         "callbacks": {},
@@ -62755,6 +64767,118 @@
         "tags": []
       }
     },
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/old-key-deletion": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_old_key_deletion",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "rotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompoundAppendAuthorization"
+              }
+            }
+          },
+          "description": "Compound authorization",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceAuthorityMutationResponse"
+                }
+              }
+            },
+            "description": "Committed mutation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid deletion"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Commit a compound old KEK deletion",
+        "tags": []
+      }
+    },
     "/api/devices/{device_id}": {
       "delete": {
         "callbacks": {},
@@ -62816,11 +64940,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RevokeDeviceRequest"
+                "$ref": "#/components/schemas/DeviceRevocationAuthorization"
               }
             }
           },
-          "description": "Revocation params",
+          "description": "Device revocation authorization",
           "required": true
         },
         "responses": {
@@ -62834,7 +64958,7 @@
             },
             "description": "Revocation result"
           },
-          "400": {
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -62842,37 +64966,7 @@
                 }
               }
             },
-            "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Retire blocked"
+            "description": "Revocation failed"
           }
         },
         "security": [
@@ -62884,7 +64978,7 @@
             "user_session": []
           }
         ],
-        "summary": "Revoke a device",
+        "summary": "Commit an exact device revocation compound authorization",
         "tags": []
       },
       "patch": {
@@ -63381,230 +65475,6 @@
         "tags": []
       }
     },
-    "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
-      "post": {
-        "callbacks": {},
-        "operationId": "post_api_encryption_workspaces_by_workspace_id_kek_rotation_complete",
-        "parameters": [
-          {
-            "description": "RRP signing device id.",
-            "in": "header",
-            "name": "x-refmd-rrp-device-id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Strict base64url RRP challenge.",
-            "in": "header",
-            "name": "x-refmd-rrp-challenge",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Base64url encoded canonical RRP signature transport.",
-            "in": "header",
-            "name": "x-refmd-rrp-signature-transport",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
-            }
-          },
-          {
-            "description": "RRP actor variant.",
-            "in": "header",
-            "name": "x-refmd-rrp-actor-variant",
-            "required": true,
-            "schema": {
-              "enum": [
-                "user_device"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KekRotationCompleteRequest"
-              }
-            }
-          },
-          "description": "Completion params",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OkResponse"
-                }
-              }
-            },
-            "description": "Rotation completed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not authorized"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Preconditions not met"
-          }
-        },
-        "security": [
-          {
-            "rrp_actor_variant": [],
-            "rrp_challenge": [],
-            "rrp_device": [],
-            "rrp_signature": [],
-            "user_session": []
-          }
-        ],
-        "summary": "Complete KEK rotation for a workspace",
-        "tags": []
-      }
-    },
-    "/api/encryption/workspaces/{workspace_id}/kek-rotation/completion-manifest": {
-      "get": {
-        "callbacks": {},
-        "operationId": "get_api_encryption_workspaces_by_workspace_id_kek_rotation_completion_manifest",
-        "parameters": [
-          {
-            "description": "RRP signing device id.",
-            "in": "header",
-            "name": "x-refmd-rrp-device-id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Strict base64url RRP challenge.",
-            "in": "header",
-            "name": "x-refmd-rrp-challenge",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Base64url encoded canonical RRP signature transport.",
-            "in": "header",
-            "name": "x-refmd-rrp-signature-transport",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
-            }
-          },
-          {
-            "description": "RRP actor variant.",
-            "in": "header",
-            "name": "x-refmd-rrp-actor-variant",
-            "required": true,
-            "schema": {
-              "enum": [
-                "user_device"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "",
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "new_kek_version",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/KekRotationCompletionManifestResponse"
-                }
-              }
-            },
-            "description": "Completion manifest hashes"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not authorized"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Preconditions not met"
-          }
-        },
-        "security": [
-          {
-            "rrp_actor_variant": [],
-            "rrp_challenge": [],
-            "rrp_device": [],
-            "rrp_signature": [],
-            "user_session": []
-          }
-        ],
-        "summary": "Prepare KEK rotation completion manifest hashes",
-        "tags": []
-      }
-    },
     "/api/plugin-candidates": {
       "post": {
         "callbacks": {},
@@ -63797,6 +65667,118 @@
           }
         ],
         "summary": "Get share-key targets required before DEK rotation",
+        "tags": []
+      }
+    },
+    "/api/encryption/workspaces/{workspace_id}/rotations/{rotation_id}/complete": {
+      "post": {
+        "callbacks": {},
+        "operationId": "post_api_encryption_workspaces_by_workspace_id_rotations_by_rotation_id_complete",
+        "parameters": [
+          {
+            "description": "RRP signing device id.",
+            "in": "header",
+            "name": "x-refmd-rrp-device-id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Strict base64url RRP challenge.",
+            "in": "header",
+            "name": "x-refmd-rrp-challenge",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64url encoded canonical RRP signature transport.",
+            "in": "header",
+            "name": "x-refmd-rrp-signature-transport",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "RRP actor variant.",
+            "in": "header",
+            "name": "x-refmd-rrp-actor-variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user_device"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "rotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompoundAppendAuthorization"
+              }
+            }
+          },
+          "description": "Compound authorization",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceAuthorityMutationResponse"
+                }
+              }
+            },
+            "description": "Committed mutation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid completion"
+          }
+        },
+        "security": [
+          {
+            "rrp_actor_variant": [],
+            "rrp_challenge": [],
+            "rrp_device": [],
+            "rrp_signature": [],
+            "user_session": []
+          }
+        ],
+        "summary": "Commit a compound KEK rotation completion",
         "tags": []
       }
     },

@@ -5,6 +5,7 @@ defmodule RefMDWeb.WorkspaceController do
   alias RefMD.Crypto.Encoding
   alias RefMD.Encryption.RotationPolicy
   alias RefMD.{Public, Security, Workspaces}
+  alias RefMD.Workspaces.Genesis.{Commit, Intent}
   alias RefMDWeb.Schemas
 
   plug RefMDWeb.Plugs.RequireRBAC, [permission: :membership] when action in [:show]
@@ -18,53 +19,70 @@ defmodule RefMDWeb.WorkspaceController do
   plug RefMDWeb.Plugs.RequireRBAC,
        [permission: "workspace:delete"] when action in [:delete]
 
-  # ── POST /api/workspaces ──────────────────────────────
-
-  operation(:create,
-    summary: "Create a new workspace",
-    request_body: {"Workspace params", "application/json", Schemas.CreateWorkspaceRequest},
+  operation(:create_intent,
+    summary: "Prepare a workspace genesis compound append intent",
+    request_body: {
+      "Workspace genesis command",
+      "application/json",
+      Schemas.WorkspaceGenesisCommand
+    },
     responses: [
-      created: {"Created workspace", "application/json", Schemas.WorkspaceResponse},
+      ok: {"Compound append intent", "application/json", %OpenApiSpex.Schema{type: :object}},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  def create(conn, %{"name" => name} = params) do
-    user_id = conn.assigns.current_user_id
+  def create_intent(conn, params) do
+    case Intent.issue!(
+           conn.assigns.current_user_id,
+           conn.assigns.current_session.device_id,
+           params
+         ) do
+      {:ok, intent} ->
+        json(conn, intent)
 
-    opts =
-      %{
-        workspace_id: params["workspace_id"],
-        workspace_owner_role_id: params["workspace_owner_role_id"],
-        key_directory: %{
-          workspace_events: params["workspace_key_directory_events"],
-          workspace_checkpoint: params["workspace_key_directory_checkpoint"]
-        },
-        creator_device_id: conn.assigns.current_session.device_id
-      }
-      |> maybe_put_string(:description, params["description"])
-      |> maybe_put_string(:icon, params["icon"])
-
-    case Workspaces.create_workspace(user_id, name, opts) do
-      {:ok, workspace} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         conn
-        |> put_status(:created)
-        |> json(serialize_workspace(workspace))
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_workspace_genesis_intent", details: format_errors(changeset)})
+
+      {:error, reason} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(reason)})
+    end
+  end
+
+  # ── POST /api/workspaces ──────────────────────────────
+
+  operation(:create,
+    summary: "Create a new workspace",
+    request_body:
+      {"Compound authorization", "application/json", Schemas.WorkspaceGenesisAuthorization},
+    responses: [
+      created:
+        {"Committed workspace genesis", "application/json", Schemas.WorkspaceGenesisResponse},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  def create(conn, params) do
+    case Commit.commit(
+           conn.assigns.current_user_id,
+           conn.assigns.current_session.device_id,
+           params
+         ) do
+      {:ok, %{response: response, status: status}} ->
+        conn
+        |> put_status(status)
+        |> json(response)
 
       {:error, %Ecto.Changeset{} = changeset} ->
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "validation_error", details: format_errors(changeset)})
 
-      {:error, reason} when is_atom(reason) ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: Atom.to_string(reason)})
+      {:error, reason} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: to_string(reason)})
     end
-  end
-
-  def create(conn, _params) do
-    conn |> put_status(:bad_request) |> json(%{error: "missing_name"})
   end
 
   # ── GET /api/workspaces ───────────────────────────────
@@ -224,10 +242,6 @@ defmodule RefMDWeb.WorkspaceController do
 
   # ── Helpers ───────────────────────────────────────────
 
-  defp maybe_put_string(map, _key, nil), do: map
-  defp maybe_put_string(map, key, value) when is_binary(value), do: Map.put(map, key, value)
-  defp maybe_put_string(map, _key, _value), do: map
-
   defp build_update_attrs(params) do
     with {:ok, guest_invites_enabled} <- parse_optional_boolean(params, "guest_invites_enabled"),
          {:ok, guest_member_limit} <- parse_optional_integer(params, "guest_member_limit") do
@@ -366,7 +380,7 @@ defmodule RefMDWeb.WorkspaceController do
       needs_kek_rotation: RotationPolicy.kek_overdue?(workspace),
       kek_rotation_due_at: workspace.kek_rotation_due_at,
       kek_rotation_initiator_user_id: workspace.kek_rotation_initiator_user_id,
-      audit_checkpoint: Security.current_audit_checkpoint!("workspace:#{workspace.id}"),
+      audit_checkpoint: Security.current_signed_audit_checkpoint!("workspace", workspace.id),
       created_at: workspace.created_at,
       updated_at: workspace.updated_at
     }

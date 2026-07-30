@@ -145,6 +145,9 @@ export class CryptoWorkerClient {
   declare setActiveKekVersion: KekWorkerClientMethods["setActiveKekVersion"];
   declare resolveKek: KekWorkerClientMethods["resolveKek"];
   declare deleteKekVersion: KekWorkerClientMethods["deleteKekVersion"];
+  declare createGenesisWorkspaceMemberEnvelopePrecommit: KekWorkerClientMethods["createGenesisWorkspaceMemberEnvelopePrecommit"];
+  declare createPqKekWrapPrecommit: KekWorkerClientMethods["createPqKekWrapPrecommit"];
+  declare rewrapInvitationBootstrapForKekRotation: KekWorkerClientMethods["rewrapInvitationBootstrapForKekRotation"];
   declare createSignedPqKekWrap: KekWorkerClientMethods["createSignedPqKekWrap"];
   declare createSignedPqShareLinkSecretBackupWrap: KekWorkerClientMethods["createSignedPqShareLinkSecretBackupWrap"];
   declare createSignedPqGuestInvitationShareKeyWrap: KekWorkerClientMethods["createSignedPqGuestInvitationShareKeyWrap"];
@@ -180,6 +183,9 @@ export class CryptoWorkerClient {
   declare signEditorEphemeral: SignWorkerClientMethods["signEditorEphemeral"];
   declare createDeviceApprovalSignature: SignWorkerClientMethods["createDeviceApprovalSignature"];
   declare createGenesisDeviceBootstrapSignature: SignWorkerClientMethods["createGenesisDeviceBootstrapSignature"];
+  declare signAuditCheckpoint: SignWorkerClientMethods["signAuditCheckpoint"];
+  declare signGenesisPqWrap: SignWorkerClientMethods["signGenesisPqWrap"];
+  declare signPqWrap: SignWorkerClientMethods["signPqWrap"];
   declare createRecoveryDeviceApprovalSignature: SignWorkerClientMethods["createRecoveryDeviceApprovalSignature"];
   declare createDeviceRevocationSignature: SignWorkerClientMethods["createDeviceRevocationSignature"];
   declare signDeviceKeyDeletionProof: SignWorkerClientMethods["signDeviceKeyDeletionProof"];

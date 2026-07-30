@@ -3,7 +3,7 @@ defmodule RefMD.Workspaces.Roles do
 
   import Ecto.Query
 
-  alias RefMD.{Encryption, Repo}
+  alias RefMD.Repo
 
   alias RefMD.Workspaces.{
     WorkspaceInvitation,
@@ -164,16 +164,6 @@ defmodule RefMD.Workspaces.Roles do
     permissions_changed? = previous_permissions != proposed_permissions
     members = if permissions_changed?, do: lock_role_members(role), else: []
 
-    if permissions_changed? and members != [] do
-      append_role_permission_changes!(
-        role,
-        members,
-        previous_permissions,
-        proposed_permissions,
-        Keyword.get(opts, :key_directory)
-      )
-    end
-
     role_attrs = Map.reject(attrs, fn {_k, v} -> is_nil(v) end)
     updated = apply_role_attrs(role, role_attrs)
     replace_permissions_if_present(role.id, resolved_permissions)
@@ -230,54 +220,6 @@ defmodule RefMD.Workspaces.Roles do
   defp canonical_effective_permissions(role) do
     role |> Authorization.effective_permissions() |> MapSet.to_list() |> Enum.sort()
   end
-
-  defp append_role_permission_changes!(
-         role,
-         members,
-         previous_permissions,
-         proposed_permissions,
-         %{workspace_events: events, workspace_checkpoint: checkpoint}
-       )
-       when is_list(events) and is_map(checkpoint) do
-    expected =
-      Enum.map(members, fn member ->
-        %{
-          "workspace_id" => role.workspace_id,
-          "user_id" => member.user_id,
-          "previous_role_id" => role.id,
-          "previous_base_role" => role.base_role,
-          "previous_effective_permissions" => previous_permissions,
-          "role_id" => role.id,
-          "base_role" => role.base_role,
-          "effective_permissions" => proposed_permissions,
-          "permission_version" => member.permission_version + 1
-        }
-      end)
-
-    actual =
-      Enum.map(events, fn
-        %{"payload" => %{"event_type" => "member_role_changed", "body" => body}} ->
-          Map.take(body, Map.keys(hd(expected)))
-
-        _ ->
-          :invalid
-      end)
-
-    unless actual == expected,
-      do: raise(ArgumentError, "key_directory_member_role_changed_event_mismatch")
-
-    Encryption.append_workspace_key_directory!(
-      role.workspace_id,
-      events,
-      checkpoint,
-      checkpoint_signer_kind: "device"
-    )
-  rescue
-    _ -> Repo.rollback(:invalid_key_directory)
-  end
-
-  defp append_role_permission_changes!(_, _, _, _, _),
-    do: Repo.rollback(:missing_key_directory)
 
   defp increment_member_permission_versions([]), do: :ok
 

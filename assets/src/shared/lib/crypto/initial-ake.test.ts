@@ -39,8 +39,8 @@ describe("Initial AKE UMK delivery", () => {
         userId: crypto.randomUUID(),
         deviceId,
         serverChallenge,
-        issuedAtEventSequence: 1,
-        expiresEventSequence: 2,
+        issuedAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_300_000,
         signingPrivateKeyMaterial: signing,
       }),
     ).toThrow();
@@ -57,8 +57,8 @@ describe("Initial AKE UMK delivery", () => {
         userId: crypto.randomUUID(),
         deviceId,
         serverChallenge: SERVER_CHALLENGE,
-        issuedAtEventSequence: 1,
-        expiresEventSequence: 2,
+        issuedAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_300_000,
         signingPrivateKeyMaterial: signing,
       }),
     ).toThrow("responder_prekey_purpose_invalid");
@@ -77,8 +77,8 @@ describe("Initial AKE UMK delivery", () => {
       userId,
       deviceId: recipientDeviceId,
       serverChallenge: SERVER_CHALLENGE,
-      issuedAtEventSequence: 1,
-      expiresEventSequence: 2,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
       signingPrivateKeyMaterial: recipientSigning,
     });
     const started = beginInitialAkeUmkDelivery({
@@ -146,8 +146,8 @@ describe("Initial AKE UMK delivery", () => {
       userId,
       deviceId: recipientDeviceId,
       serverChallenge: SERVER_CHALLENGE,
-      issuedAtEventSequence: 1,
-      expiresEventSequence: 2,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
       signingPrivateKeyMaterial: recipientSigning,
     });
     const started = beginInitialAkeUmkDelivery({
@@ -197,8 +197,8 @@ describe("Initial AKE UMK delivery", () => {
       userId,
       deviceId: recipientDeviceId,
       serverChallenge: SERVER_CHALLENGE,
-      issuedAtEventSequence: 1,
-      expiresEventSequence: 2,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
       signingPrivateKeyMaterial: recipientSigning,
     });
     const umk = crypto.getRandomValues(new Uint8Array(32));
@@ -444,8 +444,8 @@ describe("Initial AKE UMK delivery", () => {
       userId,
       deviceId: recipientDeviceId,
       serverChallenge: SERVER_CHALLENGE,
-      issuedAtEventSequence: 1,
-      expiresEventSequence: 2,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
       signingPrivateKeyMaterial: recipientSigning,
     });
     const trustPrekey = generateInitialAkeResponderPrekey({
@@ -454,8 +454,8 @@ describe("Initial AKE UMK delivery", () => {
       userId,
       deviceId: recipientDeviceId,
       serverChallenge: SERVER_CHALLENGE,
-      issuedAtEventSequence: 1,
-      expiresEventSequence: 2,
+      issuedAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_300_000,
       signingPrivateKeyMaterial: recipientSigning,
     });
     const kek = crypto.getRandomValues(new Uint8Array(32));
@@ -513,6 +513,8 @@ describe("Initial AKE UMK delivery", () => {
       keyEventHeadHash: "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
       workspacePinsHash: "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH",
       documentRollbackPinSetHash: "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+      transferScopeHash: "JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ",
+      auditCheckpointPinSetHash: "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
       pendingRegistrationBindingHash: "pending-binding-hash",
     });
     const trustAnswered = respondToInitialAkeOffer({
@@ -553,8 +555,8 @@ function createUmkExchange() {
     userId,
     deviceId: recipientDeviceId,
     serverChallenge: SERVER_CHALLENGE,
-    issuedAtEventSequence: 1,
-    expiresEventSequence: 2,
+    issuedAtMs: 1_700_000_000_000,
+    expiresAtMs: 1_700_000_300_000,
     signingPrivateKeyMaterial: recipientSigning,
   });
   const started = beginInitialAkeUmkDelivery({

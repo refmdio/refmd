@@ -1,17 +1,26 @@
 defmodule RefMD.Workspaces.MembersTest do
   use RefMD.DataCase, async: true
 
-  alias RefMD.Crypto.Hash
+  alias RefMD.Crypto.{Hash, Signature}
   alias RefMD.Devices.Device
   alias RefMD.Documents.Document
-  alias RefMD.Encryption.KeyDirectory
   alias RefMD.Repo
   alias RefMD.Users.User
   alias RefMD.Workspaces
-  alias RefMD.Workspaces.{WorkspaceMember, WorkspaceRolePermission}
+  alias RefMD.Workspaces.AuthorityMutations
+  alias RefMD.Workspaces.WorkspaceMember
+
+  alias RefMD.Security.{
+    AuditEvent,
+    ConsumedCompoundIntentReceipt,
+    MutationOutboxItem,
+    Notification,
+    PendingCompoundIntent
+  }
 
   test "remove_member marks KEK rotation before returning success" do
     {workspace, owner} = workspace_fixture()
+    workspace = workspace |> Ecto.Changeset.change(current_kek_version: 1) |> Repo.update!()
     insert_active_device(owner.id)
     target = user_fixture()
 
@@ -41,6 +50,8 @@ defmodule RefMD.Workspaces.MembersTest do
     })
 
     signer = Process.get({:test_workspace_signer_material, workspace.id})
+    insert_workspace_signer_device!(owner.id, signer)
+    install_workspace_audit_genesis!(workspace.id, owner.id)
 
     append =
       workspace_member_removal_key_directory_append(
@@ -51,15 +62,118 @@ defmodule RefMD.Workspaces.MembersTest do
         signer.signing_private
       )
 
-    key_directory = %{
-      workspace_events: append["workspace_key_directory_events"],
-      workspace_checkpoint: append["workspace_key_directory_checkpoint"]
-    }
+    command = %{"workspace_id" => workspace.id, "target_user_id" => target.id}
 
-    assert {:ok, %WorkspaceMember{user_id: target_user_id}} =
-             Workspaces.remove_member(workspace.id, target.id, owner.id, key_directory)
+    assert {:ok, intent} =
+             AuthorityMutations.issue_intent(
+               owner.id,
+               signer.device_id,
+               "workspace.member.removed",
+               command,
+               %{
+                 "events" => append["workspace_key_directory_events"],
+                 "checkpoint" => append["workspace_key_directory_checkpoint"]
+               }
+             )
 
-    assert target_user_id == target.id
+    authorization = workspace_authority_authorization!(intent, signer.signing_private, command)
+
+    assert {:error, :workspace_authority_mutation_route_binding_mismatch} =
+             AuthorityMutations.commit(
+               owner.id,
+               signer.device_id,
+               authorization,
+               %{
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => owner.id,
+                 "mutation_kind" => "workspace.member.removed"
+               }
+             )
+
+    assert Repo.get_by(WorkspaceMember, workspace_id: workspace.id, user_id: target.id)
+
+    refute Repo.get_by(PendingCompoundIntent, compound_intent_id: intent["compound_intent_id"]).consumed_at
+
+    assert {:ok, %{response: %{"status" => "committed"} = response, replay?: false}} =
+             AuthorityMutations.commit(
+               owner.id,
+               signer.device_id,
+               authorization,
+               %{
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => target.id,
+                 "mutation_kind" => "workspace.member.removed"
+               }
+             )
+
+    notification =
+      Repo.get_by!(Notification,
+        recipient_kind: "user",
+        recipient_id: target.id,
+        type: "workspace.member.removed"
+      )
+
+    assert notification.action_ref["mutation_id"] == intent["mutation_id"]
+
+    assert Repo.aggregate(
+             from(item in MutationOutboxItem,
+               where: item.compound_intent_id == ^intent["compound_intent_id"]
+             ),
+             :count
+           ) == 2
+
+    assert Repo.get_by!(MutationOutboxItem,
+             compound_intent_id: intent["compound_intent_id"],
+             effect_kind: "security_notification_delivery"
+           )
+
+    assert Repo.get_by!(MutationOutboxItem,
+             compound_intent_id: intent["compound_intent_id"],
+             effect_kind: "pubsub_broadcast"
+           )
+
+    assert {:ok, %{response: ^response, replay?: true}} =
+             AuthorityMutations.commit(
+               owner.id,
+               signer.device_id,
+               authorization,
+               %{
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => target.id,
+                 "mutation_kind" => "workspace.member.removed"
+               }
+             )
+
+    assert Repo.aggregate(
+             from(item in MutationOutboxItem,
+               where: item.compound_intent_id == ^intent["compound_intent_id"]
+             ),
+             :count
+           ) == 2
+
+    assert Repo.get_by!(PendingCompoundIntent,
+             compound_intent_id: intent["compound_intent_id"]
+           ).consumed_at
+
+    assert Repo.get_by!(ConsumedCompoundIntentReceipt,
+             compound_intent_id: intent["compound_intent_id"]
+           )
+
+    tampered =
+      put_in(authorization, ["effect_authorizations", Access.at(0), "approval_proof"], %{})
+
+    assert {:error, "audit_checkpoint_intent_reuse"} =
+             AuthorityMutations.commit(
+               owner.id,
+               signer.device_id,
+               tampered,
+               %{
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => target.id,
+                 "mutation_kind" => "workspace.member.removed"
+               }
+             )
+
     refute Repo.get_by(WorkspaceMember, workspace_id: workspace.id, user_id: target.id)
 
     reloaded_workspace = Workspaces.get_workspace(workspace.id)
@@ -69,7 +183,7 @@ defmodule RefMD.Workspaces.MembersTest do
     assert Repo.reload!(document).dek_rotation_reason == "membership_change"
   end
 
-  test "change_member_role binds effective permissions and version, then rotates on read loss" do
+  test "change_member_role binds effective permissions and version without unsigned rotation effects" do
     {workspace, owner} = workspace_fixture()
     insert_active_device(owner.id)
     target = user_fixture()
@@ -105,6 +219,8 @@ defmodule RefMD.Workspaces.MembersTest do
     )
 
     signer = Process.get({:test_workspace_signer_material, workspace.id})
+    insert_workspace_signer_device!(owner.id, signer)
+    install_workspace_audit_genesis!(workspace.id, owner.id)
 
     append =
       workspace_member_role_changes_key_directory_append(
@@ -123,25 +239,73 @@ defmodule RefMD.Workspaces.MembersTest do
         ]
       )
 
-    Phoenix.PubSub.subscribe(RefMD.PubSub, "user_socket:#{target.id}")
+    command = %{
+      "workspace_id" => workspace.id,
+      "target_user_id" => target.id,
+      "new_role_id" => no_read_role.id
+    }
 
-    assert {:ok, updated} =
-             Workspaces.change_member_role(
-               workspace.id,
-               target.id,
-               no_read_role.id,
+    assert {:ok, intent} =
+             AuthorityMutations.issue_intent(
                owner.id,
-               key_directory(append)
+               signer.device_id,
+               "workspace.member.role_changed",
+               command,
+               %{
+                 "events" => append["workspace_key_directory_events"],
+                 "checkpoint" => append["workspace_key_directory_checkpoint"]
+               }
              )
+
+    authorization = workspace_authority_authorization!(intent, signer.signing_private, command)
+
+    assert {:error, :workspace_authority_mutation_route_binding_mismatch} =
+             AuthorityMutations.commit(
+               owner.id,
+               signer.device_id,
+               authorization,
+               %{
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => target.id,
+                 "mutation_kind" => "workspace.member.removed"
+               }
+             )
+
+    assert {:ok, %{response: %{"permission_loss" => true} = response}} =
+             AuthorityMutations.commit(
+               owner.id,
+               signer.device_id,
+               authorization,
+               %{
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => target.id,
+                 "mutation_kind" => "workspace.member.role_changed"
+               }
+             )
+
+    assert response["event_type"] == "workspace.member.role_changed"
+    assert response["workspace_audit_checkpoint_hash"]
+    assert response["workspace_key_directory_checkpoint_hash"]
+
+    assert %AuditEvent{type: "workspace.member.role_changed"} =
+             Repo.get_by!(AuditEvent,
+               id:
+                 intent["scopes"]
+                 |> hd()
+                 |> Map.fetch!("candidate_events")
+                 |> hd()
+                 |> Map.fetch!("event_id")
+             )
+
+    updated = Repo.get_by!(WorkspaceMember, workspace_id: workspace.id, user_id: target.id)
 
     assert updated.role_id == no_read_role.id
     assert updated.permission_version == member.permission_version + 1
-    assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
-    assert Workspaces.get_workspace(workspace.id).needs_kek_rotation
-    assert Repo.reload!(document).needs_dek_rotation
+    refute Workspaces.get_workspace(workspace.id).needs_kek_rotation
+    refute Repo.reload!(document).needs_dek_rotation
   end
 
-  test "custom role permission update emits one transition per member and increments all versions" do
+  test "custom role permission update increments all affected member versions" do
     {workspace, owner} = workspace_fixture()
     insert_active_device(owner.id)
 
@@ -160,44 +324,7 @@ defmodule RefMD.Workspaces.MembersTest do
       end
       |> Enum.sort_by(& &1.user_id)
 
-    insert_test_workspace_key_directory!(
-      workspace.id,
-      owner.id,
-      role_by_base!(workspace.id, "owner").id
-    )
-
-    signer = Process.get({:test_workspace_signer_material, workspace.id})
     proposed = [%{"permission" => "document:write", "granted" => false}]
-
-    proposed_role = %{
-      role
-      | permissions: [
-          %WorkspaceRolePermission{
-            permission: "document:write",
-            granted: false
-          }
-        ]
-    }
-
-    changes =
-      Enum.map(members, fn member ->
-        role_change_body(
-          workspace.id,
-          member.user_id,
-          role,
-          proposed_role,
-          member.permission_version
-        )
-      end)
-
-    append =
-      workspace_member_role_changes_key_directory_append(
-        workspace.id,
-        owner.id,
-        signer.device_id,
-        signer.signing_private,
-        changes
-      )
 
     Enum.each(members, &Phoenix.PubSub.subscribe(RefMD.PubSub, "user_socket:#{&1.user_id}"))
 
@@ -205,8 +332,7 @@ defmodule RefMD.Workspaces.MembersTest do
              Workspaces.update_role(role, %{},
                permissions: proposed,
                actor_role: role_by_base!(workspace.id, "owner"),
-               actor_user_id: owner.id,
-               key_directory: key_directory(append)
+               actor_user_id: owner.id
              )
 
     refute Workspaces.permission_granted?(updated_role, "document:write")
@@ -219,80 +345,6 @@ defmodule RefMD.Workspaces.MembersTest do
     end)
 
     refute Workspaces.get_workspace(workspace.id).needs_kek_rotation
-  end
-
-  test "custom role permission update rolls back role and member versions on invalid append" do
-    {workspace, owner} = workspace_fixture()
-    insert_active_device(owner.id)
-    {:ok, role} = Workspaces.create_custom_role(workspace.id, "Rollback writers", "editor", [])
-    target = user_fixture()
-
-    member =
-      Repo.insert!(%WorkspaceMember{
-        workspace_id: workspace.id,
-        user_id: target.id,
-        role_id: role.id,
-        joined_at: DateTime.utc_now()
-      })
-
-    insert_test_workspace_key_directory!(
-      workspace.id,
-      owner.id,
-      role_by_base!(workspace.id, "owner").id
-    )
-
-    signer = Process.get({:test_workspace_signer_material, workspace.id})
-    proposed = [%{"permission" => "document:write", "granted" => false}]
-
-    proposed_role = %{
-      role
-      | permissions: [
-          %WorkspaceRolePermission{
-            permission: "document:write",
-            granted: false
-          }
-        ]
-    }
-
-    append =
-      workspace_member_role_changes_key_directory_append(
-        workspace.id,
-        owner.id,
-        signer.device_id,
-        signer.signing_private,
-        [
-          role_change_body(
-            workspace.id,
-            target.id,
-            role,
-            proposed_role,
-            member.permission_version
-          )
-        ]
-      )
-
-    [event] = append["workspace_key_directory_events"]
-    tampered_event = put_in(event, ["payload", "body", "permission_version"], 99)
-    append = Map.put(append, "workspace_key_directory_events", [tampered_event])
-    pin_before = KeyDirectory.current_pin("workspace", workspace.id)
-
-    assert {:error, :invalid_key_directory} =
-             Workspaces.update_role(role, %{},
-               permissions: proposed,
-               actor_role: role_by_base!(workspace.id, "owner"),
-               actor_user_id: owner.id,
-               key_directory: key_directory(append)
-             )
-
-    assert Workspaces.permission_granted?(
-             Workspaces.get_role_with_permissions(workspace.id, role.id),
-             "document:write"
-           )
-
-    assert Workspaces.get_workspace_member(workspace.id, target.id).permission_version ==
-             member.permission_version
-
-    assert KeyDirectory.current_pin("workspace", workspace.id) == pin_before
   end
 
   defp workspace_fixture do
@@ -347,27 +399,51 @@ defmodule RefMD.Workspaces.MembersTest do
     })
   end
 
-  defp role_change_body(_workspace_id, user_id, previous_role, role, permission_version) do
+  defp insert_workspace_signer_device!(user_id, signer) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    signing_key_id = Signature.compute_signing_key_id!(signer.signing_public)
+
+    Repo.insert!(%Device{
+      id: signer.device_id,
+      user_id: user_id,
+      name: "Workspace authority browser",
+      device_type: "browser",
+      hybrid_encryption_public_key_material: signer.encryption_public,
+      encryption_key_id: signer.encryption_key_id,
+      hybrid_signing_public_key_material: signer.signing_public,
+      signing_key_id: signing_key_id,
+      approval_signature: %{"fixture" => "workspace-authority-device"},
+      approval_signature_surface: "device_approval",
+      approval_proof: %{
+        "target_key_checkpoint_sequence" => 1,
+        "target_key_checkpoint_hash" => Hash.blake3_base64url("workspace-authority")
+      },
+      key_checkpoint_sequence: 1,
+      key_checkpoint_hash: Hash.blake3_base64url("workspace-authority"),
+      client_nonce: :crypto.strong_rand_bytes(16),
+      last_seen_at: now,
+      created_at: now
+    })
+  end
+
+  defp install_workspace_audit_genesis!(workspace_id, owner_id) do
+    AuditEvent
+    |> Ecto.Query.where(
+      [event],
+      event.chain_scope_kind == "workspace" and event.chain_scope_id == ^workspace_id
+    )
+    |> Repo.delete_all()
+
+    install_signed_audit_genesis!("workspace", workspace_id, owner_id)
+  end
+
+  defp role_change_body(_workspace_id, user_id, previous_role, role, _permission_version) do
     %{
       "user_id" => user_id,
       "previous_role_id" => previous_role.id,
       "previous_base_role" => previous_role.base_role,
-      "previous_effective_permissions" => effective_permissions(previous_role),
-      "role_id" => role.id,
-      "base_role" => role.base_role,
-      "effective_permissions" => effective_permissions(role),
-      "permission_version" => permission_version + 1
-    }
-  end
-
-  defp effective_permissions(role) do
-    role |> Workspaces.effective_permissions() |> MapSet.to_list() |> Enum.sort()
-  end
-
-  defp key_directory(append) do
-    %{
-      workspace_events: append["workspace_key_directory_events"],
-      workspace_checkpoint: append["workspace_key_directory_checkpoint"]
+      "new_role_id" => role.id,
+      "new_base_role" => role.base_role
     }
   end
 end

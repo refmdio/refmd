@@ -1,4 +1,4 @@
-import { createEffect, createSignal, type Accessor } from "solid-js";
+import { createSignal, type Accessor } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { type components, ApiError, workspacesApi } from "@/shared/api";
@@ -7,10 +7,8 @@ import { setCurrentWorkspaceId } from "@/entities/workspace";
 import { authState } from "@/entities/session";
 import { removeWorkspaceMemberWithKeyDirectory } from "../../lib/members/remove-member";
 import { changeWorkspaceMemberRoleWithKeyDirectory } from "../../lib/members/change-role";
-import { distributeWorkspaceMemberEnvelopes } from "../../lib/members/distribute-member-envelopes";
 
 type WorkspaceMember = components["schemas"]["MemberInfo"];
-type RemoveMemberResponse = components["schemas"]["RemoveMemberResponse"];
 
 interface UseWorkspaceMemberManagementOptions {
   workspaceId: Accessor<string | null | undefined>;
@@ -35,17 +33,6 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
   const currentUserId = () => authState()?.user.id;
   const memberPermissionDenied = () =>
     members.error instanceof ApiError && members.error.status === 403;
-
-  createEffect(() => {
-    const id = workspaceId();
-    const memberRows = members.data?.members;
-    if (!id || !memberRows || memberPermissionDenied()) return;
-    const membershipFingerprint = workspaceMemberDistributionFingerprint(memberRows);
-
-    queueMicrotask(() => {
-      void distributeWorkspaceMemberEnvelopes(id, { membershipFingerprint }).catch(() => {});
-    });
-  });
 
   const invalidateMemberViews = () => {
     const id = workspaceId();
@@ -118,10 +105,7 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
       if (target.user_id === currentUserId()) {
         await options.closePluginRuntimeByWorkspace?.(id, "workspace_left");
       }
-      const response = (await removeWorkspaceMemberWithKeyDirectory(
-        id,
-        target.user_id,
-      )) as RemoveMemberResponse;
+      const response = await removeWorkspaceMemberWithKeyDirectory(id, target.user_id);
       setRemoveTarget(null);
 
       const isSelfRemoval = target.user_id === currentUserId();
@@ -200,10 +184,3 @@ export function useWorkspaceMemberManagement(options: UseWorkspaceMemberManageme
 }
 
 export type WorkspaceMemberManagementModel = ReturnType<typeof useWorkspaceMemberManagement>;
-
-function workspaceMemberDistributionFingerprint(memberRows: readonly WorkspaceMember[]): string {
-  return memberRows
-    .map((member) => `${member.user_id}:${member.role_id}:${member.base_role}`)
-    .sort()
-    .join("|");
-}

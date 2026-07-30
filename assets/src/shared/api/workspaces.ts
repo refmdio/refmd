@@ -1,5 +1,6 @@
 import { client, throwIfError, withUserRrpParams } from "./core";
 import type { components } from "./schema";
+import type { GenesisCompoundAuthorization } from "@/shared/lib/crypto/genesis-authorization";
 
 type InvitationRecipientResponse = components["schemas"]["InvitationRecipientResponse"];
 
@@ -14,10 +15,18 @@ export const workspacesApi = {
       }),
     ),
 
-  create: async (body: components["schemas"]["CreateWorkspaceRequest"]) =>
+  createIntent: async (body: components["schemas"]["WorkspaceGenesisCommand"]) =>
+    throwIfError(
+      await client.POST("/api/workspaces/intent", {
+        params: withUserRrpParams(),
+        body: body as never,
+      }),
+    ),
+
+  create: async (body: components["schemas"]["WorkspaceGenesisAuthorization"]) =>
     throwIfError(
       await client.POST("/api/workspaces", {
-        body,
+        body: body as never,
       }),
     ),
 
@@ -56,27 +65,51 @@ export const workspacesApi = {
       }),
     ),
 
-  changeMemberRole: async (
+  prepareMemberRoleChange: async (
     workspaceId: string,
     userId: string,
-    body: components["schemas"]["ChangeMemberRoleRequest"],
+    body: components["schemas"]["MemberRoleIntentRequest"],
   ) =>
     throwIfError(
-      await client.PATCH("/api/workspaces/{workspace_id}/members/{user_id}", {
+      await client.POST("/api/workspaces/{workspace_id}/members/{user_id}/role/intent", {
         params: withUserRrpParams({ path: { workspace_id: workspaceId, user_id: userId } }),
         body,
       }),
     ),
 
-  removeMember: async (
+  prepareMemberRemoval: async (
     workspaceId: string,
     userId: string,
-    body: components["schemas"]["RemoveMemberRequest"],
+    body: components["schemas"]["MemberRemovalIntentRequest"],
+  ) =>
+    throwIfError(
+      await client.POST("/api/workspaces/{workspace_id}/members/{user_id}/removal/intent", {
+        params: withUserRrpParams({ path: { workspace_id: workspaceId, user_id: userId } }),
+        body,
+      }),
+    ),
+
+  commitMemberRoleChange: async (
+    workspaceId: string,
+    userId: string,
+    body: GenesisCompoundAuthorization,
+  ) =>
+    throwIfError(
+      await client.PATCH("/api/workspaces/{workspace_id}/members/{user_id}", {
+        params: withUserRrpParams({ path: { workspace_id: workspaceId, user_id: userId } }),
+        body: body as never,
+      }),
+    ),
+
+  commitMemberRemoval: async (
+    workspaceId: string,
+    userId: string,
+    body: GenesisCompoundAuthorization,
   ) =>
     throwIfError(
       await client.DELETE("/api/workspaces/{workspace_id}/members/{user_id}", {
         params: withUserRrpParams({ path: { workspace_id: workspaceId, user_id: userId } }),
-        body,
+        body: body as never,
       }),
     ),
 

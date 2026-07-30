@@ -6,6 +6,7 @@ defmodule RefMDWeb.GuestInvitationController do
   alias RefMD.Crypto
   alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial, JCS, Signature}
   alias RefMD.Encryption
+  alias RefMD.Encryption.RecoverableIdentitySecretRecord
   alias RefMD.Users
   alias RefMD.Workspaces
   alias RefMDWeb.Plugs.RequireRBAC
@@ -407,16 +408,6 @@ defmodule RefMDWeb.GuestInvitationController do
            ),
          {:ok, identity_x25519_public_key} <-
            encryption_material_x25519_public(identity_hybrid_encryption_public_key_material),
-         {:ok, approval_signature} <-
-           decode_hybrid_signature(
-             params["approval_signature"],
-             :approval_signature
-           ),
-         {:ok, pending_registration_challenge_hash} <-
-           validate_hash(
-             params["pending_registration_challenge_hash"],
-             :pending_registration_challenge_hash
-           ),
          {:ok, client_nonce} <- decode_base64url(params["client_nonce"], :client_nonce),
          :ok <- validate_byte_length(client_nonce, 16, :invalid_client_nonce_length),
          :ok <-
@@ -439,37 +430,18 @@ defmodule RefMDWeb.GuestInvitationController do
              params["identity_hybrid_signing_public_key_material"],
              params["guest_user_id"]
            ),
-         {:ok, encrypted_identity_hybrid_encryption_private_key_material} <-
-           decode_base64url(
-             params["encrypted_identity_hybrid_encryption_private_key_material"],
-             :encrypted_identity_hybrid_encryption_private_key_material
+         identity_encryption_key_id =
+           HybridEncryptionMaterial.compute_key_id!(
+             identity_hybrid_encryption_public_key_material
            ),
-         {:ok, identity_hybrid_encryption_private_key_material_nonce} <-
-           decode_base64url(
-             params["identity_hybrid_encryption_private_key_material_nonce"],
-             :identity_hybrid_encryption_private_key_material_nonce
-           ),
-         :ok <-
-           validate_byte_length(
-             identity_hybrid_encryption_private_key_material_nonce,
-             24,
-             :invalid_identity_hybrid_encryption_private_key_material_nonce_length
-           ),
-         {:ok, encrypted_identity_hybrid_signing_private_key_material} <-
-           decode_base64url(
-             params["encrypted_identity_hybrid_signing_private_key_material"],
-             :encrypted_identity_hybrid_signing_private_key_material
-           ),
-         {:ok, identity_hybrid_signing_private_key_material_nonce} <-
-           decode_base64url(
-             params["identity_hybrid_signing_private_key_material_nonce"],
-             :identity_hybrid_signing_private_key_material_nonce
-           ),
-         :ok <-
-           validate_byte_length(
-             identity_hybrid_signing_private_key_material_nonce,
-             24,
-             :invalid_identity_hybrid_signing_private_key_material_nonce_length
+         identity_signing_key_id =
+           Signature.compute_signing_key_id!(identity_hybrid_signing_public_key_material),
+         {:ok, recoverable_identity_secret_record} <-
+           validate_recoverable_identity_secret_record(
+             params["recoverable_identity_secret_record"],
+             params["guest_user_id"],
+             identity_signing_key_id,
+             identity_encryption_key_id
            ),
          :ok <- validate_user_key_directory(params),
          :ok <- validate_key_directory(params),
@@ -486,29 +458,32 @@ defmodule RefMDWeb.GuestInvitationController do
          identity_hybrid_encryption_public_key_material:
            identity_hybrid_encryption_public_key_material,
          identity_hybrid_signing_public_key_material: identity_hybrid_signing_public_key_material,
-         encrypted_identity_hybrid_encryption_private_key_material:
-           encrypted_identity_hybrid_encryption_private_key_material,
-         identity_hybrid_encryption_private_key_material_nonce:
-           identity_hybrid_encryption_private_key_material_nonce,
-         encrypted_identity_hybrid_signing_private_key_material:
-           encrypted_identity_hybrid_signing_private_key_material,
-         identity_hybrid_signing_private_key_material_nonce:
-           identity_hybrid_signing_private_key_material_nonce,
-         approval_signature: approval_signature,
-         pending_registration_challenge_hash: pending_registration_challenge_hash,
+         recoverable_identity_secret_record: recoverable_identity_secret_record,
          client_nonce: client_nonce,
-         identity_encryption_key_id:
-           HybridEncryptionMaterial.compute_key_id!(
-             identity_hybrid_encryption_public_key_material
-           ),
-         identity_signing_key_id:
-           Signature.compute_signing_key_id!(identity_hybrid_signing_public_key_material),
+         identity_encryption_key_id: identity_encryption_key_id,
+         identity_signing_key_id: identity_signing_key_id,
          user_key_directory_events: params["user_key_directory_events"],
          user_key_directory_checkpoint: params["user_key_directory_checkpoint"],
          device_name: params["device_name"],
          device_type: params["device_type"]
        }}
     end
+  end
+
+  defp validate_recoverable_identity_secret_record(
+         record,
+         user_id,
+         signing_key_id,
+         encryption_key_id
+       ) do
+    {:ok,
+     RecoverableIdentitySecretRecord.to_attrs!(record, %{
+       user_id: user_id,
+       signing_key_id: signing_key_id,
+       encryption_key_id: encryption_key_id
+     })}
+  rescue
+    _ -> {:error, :invalid_recoverable_identity_secret_record}
   end
 
   defp validate_exact_keys(params, keys, reason) when is_map(params) do
@@ -707,12 +682,6 @@ defmodule RefMDWeb.GuestInvitationController do
       do: :ok,
       else: {:error, error_atom}
   end
-
-  defp decode_hybrid_signature(signature, _field) when is_map(signature) do
-    {:ok, signature}
-  end
-
-  defp decode_hybrid_signature(_signature, field), do: {:error, :"invalid_#{field}"}
 
   defp validate_device_signing_material(material, device_id)
        when is_map(material) and is_binary(device_id) do

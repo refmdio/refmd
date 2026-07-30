@@ -4,6 +4,8 @@ import {
   publicHybridEncryptionMaterialFromPrivate,
 } from "./hybrid-encryption";
 import {
+  createGenesisWorkspaceMemberEnvelopePrecommit,
+  createSignedPqWrapPrecommit,
   createSignedPqWrap,
   finalizeSignedPqWrapOperationCheckpoint,
   openSignedPqWrap,
@@ -21,6 +23,147 @@ const HASH_A = "F3Yv3dlppFOSXWVxesPuohMgtmtUNC_eFRKNbK8hIV8";
 const HASH_B = "EOXPPTyKT580aMjMWO6oSJKiL9rbwayyJBAZAETB1VM";
 
 describe("signed PQ wrap", () => {
+  it("creates an unsigned workspace device KEK wrap precommit with exact checkpoint bindings", () => {
+    const userId = crypto.randomUUID();
+    const senderDeviceId = crypto.randomUUID();
+    const targetDeviceId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const precommit = createSignedPqWrapPrecommit({
+      purpose: "workspace_device_kek_wrap",
+      plaintext: crypto.getRandomValues(new Uint8Array(32)),
+      recipientPublicKeyMaterial: publicHybridEncryptionMaterialFromPrivate(
+        generateHybridEncryptionPrivateKeyMaterial("device", targetDeviceId),
+      ),
+      senderSigningPrivateKeyMaterial: generateHybridSigningPrivateKeyMaterial(
+        "device",
+        senderDeviceId,
+      ),
+      senderUserId: userId,
+      senderDeviceId,
+      resource: {
+        workspace_id: workspaceId,
+        target_user_id: userId,
+        target_device_id: targetDeviceId,
+        kek_version: 2,
+      },
+      eventScope: { scope_kind: "workspace", scope_id: workspaceId },
+      senderKeyCheckpoint: { sequence: 7, checkpointHash: HASH_A },
+      recipientKeyCheckpoint: {
+        scopeKind: "workspace",
+        scopeId: workspaceId,
+        sequence: 7,
+        checkpointHash: HASH_A,
+      },
+    });
+
+    expect(Object.keys(precommit).sort()).toEqual(
+      [
+        "event_scope",
+        "hpke",
+        "protocol",
+        "protocol_version",
+        "purpose",
+        "recipient",
+        "resource",
+        "sender",
+        "suite_id",
+        "suite_rank",
+      ].sort(),
+    );
+    expect(precommit).toMatchObject({
+      purpose: "workspace_device_kek_wrap",
+      sender: {
+        device_id: senderDeviceId,
+        key_checkpoint_sequence: 7,
+        key_checkpoint_hash: HASH_A,
+      },
+      recipient: {
+        recipient_kind: "device",
+        device_id: targetDeviceId,
+        key_checkpoint_sequence: 7,
+        key_checkpoint_hash: HASH_A,
+      },
+      event_scope: { scope_kind: "workspace", scope_id: workspaceId },
+    });
+    expect("event" in precommit).toBe(false);
+    expect("operation_checkpoint" in precommit).toBe(false);
+    expect("signature" in precommit).toBe(false);
+  });
+
+  it("creates the exact Genesis workspace member envelope precommit", () => {
+    const userId = crypto.randomUUID();
+    const deviceId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const identityEncryption = publicHybridEncryptionMaterialFromPrivate(
+      generateHybridEncryptionPrivateKeyMaterial("identity", userId),
+    );
+
+    const precommit = createGenesisWorkspaceMemberEnvelopePrecommit({
+      plaintext: crypto.getRandomValues(new Uint8Array(32)),
+      recipientPublicKeyMaterial: identityEncryption,
+      senderSigningPrivateKeyMaterial: generateHybridSigningPrivateKeyMaterial("device", deviceId),
+      userId,
+      deviceId,
+      workspaceId,
+    });
+
+    expect(Object.keys(precommit).sort()).toEqual(
+      [
+        "authorization_key_directory_checkpoint_hash",
+        "authorization_key_directory_checkpoint_sequence",
+        "kek_version",
+        "protocol",
+        "target_identity_encryption_key_id",
+        "target_identity_key_material_hash",
+        "target_user_id",
+        "version",
+        "workspace_id",
+        "wrap",
+      ].sort(),
+    );
+    expect(precommit).toMatchObject({
+      protocol: "refmd.workspace-member-envelope",
+      version: 1,
+      workspace_id: workspaceId,
+      target_user_id: userId,
+      kek_version: 1,
+      authorization_key_directory_checkpoint_sequence: 1,
+      authorization_key_directory_checkpoint_hash: "GENESIS",
+      wrap: {
+        protocol: "refmd.signed-pq-hybrid-wrap",
+        protocol_version: CURRENT_PROTOCOL_VERSION,
+        suite_id: SUITE_IDS.SIGNED_PQ_HYBRID_WRAP,
+        suite_rank: CURRENT_SUITE_RANK,
+        purpose: "workspace_member_kek_wrap",
+        resource: { workspace_id: workspaceId, target_user_id: userId, kek_version: 1 },
+        sender: {
+          signer_kind: "device",
+          user_id: userId,
+          device_id: deviceId,
+          key_scope_kind: "workspace",
+          key_scope_id: workspaceId,
+          key_checkpoint_sequence: 0,
+          key_checkpoint_hash: "GENESIS",
+        },
+        recipient: {
+          recipient_kind: "user_identity",
+          user_id: userId,
+          key_scope_kind: "workspace",
+          key_scope_id: workspaceId,
+          key_checkpoint_sequence: 0,
+          key_checkpoint_hash: "GENESIS",
+        },
+        event_scope: { scope_kind: "workspace", scope_id: workspaceId },
+        hpke: { mode: "base", kem_id: 0x647a, kdf_id: 1, aead_id: 3 },
+      },
+    });
+    expect(base64UrlDecode(precommit.wrap.hpke.enc)).toHaveLength(1120);
+    expect(base64UrlDecode(precommit.wrap.hpke.ciphertext)).toHaveLength(48);
+    expect(precommit.target_identity_key_material_hash).toBe(
+      blake3Base64Url(canonicalizeStrictBytes(identityEncryption as unknown as StrictJsonValue)),
+    );
+  });
+
   it.each(["workspace_invitation_package_key_wrap", "guest_invitation_package_key_wrap"])(
     "rejects removed invitation package purpose %s",
     (purpose) => {

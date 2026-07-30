@@ -2145,8 +2145,8 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
              json_response(sensitive_network_conn, 422)
 
     for {scope_kind, request_id} <- [
-          {"inline", "request-inline"},
-          {"editor_context", "request-editor"}
+          {"selection", "request-selection"},
+          {"block", "request-block"}
         ] do
       plaintext_body =
         body
@@ -2186,8 +2186,8 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       |> put_in(["sensitivity", "plaintext_scope_kind"], "active_document")
       |> put_in(["sensitivity", "plaintext_bytes"], 0)
       |> put_in(["correlation", "request_id"], "request-plaintext-denied-no-context")
-      |> put_in(["correlation", "execution_context_id"], "")
-      |> put_in(["correlation", "authority_event_ref"], "")
+      |> put_in(["correlation", "execution_context_id"], nil)
+      |> put_in(["correlation", "authority_event_ref"], nil)
 
     plaintext_denied_without_context_conn =
       Phoenix.ConnTest.build_conn()
@@ -2214,7 +2214,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
 
     assert plaintext_denied_audit
     assert plaintext_denied_audit.action["reason_code"] == "execution_context_required"
-    assert plaintext_denied_audit.correlation["execution_context_id"] == ""
+    assert is_nil(plaintext_denied_audit.correlation["execution_context_id"])
   end
 
   test "records pre-load plugin capability audit before the sandbox frame is active", %{
@@ -2260,10 +2260,10 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
         "storage_bytes" => 0
       },
       "correlation" => %{
-        "request_id" => "",
+        "request_id" => nil,
         "capability_id" => "capability",
-        "execution_context_id" => "",
-        "authority_event_ref" => ""
+        "execution_context_id" => nil,
+        "authority_event_ref" => nil
       }
     }
 
@@ -2466,8 +2466,17 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       Map.delete(body, "correlation")
     )
 
+    assert_rejects_runtime_audit(
+      conn,
+      user_id,
+      device,
+      signing_private_key,
+      path,
+      put_in(body, ["correlation", "execution_context_id"], ""),
+      "invalid_request_schema"
+    )
+
     for rejected_body <- [
-          put_in(body, ["correlation", "execution_context_id"], ""),
           put_in(body, ["sensitivity", "plaintext_scope_kind"], "none"),
           put_in(body, ["action", "content"], "selected document body"),
           Map.delete(body, "payloadKind"),
@@ -2585,19 +2594,24 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       |> put_in(["action", "response_bytes"], 0)
       |> put_in(["correlation", "request_id"], "request-network-blocked")
 
-    for rejected_body <- [
-          update_in(blocked_body, ["action"], &Map.delete(&1, "response_bytes")),
-          put_in(blocked_body, ["action", "fallback_reason"], "")
-        ] do
-      assert_rejects_runtime_audit(
-        conn,
-        user_id,
-        device,
-        signing_private_key,
-        path,
-        rejected_body
-      )
-    end
+    assert_rejects_runtime_audit(
+      conn,
+      user_id,
+      device,
+      signing_private_key,
+      path,
+      update_in(blocked_body, ["action"], &Map.delete(&1, "response_bytes"))
+    )
+
+    assert_rejects_runtime_audit(
+      conn,
+      user_id,
+      device,
+      signing_private_key,
+      path,
+      put_in(blocked_body, ["action", "fallback_reason"], ""),
+      "invalid_request_schema"
+    )
   end
 
   test "rejects arbitrary action metadata on generic runtime audit events", %{conn: conn} do
@@ -3616,6 +3630,26 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
          path,
          body
        ) do
+    assert_rejects_runtime_audit(
+      conn,
+      user_id,
+      device,
+      signing_private_key,
+      path,
+      body,
+      "plugin_runtime_audit_envelope_invalid"
+    )
+  end
+
+  defp assert_rejects_runtime_audit(
+         conn,
+         user_id,
+         device,
+         signing_private_key,
+         path,
+         body,
+         expected_error
+       ) do
     rejected_conn =
       conn
       |> recycle()
@@ -3623,9 +3657,7 @@ defmodule RefMDWeb.PluginRuntimeControllerTest do
       |> put_test_rrp_headers(user_id, device, signing_private_key, "POST", path, body, "")
       |> post(path, test_json_body(body))
 
-    assert json_response(rejected_conn, 422) == %{
-             "error" => "plugin_runtime_audit_envelope_invalid"
-           }
+    assert %{"error" => ^expected_error} = json_response(rejected_conn, 422)
   end
 
   defp post_runtime_audit(user_id, device, signing_private_key, path, body) do

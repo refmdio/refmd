@@ -7,11 +7,13 @@ defmodule RefMDWeb.AuthControllerTest do
   alias RefMD.Auth.DBSC
   alias RefMD.Auth.OAuth
   alias RefMD.Crypto.{Hash, Signature}
+  alias RefMD.Crypto.Signature.Audit
   alias RefMD.Devices.DeviceRegistration
   alias RefMD.Encryption
-  alias RefMD.Encryption.KeyDirectory
+  alias RefMD.Encryption.{KeyDirectory, RecoverableIdentitySecretRecord}
   alias RefMD.Repo
   alias RefMD.Security
+  alias RefMD.Security.AuditChainEvent
   alias RefMD.Users
   alias RefMD.Users.User
 
@@ -131,20 +133,126 @@ defmodule RefMDWeb.AuthControllerTest do
       })
 
     {:ok, _identity_key} =
-      Encryption.create_user_encrypted_identity_key(%{
+      user_id
+      |> recoverable_identity_secret_record(
+        identity_public_key.signing_key_id,
+        identity_public_key.encryption_key_id,
+        <<11::256>>,
+        <<12::192>>,
+        <<7::256>>,
+        <<8::192>>
+      )
+      |> RecoverableIdentitySecretRecord.to_attrs!(%{
         user_id: user_id,
-        encrypted_identity_hybrid_encryption_private_key_material: <<7::256>>,
-        identity_hybrid_encryption_private_key_material_nonce: <<8::192>>,
-        encryption_key_id: identity_public_key.encryption_key_id,
-        encrypted_identity_hybrid_signing_private_key_material: <<11::256>>,
-        identity_hybrid_signing_private_key_material_nonce: <<12::192>>,
-        signing_key_id: identity_public_key.signing_key_id
+        signing_key_id: identity_public_key.signing_key_id,
+        encryption_key_id: identity_public_key.encryption_key_id
       })
+      |> Encryption.create_user_encrypted_identity_key()
 
     %{
       identity_private: identity_private,
       identity_encryption_public: identity_encryption_public
     }
+  end
+
+  defp install_signed_user_genesis!(user_id, identity_private) do
+    identity = Encryption.get_user_identity_public_key(user_id)
+
+    attrs = %{
+      event_id: Ecto.UUID.generate(),
+      class: "authority",
+      type: "user.device.genesis_bootstrapped",
+      event_body: %{
+        "protocol" => "refmd.audit.high-risk-mutation",
+        "version" => 1,
+        "event_type" => "user.device.genesis_bootstrapped",
+        "mutation_id" => Ecto.UUID.generate(),
+        "chain_scope_kind" => "user",
+        "chain_scope_id" => user_id,
+        "actor" => %{"kind" => "identity", "user_id" => user_id},
+        "subject_kind" => "account",
+        "subject_id" => user_id,
+        "canonical_request_hash" => Hash.blake3_base64url("auth-controller-request"),
+        "key_directory_effects_hash" => Hash.blake3_base64url("auth-controller-effects")
+      },
+      actor: %{
+        "user_id" => user_id,
+        "device_id" => nil,
+        "session_id" => nil,
+        "principal_kind" => "user",
+        "principal_id" => user_id
+      },
+      scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
+      resource: %{"kind" => "user", "id" => user_id, "version_hash" => nil},
+      action: %{
+        "operation" => "user.device.genesis_bootstrapped",
+        "result" => "completed",
+        "reason_code" => nil
+      },
+      sensitivity: Security.empty_sensitivity(),
+      correlation: %{
+        "request_id" => nil,
+        "capability_id" => nil,
+        "execution_context_id" => nil,
+        "authority_event_ref" => nil
+      }
+    }
+
+    event_hash =
+      %{
+        event_id: attrs.event_id,
+        chain_scope_kind: "user",
+        chain_scope_id: user_id,
+        sequence: 1,
+        previous_event_hash: "GENESIS",
+        event_type: attrs.type,
+        event_body: attrs.event_body
+      }
+      |> AuditChainEvent.build!()
+      |> AuditChainEvent.hash!()
+
+    payload = %{
+      "protocol" => "refmd.signed-audit-checkpoint",
+      "version" => 1,
+      "chain_scope_kind" => "user",
+      "chain_scope_id" => user_id,
+      "sequence" => 1,
+      "event_hash" => event_hash,
+      "signer_user_id" => user_id,
+      "signing_key_id" => identity.signing_key_id,
+      "authorization_checkpoint_scope_kind" => "user",
+      "authorization_checkpoint_scope_id" => user_id,
+      "authorization_checkpoint_sequence" => 0,
+      "authorization_checkpoint_hash" => "GENESIS",
+      "covered_event_class" => "authority",
+      "covered_event_type" => "user.device.genesis_bootstrapped"
+    }
+
+    transcript =
+      Audit.build_audit_checkpoint_transcript!("user_identity", "identity", user_id, payload)
+
+    envelope = %{
+      "payload" => payload,
+      "signature" =>
+        Signature.__test_sign_hybrid_signature__(
+          "audit_checkpoint",
+          transcript,
+          identity_private,
+          identity.hybrid_signing_public_key_material
+        ),
+      "checkpoint_hash" => Audit.checkpoint_hash!("user_identity", payload)
+    }
+
+    assert {:ok, _result} =
+             Security.record_signed_audit_events([attrs], envelope, [],
+               genesis_candidate_authority: %{
+                 chain_scope_kind: "user",
+                 chain_scope_id: user_id,
+                 signer_user_id: user_id,
+                 signer_device_id: nil,
+                 public_key_material: identity.hybrid_signing_public_key_material
+               }
+             )
   end
 
   defp create_oauth_master_key(user_id) do
@@ -696,53 +804,9 @@ defmodule RefMDWeb.AuthControllerTest do
              )
   end
 
-  test "OAuth crypto setup stores oauth key material for first device bootstrap", %{conn: conn} do
-    user_id = create_user("oauth-setup@example.com")
-    {:ok, _settings} = Users.create_user_settings(user_id)
-    {:ok, _workspace} = RefMD.Workspaces.create_default_workspace(user_id, "OAuth Workspace")
-
-    {:ok, _external_account} =
-      Users.create_user_external_account(%{
-        user_id: user_id,
-        provider: "google",
-        provider_user_id: "google-oauth-setup",
-        email: "oauth-setup@example.com"
-      })
-
-    {:ok, _session, token} = Auth.create_session(user_id)
-
-    conn =
-      conn
-      |> put_req_header(
-        "cookie",
-        "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
-      )
-      |> post("/api/auth/oauth/crypto-setup", oauth_crypto_setup_params(user_id))
-
-    response = json_response(conn, 200)
-    assert response["workspace_id"]
-    assert response["workspace_owner_role_id"]
-
-    master_key = Encryption.get_user_encrypted_master_key(user_id)
-    assert master_key.auth_type == "oauth"
-    refute master_key.encrypted_umk
-    refute master_key.umk_nonce
-    assert master_key.recovery_encrypted_umk
-
-    identity_public_key = Encryption.get_user_identity_public_key(user_id)
-    assert identity_public_key.hybrid_signing_public_key_material["owner_id"] == user_id
-    assert Encryption.get_user_encrypted_identity_key(user_id)
-
-    challenge_conn =
-      conn
-      |> recycle_with_rate_limit_bypass()
-      |> put_req_header(
-        "cookie",
-        "__Host-refmd-session=#{Base.url_encode64(token, padding: false)}"
-      )
-      |> post("/api/devices/bootstrap/challenge")
-
-    assert json_response(challenge_conn, 200)["registration_challenge"]
+  test "removed OAuth crypto setup endpoint is unavailable", %{conn: conn} do
+    conn = post(conn, "/api/auth/oauth/crypto-setup", %{})
+    assert response(conn, 404)
   end
 
   test "login rejects legacy _refmd request body auth inputs", %{conn: conn} do
@@ -880,6 +944,7 @@ defmodule RefMDWeb.AuthControllerTest do
     assert restore_response["identity_encryption_key_id"]
     assert restore_response["encrypted_identity_hybrid_signing_private_key_material"]
     assert restore_response["identity_signing_key_id"]
+    assert restore_response["identity_key_epoch"] == 1
     assert restore_response["identity_rotation_due_at"]
     assert restore_response["identity_key_checkpoint"]["payload"]["scope_kind"] == "user"
   end
@@ -889,6 +954,8 @@ defmodule RefMDWeb.AuthControllerTest do
     login_keys = create_login_keys(user_id)
     device_material = create_device_with_signing_key(user_id)
     device = device_material.device
+
+    install_signed_user_genesis!(user_id, login_keys.identity_private)
 
     key_directory =
       initial_key_directory_bootstrap(
@@ -921,7 +988,7 @@ defmodule RefMDWeb.AuthControllerTest do
                  "principal_id" => user_id
                },
                scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
-               resource: %{"kind" => "user", "id" => user_id, "version_hash" => nil},
+               resource: %{"kind" => "credential", "id" => user_id, "version_hash" => nil},
                action: %{
                  "operation" => "recovery.started",
                  "result" => "completed",
@@ -943,18 +1010,28 @@ defmodule RefMDWeb.AuthControllerTest do
       |> json_response(200)
 
     assert %{
-             "chain_scope" => "user:" <> ^user_id,
-             "sequence" => event_sequence,
-             "event_hash" => event_hash,
-             "authority_checkpoint" => %{
-               "payload" => %{"scope_kind" => "user", "scope_id" => ^user_id},
-               "signatures" => signatures
-             }
+             "signed_checkpoint" => %{
+               "payload" => %{
+                 "chain_scope_kind" => "user",
+                 "chain_scope_id" => ^user_id,
+                 "sequence" => 1
+               },
+               "signature" => signature
+             },
+             "current_event_head" => %{
+               "sequence" => event_sequence,
+               "event_hash" => event_hash
+             },
+             "unsigned_tail" => [
+               %{"sequence" => event_sequence, "event_hash" => event_hash}
+             ]
            } = response["candidate_user_audit_checkpoint"]
 
     assert event_sequence == event.sequence
     assert event_hash == event.event_hash
-    assert signatures != []
+
+    assert signature["signing_key_id"] ==
+             Encryption.get_user_identity_public_key(user_id).signing_key_id
   end
 
   test "invalid recovery session rolls back its embedded target registration", %{conn: conn} do
@@ -1170,27 +1247,6 @@ defmodule RefMDWeb.AuthControllerTest do
     |> put_req_header("x-refmd-e2e-rate-limit-bypass", "1")
   end
 
-  defp oauth_crypto_setup_params(user_id) do
-    recovery = recovery_authorization_material(user_id)
-    identity_private = hybrid_signing_private_key_material("identity", user_id)
-    identity_public = hybrid_signing_public_key_material(identity_private)
-    {x25519_public, _} = :crypto.generate_key(:ecdh, :x25519)
-    encryption = hybrid_encryption_public_key_material("identity", user_id, x25519_public)
-
-    %{
-      recovery_encrypted_umk: b64(<<4::256>>),
-      recovery_nonce: b64(<<5::192>>),
-      recovery_authorization_public_material: recovery.public,
-      recovery_authorization_key_id: recovery.key_id,
-      hybrid_encryption_public_key_material: encryption.public,
-      hybrid_signing_public_key_material: identity_public,
-      encrypted_identity_hybrid_encryption_private_key_material: b64(<<7::256>>),
-      identity_hybrid_encryption_private_key_material_nonce: b64(<<8::192>>),
-      encrypted_identity_hybrid_signing_private_key_material: b64(<<11::256>>),
-      identity_hybrid_signing_private_key_material_nonce: b64(<<12::192>>)
-    }
-  end
-
   defp dbsc_registration_proof(session) do
     {:ok, registration_header} =
       DBSC.registration_header("user", session.id, "/api/auth/dbsc/register")
@@ -1257,8 +1313,6 @@ defmodule RefMDWeb.AuthControllerTest do
     [_, challenge, session_identifier] = Regex.run(~r/^"([^"]+)";id="([^"]+)"$/, header)
     {challenge, session_identifier}
   end
-
-  defp b64(value), do: Base.url_encode64(value, padding: false)
 
   defp base64url_json(value), do: value |> Jason.encode!() |> Base.url_encode64(padding: false)
 

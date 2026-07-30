@@ -3,16 +3,29 @@ defmodule RefMD.Workspaces.KekRotation do
 
   import Ecto.Query
 
+  alias RefMD.Crypto.{Hash, HybridEncryptionMaterial, JCS, Signature}
   alias RefMD.Devices.Device
-  alias RefMD.Encryption.RotationPolicy
+  alias RefMD.Encryption
+
+  alias RefMD.Encryption.{
+    Members,
+    RotationPolicy,
+    WorkspaceEncryptedKey,
+    WorkspaceMemberEnvelope
+  }
+
+  alias RefMD.Encryption.Workspaces, as: EncryptionWorkspaces
+  alias RefMD.Encryption.Wraps.Precommit
   alias RefMD.Repo
   alias RefMD.Users.User
   alias RefMD.Workspaces.KekRotation.DeletionProofs
   alias RefMD.Workspaces.KekRotation.Directory
 
   alias RefMD.Workspaces.{
+    GuestInvitation,
     Workspace,
     WorkspaceDeviceWipeRequirement,
+    WorkspaceInvitation,
     WorkspaceMember,
     WorkspaceRole
   }
@@ -104,47 +117,579 @@ defmodule RefMD.Workspaces.KekRotation do
     end
   end
 
-  def start_kek_rotation(workspace_id, initiator_user_id, opts \\ []) do
-    events = Keyword.get(opts, :workspace_key_directory_events)
-    checkpoint = Keyword.get(opts, :workspace_key_directory_checkpoint)
+  def prepare_start!(workspace_id, initiator_user_id) do
+    workspace =
+      from(w in Workspace,
+        where: w.id == ^workspace_id,
+        lock: "FOR UPDATE"
+      )
+      |> Repo.one()
 
-    Repo.transaction(fn ->
-      workspace =
-        from(w in Workspace,
-          where: w.id == ^workspace_id,
-          lock: "FOR UPDATE"
-        )
-        |> Repo.one()
+    cond do
+      workspace == nil ->
+        Repo.rollback(:not_found)
 
-      cond do
-        workspace == nil ->
-          Repo.rollback(:not_found)
+      not rotation_initiator_eligible?(workspace_id, initiator_user_id) ->
+        Repo.rollback(:forbidden)
 
-        not rotation_initiator_eligible?(workspace_id, initiator_user_id) ->
-          Repo.rollback(:forbidden)
+      workspace.needs_kek_rotation and
+          Directory.rotation_started?(workspace, workspace.current_kek_version + 1) ->
+        Repo.rollback(:kek_rotation_already_in_progress)
 
-        workspace.needs_kek_rotation and
-            Directory.rotation_started?(workspace, workspace.current_kek_version + 1) ->
-          Repo.rollback(:kek_rotation_already_in_progress)
-
-        true ->
-          Directory.append_start!(workspace, events, checkpoint)
-
-          from(w in Workspace, where: w.id == ^workspace_id)
-          |> Repo.update_all(
-            set: [
-              needs_kek_rotation: true,
-              kek_rotation_initiator_user_id: initiator_user_id
-            ]
-          )
-
-          Repo.get!(Workspace, workspace_id)
-      end
-    end)
-    |> case do
-      {:ok, workspace} -> {:ok, workspace}
-      {:error, reason} -> {:error, reason}
+      true ->
+        workspace
     end
+  end
+
+  def apply_start!(workspace_id, initiator_user_id, rotation_id, new_kek_version) do
+    prepare_start!(workspace_id, initiator_user_id)
+
+    from(w in Workspace, where: w.id == ^workspace_id)
+    |> Repo.update_all(
+      set: [
+        needs_kek_rotation: true,
+        kek_rotation_initiator_user_id: initiator_user_id,
+        current_kek_rotation_id: rotation_id,
+        pending_kek_version: new_kek_version,
+        kek_rotation_completed_event_hash: nil
+      ]
+    )
+
+    Repo.get!(Workspace, workspace_id)
+  end
+
+  def prepare_completion!(command, actor_user_id, actor_device_id) do
+    workspace = lock_rotation_workspace!(command, actor_user_id, :started)
+
+    unless command["old_key_version"] == workspace.current_kek_version and
+             command["new_key_version"] == workspace.pending_kek_version and
+             is_list(command["device_wrap_precommits"]) and
+             is_list(command["member_envelope_precommits"]) and
+             is_list(command["workspace_invitation_updates"]) and
+             is_list(command["guest_invitation_updates"]),
+           do: raise(ArgumentError, "kek_rotation_completion_command_invalid")
+
+    checkpoint = Encryption.current_workspace_key_directory_checkpoint(workspace.id)
+    actor = Repo.get!(Device, actor_device_id)
+    sender = wrap_sender!(workspace.id, actor_user_id, actor, checkpoint)
+
+    device_wraps =
+      validate_device_wrap_precommits!(workspace, command, sender, checkpoint)
+
+    member_envelopes =
+      validate_member_envelope_precommits!(workspace, command, sender, checkpoint)
+
+    validate_invitation_updates!(
+      WorkspaceInvitation,
+      workspace,
+      command["workspace_invitation_updates"],
+      command["old_key_version"],
+      command["new_key_version"]
+    )
+
+    validate_invitation_updates!(
+      GuestInvitation,
+      workspace,
+      command["guest_invitation_updates"],
+      command["old_key_version"],
+      command["new_key_version"]
+    )
+
+    %{
+      workspace: workspace,
+      device_wraps: device_wraps,
+      member_envelopes: member_envelopes
+    }
+  end
+
+  def prepare_old_key_deletion!(command, actor_user_id) do
+    workspace = lock_rotation_workspace!(command, actor_user_id, :completed)
+
+    unless command["old_key_version"] == workspace.min_kek_version and
+             is_map(command["deletion_manifest"]) and
+             is_list(command["device_key_deletion_proofs"]) and
+             is_list(command["wipe_required_device_ids"]),
+           do: raise(ArgumentError, "kek_rotation_old_key_deletion_command_invalid")
+
+    deletion_context =
+      DeletionProofs.validate!(
+        workspace.id,
+        command["old_key_version"],
+        workspace.kek_rotation_completed_event_hash,
+        command["device_key_deletion_proofs"],
+        command["wipe_required_device_ids"]
+      )
+
+    :ok =
+      Directory.validate_old_key_deletion_manifest!(
+        workspace,
+        command["deletion_manifest"],
+        deletion_context
+      )
+
+    %{workspace: workspace, deletion_context: deletion_context}
+  end
+
+  def apply_completion!(verified, completed_event_hash) do
+    p = verified.prepared
+    command = p.command
+    workspace = lock_rotation_workspace!(command, p.actor_user_id, :started)
+    insert_completion_wraps!(verified)
+    apply_invitation_updates!(WorkspaceInvitation, command["workspace_invitation_updates"])
+    apply_invitation_updates!(GuestInvitation, command["guest_invitation_updates"])
+    reject_old_kek_document_references!(workspace.id, command["new_key_version"])
+
+    from(w in Workspace, where: w.id == ^workspace.id)
+    |> Repo.update_all(
+      set: [
+        current_kek_version: command["new_key_version"],
+        needs_kek_rotation: false,
+        kek_rotation_due_at: RotationPolicy.next_kek_due_at(),
+        kek_rotation_completed_event_hash: completed_event_hash
+      ]
+    )
+
+    Repo.get!(Workspace, workspace.id)
+  end
+
+  def apply_old_key_deletion!(command, actor_user_id, deleted_event_hash) do
+    workspace = lock_rotation_workspace!(command, actor_user_id, :completed)
+    old_key_version = command["old_key_version"]
+
+    persist_workspace_device_wipe_requirements!(
+      workspace.id,
+      workspace.current_kek_version,
+      command["wipe_required_device_ids"]
+    )
+
+    from(k in WorkspaceEncryptedKey,
+      where: k.workspace_id == ^workspace.id and k.key_version == ^old_key_version
+    )
+    |> Repo.delete_all()
+
+    from(e in WorkspaceMemberEnvelope,
+      where: e.workspace_id == ^workspace.id and e.key_version == ^old_key_version
+    )
+    |> Repo.delete_all()
+
+    Directory.persist_old_key_deletion_evidence!(
+      workspace,
+      deleted_event_hash,
+      command["deletion_manifest"],
+      command["device_key_deletion_proofs"],
+      command["wipe_required_device_ids"]
+    )
+
+    from(w in Workspace, where: w.id == ^workspace.id)
+    |> Repo.update_all(
+      set: [
+        min_kek_version: workspace.current_kek_version,
+        current_kek_rotation_id: nil,
+        pending_kek_version: nil,
+        kek_rotation_completed_event_hash: nil,
+        kek_rotation_initiator_user_id: nil
+      ]
+    )
+
+    Repo.get!(Workspace, workspace.id)
+  end
+
+  defp lock_rotation_workspace!(command, actor_user_id, expected_state) do
+    workspace =
+      from(w in Workspace, where: w.id == ^command["workspace_id"], lock: "FOR UPDATE")
+      |> Repo.one()
+
+    validate_rotation_workspace!(workspace, command, actor_user_id, expected_state)
+    workspace
+  end
+
+  defp validate_rotation_workspace!(nil, _command, _actor_user_id, _expected_state),
+    do: raise(ArgumentError, "workspace_not_found")
+
+  defp validate_rotation_workspace!(workspace, command, actor_user_id, expected_state) do
+    checks = [
+      {rotation_initiator_eligible?(workspace.id, actor_user_id), "forbidden"},
+      {workspace.current_kek_rotation_id == command["rotation_id"], "kek_rotation_id_mismatch"},
+      {expected_state != :started or workspace.needs_kek_rotation,
+       "kek_rotation_not_in_progress"},
+      {expected_state != :completed or
+         (not workspace.needs_kek_rotation and
+            not is_nil(workspace.kek_rotation_completed_event_hash)),
+       "kek_rotation_not_completed"}
+    ]
+
+    Enum.each(checks, fn {valid?, error} ->
+      unless valid?, do: raise(ArgumentError, error)
+    end)
+  end
+
+  defp validate_device_wrap_precommits!(workspace, command, sender, checkpoint) do
+    expected_devices =
+      from(wm in WorkspaceMember,
+        join: u in User,
+        on: u.id == wm.user_id,
+        join: d in Device,
+        on: d.user_id == wm.user_id,
+        where:
+          wm.workspace_id == ^workspace.id and u.account_type != "guest" and is_nil(d.revoked_at) and
+            is_nil(d.identity_wipe_required_at),
+        order_by: [asc: wm.user_id, asc: d.id],
+        select: {wm.user_id, d}
+      )
+      |> Repo.all()
+
+    entries = command["device_wrap_precommits"]
+
+    unless Enum.map(entries, &{&1["target_user_id"], &1["target_device_id"]}) ==
+             Enum.map(expected_devices, fn {user_id, device} -> {user_id, device.id} end),
+           do: raise(ArgumentError, "kek_rotation_device_wrap_inventory_invalid")
+
+    Enum.zip(entries, expected_devices)
+    |> Enum.map(fn {entry, {target_user_id, device}} ->
+      material = device.hybrid_encryption_public_key_material
+      key_id = HybridEncryptionMaterial.compute_key_id!(material)
+
+      unless key_id == device.encryption_key_id,
+        do: raise(ArgumentError, "kek_rotation_device_encryption_key_invalid")
+
+      expected = %{
+        purpose: "workspace_device_kek_wrap",
+        resource: %{
+          "workspace_id" => workspace.id,
+          "target_user_id" => target_user_id,
+          "target_device_id" => device.id,
+          "kek_version" => command["new_key_version"]
+        },
+        sender: sender,
+        recipient: %{
+          "recipient_kind" => "device",
+          "user_id" => target_user_id,
+          "device_id" => device.id,
+          "encryption_key_id" => key_id,
+          "key_scope_kind" => "workspace",
+          "key_scope_id" => workspace.id,
+          "key_checkpoint_sequence" => checkpoint.sequence,
+          "key_checkpoint_hash" => checkpoint.checkpoint_hash
+        },
+        event_scope: %{"scope_kind" => "workspace", "scope_id" => workspace.id}
+      }
+
+      Map.merge(Precommit.validate!(entry["wrap"], expected), %{
+        target_user_id: target_user_id,
+        target_device_id: device.id,
+        sender_device_id: sender["device_id"]
+      })
+    end)
+  end
+
+  defp validate_member_envelope_precommits!(workspace, command, sender, checkpoint) do
+    expected_members =
+      from(wm in WorkspaceMember,
+        join: u in User,
+        on: u.id == wm.user_id,
+        where: wm.workspace_id == ^workspace.id and u.account_type != "guest",
+        order_by: [asc: wm.user_id],
+        select: wm.user_id
+      )
+      |> Repo.all()
+
+    entries = command["member_envelope_precommits"]
+
+    unless Enum.map(entries, & &1["target_user_id"]) == expected_members,
+      do: raise(ArgumentError, "kek_rotation_member_envelope_inventory_invalid")
+
+    Enum.map(entries, fn entry ->
+      exact_member_precommit_keys!(entry)
+      target_user_id = entry["target_user_id"]
+      identity = Encryption.get_user_identity_public_key(target_user_id)
+      material = identity.hybrid_encryption_public_key_material
+      key_id = HybridEncryptionMaterial.compute_key_id!(material)
+      material_hash = hash(material)
+
+      expected = %{
+        workspace_id: workspace.id,
+        target_user_id: target_user_id,
+        kek_version: command["new_key_version"],
+        target_identity_encryption_key_id: key_id,
+        target_identity_key_material_hash: material_hash,
+        checkpoint_sequence: checkpoint.sequence,
+        checkpoint_hash: checkpoint.checkpoint_hash,
+        purpose: "workspace_member_kek_wrap",
+        resource: %{
+          "workspace_id" => workspace.id,
+          "target_user_id" => target_user_id,
+          "kek_version" => command["new_key_version"]
+        },
+        sender: sender,
+        recipient: %{
+          "recipient_kind" => "user_identity",
+          "user_id" => target_user_id,
+          "encryption_key_id" => key_id,
+          "key_scope_kind" => "workspace",
+          "key_scope_id" => workspace.id,
+          "key_checkpoint_sequence" => checkpoint.sequence,
+          "key_checkpoint_hash" => checkpoint.checkpoint_hash
+        },
+        event_scope: %{"scope_kind" => "workspace", "scope_id" => workspace.id}
+      }
+
+      unless Map.take(
+               entry,
+               ~w(protocol version workspace_id target_user_id kek_version target_identity_encryption_key_id target_identity_key_material_hash authorization_key_directory_checkpoint_sequence authorization_key_directory_checkpoint_hash)
+             ) ==
+               %{
+                 "protocol" => "refmd.workspace-member-envelope",
+                 "version" => 1,
+                 "workspace_id" => workspace.id,
+                 "target_user_id" => target_user_id,
+                 "kek_version" => command["new_key_version"],
+                 "target_identity_encryption_key_id" => key_id,
+                 "target_identity_key_material_hash" => material_hash,
+                 "authorization_key_directory_checkpoint_sequence" => checkpoint.sequence,
+                 "authorization_key_directory_checkpoint_hash" => checkpoint.checkpoint_hash
+               },
+             do: raise(ArgumentError, "kek_rotation_member_envelope_precommit_invalid")
+
+      derived = Precommit.validate!(entry["wrap"], expected)
+      Precommit.member_envelope_commitment(entry, expected, derived)
+    end)
+  end
+
+  defp wrap_sender!(workspace_id, actor_user_id, actor, checkpoint) do
+    signing_key_id = Signature.compute_signing_key_id!(actor.hybrid_signing_public_key_material)
+
+    unless actor.user_id == actor_user_id and signing_key_id == actor.signing_key_id,
+      do: raise(ArgumentError, "kek_rotation_actor_key_invalid")
+
+    %{
+      "signer_kind" => "device",
+      "user_id" => actor_user_id,
+      "device_id" => actor.id,
+      "signing_key_id" => signing_key_id,
+      "key_scope_kind" => "workspace",
+      "key_scope_id" => workspace_id,
+      "key_checkpoint_sequence" => checkpoint.sequence,
+      "key_checkpoint_hash" => checkpoint.checkpoint_hash
+    }
+  end
+
+  defp exact_member_precommit_keys!(entry) do
+    keys =
+      ~w(authorization_key_directory_checkpoint_hash authorization_key_directory_checkpoint_sequence kek_version protocol target_identity_encryption_key_id target_identity_key_material_hash target_user_id version workspace_id wrap)
+
+    unless is_map(entry) and Enum.sort(Map.keys(entry)) == keys,
+      do: raise(ArgumentError, "kek_rotation_member_envelope_precommit_keys_invalid")
+  end
+
+  defp hash(value), do: value |> JCS.canonical_bytes!() |> Hash.blake3_base64url()
+
+  defp validate_invitation_updates!(schema, workspace, updates, old_key_version, new_key_version) do
+    now = DateTime.utc_now()
+
+    expected =
+      from(i in schema,
+        where:
+          i.workspace_id == ^workspace.id and is_nil(i.revoked_at) and i.expires_at > ^now and
+            i.kek_version == ^old_key_version,
+        order_by: [asc: i.id],
+        select: i
+      )
+      |> maybe_exclude_used(schema)
+      |> maybe_workspace_scope(schema)
+      |> Repo.all()
+
+    actual = Enum.map(updates, &invitation_update_id!(schema, &1))
+
+    unless actual == Enum.map(expected, & &1.id),
+      do: raise(ArgumentError, "kek_rotation_invitation_inventory_invalid")
+
+    Enum.zip(updates, expected)
+    |> Enum.each(fn {update, invitation} ->
+      validate_invitation_update!(schema, workspace, update, invitation, new_key_version)
+    end)
+  end
+
+  defp maybe_exclude_used(query, WorkspaceInvitation), do: where(query, [i], i.is_used == false)
+
+  defp maybe_exclude_used(query, GuestInvitation),
+    do: where(query, [i], i.redemption_count < i.max_redemptions)
+
+  defp maybe_workspace_scope(query, WorkspaceInvitation), do: query
+
+  defp maybe_workspace_scope(query, GuestInvitation),
+    do: where(query, [i], i.scope_kind == "workspace")
+
+  defp validate_invitation_update!(schema, workspace, update, invitation, new_key_version) do
+    package = update["encrypted_bootstrap_package"]
+    maintenance_wrap = update["bootstrap_package_key_maintenance_wrap"]
+    aad = package["aad"]
+    context = aad["key_version_context"]
+
+    validate_invitation_update_shape!(schema, update, package, aad, context, maintenance_wrap)
+    validate_invitation_update_hashes!(update, invitation, package, maintenance_wrap)
+
+    validate_invitation_update_version_binding!(
+      update,
+      workspace,
+      package,
+      maintenance_wrap,
+      context,
+      new_key_version
+    )
+
+    validate_invitation_scope!(schema, update, invitation, aad)
+  end
+
+  defp validate_invitation_update_shape!(schema, update, package, aad, context, maintenance_wrap) do
+    unless exact_invitation_update_keys?(schema, update) and is_map(package) and is_map(aad) and
+             is_map(context) and is_map(maintenance_wrap),
+           do: raise(ArgumentError, "kek_rotation_invitation_update_invalid")
+  end
+
+  defp validate_invitation_update_hashes!(update, invitation, package, maintenance_wrap) do
+    unless update["previous_bootstrap_package_hash"] == invitation.bootstrap_package_hash and
+             update["bootstrap_package_hash"] == hash(package) and
+             update["bootstrap_package_key_maintenance_wrap"] ==
+               package["package_key_maintenance_wrap"] and
+             update["bootstrap_package_key_maintenance_wrap_hash"] == hash(maintenance_wrap),
+           do: raise(ArgumentError, "kek_rotation_invitation_update_invalid")
+  end
+
+  defp validate_invitation_update_version_binding!(
+         update,
+         workspace,
+         package,
+         maintenance_wrap,
+         context,
+         new_key_version
+       ) do
+    unless update["kek_version"] == new_key_version and
+             update["bootstrap_suite_id"] == package["suite_id"] and
+             update["key_version_context"] == context and
+             context["workspace_kek_version"] == new_key_version and
+             package["workspace_id"] == workspace.id and
+             package["key_version"] == new_key_version and
+             maintenance_wrap["key_version"] == new_key_version,
+           do: raise(ArgumentError, "kek_rotation_invitation_update_invalid")
+  end
+
+  defp exact_invitation_update_keys?(WorkspaceInvitation, update) do
+    Enum.sort(Map.keys(update)) ==
+      ~w(bootstrap_package_hash bootstrap_package_key_maintenance_wrap bootstrap_package_key_maintenance_wrap_hash bootstrap_suite_id encrypted_bootstrap_package invitation_id kek_version key_version_context previous_bootstrap_package_hash)
+  end
+
+  defp exact_invitation_update_keys?(GuestInvitation, update) do
+    Enum.sort(Map.keys(update)) ==
+      ~w(bootstrap_package_hash bootstrap_package_key_maintenance_wrap bootstrap_package_key_maintenance_wrap_hash bootstrap_suite_id encrypted_bootstrap_package guest_invitation_id kek_version key_version_context previous_bootstrap_package_hash scope_id scope_kind)
+  end
+
+  defp validate_invitation_scope!(WorkspaceInvitation, update, invitation, aad) do
+    unless update["invitation_id"] == invitation.id and aad["invitation_id"] == invitation.id,
+      do: raise(ArgumentError, "kek_rotation_invitation_scope_invalid")
+  end
+
+  defp validate_invitation_scope!(GuestInvitation, update, invitation, aad) do
+    unless update["guest_invitation_id"] == invitation.id and
+             update["scope_kind"] == invitation.scope_kind and
+             update["scope_id"] == invitation.scope_id and
+             aad["guest_invitation_id"] == invitation.id and
+             aad["scope_kind"] == invitation.scope_kind and aad["scope_id"] == invitation.scope_id,
+           do: raise(ArgumentError, "kek_rotation_invitation_scope_invalid")
+  end
+
+  defp invitation_update_id!(WorkspaceInvitation, update), do: update["invitation_id"]
+  defp invitation_update_id!(GuestInvitation, update), do: update["guest_invitation_id"]
+
+  defp insert_completion_wraps!(verified) do
+    p = verified.prepared
+    scope = verified.scope
+    checkpoint = scope["candidate_key_directory_checkpoint_payload"]
+    covered = checkpoint["covered_event_head"]
+    pq = pq_wrap_authorizations(scope, verified.effect_authorizations)
+    device_count = length(p.business.device_wraps)
+
+    p.business.device_wraps
+    |> Enum.with_index()
+    |> Enum.each(fn {precommit, index} ->
+      event = Enum.at(scope["candidate_key_directory_effects"], index + 1)
+      signature = Enum.at(pq, index)["signature"]
+      wrap = finalize_precommit_wrap(precommit.wrap, event, scope, covered, signature)
+
+      attrs =
+        EncryptionWorkspaces.build_device_key_wrap_attrs!(wrap, %{
+          workspace_id: p.workspace_id,
+          user_id: precommit.target_user_id,
+          device_id: precommit.target_device_id,
+          sender_device_id: precommit.sender_device_id,
+          key_version: p.command["new_key_version"],
+          is_active: true
+        })
+
+      EncryptionWorkspaces.insert_compound_device_key_wrap!(attrs)
+    end)
+
+    p.business.member_envelopes
+    |> Enum.with_index()
+    |> Enum.each(fn {precommit, index} ->
+      event = Enum.at(scope["candidate_key_directory_effects"], 1 + device_count + index)
+      signature = Enum.at(pq, device_count + index)["signature"]
+      wrap = finalize_precommit_wrap(precommit.wrap, event, scope, covered, signature)
+
+      attrs =
+        wrap
+        |> Members.build_member_envelope_attrs!(%{
+          workspace_id: p.workspace_id,
+          target_user_id: precommit.precommit["target_user_id"],
+          sender_device_id: p.actor_device_id,
+          key_version: p.command["new_key_version"]
+        })
+        |> then(&Members.prepare_member_envelope_record_attrs!(p.workspace_id, &1))
+
+      Members.insert_compound_member_envelope!(attrs)
+    end)
+  end
+
+  defp pq_wrap_authorizations(scope, authorizations) do
+    scope["effect_signature_requirements"]
+    |> Enum.zip(authorizations)
+    |> Enum.filter(fn {requirement, _authorization} ->
+      requirement["authorization_kind"] == "pq_wrap"
+    end)
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp finalize_precommit_wrap(wrap, event, scope, covered, signature) do
+    wrap
+    |> Map.put("event", %{
+      "wrap_event_sequence" => event["event_payload"]["sequence"],
+      "wrap_event_hash" => event["event_hash"],
+      "wrap_event_body_hash" => hash(event["event_payload"]["body"])
+    })
+    |> Map.put("operation_checkpoint", %{
+      "checkpoint_sequence" => scope["candidate_key_directory_checkpoint_payload"]["sequence"],
+      "checkpoint_hash" => scope["candidate_key_directory_checkpoint_hash"],
+      "covered_event_head_sequence" => covered["head_sequence"],
+      "covered_event_head_hash" => covered["head_hash"]
+    })
+    |> Map.put("transcript_hash", signature["transcript_hash"])
+    |> Map.put("signature", signature)
+  end
+
+  defp apply_invitation_updates!(schema, updates) do
+    Enum.each(updates, fn update ->
+      id = invitation_update_id!(schema, update)
+      invitation = Repo.get!(schema, id)
+
+      invitation
+      |> Ecto.Changeset.change(%{
+        kek_version: update["kek_version"],
+        encrypted_bootstrap_package: update["encrypted_bootstrap_package"],
+        bootstrap_package_hash: update["bootstrap_package_hash"],
+        bootstrap_package_key_maintenance_wrap: update["bootstrap_package_key_maintenance_wrap"],
+        bootstrap_suite_id: update["bootstrap_suite_id"]
+      })
+      |> Repo.update!()
+    end)
   end
 
   defp eligible_rotation_initiators_query(workspace_id) do
@@ -166,88 +711,15 @@ defmodule RefMD.Workspaces.KekRotation do
     )
   end
 
-  def prepare_kek_rotation_completion(workspace_id, new_kek_version, opts \\ []) do
-    envelope_checks = Keyword.get(opts, :envelope_checks, fn -> :ok end)
-
-    workspace =
-      from(w in Workspace,
-        where: w.id == ^workspace_id
-      )
-      |> Repo.one()
-
-    cond do
-      workspace == nil ->
-        {:error, :not_found}
-
-      not workspace.needs_kek_rotation ->
-        {:error, :not_in_rotation}
-
-      workspace.current_kek_version >= new_kek_version ->
-        {:error, :version_not_monotonic}
-
-      true ->
-        case envelope_checks.() do
-          :ok ->
-            {:ok, Directory.completion_manifest_materials(workspace, new_kek_version)}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-    end
-  rescue
-    _ -> {:error, :invalid_key_directory}
-  end
-
-  def complete_kek_rotation(workspace_id, new_kek_version, opts \\ []) do
-    envelope_checks = Keyword.get(opts, :envelope_checks, fn -> :ok end)
-    workspace_events = Keyword.get(opts, :workspace_key_directory_events)
-    workspace_checkpoint = Keyword.get(opts, :workspace_key_directory_checkpoint)
-    deletion_proofs = Keyword.get(opts, :device_key_deletion_proofs, [])
-    wipe_required_device_ids = Keyword.get(opts, :wipe_required_device_ids, [])
-
-    Repo.transaction(fn ->
-      workspace =
-        from(w in Workspace,
-          where: w.id == ^workspace_id,
-          lock: "FOR UPDATE"
-        )
-        |> Repo.one()
-
-      cond do
-        workspace == nil ->
-          Repo.rollback(:not_found)
-
-        not workspace.needs_kek_rotation ->
-          Repo.rollback(:not_in_rotation)
-
-        workspace.current_kek_version >= new_kek_version ->
-          Repo.rollback(:version_not_monotonic)
-
-        true ->
-          apply_rotation_completion(
-            workspace,
-            new_kek_version,
-            envelope_checks,
-            workspace_events,
-            workspace_checkpoint,
-            deletion_proofs,
-            wipe_required_device_ids
-          )
-      end
-    end)
-    |> case do
-      {:ok, :ok} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   def list_workspaces_needing_kek_rotation do
     from(w in Workspace,
       where: w.needs_kek_rotation == true,
       select: %{
         workspace_id: w.id,
-        initiator_user_id: w.kek_rotation_initiator_user_id,
-        current_kek_version: w.current_kek_version
+        kek_rotation_initiator_user_id: w.kek_rotation_initiator_user_id,
+        current_kek_version: w.current_kek_version,
+        rotation_id: w.current_kek_rotation_id,
+        pending_kek_version: w.pending_kek_version
       }
     )
     |> Repo.all()
@@ -326,66 +798,6 @@ defmodule RefMD.Workspaces.KekRotation do
     )
     |> Repo.all()
     |> Enum.find(&(device_id in &1.wipe_required_device_ids))
-  end
-
-  defp apply_rotation_completion(
-         workspace,
-         new_kek_version,
-         envelope_checks,
-         workspace_events,
-         workspace_checkpoint,
-         deletion_proofs,
-         wipe_required_device_ids
-       ) do
-    case envelope_checks.() do
-      :ok ->
-        Directory.append_completion!(
-          workspace,
-          new_kek_version,
-          workspace_events,
-          workspace_checkpoint,
-          deletion_proofs,
-          wipe_required_device_ids
-        )
-
-        persist_workspace_device_wipe_requirements!(
-          workspace.id,
-          new_kek_version,
-          wipe_required_device_ids
-        )
-
-        reject_old_kek_document_references!(workspace.id, new_kek_version)
-
-        from(k in RefMD.Encryption.WorkspaceEncryptedKey,
-          where:
-            k.workspace_id == ^workspace.id and
-              k.key_version < ^new_kek_version
-        )
-        |> Repo.delete_all()
-
-        from(e in RefMD.Encryption.WorkspaceMemberEnvelope,
-          where:
-            e.workspace_id == ^workspace.id and
-              e.key_version < ^new_kek_version
-        )
-        |> Repo.delete_all()
-
-        from(w in Workspace, where: w.id == ^workspace.id)
-        |> Repo.update_all(
-          set: [
-            current_kek_version: new_kek_version,
-            min_kek_version: new_kek_version,
-            needs_kek_rotation: false,
-            kek_rotation_due_at: RotationPolicy.next_kek_due_at(),
-            kek_rotation_initiator_user_id: nil
-          ]
-        )
-
-        :ok
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
   end
 
   defp persist_workspace_device_wipe_requirements!(_workspace_id, _required_kek_version, []),

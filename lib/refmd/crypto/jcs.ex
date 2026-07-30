@@ -65,7 +65,7 @@ defmodule RefMD.Crypto.JCS do
     Integer.to_string(value)
   end
 
-  defp encode_value(nil, _root?), do: raise(ArgumentError, "jcs_null_rejected")
+  defp encode_value(nil, _root?), do: "null"
 
   defp encode_value(value, _root?) when is_float(value),
     do: raise(ArgumentError, "jcs_invalid_integer")
@@ -135,7 +135,7 @@ defmodule RefMD.Crypto.JCS do
     value
   end
 
-  defp strict_decoded_value!(nil), do: raise(ArgumentError, "jcs_null_rejected")
+  defp strict_decoded_value!(nil), do: nil
 
   defp strict_decoded_value!(value) when is_float(value),
     do: raise(ArgumentError, "json_invalid_number_form")

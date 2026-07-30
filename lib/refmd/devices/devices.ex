@@ -7,9 +7,10 @@ defmodule RefMD.Devices do
 
   alias RefMD.Auth.Session
   alias RefMD.Crypto.{Encoding, Hash, HybridEncryptionMaterial, JCS, Signature}
-  alias RefMD.Devices.{Device, DeviceEncryptedUMK}
+  alias RefMD.Devices.{Device, DeviceEncryptedUMK, PrekeyClock}
   alias RefMD.Encryption
   alias RefMD.Repo
+  alias RefMD.Security
 
   alias RefMD.Devices.Registrations, as: WRegistrations
   alias RefMD.Devices.Registrations.ApprovalDeliveryArtifacts
@@ -106,20 +107,33 @@ defmodule RefMD.Devices do
   def issue_registration_challenge(user_id, session) do
     {challenge, challenge_hash, expires_at} = new_registration_challenge()
 
-    from(s in Session, where: s.id == ^session.id and s.user_id == ^user_id)
-    |> Repo.update_all(
-      set: [
-        pending_registration_challenge_hash: challenge_hash,
-        pending_registration_challenge_expires_at: expires_at,
-        pending_registration_challenge_consumed_at: nil
-      ]
+    Repo.transaction(
+      fn ->
+        freshness = PrekeyClock.issue!()
+
+        from(s in Session, where: s.id == ^session.id and s.user_id == ^user_id)
+        |> Repo.update_all(
+          set: [
+            pending_registration_challenge_hash: challenge_hash,
+            pending_registration_challenge_expires_at: expires_at,
+            pending_registration_challenge_consumed_at: nil,
+            pending_registration_prekey_issued_at_ms: freshness.issued_at_ms,
+            pending_registration_prekey_expires_at_ms: freshness.expires_at_ms
+          ]
+        )
+        |> case do
+          {1, _} -> Map.merge(freshness, %{challenge: challenge})
+          _ -> Repo.rollback(:session_not_found)
+        end
+      end,
+      isolation: :serializable
     )
     |> case do
-      {1, _} ->
-        {:ok, %{challenge: challenge, expires_in_seconds: @registration_challenge_ttl_seconds}}
+      {:ok, result} ->
+        {:ok, Map.put(result, :expires_in_seconds, @registration_challenge_ttl_seconds)}
 
-      _ ->
-        {:error, :session_not_found}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -143,16 +157,13 @@ defmodule RefMD.Devices do
 
   # ── Revocations (delegated to RefMD.Devices.Revocations) ──
 
-  defdelegate revoke_device(
-                user_id,
-                device_id,
-                revoked_by_device_id,
-                revocation_mode,
-                revocation_signature,
-                revoked_at_ms,
-                key_directory
-              ),
-              to: WRevocations
+  defdelegate prepare_device_revocation(user_id, actor_device_id, device_id, command),
+    to: WRevocations,
+    as: :prepare
+
+  defdelegate commit_device_revocation(user_id, actor_device_id, device_id, authorization),
+    to: WRevocations,
+    as: :commit
 
   def touch_device(device_id) do
     from(d in Device,
@@ -225,18 +236,29 @@ defmodule RefMD.Devices do
              )
              |> create_device() do
         insert_initial_key_directories!(attrs)
-        device
+        {device, record_registration_approved!(attrs.user_id, device)}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
     |> case do
-      {:ok, device} -> {:ok, device}
-      {:error, reason} -> {:error, reason}
+      {:ok, {device, security_record}} ->
+        Enum.each(security_record.notifications, &Security.broadcast_notification/1)
+        {:ok, device}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   def bootstrap_first_device(_, _, _), do: {:error, :invalid_signature}
+
+  defp record_registration_approved!(user_id, device) do
+    case Security.record_registration_approved(user_id, device.id) do
+      {:ok, record} -> record
+      {:error, _reason} -> Repo.rollback(:security_audit_unavailable)
+    end
+  end
 
   def bootstrap_first_user_device(attrs, approval_signature)
       when is_map(attrs) and is_map(approval_signature) do
@@ -274,9 +296,7 @@ defmodule RefMD.Devices do
 
   def bootstrap_first_user_device(_, _), do: {:error, :invalid_signature}
 
-  def bootstrap_guest_device(attrs, approval_signature, workspace_key_directory_checkpoint)
-      when is_map(attrs) and is_map(approval_signature) and
-             is_map(workspace_key_directory_checkpoint) do
+  def bootstrap_guest_device(attrs) when is_map(attrs) do
     Repo.transaction(fn ->
       lock_user!(attrs.user_id)
 
@@ -285,22 +305,8 @@ defmodule RefMD.Devices do
       end
 
       with {:ok, identity_material} <- get_identity_public_material(attrs.user_id),
-           :ok <-
-             verify_genesis_device_signature(attrs, approval_signature, identity_material.signing),
            :ok <- validate_initial_user_key_directory_materials(attrs, identity_material),
-           {:ok, device} <-
-             attrs
-             |> Map.put(:approval_signature, approval_signature)
-             |> Map.put(:approval_signature_surface, "genesis_device_bootstrap")
-             |> Map.put(
-               :approval_proof,
-               genesis_device_approval_proof!(
-                 attrs,
-                 identity_material.signing,
-                 workspace_key_directory_checkpoint
-               )
-             )
-             |> create_device() do
+           {:ok, device} <- create_guest_device(attrs) do
         insert_initial_user_key_directory!(attrs)
         device
       else
@@ -313,7 +319,29 @@ defmodule RefMD.Devices do
     end
   end
 
-  def bootstrap_guest_device(_, _, _), do: {:error, :invalid_signature}
+  def bootstrap_guest_device(_), do: {:error, :invalid_guest_device}
+
+  defp create_guest_device(attrs) do
+    now = DateTime.utc_now()
+    user_checkpoint = get_in(attrs, [:key_directory, :user_checkpoint])
+    checkpoint_payload = if is_map(user_checkpoint), do: user_checkpoint["payload"]
+
+    attrs =
+      if is_map(checkpoint_payload) do
+        attrs
+        |> Map.put(:key_checkpoint_sequence, checkpoint_payload["sequence"])
+        |> Map.put(
+          :key_checkpoint_hash,
+          Hash.blake3_base64url(JCS.canonical_bytes!(checkpoint_payload))
+        )
+      else
+        attrs
+      end
+
+    %Device{last_seen_at: now, created_at: now}
+    |> Device.guest_changeset(attrs)
+    |> Repo.insert()
+  end
 
   def user_has_devices?(user_id) do
     from(d in Device,
@@ -966,17 +994,30 @@ defmodule RefMD.Devices do
   defp device_approval_transcript_from_attrs!(
          %{approval_signature_surface: "genesis_device_bootstrap"} = attrs
        ) do
+    details = attrs.approval_proof["surface_details"]
+
     Signature.build_genesis_device_bootstrap_transcript!(%{
+      registration_id: details["registration_id"],
+      compound_intent_id: details["compound_intent_id"],
+      mutation_id: details["mutation_id"],
+      genesis_compound_context_hash: details["genesis_compound_context_hash"],
       user_id: attrs.user_id,
+      workspace_id: details["workspace_id"],
+      owner_role_id: details["owner_role_id"],
       device_id: attrs.id,
       device_public_material: attrs.hybrid_signing_public_key_material,
       device_hybrid_encryption_public_key_material: attrs.hybrid_encryption_public_key_material,
       client_nonce: Encoding.encode_base64url(attrs.client_nonce),
-      registration_challenge_hash:
-        attrs.approval_proof["surface_details"]["registration_challenge_hash"],
+      registration_challenge_hash: details["registration_challenge_hash"],
       identity_signing_key_id: attrs.approval_proof["approving_signing_key_id"],
-      user_identity_public_key_hash:
-        attrs.approval_proof["surface_details"]["user_identity_public_key_hash"]
+      user_identity_public_key_hash: details["user_identity_public_key_hash"],
+      user_device_key_added_event_hash: details["user_device_key_added_event_hash"],
+      workspace_device_key_added_event_hash: details["workspace_device_key_added_event_hash"],
+      owner_member_added_event_hash: details["owner_member_added_event_hash"],
+      workspace_member_envelope_commitment_hash:
+        details["workspace_member_envelope_commitment_hash"],
+      user_audit_checkpoint: details["user_audit_checkpoint"],
+      workspace_audit_checkpoint: details["workspace_audit_checkpoint"]
     })
   end
 
@@ -1112,23 +1153,6 @@ defmodule RefMD.Devices do
   defp genesis_device_approval_proof!(attrs, identity_public_material) do
     transcript = genesis_device_approval_transcript!(attrs)
     proof_context = genesis_device_approval_proof_context!(attrs)
-
-    Signature.build_device_approval_proof!(
-      "genesis_device_bootstrap",
-      transcript,
-      %{
-        "kind" => "genesis_device_bootstrap",
-        "registration_challenge_hash" => attrs.pending_registration_challenge_hash,
-        "user_identity_public_key_hash" =>
-          Hash.blake3_base64url(JCS.canonical_bytes!(identity_public_material))
-      },
-      proof_context
-    )
-  end
-
-  defp genesis_device_approval_proof!(attrs, identity_public_material, key_directory_checkpoint) do
-    transcript = genesis_device_approval_transcript!(attrs)
-    proof_context = genesis_device_approval_proof_context!(attrs, key_directory_checkpoint)
 
     Signature.build_device_approval_proof!(
       "genesis_device_bootstrap",

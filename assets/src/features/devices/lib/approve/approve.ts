@@ -1,5 +1,5 @@
 import { authState, cryptoWorkerReady, deviceState } from "@/entities/session";
-import { devicesApi, encryptionApi } from "@/shared/api";
+import { devicesApi, encryptionApi, securityCheckpointsApi } from "@/shared/api";
 import type { DeviceRegistrationInfo } from "@/shared/api/devices";
 import type { components } from "@/shared/api/schema";
 import {
@@ -9,8 +9,9 @@ import {
   lookupVerifiedKeyDirectoryEventBodies,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import {
+  buildAuditCheckpointPinSet,
   getAuditCheckpointPin,
-  type AuditCheckpointPin,
+  verifyAndPinAuditCheckpoint,
 } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import { base64UrlDecode, base64UrlEncode } from "@/shared/lib/crypto/encoding";
 import { blake3Base64Url } from "@/shared/lib/crypto/hash";
@@ -146,15 +147,42 @@ export async function approveDeviceRegistration(params: {
       };
     }),
   );
-  const userAuditPin = await getAuditCheckpointPin(`user:${auth.user.id}`);
+  const auditCheckpointProofs = await securityCheckpointsApi.current();
+  const proofWorkspaceIds = auditCheckpointProofs.workspace_audit_checkpoints
+    .map((entry) => entry.workspace_id)
+    .sort();
+  if (
+    proofWorkspaceIds.length !== workspaceIds.length ||
+    [...workspaceIds].sort().some((workspaceId, index) => workspaceId !== proofWorkspaceIds[index])
+  ) {
+    throw new Error("audit_checkpoint_proof_scope_mismatch");
+  }
+  await verifyAndPinAuditCheckpoint(auditCheckpointProofs.user_audit_checkpoint);
+  for (const entry of auditCheckpointProofs.workspace_audit_checkpoints) {
+    await verifyAndPinAuditCheckpoint(entry.audit_checkpoint);
+  }
+
+  const userAuditPin = await getAuditCheckpointPin("user", auth.user.id);
   if (!userAuditPin) throw new Error("user_audit_checkpoint_pin_required");
   const workspaceAuditPins = await Promise.all(
     workspaceAppends.map(async (append) => {
-      const pin = await getAuditCheckpointPin(`workspace:${append.workspace_id}`);
+      const pin = await getAuditCheckpointPin("workspace", append.workspace_id);
       if (!pin) throw new Error("workspace_audit_checkpoint_pin_required");
       return pin;
     }),
   );
+  const responderPrekeys = akeResponderPrekeys(params.device);
+  const trustTransferPrekeyPayload = responderPrekeys.trustTransfer.payload;
+  if (!isRecord(trustTransferPrekeyPayload)) {
+    throw new Error("initial_ake_trust_responder_prekey_missing");
+  }
+  const auditCheckpointPinSet = buildAuditCheckpointPinSet({
+    trustTransferId: stringField(trustTransferPrekeyPayload.operation_id),
+    sourceDeviceId: currentDevice.deviceId,
+    targetDeviceId: params.device.id,
+    ownerUserId: auth.user.id,
+    pins: [userAuditPin, ...workspaceAuditPins],
+  });
   const trustStateBundle = buildTrustStateBundle({
     userId: auth.user.id,
     targetDeviceId: params.device.id,
@@ -162,8 +190,8 @@ export async function approveDeviceRegistration(params: {
     userCheckpoint: userAppend.checkpoint,
     userEvents: userAppend.events,
     workspaceAppends,
-    userAuditPin,
-    workspaceAuditPins,
+    auditCheckpointPinSet: auditCheckpointPinSet.pinSet,
+    auditCheckpointProofs,
   });
   const trustStateBundleHash = blake3Base64Url(
     canonicalizeStrictBytes(trustStateBundle as unknown as StrictJsonValue),
@@ -174,7 +202,6 @@ export async function approveDeviceRegistration(params: {
     targetKeyCheckpoint: userAppend.checkpoint,
   });
   params.onStepChange?.("distributing");
-  const responderPrekeys = akeResponderPrekeys(params.device);
   const operationCheckpoint = operationCheckpointFromEnvelope(userAppend.checkpoint);
   const initialOffer = await worker.beginInitialAkeUmkDelivery({
     userId: auth.user.id,
@@ -220,6 +247,8 @@ export async function approveDeviceRegistration(params: {
         })),
       } as unknown as StrictJsonValue),
     ),
+    transferScopeHash: auditCheckpointPinSet.transferScopeHash,
+    auditCheckpointPinSetHash: auditCheckpointPinSet.pinSetHash,
     documentRollbackPinSetHash,
     pendingRegistrationBindingHash,
   });
@@ -308,6 +337,8 @@ export async function approveDeviceRegistration(params: {
       delivery_record_hash: trustPendingDeliveryHash,
       key_checkpoint_hash: operationCheckpoint.checkpointHash,
       document_rollback_pin_set_hash: documentRollbackPinSetHash,
+      transfer_scope_hash: auditCheckpointPinSet.transferScopeHash,
+      audit_checkpoint_pin_set_hash: auditCheckpointPinSet.pinSetHash,
     };
   const approvedDeviceRegistrationSas = await worker.computeSas({
     deviceId: params.device.id,
@@ -477,13 +508,12 @@ function buildTrustStateBundle(params: {
     events: Record<string, unknown>[];
     checkpoint: Record<string, unknown>;
   }[];
-  userAuditPin: AuditCheckpointPin;
-  workspaceAuditPins: AuditCheckpointPin[];
+  auditCheckpointPinSet: ReturnType<typeof buildAuditCheckpointPinSet>["pinSet"];
+  auditCheckpointProofs: Awaited<ReturnType<typeof securityCheckpointsApi.current>>;
 }): Record<string, unknown> {
   const userLineage = buildTransferredKeyDirectoryLineage({
     scopeKind: "user",
     scopeId: params.userId,
-    auditPin: params.userAuditPin,
     previousCheckpoint: params.userPreviousCheckpoint,
     checkpoint: params.userCheckpoint,
     events: params.userEvents,
@@ -500,27 +530,32 @@ function buildTrustStateBundle(params: {
       lineage: buildTransferredKeyDirectoryLineage({
         scopeKind: "workspace",
         scopeId: append.workspace_id,
-        auditPin:
-          params.workspaceAuditPins.find(
-            (pin) => pin.chainScope === `workspace:${append.workspace_id}`,
-          ) ??
-          (() => {
-            throw new Error("workspace_audit_checkpoint_pin_required");
-          })(),
         previousCheckpoint: append.previousCheckpoint,
         checkpoint: append.checkpoint,
         events: append.events,
       }),
     })),
-    user_audit_pin: params.userAuditPin,
-    workspace_audit_pins: params.workspaceAuditPins,
+    audit_checkpoint_pin_set: params.auditCheckpointPinSet,
+    audit_checkpoint_proofs: [
+      {
+        chain_scope_kind: "user",
+        chain_scope_id: params.userId,
+        proof: params.auditCheckpointProofs.user_audit_checkpoint,
+      },
+      ...params.auditCheckpointProofs.workspace_audit_checkpoints
+        .sort((left, right) => left.workspace_id.localeCompare(right.workspace_id))
+        .map((entry) => ({
+          chain_scope_kind: "workspace",
+          chain_scope_id: entry.workspace_id,
+          proof: entry.audit_checkpoint,
+        })),
+    ],
   };
 }
 
 function buildTransferredKeyDirectoryLineage(params: {
   scopeKind: "user" | "workspace";
   scopeId: string;
-  auditPin: AuditCheckpointPin;
   previousCheckpoint: Record<string, unknown>;
   checkpoint: Record<string, unknown>;
   events: Record<string, unknown>[];
@@ -541,11 +576,7 @@ function buildTransferredKeyDirectoryLineage(params: {
       operationCheckpointFromEnvelope(left).sequence -
       operationCheckpointFromEnvelope(right).sequence,
   );
-  const anchor = checkpoints.find(
-    (checkpoint) =>
-      hashKeyDirectoryCheckpointEnvelope(checkpoint) === params.auditPin.authorityCheckpointHash,
-  );
-  if (!anchor) throw new Error("audit_checkpoint_authority_lineage_missing");
+  const anchor = params.previousCheckpoint;
 
   const anchorState = operationCheckpointFromEnvelope(anchor);
   const previousState = operationCheckpointFromEnvelope(params.previousCheckpoint);

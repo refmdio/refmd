@@ -225,7 +225,9 @@ defmodule RefMDWeb.Schemas.TrustTransferDeliveryCommitment do
       sender_device_id: %Schema{type: :string},
       delivery_record_hash: RefMDWeb.Schemas.Blake3Base64Url,
       key_checkpoint_hash: RefMDWeb.Schemas.Blake3Base64Url,
-      document_rollback_pin_set_hash: RefMDWeb.Schemas.Blake3Base64Url
+      document_rollback_pin_set_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      transfer_scope_hash: RefMDWeb.Schemas.Blake3Base64Url,
+      audit_checkpoint_pin_set_hash: RefMDWeb.Schemas.Blake3Base64Url
     },
     required: [
       :purpose,
@@ -236,7 +238,9 @@ defmodule RefMDWeb.Schemas.TrustTransferDeliveryCommitment do
       :sender_device_id,
       :delivery_record_hash,
       :key_checkpoint_hash,
-      :document_rollback_pin_set_hash
+      :document_rollback_pin_set_hash,
+      :transfer_scope_hash,
+      :audit_checkpoint_pin_set_hash
     ]
   })
 end

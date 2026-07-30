@@ -618,6 +618,7 @@ defmodule RefMDWeb.Schemas.InitialAkeTrustTransferContext do
         source_device_id: %Schema{type: :string, format: :uuid},
         target_device_id: %Schema{type: :string, format: :uuid},
         transfer_scope_hash: %Schema{type: :string},
+        audit_checkpoint_pin_set_hash: %Schema{type: :string},
         target_payload_kind: %Schema{type: :string, enum: ["trust_state_bundle"]},
         operation_id: %Schema{type: :string},
         challenge: %Schema{type: :string}
@@ -629,6 +630,7 @@ defmodule RefMDWeb.Schemas.InitialAkeTrustTransferContext do
         :source_device_id,
         :target_device_id,
         :transfer_scope_hash,
+        :audit_checkpoint_pin_set_hash,
         :target_payload_kind,
         :operation_id,
         :challenge
@@ -709,6 +711,8 @@ defmodule RefMDWeb.Schemas.InitialAkeTrustTransferDirectory do
         user_checkpoint_hash: %Schema{type: :string},
         user_event_head_hash: %Schema{type: :string},
         workspace_pins_hash: %Schema{type: :string},
+        transfer_scope_hash: %Schema{type: :string},
+        audit_checkpoint_pin_set_hash: %Schema{type: :string},
         suite_policy_version: %Schema{type: :integer},
         min_suite_rank: %Schema{type: :integer},
         allowed_suite_ids_hash: %Schema{type: :string}
@@ -717,6 +721,8 @@ defmodule RefMDWeb.Schemas.InitialAkeTrustTransferDirectory do
         :user_checkpoint_hash,
         :user_event_head_hash,
         :workspace_pins_hash,
+        :transfer_scope_hash,
+        :audit_checkpoint_pin_set_hash,
         :suite_policy_version,
         :min_suite_rank,
         :allowed_suite_ids_hash
@@ -1015,7 +1021,9 @@ defmodule RefMDWeb.Schemas.InitialAkePendingDeliveryMetadata do
               |> Map.delete(:key_confirmation_hash)
               |> Map.merge(%{
                 workspace_id: %Schema{type: :string, format: :uuid},
-                document_rollback_pin_set_hash: %Schema{type: :string}
+                document_rollback_pin_set_hash: %Schema{type: :string},
+                transfer_scope_hash: %Schema{type: :string},
+                audit_checkpoint_pin_set_hash: %Schema{type: :string}
               })
   @required RefMDWeb.Schemas.InitialKeyDeliveryMetadata.schema().required --
               [:key_confirmation_hash]
@@ -1074,9 +1082,17 @@ defmodule RefMDWeb.Schemas.InitialKeyDeliveryTrustTransferMetadata do
         Map.merge(@common, %{
           suite_id: %Schema{type: :string, enum: [@initial_delivery_suite_id]},
           suite_rank: %Schema{type: :integer, enum: [@suite_rank]},
-          document_rollback_pin_set_hash: %Schema{type: :string}
+          document_rollback_pin_set_hash: %Schema{type: :string},
+          transfer_scope_hash: %Schema{type: :string},
+          audit_checkpoint_pin_set_hash: %Schema{type: :string}
         }),
-      required: Map.keys(@common) ++ [:document_rollback_pin_set_hash]
+      required:
+        Map.keys(@common) ++
+          [
+            :document_rollback_pin_set_hash,
+            :transfer_scope_hash,
+            :audit_checkpoint_pin_set_hash
+          ]
     },
     struct?: false
   )

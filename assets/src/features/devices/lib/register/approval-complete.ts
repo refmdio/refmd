@@ -2,12 +2,13 @@ import { authApi, devicesApi } from "@/shared/api";
 import type { AuthState } from "@/entities/session";
 import { setCryptoWorkerReady, setFullSession } from "@/entities/session";
 import {
-  advanceKeyDirectoryPinWithProof,
-  installTransferredKeyDirectoryCheckpoint,
+  hashKeyDirectoryCheckpointEnvelope,
+  verifyTransferredKeyDirectoryLineage,
 } from "@/shared/lib/anti-rollback/key-directory-pin/pins";
 import {
-  assertTransferredWorkspaceAuditPins,
-  installTransferredAuditCheckpointPin,
+  assertAuditCheckpointPinSet,
+  installTransferredSecurityPinSet,
+  verifyAuditCheckpointCandidate,
 } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import { persistDeviceId, persistCurrentKeysWithDsk } from "@/shared/lib/auth/key-persistence";
 import { base64UrlDecode } from "@/shared/lib/crypto/encoding";
@@ -192,6 +193,7 @@ async function restoreApprovedDeviceSession(params: {
     expectedTrustStateBundleHash: deliveryResourceHash(umkData.initial_key_delivery),
     userId: auth.user.id,
     deviceId,
+    transferBinding: trustTransferBinding(umkData),
   });
 
   let identityPublicKeys: IdentityPublicKeys | null = null;
@@ -291,10 +293,28 @@ async function installApprovedDeviceTrustStateBundle(params: {
   expectedTrustStateBundleHash: string;
   userId: string;
   deviceId: string;
+  transferBinding: {
+    trustTransferId: string;
+    sourceDeviceId: string;
+    targetDeviceId: string;
+    transferScopeHash: string;
+    pinSetHash: string;
+  };
 }): Promise<void> {
   if (!isRecord(params.trustStateBundle)) {
     throw new Error("trust_state_bundle_missing");
   }
+  assertExactKeys(params.trustStateBundle, [
+    "audit_checkpoint_proofs",
+    "audit_checkpoint_pin_set",
+    "protocol",
+    "purpose",
+    "target_device_id",
+    "user_id",
+    "user_lineage",
+    "version",
+    "workspace_checkpoints",
+  ]);
   if (
     params.trustStateBundle.protocol !== "refmd.trust-state-bundle" ||
     params.trustStateBundle.version !== 1 ||
@@ -316,19 +336,20 @@ async function installApprovedDeviceTrustStateBundle(params: {
     params.trustStateBundle.user_lineage,
     "trust_state_bundle_user_checkpoint_invalid",
   );
-  await installTransferredKeyDirectoryCheckpoint({
-    scopeKind: "user",
-    scopeId: params.userId,
-    checkpointEnvelope: userLineage.checkpointAncestry[0]!,
-  });
-  await installTransferredAuditCheckpointPin(params.trustStateBundle.user_audit_pin);
-  await advanceKeyDirectoryPinWithProof({
-    scopeKind: "user",
-    scopeId: params.userId,
-    checkpointEnvelope: userLineage.checkpoint,
-    checkpointAncestry: userLineage.checkpointAncestry,
-    eventAncestry: userLineage.events,
-  });
+  const keyDirectoryPins = [
+    await verifyTransferredKeyDirectoryLineage({
+      scopeKind: "user",
+      scopeId: params.userId,
+      checkpointEnvelope: userLineage.checkpoint,
+      checkpointAncestry: userLineage.checkpointAncestry,
+      eventAncestry: userLineage.events,
+    }),
+  ];
+  const authorizationCheckpoints = authorizationCheckpointReferences(
+    "user",
+    params.userId,
+    userLineage,
+  );
 
   const workspaceCheckpoints = params.trustStateBundle.workspace_checkpoints;
   if (!Array.isArray(workspaceCheckpoints)) {
@@ -340,38 +361,151 @@ async function installApprovedDeviceTrustStateBundle(params: {
     }
     return entry.workspace_id;
   });
-  const workspaceAuditPins = assertTransferredWorkspaceAuditPins(
-    workspaceIds,
-    params.trustStateBundle.workspace_audit_pins,
-  );
+  const pinSet = assertAuditCheckpointPinSet({
+    value: params.trustStateBundle.audit_checkpoint_pin_set,
+    ownerUserId: params.userId,
+    trustTransferId: params.transferBinding.trustTransferId,
+    sourceDeviceId: params.transferBinding.sourceDeviceId,
+    targetDeviceId: params.transferBinding.targetDeviceId,
+    transferScopeHash: params.transferBinding.transferScopeHash,
+    pinSetHash: params.transferBinding.pinSetHash,
+  });
+  const expectedScopeKeys = [
+    `user:${params.userId}`,
+    ...workspaceIds.sort().map((workspaceId) => `workspace:${workspaceId}`),
+  ];
+  if (
+    pinSet.pins.length !== expectedScopeKeys.length ||
+    pinSet.pins.some(
+      (pin, index) => `${pin.chain_scope_kind}:${pin.chain_scope_id}` !== expectedScopeKeys[index],
+    )
+  ) {
+    throw new Error("trust_state_bundle_pin_scope_mismatch");
+  }
 
   for (const entry of workspaceCheckpoints) {
     if (!isRecord(entry) || typeof entry.workspace_id !== "string" || !isRecord(entry.lineage)) {
       throw new Error("trust_state_bundle_workspace_checkpoint_invalid");
     }
     const workspaceId = entry.workspace_id;
-    const auditPin = workspaceAuditPins.find(
-      (pin) => pin.chainScope === `workspace:${workspaceId}`,
-    );
-    if (!auditPin) throw new Error("trust_state_bundle_workspace_audit_pins_mismatch");
     const lineage = assertTransferredLineage(
       entry.lineage,
       "trust_state_bundle_workspace_checkpoint_invalid",
     );
-    await installTransferredKeyDirectoryCheckpoint({
-      scopeKind: "workspace",
-      scopeId: workspaceId,
-      checkpointEnvelope: lineage.checkpointAncestry[0]!,
-    });
-    await installTransferredAuditCheckpointPin(auditPin);
-    await advanceKeyDirectoryPinWithProof({
-      scopeKind: "workspace",
-      scopeId: workspaceId,
-      checkpointEnvelope: lineage.checkpoint,
-      checkpointAncestry: lineage.checkpointAncestry,
-      eventAncestry: lineage.events,
-    });
+    keyDirectoryPins.push(
+      await verifyTransferredKeyDirectoryLineage({
+        scopeKind: "workspace",
+        scopeId: workspaceId,
+        checkpointEnvelope: lineage.checkpoint,
+        checkpointAncestry: lineage.checkpointAncestry,
+        eventAncestry: lineage.events,
+      }),
+    );
+    authorizationCheckpoints.push(
+      ...authorizationCheckpointReferences("workspace", workspaceId, lineage),
+    );
   }
+  const auditCheckpointProofs = params.trustStateBundle.audit_checkpoint_proofs;
+  if (
+    !Array.isArray(auditCheckpointProofs) ||
+    auditCheckpointProofs.length !== pinSet.pins.length
+  ) {
+    throw new Error("trust_state_bundle_audit_checkpoint_proofs_invalid");
+  }
+  const verifiedAuditPins = [];
+  for (const [index, value] of auditCheckpointProofs.entries()) {
+    if (!isRecord(value)) {
+      throw new Error("trust_state_bundle_audit_checkpoint_proof_invalid");
+    }
+    assertExactKeys(value, ["chain_scope_id", "chain_scope_kind", "proof"]);
+    const expectedPin = pinSet.pins[index];
+    if (
+      !expectedPin ||
+      value.chain_scope_kind !== expectedPin.chain_scope_kind ||
+      value.chain_scope_id !== expectedPin.chain_scope_id
+    ) {
+      throw new Error("trust_state_bundle_audit_checkpoint_proof_scope_mismatch");
+    }
+    const verifiedPin = await verifyAuditCheckpointCandidate(value.proof, {
+      acquisition: "trust_transfer",
+    });
+    if (!sameTransferredAuditCheckpoint(verifiedPin, expectedPin)) {
+      throw new Error("trust_state_bundle_audit_checkpoint_proof_mismatch");
+    }
+    verifiedAuditPins.push(verifiedPin);
+  }
+  await installTransferredSecurityPinSet({
+    pinSet,
+    pinSetHash: params.transferBinding.pinSetHash,
+    keyDirectoryPins,
+    authorizationCheckpoints,
+    verifiedAuditPins,
+  });
+}
+
+function sameTransferredAuditCheckpoint(
+  verified: Awaited<ReturnType<typeof verifyAuditCheckpointCandidate>>,
+  transferred: typeof verified,
+): boolean {
+  return (
+    verified.chain_scope_kind === transferred.chain_scope_kind &&
+    verified.chain_scope_id === transferred.chain_scope_id &&
+    verified.checkpoint_sequence === transferred.checkpoint_sequence &&
+    verified.checkpoint_hash === transferred.checkpoint_hash &&
+    verified.event_head_sequence === transferred.event_head_sequence &&
+    verified.event_head_hash === transferred.event_head_hash &&
+    verified.checkpoint_variant === transferred.checkpoint_variant &&
+    verified.signer_owner_kind === transferred.signer_owner_kind &&
+    verified.signer_owner_id === transferred.signer_owner_id &&
+    verified.signing_key_id === transferred.signing_key_id &&
+    verified.authorization_checkpoint_sequence === transferred.authorization_checkpoint_sequence &&
+    verified.authorization_checkpoint_hash === transferred.authorization_checkpoint_hash
+  );
+}
+
+function authorizationCheckpointReferences(
+  scopeKind: "user" | "workspace",
+  scopeId: string,
+  lineage: ReturnType<typeof assertTransferredLineage>,
+) {
+  return [...lineage.checkpointAncestry, lineage.checkpoint].map((checkpoint) => {
+    if (!isRecord(checkpoint.payload)) {
+      throw new Error("trust_state_bundle_key_directory_checkpoint_invalid");
+    }
+    const sequence = checkpoint.payload.sequence;
+    if (!Number.isSafeInteger(sequence) || (sequence as number) < 1) {
+      throw new Error("trust_state_bundle_key_directory_checkpoint_invalid");
+    }
+    return {
+      scopeKind,
+      scopeId,
+      sequence: sequence as number,
+      hash: hashKeyDirectoryCheckpointEnvelope(checkpoint as never),
+    };
+  });
+}
+
+function trustTransferBinding(umkData: Awaited<ReturnType<typeof retryGetUmk>>) {
+  const delivery = (umkData as { device_state_delivery?: unknown }).device_state_delivery;
+  if (
+    !isRecord(delivery) ||
+    !isRecord(delivery.initial_ake) ||
+    !isRecord(delivery.initial_key_delivery)
+  ) {
+    throw new Error("device_state_delivery_missing");
+  }
+  const transcript = delivery.initial_ake.transcript;
+  const metadata = delivery.initial_key_delivery.metadata;
+  if (!isRecord(transcript) || !isRecord(transcript.context) || !isRecord(metadata)) {
+    throw new Error("trust_transfer_binding_missing");
+  }
+  return {
+    trustTransferId: requiredString(transcript.context.trust_transfer_id),
+    sourceDeviceId: requiredString(transcript.context.source_device_id),
+    targetDeviceId: requiredString(transcript.context.target_device_id),
+    transferScopeHash: requiredString(metadata.transfer_scope_hash),
+    pinSetHash: requiredString(metadata.audit_checkpoint_pin_set_hash),
+  };
 }
 
 function assertTransferredLineage(
@@ -412,6 +546,24 @@ function deliveryResourceHash(delivery: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requiredString(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("trust_transfer_binding_invalid");
+  }
+  return value;
+}
+
+function assertExactKeys(value: Record<string, unknown>, expected: string[]): void {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  if (
+    actual.length !== sortedExpected.length ||
+    actual.some((key, index) => key !== sortedExpected[index])
+  ) {
+    throw new Error("trust_state_bundle_schema_invalid");
+  }
 }
 
 function identityEcdhPublicFromMaterial(

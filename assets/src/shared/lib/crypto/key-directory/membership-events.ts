@@ -4,13 +4,11 @@ import {
   activeDeviceSigningKeyId,
   activeIdentitySigningKeyId,
   actorWithCheckpointAuthority,
-  checkpointHasKey,
   checkpointShareParticipantKeys,
   deviceActor,
   eventHash,
   eventHead,
   eventRef,
-  eventRefForKey,
   identityActor,
   keyDirectoryCheckpoint,
   keyDirectoryEvent,
@@ -153,61 +151,49 @@ export async function buildWorkspaceMemberRemovalKeyDirectoryAppend(
     },
   });
 
-  const revocableDeviceKeys = input.removedDeviceKeys.filter(
-    (keys) =>
-      checkpointHasKey(checkpointPayload, keys.signingKeyId) &&
-      checkpointHasKey(checkpointPayload, keys.encryptionKeyId),
-  );
-
-  const events = revocableDeviceKeys.reduce<Record<string, unknown>[]>(
-    (acc, deviceKeys) => {
-      const previous = acc[acc.length - 1] ?? memberRemovedEvent;
-      const encryptionSequence = startingSequence + acc.length;
-      const encryptionEvent = keyDirectoryEvent({
-        scopeKind: "workspace",
-        scopeId: input.workspaceId,
-        sequence: encryptionSequence,
-        eventType: "encryption_key_revoked",
-        actor,
-        previousEventHash: eventHash(previous),
-        body: {
-          key_id: deviceKeys.encryptionKeyId,
-          reason: "member_removed",
-          revoked_at_event_sequence: encryptionSequence,
-        },
-      });
-      const signingSequence = encryptionSequence + 1;
-      const signingEvent = keyDirectoryEvent({
-        scopeKind: "workspace",
-        scopeId: input.workspaceId,
-        sequence: signingSequence,
-        eventType: "signing_key_revoked",
-        actor,
-        previousEventHash: eventHash(encryptionEvent),
-        body: {
-          key_id: deviceKeys.signingKeyId,
-          reason: "member_removed",
-          revoked_at_event_sequence: signingSequence,
-        },
-      });
-      return [...acc, encryptionEvent, signingEvent];
+  let previousEventHash = eventHash(memberRemovedEvent);
+  let sequence = startingSequence;
+  const rotationSpecs = [
+    {
+      rotationKind: "kek",
+      scopeKind: "workspace",
+      scopeId: input.workspaceId,
+      oldKeyVersion: input.currentKekVersion,
     },
-    [memberRemovedEvent],
-  );
+    ...[...input.documents]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((document) => ({
+        rotationKind: "dek",
+        scopeKind: "document",
+        scopeId: document.id,
+        oldKeyVersion: document.minDekVersion,
+      })),
+  ];
+  const rotationEvents = rotationSpecs.map((rotation) => {
+    sequence += 1;
+    const event = keyDirectoryEvent({
+      scopeKind: "workspace",
+      scopeId: input.workspaceId,
+      sequence,
+      eventType: "rotation_started",
+      actor,
+      previousEventHash,
+      body: {
+        event_type: "rotation_started",
+        rotation_kind: rotation.rotationKind,
+        scope_kind: rotation.scopeKind,
+        scope_id: rotation.scopeId,
+        old_key_version: rotation.oldKeyVersion,
+        new_key_version: rotation.oldKeyVersion + 1,
+        not_before_event_sequence: sequence,
+        reason: "membership_change",
+      },
+    });
+    previousEventHash = eventHash(event);
+    return event;
+  });
+  const events = [memberRemovedEvent, ...rotationEvents];
   const signedEvents = await Promise.all(events.map((event) => signEvent("device", event)));
-  const revokedDeviceKeys = revocableDeviceKeys.reduce(
-    (entries, deviceKeys) =>
-      revokeKeyEntry(
-        revokeKeyEntry(
-          entries,
-          deviceKeys.signingKeyId,
-          eventRefForKey(events, deviceKeys.signingKeyId),
-        ),
-        deviceKeys.encryptionKeyId,
-        eventRefForKey(events, deviceKeys.encryptionKeyId),
-      ),
-    (checkpointPayload.device_keys as Record<string, unknown>[] | undefined) ?? [],
-  );
   const checkpoint = keyDirectoryCheckpoint({
     scopeKind: "workspace",
     scopeId: input.workspaceId,
@@ -218,12 +204,9 @@ export async function buildWorkspaceMemberRemovalKeyDirectoryAppend(
     ),
     coveredEventHead: eventHead(events[events.length - 1] ?? memberRemovedEvent),
     identityKeys: (checkpointPayload.identity_keys as Record<string, unknown>[] | undefined) ?? [],
-    deviceKeys: revokedDeviceKeys,
+    deviceKeys: (checkpointPayload.device_keys as Record<string, unknown>[] | undefined) ?? [],
     shareParticipantKeys: checkpointShareParticipantKeys(checkpointPayload),
-    revokedKeyIds: uniqueStrings([
-      ...((checkpointPayload.revoked_key_ids as string[] | undefined) ?? []),
-      ...revocableDeviceKeys.flatMap((keys) => [keys.signingKeyId, keys.encryptionKeyId]),
-    ]),
+    revokedKeyIds: (checkpointPayload.revoked_key_ids as string[] | undefined) ?? [],
   });
   const signedCheckpoint = await signCheckpoint("device", "workspace_authorized", checkpoint);
   return { events: signedEvents, checkpoint: signedCheckpoint };
@@ -266,11 +249,8 @@ export async function buildWorkspaceMemberRoleChangesKeyDirectoryAppend(
         user_id: change.targetUserId,
         previous_role_id: change.previousRoleId,
         previous_base_role: change.previousBaseRole,
-        previous_effective_permissions: canonicalPermissions(change.previousEffectivePermissions),
-        role_id: change.roleId,
-        base_role: change.baseRole,
-        effective_permissions: canonicalPermissions(change.effectivePermissions),
-        permission_version: change.permissionVersion,
+        new_role_id: change.roleId,
+        new_base_role: change.baseRole,
         changed_at_event_sequence: sequence,
       },
     });
@@ -295,8 +275,4 @@ export async function buildWorkspaceMemberRoleChangesKeyDirectoryAppend(
   });
   const signedCheckpoint = await signCheckpoint("device", "workspace_authorized", checkpoint);
   return { events: signedEvents, checkpoint: signedCheckpoint };
-}
-
-function canonicalPermissions(permissions: string[]): string[] {
-  return [...new Set(permissions)].sort();
 }

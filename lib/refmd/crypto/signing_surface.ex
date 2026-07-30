@@ -35,6 +35,7 @@ defmodule RefMD.Crypto.SigningSurface do
     "workspace_invitation_bootstrap_updated",
     "workspace_invitation_revoked",
     "workspace_invitation_redeemed",
+    "workspace_member_envelope_issued",
     "guest_invitation_created",
     "guest_invitation_bootstrap_updated",
     "guest_invitation_revoked",
@@ -58,6 +59,34 @@ defmodule RefMD.Crypto.SigningSurface do
   defp static_surfaces do
     [
       surface("pq_wrap", "pq_wrap", "refmd.wrap.pq_wrap", "none", @owner_device),
+      surface(
+        "audit_checkpoint",
+        "audit_checkpoint",
+        "refmd.audit.checkpoint.user_identity",
+        "user_identity",
+        @owner_identity
+      ),
+      surface(
+        "audit_checkpoint",
+        "audit_checkpoint",
+        "refmd.audit.checkpoint.user_device",
+        "user_device",
+        @owner_device
+      ),
+      surface(
+        "audit_checkpoint",
+        "audit_checkpoint",
+        "refmd.audit.checkpoint.workspace_device",
+        "workspace_device",
+        @owner_device
+      ),
+      surface(
+        "audit_checkpoint",
+        "audit_checkpoint",
+        "refmd.audit.checkpoint.workspace_guest_device",
+        "workspace_guest_device",
+        @owner_device
+      ),
       surface(
         "key_directory_checkpoint",
         "key_directory_checkpoint",
@@ -110,8 +139,22 @@ defmodule RefMD.Crypto.SigningSurface do
       surface(
         "key_directory_checkpoint",
         "key_directory_checkpoint",
-        "refmd.key_directory.checkpoint.device_authorized",
-        "device_authorized",
+        "refmd.key_directory.checkpoint.workspace_invitation_self_admission",
+        "workspace_invitation_self_admission",
+        @owner_device
+      ),
+      surface(
+        "key_directory_checkpoint",
+        "key_directory_checkpoint",
+        "refmd.key_directory.checkpoint.security_device_revocation",
+        "security_device_revocation",
+        @owner_device
+      ),
+      surface(
+        "key_directory_checkpoint",
+        "key_directory_checkpoint",
+        "refmd.key_directory.checkpoint.identity_self_envelope_rewrap",
+        "identity_self_envelope_rewrap",
         @owner_device
       ),
       surface(
@@ -142,6 +185,7 @@ defmodule RefMD.Crypto.SigningSurface do
       key_directory_event_surface("workspace_invitation_bootstrap_updated"),
       key_directory_event_surface("workspace_invitation_revoked"),
       key_directory_event_surface("workspace_invitation_redeemed"),
+      key_directory_event_surface("workspace_member_envelope_issued"),
       key_directory_event_surface("guest_invitation_created"),
       key_directory_event_surface("guest_invitation_bootstrap_updated"),
       key_directory_event_surface("guest_invitation_revoked"),
@@ -426,13 +470,24 @@ defmodule RefMD.Crypto.SigningSurface do
 
   defp semantic_validator_for!(id)
        when id in [
+              "audit_checkpoint:user_identity:semantic",
+              "audit_checkpoint:user_device:semantic",
+              "audit_checkpoint:workspace_device:semantic",
+              "audit_checkpoint:workspace_guest_device:semantic"
+            ],
+       do: {:validate_audit_checkpoint!, 5}
+
+  defp semantic_validator_for!(id)
+       when id in [
               "workspace_pin_bootstrap:none:semantic"
             ],
        do: {:validate_workspace_pin_bootstrap!, 5}
 
   defp semantic_validator_for!(id)
        when id in [
-              "key_directory_checkpoint:device_authorized:semantic",
+              "key_directory_checkpoint:workspace_invitation_self_admission:semantic",
+              "key_directory_checkpoint:security_device_revocation:semantic",
+              "key_directory_checkpoint:identity_self_envelope_rewrap:semantic",
               "key_directory_checkpoint:identity_initial:semantic",
               "key_directory_checkpoint:identity_active:semantic",
               "key_directory_checkpoint:identity_rotation:semantic",
@@ -634,6 +689,15 @@ defmodule RefMD.Crypto.SigningSurface do
   defp transcript_builder_for!("pq_wrap", "none"),
     do: {RefMD.Crypto.Signature.KeyDirectory, :build_pq_wrap_transcript!, 4}
 
+  defp transcript_builder_for!("audit_checkpoint", variant)
+       when variant in [
+              "user_identity",
+              "user_device",
+              "workspace_device",
+              "workspace_guest_device"
+            ],
+       do: {RefMD.Crypto.Signature.Audit, :build_audit_checkpoint_transcript!, 4}
+
   defp transcript_builder_for!("key_directory_checkpoint", variant)
        when variant in [
               "identity_initial",
@@ -641,9 +705,11 @@ defmodule RefMD.Crypto.SigningSurface do
               "identity_active",
               "identity_rotation",
               "workspace_authorized",
+              "workspace_invitation_self_admission",
               "invitation_redeem_authority",
               "share_participant_document_operation",
-              "device_authorized"
+              "security_device_revocation",
+              "identity_self_envelope_rewrap"
             ],
        do: {RefMD.Crypto.Signature.KeyDirectory, :build_key_directory_checkpoint_transcript!, 4}
 
@@ -682,6 +748,7 @@ defmodule RefMD.Crypto.SigningSurface do
               "rotation_started",
               "rotation_completed",
               "old_key_deleted",
+              "workspace_member_envelope_issued",
               "document_write_session_admitted",
               "document_write_state_changed",
               "document_snapshot_accepted"
@@ -743,7 +810,7 @@ defmodule RefMD.Crypto.SigningSurface do
     do: {RefMD.Crypto.Signature.Recovery, :build_recovery_device_approval_transcript!, 1}
 
   defp transcript_builder_for!("device_revocation", "none"),
-    do: {RefMD.Crypto.Signature.Device, :build_device_revocation_transcript!, 6}
+    do: {RefMD.Crypto.Signature.Device, :build_device_revocation_transcript!, 4}
 
   defp transcript_builder_for!("recovery_session", "none"),
     do: {RefMD.Crypto.Signature.Recovery, :build_recovery_session_transcript!, 1}

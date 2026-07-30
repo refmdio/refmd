@@ -9,6 +9,7 @@ defmodule RefMDWeb.SecurityChannelTest do
   alias RefMD.Repo
   alias RefMD.Security
   alias RefMD.Security.{AuditEvent, Notification}
+  alias RefMD.TestCrypto
   alias RefMD.Users.User
   alias RefMD.Workspaces
   alias RefMD.Workspaces.{Workspace, WorkspaceMember, WorkspaceRole}
@@ -29,9 +30,15 @@ defmodule RefMDWeb.SecurityChannelTest do
     assert_push "notification", %{
       type: "device.pending_approval",
       audit_checkpoint: %{
-        chain_scope: chain_scope,
-        sequence: 1,
-        event_hash: event_hash
+        signed_checkpoint: %{
+          "payload" => %{
+            "chain_scope_kind" => "user",
+            "chain_scope_id" => user_id,
+            "sequence" => 2
+          }
+        },
+        current_event_head: %{sequence: 3, event_hash: event_hash},
+        unsigned_tail: [%{"sequence" => 3, "event_hash" => event_hash}]
       },
       action_ref: %{
         "device_id" => device_id,
@@ -40,7 +47,7 @@ defmodule RefMDWeb.SecurityChannelTest do
       }
     }
 
-    assert chain_scope == "user:#{user.id}"
+    assert user_id == user.id
     assert is_binary(event_hash)
     assert device_id == pending.id
 
@@ -115,7 +122,7 @@ defmodule RefMDWeb.SecurityChannelTest do
 
     assert {:ok, _} =
              Security.record_audit_event(
-               security_event("security.device.test", "device", device.id),
+               security_event("security.device.test", "device", device.id, user.id),
                [
                  %{
                    recipient_kind: "device",
@@ -168,14 +175,20 @@ defmodule RefMDWeb.SecurityChannelTest do
     assert_push "notification", %{
       type: "security.workspace.test",
       audit_checkpoint: %{
-        chain_scope: chain_scope,
-        sequence: 1,
-        event_hash: event_hash
+        signed_checkpoint: %{
+          "payload" => %{
+            "chain_scope_kind" => "workspace",
+            "chain_scope_id" => workspace_id,
+            "sequence" => 1
+          }
+        },
+        current_event_head: %{sequence: 2, event_hash: event_hash},
+        unsigned_tail: [%{"sequence" => 2, "event_hash" => event_hash}]
       },
       action_ref: %{"workspace_id" => workspace_id}
     }
 
-    assert chain_scope == "workspace:#{workspace.id}"
+    assert workspace_id == workspace.id
     assert is_binary(event_hash)
     assert workspace_id == workspace.id
   end
@@ -236,7 +249,7 @@ defmodule RefMDWeb.SecurityChannelTest do
 
     assert {:ok, _} =
              Security.record_audit_event(
-               security_event("plugin.bundle.promoted", "plugin", "com.example.notes"),
+               security_event("plugin.bundle.promoted", "plugin", "com.example.notes", member.id),
                [
                  %{
                    recipient_kind: "user",
@@ -317,11 +330,15 @@ defmodule RefMDWeb.SecurityChannelTest do
   end
 
   defp create_user(email) do
-    Repo.insert!(%User{
-      id: Ecto.UUID.generate(),
-      email: email,
-      name: email
-    })
+    user =
+      Repo.insert!(%User{
+        id: Ecto.UUID.generate(),
+        email: email,
+        name: email
+      })
+
+    TestCrypto.install_signed_audit_genesis!("user", user.id, user.id)
+    user
   end
 
   defp create_device(user_id) do
@@ -385,12 +402,16 @@ defmodule RefMDWeb.SecurityChannelTest do
   end
 
   defp create_workspace(owner_id) do
-    Repo.insert!(%Workspace{
-      id: Ecto.UUID.generate(),
-      name: "Security workspace",
-      slug: "security-workspace-#{System.unique_integer([:positive])}",
-      owner_id: owner_id
-    })
+    workspace =
+      Repo.insert!(%Workspace{
+        id: Ecto.UUID.generate(),
+        name: "Security workspace",
+        slug: "security-workspace-#{System.unique_integer([:positive])}",
+        owner_id: owner_id
+      })
+
+    TestCrypto.install_signed_audit_genesis!("workspace", workspace.id, owner_id)
+    workspace
   end
 
   defp add_workspace_member(workspace_id, user_id, base_role) do
@@ -404,15 +425,26 @@ defmodule RefMDWeb.SecurityChannelTest do
     })
   end
 
-  defp security_event(type, resource_kind, resource_id) do
+  defp security_event(type, resource_kind, resource_id, user_id \\ nil) do
     %{
       class: "security_runtime",
       type: type,
-      actor: %{"kind" => "system", "id" => nil, "device_id" => nil},
+      actor: %{
+        "user_id" => user_id,
+        "device_id" => nil,
+        "session_id" => nil,
+        "principal_kind" => "system",
+        "principal_id" => nil
+      },
       scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
       resource: %{"kind" => resource_kind, "id" => resource_id, "version_hash" => nil},
       action: %{"operation" => type, "result" => "completed", "reason_code" => nil},
-      sensitivity: %{"category" => "none"},
+      sensitivity: %{
+        "plaintext_scope_kind" => "none",
+        "plaintext_bytes" => 0,
+        "egress_bytes" => 0,
+        "storage_bytes" => 0
+      },
       correlation: %{
         "request_id" => nil,
         "capability_id" => nil,

@@ -5,6 +5,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
   alias RefMD.Repo
   alias RefMD.Security
   alias RefMD.Security.Notification
+  alias RefMD.TestCrypto
   alias RefMD.Users.User
 
   test "lists durable notifications for the current user", %{conn: conn} do
@@ -55,6 +56,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
       insert_notification!(%{
         recipient_kind: "device",
         recipient_id: device.id,
+        user_id: user_id,
         type: "plugin.runtime_revoked",
         severity: "warning",
         action_ref: %{"application_id" => "application-one"},
@@ -66,6 +68,7 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
     insert_notification!(%{
       recipient_kind: "device",
       recipient_id: other_device_id,
+      user_id: user_id,
       type: "plugin.runtime_disabled",
       severity: "warning",
       action_ref: %{},
@@ -200,24 +203,40 @@ defmodule RefMDWeb.SecurityNotificationControllerTest do
       name: email
     })
 
+    TestCrypto.install_signed_audit_genesis!("user", user_id, user_id)
     user_id
   end
 
   defp insert_notification!(attrs) do
     recipient_id = attrs.recipient_id
 
+    {actor, resource_kind} =
+      case attrs.recipient_kind do
+        "user" ->
+          {%{
+             "user_id" => recipient_id,
+             "device_id" => nil,
+             "session_id" => nil,
+             "principal_kind" => "user",
+             "principal_id" => recipient_id
+           }, "credential"}
+
+        "device" ->
+          {%{
+             "user_id" => attrs.user_id,
+             "device_id" => recipient_id,
+             "session_id" => nil,
+             "principal_kind" => "user",
+             "principal_id" => attrs.user_id
+           }, "device"}
+      end
+
     event = %{
       class: "security_runtime",
       type: attrs.type,
-      actor: %{
-        "user_id" => recipient_id,
-        "device_id" => nil,
-        "session_id" => nil,
-        "principal_kind" => attrs.recipient_kind,
-        "principal_id" => recipient_id
-      },
+      actor: actor,
       scope: %{"workspace_id" => nil, "document_id" => nil, "share_id" => nil},
-      resource: %{"kind" => attrs.recipient_kind, "id" => recipient_id, "version_hash" => nil},
+      resource: %{"kind" => resource_kind, "id" => recipient_id, "version_hash" => nil},
       action: %{"operation" => attrs.type, "result" => "completed", "reason_code" => nil},
       sensitivity: Security.empty_sensitivity(),
       correlation: %{

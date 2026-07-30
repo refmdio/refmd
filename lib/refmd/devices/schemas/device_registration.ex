@@ -200,8 +200,8 @@ defmodule RefMD.Devices.DeviceRegistration do
               is_map(public_material) and is_binary(registration_challenge_hash) do
     with true <-
            exact_keys?(payload, [
-             "expires_event_sequence",
-             "issued_at_event_sequence",
+             "expires_at_ms",
+             "issued_at_ms",
              "mlkem768_ephemeral_public",
              "mlkem768_ephemeral_public_hash",
              "operation_id",
@@ -231,9 +231,9 @@ defmodule RefMD.Devices.DeviceRegistration do
          {:ok, server_challenge} <- decode_base64url(payload["server_challenge"], 32),
          true <- Hash.blake3_base64url(server_challenge) == registration_challenge_hash,
          true <- byte_size(x25519_public) == 32,
-         true <- is_integer(payload["issued_at_event_sequence"]),
-         true <- is_integer(payload["expires_event_sequence"]),
-         true <- payload["issued_at_event_sequence"] < payload["expires_event_sequence"],
+         true <- valid_epoch_ms?(payload["issued_at_ms"]),
+         true <- valid_epoch_ms?(payload["expires_at_ms"]),
+         true <- payload["expires_at_ms"] == payload["issued_at_ms"] + 300_000,
          transcript <-
            Signature.build_responder_prekey_transcript!(
              public_material["owner_id"],
@@ -251,8 +251,8 @@ defmodule RefMD.Devices.DeviceRegistration do
                "purpose" => purpose,
                "prekey_id" => payload["prekey_id"],
                "operation_id" => operation_id,
-               "issued_at_event_sequence" => payload["issued_at_event_sequence"],
-               "expires_event_sequence" => payload["expires_event_sequence"],
+               "issued_at_ms" => payload["issued_at_ms"],
+               "expires_at_ms" => payload["expires_at_ms"],
                "server_challenge" => payload["server_challenge"]
              }
            ) do
@@ -270,6 +270,9 @@ defmodule RefMD.Devices.DeviceRegistration do
   end
 
   defp valid_responder_prekey_record?(_, _, _, _, _, _, _, _), do: false
+
+  defp valid_epoch_ms?(value),
+    do: is_integer(value) and value >= 0 and value <= 9_007_199_254_740_991
 
   defp decode_base64url(value, bytes) when is_binary(value) do
     {:ok, Encoding.decode_base64url!(value, bytes)}

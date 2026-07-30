@@ -30,9 +30,21 @@ defmodule RefMD.Devices.Device do
                          "version"
                        ])
   @genesis_details_keys MapSet.new([
+                          "compound_intent_id",
+                          "genesis_compound_context_hash",
                           "kind",
+                          "mutation_id",
+                          "owner_member_added_event_hash",
+                          "owner_role_id",
+                          "registration_id",
                           "registration_challenge_hash",
-                          "user_identity_public_key_hash"
+                          "user_audit_checkpoint",
+                          "user_device_key_added_event_hash",
+                          "user_identity_public_key_hash",
+                          "workspace_audit_checkpoint",
+                          "workspace_device_key_added_event_hash",
+                          "workspace_id",
+                          "workspace_member_envelope_commitment_hash"
                         ])
   @device_approval_details_keys MapSet.new([
                                   "approved_device_registration_sas_hash",
@@ -57,6 +69,8 @@ defmodule RefMD.Devices.Device do
                                     "delivery_id",
                                     "delivery_record_hash",
                                     "document_rollback_pin_set_hash",
+                                    "transfer_scope_hash",
+                                    "audit_checkpoint_pin_set_hash",
                                     "key_checkpoint_hash",
                                     "purpose",
                                     "recipient_device_id",
@@ -161,6 +175,45 @@ defmodule RefMD.Devices.Device do
     |> unique_constraint(:encryption_key_id)
   end
 
+  def guest_changeset(device, attrs) do
+    device
+    |> cast(attrs, [
+      :id,
+      :user_id,
+      :name,
+      :device_type,
+      :hybrid_encryption_public_key_material,
+      :hybrid_signing_public_key_material,
+      :key_checkpoint_sequence,
+      :key_checkpoint_hash,
+      :client_nonce,
+      :last_seen_at,
+      :revoked_at,
+      :identity_wipe_required_at,
+      :identity_replaced_by_device_id
+    ])
+    |> validate_required([
+      :id,
+      :user_id,
+      :name,
+      :device_type,
+      :hybrid_encryption_public_key_material,
+      :hybrid_signing_public_key_material,
+      :key_checkpoint_sequence,
+      :key_checkpoint_hash,
+      :client_nonce,
+      :last_seen_at
+    ])
+    |> validate_inclusion(:device_type, ~w(browser desktop mobile))
+    |> validate_hybrid_encryption_material()
+    |> validate_hybrid_signing_material()
+    |> validate_required([:encryption_key_id, :signing_key_id])
+    |> validate_key_checkpoint_hash()
+    |> validate_byte_size(:client_nonce, 16)
+    |> unique_constraint(:signing_key_id)
+    |> unique_constraint(:encryption_key_id)
+  end
+
   defp put_key_checkpoint_from_approval_proof(changeset) do
     case get_field(changeset, :approval_proof) do
       %{
@@ -237,7 +290,13 @@ defmodule RefMD.Devices.Device do
   defp valid_approval_proof?(changeset, "genesis_device_bootstrap", proof) when is_map(proof) do
     transcript =
       Signature.build_genesis_device_bootstrap_transcript!(%{
+        registration_id: proof["surface_details"]["registration_id"],
+        compound_intent_id: proof["surface_details"]["compound_intent_id"],
+        mutation_id: proof["surface_details"]["mutation_id"],
+        genesis_compound_context_hash: proof["surface_details"]["genesis_compound_context_hash"],
         user_id: get_field(changeset, :user_id),
+        workspace_id: proof["surface_details"]["workspace_id"],
+        owner_role_id: proof["surface_details"]["owner_role_id"],
         device_id: get_field(changeset, :id),
         device_public_material: get_field(changeset, :hybrid_signing_public_key_material),
         device_hybrid_encryption_public_key_material:
@@ -245,7 +304,16 @@ defmodule RefMD.Devices.Device do
         client_nonce: encoded_field!(changeset, :client_nonce),
         registration_challenge_hash: proof["surface_details"]["registration_challenge_hash"],
         identity_signing_key_id: proof["approving_signing_key_id"],
-        user_identity_public_key_hash: proof["surface_details"]["user_identity_public_key_hash"]
+        user_identity_public_key_hash: proof["surface_details"]["user_identity_public_key_hash"],
+        user_device_key_added_event_hash:
+          proof["surface_details"]["user_device_key_added_event_hash"],
+        workspace_device_key_added_event_hash:
+          proof["surface_details"]["workspace_device_key_added_event_hash"],
+        owner_member_added_event_hash: proof["surface_details"]["owner_member_added_event_hash"],
+        workspace_member_envelope_commitment_hash:
+          proof["surface_details"]["workspace_member_envelope_commitment_hash"],
+        user_audit_checkpoint: proof["surface_details"]["user_audit_checkpoint"],
+        workspace_audit_checkpoint: proof["surface_details"]["workspace_audit_checkpoint"]
       })
 
     details = proof["surface_details"]

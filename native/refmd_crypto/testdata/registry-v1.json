@@ -11,8 +11,8 @@
     {
       "case_id": "signed-pq-wrap-v1",
       "path": "refmd-signed-pq-wrap-v1.json",
-      "sha256": "16fe95b2a9ad3aee9c61981fdf20656548668a86f6fcd2d7da5bcf5ae0b1927b",
-      "provenance": "RefMD approved design version 17 ADR-023",
+      "sha256": "aa9f77de22a79395764ba35729a68e9e98ec12e5e2a37b4625bb49ddf04b7273",
+      "provenance": "RefMD approved design version 19 ADR-023",
       "purpose": "immutable RefMD signed PQ wrap golden vector"
     }
   ]

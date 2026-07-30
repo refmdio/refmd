@@ -15,7 +15,11 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
   end
 
   def assert!("identity_key_added", body) do
-    A.assert_exact_keys!(body, Enum.sort(["key_id", "key_material_hash"]))
+    A.assert_exact_keys!(body, Enum.sort(["key_kind", "key_id", "key_material_hash"]))
+
+    if body["key_kind"] not in ["signing", "encryption"],
+      do: raise(ArgumentError, "key_kind_invalid")
+
     Hash.assert_blake3_base64url!(body["key_id"])
     Hash.assert_blake3_base64url!(body["key_material_hash"])
   end
@@ -55,21 +59,29 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
   end
 
   def assert!("member_added", body) do
-    A.assert_exact_keys!(body, Enum.sort(["base_role", "role_id", "user_id", "workspace_id"]))
+    A.assert_exact_keys!(
+      body,
+      Enum.sort([
+        "base_role",
+        "role_id",
+        "user_id",
+        "workspace_id",
+        "workspace_member_envelope_hash"
+      ])
+    )
+
+    Hash.assert_blake3_base64url!(body["workspace_member_envelope_hash"])
   end
 
   def assert!("member_role_changed", body) do
     A.assert_exact_keys!(
       body,
       Enum.sort([
-        "base_role",
         "changed_at_event_sequence",
-        "effective_permissions",
-        "permission_version",
+        "new_base_role",
+        "new_role_id",
         "previous_base_role",
-        "previous_effective_permissions",
         "previous_role_id",
-        "role_id",
         "user_id",
         "workspace_id"
       ])
@@ -79,10 +91,6 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
       body["changed_at_event_sequence"],
       "member_role_changed_sequence_invalid"
     )
-
-    A.assert_positive_integer!(body["permission_version"], "permission_version_invalid")
-    assert_canonical_permissions!(body["previous_effective_permissions"])
-    assert_canonical_permissions!(body["effective_permissions"])
   end
 
   def assert!("member_removed", body) do
@@ -117,17 +125,77 @@ defmodule RefMD.Encryption.KeyDirectory.KeyLifecycle do
     Suite.assert_suite_rank_allowed!(body["wrap_suite_id"], body["wrap_suite_rank"])
   end
 
-  defp assert_canonical_permissions!(permissions) when is_list(permissions) do
-    canonical = permissions |> Enum.uniq() |> Enum.sort()
+  def assert!("workspace_member_envelope_issued", body) do
+    A.assert_exact_keys!(
+      body,
+      Enum.sort([
+        "authorization_event_hash",
+        "authorization_key_directory_checkpoint_hash",
+        "authorization_key_directory_checkpoint_sequence",
+        "ciphertext_hash",
+        "kek_version",
+        "sender_device_id",
+        "sender_key_checkpoint_hash",
+        "sender_key_checkpoint_sequence",
+        "sender_user_id",
+        "suite_id",
+        "target_identity_encryption_key_id",
+        "target_identity_key_material_hash",
+        "target_user_id",
+        "workspace_id",
+        "workspace_member_envelope_hash",
+        "wrap_body_hash",
+        "wrap_protocol",
+        "wrap_purpose",
+        "wrap_resource_hash",
+        "wrap_version"
+      ])
+    )
 
-    if permissions == canonical and
-         Enum.all?(permissions, &RefMD.Workspaces.permission_defined?/1) do
-      :ok
-    else
-      raise ArgumentError, "effective_permissions_invalid"
+    A.assert_positive_integer!(body["kek_version"], "kek_version_invalid")
+
+    A.assert_literal!(
+      body["wrap_protocol"],
+      "refmd.signed-pq-hybrid-wrap",
+      "wrap_protocol_invalid"
+    )
+
+    A.assert_literal!(body["wrap_version"], 1, "wrap_version_invalid")
+
+    A.assert_literal!(
+      body["wrap_purpose"],
+      "workspace_member_kek_wrap",
+      "wrap_purpose_invalid"
+    )
+
+    Suite.assert_known_suite_id!(body["suite_id"])
+
+    Enum.each(
+      [
+        "authorization_event_hash",
+        "ciphertext_hash",
+        "sender_key_checkpoint_hash",
+        "target_identity_encryption_key_id",
+        "target_identity_key_material_hash",
+        "workspace_member_envelope_hash",
+        "wrap_body_hash",
+        "wrap_resource_hash"
+      ],
+      fn field ->
+        if body[field] != "GENESIS", do: Hash.assert_blake3_base64url!(body[field])
+      end
+    )
+
+    A.assert_positive_integer!(
+      body["authorization_key_directory_checkpoint_sequence"],
+      "authorization_checkpoint_sequence_invalid"
+    )
+
+    if body["sender_key_checkpoint_sequence"] != 0 do
+      A.assert_positive_integer!(
+        body["sender_key_checkpoint_sequence"],
+        "sender_checkpoint_sequence_invalid"
+      )
     end
   end
-
-  defp assert_canonical_permissions!(_),
-    do: raise(ArgumentError, "effective_permissions_invalid")
 end

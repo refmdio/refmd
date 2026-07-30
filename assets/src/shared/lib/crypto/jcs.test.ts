@@ -39,6 +39,10 @@ describe("strict JCS", () => {
         value: { control: "\u000b\u001f" },
         canonical: '{"control":"\\u000b\\u001f"}',
       },
+      {
+        value: { nullable: null },
+        canonical: '{"nullable":null}',
+      },
     ];
 
     for (const testCase of cases) {
@@ -48,7 +52,6 @@ describe("strict JCS", () => {
   });
 
   it("rejects non-strict values and raw JSON syntax", () => {
-    expect(() => canonicalizeStrict({ a: null as never })).toThrow();
     expect(() => canonicalizeStrict({ a: undefined as never })).toThrow();
     expect(() => canonicalizeStrict({ a: -1 })).toThrow();
     expect(() => canonicalizeStrict({ a: 9_007_199_254_740_992 })).toThrow();
@@ -62,7 +65,7 @@ describe("strict JCS", () => {
     expect(() => parseJsonStrict('{"a":1e0}')).toThrow();
     expect(() => parseJsonStrict('{"a":-0}')).toThrow();
     expect(() => parseJsonStrict('{"a":"\\uD800"}')).toThrow();
-    expect(() => parseJsonStrict('{"a":null}')).toThrow();
+    expect(parseJsonStrict('{"a":null}')).toEqual({ a: null });
     expect(() => parseJsonStrictBytes(new Uint8Array([0xff]))).toThrow();
   });
 });

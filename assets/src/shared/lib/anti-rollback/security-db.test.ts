@@ -13,13 +13,13 @@ vi.mock("@/shared/lib/storage/idb", () => ({
 }));
 
 describe("openSecurityDb", () => {
-  it("owns refmd-security as version 2 schema", async () => {
+  it("owns refmd-security as version 3 schema", async () => {
     await openSecurityDb();
 
-    expect(openIdb).toHaveBeenCalledWith("refmd-security", 2, expect.any(Function));
+    expect(openIdb).toHaveBeenCalledWith("refmd-security", 3, expect.any(Function));
   });
 
-  it("creates every required store in the version 2 schema", async () => {
+  it("creates every required store in the version 3 schema", async () => {
     await openSecurityDb();
 
     const upgrade = vi.mocked(openIdb).mock.calls.at(-1)?.[2];
@@ -49,7 +49,7 @@ describe("openSecurityDb", () => {
       keyPath: "key",
     });
     expect(createObjectStore).toHaveBeenCalledWith(AUDIT_CHECKPOINT_PIN_STORE_NAME, {
-      keyPath: "chainScope",
+      keyPath: ["chain_scope_kind", "chain_scope_id"],
     });
   });
 });

@@ -13,8 +13,41 @@ export const COMMON_TRANSCRIPT_KEYS = [
 ] as const;
 
 export const OWNER_EXACT_PAYLOAD_KEYS: Record<string, readonly string[]> = {
+  "audit_checkpoint:user_identity": [
+    "authority_boundary",
+    "checkpoint",
+    "signer",
+    "subject_hash",
+    "subject_protocol",
+    "subject_version",
+  ],
+  "audit_checkpoint:user_device": [
+    "authority_boundary",
+    "checkpoint",
+    "signer",
+    "subject_hash",
+    "subject_protocol",
+    "subject_version",
+  ],
+  "audit_checkpoint:workspace_device": [
+    "authority_boundary",
+    "checkpoint",
+    "signer",
+    "subject_hash",
+    "subject_protocol",
+    "subject_version",
+  ],
+  "audit_checkpoint:workspace_guest_device": [
+    "authority_boundary",
+    "checkpoint",
+    "signer",
+    "subject_hash",
+    "subject_protocol",
+    "subject_version",
+  ],
   "pq_wrap:none": [
     "actor",
+    "authority_context",
     "authority_boundary",
     "subject_hashes",
     "subject_protocol",
@@ -22,7 +55,25 @@ export const OWNER_EXACT_PAYLOAD_KEYS: Record<string, readonly string[]> = {
     "subject_suite_rank",
     "subject_version",
   ],
-  "key_directory_checkpoint:device_authorized": [
+  "key_directory_checkpoint:workspace_invitation_self_admission": [
+    "authority_boundary",
+    "scope",
+    "signer",
+    "suite_policy",
+    "subject_hash",
+    "subject_protocol",
+    "subject_version",
+  ],
+  "key_directory_checkpoint:security_device_revocation": [
+    "authority_boundary",
+    "scope",
+    "signer",
+    "suite_policy",
+    "subject_hash",
+    "subject_protocol",
+    "subject_version",
+  ],
+  "key_directory_checkpoint:identity_self_envelope_rewrap": [
     "authority_boundary",
     "scope",
     "signer",
@@ -148,7 +199,7 @@ export const OWNER_EXACT_PAYLOAD_KEYS: Record<string, readonly string[]> = {
   "device_revocation:none": [
     "actor",
     "authority_boundary",
-    "revocation",
+    "revoked_device",
     "subject_hash",
     "subject_protocol",
     "subject_version",
@@ -248,14 +299,26 @@ export const OWNER_EXACT_PAYLOAD_KEYS: Record<string, readonly string[]> = {
   "genesis_device_bootstrap:none": [
     "bootstrap_authority",
     "client_nonce",
+    "compound_intent_id",
     "device_encryption_key_id",
     "device_hybrid_encryption_public_key_material_hash",
     "device_id",
     "device_signing_key_id",
+    "genesis_compound_context_hash",
     "identity_signing_key_id",
+    "mutation_id",
+    "owner_member_added_event_hash",
+    "owner_role_id",
+    "registration_id",
     "subject_protocol",
     "subject_version",
+    "user_audit_checkpoint",
+    "user_device_key_added_event_hash",
     "user_id",
+    "workspace_audit_checkpoint",
+    "workspace_device_key_added_event_hash",
+    "workspace_id",
+    "workspace_member_envelope_commitment_hash",
   ],
   "rrp_request:channel_share_participant_device": [
     "actor",
@@ -451,6 +514,7 @@ export const KEY_DIRECTORY_EVENT_VARIANTS = [
   "workspace_invitation_bootstrap_updated",
   "workspace_invitation_revoked",
   "workspace_invitation_redeemed",
+  "workspace_member_envelope_issued",
   "guest_invitation_created",
   "guest_invitation_bootstrap_updated",
   "guest_invitation_revoked",
@@ -461,6 +525,29 @@ export const KEY_DIRECTORY_EVENT_VARIANTS = [
 ] as const;
 
 export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly string[]>> = {
+  "audit_checkpoint:*": {
+    checkpoint: [
+      "chain_scope_id",
+      "chain_scope_kind",
+      "covered_event_class",
+      "covered_event_type",
+      "event_hash",
+      "previous_signed_checkpoint_hash",
+      "previous_signed_checkpoint_sequence",
+      "sequence",
+    ],
+    signer: ["device_id", "signing_key_id", "user_id"],
+    authority_boundary: [
+      "checkpoint_hash",
+      "checkpoint_hash_domain",
+      "checkpoint_protocol",
+      "checkpoint_sequence",
+      "checkpoint_version",
+      "required_authority",
+      "scope_id",
+      "scope_kind",
+    ],
+  },
   "pq_wrap:none": {
     actor: [
       "device_id",
@@ -496,6 +583,8 @@ export const NESTED_OWNER_EXACT_KEYS: Record<string, Record<string, readonly str
       "registration_challenge_hash",
       "user_identity_public_key_hash",
     ],
+    user_audit_checkpoint: ["checkpoint_hash", "sequence"],
+    workspace_audit_checkpoint: ["checkpoint_hash", "sequence"],
   },
   "rrp_request:*": {
     session: ["is_recovery", "session_id_hash", "session_kind"],

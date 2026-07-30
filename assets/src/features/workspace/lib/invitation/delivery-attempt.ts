@@ -121,12 +121,15 @@ export async function getApprovedGuestDeliveryAttempt(params: {
     }
   }
 
-  if (attempt?.status === "consumed" || attempt?.status === "expired") {
+  if (attempt?.status === "expired") {
+    clearLocalAttempt(lookupToken);
+    throw new InvitationDeliveryTerminalError("Guest invitation key delivery attempt expired.");
+  }
+
+  if (attempt?.status === "consumed") {
     clearLocalAttempt(lookupToken);
     throw new InvitationDeliveryTerminalError(
-      attempt.status === "consumed"
-        ? "Guest invitation key delivery attempt was already consumed."
-        : "Guest invitation key delivery attempt expired.",
+      "Guest invitation key delivery attempt was already consumed.",
     );
   }
 

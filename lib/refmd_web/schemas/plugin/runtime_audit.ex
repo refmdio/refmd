@@ -2,7 +2,7 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
   alias OpenApiSpex.Schema
   require OpenApiSpex
 
-  @emptyable_string %Schema{type: :string}
+  @nullable_string %Schema{type: :string, nullable: true, minLength: 1}
   @non_negative_integer %Schema{type: :integer, minimum: 0}
   @string_or_non_negative_integer %Schema{
     anyOf: [@non_negative_integer, %Schema{type: :string}]
@@ -17,14 +17,14 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
     type: :object,
     additionalProperties: false,
     properties: %{
-      user_id: @emptyable_string,
-      device_id: @emptyable_string,
-      session_id: @emptyable_string,
+      user_id: @nullable_string,
+      device_id: @nullable_string,
+      session_id: @nullable_string,
       principal_kind: %Schema{
         type: :string,
         enum: ["user", "share_participant", "system", "worker"]
       },
-      principal_id: @emptyable_string
+      principal_id: @nullable_string
     },
     required: [:user_id, :device_id, :session_id, :principal_kind, :principal_id]
   }
@@ -33,8 +33,8 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
     additionalProperties: false,
     properties: %{
       workspace_id: %Schema{type: :string, format: :uuid},
-      document_id: @emptyable_string,
-      share_id: @emptyable_string
+      document_id: @nullable_string,
+      share_id: @nullable_string
     },
     required: [:workspace_id, :document_id, :share_id]
   }
@@ -44,7 +44,7 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
     properties: %{
       kind: %Schema{type: :string, enum: ["plugin", "credential", "network_endpoint", "document"]},
       id: %Schema{type: :string},
-      version_hash: @emptyable_string
+      version_hash: @nullable_string
     },
     required: [:kind, :id, :version_hash]
   }
@@ -54,7 +54,7 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
     properties: %{
       operation: %Schema{type: :string},
       result: %Schema{type: :string, enum: ["allowed", "denied", "failed", "completed"]},
-      reason_code: @emptyable_string,
+      reason_code: @nullable_string,
       endpoint_id: %Schema{type: :string},
       route: %Schema{type: :string},
       method: %Schema{type: :string},
@@ -63,8 +63,8 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
       request_bytes: @string_or_non_negative_integer,
       response_bytes: @string_or_non_negative_integer,
       credential_handle_used: @boolean_or_string,
-      proxy_id: @emptyable_string,
-      fallback_reason: @emptyable_string,
+      proxy_id: @nullable_string,
+      fallback_reason: @nullable_string,
       payload: %Schema{type: :string},
       content: %Schema{type: :string},
       raw: %Schema{type: :string},
@@ -88,10 +88,10 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
     type: :object,
     additionalProperties: false,
     properties: %{
-      request_id: %Schema{oneOf: [@emptyable_string, @runtime_audit_rejected_object]},
-      capability_id: %Schema{type: :string},
-      execution_context_id: @emptyable_string,
-      authority_event_ref: @emptyable_string,
+      request_id: %Schema{oneOf: [@nullable_string, @runtime_audit_rejected_object]},
+      capability_id: @nullable_string,
+      execution_context_id: @nullable_string,
+      authority_event_ref: @nullable_string,
       request_body: %Schema{type: :string}
     },
     required: [:request_id, :capability_id, :execution_context_id, :authority_event_ref]
@@ -100,10 +100,10 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
     type: :object,
     additionalProperties: false,
     properties: %{
-      document_id: @emptyable_string,
+      document_id: @nullable_string,
       selected_document_ids: %Schema{type: :array, items: %Schema{type: :string}},
-      block_id: @emptyable_string,
-      editor_id: @emptyable_string,
+      block_id: @nullable_string,
+      editor_id: @nullable_string,
       selection_range: %Schema{
         type: :object,
         additionalProperties: false,
@@ -152,9 +152,9 @@ defmodule RefMDWeb.Schemas.PluginRuntimeAuditRequest do
       bundle_hash: %Schema{type: :string, minLength: 1},
       manifest_hash: %Schema{type: :string, minLength: 1},
       capability_id: %Schema{type: :string},
-      request_id: @emptyable_string,
-      execution_context_id: @emptyable_string,
-      context_kind: @emptyable_string,
+      request_id: @nullable_string,
+      execution_context_id: @nullable_string,
+      context_kind: @nullable_string,
       payload_kind: %Schema{type: :string},
       plaintext_scope_kind: %Schema{type: :string},
       plaintext_bytes: @non_negative_integer,

@@ -8,7 +8,6 @@ import {
   syncOfflineCreatedDocuments,
   syncPendingDocuments,
 } from "@/features/editor";
-import { distributeWorkspaceMemberEnvelopes } from "@/features/workspace";
 import { clientWarn } from "@/shared/lib/logger";
 import type { EventRef } from "@/shared/lib/events";
 
@@ -82,20 +81,13 @@ export function useOfflineSync(): void {
       });
       if (!isCurrentRun(workspaceId, generation)) return;
 
-      let memberDistributionFailed = false;
-      await distributeWorkspaceMemberEnvelopes(workspaceId).catch(() => {
-        memberDistributionFailed = true;
-        // Missing member envelopes are retried by the next scheduled sync pass.
-      });
-      if (!isCurrentRun(workspaceId, generation)) return;
-
       const pendingSyncAttempts = await syncPendingDocuments(workspaceId);
       if (!isCurrentRun(workspaceId, generation)) return;
 
       await ensureBackgroundCaching(workspaceId, generation);
       if (remainingOfflineCreated > 0) {
         scheduleOfflineSync(5_000);
-      } else if (pendingSyncAttempts > 0 || memberDistributionFailed) {
+      } else if (pendingSyncAttempts > 0) {
         scheduleOfflineSync(10_000);
       }
     } catch (error) {

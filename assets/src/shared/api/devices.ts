@@ -1,10 +1,13 @@
 import { client, throwIfError, RRP_DEVICE_OVERRIDE_HEADER, withUserRrpParams } from "./core";
 import type { components } from "./schema";
+import type { StrictJsonValue } from "@/shared/lib/crypto/jcs";
+import type { GenesisCompoundAuthorization } from "@/shared/lib/crypto/genesis-authorization";
 
 type CreateDeviceRegistrationRequest = components["schemas"]["CreateDeviceRegistrationRequest"];
 type ApproveDeviceRequest = components["schemas"]["ApproveDeviceRequest"];
 export type { ApproveDeviceRequest };
-type RevokeDeviceRequest = components["schemas"]["RevokeDeviceRequest"];
+type DeviceRevocationCommand = components["schemas"]["DeviceRevocationCommand"];
+type DeviceRevocationAuthorization = components["schemas"]["DeviceRevocationAuthorization"];
 type DistributeUmkRequest = components["schemas"]["DistributeUmkRequest"];
 
 export type DeviceInfo = components["schemas"]["DeviceFullInfo"];
@@ -13,14 +16,39 @@ export type DeviceRegistrationInfo = components["schemas"]["DeviceRegistrationIn
 export interface WorkspaceRotationInfo {
   workspace_id: string;
   current_kek_version: number;
+  kek_rotation_initiator_user_id?: string | null;
+  rotation_id?: string | null;
+  pending_kek_version?: number | null;
+}
+
+export interface GenesisCommitResponse {
+  status: "committed";
+  user_id: string;
+  device_id: string;
+  workspace_id: string;
+  user_audit_checkpoint_hash: string;
+  workspace_audit_checkpoint_hash: string;
 }
 
 export const devicesApi = {
   bootstrapChallenge: async () =>
-    throwIfError(await client.POST("/api/devices/bootstrap/challenge", {})),
+    throwIfError(
+      await client.POST("/api/devices/bootstrap/challenge", {
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
 
-  bootstrap: async (body: components["schemas"]["BootstrapDeviceRequest"]) =>
-    throwIfError(await client.POST("/api/devices/bootstrap", { body })),
+  bootstrapIntent: async (body: StrictJsonValue): Promise<StrictJsonValue> =>
+    throwIfError(
+      await client.POST("/api/devices/bootstrap/intent", { body } as never),
+    ) as StrictJsonValue,
+
+  bootstrap: async (body: GenesisCompoundAuthorization): Promise<GenesisCommitResponse> =>
+    throwIfError(
+      await client.POST("/api/devices/bootstrap", {
+        body: body as never,
+      }),
+    ) as unknown as GenesisCommitResponse,
 
   registrationChallenge: async (init?: Pick<RequestInit, "signal">) =>
     throwIfError(await client.POST("/api/devices/registrations/challenge", { ...init })),
@@ -60,27 +88,19 @@ export const devicesApi = {
 
   listRegistrations: async () => throwIfError(await client.GET("/api/devices/registrations")),
 
-  revoke: async (
-    deviceId: string,
-    revocationMode: "security" | "retire",
-    revocationSignature: RevokeDeviceRequest["revocation_signature"],
-    revokedAt: number,
-    keyDirectory: Pick<
-      RevokeDeviceRequest,
-      | "user_key_directory_events"
-      | "user_key_directory_checkpoint"
-      | "workspace_key_directory_appends"
-    >,
-  ) =>
+  revocationIntent: async (deviceId: string, body: DeviceRevocationCommand) =>
+    throwIfError(
+      await client.POST("/api/devices/{device_id}/revocation/intent", {
+        params: withUserRrpParams({ path: { device_id: deviceId } }),
+        body,
+      }),
+    ),
+
+  revoke: async (deviceId: string, body: DeviceRevocationAuthorization) =>
     throwIfError(
       await client.DELETE("/api/devices/{device_id}", {
         params: withUserRrpParams({ path: { device_id: deviceId } }),
-        body: {
-          revocation_mode: revocationMode,
-          revocation_signature: revocationSignature,
-          revoked_at: revokedAt,
-          ...keyDirectory,
-        },
+        body,
       }),
     ),
 

@@ -474,7 +474,11 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         checkpoint_payload
       ) do
     Map.get(signing_keys, signing_key_id) ||
-      if device_authorized_checkpoint_signer?(previous_payload, checkpoint_payload, signer) or
+      if workspace_invitation_self_admission_signer?(
+           previous_payload,
+           checkpoint_payload,
+           signer
+         ) or
            identity_rotation_successor_signer?(
              previous_payload,
              checkpoint_payload,
@@ -534,8 +538,8 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
         %{"signer_kind" => "device"} = signer,
         previous_payload
       ) do
-    if device_authorized_checkpoint_signer?(previous_payload, payload, signer) do
-      "device_authorized"
+    if workspace_invitation_self_admission_signer?(previous_payload, payload, signer) do
+      "workspace_invitation_self_admission"
     else
       "workspace_authorized"
     end
@@ -558,7 +562,7 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
   def checkpoint_signature_variant!(_, _, _),
     do: raise(ArgumentError, "checkpoint_signer_kind_invalid")
 
-  defp device_authorized_checkpoint_signer?(
+  defp workspace_invitation_self_admission_signer?(
          previous_payload,
          %{"scope_kind" => "workspace"} = checkpoint_payload,
          %{"signer_kind" => "device", "signing_key_id" => signing_key_id}
@@ -568,7 +572,7 @@ defmodule RefMD.Encryption.KeyDirectory.Signatures do
       key_entry_present?(checkpoint_payload["device_keys"], signing_key_id)
   end
 
-  defp device_authorized_checkpoint_signer?(_, _, _), do: false
+  defp workspace_invitation_self_admission_signer?(_, _, _), do: false
 
   defp key_entry_present?(entries, key_id) when is_list(entries) do
     Enum.any?(entries, fn

@@ -17,6 +17,7 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
         RefMDWeb.Schemas.EncryptedIdentityHybridPrivateKeyMaterial,
       identity_hybrid_signing_private_key_material_nonce: RefMDWeb.Schemas.EncryptedMaterialNonce,
       identity_signing_key_id: RefMDWeb.Schemas.Blake3Base64Url,
+      identity_key_epoch: %Schema{type: :integer, minimum: 1},
       identity_rotation_due_at: %Schema{type: :string, format: :"date-time", nullable: true},
       hybrid_encryption_public_key_material:
         RefMDWeb.Schemas.IdentityHybridEncryptionPublicKeyMaterial,
@@ -63,6 +64,7 @@ defmodule RefMDWeb.Schemas.RecoveryDataResponse do
     required: [
       :recovery_encrypted_umk,
       :recovery_nonce,
+      :identity_key_epoch,
       :identity_rotation_due_at,
       :candidate_user_rotation_deletion_evidences
     ]

@@ -6,7 +6,6 @@ type RegisterRequest = components["schemas"]["RegisterRequest"];
 type LoginRequest = components["schemas"]["LoginRequest"];
 type RecoverySessionRequest = components["schemas"]["RecoverySessionRequest"];
 type OAuthStartRequest = components["schemas"]["OAuthStartRequest"];
-type OAuthCryptoSetupRequest = components["schemas"]["OAuthCryptoSetupRequest"];
 type PasswordSetRequest = components["schemas"]["PasswordSetRequest"];
 export type OAuthProvider = "google" | "github";
 export type ExternalAccountsResponse = components["schemas"]["ExternalAccountsResponse"];
@@ -41,9 +40,6 @@ export const authApi = {
         body,
       }),
     ),
-
-  oauthCryptoSetup: async (body: OAuthCryptoSetupRequest) =>
-    throwIfError(await client.POST("/api/auth/oauth/crypto-setup", { body })),
 
   me: async () => throwIfError(await client.GET("/api/auth/me")),
 

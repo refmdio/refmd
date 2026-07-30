@@ -1,5 +1,11 @@
-import type { HybridSigningPublicKeyMaterial } from "../../signature";
-import type { HybridEncryptionPublicKeyMaterial } from "../../hybrid-encryption";
+import type {
+  DeviceHybridSigningPublicKeyMaterial,
+  IdentityHybridSigningPublicKeyMaterial,
+} from "../../signature";
+import type {
+  DeviceHybridEncryptionPublicKeyMaterial,
+  IdentityHybridEncryptionPublicKeyMaterial,
+} from "../../hybrid-encryption";
 
 interface DskWrappedBlob {
   ciphertext: ArrayBuffer;
@@ -77,12 +83,12 @@ export type InitFromPasswordPayload = InitFromPasswordPayloadBase & DskDeviceKey
 
 export interface PublicKeys {
   deviceEcdhPublic: Uint8Array | null;
-  deviceHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial | null;
+  deviceHybridEncryptionPublicKeyMaterial: DeviceHybridEncryptionPublicKeyMaterial | null;
   deviceEncryptionKeyId: string | null;
-  deviceHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
+  deviceHybridSigningPublicKeyMaterial: DeviceHybridSigningPublicKeyMaterial | null;
   deviceSigningKeyId: string | null;
-  identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial | null;
+  identityHybridSigningPublicKeyMaterial: IdentityHybridSigningPublicKeyMaterial | null;
   identityEcdhPublic: Uint8Array | null;
-  identityHybridEncryptionPublicKeyMaterial: HybridEncryptionPublicKeyMaterial | null;
+  identityHybridEncryptionPublicKeyMaterial: IdentityHybridEncryptionPublicKeyMaterial | null;
   identityEncryptionKeyId: string | null;
 }

@@ -5,6 +5,7 @@ import {
   handleComputeUpdateHash,
   handleCreateDeviceApprovalSignature,
   handleSignDeviceKeyDeletionProof,
+  handleSignAuditCheckpoint,
   handleCreateGenesisDeviceBootstrapSignature,
   handleCreateRecoveryDeviceApprovalSignature,
   handleCreateDeviceRevocationSignature,
@@ -14,6 +15,8 @@ import {
   handleSignDocumentSnapshot,
   handleSignDocumentUpdate,
   handleSignEditorEphemeral,
+  handleSignGenesisPqWrap,
+  handleSignPqWrap,
   handleGenerateInvitationRedeemAuthority,
   handleSignDeviceKeyDirectoryCheckpoint,
   handleSignDeviceKeyDirectoryEvent,
@@ -59,6 +62,12 @@ export const signingRequestHandlers = {
     withCryptoOperationError("signature_failed", () =>
       handleCreateGenesisDeviceBootstrapSignature(state, payload),
     ),
+  "sign-audit-checkpoint": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignAuditCheckpoint(state, payload)),
+  "sign-genesis-pq-wrap": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignGenesisPqWrap(state, payload)),
+  "sign-pq-wrap": (state, payload) =>
+    withCryptoOperationError("signature_failed", () => handleSignPqWrap(state, payload)),
   "create-recovery-device-approval-signature": (state, payload) =>
     withCryptoOperationError("signature_failed", () =>
       handleCreateRecoveryDeviceApprovalSignature(state, payload),

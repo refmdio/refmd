@@ -66,11 +66,10 @@ describe("workspace member removal key directory append", () => {
       actorUserId: "member-1",
       actorDeviceId: "device-1",
       removedUserId: "member-1",
-      removedDeviceKeys: [
-        {
-          signingKeyId: "signing-key-1",
-          encryptionKeyId: "encryption-key-1",
-        },
+      currentKekVersion: 3,
+      documents: [
+        { id: "document-2", minDekVersion: 4 },
+        { id: "document-1", minDekVersion: 2 },
       ],
       checkpointEnvelope,
     });
@@ -79,14 +78,17 @@ describe("workspace member removal key directory append", () => {
     const checkpointPayload = append.checkpoint.payload as Record<string, unknown>;
     expect(payloads.map((payload) => payload.event_type)).toEqual([
       "member_removed",
-      "encryption_key_revoked",
-      "signing_key_revoked",
+      "rotation_started",
+      "rotation_started",
+      "rotation_started",
     ]);
-    expect(payloads.map((payload) => payload.sequence)).toEqual([11, 12, 13]);
-    expect(payloads[2]?.previous_event_hash).toBe(eventHash(payloads[1] ?? {}));
+    expect(payloads.map((payload) => payload.sequence)).toEqual([11, 12, 13, 14]);
+    expect(
+      payloads.slice(1).map((payload) => (payload.body as Record<string, unknown>).scope_id),
+    ).toEqual(["workspace-1", "document-1", "document-2"]);
     expect(checkpointPayload.covered_event_head).toEqual({
-      head_sequence: 13,
-      head_hash: eventHash(payloads[2] ?? {}),
+      head_sequence: 14,
+      head_hash: eventHash(payloads[3] ?? {}),
     });
   });
 });
@@ -128,21 +130,15 @@ describe("workspace member role change key directory append", () => {
           targetUserId: "member-1",
           previousRoleId: "role-1",
           previousBaseRole: "editor",
-          previousEffectivePermissions: ["document:write", "document:read"],
           roleId: "role-2",
           baseRole: "viewer",
-          effectivePermissions: ["document:read"],
-          permissionVersion: 2,
         },
         {
           targetUserId: "member-2",
           previousRoleId: "role-1",
           previousBaseRole: "editor",
-          previousEffectivePermissions: ["document:read", "document:write"],
           roleId: "role-1",
           baseRole: "editor",
-          effectivePermissions: ["document:read"],
-          permissionVersion: 7,
         },
       ],
     });
@@ -152,17 +148,12 @@ describe("workspace member role change key directory append", () => {
     const checkpointPayload = append.checkpoint.payload as Record<string, unknown>;
     expect(payloads.map((payload) => payload.sequence)).toEqual([11, 12]);
     expect(payloads[1]?.previous_event_hash).toBe(eventHash(payloads[0] ?? {}));
-    expect(firstBody.previous_effective_permissions).toEqual(["document:read", "document:write"]);
-    expect(firstBody.permission_version).toBe(2);
     expect(Object.keys(firstBody).sort()).toEqual([
-      "base_role",
       "changed_at_event_sequence",
-      "effective_permissions",
-      "permission_version",
+      "new_base_role",
+      "new_role_id",
       "previous_base_role",
-      "previous_effective_permissions",
       "previous_role_id",
-      "role_id",
       "user_id",
       "workspace_id",
     ]);

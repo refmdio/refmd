@@ -16,7 +16,8 @@ defmodule RefMD.Encryption.KeyDirectory.Body do
     "member_added",
     "member_role_changed",
     "member_removed",
-    "wrap_issued"
+    "wrap_issued",
+    "workspace_member_envelope_issued"
   ]
 
   @invitation_types [

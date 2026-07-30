@@ -19,15 +19,19 @@ import {
   hashKeyDirectoryCheckpointEnvelope,
   hasVerifiedKeyDirectoryCheckpoint,
   hasVerifiedKeyDirectoryEvent,
-  installTransferredKeyDirectoryCheckpoint,
-  installVerifiedTransferredKeyDirectoryCheckpoint,
   lookupVerifiedKeyDirectoryCheckpointBodies,
   lookupVerifiedKeyDirectoryLineage,
   verifyAndRememberKeyDirectoryLineageFromTrustedAnchor,
   type KeyDirectoryPin,
 } from "./pins";
 import type { SignedKeyDirectoryEnvelope } from "./types";
-import { checkpointHash, eventHash } from "./primitives";
+import { pinFromCheckpoint } from "./core";
+import {
+  checkpointHash,
+  eventHash,
+  genesisCandidateSigningKeyId,
+  isGenesisCandidateEvent,
+} from "./primitives";
 
 const pinStore = new Map<string, KeyDirectoryPin>();
 const lineageStore = new Map<string, unknown>();
@@ -140,37 +144,40 @@ describe("key-directory anti-rollback pins", () => {
     vi.clearAllMocks();
   });
 
-  it("rejects transferred checkpoint conflicts instead of replacing an existing pin", async () => {
-    const chain = keyDirectoryChain("workspace", WORKSPACE_TRANSFER_ID, 2);
+  it("recognizes only the workspace Genesis candidate authority", () => {
+    const chain = keyDirectoryChain("workspace", WORKSPACE_TRANSFER_ID, 1);
+    const event = chain[0]!.event as unknown as SignedKeyDirectoryEnvelope;
+    const checkpoint = chain[0]!.checkpoint as unknown as SignedKeyDirectoryEnvelope;
+    const actor = event.payload.actor as Record<string, unknown>;
+    actor.key_scope_kind = "workspace";
+    actor.key_scope_id = WORKSPACE_TRANSFER_ID;
+    actor.key_checkpoint_sequence = 0;
+    actor.key_checkpoint_hash = "GENESIS";
+    const signingKeyId = genesisCandidateSigningKeyId(
+      "workspace",
+      WORKSPACE_TRANSFER_ID,
+      [event],
+      checkpoint.payload,
+    );
 
-    await installTransferredKeyDirectoryCheckpoint({
-      scopeKind: "workspace",
-      scopeId: WORKSPACE_TRANSFER_ID,
-      checkpointEnvelope: chain[0]!.checkpoint,
-    });
-
-    await expect(
-      installTransferredKeyDirectoryCheckpoint({
-        scopeKind: "workspace",
-        scopeId: WORKSPACE_TRANSFER_ID,
-        checkpointEnvelope: chain[1]!.checkpoint,
-      }),
-    ).rejects.toThrow("key_directory_pin_conflict");
-
-    await expect(getKeyDirectoryPin("workspace", WORKSPACE_TRANSFER_ID)).resolves.toMatchObject({
-      checkpointSequence: 1,
-      checkpointHash: hashKeyDirectoryCheckpointEnvelope(chain[0]!.checkpoint),
-    });
+    expect(signingKeyId).toBe(actor.signing_key_id);
+    expect(isGenesisCandidateEvent(event.payload, signingKeyId)).toBe(true);
+    expect(
+      isGenesisCandidateEvent(
+        { ...event.payload, actor: { ...actor, key_checkpoint_hash: "not-genesis" } },
+        signingKeyId,
+      ),
+    ).toBe(false);
+    expect(genesisCandidateSigningKeyId("user", USER_ID, [event], checkpoint.payload)).toBeNull();
   });
 
   it("advances pins only with ancestry anchored at the local pin", async () => {
     const chain = keyDirectoryChain("workspace", WORKSPACE_PROOF_ID, 3);
 
-    await installTransferredKeyDirectoryCheckpoint({
-      scopeKind: "workspace",
-      scopeId: WORKSPACE_PROOF_ID,
-      checkpointEnvelope: chain[0]!.checkpoint,
-    });
+    pinStore.set(
+      `workspace:${WORKSPACE_PROOF_ID}`,
+      pinFromCheckpoint("workspace", WORKSPACE_PROOF_ID, chain[0]!.checkpoint),
+    );
 
     await advanceKeyDirectoryPinWithProof({
       scopeKind: "workspace",
@@ -245,11 +252,10 @@ describe("key-directory anti-rollback pins", () => {
     const workspaceId = "55555555-5555-4555-8555-555555555555";
     const chain = keyDirectoryChain("workspace", workspaceId, 2);
 
-    await installTransferredKeyDirectoryCheckpoint({
-      scopeKind: "workspace",
-      scopeId: workspaceId,
-      checkpointEnvelope: chain[0]!.checkpoint,
-    });
+    pinStore.set(
+      `workspace:${workspaceId}`,
+      pinFromCheckpoint("workspace", workspaceId, chain[0]!.checkpoint),
+    );
 
     await advanceKeyDirectoryPinWithProof({
       scopeKind: "workspace",
@@ -282,11 +288,10 @@ describe("key-directory anti-rollback pins", () => {
     const workspaceId = "66666666-6666-4666-8666-666666666666";
     const chain = keyDirectoryChain("workspace", workspaceId, 3);
 
-    await installVerifiedTransferredKeyDirectoryCheckpoint({
-      scopeKind: "workspace",
-      scopeId: workspaceId,
-      checkpointEnvelope: chain[2]!.checkpoint as unknown as SignedKeyDirectoryEnvelope,
-    });
+    pinStore.set(
+      `workspace:${workspaceId}`,
+      pinFromCheckpoint("workspace", workspaceId, chain[2]!.checkpoint),
+    );
 
     await verifyAndRememberKeyDirectoryLineageFromTrustedAnchor({
       scopeKind: "workspace",
@@ -334,11 +339,10 @@ describe("key-directory anti-rollback pins", () => {
     const workspaceId = "77777777-7777-4777-8777-777777777777";
     const chain = keyDirectoryChain("workspace", workspaceId, 3);
 
-    await installTransferredKeyDirectoryCheckpoint({
-      scopeKind: "workspace",
-      scopeId: workspaceId,
-      checkpointEnvelope: chain[0]!.checkpoint,
-    });
+    pinStore.set(
+      `workspace:${workspaceId}`,
+      pinFromCheckpoint("workspace", workspaceId, chain[0]!.checkpoint),
+    );
 
     await advanceKeyDirectoryPinWithProof({
       scopeKind: "workspace",

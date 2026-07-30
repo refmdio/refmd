@@ -26,8 +26,41 @@ defmodule RefMD.Crypto.Signature.Core do
     "version"
   ]
   @owner_exact_payload_keys %{
+    {"audit_checkpoint", "user_identity"} => [
+      "authority_boundary",
+      "checkpoint",
+      "signer",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"audit_checkpoint", "user_device"} => [
+      "authority_boundary",
+      "checkpoint",
+      "signer",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"audit_checkpoint", "workspace_device"} => [
+      "authority_boundary",
+      "checkpoint",
+      "signer",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"audit_checkpoint", "workspace_guest_device"} => [
+      "authority_boundary",
+      "checkpoint",
+      "signer",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
     {"pq_wrap", "none"} => [
       "actor",
+      "authority_context",
       "authority_boundary",
       "subject_hashes",
       "subject_protocol",
@@ -35,7 +68,25 @@ defmodule RefMD.Crypto.Signature.Core do
       "subject_suite_rank",
       "subject_version"
     ],
-    {"key_directory_checkpoint", "device_authorized"} => [
+    {"key_directory_checkpoint", "workspace_invitation_self_admission"} => [
+      "authority_boundary",
+      "scope",
+      "signer",
+      "suite_policy",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"key_directory_checkpoint", "security_device_revocation"} => [
+      "authority_boundary",
+      "scope",
+      "signer",
+      "suite_policy",
+      "subject_hash",
+      "subject_protocol",
+      "subject_version"
+    ],
+    {"key_directory_checkpoint", "identity_self_envelope_rewrap"} => [
       "authority_boundary",
       "scope",
       "signer",
@@ -161,7 +212,7 @@ defmodule RefMD.Crypto.Signature.Core do
     {"device_revocation", "none"} => [
       "actor",
       "authority_boundary",
-      "revocation",
+      "revoked_device",
       "subject_hash",
       "subject_protocol",
       "subject_version"
@@ -169,14 +220,26 @@ defmodule RefMD.Crypto.Signature.Core do
     {"genesis_device_bootstrap", "none"} => [
       "bootstrap_authority",
       "client_nonce",
+      "compound_intent_id",
       "device_encryption_key_id",
       "device_hybrid_encryption_public_key_material_hash",
       "device_id",
       "device_signing_key_id",
+      "genesis_compound_context_hash",
       "identity_signing_key_id",
+      "mutation_id",
+      "owner_member_added_event_hash",
+      "owner_role_id",
+      "registration_id",
       "subject_protocol",
       "subject_version",
-      "user_id"
+      "user_audit_checkpoint",
+      "user_device_key_added_event_hash",
+      "user_id",
+      "workspace_audit_checkpoint",
+      "workspace_device_key_added_event_hash",
+      "workspace_id",
+      "workspace_member_envelope_commitment_hash"
     ],
     {"rrp_request", "channel_share_participant_device"} => [
       "actor",
@@ -380,6 +443,29 @@ defmodule RefMD.Crypto.Signature.Core do
     "editor_ephemeral_session" => ["actor", "authority_boundary", "session"]
   }
   @nested_owner_exact_keys %{
+    {"audit_checkpoint", "*"} => %{
+      "checkpoint" => [
+        "chain_scope_id",
+        "chain_scope_kind",
+        "covered_event_class",
+        "covered_event_type",
+        "event_hash",
+        "previous_signed_checkpoint_hash",
+        "previous_signed_checkpoint_sequence",
+        "sequence"
+      ],
+      "signer" => ["device_id", "signing_key_id", "user_id"],
+      "authority_boundary" => [
+        "checkpoint_hash",
+        "checkpoint_hash_domain",
+        "checkpoint_protocol",
+        "checkpoint_sequence",
+        "checkpoint_version",
+        "required_authority",
+        "scope_id",
+        "scope_kind"
+      ]
+    },
     {"pq_wrap", "none"} => %{
       "actor" => [
         "device_id",
@@ -499,7 +585,9 @@ defmodule RefMD.Crypto.Signature.Core do
         "authority_kind",
         "registration_challenge_hash",
         "user_identity_public_key_hash"
-      ]
+      ],
+      "user_audit_checkpoint" => ["checkpoint_hash", "sequence"],
+      "workspace_audit_checkpoint" => ["checkpoint_hash", "sequence"]
     },
     {"rrp_request", "*"} => %{
       "session" => ["is_recovery", "session_id_hash", "session_kind"]
@@ -1193,6 +1281,30 @@ defmodule RefMD.Crypto.Signature.Core do
   end
 
   defp nested_expected_keys(
+         %{
+           "surface_id" => "audit_checkpoint",
+           "authority_boundary" => %{"checkpoint_sequence" => 0}
+         },
+         "checkpoint",
+         _value,
+         keys
+       ) do
+    Enum.reject(
+      keys,
+      &(&1 in ["previous_signed_checkpoint_hash", "previous_signed_checkpoint_sequence"])
+    )
+  end
+
+  defp nested_expected_keys(
+         %{"surface_id" => "audit_checkpoint", "surface_variant" => "user_identity"},
+         "signer",
+         _value,
+         keys
+       ) do
+    Enum.reject(keys, &(&1 == "device_id"))
+  end
+
+  defp nested_expected_keys(
          %{"surface_id" => "key_directory_event", "event" => %{"sequence" => 1}},
          "event",
          _value,
@@ -1204,7 +1316,7 @@ defmodule RefMD.Crypto.Signature.Core do
   defp nested_expected_keys(
          %{"surface_id" => "key_directory_event", "event" => %{"sequence" => 1}},
          "authority_boundary",
-         _value,
+         %{"required_authority" => "tofu_root"},
          _keys
        ),
        do: ["required_authority"]
@@ -1334,6 +1446,18 @@ defmodule RefMD.Crypto.Signature.Core do
 
   defp nested_field_type(_field, "password_protected", _), do: :boolean
   defp nested_field_type(_field, "sequence", _), do: :positive_integer
+
+  defp nested_field_type("authority_boundary", "checkpoint_sequence", _),
+    do: :non_negative_integer
+
+  defp nested_field_type("authority_boundary", "checkpoint_hash", _), do: :chain_hash
+  defp nested_field_type(_field, "key_checkpoint_hash", _), do: :chain_hash
+  defp nested_field_type(_field, "key_checkpoint_sequence", _), do: :non_negative_integer
+  defp nested_field_type(_field, "authorizing_checkpoint_hash", _), do: :chain_hash
+
+  defp nested_field_type(_field, "authorizing_checkpoint_sequence", _),
+    do: :non_negative_integer
+
   defp nested_field_type("public_data", key, _) when key in ["clock"], do: :non_negative_integer
 
   defp nested_field_type("public_data", key, _) when key in ["parentSnapshotUpdateClocks"],

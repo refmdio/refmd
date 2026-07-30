@@ -14,16 +14,11 @@ type NormalRegistrationDecision =
       dskUnavailableOAuth: boolean;
     };
 
-type NormalRegistrationPreparation =
-  | {
-      kind: "normal";
-      identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
-      publicKeys: DeviceRegistrationPublicKeys;
-      decision: NormalRegistrationDecision;
-    }
-  | {
-      kind: "oauth_first_device_required";
-    };
+type NormalRegistrationPreparation = {
+  identityHybridSigningPublicKeyMaterial: HybridSigningPublicKeyMaterial;
+  publicKeys: DeviceRegistrationPublicKeys;
+  decision: NormalRegistrationDecision;
+};
 
 export function decideNormalRegistrationNextStep(input: {
   hasDsk: boolean;
@@ -53,11 +48,7 @@ export async function prepareNormalRegistration(
       ? (me.identity_hybrid_signing_public_key_material as unknown as HybridSigningPublicKeyMaterial)
       : null;
   if (!identityHybridSigningPublicKeyMaterial) {
-    if (me.auth_type !== "password") {
-      return { kind: "oauth_first_device_required" };
-    }
-
-    throw new Error("Identity key not available");
+    throw new Error("account_genesis_required");
   }
 
   const worker = getCryptoWorker();
@@ -69,7 +60,6 @@ export async function prepareNormalRegistration(
   const deviceKeysPersisted = hasDsk ? await persistCurrentDeviceKeys(userId) : false;
 
   return {
-    kind: "normal",
     identityHybridSigningPublicKeyMaterial,
     publicKeys: {
       deviceId,

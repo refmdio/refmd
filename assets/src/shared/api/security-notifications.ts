@@ -79,3 +79,18 @@ export const securityNotificationsApi = {
     return envelope.notification;
   },
 };
+
+export const securityCheckpointsApi = {
+  current: async (): Promise<{
+    user_audit_checkpoint: Record<string, unknown>;
+    workspace_audit_checkpoints: Array<{
+      workspace_id: string;
+      audit_checkpoint: Record<string, unknown>;
+    }>;
+  }> =>
+    throwIfError(
+      await apiGet("/api/security/audit-checkpoints", {
+        params: withUserRrpParams(),
+      }),
+    ) as never,
+};

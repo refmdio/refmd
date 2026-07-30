@@ -59,6 +59,7 @@ type KeyRestoreResponse = {
   encrypted_identity_hybrid_signing_private_key_material: string;
   identity_hybrid_signing_private_key_material_nonce: string;
   identity_signing_key_id: string;
+  identity_key_epoch: number;
   identity_rotation_due_at: string | null;
   identity_key_checkpoint: {
     payload: Record<string, unknown>;
@@ -109,6 +110,7 @@ async function resolveKeyRestorePayload(
         body.identity_hybrid_signing_private_key_material_nonce,
       ),
       identitySigningKeyId: body.identity_signing_key_id,
+      identityKeyEpoch: body.identity_key_epoch,
       identityRotationDueAt: body.identity_rotation_due_at,
       identityKeyCheckpointPayload: body.identity_key_checkpoint.payload,
     },
@@ -279,6 +281,7 @@ async function restoreKeysFromBlobs(
         },
         state.umk,
         userId,
+        p.identityKeyEpoch as number,
       ),
     );
     trustIdentityRotationCheckpoint(state, p.identityKeyCheckpointPayload, true);
@@ -504,6 +507,7 @@ export async function handleImportIdentityKeysFromKeyRestore(
       },
       requireUmk(state),
       requireUserId(state),
+      payload.identityKeyEpoch as number,
     ),
   );
   trustIdentityRotationCheckpoint(state, payload.identityKeyCheckpointPayload, true);

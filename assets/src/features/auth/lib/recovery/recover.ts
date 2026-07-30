@@ -23,7 +23,10 @@ import {
   verifyInitialReplay,
 } from "@/shared/lib/anti-rollback/key-directory-pin/verification";
 import { verifyRotationDeletionEvidences } from "@/shared/lib/anti-rollback/rotation-deletion-evidence";
-import { verifyAndPinAuditCheckpoint } from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
+import {
+  verifyAndPinAuditCheckpoint,
+  verifyAuditCheckpointCandidate,
+} from "@/shared/lib/anti-rollback/audit-checkpoint-pin";
 import {
   assertKeyDirectoryEnvelope,
   type KeyDirectoryEnvelope,
@@ -83,8 +86,9 @@ export async function recoverAccount(
   const recovery = await authApi.getRecovery();
   const candidate = recoveryCandidateFromServer(recovery);
   await advanceRecoveryCandidateKeyDirectory(params.auth.user.id, candidate);
-  const recoveryAuditPin = await verifyAndPinAuditCheckpoint(
+  const recoveryAuditPin = await verifyAuditCheckpointCandidate(
     recovery.candidate_user_audit_checkpoint,
+    { acquisition: "recovery" },
   );
 
   params.setStatusMessage("Deriving recovery key...");
@@ -102,6 +106,14 @@ export async function recoverAccount(
   }
 
   params.setStatusMessage("Decrypting identity keys...");
+  const identityKeyEpoch = recovery.identity_key_epoch;
+  if (
+    typeof identityKeyEpoch !== "number" ||
+    !Number.isSafeInteger(identityKeyEpoch) ||
+    identityKeyEpoch < 1
+  ) {
+    throw new Error("Recovery identity key epoch is invalid.");
+  }
   const identityPublic = await worker.importIdentityKeys({
     encryptedHybridEncryptionPrivateKeyMaterial: base64UrlDecode(
       recovery.encrypted_identity_hybrid_encryption_private_key_material!,
@@ -117,6 +129,7 @@ export async function recoverAccount(
       recovery.identity_hybrid_signing_private_key_material_nonce!,
     ),
     signingKeyId: recovery.identity_signing_key_id!,
+    identityKeyEpoch,
     rotationDueAt: recovery.identity_rotation_due_at,
   });
 
@@ -187,8 +200,8 @@ export async function recoverAccount(
     pendingRegistrationId: deviceId,
     pendingRegistrationBindingHash,
     ...candidate,
-    candidateUserAuditSequence: recoveryAuditPin.sequence,
-    candidateUserAuditHash: recoveryAuditPin.eventHash,
+    candidateUserAuditSequence: recoveryAuditPin.event_head_sequence,
+    candidateUserAuditHash: recoveryAuditPin.event_head_hash,
   });
 
   params.setStatusMessage("Creating session...");
@@ -212,9 +225,12 @@ export async function recoverAccount(
     candidate_user_event_head_hash: candidate.candidateUserEventHeadHash,
     candidate_user_checkpoint: candidate.candidateUserCheckpoint,
     candidate_user_event_ancestry: candidate.candidateUserEventAncestry,
-    candidate_user_audit_sequence: recoveryAuditPin.sequence,
-    candidate_user_audit_hash: recoveryAuditPin.eventHash,
+    candidate_user_audit_sequence: recoveryAuditPin.event_head_sequence,
+    candidate_user_audit_hash: recoveryAuditPin.event_head_hash,
     target_device_registration: targetDeviceRegistration,
+  });
+  await verifyAndPinAuditCheckpoint(recovery.candidate_user_audit_checkpoint, {
+    acquisition: "recovery",
   });
   await verifyAndPinAuditCheckpoint(sessionResponse.audit_checkpoint);
   sessionStorage.setItem(

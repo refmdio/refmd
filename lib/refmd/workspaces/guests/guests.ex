@@ -6,6 +6,7 @@ defmodule RefMD.Workspaces.Guests do
   alias RefMD.Auth
   alias RefMD.Devices
   alias RefMD.Encryption
+  alias RefMD.Encryption.RecoverableIdentitySecretRecord
   alias RefMD.Encryption.RotationPolicy
   alias RefMD.Repo
   alias RefMD.Sharing.{Share, ShareKey}
@@ -577,7 +578,6 @@ defmodule RefMD.Workspaces.Guests do
         d.hybrid_signing_public_key_material ==
           ^device_attrs.device_hybrid_signing_public_key_material,
       where: d.client_nonce == ^device_attrs.client_nonce,
-      where: d.approval_signature == ^device_attrs.approval_signature,
       select: %{user_id: g.user_id, device_id: d.id},
       limit: 1
     )
@@ -888,53 +888,55 @@ defmodule RefMD.Workspaces.Guests do
   end
 
   defp create_guest_identity_public_key(user_id, device_attrs) do
-    Encryption.create_user_identity_public_key(%{
+    Encryption.create_guest_identity_public_key(%{
       user_id: user_id,
       hybrid_encryption_public_key_material:
         device_attrs.identity_hybrid_encryption_public_key_material,
-      hybrid_signing_public_key_material:
-        device_attrs.identity_hybrid_signing_public_key_material,
-      pending_registration_challenge_hash: device_attrs.pending_registration_challenge_hash
+      hybrid_signing_public_key_material: device_attrs.identity_hybrid_signing_public_key_material
     })
   end
 
   defp create_guest_encrypted_identity_key(user_id, device_attrs) do
-    Encryption.create_user_encrypted_identity_key(%{
-      user_id: user_id,
-      encrypted_identity_hybrid_encryption_private_key_material:
-        device_attrs.encrypted_identity_hybrid_encryption_private_key_material,
-      identity_hybrid_encryption_private_key_material_nonce:
-        device_attrs.identity_hybrid_encryption_private_key_material_nonce,
-      encryption_key_id: device_attrs.identity_encryption_key_id,
-      encrypted_identity_hybrid_signing_private_key_material:
-        device_attrs.encrypted_identity_hybrid_signing_private_key_material,
-      identity_hybrid_signing_private_key_material_nonce:
-        device_attrs.identity_hybrid_signing_private_key_material_nonce,
-      signing_key_id: device_attrs.identity_signing_key_id
-    })
+    attrs =
+      case device_attrs.recoverable_identity_secret_record do
+        %{user_id: ^user_id} = normalized ->
+          normalized
+
+        record when is_map(record) ->
+          RecoverableIdentitySecretRecord.to_attrs!(record, %{
+            user_id: user_id,
+            signing_key_id: device_attrs.identity_signing_key_id,
+            encryption_key_id: device_attrs.identity_encryption_key_id
+          })
+      end
+
+    if attrs.user_id == user_id and
+         attrs.encryption_key_id == device_attrs.identity_encryption_key_id and
+         attrs.signing_key_id == device_attrs.identity_signing_key_id do
+      Encryption.create_user_encrypted_identity_key(attrs)
+    else
+      {:error, :invalid_recoverable_identity_secret_record}
+    end
+  rescue
+    _ -> {:error, :invalid_recoverable_identity_secret_record}
   end
 
-  defp bootstrap_guest_device(user_id, device_attrs, %{checkpoint: checkpoint}) do
-    Devices.bootstrap_guest_device(
-      %{
-        user_id: user_id,
-        id: device_attrs.device_id,
-        name: Map.get(device_attrs, :device_name, "Guest Browser"),
-        device_type: Map.get(device_attrs, :device_type, "browser"),
-        hybrid_encryption_public_key_material:
-          device_attrs.device_hybrid_encryption_public_key_material,
-        hybrid_signing_public_key_material:
-          device_attrs.device_hybrid_signing_public_key_material,
-        client_nonce: device_attrs.client_nonce,
-        pending_registration_challenge_hash: device_attrs.pending_registration_challenge_hash,
-        key_directory: %{
-          user_events: device_attrs.user_key_directory_events,
-          user_checkpoint: device_attrs.user_key_directory_checkpoint
-        }
-      },
-      device_attrs.approval_signature,
-      checkpoint
-    )
+  defp bootstrap_guest_device(user_id, device_attrs, %{checkpoint: checkpoint})
+       when is_map(checkpoint) do
+    Devices.bootstrap_guest_device(%{
+      user_id: user_id,
+      id: device_attrs.device_id,
+      name: Map.get(device_attrs, :device_name, "Guest Browser"),
+      device_type: Map.get(device_attrs, :device_type, "browser"),
+      hybrid_encryption_public_key_material:
+        device_attrs.device_hybrid_encryption_public_key_material,
+      hybrid_signing_public_key_material: device_attrs.device_hybrid_signing_public_key_material,
+      client_nonce: device_attrs.client_nonce,
+      key_directory: %{
+        user_events: device_attrs.user_key_directory_events,
+        user_checkpoint: device_attrs.user_key_directory_checkpoint
+      }
+    })
   end
 
   defp bootstrap_guest_device(_user_id, _device_attrs, _key_directory),
