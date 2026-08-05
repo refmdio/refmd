@@ -143,7 +143,6 @@ type RefmdEditorInstance = monacoNs.editor.IStandaloneCodeEditor & {
   __disposeCursor?: () => void
   __disposeMonacoMd?: () => void
   __disposeKeydown?: () => void
-  __disposeDirtyTracker?: () => void
   __readOnlyOverlay?: {
     widget: monacoNs.editor.IOverlayWidget
     domNode: HTMLElement
@@ -355,6 +354,24 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       scheduleCommentDecorationRefresh()
     },
   })
+  // Persist only for local Yjs writes (typing, toolbar, plugins). Remote
+  // sync / save-echo applies are non-local and must not re-arm autosave.
+  useEffect(() => {
+    if (readOnly) return
+    const ytext = doc.getText('content')
+    const observer = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
+      if (!transaction.local) return
+      markDocumentContentDirty(documentId, ytext.toString())
+    }
+    ytext.observe(observer)
+    return () => {
+      try {
+        ytext.unobserve(observer)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [doc, documentId, readOnly])
   const commentsQuery = useQuery(
     documentCommentsQuery(documentId, { token: shareToken }),
   )
@@ -524,9 +541,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         editor?.__disposeMonacoMd?.(),
       )
       safeExecute('dispose keydown handler', () => editor?.__disposeKeydown?.())
-      safeExecute('dispose dirty tracker', () =>
-        editor?.__disposeDirtyTracker?.(),
-      )
       safeExecute('dispose plugin decorations', () => {
         for (const ids of pluginDecorationIdsRef.current.values()) {
           try {
@@ -760,27 +774,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       onMonacoMount(editor, monaco)
       ;(editor as any).__monaco = monaco
       setReadOnlyOverlay(editor as any, monaco as any, readOnly)
-      let userEditIntent = false
-      const markDirtyFromModel = () => {
-        if (readOnly) return
-        const value = editor.getModel()?.getValue()
-        if (typeof value === 'string') {
-          markDocumentContentDirty(documentId, value)
-        }
-      }
-      ;(editor as any).__refmdMarkDirty = markDirtyFromModel
-      try {
-        const modelChangeDispose = editor.onDidChangeModelContent(() => {
-          if (!userEditIntent) return
-          markDirtyFromModel()
-        })
-        ;(editor as any).__disposeDirtyTracker = () =>
-          safeExecute('dispose dirty tracker', () =>
-            modelChangeDispose.dispose(),
-          )
-      } catch (error) {
-        logEditorError('register dirty tracker', error)
-      }
       // Register wiki-link completion provider
       try {
         const disp = registerWikiLinkCompletion(monaco as any)
@@ -827,10 +820,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
             if (shouldWarnForKey(e)) {
               emitReadOnlyWarning()
               return
-            }
-            if (!readOnly) {
-              userEditIntent = true
-              ;(editor as any).__refmdUserEditIntent = true
             }
             const KeyCode = (monaco as any)?.KeyCode
             const isEnter = KeyCode
@@ -924,7 +913,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       setReadOnlyOverlay,
       enableVimMode,
       brandedMonacoTheme,
-      documentId,
     ],
   )
 
@@ -1283,12 +1271,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       if (!nextEdits.length) return false
       const applied = editorInstance.executeEdits('refmd-plugin', nextEdits)
       editorInstance.pushUndoStop()
-      try {
-        ;(editorInstance as any).__refmdUserEditIntent = true
-        ;(editorInstance as any).__refmdMarkDirty?.()
-      } catch {
-        /* noop */
-      }
       return applied
     }
 
