@@ -45,6 +45,7 @@ const pendingContentByDocumentId = new Map<string, PendingContentEntry>()
 const pendingContentFlushByDocumentId = new Map<string, Promise<void>>()
 const pendingContentFlushTimersByDocumentId = new Map<string, number>()
 const documentContentFlushRegistrations = new Map<string, DocumentContentFlushRegistration>()
+const lastFlushedContentByDocumentId = new Map<string, string>()
 let pendingContentRevision = 0
 const SHARE_TOKEN_VALIDATION_STALE_MS = 5 * 60 * 1000
 const DOCUMENT_META_STALE_MS = 60 * 1000
@@ -53,6 +54,11 @@ const DOCUMENT_CONTENT_FLUSH_DELAY_MS = 1200
 export function markDocumentContentDirty(documentId: string, content: string) {
   if (!documentId) return
   if (!documentContentFlushRegistrations.has(documentId)) return
+  // Save echoes can re-arm dirty with the same string. Skip identical content
+  // so we only PUT again after a real edit.
+  const pending = pendingContentByDocumentId.get(documentId)
+  if (pending?.content === content) return
+  if (lastFlushedContentByDocumentId.get(documentId) === content) return
   pendingContentByDocumentId.set(documentId, {
     content,
     revision: ++pendingContentRevision,
@@ -66,6 +72,7 @@ function registerDocumentContentFlush(documentId: string, token: string | null) 
     const current = documentContentFlushRegistrations.get(documentId)
     if (current?.token === token) {
       documentContentFlushRegistrations.delete(documentId)
+      lastFlushedContentByDocumentId.delete(documentId)
     }
     if (!pendingContentByDocumentId.has(documentId)) {
       clearPendingDocumentContentFlushTimer(documentId)
@@ -113,8 +120,14 @@ function flushPendingDocumentContent(documentId: string, tokenOverride?: string 
         return
       }
 
+      lastFlushedContentByDocumentId.set(documentId, entry.content)
+
       const current = pendingContentByDocumentId.get(documentId)
-      if (!current || current.revision === entry.revision) {
+      if (
+        !current ||
+        current.revision === entry.revision ||
+        current.content === entry.content
+      ) {
         pendingContentByDocumentId.delete(documentId)
         return
       }
