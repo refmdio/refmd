@@ -72,6 +72,10 @@ export function parseCommentMarkerId(marker: string) {
 
 const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function findCommentMarkers(content: string) {
   const matches = content.match(COMMENT_MARKER_PATTERN)
   return matches ? Array.from(new Set(matches)) : []
@@ -94,6 +98,11 @@ export function stripCommentMarkers(
   for (const marker of markers) {
     if (!marker || seen.has(marker)) continue
     seen.add(marker)
+    const escaped = escapeRegExp(marker)
+    // Drop markers that occupy a whole line so we don't leave a blank line.
+    out = out.replace(new RegExp(`\\n${escaped}(?=\\n|$)`, 'g'), '')
+    out = out.replace(new RegExp(`^${escaped}\\n`), '')
+    out = out.replace(new RegExp(`^${escaped}$`), '')
     out = out.split(marker).join('')
   }
   return out

@@ -99,6 +99,7 @@ const EMPTY_COMMENT_COMPOSER_STATE = {
 const MAX_COMPACT_COMMENT_MARKER_ID_LENGTH = 24
 const ADJACENT_COMMENT_MARKER_PATTERN = /^<!--comment:[A-Za-z0-9_-]+-->/
 const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
+const LONE_COMMENT_MARKER_LINE_PATTERN = /\n(<!--comment:[A-Za-z0-9_-]+-->)(?=\n|$)/g
 
 function shouldCompactCommentMarker(marker: string) {
   const markerId = parseCommentMarkerId(marker)
@@ -1473,6 +1474,35 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       },
     }
   }, [editorMountNonce, editorRef, emitReadOnlyWarning, readOnly])
+
+  // Markers left alone on a line (common after full-line selections) render as
+  // blank lines once hidden. Pull them onto the previous line.
+  useEffect(() => {
+    if (readOnly || !documentEditorApi) return
+    const content = getEditorCommentContent()
+    const edits: Array<{
+      range: DocumentEditorRange
+      text: string
+      forceMoveMarkers: boolean
+    }> = []
+    for (const match of content.matchAll(LONE_COMMENT_MARKER_LINE_PATTERN)) {
+      const marker = match[1]
+      if (typeof match.index !== 'number') continue
+      const range = documentEditorApi.getRangeFromOffset(
+        match.index,
+        1 + marker.length,
+      )
+      if (!range) continue
+      edits.push({ range, text: marker, forceMoveMarkers: true })
+    }
+    if (!edits.length) return
+    documentEditorApi.applyEdits(edits.reverse())
+  }, [
+    boundText,
+    documentEditorApi,
+    getEditorCommentContent,
+    readOnly,
+  ])
 
   useEffect(() => {
     if (readOnly || !documentEditorApi || !commentThreads.length) return

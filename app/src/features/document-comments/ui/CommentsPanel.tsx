@@ -132,7 +132,24 @@ function validateTags(tags: string[]) {
 
 function buildMarkerInsertionRange(
   selection: DocumentEditorSelection,
+  editor: DocumentEditorApi,
 ): DocumentEditorRange {
+  // Monaco full-line selections usually end at column 1 of the next line
+  // (they include the trailing newline). Inserting there parks the marker on
+  // that following line alone, which looks like a blank line once hidden.
+  if (
+    selection.endColumn === 1 &&
+    selection.endLineNumber > selection.startLineNumber
+  ) {
+    const endOffset = editor.getOffsetFromPosition({
+      lineNumber: selection.endLineNumber,
+      column: 1,
+    })
+    if (typeof endOffset === 'number' && endOffset > 0) {
+      const range = editor.getRangeFromOffset(endOffset - 1, 0)
+      if (range) return range
+    }
+  }
   return {
     startLineNumber: selection.endLineNumber,
     startColumn: selection.endColumn,
@@ -371,7 +388,7 @@ export function CommentsPanel({
     })
     const inserted = editor.applyEdits([
       {
-        range: buildMarkerInsertionRange(selection),
+        range: buildMarkerInsertionRange(selection, editor),
         text: marker,
         forceMoveMarkers: true,
       },

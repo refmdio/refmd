@@ -65,6 +65,9 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
           minimap: { enabled: false },
           glyphMargin: true,
           wordWrap: 'on',
+          // Comment markers are visually zero-width; without this, wrap still
+          // reserves their model width and leaves an empty soft-wrapped line.
+          disableMonospaceOptimizations: true,
           scrollBeyondLastLine: true,
           readOnly,
           domReadOnly: readOnly,

@@ -584,6 +584,7 @@
   font-size: 0 !important;
   letter-spacing: 0 !important;
   line-height: 0 !important;
+  overflow: hidden !important;
   pointer-events: none !important;
 }
 

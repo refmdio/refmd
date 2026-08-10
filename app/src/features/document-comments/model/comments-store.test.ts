@@ -55,6 +55,16 @@ describe('comment markers', () => {
     )
   })
 
+  it('does not leave a blank line when a marker occupied its own line', () => {
+    const marker = buildCommentMarker('owned')
+
+    expect(stripCommentMarkers(`alpha\n${marker}\nbeta`, [marker])).toBe(
+      'alpha\nbeta',
+    )
+    expect(stripCommentMarkers(`alpha\n${marker}`, [marker])).toBe('alpha')
+    expect(stripCommentMarkers(`${marker}\nbeta`, [marker])).toBe('beta')
+  })
+
   it('finds valid comment markers in content once', () => {
     const marker = buildCommentMarker('owned')
     const content = `${marker} text ${marker} <!--comment:bad marker-->`
