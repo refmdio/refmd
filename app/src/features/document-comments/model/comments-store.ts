@@ -65,11 +65,12 @@ export function buildCommentMarker(id: string) {
   return `<!--comment:${id}-->`
 }
 
-/** Zero-width space before markers so wrap can break after the quoted word. */
+/** Zero-width space kept for legacy inline markers during migration. */
 export const COMMENT_MARKER_WRAP_BREAK = '\u200B'
 
 export function buildCommentMarkerInsertion(id: string) {
-  return `${COMMENT_MARKER_WRAP_BREAK}${buildCommentMarker(id)}`
+  // Markers sit on their own line so they don't steal wrap width from content.
+  return `\n${buildCommentMarker(id)}`
 }
 
 export function parseCommentMarkerId(marker: string) {

@@ -22,7 +22,6 @@ import {
 
 import {
   buildCommentMarker,
-  COMMENT_MARKER_WRAP_BREAK,
   CommentsPanel,
   createCommentMarkerId,
   findUnknownCommentMarkers,
@@ -33,6 +32,7 @@ import {
   findCommentMarkerRange,
   findCommentThreadRange,
   getCommentThreadLine,
+  getLineEndOffset,
 } from '@/features/document-comments/lib/thread-range'
 import { useAwarenessStyles } from '@/features/edit-document/hooks/useAwarenessStyles'
 import { markDocumentContentDirty } from '@/features/edit-document/hooks/useCollaborativeDocument'
@@ -101,12 +101,9 @@ const MAX_COMPACT_COMMENT_MARKER_ID_LENGTH = 24
 const ADJACENT_COMMENT_MARKER_PATTERN =
   /^\u200B?<!--comment:[A-Za-z0-9_-]+-->/
 const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
-const LONE_COMMENT_MARKER_LINE_PATTERN =
-  /\n(\u200B?<!--comment:[A-Za-z0-9_-]+-->)(?=\n|$)/g
-// Mid-line markers glued to a word force that word onto its own soft-wrapped
-// line. Insert a wrap break before those markers.
-const GLUED_COMMENT_MARKER_PATTERN =
-  /([^\s\u200B])(<!--comment:[A-Za-z0-9_-]+-->)/g
+const INLINE_COMMENT_MARKER_PATTERN =
+  /([^\n])(\u200B?<!--comment:[A-Za-z0-9_-]+-->)/g
+const LONE_MARKER_LINE_PATTERN = /^\u200B?<!--comment:[A-Za-z0-9_-]+-->$/
 
 function shouldCompactCommentMarker(marker: string) {
   const markerId = parseCommentMarkerId(marker)
@@ -1482,55 +1479,60 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     }
   }, [editorMountNonce, editorRef, emitReadOnlyWarning, readOnly])
 
-  // Markers left alone on a line (common after full-line selections) render as
-  // blank lines once hidden. Pull them onto the previous line.
-  // Markers glued to a word (what<!--comment:…-->) soft-wrap that word alone;
-  // insert a ZWSP wrap break before those markers.
+  // Inline markers steal wrap width (they're real model characters). Move them
+  // onto their own line after the content line, then hide those marker lines.
   useEffect(() => {
     if (readOnly || !documentEditorApi) return
     const content = getEditorCommentContent()
-    const edits: Array<{
-      range: DocumentEditorRange
-      text: string
-      forceMoveMarkers: boolean
-    }> = []
+    INLINE_COMMENT_MARKER_PATTERN.lastIndex = 0
+    const match = INLINE_COMMENT_MARKER_PATTERN.exec(content)
+    if (!match || typeof match.index !== 'number') return
 
-    for (const match of content.matchAll(LONE_COMMENT_MARKER_LINE_PATTERN)) {
-      const marker = match[1]
-      if (typeof match.index !== 'number') continue
-      const range = documentEditorApi.getRangeFromOffset(
-        match.index,
-        1 + marker.length,
-      )
-      if (!range) continue
-      edits.push({ range, text: marker, forceMoveMarkers: true })
-    }
-
-    for (const match of content.matchAll(GLUED_COMMENT_MARKER_PATTERN)) {
-      const marker = match[2]
-      if (typeof match.index !== 'number') continue
-      const range = documentEditorApi.getRangeFromOffset(
-        match.index + 1,
-        marker.length,
-      )
-      if (!range) continue
-      edits.push({
-        range,
-        text: `${COMMENT_MARKER_WRAP_BREAK}${marker}`,
-        forceMoveMarkers: true,
-      })
-    }
-
-    if (!edits.length) return
-    documentEditorApi.applyEdits(
-      [...edits].sort((a, b) => {
-        if (a.range.startLineNumber !== b.range.startLineNumber) {
-          return b.range.startLineNumber - a.range.startLineNumber
-        }
-        return b.range.startColumn - a.range.startColumn
-      }),
+    const markerWithBreak = match[2]
+    const marker = markerWithBreak.replace(/^\u200B/, '')
+    const markerStart = match.index + 1
+    const removeRange = documentEditorApi.getRangeFromOffset(
+      markerStart,
+      markerWithBreak.length,
     )
+    if (!removeRange) return
+
+    documentEditorApi.applyEdits([
+      { range: removeRange, text: '', forceMoveMarkers: true },
+    ])
+    const nextContent = getEditorCommentContent()
+    const lineEndOffset = getLineEndOffset(
+      nextContent,
+      removeRange.startLineNumber,
+    )
+    const insertRange = documentEditorApi.getRangeFromOffset(lineEndOffset, 0)
+    if (!insertRange) return
+    documentEditorApi.applyEdits([
+      { range: insertRange, text: `\n${marker}`, forceMoveMarkers: true },
+    ])
   }, [boundText, documentEditorApi, getEditorCommentContent, readOnly])
+
+  // Hide marker-only lines so they don't affect wrapping or show as blanks.
+  useEffect(() => {
+    if (!documentEditorApi) return
+    const content = getEditorCommentContent()
+    const lines = content.split('\n')
+    const hidden = lines.flatMap((line, index) => {
+      if (!LONE_MARKER_LINE_PATTERN.test(line)) return []
+      const lineNumber = index + 1
+      return [
+        {
+          range: {
+            startLineNumber: lineNumber,
+            startColumn: 1,
+            endLineNumber: lineNumber,
+            endColumn: Math.max(1, line.length + 1),
+          },
+        },
+      ]
+    })
+    return documentEditorApi.setHiddenRanges('core-comment-markers', hidden)
+  }, [boundText, documentEditorApi, getEditorCommentContent])
 
   useEffect(() => {
     if (readOnly || !documentEditorApi || !commentThreads.length) return
@@ -1564,7 +1566,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         const replaced = documentEditorApi.applyEdits([
           {
             range: markerRange,
-            text: `${COMMENT_MARKER_WRAP_BREAK}${nextMarker}`,
+            text: nextMarker,
             forceMoveMarkers: true,
           },
         ])
@@ -1773,8 +1775,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       for (const match of editorContent.matchAll(COMMENT_MARKER_PATTERN)) {
         if (typeof match.index !== 'number') continue
         const start =
-          match.index > 0 &&
-          editorContent[match.index - 1] === COMMENT_MARKER_WRAP_BREAK
+          match.index > 0 && editorContent[match.index - 1] === '\u200B'
             ? match.index - 1
             : match.index
         pushHiddenCommentMarkerDecoration(

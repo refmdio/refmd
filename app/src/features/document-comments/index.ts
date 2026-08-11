@@ -2,7 +2,6 @@ export { CommentsPanel } from './ui/CommentsPanel'
 export {
   buildCommentMarker,
   buildCommentMarkerInsertion,
-  COMMENT_MARKER_WRAP_BREAK,
   createCommentId,
   createCommentMarkerId,
   findUnknownCommentMarkers,
