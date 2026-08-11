@@ -4,7 +4,12 @@ import type { DocumentCommentThread } from '@/entities/document'
 
 import type { DocumentEditorApi } from '@/features/plugins'
 
-import { findCommentThreadRange, getCommentThreadLine } from './thread-range'
+import {
+  findCommentThreadRange,
+  getCommentThreadLine,
+  getLineEndOffset,
+  isCommentMarkerAloneOnLine,
+} from './thread-range'
 
 function commentThread(
   overrides: Partial<DocumentCommentThread> = {},
@@ -43,10 +48,7 @@ const rangeEditor = {
 } as DocumentEditorApi
 
 describe('comment thread range lookup', () => {
-  it('uses the live marker before stale offsets when quote matching fails', () => {
-    const content = 'changed text<!--comment:thread-1-->'
-    const markerIndex = content.indexOf('<!--comment:thread-1-->')
-
+  it('uses stored offsets when adjacent quote matching fails', () => {
     expect(
       findCommentThreadRange(
         commentThread({
@@ -54,14 +56,31 @@ describe('comment thread range lookup', () => {
           startOffset: 0,
           endOffset: 8,
         }),
+        'changed text<!--comment:thread-1-->',
+        rangeEditor,
+      ),
+    ).toEqual({
+      startLineNumber: 0,
+      startColumn: 8,
+      endLineNumber: 0,
+      endColumn: 8,
+    })
+  })
+
+  it('finds the quote on the previous line when the marker is alone on a line', () => {
+    const content = 'alpha target beta\n<!--comment:thread-1-->'
+
+    expect(
+      findCommentThreadRange(
+        commentThread({ quote: 'target' }),
         content,
         rangeEditor,
       ),
     ).toEqual({
-      startLineNumber: markerIndex,
-      startColumn: '<!--comment:thread-1-->'.length,
-      endLineNumber: markerIndex,
-      endColumn: markerIndex + '<!--comment:thread-1-->'.length,
+      startLineNumber: 6,
+      startColumn: 'target'.length,
+      endLineNumber: 6,
+      endColumn: 6 + 'target'.length,
     })
   })
 })
@@ -78,9 +97,32 @@ describe('comment thread line lookup', () => {
       .toBe(3)
   })
 
-  it('falls back to stored line metadata when the marker is missing', () => {
+  it('points at the content line when the marker is alone on the next line', () => {
+    const content = 'target text\n<!--comment:thread-1-->'
+
+    expect(getCommentThreadLine(commentThread(), content)).toBe(1)
+  })
+})
+
+describe('marker line helpers', () => {
+  it('detects markers alone on a line', () => {
     expect(
-      getCommentThreadLine(commentThread({ startLineNumber: 4 }), 'target'),
-    ).toBe(4)
+      isCommentMarkerAloneOnLine(
+        'hello\n<!--comment:thread-1-->\nworld',
+        '<!--comment:thread-1-->',
+      ),
+    ).toBe(true)
+    expect(
+      isCommentMarkerAloneOnLine(
+        'hello<!--comment:thread-1-->',
+        '<!--comment:thread-1-->',
+      ),
+    ).toBe(false)
+  })
+
+  it('computes line end offsets', () => {
+    expect(getLineEndOffset('a\nbb\nc', 1)).toBe(1)
+    expect(getLineEndOffset('a\nbb\nc', 2)).toBe(4)
+    expect(getLineEndOffset('a\nbb\nc', 3)).toBe(6)
   })
 })

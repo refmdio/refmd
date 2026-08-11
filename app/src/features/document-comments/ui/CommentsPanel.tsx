@@ -23,9 +23,13 @@ import type {
   DocumentEditorSelection,
 } from '@/features/plugins'
 
-import { findCommentThreadRange } from '../lib/thread-range'
+import {
+  findCommentThreadRange,
+  getLineEndOffset,
+} from '../lib/thread-range'
 import {
   buildCommentMarker,
+  buildCommentMarkerInsertion,
   createCommentId,
   createCommentMarkerId,
   getCommentSubmitAction,
@@ -126,19 +130,28 @@ function threadMatchesSearch(
   return haystack.includes(query)
 }
 
-function validateTags(tags: string[]) {
-  return tags.every((tag) => tag.length <= 64)
+function buildMarkerLineInsertion(
+  content: string,
+  selection: DocumentEditorSelection,
+  editor: DocumentEditorApi,
+  markerText: string,
+): { range: DocumentEditorRange; text: string } | null {
+  let lineNumber = selection.endLineNumber
+  // Full-line selections end at column 1 of the next line.
+  if (
+    selection.endColumn === 1 &&
+    selection.endLineNumber > selection.startLineNumber
+  ) {
+    lineNumber = selection.endLineNumber - 1
+  }
+  const lineEndOffset = getLineEndOffset(content, lineNumber)
+  const range = editor.getRangeFromOffset(lineEndOffset, 0)
+  if (!range) return null
+  return { range, text: markerText }
 }
 
-function buildMarkerInsertionRange(
-  selection: DocumentEditorSelection,
-): DocumentEditorRange {
-  return {
-    startLineNumber: selection.endLineNumber,
-    startColumn: selection.endColumn,
-    endLineNumber: selection.endLineNumber,
-    endColumn: selection.endColumn,
-  }
+function validateTags(tags: string[]) {
+  return tags.every((tag) => tag.length <= 64)
 }
 
 export function CommentsPanel({
@@ -360,7 +373,9 @@ export function CommentsPanel({
       return
     }
     const id = createCommentId()
-    const marker = buildCommentMarker(createCommentMarkerId())
+    const markerId = createCommentMarkerId()
+    const marker = buildCommentMarker(markerId)
+    const markerText = buildCommentMarkerInsertion(markerId)
     const startOffset = editor.getOffsetFromPosition({
       lineNumber: selection.startLineNumber,
       column: selection.startColumn,
@@ -369,22 +384,31 @@ export function CommentsPanel({
       lineNumber: selection.endLineNumber,
       column: selection.endColumn,
     })
+    const insertion = buildMarkerLineInsertion(
+      contentRef.current,
+      selection,
+      editor,
+      markerText,
+    )
+    if (!insertion) return
     const inserted = editor.applyEdits([
       {
-        range: buildMarkerInsertionRange(selection),
-        text: marker,
+        range: insertion.range,
+        text: insertion.text,
         forceMoveMarkers: true,
       },
     ])
     if (!inserted) return
-    if (typeof endOffset === 'number' && !contentRef.current.includes(marker)) {
-      const insertAt = Math.max(
-        0,
-        Math.min(contentRef.current.length, endOffset),
-      )
+    if (!contentRef.current.includes(marker)) {
+      const lineNumber =
+        selection.endColumn === 1 &&
+        selection.endLineNumber > selection.startLineNumber
+          ? selection.endLineNumber - 1
+          : selection.endLineNumber
+      const insertAt = getLineEndOffset(contentRef.current, lineNumber)
       contentRef.current = [
         contentRef.current.slice(0, insertAt),
-        marker,
+        markerText,
         contentRef.current.slice(insertAt),
       ].join('')
     }
@@ -421,18 +445,29 @@ export function CommentsPanel({
       window.setTimeout(() => onCommentMetadataChange?.(), 0)
     } catch (error) {
       const markerIndex = contentRef.current.indexOf(marker)
-      const markerRange =
-        markerIndex >= 0
-          ? editor.getRangeFromOffset(markerIndex, marker.length)
-          : null
-      if (markerRange) {
-        editor.applyEdits([
-          {
-            range: markerRange,
-            text: '',
-            forceMoveMarkers: true,
-          },
-        ])
+      if (markerIndex >= 0) {
+        let start = markerIndex
+        let length = marker.length
+        if (markerIndex > 0 && contentRef.current[markerIndex - 1] === '\n') {
+          start = markerIndex - 1
+          length += 1
+        } else if (
+          markerIndex > 0 &&
+          contentRef.current[markerIndex - 1] === '\u200B'
+        ) {
+          start = markerIndex - 1
+          length += 1
+        }
+        const markerRange = editor.getRangeFromOffset(start, length)
+        if (markerRange) {
+          editor.applyEdits([
+            {
+              range: markerRange,
+              text: '',
+              forceMoveMarkers: true,
+            },
+          ])
+        }
       }
       toast.error('Could not save comment')
     } finally {

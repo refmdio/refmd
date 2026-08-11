@@ -32,6 +32,7 @@ import {
   findCommentMarkerRange,
   findCommentThreadRange,
   getCommentThreadLine,
+  getLineEndOffset,
 } from '@/features/document-comments/lib/thread-range'
 import { useAwarenessStyles } from '@/features/edit-document/hooks/useAwarenessStyles'
 import { markDocumentContentDirty } from '@/features/edit-document/hooks/useCollaborativeDocument'
@@ -97,8 +98,12 @@ const EMPTY_COMMENT_COMPOSER_STATE = {
 }
 
 const MAX_COMPACT_COMMENT_MARKER_ID_LENGTH = 24
-const ADJACENT_COMMENT_MARKER_PATTERN = /^<!--comment:[A-Za-z0-9_-]+-->/
+const ADJACENT_COMMENT_MARKER_PATTERN =
+  /^\u200B?<!--comment:[A-Za-z0-9_-]+-->/
 const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
+const INLINE_COMMENT_MARKER_PATTERN =
+  /([^\n])(\u200B?<!--comment:[A-Za-z0-9_-]+-->)/g
+const LONE_MARKER_LINE_PATTERN = /^\u200B?<!--comment:[A-Za-z0-9_-]+-->$/
 
 function shouldCompactCommentMarker(marker: string) {
   const markerId = parseCommentMarkerId(marker)
@@ -143,7 +148,6 @@ type RefmdEditorInstance = monacoNs.editor.IStandaloneCodeEditor & {
   __disposeCursor?: () => void
   __disposeMonacoMd?: () => void
   __disposeKeydown?: () => void
-  __disposeDirtyTracker?: () => void
   __readOnlyOverlay?: {
     widget: monacoNs.editor.IOverlayWidget
     domNode: HTMLElement
@@ -355,6 +359,24 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       scheduleCommentDecorationRefresh()
     },
   })
+  // Persist only for local Yjs writes (typing, toolbar, plugins). Remote
+  // sync / save-echo applies are non-local and must not re-arm autosave.
+  useEffect(() => {
+    if (readOnly) return
+    const ytext = doc.getText('content')
+    const observer = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
+      if (!transaction.local) return
+      markDocumentContentDirty(documentId, ytext.toString())
+    }
+    ytext.observe(observer)
+    return () => {
+      try {
+        ytext.unobserve(observer)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [doc, documentId, readOnly])
   const commentsQuery = useQuery(
     documentCommentsQuery(documentId, { token: shareToken }),
   )
@@ -524,9 +546,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         editor?.__disposeMonacoMd?.(),
       )
       safeExecute('dispose keydown handler', () => editor?.__disposeKeydown?.())
-      safeExecute('dispose dirty tracker', () =>
-        editor?.__disposeDirtyTracker?.(),
-      )
       safeExecute('dispose plugin decorations', () => {
         for (const ids of pluginDecorationIdsRef.current.values()) {
           try {
@@ -760,27 +779,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       onMonacoMount(editor, monaco)
       ;(editor as any).__monaco = monaco
       setReadOnlyOverlay(editor as any, monaco as any, readOnly)
-      let userEditIntent = false
-      const markDirtyFromModel = () => {
-        if (readOnly) return
-        const value = editor.getModel()?.getValue()
-        if (typeof value === 'string') {
-          markDocumentContentDirty(documentId, value)
-        }
-      }
-      ;(editor as any).__refmdMarkDirty = markDirtyFromModel
-      try {
-        const modelChangeDispose = editor.onDidChangeModelContent(() => {
-          if (!userEditIntent) return
-          markDirtyFromModel()
-        })
-        ;(editor as any).__disposeDirtyTracker = () =>
-          safeExecute('dispose dirty tracker', () =>
-            modelChangeDispose.dispose(),
-          )
-      } catch (error) {
-        logEditorError('register dirty tracker', error)
-      }
       // Register wiki-link completion provider
       try {
         const disp = registerWikiLinkCompletion(monaco as any)
@@ -827,10 +825,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
             if (shouldWarnForKey(e)) {
               emitReadOnlyWarning()
               return
-            }
-            if (!readOnly) {
-              userEditIntent = true
-              ;(editor as any).__refmdUserEditIntent = true
             }
             const KeyCode = (monaco as any)?.KeyCode
             const isEnter = KeyCode
@@ -924,7 +918,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       setReadOnlyOverlay,
       enableVimMode,
       brandedMonacoTheme,
-      documentId,
     ],
   )
 
@@ -1283,12 +1276,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       if (!nextEdits.length) return false
       const applied = editorInstance.executeEdits('refmd-plugin', nextEdits)
       editorInstance.pushUndoStop()
-      try {
-        ;(editorInstance as any).__refmdUserEditIntent = true
-        ;(editorInstance as any).__refmdMarkDirty?.()
-      } catch {
-        /* noop */
-      }
       return applied
     }
 
@@ -1491,6 +1478,61 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       },
     }
   }, [editorMountNonce, editorRef, emitReadOnlyWarning, readOnly])
+
+  // Inline markers steal wrap width (they're real model characters). Move them
+  // onto their own line after the content line, then hide those marker lines.
+  useEffect(() => {
+    if (readOnly || !documentEditorApi) return
+    const content = getEditorCommentContent()
+    INLINE_COMMENT_MARKER_PATTERN.lastIndex = 0
+    const match = INLINE_COMMENT_MARKER_PATTERN.exec(content)
+    if (!match || typeof match.index !== 'number') return
+
+    const markerWithBreak = match[2]
+    const marker = markerWithBreak.replace(/^\u200B/, '')
+    const markerStart = match.index + 1
+    const removeRange = documentEditorApi.getRangeFromOffset(
+      markerStart,
+      markerWithBreak.length,
+    )
+    if (!removeRange) return
+
+    documentEditorApi.applyEdits([
+      { range: removeRange, text: '', forceMoveMarkers: true },
+    ])
+    const nextContent = getEditorCommentContent()
+    const lineEndOffset = getLineEndOffset(
+      nextContent,
+      removeRange.startLineNumber,
+    )
+    const insertRange = documentEditorApi.getRangeFromOffset(lineEndOffset, 0)
+    if (!insertRange) return
+    documentEditorApi.applyEdits([
+      { range: insertRange, text: `\n${marker}`, forceMoveMarkers: true },
+    ])
+  }, [boundText, documentEditorApi, getEditorCommentContent, readOnly])
+
+  // Hide marker-only lines so they don't affect wrapping or show as blanks.
+  useEffect(() => {
+    if (!documentEditorApi) return
+    const content = getEditorCommentContent()
+    const lines = content.split('\n')
+    const hidden = lines.flatMap((line, index) => {
+      if (!LONE_MARKER_LINE_PATTERN.test(line)) return []
+      const lineNumber = index + 1
+      return [
+        {
+          range: {
+            startLineNumber: lineNumber,
+            startColumn: 1,
+            endLineNumber: lineNumber,
+            endColumn: Math.max(1, line.length + 1),
+          },
+        },
+      ]
+    })
+    return documentEditorApi.setHiddenRanges('core-comment-markers', hidden)
+  }, [boundText, documentEditorApi, getEditorCommentContent])
 
   useEffect(() => {
     if (readOnly || !documentEditorApi || !commentThreads.length) return
@@ -1731,8 +1773,16 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       })
 
       for (const match of editorContent.matchAll(COMMENT_MARKER_PATTERN)) {
+        if (typeof match.index !== 'number') continue
+        const start =
+          match.index > 0 && editorContent[match.index - 1] === '\u200B'
+            ? match.index - 1
+            : match.index
         pushHiddenCommentMarkerDecoration(
-          editorApi.getRangeFromOffset(match.index, match[0].length),
+          editorApi.getRangeFromOffset(
+            start,
+            match.index + match[0].length - start,
+          ),
         )
       }
 

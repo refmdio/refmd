@@ -65,12 +65,24 @@ export function buildCommentMarker(id: string) {
   return `<!--comment:${id}-->`
 }
 
+/** Zero-width space kept for legacy inline markers during migration. */
+export const COMMENT_MARKER_WRAP_BREAK = '\u200B'
+
+export function buildCommentMarkerInsertion(id: string) {
+  // Markers sit on their own line so they don't steal wrap width from content.
+  return `\n${buildCommentMarker(id)}`
+}
+
 export function parseCommentMarkerId(marker: string) {
   const match = /^<!--comment:([A-Za-z0-9_-]+)-->$/.exec(marker)
   return match?.[1] ?? null
 }
 
 const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 export function findCommentMarkers(content: string) {
   const matches = content.match(COMMENT_MARKER_PATTERN)
@@ -94,6 +106,12 @@ export function stripCommentMarkers(
   for (const marker of markers) {
     if (!marker || seen.has(marker)) continue
     seen.add(marker)
+    const escaped = escapeRegExp(marker)
+    // Drop markers that occupy a whole line so we don't leave a blank line.
+    out = out.replace(new RegExp(`\\n\\u200B?${escaped}(?=\\n|$)`, 'g'), '')
+    out = out.replace(new RegExp(`^\\u200B?${escaped}\\n`), '')
+    out = out.replace(new RegExp(`^\\u200B?${escaped}$`), '')
+    out = out.split(`\u200B${marker}`).join('')
     out = out.split(marker).join('')
   }
   return out

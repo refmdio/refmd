@@ -431,12 +431,21 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
             .hydration_service
             .hydrate(&uuid, HydrationOptions::default())
             .await?;
-        let update_bytes = {
+        let new_markdown = {
             let txt_new = doc.get_or_insert_text("content");
             let txn_new = doc.transact();
-            let new_markdown = txt_new.get_string(&txn_new);
-            drop(txn_new);
-
+            txt_new.get_string(&txn_new)
+        };
+        // Autosave PUTs re-send markdown already present in the doc. Skip the
+        // YText wipe+rewrite so connected editors keep decorations intact.
+        {
+            let txt = hydrated.doc.get_or_insert_text("content");
+            let txn = hydrated.doc.transact();
+            if txt.get_string(&txn) == new_markdown {
+                return Ok(());
+            }
+        }
+        let update_bytes = {
             let txt = hydrated.doc.get_or_insert_text("content");
             let mut txn = hydrated.doc.transact_mut();
             let len = txt.len(&txn);

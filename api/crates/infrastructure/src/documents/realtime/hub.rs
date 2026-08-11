@@ -343,6 +343,17 @@ impl Hub {
             txt_new.get_string(&txn)
         };
 
+        // Autosave PUTs re-send markdown the room already has. Replacing the
+        // whole YText (delete + insert) and broadcasting would invalidate
+        // client editor decorations even when the string is unchanged.
+        {
+            let txt = room.doc.get_or_insert_text("content");
+            let txn = room.doc.transact();
+            if txt.get_string(&txn) == new_markdown {
+                return Ok(());
+            }
+        }
+
         let update_bytes = {
             let txt = room.doc.get_or_insert_text("content");
             let mut txn = room.doc.transact_mut();
