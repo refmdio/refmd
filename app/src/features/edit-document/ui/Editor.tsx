@@ -22,6 +22,7 @@ import {
 
 import {
   buildCommentMarker,
+  COMMENT_MARKER_WRAP_BREAK,
   CommentsPanel,
   createCommentMarkerId,
   findUnknownCommentMarkers,
@@ -97,9 +98,15 @@ const EMPTY_COMMENT_COMPOSER_STATE = {
 }
 
 const MAX_COMPACT_COMMENT_MARKER_ID_LENGTH = 24
-const ADJACENT_COMMENT_MARKER_PATTERN = /^<!--comment:[A-Za-z0-9_-]+-->/
+const ADJACENT_COMMENT_MARKER_PATTERN =
+  /^\u200B?<!--comment:[A-Za-z0-9_-]+-->/
 const COMMENT_MARKER_PATTERN = /<!--comment:[A-Za-z0-9_-]+-->/g
-const LONE_COMMENT_MARKER_LINE_PATTERN = /\n(<!--comment:[A-Za-z0-9_-]+-->)(?=\n|$)/g
+const LONE_COMMENT_MARKER_LINE_PATTERN =
+  /\n(\u200B?<!--comment:[A-Za-z0-9_-]+-->)(?=\n|$)/g
+// Mid-line markers glued to a word force that word onto its own soft-wrapped
+// line. Insert a wrap break before those markers.
+const GLUED_COMMENT_MARKER_PATTERN =
+  /([^\s\u200B])(<!--comment:[A-Za-z0-9_-]+-->)/g
 
 function shouldCompactCommentMarker(marker: string) {
   const markerId = parseCommentMarkerId(marker)
@@ -1477,6 +1484,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   // Markers left alone on a line (common after full-line selections) render as
   // blank lines once hidden. Pull them onto the previous line.
+  // Markers glued to a word (what<!--comment:…-->) soft-wrap that word alone;
+  // insert a ZWSP wrap break before those markers.
   useEffect(() => {
     if (readOnly || !documentEditorApi) return
     const content = getEditorCommentContent()
@@ -1485,6 +1494,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       text: string
       forceMoveMarkers: boolean
     }> = []
+
     for (const match of content.matchAll(LONE_COMMENT_MARKER_LINE_PATTERN)) {
       const marker = match[1]
       if (typeof match.index !== 'number') continue
@@ -1495,14 +1505,32 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       if (!range) continue
       edits.push({ range, text: marker, forceMoveMarkers: true })
     }
+
+    for (const match of content.matchAll(GLUED_COMMENT_MARKER_PATTERN)) {
+      const marker = match[2]
+      if (typeof match.index !== 'number') continue
+      const range = documentEditorApi.getRangeFromOffset(
+        match.index + 1,
+        marker.length,
+      )
+      if (!range) continue
+      edits.push({
+        range,
+        text: `${COMMENT_MARKER_WRAP_BREAK}${marker}`,
+        forceMoveMarkers: true,
+      })
+    }
+
     if (!edits.length) return
-    documentEditorApi.applyEdits(edits.reverse())
-  }, [
-    boundText,
-    documentEditorApi,
-    getEditorCommentContent,
-    readOnly,
-  ])
+    documentEditorApi.applyEdits(
+      [...edits].sort((a, b) => {
+        if (a.range.startLineNumber !== b.range.startLineNumber) {
+          return b.range.startLineNumber - a.range.startLineNumber
+        }
+        return b.range.startColumn - a.range.startColumn
+      }),
+    )
+  }, [boundText, documentEditorApi, getEditorCommentContent, readOnly])
 
   useEffect(() => {
     if (readOnly || !documentEditorApi || !commentThreads.length) return
@@ -1536,7 +1564,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         const replaced = documentEditorApi.applyEdits([
           {
             range: markerRange,
-            text: nextMarker,
+            text: `${COMMENT_MARKER_WRAP_BREAK}${nextMarker}`,
             forceMoveMarkers: true,
           },
         ])
@@ -1743,8 +1771,17 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       })
 
       for (const match of editorContent.matchAll(COMMENT_MARKER_PATTERN)) {
+        if (typeof match.index !== 'number') continue
+        const start =
+          match.index > 0 &&
+          editorContent[match.index - 1] === COMMENT_MARKER_WRAP_BREAK
+            ? match.index - 1
+            : match.index
         pushHiddenCommentMarkerDecoration(
-          editorApi.getRangeFromOffset(match.index, match[0].length),
+          editorApi.getRangeFromOffset(
+            start,
+            match.index + match[0].length - start,
+          ),
         )
       }
 

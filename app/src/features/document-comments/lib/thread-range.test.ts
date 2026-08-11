@@ -64,6 +64,23 @@ describe('comment thread range lookup', () => {
       endColumn: markerIndex + '<!--comment:thread-1-->'.length,
     })
   })
+
+  it('allows a wrap-break before the marker when matching the quote', () => {
+    const content = 'target\u200B<!--comment:thread-1-->'
+
+    expect(
+      findCommentThreadRange(
+        commentThread({ quote: 'target' }),
+        content,
+        rangeEditor,
+      ),
+    ).toEqual({
+      startLineNumber: 0,
+      startColumn: 'target'.length,
+      endLineNumber: 0,
+      endColumn: 0 + 'target'.length,
+    })
+  })
 })
 
 describe('comment thread line lookup', () => {

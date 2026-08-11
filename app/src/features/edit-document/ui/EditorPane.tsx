@@ -65,9 +65,16 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
           minimap: { enabled: false },
           glyphMargin: true,
           wordWrap: 'on',
-          // Comment markers are visually zero-width; without this, wrap still
-          // reserves their model width and leaves an empty soft-wrapped line.
+          // Needed so zero-width comment-marker decorations affect wrap width.
+          // Without this, `word<!--comment:…-->` wraps as one token and the
+          // commented word sits alone on a soft-wrapped line.
+          wrappingStrategy: 'advanced',
           disableMonospaceOptimizations: true,
+          // Comment anchors insert U+200B so wrap can break after the quote.
+          // Without this, Monaco draws an orange unicode-highlight box there.
+          unicodeHighlight: {
+            allowedCharacters: { '\u200B': true },
+          },
           scrollBeyondLastLine: true,
           readOnly,
           domReadOnly: readOnly,

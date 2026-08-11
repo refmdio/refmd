@@ -65,6 +65,13 @@ export function buildCommentMarker(id: string) {
   return `<!--comment:${id}-->`
 }
 
+/** Zero-width space before markers so wrap can break after the quoted word. */
+export const COMMENT_MARKER_WRAP_BREAK = '\u200B'
+
+export function buildCommentMarkerInsertion(id: string) {
+  return `${COMMENT_MARKER_WRAP_BREAK}${buildCommentMarker(id)}`
+}
+
 export function parseCommentMarkerId(marker: string) {
   const match = /^<!--comment:([A-Za-z0-9_-]+)-->$/.exec(marker)
   return match?.[1] ?? null
@@ -100,9 +107,10 @@ export function stripCommentMarkers(
     seen.add(marker)
     const escaped = escapeRegExp(marker)
     // Drop markers that occupy a whole line so we don't leave a blank line.
-    out = out.replace(new RegExp(`\\n${escaped}(?=\\n|$)`, 'g'), '')
-    out = out.replace(new RegExp(`^${escaped}\\n`), '')
-    out = out.replace(new RegExp(`^${escaped}$`), '')
+    out = out.replace(new RegExp(`\\n\\u200B?${escaped}(?=\\n|$)`, 'g'), '')
+    out = out.replace(new RegExp(`^\\u200B?${escaped}\\n`), '')
+    out = out.replace(new RegExp(`^\\u200B?${escaped}$`), '')
+    out = out.split(`\u200B${marker}`).join('')
     out = out.split(marker).join('')
   }
   return out

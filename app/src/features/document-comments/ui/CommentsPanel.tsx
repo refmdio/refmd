@@ -26,6 +26,7 @@ import type {
 import { findCommentThreadRange } from '../lib/thread-range'
 import {
   buildCommentMarker,
+  buildCommentMarkerInsertion,
   createCommentId,
   createCommentMarkerId,
   getCommentSubmitAction,
@@ -377,7 +378,8 @@ export function CommentsPanel({
       return
     }
     const id = createCommentId()
-    const marker = buildCommentMarker(createCommentMarkerId())
+    const markerId = createCommentMarkerId()
+    const marker = buildCommentMarker(markerId)
     const startOffset = editor.getOffsetFromPosition({
       lineNumber: selection.startLineNumber,
       column: selection.startColumn,
@@ -389,7 +391,8 @@ export function CommentsPanel({
     const inserted = editor.applyEdits([
       {
         range: buildMarkerInsertionRange(selection, editor),
-        text: marker,
+        // ZWSP keeps the quote from gluing to the marker for word-wrap.
+        text: buildCommentMarkerInsertion(markerId),
         forceMoveMarkers: true,
       },
     ])
@@ -401,7 +404,7 @@ export function CommentsPanel({
       )
       contentRef.current = [
         contentRef.current.slice(0, insertAt),
-        marker,
+        buildCommentMarkerInsertion(markerId),
         contentRef.current.slice(insertAt),
       ].join('')
     }
@@ -438,9 +441,16 @@ export function CommentsPanel({
       window.setTimeout(() => onCommentMetadataChange?.(), 0)
     } catch (error) {
       const markerIndex = contentRef.current.indexOf(marker)
+      const anchorStart =
+        markerIndex > 0 && contentRef.current[markerIndex - 1] === '\u200B'
+          ? markerIndex - 1
+          : markerIndex
       const markerRange =
         markerIndex >= 0
-          ? editor.getRangeFromOffset(markerIndex, marker.length)
+          ? editor.getRangeFromOffset(
+              anchorStart,
+              markerIndex + marker.length - anchorStart,
+            )
           : null
       if (markerRange) {
         editor.applyEdits([

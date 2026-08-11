@@ -2,6 +2,18 @@ import type { DocumentCommentThread } from '@/entities/document'
 
 import type { DocumentEditorApi, DocumentEditorRange } from '@/features/plugins'
 
+import { COMMENT_MARKER_WRAP_BREAK } from '../model/comments-store'
+
+function markerAnchorStart(content: string, markerIndex: number) {
+  if (
+    markerIndex > 0 &&
+    content[markerIndex - 1] === COMMENT_MARKER_WRAP_BREAK
+  ) {
+    return markerIndex - 1
+  }
+  return markerIndex
+}
+
 export function findCommentMarkerRange(
   thread: DocumentCommentThread,
   content: string,
@@ -9,7 +21,11 @@ export function findCommentMarkerRange(
 ): DocumentEditorRange | null {
   const markerIndex = content.indexOf(thread.marker)
   if (markerIndex < 0) return null
-  return editor.getRangeFromOffset(markerIndex, thread.marker.length)
+  const start = markerAnchorStart(content, markerIndex)
+  return editor.getRangeFromOffset(
+    start,
+    markerIndex + thread.marker.length - start,
+  )
 }
 
 export function findCommentThreadRange(
@@ -19,14 +35,15 @@ export function findCommentThreadRange(
 ): DocumentEditorRange | null {
   const markerIndex = content.indexOf(thread.marker)
   if (markerIndex >= 0 && thread.quote) {
-    const quoteStart = Math.max(0, markerIndex - thread.quote.length)
-    if (content.slice(quoteStart, markerIndex) === thread.quote) {
+    const quoteEnd = markerAnchorStart(content, markerIndex)
+    const quoteStart = Math.max(0, quoteEnd - thread.quote.length)
+    if (content.slice(quoteStart, quoteEnd) === thread.quote) {
       return editor.getRangeFromOffset(quoteStart, thread.quote.length)
     }
   }
 
   if (markerIndex >= 0) {
-    return editor.getRangeFromOffset(markerIndex, thread.marker.length)
+    return findCommentMarkerRange(thread, content, editor)
   }
 
   if (
